@@ -10,7 +10,7 @@ export default function SetupOrganizationPage() {
     const [name, setName] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const { organization, isLoading: isOrgLoading } = useOrganization();
+    const { organization, isLoading: isOrgLoading, setOrganization } = useOrganization();
     const router = useRouter();
     const supabase = createClient();
 

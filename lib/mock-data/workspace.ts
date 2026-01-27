@@ -29,8 +29,8 @@ export const mockClients: ClientProject[] = [
             ]
         },
         tasks: [
-            { id: 't1', organizationId: 'org-1', title: 'Keyword Research', assignee: 'Carlos', dueDate: '2025-01-20', priority: 'high', status: 'in_progress' },
-            { id: 't2', organizationId: 'org-1', title: 'Competitor Analysis', assignee: 'Sarah', dueDate: '2025-01-22', priority: 'medium', status: 'todo' }
+            { id: 't1', organizationId: 'org-1', title: 'Keyword Research', assignees: ['Carlos'], dueDate: '2025-01-20', priority: 'high', status: 'in_progress', tags: ['seo'], subtasks: [] },
+            { id: 't2', organizationId: 'org-1', title: 'Competitor Analysis', assignees: ['Sarah'], dueDate: '2025-01-22', priority: 'medium', status: 'todo', tags: ['research'], subtasks: [] }
         ]
     },
     {
@@ -57,7 +57,7 @@ export const mockClients: ClientProject[] = [
             items: []
         },
         tasks: [
-            { id: 't3', organizationId: 'org-1', title: 'Monthly Report', assignee: 'Carlos', dueDate: '2025-02-01', priority: 'medium', status: 'todo' }
+            { id: 't3', organizationId: 'org-1', title: 'Monthly Report', assignees: ['Carlos'], dueDate: '2025-02-01', priority: 'medium', status: 'todo', tags: ['reporting'], subtasks: [] }
         ]
     },
     {
@@ -115,8 +115,8 @@ export const mockClients: ClientProject[] = [
             ]
         },
         tasks: [
-            { id: 't4', organizationId: 'org-1', title: 'Fix 404 Errors', assignee: 'Dev Team', dueDate: '2025-05-28', priority: 'high', status: 'todo' },
-            { id: 't5', organizationId: 'org-1', title: 'Update GMB Listing', assignee: 'Carlos', dueDate: '2025-05-30', priority: 'low', status: 'done' }
+            { id: 't4', organizationId: 'org-1', title: 'Fix 404 Errors', assignees: ['Dev Team'], dueDate: '2025-05-28', priority: 'high', status: 'todo', tags: ['tech'], subtasks: [] },
+            { id: 't5', organizationId: 'org-1', title: 'Update GMB Listing', assignees: ['Carlos'], dueDate: '2025-05-30', priority: 'low', status: 'done', tags: ['gmb'], subtasks: [] }
         ]
     },
     {
@@ -170,7 +170,7 @@ export const mockClients: ClientProject[] = [
             ]
         },
         tasks: [
-            { id: 't6', organizationId: 'org-1', title: 'Image Optimization', assignee: 'Abel', dueDate: '2025-01-25', priority: 'medium', status: 'in_progress' }
+            { id: 't6', organizationId: 'org-1', title: 'Image Optimization', assignees: ['Abel'], dueDate: '2025-01-25', priority: 'medium', status: 'in_progress', tags: ['web'], subtasks: [] }
         ]
     },
     {

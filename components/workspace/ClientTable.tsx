@@ -211,7 +211,7 @@ export function ClientTable({ clients }: ClientTableProps) {
                                                                     <div className="flex items-center justify-between text-xs text-muted-foreground mt-auto">
                                                                         <div className="flex items-center gap-1">
                                                                             <User className="h-3 w-3" />
-                                                                            {task.assignee}
+                                                                            {task.assignees?.[0] || 'Unassigned'}
                                                                         </div>
                                                                         <div className="flex items-center gap-1">
                                                                             <Calendar className="h-3 w-3" />

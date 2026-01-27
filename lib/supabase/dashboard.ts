@@ -25,7 +25,7 @@ export async function getDashboardData(organizationId: string): Promise<Dashboar
         }
 
         // Transform metrics into DashboardData format
-        const trafficHistory: SEODataPoint[] = (metrics || []).map(m => ({
+        const trafficHistory: SEODataPoint[] = (metrics || []).map((m: any) => ({
             date: m.date,
             impressions: (m.data as any).impressions || 0,
             clicks: (m.data as any).clicks || 0,

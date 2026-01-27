@@ -99,14 +99,14 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
                                 planType: m.organization.plan_type || 'starter',
                                 createdAt: m.organization.created_at
                             } : null
-                        })).filter(m => m.organization !== null);
+                        })).filter((m: any) => m.organization !== null);
 
                         console.log('OrganizationProvider: Found memberships:', mappedMembers.length);
                         setMemberships(mappedMembers as OrganizationMember[]);
 
                         if (mappedMembers.length > 0) {
                             const savedOrgId = localStorage.getItem('selectedOrgId');
-                            const foundOrg = mappedMembers.find(m => m.organization?.id === savedOrgId);
+                            const foundOrg = mappedMembers.find((m: any) => m.organization?.id === savedOrgId);
                             setOrganization(foundOrg?.organization || mappedMembers[0].organization);
                         } else {
                             setOrganization(null);

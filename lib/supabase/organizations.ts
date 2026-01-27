@@ -16,7 +16,7 @@ export async function getOrganizationMembers(organizationId: string): Promise<(O
 
         if (error) throw error;
 
-        return (data || []).map(m => ({
+        return (data || []).map((m: any) => ({
             id: m.id,
             organizationId: m.organization_id,
             userId: m.user_id,

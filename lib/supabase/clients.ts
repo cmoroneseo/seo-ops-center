@@ -59,7 +59,7 @@ export async function getClients(organizationId: string): Promise<ClientProject[
         }
 
         // Map Supabase rows to ClientProject type
-        return (data || []).map(row => ({
+        return (data || []).map((row: any) => ({
             id: row.id,
             organizationId: row.organization_id,
             clientName: row.name,
