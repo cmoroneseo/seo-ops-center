@@ -154,31 +154,39 @@ export function GlobalUpcomingTasks({ tasks }: AgencyWidgetProps) {
                 </Link>
             </div>
             <div className="divide-y divide-border/50">
-                {upcoming.map((task) => (
-                    <div key={task.id} className="group px-6 py-4 hover:bg-muted/30 transition-all flex items-center justify-between cursor-pointer">
-                        <div className="flex items-center gap-4">
-                            <div className={cn(
-                                "h-2 w-2 rounded-full",
-                                task.priority === 'high' ? 'bg-red-500' : task.priority === 'medium' ? 'bg-yellow-500' : 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]'
-                            )} />
-                            <div>
-                                <h4 className="text-sm font-bold text-foreground group-hover:text-red-500 transition-colors">{task.title}</h4>
-                                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight">{task.clientName}</p>
+                {upcoming.length > 0 ? (
+                    upcoming.map((task) => (
+                        <div key={task.id} className="group px-6 py-4 hover:bg-muted/30 transition-all flex items-center justify-between cursor-pointer">
+                            <div className="flex items-center gap-4">
+                                <div className={cn(
+                                    "h-2 w-2 rounded-full",
+                                    task.priority === 'high' ? 'bg-red-500' : task.priority === 'medium' ? 'bg-yellow-500' : 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]'
+                                )} />
+                                <div>
+                                    <h4 className="text-sm font-bold text-foreground group-hover:text-red-500 transition-colors">{task.title}</h4>
+                                    <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight">{task.clientName}</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <span className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-bold text-muted-foreground uppercase tracking-widest border border-border">
+                                    {task.tags[0] || 'Task'}
+                                </span>
+                                <span className={cn(
+                                    "text-[10px] font-bold",
+                                    new Date(task.dueDate) < new Date() ? "text-red-500" : "text-muted-foreground"
+                                )}>
+                                    {new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                </span>
                             </div>
                         </div>
-                        <div className="flex items-center gap-4">
-                            <span className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-bold text-muted-foreground uppercase tracking-widest border border-border">
-                                {task.tags[0] || 'Task'}
-                            </span>
-                            <span className={cn(
-                                "text-[10px] font-bold",
-                                new Date(task.dueDate) < new Date() ? "text-red-500" : "text-muted-foreground"
-                            )}>
-                                {new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                            </span>
-                        </div>
+                    ))
+                ) : (
+                    <div className="px-6 py-12 text-center">
+                        <CheckSquare className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+                        <p className="text-sm text-muted-foreground font-medium">All caught up! No upcoming tasks.</p>
+                        <p className="text-[10px] text-muted-foreground/60 uppercase tracking-widest mt-1">Check back later or add a new task.</p>
                     </div>
-                ))}
+                )}
             </div>
         </div>
     );

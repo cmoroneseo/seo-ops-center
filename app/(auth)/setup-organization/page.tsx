@@ -10,9 +10,13 @@ export default function SetupOrganizationPage() {
     const [name, setName] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [shouldSeedDemo, setShouldSeedDemo] = useState(true);
     const { organization, isLoading: isOrgLoading, setOrganization } = useOrganization();
     const router = useRouter();
     const supabase = createClient();
+
+    // Import seeding utility
+    const { seedOrganization } = require('@/lib/supabase/seed-demo');
 
     // Redirect if already has organization
     useEffect(() => {
@@ -54,7 +58,12 @@ export default function SetupOrganizationPage() {
 
             if (memError) throw memError;
 
-            // 3. Update local state and redirect
+            // 3. Seed Demo Data if requested
+            if (shouldSeedDemo) {
+                await seedOrganization(org.id);
+            }
+
+            // 4. Update local state and redirect
             setOrganization({
                 id: org.id,
                 name: org.name,
@@ -92,19 +101,39 @@ export default function SetupOrganizationPage() {
                         </div>
                     )}
                     <form className="space-y-6" onSubmit={handleSubmit}>
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium leading-none" htmlFor="name">
-                                Agency Name
-                            </label>
-                            <input
-                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                id="name"
-                                placeholder="Blue Horizon SEO"
-                                type="text"
-                                required
-                                value={name}
-                                onChange={(e) => setName(e.target.value)}
-                            />
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium leading-none" htmlFor="name">
+                                    Agency Name
+                                </label>
+                                <input
+                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                    id="name"
+                                    placeholder="Blue Horizon SEO"
+                                    type="text"
+                                    required
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
+                                />
+                            </div>
+
+                            <div className="flex items-start space-x-3 p-3 rounded-lg border border-primary/20 bg-primary/5">
+                                <input
+                                    type="checkbox"
+                                    id="seedDemo"
+                                    checked={shouldSeedDemo}
+                                    onChange={(e) => setShouldSeedDemo(e.target.checked)}
+                                    className="h-4 w-4 mt-1 rounded border-primary text-primary focus:ring-primary"
+                                />
+                                <div className="space-y-1">
+                                    <label htmlFor="seedDemo" className="text-sm font-semibold leading-none cursor-pointer">
+                                        Populate with Demo Data
+                                    </label>
+                                    <p className="text-xs text-muted-foreground">
+                                        Instantly activate your dashboard with 3 sample clients and performance metrics. Best for exploring features.
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                         <button
                             className="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"

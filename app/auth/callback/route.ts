@@ -3,10 +3,15 @@ import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {
-    const { searchParams, origin } = new URL(request.url)
+    const { searchParams } = new URL(request.url)
     const code = searchParams.get('code')
     // if "next" is in search params, use it as the redirection URL
     const next = searchParams.get('next') ?? '/dashboard'
+
+    // Robustly derive origin for production environments
+    const host = request.headers.get('x-forwarded-host') || new URL(request.url).host;
+    const protocol = request.headers.get('x-forwarded-proto') || 'https';
+    const origin = `${protocol}://${host}`;
 
     if (code) {
         const cookieStore = await cookies()

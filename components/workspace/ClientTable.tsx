@@ -34,6 +34,28 @@ export function ClientTable({ clients }: ClientTableProps) {
         setExpandedRows(newExpanded);
     };
 
+    if (clients.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center p-12 text-center bg-card border border-dashed border-border rounded-xl">
+                <div className="h-20 w-20 rounded-full bg-primary/5 flex items-center justify-center mb-6">
+                    <User className="h-10 w-10 text-primary/40" />
+                </div>
+                <h3 className="text-xl font-bold mb-2">No clients found</h3>
+                <p className="text-muted-foreground max-w-xs mx-auto mb-8">
+                    Your SEO command center is ready. Add your first client to start proving ROI and managing tasks.
+                </p>
+                <div className="flex gap-4">
+                    <button
+                        onClick={() => window.location.reload()} // Refresh to check for seeded data
+                        className="rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent transition-colors"
+                    >
+                        Refresh
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
             <div className="overflow-x-auto">
@@ -60,7 +82,6 @@ export function ClientTable({ clients }: ClientTableProps) {
                             const isExpanded = expandedRows.has(client.id);
                             const hasTasks = client.tasks && client.tasks.length > 0;
 
-                            // ... inside component
                             return (
                                 <React.Fragment key={client.id}>
                                     <tr className={cn(

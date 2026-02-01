@@ -6,6 +6,7 @@ import { useOrganization } from '@/components/providers/organization-provider';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { OnboardingChecklist } from '@/components/dashboard/OnboardingChecklist';
 
 export default function DashboardLayout({
     children,
@@ -51,6 +52,7 @@ export default function DashboardLayout({
             )}>
                 {children}
             </main>
+            {!isSetupPage && <OnboardingChecklist />}
         </div>
     );
 }
