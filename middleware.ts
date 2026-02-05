@@ -74,7 +74,11 @@ export async function middleware(request: NextRequest) {
     const { pathname } = request.nextUrl
 
     // Public routes that anyone can access
-    const isPublicRoute = pathname === '/' || pathname === '/login' || pathname === '/signup'
+    const isPublicRoute = pathname === '/' ||
+        pathname === '/login' ||
+        pathname === '/signup' ||
+        pathname.startsWith('/tools') ||
+        pathname.startsWith('/vs')
 
     // If user is not signed in and tries to access a protected route, redirect to /login
     if (!user && !isPublicRoute && !pathname.startsWith('/auth')) {

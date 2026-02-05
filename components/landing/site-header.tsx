@@ -22,14 +22,17 @@ export function SiteHeader() {
 
                 {/* Desktop Nav */}
                 <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-muted-foreground">
-                    <Link href="#features" className="hover:text-foreground transition-colors">
+                    <Link href="/#features" className="hover:text-foreground transition-colors">
                         Features
                     </Link>
-                    <Link href="#pricing" className="hover:text-foreground transition-colors">
-                        Pricing
+                    <Link href="/tools/roi-calculator" className="hover:text-foreground transition-colors">
+                        ROI Calculator
                     </Link>
-                    <Link href="#about" className="hover:text-foreground transition-colors">
-                        About
+                    <Link href="/vs/general-pm-comparison" className="hover:text-foreground transition-colors">
+                        Vs. Competitors
+                    </Link>
+                    <Link href="/#pricing" className="hover:text-foreground transition-colors">
+                        Pricing
                     </Link>
                 </nav>
 
@@ -41,7 +44,7 @@ export function SiteHeader() {
                         Sign In
                     </Link>
                     <Button asChild className="hidden sm:inline-flex bg-primary hover:bg-primary/90 text-primary-foreground border-0 shadow-lg shadow-primary/20">
-                        <Link href="/register">
+                        <Link href="/signup">
                             Get Started <ArrowRight className="ml-2 h-4 w-4" />
                         </Link>
                     </Button>
@@ -64,25 +67,32 @@ export function SiteHeader() {
             {isMenuOpen && (
                 <div className="md:hidden absolute top-16 left-0 w-full bg-background border-b border-border p-4 space-y-4 flex flex-col items-center animate-in slide-in-from-top duration-200 z-50">
                     <Link
-                        href="#features"
+                        href="/#features"
                         className="text-lg font-medium text-muted-foreground hover:text-foreground transition-colors"
                         onClick={() => setIsMenuOpen(false)}
                     >
                         Features
                     </Link>
                     <Link
-                        href="#pricing"
+                        href="/tools/roi-calculator"
+                        className="text-lg font-medium text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() => setIsMenuOpen(false)}
+                    >
+                        ROI Calculator
+                    </Link>
+                    <Link
+                        href="/vs/general-pm-comparison"
+                        className="text-lg font-medium text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() => setIsMenuOpen(false)}
+                    >
+                        Vs. Competitors
+                    </Link>
+                    <Link
+                        href="/#pricing"
                         className="text-lg font-medium text-muted-foreground hover:text-foreground transition-colors"
                         onClick={() => setIsMenuOpen(false)}
                     >
                         Pricing
-                    </Link>
-                    <Link
-                        href="#about"
-                        className="text-lg font-medium text-muted-foreground hover:text-foreground transition-colors"
-                        onClick={() => setIsMenuOpen(false)}
-                    >
-                        About
                     </Link>
                     <hr className="w-full border-border" />
                     <Link
@@ -93,7 +103,7 @@ export function SiteHeader() {
                         Sign In
                     </Link>
                     <Button asChild className="w-full bg-primary hover:bg-primary/90 text-primary-foreground border-0">
-                        <Link href="/register" onClick={() => setIsMenuOpen(false)}>
+                        <Link href="/signup" onClick={() => setIsMenuOpen(false)}>
                             Get Started <ArrowRight className="ml-2 h-4 w-4" />
                         </Link>
                     </Button>
