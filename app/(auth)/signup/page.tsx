@@ -10,6 +10,7 @@ export default function SignupPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [fullName, setFullName] = useState('');
+    const [referralCode, setReferralCode] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isSuccess, setIsSuccess] = useState(false);
@@ -53,6 +54,7 @@ export default function SignupPage() {
             options: {
                 data: {
                     full_name: fullName,
+                    referral_code: referralCode,
                 },
             },
         });
@@ -140,6 +142,23 @@ export default function SignupPage() {
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                             />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium leading-none flex items-center justify-between" htmlFor="referralCode">
+                                Invitation Code
+                                <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded italic">Founding Member Perk</span>
+                            </label>
+                            <input
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                id="referralCode"
+                                placeholder="OPTIONAL CODE"
+                                type="text"
+                                value={referralCode}
+                                onChange={(e) => setReferralCode(e.target.value)}
+                            />
+                        </div>
+                        <div className="p-3 rounded-lg border border-primary/20 bg-primary/5 text-[11px] text-muted-foreground leading-snug">
+                            <strong>Founding Member Program:</strong> Refer 3 agencies after signing up to unlock permanent launch discounts and early access to Retention AI.
                         </div>
                         <button
                             className="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
