@@ -60,8 +60,48 @@ export interface DashboardData {
 }
 
 export type ProjectStatus = 'Active' | 'Paused' | 'Cancelled' | 'Onboarding';
-export type HourType = 'Monthly' | 'Campaign' | 'Hourly';
+export type EngagementModel = 'Campaign' | 'Retainer';
 export type Tier = 1 | 2 | 3;
+
+export type DeliverableType = 'Content' | 'Backlink' | 'GBP' | 'Other';
+export type DeliverableStatus = 'Pending' | 'In Progress' | 'Review' | 'Approved' | 'Published';
+
+export interface Deliverable {
+    id: string;
+    clientId: string;
+    title: string;
+    type: DeliverableType;
+    status: DeliverableStatus;
+    dueDate: string;
+    completedDate?: string;
+    countsTowardsHours: boolean;
+    assignee?: string;
+    link?: string;
+}
+
+export interface CampaignConfig {
+    startDate: string;
+    endDate: string;
+    totalHours: number;
+    hoursUsed: number;
+    monthlyBlogQuota: number;
+    monthlyBacklinkQuota: number;
+}
+
+export interface RetainerConfig {
+    monthlyHours: number;
+    hoursUsed: number;
+    categoryAllocation?: {
+        technical: number;
+        content: number;
+        local: number;
+        strategy: number;
+    };
+    recurringDeliverables: {
+        type: DeliverableType;
+        count: number;
+    }[];
+}
 
 export interface ApprovalItem {
     id: string;
@@ -99,13 +139,20 @@ export interface ClientProject {
     organizationId: string;
     clientName: string;
     launchDate: string;
-    seoHours: number;
-    hourType: HourType;
-    deliverables: string;
-    blogsDuePerMonth: number;
     accountManager: string;
     status: ProjectStatus;
     tier: Tier;
+
+    // Engagement Model
+    engagementModel: EngagementModel;
+    campaignConfig?: CampaignConfig;
+    retainerConfig?: RetainerConfig;
+
+    // Legacy/Derived fields (keeping some for compatibility or UI display)
+    seoHours: number; // derived from config
+    deliverables: string; // display string
+    blogsDuePerMonth: number; // derived from config
+
     blogProgress: {
         target: number;
         dueToDate: number;
@@ -119,6 +166,7 @@ export interface ClientProject {
         items: ApprovalItem[];
     };
     tasks: Task[];
+    activeDeliverables: Deliverable[];
 }
 
 export interface WeeklyPlan {

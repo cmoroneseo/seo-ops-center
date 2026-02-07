@@ -14,7 +14,8 @@ export async function createClientProject(client: Partial<ClientProject>): Promi
                 name: client.clientName,
                 launch_date: client.launchDate,
                 seo_hours: client.seoHours,
-                hour_type: client.hourType,
+                // hour_type column might still exist in DB, mapping engagementModel to it for now
+                hour_type: client.engagementModel,
                 blogs_per_month: client.blogsDuePerMonth,
                 status: client.status,
                 tier: client.tier
@@ -63,17 +64,24 @@ export async function getClients(organizationId: string): Promise<ClientProject[
             id: row.id,
             organizationId: row.organization_id,
             clientName: row.name,
-            launchDate: row.created_at, // Placeholder
-            seoHours: 0,
-            hourType: 'Monthly',
-            deliverables: '',
-            blogsDuePerMonth: 0,
-            accountManager: '',
-            status: 'Active',
-            tier: 1,
+            launchDate: row.created_at || new Date().toISOString(),
+            seoHours: row.seo_hours || 0,
+            engagementModel: row.engagement_model || 'Retainer', // Default to Retainer if missing
+            deliverables: '', // Legacy/Display
+            blogsDuePerMonth: row.blogs_per_month || 0,
+            accountManager: 'Unassigned', // Placeholder
+            status: row.status || 'Active',
+            tier: row.tier || 1,
             blogProgress: { target: 0, dueToDate: 0, delivered: 0, pastDue: 0, isOnTrack: true },
             approvals: { pendingCount: 0, items: [] },
-            tasks: []
+            tasks: [],
+            activeDeliverables: [],
+            // Simplistic default config based on SEO hours
+            retainerConfig: {
+                monthlyHours: row.seo_hours || 0,
+                hoursUsed: 0,
+                recurringDeliverables: []
+            }
         }));
     } catch (err) {
         console.error('Error fetching clients, falling back to mock clients:', err);
@@ -93,7 +101,7 @@ export async function createClients(clients: Omit<ClientProject, 'id' | 'blogPro
                 name: c.clientName,
                 launch_date: c.launchDate,
                 seo_hours: c.seoHours,
-                hour_type: c.hourType,
+                hour_type: c.engagementModel,
                 blogs_per_month: c.blogsDuePerMonth,
                 status: c.status,
                 tier: c.tier

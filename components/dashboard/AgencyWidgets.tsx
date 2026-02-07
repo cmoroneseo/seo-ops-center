@@ -1,12 +1,60 @@
 'use client';
 
-import { Task } from '@/lib/types';
+import { Task, Deliverable } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { CheckSquare, Clock, AlertCircle, Users, ArrowUpRight } from 'lucide-react';
+import { CheckSquare, Clock, AlertCircle, Users, ArrowUpRight, TrendingUp, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
 
 interface AgencyWidgetProps {
     tasks: Task[];
+    deliverables?: Deliverable[];
+}
+
+export function GlobalDeliverablesStats({ deliverables = [] }: AgencyWidgetProps) {
+    const total = deliverables.length;
+    const completed = deliverables.filter(d => d.status === 'Approved' || d.status === 'Published').length;
+    const inProgress = deliverables.filter(d => d.status === 'In Progress' || d.status === 'Review').length;
+    const pending = deliverables.filter(d => d.status === 'Pending').length;
+
+    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    return (
+        <div className="rounded-xl border border-border bg-card p-6 h-full flex flex-col">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-6">Deliverables</h3>
+            <div className="flex-1 flex flex-col justify-center gap-4">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <div className="text-3xl font-bold">{completed}/{total}</div>
+                        <div className="text-xs text-muted-foreground mt-1">Items Delivered</div>
+                    </div>
+                    <div className="h-16 w-16 rounded-full border-4 border-muted border-t-green-500 flex items-center justify-center">
+                        <span className="text-sm font-bold">{percentage}%</span>
+                    </div>
+                </div>
+
+                <div className="space-y-2 pt-4 border-t border-border/50">
+                    <div className="flex items-center justify-between text-sm">
+                        <span className="flex items-center gap-2 text-muted-foreground">
+                            <div className="h-2 w-2 rounded-full bg-green-500" /> Approved
+                        </span>
+                        <span className="font-medium">{completed}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                        <span className="flex items-center gap-2 text-muted-foreground">
+                            <div className="h-2 w-2 rounded-full bg-orange-500" /> In Progress
+                        </span>
+                        <span className="font-medium">{inProgress}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                        <span className="flex items-center gap-2 text-muted-foreground">
+                            <div className="h-2 w-2 rounded-full bg-muted" /> Pending
+                        </span>
+                        <span className="font-medium">{pending}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
 }
 
 export function GlobalTaskProgress({ tasks }: AgencyWidgetProps) {

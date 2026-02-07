@@ -6,6 +6,8 @@ import { cn } from '@/lib/utils';
 import { NotesSection } from '@/components/workspace/NotesSection';
 import { isClientAtRisk } from '@/lib/utils';
 import { AlertTriangle } from 'lucide-react';
+import { EngagementOverview } from '@/components/workspace/EngagementOverview';
+import { DeliverablesTracker } from '@/components/workspace/DeliverablesTracker';
 
 // In a real app, this would be a server component fetching data
 // For now we'll use the mock data
@@ -76,46 +78,46 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
                 </div>
             </div>
 
-            {/* Quick Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="p-4 rounded-xl border border-border/50 bg-card">
-                    <div className="text-sm text-muted-foreground mb-1">SEO Hours</div>
-                    <div className="text-2xl font-bold flex items-baseline gap-2">
-                        {client.seoHours}
-                        <span className="text-xs font-normal text-muted-foreground">{client.hourType}</span>
+            {/* Engagement & Stats Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2">
+                    <EngagementOverview client={client} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 rounded-xl border border-border/50 bg-card flex flex-col justify-center">
+                        <div className="text-sm text-muted-foreground mb-1">Blogs Due</div>
+                        <div className="text-2xl font-bold">{client.blogsDuePerMonth} <span className="text-sm font-normal text-muted-foreground">/mo</span></div>
                     </div>
-                </div>
-                <div className="p-4 rounded-xl border border-border/50 bg-card">
-                    <div className="text-sm text-muted-foreground mb-1">Blogs Due</div>
-                    <div className="text-2xl font-bold">{client.blogsDuePerMonth} <span className="text-sm font-normal text-muted-foreground">/mo</span></div>
-                </div>
-                <div className="p-4 rounded-xl border border-border/50 bg-card">
-                    <div className="text-sm text-muted-foreground mb-1">Account Manager</div>
-                    <div className="flex items-center gap-2 mt-1">
-                        <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold text-primary">
+                    <div className="p-4 rounded-xl border border-border/50 bg-card flex flex-col justify-center">
+                        <div className="text-sm text-muted-foreground mb-1">Tier</div>
+                        <div className="text-2xl font-bold">T{client.tier}</div>
+                    </div>
+                    <div className="col-span-2 p-4 rounded-xl border border-border/50 bg-card flex items-center justify-between">
+                        <div>
+                            <div className="text-sm text-muted-foreground mb-1">Account Manager</div>
+                            <div className="font-medium">{client.accountManager}</div>
+                        </div>
+                        <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-sm font-bold text-primary">
                             {client.accountManager.charAt(0)}
                         </div>
-                        <span className="font-medium">{client.accountManager}</span>
                     </div>
-                </div>
-                <div className="p-4 rounded-xl border border-border/50 bg-card">
-                    <div className="text-sm text-muted-foreground mb-1">Deliverables</div>
-                    <div className="text-lg font-medium">{client.deliverables}</div>
                 </div>
             </div>
 
             {/* Main Content Area */}
             <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-                {/* Left Column: Notes & Activity */}
+                {/* Left Column: Deliverables & Notes */}
                 <div className="lg:col-span-2 space-y-6">
+                    <DeliverablesTracker client={client} />
+
                     <div className="rounded-xl border border-border/50 bg-card p-6">
                         <h3 className="text-lg font-semibold mb-4">Internal Notes</h3>
                         <NotesSection />
                     </div>
                 </div>
 
-                {/* Right Column: Tasks & Approvals */}
+                {/* Right Column: Approvals */}
                 <div className="space-y-6">
                     <div className="rounded-xl border border-border/50 bg-card p-6">
                         <div className="flex items-center justify-between mb-4">

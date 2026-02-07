@@ -6,20 +6,27 @@ export const mockClients: ClientProject[] = [
         organizationId: 'org-1',
         clientName: 'Native Falls Campgrounds',
         launchDate: '2025-01-15',
-        seoHours: 60,
-        hourType: 'Campaign',
-        deliverables: '1x/month',
-        blogsDuePerMonth: 1,
         accountManager: 'Carlos',
         status: 'Active',
         tier: 1,
+        engagementModel: 'Campaign',
+        campaignConfig: {
+            startDate: '2025-01-15',
+            endDate: '2025-07-15',
+            totalHours: 60,
+            hoursUsed: 22,
+            monthlyBlogQuota: 1,
+            monthlyBacklinkQuota: 2
+        },
+        seoHours: 60, // Derived/Legacy
+        deliverables: '1x/month', // Legacy
+        blogsDuePerMonth: 1, // Legacy
         blogProgress: {
-            target: 11,
-            dueToDate: 10,
-            delivered: 7,
-            pastDue: 3,
-            override: 2,
-            isOnTrack: false
+            target: 6,
+            dueToDate: 1,
+            delivered: 1,
+            pastDue: 0,
+            isOnTrack: true
         },
         approvals: {
             pendingCount: 2,
@@ -31,6 +38,10 @@ export const mockClients: ClientProject[] = [
         tasks: [
             { id: 't1', organizationId: 'org-1', title: 'Keyword Research', assignees: ['Carlos'], dueDate: '2025-01-20', priority: 'high', status: 'in_progress', tags: ['seo'], subtasks: [] },
             { id: 't2', organizationId: 'org-1', title: 'Competitor Analysis', assignees: ['Sarah'], dueDate: '2025-01-22', priority: 'medium', status: 'todo', tags: ['research'], subtasks: [] }
+        ],
+        activeDeliverables: [
+            { id: 'd1', clientId: '1', title: 'Jan Blog: Top Hiking Trails', type: 'Content', status: 'In Progress', dueDate: '2025-01-25', countsTowardsHours: false },
+            { id: 'd2', clientId: '1', title: 'Guest Post: Outdoor Life', type: 'Backlink', status: 'Pending', dueDate: '2025-01-28', countsTowardsHours: false }
         ]
     },
     {
@@ -38,13 +49,21 @@ export const mockClients: ClientProject[] = [
         organizationId: 'org-1',
         clientName: 'Polar Express HVAC',
         launchDate: '2024-07-01',
-        seoHours: 13,
-        hourType: 'Monthly',
-        deliverables: '2x/month',
-        blogsDuePerMonth: 2,
         accountManager: 'Carlos',
         status: 'Active',
         tier: 1,
+        engagementModel: 'Retainer',
+        retainerConfig: {
+            monthlyHours: 13,
+            hoursUsed: 10.5,
+            recurringDeliverables: [
+                { type: 'Content', count: 2 },
+                { type: 'GBP', count: 1 }
+            ]
+        },
+        seoHours: 13,
+        deliverables: '2x/month',
+        blogsDuePerMonth: 2,
         blogProgress: {
             target: 34,
             dueToDate: 32,
@@ -58,6 +77,10 @@ export const mockClients: ClientProject[] = [
         },
         tasks: [
             { id: 't3', organizationId: 'org-1', title: 'Monthly Report', assignees: ['Carlos'], dueDate: '2025-02-01', priority: 'medium', status: 'todo', tags: ['reporting'], subtasks: [] }
+        ],
+        activeDeliverables: [
+            { id: 'd3', clientId: '2', title: 'Feb Blog: HVAC Maintenance', type: 'Content', status: 'Pending', dueDate: '2025-02-10', countsTowardsHours: false },
+            { id: 'd4', clientId: '2', title: 'GBP Weekly Post', type: 'GBP', status: 'Approved', dueDate: '2025-02-05', countsTowardsHours: true }
         ]
     },
     {
@@ -65,13 +88,21 @@ export const mockClients: ClientProject[] = [
         organizationId: 'org-1',
         clientName: 'MPS Security',
         launchDate: '2025-01-07',
-        seoHours: 55,
-        hourType: 'Campaign',
-        deliverables: 'No blogs',
-        blogsDuePerMonth: 0,
         accountManager: 'Carlos',
         status: 'Active',
         tier: 1,
+        engagementModel: 'Campaign',
+        campaignConfig: {
+            startDate: '2025-01-07',
+            endDate: '2025-07-07',
+            totalHours: 55,
+            hoursUsed: 12,
+            monthlyBlogQuota: 0,
+            monthlyBacklinkQuota: 4
+        },
+        seoHours: 55,
+        deliverables: 'No blogs',
+        blogsDuePerMonth: 0,
         blogProgress: {
             target: 0,
             dueToDate: 0,
@@ -85,20 +116,30 @@ export const mockClients: ClientProject[] = [
                 { id: 'a3', title: 'Technical Audit Review', sentDate: '2025-01-08', type: 'Audit' }
             ]
         },
-        tasks: []
+        tasks: [],
+        activeDeliverables: [
+            { id: 'd5', clientId: '3', title: 'Security Industry Outreach', type: 'Backlink', status: 'In Progress', dueDate: '2025-01-30', countsTowardsHours: true }
+        ]
     },
     {
         id: '4',
         organizationId: 'org-1',
         clientName: 'Marketing Empire Group',
         launchDate: '2025-05-15',
-        seoHours: 15,
-        hourType: 'Monthly',
-        deliverables: '4x/month',
-        blogsDuePerMonth: 4,
         accountManager: 'Carlos',
         status: 'Active',
         tier: 1,
+        engagementModel: 'Retainer',
+        retainerConfig: {
+            monthlyHours: 15,
+            hoursUsed: 5,
+            recurringDeliverables: [
+                { type: 'Content', count: 4 }
+            ]
+        },
+        seoHours: 15,
+        deliverables: '4x/month',
+        blogsDuePerMonth: 4,
         blogProgress: {
             target: 28,
             dueToDate: 24,
@@ -117,20 +158,26 @@ export const mockClients: ClientProject[] = [
         tasks: [
             { id: 't4', organizationId: 'org-1', title: 'Fix 404 Errors', assignees: ['Dev Team'], dueDate: '2025-05-28', priority: 'high', status: 'todo', tags: ['tech'], subtasks: [] },
             { id: 't5', organizationId: 'org-1', title: 'Update GMB Listing', assignees: ['Carlos'], dueDate: '2025-05-30', priority: 'low', status: 'done', tags: ['gmb'], subtasks: [] }
-        ]
+        ],
+        activeDeliverables: []
     },
     {
         id: '5',
         organizationId: 'org-1',
         clientName: 'Welkin HVAC',
         launchDate: '2024-05-03',
-        seoHours: 5,
-        hourType: 'Monthly',
-        deliverables: '1x/month',
-        blogsDuePerMonth: 1,
         accountManager: 'Abel',
         status: 'Cancelled',
         tier: 2,
+        engagementModel: 'Retainer',
+        retainerConfig: {
+            monthlyHours: 5,
+            hoursUsed: 0,
+            recurringDeliverables: [{ type: 'Content', count: 1 }]
+        },
+        seoHours: 5,
+        deliverables: '1x/month',
+        blogsDuePerMonth: 1,
         blogProgress: {
             target: 12,
             dueToDate: 11,
@@ -142,20 +189,26 @@ export const mockClients: ClientProject[] = [
             pendingCount: 0,
             items: []
         },
-        tasks: []
+        tasks: [],
+        activeDeliverables: []
     },
     {
         id: '6',
         organizationId: 'org-1',
         clientName: 'Element Pool Designs',
         launchDate: '2025-01-17',
-        seoHours: 15,
-        hourType: 'Monthly',
-        deliverables: '2x/month',
-        blogsDuePerMonth: 2,
         accountManager: 'Abel',
         status: 'Active',
         tier: 1,
+        engagementModel: 'Retainer',
+        retainerConfig: {
+            monthlyHours: 15,
+            hoursUsed: 8,
+            recurringDeliverables: [{ type: 'Content', count: 2 }]
+        },
+        seoHours: 15,
+        deliverables: '2x/month',
+        blogsDuePerMonth: 2,
         blogProgress: {
             target: 22,
             dueToDate: 20,
@@ -171,20 +224,26 @@ export const mockClients: ClientProject[] = [
         },
         tasks: [
             { id: 't6', organizationId: 'org-1', title: 'Image Optimization', assignees: ['Abel'], dueDate: '2025-01-25', priority: 'medium', status: 'in_progress', tags: ['web'], subtasks: [] }
-        ]
+        ],
+        activeDeliverables: []
     },
     {
         id: '7',
         organizationId: 'org-1',
         clientName: 'Top Notch Auto',
         launchDate: '2022-10-18',
-        seoHours: 10,
-        hourType: 'Monthly',
-        deliverables: 'No blogs',
-        blogsDuePerMonth: 0,
         accountManager: 'Carlos',
         status: 'Active',
         tier: 2,
+        engagementModel: 'Retainer',
+        retainerConfig: {
+            monthlyHours: 10,
+            hoursUsed: 2,
+            recurringDeliverables: []
+        },
+        seoHours: 10,
+        deliverables: 'No blogs',
+        blogsDuePerMonth: 0,
         blogProgress: {
             target: 0,
             dueToDate: 0,
@@ -196,20 +255,29 @@ export const mockClients: ClientProject[] = [
             pendingCount: 0,
             items: []
         },
-        tasks: []
+        tasks: [],
+        activeDeliverables: []
     },
     {
         id: '8',
         organizationId: 'org-1',
         clientName: 'Rick Pools',
         launchDate: '2025-09-11',
-        seoHours: 10,
-        hourType: 'Campaign',
-        deliverables: 'No blogs',
-        blogsDuePerMonth: 0,
         accountManager: 'Carlos',
         status: 'Active',
         tier: 3,
+        engagementModel: 'Campaign',
+        campaignConfig: {
+            startDate: '2025-09-11',
+            endDate: '2026-03-11',
+            totalHours: 40,
+            hoursUsed: 0,
+            monthlyBlogQuota: 0,
+            monthlyBacklinkQuota: 0
+        },
+        seoHours: 40,
+        deliverables: 'No blogs',
+        blogsDuePerMonth: 0,
         blogProgress: {
             target: 0,
             dueToDate: 0,
@@ -221,7 +289,8 @@ export const mockClients: ClientProject[] = [
             pendingCount: 0,
             items: []
         },
-        tasks: []
+        tasks: [],
+        activeDeliverables: []
     }
 ];
 

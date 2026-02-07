@@ -2,11 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { mockTasks } from '@/lib/mock-data/tasks';
+import { mockClients } from '@/lib/mock-data/workspace';
 import { ClientListPanel } from '@/components/workspace/ClientListPanel';
-import { GlobalTaskProgress, GlobalNeedsAttention, AgencyQuickStats, GlobalUpcomingTasks } from '@/components/dashboard/AgencyWidgets';
+import { GlobalTaskProgress, GlobalNeedsAttention, AgencyQuickStats, GlobalUpcomingTasks, GlobalDeliverablesStats } from '@/components/dashboard/AgencyWidgets';
 
 export default function DashboardPage() {
     const [tasks] = useState(mockTasks);
+    // Aggregate deliverables from all clients
+    const deliverables = mockClients.flatMap(c => c.activeDeliverables || []);
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
@@ -29,8 +32,9 @@ export default function DashboardPage() {
             </div>
 
             {/* Top Widgets Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 shrink-0">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 shrink-0">
                 <GlobalTaskProgress tasks={tasks} />
+                <GlobalDeliverablesStats deliverables={deliverables} tasks={[]} />
                 <GlobalNeedsAttention tasks={tasks} />
                 <AgencyQuickStats tasks={tasks} />
             </div>

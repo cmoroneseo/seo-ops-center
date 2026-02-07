@@ -128,7 +128,7 @@ export function ClientTable({ clients }: ClientTableProps) {
                                         </td>
                                         <td className="px-4 py-3 text-muted-foreground">
                                             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs border border-border bg-muted/30">
-                                                {client.hourType}
+                                                {client.engagementModel}
                                             </span>
                                         </td>
                                         <td className="px-4 py-3 text-muted-foreground">{client.deliverables}</td>
