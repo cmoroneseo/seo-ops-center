@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Upload, X, FileText, AlertCircle, Check, Loader2 } from 'lucide-react';
 import { createClients } from '@/lib/supabase/clients';
 import { useOrganization } from '@/components/providers/organization-provider';
-import { HourType, ProjectStatus, Tier } from '@/lib/types';
+import { EngagementModel, ProjectStatus, Tier } from '@/lib/types';
 
 interface CSVImportModalProps {
     isOpen: boolean;
@@ -66,10 +66,11 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
                 clientName: row.clientname || row.name || 'Unknown Client',
                 launchDate: row.launchdate || new Date().toISOString().split('T')[0],
                 seoHours: parseFloat(row.seohours || row.hours) || 0,
-                hourType: (row.hourtype || 'Monthly') as HourType,
+                engagementModel: (row.engagementmodel || row.hourtype || 'Retainer') as EngagementModel,
                 blogsDuePerMonth: parseInt(row.blogspermonth || row.blogs) || 0,
                 status: (row.status || 'Active') as ProjectStatus,
-                tier: (parseInt(row.tier) || 1) as Tier
+                tier: (parseInt(row.tier) || 1) as Tier,
+                activeDeliverables: []
             }));
 
             const result = await createClients(clientsToInsert);
