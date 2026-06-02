@@ -45,6 +45,7 @@ export default function SettingsPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     email: inviteEmail.trim(),
+                    organizationId: organization.id,
                     organizationName: organization.name,
                     invitedByName: 'Carlos',
                 }),

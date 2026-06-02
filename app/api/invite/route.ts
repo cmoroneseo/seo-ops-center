@@ -7,20 +7,21 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(req: NextRequest) {
     try {
-        const { email, organizationName, invitedByName } = await req.json();
+        const { email, organizationId, organizationName, invitedByName } = await req.json();
 
-        if (!email || !organizationName) {
-            return NextResponse.json({ error: 'Email and organization name are required' }, { status: 400 });
+        if (!email || !organizationName || !organizationId) {
+            return NextResponse.json({ error: 'Email, organizationId and organizationName are required' }, { status: 400 });
         }
 
         const supabase = createAdminClient();
+        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://seo-ops-center.vercel.app';
 
-        // Generate invite link without sending Supabase's default email
+        // Embed organizationId in the redirectTo so the callback can auto-assign org membership
         const { data, error } = await supabase.auth.admin.generateLink({
             type: 'invite',
             email,
             options: {
-                redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://seo-ops-center.vercel.app'}/auth/callback`,
+                redirectTo: `${siteUrl}/auth/callback?org=${organizationId}`,
             },
         });
 
