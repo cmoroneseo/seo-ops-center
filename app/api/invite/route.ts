@@ -3,9 +3,8 @@ import { Resend } from 'resend';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { teamInviteEmail } from '@/lib/email/templates';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 export async function POST(req: NextRequest) {
+    const resend = new Resend(process.env.RESEND_API_KEY);
     try {
         const { email, organizationId, organizationName, invitedByName } = await req.json();
 
