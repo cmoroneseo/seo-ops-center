@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
 
         // Send branded email via Resend
         const { error: emailError } = await resend.emails.send({
-            from: 'SEO Ops Command Center <noreply@seo-ops-center.vercel.app>',
+            from: 'SEO Ops Command Center <onboarding@resend.dev>',
             to: email,
             subject: `You're invited to join ${organizationName} on SEO Ops`,
             html: teamInviteEmail({ inviteUrl, organizationName, invitedByName }),
