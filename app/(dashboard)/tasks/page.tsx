@@ -6,9 +6,8 @@ import { TaskCard } from '@/components/tasks/TaskCard';
 import { TaskListView } from '@/components/tasks/TaskListView';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { ClientListPanel } from '@/components/workspace/ClientListPanel';
-import { Task, ClientProject } from '@/lib/types';
+import { Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { mockClients } from '@/lib/mock-data/workspace';
 import { mockTasks as initialTasks } from '@/lib/mock-data/tasks';
 import { useSearchParams } from 'next/navigation';
 import { useEffect } from 'react';
@@ -31,7 +30,7 @@ export default function TasksPage() {
     const [tasks, setTasks] = useState<Task[]>(mockTasks);
 
     const filteredTasks = clientFilter
-        ? tasks.filter(t => t.id === clientFilter || t.clientName === mockClients.find((c: ClientProject) => c.id === clientFilter)?.clientName)
+        ? tasks.filter(t => t.projectId === clientFilter || t.clientName?.toLowerCase().includes(clientFilter.toLowerCase()))
         : tasks;
 
     const handleTaskClick = (task: Task) => {

@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import { OrganizationSwitcher } from '@/components/organization-switcher';
 import { TimeLogModal } from '@/components/workspace/TimeLogModal';
 import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
-import { mockClients } from '@/lib/mock-data/workspace';
+import { useClients } from '@/lib/hooks/use-clients';
 import { useState, useEffect } from 'react';
 
 const navigation = [
@@ -25,6 +25,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const [isTimeLogOpen, setIsTimeLogOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const { clients } = useClients({ statuses: ['Active'] });
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -109,7 +110,7 @@ export function Sidebar() {
       <TimeLogModal
         isOpen={isTimeLogOpen}
         onClose={() => setIsTimeLogOpen(false)}
-        clients={mockClients}
+        clients={clients}
       />
     </div>
   );

@@ -4,20 +4,21 @@ import { ClientTable } from '@/components/workspace/ClientTable';
 import { AddClientModal } from '@/components/workspace/AddClientModal';
 import { CSVImportModal } from '@/components/workspace/CSVImportModal';
 import { PlanningTable } from '@/components/workspace/PlanningTable';
-import { mockClients, mockMonthlyPlans } from '@/lib/mock-data/workspace';
-import { ClientProject, ProjectStatus } from '@/lib/types';
+import { ClientProject, ProjectStatus, MonthlyPlan } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { Search, Filter, Plus, X, LayoutList, CalendarRange, Upload } from 'lucide-react';
+import { Search, Filter, Plus, X, LayoutList, CalendarRange } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { getClients } from '@/lib/supabase/clients';
+import { getMonthlyPlans } from '@/lib/supabase/monthly-plans';
 import { useOrganization } from '@/components/providers/organization-provider';
 
 export default function WorkspacePage() {
     const { organization } = useOrganization();
     const [clients, setClients] = useState<ClientProject[]>([]);
+    const [plans, setPlans] = useState<MonthlyPlan[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'All'>('All');
+    const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'All'>('Active');
     const [managerFilter, setManagerFilter] = useState<string>('All');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -26,8 +27,12 @@ export default function WorkspacePage() {
     const fetchClients = async () => {
         if (!organization) return;
         setIsLoading(true);
-        const data = await getClients(organization.id);
+        const [data, planData] = await Promise.all([
+            getClients(organization.id),
+            getMonthlyPlans(organization.id),
+        ]);
         setClients(data);
+        setPlans(planData);
         setIsLoading(false);
     };
 
@@ -128,11 +133,11 @@ export default function WorkspacePage() {
                             onChange={(e) => setStatusFilter(e.target.value as ProjectStatus | 'All')}
                             className="appearance-none pl-9 pr-8 py-2 rounded-md bg-muted/50 hover:bg-muted text-sm font-medium transition-colors cursor-pointer border-none focus:ring-2 focus:ring-primary/50"
                         >
-                            <option value="All">All Statuses</option>
                             <option value="Active">Active</option>
-                            <option value="Paused">Paused</option>
-                            <option value="Cancelled">Cancelled</option>
+                            <option value="All">All Statuses</option>
                             <option value="Onboarding">Onboarding</option>
+                            <option value="Paused">Paused</option>
+                            <option value="Cancelled">Cancelled (Archived)</option>
                         </select>
                         <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                     </div>
@@ -158,7 +163,7 @@ export default function WorkspacePage() {
                 {viewMode === 'list' ? (
                     <ClientTable clients={filteredClients} />
                 ) : (
-                    <PlanningTable clients={filteredClients} plans={mockMonthlyPlans} />
+                    <PlanningTable clients={filteredClients} plans={plans} />
                 )}
                 <div className="mt-4 text-sm text-muted-foreground text-center">
                     Showing {filteredClients.length} of {clients.length} clients

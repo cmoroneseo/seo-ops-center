@@ -7,6 +7,7 @@ export interface Organization {
     stripeCustomerId?: string;
     subscriptionStatus: 'active' | 'trialing' | 'past_due' | 'canceled' | 'incomplete';
     planType: PlanType;
+    isInternal?: boolean; // internal/comp org — bypasses plan limits & billing
     createdAt: string;
 }
 

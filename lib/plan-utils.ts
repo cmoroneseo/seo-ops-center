@@ -59,24 +59,45 @@ export const PLAN_CONFIGS: Record<PlanType, PlanLimits> = {
     }
 };
 
+// Internal/comp orgs (organizations.is_internal — e.g. Marketing Empire Group)
+// bypass every plan limit. This is the single place that decision lives.
+const UNLIMITED: PlanLimits = {
+    maxClients: Infinity,
+    maxUsers: Infinity,
+    maxAIReportsPerMonth: 'unlimited',
+    features: { timeTracking: true, clientPortal: true, whiteLabeling: true, apiAccess: true },
+};
+
 /**
- * Checks if a feature is enabled for a given plan.
+ * The limits actually in force for an org: the plan's limits, unless the org is
+ * internal (then everything is unlimited). Prefer this over PLAN_CONFIGS directly.
  */
-export function isFeatureEnabled(planType: PlanType, feature: keyof PlanLimits['features']): boolean {
-    return PLAN_CONFIGS[planType].features[feature];
+export function getEffectiveLimits(planType: PlanType, isInternal = false): PlanLimits {
+    return isInternal ? UNLIMITED : PLAN_CONFIGS[planType];
 }
 
 /**
- * Checks if an organization can add more clients.
+ * Checks if a feature is enabled for a given plan (internal orgs: always on).
  */
-export function canAddClient(planType: PlanType, currentClientCount: number): boolean {
-    return currentClientCount < PLAN_CONFIGS[planType].maxClients;
+export function isFeatureEnabled(
+    planType: PlanType,
+    feature: keyof PlanLimits['features'],
+    isInternal = false,
+): boolean {
+    return getEffectiveLimits(planType, isInternal).features[feature];
+}
+
+/**
+ * Checks if an organization can add more clients (internal orgs: always true).
+ */
+export function canAddClient(planType: PlanType, currentClientCount: number, isInternal = false): boolean {
+    return currentClientCount < getEffectiveLimits(planType, isInternal).maxClients;
 }
 
 /**
  * Checks if an organization can generate more AI reports.
  * If usage tracking is handled elsewhere, this returns the limit.
  */
-export function getAIReportLimit(planType: PlanType): number | 'unlimited' {
-    return PLAN_CONFIGS[planType].maxAIReportsPerMonth;
+export function getAIReportLimit(planType: PlanType, isInternal = false): number | 'unlimited' {
+    return getEffectiveLimits(planType, isInternal).maxAIReportsPerMonth;
 }
