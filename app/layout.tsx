@@ -15,7 +15,6 @@ export const metadata: Metadata = {
 
 import { OrganizationProvider } from "@/components/providers/organization-provider";
 import { ThemeProvider } from "@/components/providers/theme-provider";
-import { SmoothScrollProvider } from "@/components/providers/smooth-scroll-provider";
 import { SchemaMarkup } from "@/components/seo/schema-markup";
 
 export default function RootLayout({
@@ -34,12 +33,10 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <SmoothScrollProvider>
-            <OrganizationProvider>
-              {children}
-              <SchemaMarkup />
-            </OrganizationProvider>
-          </SmoothScrollProvider>
+          <OrganizationProvider>
+            {children}
+            <SchemaMarkup />
+          </OrganizationProvider>
         </ThemeProvider>
       </body>
     </html>

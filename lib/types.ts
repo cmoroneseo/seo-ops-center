@@ -143,6 +143,7 @@ export interface ClientProject {
     accountManager: string;
     status: ProjectStatus;
     tier: Tier;
+    notes?: string;
 
     // Engagement Model
     engagementModel: EngagementModel;
@@ -187,6 +188,16 @@ export interface MonthlyPlan {
     totalVariance: number;
     weeks: WeeklyPlan[];
     notes?: string;
+}
+
+export interface ClientNote {
+    id: string;
+    organizationId: string;
+    clientId: string;
+    content: string;
+    authorName: string;
+    createdAt: string;
+    updatedAt: string;
 }
 
 export interface TimeLog {

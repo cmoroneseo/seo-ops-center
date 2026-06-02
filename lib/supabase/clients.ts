@@ -35,6 +35,7 @@ function rowToClientProject(row: any): ClientProject {
         organizationId: row.organization_id,
         clientName: row.name,
         launchDate,
+        notes: row.notes ?? undefined,
         accountManager: row.account_manager_name || 'Unassigned',
         status: DB_TO_APP_STATUS[row.status] || 'Active',
         tier: (row.tier as Tier) || 1,
@@ -137,6 +138,22 @@ export async function updateClientProject(
         return { success: true, data: rowToClientProject(data) };
     } catch (err: any) {
         console.error('Error updating client:', err);
+        return { success: false, error: err.message };
+    }
+}
+
+export async function updateClientNotes(
+    id: string,
+    notes: string,
+): Promise<{ success: boolean; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
+    try {
+        const { error } = await supabase.from('clients').update({ notes }).eq('id', id);
+        if (error) throw error;
+        return { success: true };
+    } catch (err: any) {
+        console.error('Error updating client notes:', err);
         return { success: false, error: err.message };
     }
 }

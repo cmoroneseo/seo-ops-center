@@ -6,11 +6,13 @@ import { notFound } from 'next/navigation';
 import { ArrowLeft, Calendar, Clock, Globe, MoreVertical, Shield } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
-import { NotesSection } from '@/components/workspace/NotesSection';
+import { ClientNotesPanel } from '@/components/workspace/ClientNotesPanel';
+import { ActivityFeed } from '@/components/workspace/ActivityFeed';
 import { isClientAtRisk } from '@/lib/utils';
 import { AlertTriangle } from 'lucide-react';
 import { EngagementOverview } from '@/components/workspace/EngagementOverview';
 import { DeliverablesTracker } from '@/components/workspace/DeliverablesTracker';
+import { MonthlyPlannerCard } from '@/components/workspace/MonthlyPlannerCard';
 import { getClients } from '@/lib/supabase/clients';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { ClientProject } from '@/lib/types';
@@ -40,7 +42,7 @@ export default function ClientDetailPage() {
     const atRisk = isClientAtRisk(client);
 
     return (
-        <div className="h-full flex flex-col space-y-6">
+        <div className="space-y-6">
             {/* Header Section */}
             <div className="flex flex-col space-y-4">
                 <Link
@@ -68,7 +70,7 @@ export default function ClientDetailPage() {
                             {client.launchDate && (
                                 <div className="flex items-center gap-1.5">
                                     <Calendar className="h-4 w-4" />
-                                    <span>Launched {new Date(client.launchDate).toLocaleDateString()}</span>
+                                    <span>Launched {new Date(client.launchDate.includes('T') ? client.launchDate : client.launchDate + 'T00:00:00').toLocaleDateString()}</span>
                                 </div>
                             )}
                             <div className="flex items-center gap-1.5">
@@ -82,7 +84,7 @@ export default function ClientDetailPage() {
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 pr-2">
                         <div className={cn(
                             "px-3 py-1 rounded-full text-sm font-medium border",
                             client.status === 'Active' ? "bg-green-500/10 text-green-500 border-green-500/20" :
@@ -130,11 +132,9 @@ export default function ClientDetailPage() {
             {/* Main Content */}
             <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 space-y-6">
+                    <MonthlyPlannerCard client={client} />
                     <DeliverablesTracker client={client} />
-                    <div className="rounded-xl border border-border/50 bg-card p-6">
-                        <h3 className="text-lg font-semibold mb-4">Internal Notes</h3>
-                        <NotesSection />
-                    </div>
+                    <ClientNotesPanel client={client} />
                 </div>
 
                 <div className="space-y-6">
@@ -159,7 +159,7 @@ export default function ClientDetailPage() {
                                         </div>
                                         <div className="text-muted-foreground text-xs mt-1 flex items-center gap-1">
                                             <Clock className="w-3 h-3" />
-                                            Sent {new Date(item.sentDate).toLocaleDateString()}
+                                            Sent {new Date(item.sentDate.includes('T') ? item.sentDate : item.sentDate + 'T00:00:00').toLocaleDateString()}
                                         </div>
                                     </div>
                                 ))
@@ -170,6 +170,7 @@ export default function ClientDetailPage() {
                             )}
                         </div>
                     </div>
+                    <ActivityFeed client={client} />
                 </div>
             </div>
         </div>

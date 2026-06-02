@@ -83,6 +83,22 @@ export async function createTimeLog(
     }
 }
 
+export async function updateTimeLog(
+    id: string,
+    patch: Partial<Pick<TimeLog, 'hours' | 'description' | 'date' | 'billable'>>,
+): Promise<{ success: boolean; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
+    try {
+        const { error } = await supabase.from('time_logs').update(patch).eq('id', id);
+        if (error) throw error;
+        return { success: true };
+    } catch (err: any) {
+        console.error('Error updating time log:', err);
+        return { success: false, error: err.message };
+    }
+}
+
 export async function deleteTimeLog(id: string): Promise<{ success: boolean; error?: string }> {
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };

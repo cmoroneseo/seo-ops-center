@@ -47,8 +47,8 @@ export default function DashboardLayout({
             {!isSetupPage && <Sidebar />}
             {showProjectSidebar && <ClientListPanel />}
             <main className={cn(
-                "flex-1 flex flex-col min-w-0",
-                isSetupPage ? "flex items-center justify-center" : (showProjectSidebar ? "" : "p-8 overflow-y-auto")
+                "flex-1 min-w-0 overflow-y-auto",
+                isSetupPage ? "flex flex-col items-center justify-center" : (showProjectSidebar ? "p-6 lg:p-8" : "p-8")
             )}>
                 {children}
             </main>

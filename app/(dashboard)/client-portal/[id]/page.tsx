@@ -139,7 +139,7 @@ export default function ClientPortalPage() {
                                 <div className="flex-1">
                                     <div className="flex items-center justify-between mb-1">
                                         <h4 className="font-medium text-sm">{log.description || 'SEO Work'}</h4>
-                                        <span className="text-xs text-muted-foreground">{new Date(log.date).toLocaleDateString()}</span>
+                                        <span className="text-xs text-muted-foreground">{new Date(log.date.includes('T') ? log.date : log.date + 'T00:00:00').toLocaleDateString()}</span>
                                     </div>
                                     <div className="mt-1 flex items-center gap-2">
                                         <span className="text-xs font-medium text-foreground">{log.hours}h</span>
