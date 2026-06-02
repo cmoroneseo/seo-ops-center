@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Calendar, Clock, Globe, MoreVertical, Shield } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { ClientNotesPanel } from '@/components/workspace/ClientNotesPanel';
 import { ActivityFeed } from '@/components/workspace/ActivityFeed';
+import { ReassignModal } from '@/components/workspace/ReassignModal';
 import { isClientAtRisk } from '@/lib/utils';
 import { AlertTriangle } from 'lucide-react';
 import { EngagementOverview } from '@/components/workspace/EngagementOverview';
@@ -22,6 +23,8 @@ export default function ClientDetailPage() {
     const id = params.id as string;
     const { organization } = useOrganization();
     const [client, setClient] = useState<ClientProject | null | undefined>(undefined); // undefined = loading
+    const [showReassign, setShowReassign] = useState(false);
+    const [activityRefreshKey, setActivityRefreshKey] = useState(0);
 
     useEffect(() => {
         if (!organization) return;
@@ -122,8 +125,18 @@ export default function ClientDetailPage() {
                             <div className="text-sm text-muted-foreground mb-1">Account Manager</div>
                             <div className="font-medium">{client.accountManager}</div>
                         </div>
-                        <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-sm font-bold text-primary">
-                            {client.accountManager.charAt(0)}
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setShowReassign(true)}
+                                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border hover:border-primary/40 rounded-md px-2.5 py-1.5 transition-all"
+                                title="Reassign account manager"
+                            >
+                                <UserCheck className="h-3.5 w-3.5" />
+                                Reassign
+                            </button>
+                            <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-sm font-bold text-primary">
+                                {(client.accountManager || '?').charAt(0)}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -170,9 +183,23 @@ export default function ClientDetailPage() {
                             )}
                         </div>
                     </div>
-                    <ActivityFeed client={client} />
+                    <ActivityFeed client={client} refreshKey={activityRefreshKey} />
                 </div>
             </div>
+
+            {/* Reassign Modal */}
+            {showReassign && (
+                <ReassignModal
+                    client={client}
+                    currentManager={client.accountManager}
+                    onClose={() => setShowReassign(false)}
+                    onSuccess={(newManager) => {
+                        setClient({ ...client, accountManager: newManager });
+                        setShowReassign(false);
+                        setActivityRefreshKey(k => k + 1);
+                    }}
+                />
+            )}
         </div>
     );
 }

@@ -1,21 +1,24 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, Filter } from 'lucide-react';
-import { ClientProject, TimeLog, ClientNote } from '@/lib/types';
+import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck } from 'lucide-react';
+import { ClientProject, TimeLog, ClientNote, ClientAssignment } from '@/lib/types';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
 import { getClientNotes } from '@/lib/supabase/client-notes';
+import { getClientAssignments } from '@/lib/supabase/client-assignments';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
 
-type ActivityType = 'all' | 'hours' | 'notes';
+type ActivityType = 'all' | 'hours' | 'notes' | 'assignments';
 
 type ActivityItem =
     | { type: 'time_log'; data: TimeLog; date: Date }
-    | { type: 'note'; data: ClientNote; date: Date };
+    | { type: 'note'; data: ClientNote; date: Date }
+    | { type: 'assignment'; data: ClientAssignment; date: Date };
 
 interface ActivityFeedProps {
     client: ClientProject;
+    refreshKey?: number; // increment to force refresh
 }
 
 function formatDate(date: Date): string {
@@ -120,7 +123,34 @@ function NoteRow({ note }: { note: ClientNote }) {
     );
 }
 
-export function ActivityFeed({ client }: ActivityFeedProps) {
+function AssignmentRow({ assignment }: { assignment: ClientAssignment }) {
+    return (
+        <div className="flex items-start gap-3 py-3">
+            <div className="w-7 h-7 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                <UserCheck className="h-3.5 w-3.5 text-amber-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+                <p className="text-sm leading-snug">
+                    <span className="text-muted-foreground">Reassigned to </span>
+                    <span className="font-semibold text-amber-500">{assignment.assignedTo}</span>
+                    {assignment.assignedBy && (
+                        <span className="text-muted-foreground"> by {assignment.assignedBy}</span>
+                    )}
+                    <span className="text-muted-foreground text-xs ml-1.5">
+                        {new Date(assignment.assignedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                </p>
+                {assignment.notes && (
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed italic">
+                        "{assignment.notes}"
+                    </p>
+                )}
+            </div>
+        </div>
+    );
+}
+
+export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
     const { organization } = useOrganization();
     const [allItems, setAllItems] = useState<ActivityItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -129,10 +159,12 @@ export function ActivityFeed({ client }: ActivityFeedProps) {
 
     useEffect(() => {
         if (!organization) return;
+        setLoading(true);
         Promise.all([
             getTimeLogs(organization.id, { clientId: client.id }),
             getClientNotes(client.id),
-        ]).then(([logs, notes]) => {
+            getClientAssignments(client.id),
+        ]).then(([logs, notes, assignments]) => {
             const items: ActivityItem[] = [
                 ...logs.map(l => ({
                     type: 'time_log' as const,
@@ -144,16 +176,26 @@ export function ActivityFeed({ client }: ActivityFeedProps) {
                     data: n,
                     date: new Date(n.createdAt),
                 })),
+                ...assignments.map(a => ({
+                    type: 'assignment' as const,
+                    data: a,
+                    date: new Date(a.assignedAt),
+                })),
             ];
             items.sort((a, b) => b.date.getTime() - a.date.getTime());
             setAllItems(items);
             setLoading(false);
         });
-    }, [organization?.id, client.id]);
+    }, [organization?.id, client.id, refreshKey]);
 
     const filtered = filter === 'all'
         ? allItems
-        : allItems.filter(i => (filter === 'hours' ? i.type === 'time_log' : i.type === 'note'));
+        : allItems.filter(i => {
+            if (filter === 'hours') return i.type === 'time_log';
+            if (filter === 'notes') return i.type === 'note';
+            if (filter === 'assignments') return i.type === 'assignment';
+            return true;
+        });
 
     const SHOW_LIMIT = 20;
     const visible = showAll ? filtered : filtered.slice(0, SHOW_LIMIT);
@@ -161,6 +203,7 @@ export function ActivityFeed({ client }: ActivityFeedProps) {
 
     const hourCount = allItems.filter(i => i.type === 'time_log').length;
     const noteCount = allItems.filter(i => i.type === 'note').length;
+    const assignmentCount = allItems.filter(i => i.type === 'assignment').length;
     const totalHours = allItems
         .filter((i): i is { type: 'time_log'; data: TimeLog; date: Date } => i.type === 'time_log')
         .reduce((sum, i) => sum + i.data.hours, 0);
@@ -183,10 +226,10 @@ export function ActivityFeed({ client }: ActivityFeedProps) {
 
                 {/* Stats row */}
                 {allItems.length > 0 && (
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground mb-3">
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground mb-3 flex-wrap">
                         <span className="flex items-center gap-1">
                             <Clock className="h-3 w-3 text-blue-500" />
-                            <span className="font-semibold text-blue-500">{totalHours.toFixed(1)}h</span> total logged
+                            <span className="font-semibold text-blue-500">{totalHours.toFixed(1)}h</span> total
                         </span>
                         <span className="flex items-center gap-1">
                             <FileText className="h-3 w-3" />
@@ -196,23 +239,34 @@ export function ActivityFeed({ client }: ActivityFeedProps) {
                             <StickyNote className="h-3 w-3 text-primary" />
                             {noteCount} notes
                         </span>
+                        {assignmentCount > 0 && (
+                            <span className="flex items-center gap-1">
+                                <UserCheck className="h-3 w-3 text-amber-500" />
+                                {assignmentCount} reassignment{assignmentCount !== 1 ? 's' : ''}
+                            </span>
+                        )}
                     </div>
                 )}
 
                 {/* Filter tabs */}
-                <div className="flex gap-1 bg-background rounded-lg p-1 border border-border w-fit">
-                    {(['all', 'hours', 'notes'] as ActivityType[]).map(f => (
+                <div className="flex gap-1 bg-background rounded-lg p-1 border border-border w-fit flex-wrap">
+                    {([
+                        { key: 'all', label: `All (${allItems.length})` },
+                        { key: 'hours', label: `Hours (${hourCount})` },
+                        { key: 'notes', label: `Notes (${noteCount})` },
+                        ...(assignmentCount > 0 ? [{ key: 'assignments', label: `Assignments (${assignmentCount})` }] : []),
+                    ] as { key: ActivityType; label: string }[]).map(f => (
                         <button
-                            key={f}
-                            onClick={() => { setFilter(f); setShowAll(false); }}
+                            key={f.key}
+                            onClick={() => { setFilter(f.key); setShowAll(false); }}
                             className={cn(
                                 'px-3 py-1 text-xs font-medium rounded-md transition-all capitalize',
-                                filter === f
+                                filter === f.key
                                     ? 'bg-primary text-primary-foreground shadow-sm'
                                     : 'text-muted-foreground hover:text-foreground'
                             )}
                         >
-                            {f === 'all' ? `All (${allItems.length})` : f === 'hours' ? `Hours (${hourCount})` : `Notes (${noteCount})`}
+                            {f.label}
                         </button>
                     ))}
                 </div>
@@ -233,20 +287,20 @@ export function ActivityFeed({ client }: ActivityFeedProps) {
                 <div className="px-6 pb-4">
                     {grouped.map(group => (
                         <div key={group.label}>
-                            {/* Date group header */}
                             <div className="sticky top-0 bg-card/95 backdrop-blur-sm py-2 mt-4 first:mt-3">
                                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                     {group.label}
                                 </span>
                             </div>
-                            {/* Items in group */}
                             <div className="divide-y divide-border/30">
                                 {group.items.map(item => (
                                     <div key={`${item.type}-${item.data.id}`}>
                                         {item.type === 'time_log' ? (
                                             <TimeLogRow log={item.data} />
-                                        ) : (
+                                        ) : item.type === 'note' ? (
                                             <NoteRow note={item.data} />
+                                        ) : (
+                                            <AssignmentRow assignment={item.data} />
                                         )}
                                     </div>
                                 ))}

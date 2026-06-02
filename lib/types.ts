@@ -200,6 +200,17 @@ export interface ClientNote {
     updatedAt: string;
 }
 
+export interface ClientAssignment {
+    id: string;
+    organizationId: string;
+    clientId: string;
+    assignedTo: string;       // display name
+    assignedBy: string;       // display name
+    assignedAt: string;       // ISO
+    unassignedAt?: string;    // ISO — null means currently active
+    notes?: string;           // optional reason for change
+}
+
 export interface TimeLog {
     id: string;
     organizationId: string;
