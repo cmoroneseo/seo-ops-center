@@ -1,4 +1,7 @@
-import { mockClients } from '@/lib/mock-data/workspace';
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, Calendar, Clock, Globe, MoreVertical, Shield } from 'lucide-react';
 import Link from 'next/link';
@@ -8,14 +11,29 @@ import { isClientAtRisk } from '@/lib/utils';
 import { AlertTriangle } from 'lucide-react';
 import { EngagementOverview } from '@/components/workspace/EngagementOverview';
 import { DeliverablesTracker } from '@/components/workspace/DeliverablesTracker';
+import { getClients } from '@/lib/supabase/clients';
+import { useOrganization } from '@/components/providers/organization-provider';
+import { ClientProject } from '@/lib/types';
 
-// In a real app, this would be a server component fetching data
-// For now we'll use the mock data
-export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
-    const { id } = await params;
-    const client = mockClients.find(c => c.id === id);
+export default function ClientDetailPage() {
+    const params = useParams();
+    const id = params.id as string;
+    const { organization } = useOrganization();
+    const [client, setClient] = useState<ClientProject | null | undefined>(undefined); // undefined = loading
 
-    if (!client) {
+    useEffect(() => {
+        if (!organization) return;
+        getClients(organization.id).then((all) => {
+            const found = all.find(c => c.id === id);
+            setClient(found ?? null);
+        });
+    }, [organization?.id, id]);
+
+    if (client === undefined) {
+        return <div className="p-8 text-muted-foreground">Loading client...</div>;
+    }
+
+    if (client === null) {
         notFound();
     }
 
@@ -38,7 +56,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
                         <AlertTriangle className="h-5 w-5" />
                         <div>
                             <div className="font-semibold">At Risk: Falling Behind Schedule</div>
-                            <div className="text-sm text-red-500/80">This client is significantly behind on monthly deliverables. Immediate action required.</div>
+                            <div className="text-sm text-red-500/80">This client is significantly behind on monthly deliverables.</div>
                         </div>
                     </div>
                 )}
@@ -47,17 +65,19 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
                     <div className="space-y-1">
                         <h1 className="text-3xl font-bold tracking-tight neon-gradient-text">{client.clientName}</h1>
                         <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                            <div className="flex items-center gap-1.5">
-                                <Globe className="h-4 w-4" />
-                                <span>example.com</span>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                                <Calendar className="h-4 w-4" />
-                                <span>Launched {new Date(client.launchDate).toLocaleDateString()}</span>
-                            </div>
+                            {client.launchDate && (
+                                <div className="flex items-center gap-1.5">
+                                    <Calendar className="h-4 w-4" />
+                                    <span>Launched {new Date(client.launchDate).toLocaleDateString()}</span>
+                                </div>
+                            )}
                             <div className="flex items-center gap-1.5">
                                 <Shield className="h-4 w-4" />
                                 <span>Tier {client.tier}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                                <Clock className="h-4 w-4" />
+                                <span>{client.seoHours}h/mo</span>
                             </div>
                         </div>
                     </div>
@@ -78,15 +98,18 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
                 </div>
             </div>
 
-            {/* Engagement & Stats Section */}
+            {/* Engagement & Stats */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
                     <EngagementOverview client={client} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                     <div className="p-4 rounded-xl border border-border/50 bg-card flex flex-col justify-center">
-                        <div className="text-sm text-muted-foreground mb-1">Blogs Due</div>
-                        <div className="text-2xl font-bold">{client.blogsDuePerMonth} <span className="text-sm font-normal text-muted-foreground">/mo</span></div>
+                        <div className="text-sm text-muted-foreground mb-1">Blogs/mo</div>
+                        <div className="text-2xl font-bold">
+                            {client.blogsDuePerMonth || '—'}
+                            {client.blogsDuePerMonth > 0 && <span className="text-sm font-normal text-muted-foreground"> /mo</span>}
+                        </div>
                     </div>
                     <div className="p-4 rounded-xl border border-border/50 bg-card flex flex-col justify-center">
                         <div className="text-sm text-muted-foreground mb-1">Tier</div>
@@ -104,20 +127,16 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
                 </div>
             </div>
 
-            {/* Main Content Area */}
+            {/* Main Content */}
             <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-                {/* Left Column: Deliverables & Notes */}
                 <div className="lg:col-span-2 space-y-6">
                     <DeliverablesTracker client={client} />
-
                     <div className="rounded-xl border border-border/50 bg-card p-6">
                         <h3 className="text-lg font-semibold mb-4">Internal Notes</h3>
                         <NotesSection />
                     </div>
                 </div>
 
-                {/* Right Column: Approvals */}
                 <div className="space-y-6">
                     <div className="rounded-xl border border-border/50 bg-card p-6">
                         <div className="flex items-center justify-between mb-4">
@@ -131,7 +150,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
                         <div className="space-y-3">
                             {client.approvals.items.length > 0 ? (
                                 client.approvals.items.map((item) => (
-                                    <div key={item.id} className="p-3 rounded-lg bg-muted/30 border border-border/50 text-sm hover:bg-muted/50 transition-colors cursor-pointer">
+                                    <div key={item.id} className="p-3 rounded-lg bg-muted/30 border border-border/50 text-sm">
                                         <div className="flex items-center justify-between">
                                             <div className="font-medium">{item.title}</div>
                                             <span className="text-[10px] uppercase tracking-wider text-muted-foreground border border-border px-1.5 rounded">

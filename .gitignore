@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# generated workbook export (contains real client data — do not commit)
+scripts/workbook-data.json

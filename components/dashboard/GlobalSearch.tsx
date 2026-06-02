@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, X, Briefcase, CheckSquare, FileText, Command } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
-import { mockClients } from '@/lib/mock-data/workspace';
+import { useClients } from '@/lib/hooks/use-clients';
 
 interface GlobalSearchProps {
     isOpen: boolean;
@@ -14,28 +13,22 @@ interface GlobalSearchProps {
 export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
     const [query, setQuery] = useState('');
     const router = useRouter();
+    const { clients } = useClients({ statuses: ['Active'] });
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                if (!isOpen) {
-                    // This should ideally be handled by the parent state, 
-                    // but for now we assume isOpen is synced.
-                }
-            }
-            if (e.key === 'Escape') {
-                onClose();
-            }
+            if (e.key === 'Escape') onClose();
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isOpen, onClose]);
+    }, [onClose]);
 
-    const results = query.length > 1 ? mockClients.filter(client =>
-        client.clientName.toLowerCase().includes(query.toLowerCase()) ||
-        client.accountManager.toLowerCase().includes(query.toLowerCase())
-    ).slice(0, 5) : [];
+    const results = query.length > 1
+        ? clients.filter(c =>
+            c.clientName.toLowerCase().includes(query.toLowerCase()) ||
+            c.accountManager.toLowerCase().includes(query.toLowerCase())
+        ).slice(0, 5)
+        : [];
 
     const handleSelect = (clientId: string) => {
         router.push(`/workspace/${clientId}`);
@@ -56,7 +49,7 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
                     <input
                         autoFocus
                         type="text"
-                        placeholder="Search clients, tasks, or reports... (Cmd+K)"
+                        placeholder="Search clients... (Cmd+K)"
                         className="flex-1 bg-transparent border-none focus:ring-0 text-lg px-4"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
@@ -93,7 +86,9 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
                                                 </div>
                                                 <div className="flex-1 overflow-hidden">
                                                     <p className="font-medium text-sm truncate">{client.clientName}</p>
-                                                    <p className="text-xs text-muted-foreground truncate">{client.accountManager} • T{client.tier}</p>
+                                                    <p className="text-xs text-muted-foreground truncate">
+                                                        {client.accountManager} · T{client.tier} · {client.seoHours}h/mo
+                                                    </p>
                                                 </div>
                                                 <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded border border-border text-muted-foreground">Jump to</span>
                                             </button>
@@ -102,7 +97,7 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
                                 </div>
                             ) : (
                                 <div className="py-12 text-center">
-                                    <p className="text-muted-foreground">No matches found for "{query}"</p>
+                                    <p className="text-muted-foreground">No matches for "{query}"</p>
                                 </div>
                             )}
                         </div>
@@ -128,7 +123,7 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
                         <span className="flex items-center gap-1"><span className="bg-background px-1 rounded border border-border">↑↓</span> to navigate</span>
                         <span className="flex items-center gap-1"><span className="bg-background px-1 rounded border border-border">Enter</span> to select</span>
                     </div>
-                    <span>Powered by SEO OPS AI</span>
+                    <span>SEO OPS</span>
                 </div>
             </div>
         </div>

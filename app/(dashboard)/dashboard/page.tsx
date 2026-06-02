@@ -2,19 +2,25 @@
 
 import { useState, useEffect } from 'react';
 import { mockTasks } from '@/lib/mock-data/tasks';
-import { mockClients } from '@/lib/mock-data/workspace';
-import { ClientListPanel } from '@/components/workspace/ClientListPanel';
 import { GlobalTaskProgress, GlobalNeedsAttention, AgencyQuickStats, GlobalUpcomingTasks, GlobalDeliverablesStats } from '@/components/dashboard/AgencyWidgets';
+import { useOrganization } from '@/components/providers/organization-provider';
+import { getDeliverables } from '@/lib/supabase/deliverables';
+import { Deliverable } from '@/lib/types';
 
 export default function DashboardPage() {
+    const { organization } = useOrganization();
     const [tasks] = useState(mockTasks);
-    // Aggregate deliverables from all clients
-    const deliverables = mockClients.flatMap(c => c.activeDeliverables || []);
+    const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
         setMounted(true);
     }, []);
+
+    useEffect(() => {
+        if (!organization) return;
+        getDeliverables(organization.id).then(setDeliverables);
+    }, [organization?.id]);
 
     if (!mounted) return null;
 
@@ -23,11 +29,9 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between shrink-0">
                 <div>
                     <h2 className="text-4xl font-black tracking-tight text-foreground underline decoration-red-600 decoration-4 underline-offset-8 mb-2">Dashboard</h2>
-                    <p className="text-muted-foreground font-medium italic">Welcome back, Agency Owner.</p>
-                </div>
-                <div className="bg-orange-500 text-white text-[10px] font-bold px-3 py-1.5 rounded-full flex items-center gap-2 shadow-lg shadow-orange-500/20">
-                    <span className="h-2 w-2 bg-white rounded-full animate-pulse" />
-                    DEMO MODE ACTIVE (⌘+Shift+D to exit)
+                    <p className="text-muted-foreground font-medium italic">
+                        Welcome back, {organization?.name ?? 'Agency'}.
+                    </p>
                 </div>
             </div>
 

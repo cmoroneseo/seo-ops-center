@@ -1,35 +1,48 @@
 'use client';
 
-import { mockClients, mockMonthlyPlans } from '@/lib/mock-data/workspace';
+import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { ArrowLeft, Calendar, CheckCircle2, Clock, ExternalLink, LayoutDashboard } from 'lucide-react';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { useOrganization } from '@/components/providers/organization-provider';
+import { getClients } from '@/lib/supabase/clients';
+import { getTimeLogs } from '@/lib/supabase/time-logs';
+import { ClientProject, TimeLog } from '@/lib/types';
 
-interface ClientPortalPageProps {
-    params: Promise<{
-        id: string;
-    }>;
-}
+export default function ClientPortalPage() {
+    const params = useParams();
+    const id = params.id as string;
+    const { organization } = useOrganization();
+    const [client, setClient] = useState<ClientProject | null | undefined>(undefined);
+    const [logs, setLogs] = useState<TimeLog[]>([]);
+    const thisMonth = new Date().toISOString().slice(0, 7);
 
-export default async function ClientPortalPage({ params }: ClientPortalPageProps) {
-    const { id } = await params;
-    const client = mockClients.find(c => c.id === id);
-    const plan = mockMonthlyPlans.find(p => p.clientId === id);
+    useEffect(() => {
+        if (!organization) return;
+        Promise.all([
+            getClients(organization.id),
+            getTimeLogs(organization.id, { clientId: id, month: thisMonth }),
+        ]).then(([all, timeLogs]) => {
+            setClient(all.find(c => c.id === id) ?? null);
+            setLogs(timeLogs);
+        });
+    }, [organization?.id, id]);
 
-    if (!client) {
-        notFound();
+    if (client === undefined) {
+        return <div className="p-8 text-muted-foreground">Loading...</div>;
     }
 
-    // Calculate total logged hours from plan (mock data)
-    // In a real app, this would come from the time_logs table
-    const totalLogged = plan?.totalLogged || 0;
-    const totalPlanned = plan?.totalPlanned || client.seoHours;
-    const percentUsed = Math.min((totalLogged / totalPlanned) * 100, 100);
+    if (client === null) {
+        return <div className="p-8">Client not found.</div>;
+    }
+
+    const totalLogged = logs.reduce((s, l) => s + l.hours, 0);
+    const totalPlanned = client.seoHours || 0;
+    const percentUsed = totalPlanned > 0 ? Math.min((totalLogged / totalPlanned) * 100, 100) : 0;
 
     return (
         <div className="min-h-screen bg-background flex flex-col">
-            {/* Header */}
             <header className="border-b border-border bg-card">
                 <div className="container mx-auto px-4 h-16 flex items-center justify-between">
                     <div className="flex items-center gap-4">
@@ -49,7 +62,7 @@ export default async function ClientPortalPage({ params }: ClientPortalPageProps
                     <div className="flex items-center gap-3">
                         <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/50 text-xs font-medium text-muted-foreground">
                             <Calendar className="h-3 w-3" />
-                            November 2025
+                            {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
                         </div>
                         <button className="p-2 hover:bg-muted rounded-full transition-colors text-muted-foreground">
                             <ExternalLink className="h-5 w-5" />
@@ -59,7 +72,6 @@ export default async function ClientPortalPage({ params }: ClientPortalPageProps
             </header>
 
             <main className="flex-1 container mx-auto px-4 py-8 space-y-8">
-                {/* Overview Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {/* Budget Card */}
                     <div className="col-span-1 md:col-span-2 bg-card border border-border rounded-xl p-6 shadow-sm">
@@ -68,9 +80,11 @@ export default async function ClientPortalPage({ params }: ClientPortalPageProps
                                 <Clock className="h-5 w-5 text-primary" />
                                 Monthly Budget
                             </h2>
-                            <span className="text-2xl font-bold">{totalLogged.toFixed(1)} <span className="text-muted-foreground text-sm font-normal">/ {totalPlanned} hrs</span></span>
+                            <span className="text-2xl font-bold">
+                                {totalLogged.toFixed(1)}
+                                <span className="text-muted-foreground text-sm font-normal"> / {totalPlanned}h</span>
+                            </span>
                         </div>
-
                         <div className="space-y-2">
                             <div className="flex items-center justify-between text-sm">
                                 <span className="font-medium">Utilization</span>
@@ -78,18 +92,14 @@ export default async function ClientPortalPage({ params }: ClientPortalPageProps
                             </div>
                             <div className="h-4 w-full bg-muted rounded-full overflow-hidden">
                                 <div
-                                    className={cn(
-                                        "h-full rounded-full transition-all duration-1000",
-                                        percentUsed > 100 ? "bg-red-500" : "bg-primary"
-                                    )}
+                                    className={cn("h-full rounded-full transition-all duration-1000", percentUsed > 100 ? "bg-red-500" : "bg-primary")}
                                     style={{ width: `${percentUsed}%` }}
                                 />
                             </div>
                             <p className="text-xs text-muted-foreground pt-2">
                                 {totalPlanned - totalLogged > 0
                                     ? `${(totalPlanned - totalLogged).toFixed(1)} hours remaining`
-                                    : `${(totalLogged - totalPlanned).toFixed(1)} hours over budget`
-                                }
+                                    : `${(totalLogged - totalPlanned).toFixed(1)} hours over budget`}
                             </p>
                         </div>
                     </div>
@@ -114,44 +124,39 @@ export default async function ClientPortalPage({ params }: ClientPortalPageProps
                     </div>
                 </div>
 
-                {/* Recent Activity / Work Log */}
+                {/* Work Log */}
                 <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
                     <div className="p-6 border-b border-border/50">
                         <h2 className="font-semibold flex items-center gap-2">
                             <LayoutDashboard className="h-5 w-5 text-primary" />
-                            Recent Activity
+                            Work Log — {new Date().toLocaleString('default', { month: 'long' })}
                         </h2>
                     </div>
                     <div className="divide-y divide-border/50">
-                        {/* Mock Work Logs */}
-                        {[1, 2, 3].map((_, i) => (
-                            <div key={i} className="p-4 hover:bg-muted/20 transition-colors flex items-start gap-4">
-                                <div className="mt-1 w-2 h-2 rounded-full bg-primary" />
+                        {logs.length > 0 ? logs.slice(0, 10).map((log) => (
+                            <div key={log.id} className="p-4 hover:bg-muted/20 transition-colors flex items-start gap-4">
+                                <div className="mt-1 w-2 h-2 rounded-full bg-primary shrink-0" />
                                 <div className="flex-1">
                                     <div className="flex items-center justify-between mb-1">
-                                        <h4 className="font-medium text-sm">SEO Optimization & Content Update</h4>
-                                        <span className="text-xs text-muted-foreground">Nov {10 - i}, 2025</span>
+                                        <h4 className="font-medium text-sm">{log.description || 'SEO Work'}</h4>
+                                        <span className="text-xs text-muted-foreground">{new Date(log.date).toLocaleDateString()}</span>
                                     </div>
-                                    <p className="text-sm text-muted-foreground">
-                                        Performed keyword research for new blog topics and updated meta tags for the homepage.
-                                    </p>
-                                    <div className="mt-2 flex items-center gap-2">
-                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border">
-                                            Task
-                                        </span>
-                                        <span className="text-xs font-medium text-foreground">
-                                            2.5 hrs
-                                        </span>
+                                    <div className="mt-1 flex items-center gap-2">
+                                        <span className="text-xs font-medium text-foreground">{log.hours}h</span>
                                     </div>
                                 </div>
                             </div>
-                        ))}
+                        )) : (
+                            <div className="p-8 text-center text-sm text-muted-foreground italic">
+                                No hours logged this month yet.
+                            </div>
+                        )}
                     </div>
-                    <div className="p-4 bg-muted/20 text-center">
-                        <button className="text-sm text-primary hover:underline font-medium">
-                            View Full History
-                        </button>
-                    </div>
+                    {logs.length > 10 && (
+                        <div className="p-4 bg-muted/20 text-center">
+                            <span className="text-sm text-muted-foreground">{logs.length - 10} more entries</span>
+                        </div>
+                    )}
                 </div>
             </main>
         </div>

@@ -97,6 +97,7 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
                                 stripeCustomerId: m.organization.stripe_customer_id,
                                 subscriptionStatus: m.organization.subscription_status,
                                 planType: m.organization.plan_type || 'starter',
+                                isInternal: m.organization.is_internal ?? false,
                                 createdAt: m.organization.created_at
                             } : null
                         })).filter((m: any) => m.organization !== null);

@@ -7,7 +7,6 @@ import { AlertCircle, CheckCircle2, Clock, AlertTriangle, ChevronDown, ChevronRi
 import Link from 'next/link';
 import { useState } from 'react';
 import { TimeLogModal } from './TimeLogModal';
-import { mockClients } from '@/lib/mock-data/workspace';
 
 interface ClientTableProps {
     clients: ClientProject[];
@@ -258,7 +257,7 @@ export function ClientTable({ clients }: ClientTableProps) {
             <TimeLogModal
                 isOpen={isTimeLogOpen}
                 onClose={() => setIsTimeLogOpen(false)}
-                clients={mockClients}
+                clients={clients}
                 initialClientId={selectedClientId}
             />
         </div>
