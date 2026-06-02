@@ -39,14 +39,23 @@ export default function SettingsPage() {
         setInviteError(null);
         setInviteSuccess(false);
 
-        const result = await addMemberByEmail(organization.id, inviteEmail.trim());
-
-        if (result.success) {
+        try {
+            const res = await fetch('/api/invite', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: inviteEmail.trim(),
+                    organizationName: organization.name,
+                    invitedByName: 'Carlos',
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to send invite');
             setInviteSuccess(true);
             setInviteEmail('');
             fetchMembers();
-        } else {
-            setInviteError(result.error || 'Failed to add member');
+        } catch (err: any) {
+            setInviteError(err.message || 'Failed to send invite');
         }
         setIsInviteLoading(false);
     };
@@ -117,7 +126,7 @@ export default function SettingsPage() {
                                     required
                                 />
                                 {inviteError && <p className="text-xs text-red-500 mt-1">{inviteError}</p>}
-                                {inviteSuccess && <p className="text-xs text-green-500 mt-1">Teammate added successfully!</p>}
+                                {inviteSuccess && <p className="text-xs text-green-500 mt-1">✓ Invitation sent! They'll receive an email with an activation link.</p>}
                             </div>
                             <button
                                 type="submit"
