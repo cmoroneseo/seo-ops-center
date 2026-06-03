@@ -205,6 +205,7 @@ export function IntegrationsTab({ clientId }: Props) {
                     const integration = getIntegration(cfg.service);
                     const connected = isConnected(cfg.service);
                     const pendingSetup = isPendingSetup(cfg.service);
+                    const needsPropertySetup = integration?.needsPropertySetup ?? false;
                     const hasError = integration?.syncStatus === 'error';
                     // GA4 and GSC share one connect button — show the button on GA4, hide on GSC
                     const isGscShared = cfg.service === 'gsc';
@@ -214,8 +215,8 @@ export function IntegrationsTab({ clientId }: Props) {
                             key={cfg.service}
                             className={cn(
                                 'flex items-start justify-between rounded-xl border p-4 gap-4',
+                                (pendingSetup || needsPropertySetup) ? 'border-yellow-500/20 bg-yellow-500/5' :
                                 connected ? 'border-green-500/20 bg-green-500/5' :
-                                pendingSetup ? 'border-yellow-500/20 bg-yellow-500/5' :
                                 hasError ? 'border-red-500/20 bg-red-500/5' :
                                 'border-border/50 bg-card',
                             )}
@@ -228,10 +229,16 @@ export function IntegrationsTab({ clientId }: Props) {
                                         {isGscShared && connected && (
                                             <span className="text-xs text-muted-foreground">(shared with GA4 auth)</span>
                                         )}
-                                        {connected && (
+                                        {connected && !needsPropertySetup && (
                                             <span className="flex items-center gap-1 text-xs text-green-500">
                                                 <CheckCircle2 className="h-3 w-3" />
                                                 Connected
+                                            </span>
+                                        )}
+                                        {connected && needsPropertySetup && (
+                                            <span className="flex items-center gap-1 text-xs text-yellow-500">
+                                                <Settings2 className="h-3 w-3" />
+                                                Property not selected
                                             </span>
                                         )}
                                         {pendingSetup && (
@@ -300,7 +307,7 @@ export function IntegrationsTab({ clientId }: Props) {
                                     null
                                 ) : (
                                     <div className="flex items-center gap-2">
-                                        {(connected || hasError || pendingSetup) && (
+                                        {(connected || hasError || pendingSetup || needsPropertySetup) && (
                                             <button
                                                 onClick={() => disconnect(cfg.service)}
                                                 disabled={disconnecting === cfg.service}
@@ -310,7 +317,7 @@ export function IntegrationsTab({ clientId }: Props) {
                                                 Disconnect
                                             </button>
                                         )}
-                                        {pendingSetup && cfg.service === 'ga4' && (
+                                        {(pendingSetup || needsPropertySetup) && cfg.service === 'ga4' && (
                                             <button
                                                 onClick={() => setShowPropertyPicker('ga4-gsc')}
                                                 className="flex items-center gap-1.5 text-xs bg-yellow-500 text-white rounded-md px-2.5 py-1.5 hover:bg-yellow-500/90 transition-colors"
@@ -319,13 +326,23 @@ export function IntegrationsTab({ clientId }: Props) {
                                                 Select Properties
                                             </button>
                                         )}
-                                        {pendingSetup && cfg.service === 'gbp' && (
+                                        {(pendingSetup || needsPropertySetup) && cfg.service === 'gbp' && (
                                             <button
                                                 onClick={() => setShowPropertyPicker('gbp')}
                                                 className="flex items-center gap-1.5 text-xs bg-yellow-500 text-white rounded-md px-2.5 py-1.5 hover:bg-yellow-500/90 transition-colors"
                                             >
                                                 <Settings2 className="h-3.5 w-3.5" />
                                                 Select Location
+                                            </button>
+                                        )}
+                                        {/* Let connected+configured users re-pick without full disconnect */}
+                                        {connected && !needsPropertySetup && (cfg.service === 'ga4' || cfg.service === 'gbp') && (
+                                            <button
+                                                onClick={() => setShowPropertyPicker(cfg.service === 'ga4' ? 'ga4-gsc' : 'gbp')}
+                                                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border hover:border-primary/40 rounded-md px-2.5 py-1.5 transition-all"
+                                            >
+                                                <Settings2 className="h-3.5 w-3.5" />
+                                                Change
                                             </button>
                                         )}
                                         {!pendingSetup && <button

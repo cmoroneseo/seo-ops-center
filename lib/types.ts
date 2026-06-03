@@ -226,6 +226,8 @@ export interface ClientIntegration {
     lastSyncedAt?: string;
     syncStatus: IntegrationSyncStatus;
     errorMessage?: string;
+    // True when tokens exist but the property/location hasn't been selected yet
+    needsPropertySetup?: boolean;
 }
 
 export interface SyncRun {

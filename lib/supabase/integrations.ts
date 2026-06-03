@@ -2,7 +2,21 @@ import { createClient } from './client';
 import { createAdminClient } from './admin';
 import { ClientIntegration, IntegrationService } from '../types';
 
+// Which credential field signals a completed property selection per service
+const PROPERTY_FIELD: Record<string, string> = {
+    ga4: 'property_id',
+    gsc: 'site_url',
+    gbp: 'location_name',
+};
+
 function rowToIntegration(row: any): ClientIntegration {
+    const creds = row.credentials ?? {};
+    const propertyField = PROPERTY_FIELD[row.service];
+    // needsPropertySetup = connected/active but the property hasn't been chosen yet
+    const needsPropertySetup = propertyField
+        ? row.sync_status === 'active' && !creds[propertyField]
+        : false;
+
     return {
         id: row.id,
         organizationId: row.organization_id,
@@ -13,17 +27,20 @@ function rowToIntegration(row: any): ClientIntegration {
         lastSyncedAt: row.last_synced_at ?? undefined,
         syncStatus: row.sync_status,
         errorMessage: row.error_message ?? undefined,
+        needsPropertySetup,
     };
 }
 
-/** Fetch all integrations for a client (browser-safe, no credentials). */
+/** Fetch all integrations for a client (browser-safe, credentials stripped except for setup check). */
 export async function getClientIntegrations(clientId: string): Promise<ClientIntegration[]> {
     const supabase = createClient();
     if (!supabase) return [];
     try {
+        // Include credentials so we can check if property selection is complete,
+        // but the full token is never sent to the client-side type (only the flag).
         const { data, error } = await supabase
             .from('client_integrations')
-            .select('id, organization_id, client_id, service, connected_by, connected_at, last_synced_at, sync_status, error_message')
+            .select('id, organization_id, client_id, service, credentials, connected_by, connected_at, last_synced_at, sync_status, error_message')
             .eq('client_id', clientId)
             .order('service');
         if (error) throw error;
