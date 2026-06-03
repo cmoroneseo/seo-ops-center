@@ -7,7 +7,9 @@
 --   migrations/002_fix_rls_policies.sql      (org read-back + members recursion fix)
 --   migrations/003_seo_ops_domain.sql        (clients master record + deliverables,
 --                                             client_change_log, team_bonus, is_internal)
--- Running this file on an empty project yields the same state as 001 + 002 + 003.
+--   migrations/004_client_integrations.sql  (client_integrations, sync_runs,
+--                                             extends metrics with client_id/metric_month)
+-- Running this file on an empty project yields the same state as 001–004.
 -- =============================================================================
 
 -- Enable UUID extension

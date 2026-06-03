@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useParams } from 'next/navigation';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck, Plug } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { ClientNotesPanel } from '@/components/workspace/ClientNotesPanel';
@@ -14,9 +14,12 @@ import { AlertTriangle } from 'lucide-react';
 import { EngagementOverview } from '@/components/workspace/EngagementOverview';
 import { DeliverablesTracker } from '@/components/workspace/DeliverablesTracker';
 import { MonthlyPlannerCard } from '@/components/workspace/MonthlyPlannerCard';
+import { IntegrationsTab } from '@/components/workspace/IntegrationsTab';
 import { getClients } from '@/lib/supabase/clients';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { ClientProject } from '@/lib/types';
+
+type Tab = 'overview' | 'integrations';
 
 export default function ClientDetailPage() {
     const params = useParams();
@@ -25,6 +28,7 @@ export default function ClientDetailPage() {
     const [client, setClient] = useState<ClientProject | null | undefined>(undefined); // undefined = loading
     const [showReassign, setShowReassign] = useState(false);
     const [activityRefreshKey, setActivityRefreshKey] = useState(0);
+    const [activeTab, setActiveTab] = useState<Tab>('overview');
 
     useEffect(() => {
         if (!organization) return;
@@ -102,6 +106,43 @@ export default function ClientDetailPage() {
                     </div>
                 </div>
             </div>
+
+            {/* Tab bar */}
+            <div className="flex items-center gap-1 border-b border-border/50">
+                <button
+                    onClick={() => setActiveTab('overview')}
+                    className={cn(
+                        'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                        activeTab === 'overview'
+                            ? 'border-primary text-foreground'
+                            : 'border-transparent text-muted-foreground hover:text-foreground',
+                    )}
+                >
+                    Overview
+                </button>
+                <button
+                    onClick={() => setActiveTab('integrations')}
+                    className={cn(
+                        'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                        activeTab === 'integrations'
+                            ? 'border-primary text-foreground'
+                            : 'border-transparent text-muted-foreground hover:text-foreground',
+                    )}
+                >
+                    <Plug className="h-3.5 w-3.5" />
+                    Integrations
+                </button>
+            </div>
+
+            {/* Integrations tab */}
+            {activeTab === 'integrations' && (
+                <Suspense fallback={null}>
+                    <IntegrationsTab clientId={client.id} />
+                </Suspense>
+            )}
+
+            {/* Overview tab content */}
+            {activeTab === 'overview' && <>
 
             {/* Engagement & Stats */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -186,6 +227,8 @@ export default function ClientDetailPage() {
                     <ActivityFeed client={client} refreshKey={activityRefreshKey} />
                 </div>
             </div>
+
+            </> /* end overview tab */}
 
             {/* Reassign Modal */}
             {showReassign && (

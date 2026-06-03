@@ -211,6 +211,34 @@ export interface ClientAssignment {
     notes?: string;           // optional reason for change
 }
 
+export type IntegrationService = 'ga4' | 'gsc' | 'gbp' | 'ahrefs';
+export type IntegrationSyncStatus = 'active' | 'error' | 'disconnected';
+
+export interface ClientIntegration {
+    id: string;
+    organizationId: string;
+    clientId: string;
+    service: IntegrationService;
+    // credentials are intentionally excluded from the client-side type —
+    // the UI only needs status, not raw tokens
+    connectedBy?: string;
+    connectedAt: string;
+    lastSyncedAt?: string;
+    syncStatus: IntegrationSyncStatus;
+    errorMessage?: string;
+}
+
+export interface SyncRun {
+    id: string;
+    organizationId: string;
+    startedAt: string;
+    finishedAt?: string;
+    status: 'running' | 'completed' | 'partial' | 'failed';
+    clientsSynced: number;
+    clientsErrored: number;
+    errorSummary: { clientId: string; service: string; message: string }[];
+}
+
 export interface TimeLog {
     id: string;
     organizationId: string;
