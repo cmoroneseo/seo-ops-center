@@ -1,20 +1,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck } from 'lucide-react';
-import { ClientProject, TimeLog, ClientNote, ClientAssignment } from '@/lib/types';
+import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2 } from 'lucide-react';
+import { ClientProject, TimeLog, ClientNote, ClientAssignment, ClientActivityEvent } from '@/lib/types';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
 import { getClientNotes } from '@/lib/supabase/client-notes';
 import { getClientAssignments } from '@/lib/supabase/client-assignments';
+import { getClientActivity } from '@/lib/supabase/client-activity';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
 
-type ActivityType = 'all' | 'hours' | 'notes' | 'assignments';
+type ActivityType = 'all' | 'hours' | 'notes' | 'assignments' | 'integrations';
 
 type ActivityItem =
     | { type: 'time_log'; data: TimeLog; date: Date }
     | { type: 'note'; data: ClientNote; date: Date }
-    | { type: 'assignment'; data: ClientAssignment; date: Date };
+    | { type: 'assignment'; data: ClientAssignment; date: Date }
+    | { type: 'integration_event'; data: ClientActivityEvent; date: Date };
 
 interface ActivityFeedProps {
     client: ClientProject;
@@ -150,6 +152,59 @@ function AssignmentRow({ assignment }: { assignment: ClientAssignment }) {
     );
 }
 
+const SERVICE_LABELS: Record<string, string> = {
+    ga4: 'Google Analytics 4',
+    gsc: 'Google Search Console',
+    gbp: 'Google Business Profile',
+    ahrefs: 'Ahrefs',
+};
+
+function IntegrationEventRow({ event }: { event: ClientActivityEvent }) {
+    const { eventType, metadata, actorName, occurredAt } = event;
+    const service = metadata.service as string;
+    const serviceLabel = SERVICE_LABELS[service] ?? service?.toUpperCase();
+    const displayName = metadata.display_name as string | undefined;
+    const oldDisplayName = metadata.old_display_name as string | undefined;
+    const locationAddress = metadata.location_address as string | undefined;
+
+    const isConnect = eventType === 'integration.connected';
+    const isDisconnect = eventType === 'integration.disconnected';
+    const isReconfig = eventType === 'integration.reconfigured';
+
+    const iconColor = isConnect ? 'text-green-500' : isDisconnect ? 'text-red-400' : 'text-yellow-500';
+    const bgColor = isConnect ? 'bg-green-500/10' : isDisconnect ? 'bg-red-400/10' : 'bg-yellow-500/10';
+    const Icon = isConnect ? Plug : isDisconnect ? Unlink : Settings2;
+
+    return (
+        <div className="flex items-start gap-3 py-3">
+            <div className={`w-7 h-7 rounded-full ${bgColor} flex items-center justify-center shrink-0 mt-0.5`}>
+                <Icon className={`h-3.5 w-3.5 ${iconColor}`} />
+            </div>
+            <div className="flex-1 min-w-0">
+                <p className="text-sm leading-snug">
+                    {actorName && <span className="font-semibold">{actorName} </span>}
+                    {isConnect && <span className="text-foreground/80">connected </span>}
+                    {isDisconnect && <span className="text-foreground/80">disconnected </span>}
+                    {isReconfig && <span className="text-foreground/80">changed </span>}
+                    <span className={`font-medium ${iconColor}`}>{serviceLabel}</span>
+                    <span className="text-muted-foreground text-xs ml-1.5">
+                        {new Date(occurredAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                </p>
+                {displayName && (isConnect || isReconfig) && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                        {isReconfig && oldDisplayName ? (
+                            <><span className="line-through opacity-50">{oldDisplayName}</span> → {displayName}</>
+                        ) : (
+                            <>{displayName}{locationAddress ? ` · ${locationAddress}` : ''}</>
+                        )}
+                    </p>
+                )}
+            </div>
+        </div>
+    );
+}
+
 export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
     const { organization } = useOrganization();
     const [allItems, setAllItems] = useState<ActivityItem[]>([]);
@@ -164,7 +219,8 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
             getTimeLogs(organization.id, { clientId: client.id }),
             getClientNotes(client.id),
             getClientAssignments(client.id),
-        ]).then(([logs, notes, assignments]) => {
+            getClientActivity(client.id),
+        ]).then(([logs, notes, assignments, activityEvents]) => {
             const items: ActivityItem[] = [
                 ...logs.map(l => ({
                     type: 'time_log' as const,
@@ -181,6 +237,11 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                     data: a,
                     date: new Date(a.assignedAt),
                 })),
+                ...activityEvents.map(e => ({
+                    type: 'integration_event' as const,
+                    data: e,
+                    date: new Date(e.occurredAt),
+                })),
             ];
             items.sort((a, b) => b.date.getTime() - a.date.getTime());
             setAllItems(items);
@@ -194,6 +255,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
             if (filter === 'hours') return i.type === 'time_log';
             if (filter === 'notes') return i.type === 'note';
             if (filter === 'assignments') return i.type === 'assignment';
+            if (filter === 'integrations') return i.type === 'integration_event';
             return true;
         });
 
@@ -204,6 +266,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
     const hourCount = allItems.filter(i => i.type === 'time_log').length;
     const noteCount = allItems.filter(i => i.type === 'note').length;
     const assignmentCount = allItems.filter(i => i.type === 'assignment').length;
+    const integrationCount = allItems.filter(i => i.type === 'integration_event').length;
     const totalHours = allItems
         .filter((i): i is { type: 'time_log'; data: TimeLog; date: Date } => i.type === 'time_log')
         .reduce((sum, i) => sum + i.data.hours, 0);
@@ -255,6 +318,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                         { key: 'hours', label: `Hours (${hourCount})` },
                         { key: 'notes', label: `Notes (${noteCount})` },
                         ...(assignmentCount > 0 ? [{ key: 'assignments', label: `Assignments (${assignmentCount})` }] : []),
+                        ...(integrationCount > 0 ? [{ key: 'integrations', label: `Integrations (${integrationCount})` }] : []),
                     ] as { key: ActivityType; label: string }[]).map(f => (
                         <button
                             key={f.key}
@@ -299,8 +363,10 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                                             <TimeLogRow log={item.data} />
                                         ) : item.type === 'note' ? (
                                             <NoteRow note={item.data} />
-                                        ) : (
+                                        ) : item.type === 'assignment' ? (
                                             <AssignmentRow assignment={item.data} />
+                                        ) : (
+                                            <IntegrationEventRow event={item.data} />
                                         )}
                                     </div>
                                 ))}

@@ -230,6 +230,17 @@ export interface ClientIntegration {
     needsPropertySetup?: boolean;
 }
 
+export interface ClientActivityEvent {
+    id: string;
+    organizationId: string;
+    clientId: string;
+    eventType: string;   // 'integration.connected' | 'integration.disconnected' | 'integration.reconfigured'
+    actorId?: string;
+    actorName?: string;
+    metadata: Record<string, unknown>;
+    occurredAt: string;
+}
+
 export interface SyncRun {
     id: string;
     organizationId: string;

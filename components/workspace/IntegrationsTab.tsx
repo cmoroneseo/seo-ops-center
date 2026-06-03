@@ -178,9 +178,10 @@ export function IntegrationsTab({ clientId }: Props) {
 
     return (
         <div className="space-y-4">
-            {showPropertyPicker && (
+            {showPropertyPicker && orgId && (
                 <GooglePropertyPicker
                     clientId={clientId}
+                    orgId={orgId}
                     group={showPropertyPicker}
                     onComplete={async () => {
                         const label = showPropertyPicker === 'ga4-gsc' ? 'GA4 + GSC' : 'Google Business Profile';

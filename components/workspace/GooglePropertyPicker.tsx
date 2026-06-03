@@ -23,6 +23,7 @@ interface GBPLocation {
 
 interface Props {
     clientId: string;
+    orgId: string;
     group: 'ga4-gsc' | 'gbp';
     onComplete: () => void;
     onCancel: () => void;
@@ -70,7 +71,7 @@ function PickerList<T>({
     );
 }
 
-export function GooglePropertyPicker({ clientId, group, onComplete, onCancel }: Props) {
+export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCancel }: Props) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
@@ -122,8 +123,8 @@ export function GooglePropertyPicker({ clientId, group, onComplete, onCancel }: 
         setSaving(true);
         try {
             const body = group === 'ga4-gsc'
-                ? { clientId, ga4PropertyId: selectedGA4, ga4DisplayName: selectedGA4Name, gscSiteUrl: selectedGSC }
-                : { clientId, gbpLocationName: selectedGBP, gbpTitle: selectedGBPMeta.title, gbpAddress: selectedGBPMeta.address };
+                ? { clientId, orgId, ga4PropertyId: selectedGA4, ga4DisplayName: selectedGA4Name, gscSiteUrl: selectedGSC }
+                : { clientId, orgId, gbpLocationName: selectedGBP, gbpTitle: selectedGBPMeta.title, gbpAddress: selectedGBPMeta.address };
 
             const res = await fetch('/api/integrations/google/configure', {
                 method: 'POST',
