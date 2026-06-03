@@ -212,7 +212,7 @@ export interface ClientAssignment {
 }
 
 export type IntegrationService = 'ga4' | 'gsc' | 'gbp' | 'ahrefs';
-export type IntegrationSyncStatus = 'active' | 'error' | 'disconnected';
+export type IntegrationSyncStatus = 'active' | 'pending_setup' | 'error' | 'disconnected';
 
 export interface ClientIntegration {
     id: string;

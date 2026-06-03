@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CheckCircle2, AlertCircle, Unlink, ExternalLink, RefreshCw, Key } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Unlink, ExternalLink, RefreshCw, Key, Settings2 } from 'lucide-react';
 import { ClientIntegration, IntegrationService } from '@/lib/types';
 import { getClientIntegrations } from '@/lib/supabase/integrations';
+import { GooglePropertyPicker } from './GooglePropertyPicker';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
 
@@ -67,6 +68,7 @@ export function IntegrationsTab({ clientId }: Props) {
     const [ahrefsSaving, setAhrefsSaving] = useState(false);
     const [ahrefsError, setAhrefsError] = useState('');
     const [disconnecting, setDisconnecting] = useState<IntegrationService | null>(null);
+    const [showPropertyPicker, setShowPropertyPicker] = useState(false);
     const [toast, setToast] = useState('');
 
     const orgId = organization?.id;
@@ -84,10 +86,14 @@ export function IntegrationsTab({ clientId }: Props) {
         const success = searchParams.get('integrationSuccess');
         const error = searchParams.get('integrationError');
         if (success) {
-            const label = success === 'ga4-gsc' ? 'GA4 + GSC' : 'Google Business Profile';
-            setToast(`${label} connected successfully`);
             // Refresh integrations list
             getClientIntegrations(clientId).then(setIntegrations);
+            // GA4+GSC need property selection before they're fully active
+            if (success === 'ga4-gsc') {
+                setShowPropertyPicker(true);
+            } else {
+                setToast('Google Business Profile connected successfully');
+            }
             // Strip query param
             const url = new URL(window.location.href);
             url.searchParams.delete('integrationSuccess');
@@ -113,6 +119,11 @@ export function IntegrationsTab({ clientId }: Props) {
     function isConnected(service: IntegrationService) {
         const i = getIntegration(service);
         return i?.syncStatus === 'active';
+    }
+
+    function isPendingSetup(service: IntegrationService) {
+        const i = getIntegration(service);
+        return (i?.syncStatus as string) === 'pending_setup';
     }
 
     function connectGoogle(group: 'ga4-gsc' | 'gbp') {
@@ -167,6 +178,18 @@ export function IntegrationsTab({ clientId }: Props) {
 
     return (
         <div className="space-y-4">
+            {showPropertyPicker && (
+                <GooglePropertyPicker
+                    clientId={clientId}
+                    onComplete={async () => {
+                        setShowPropertyPicker(false);
+                        setToast('GA4 + GSC connected successfully');
+                        const updated = await getClientIntegrations(clientId);
+                        setIntegrations(updated);
+                    }}
+                    onCancel={() => setShowPropertyPicker(false)}
+                />
+            )}
             {/* Toast */}
             {toast && (
                 <div className="fixed bottom-6 right-6 z-50 bg-card border border-border rounded-lg px-4 py-3 text-sm shadow-lg flex items-center gap-2">
@@ -179,6 +202,7 @@ export function IntegrationsTab({ clientId }: Props) {
                 {SERVICES.map((cfg) => {
                     const integration = getIntegration(cfg.service);
                     const connected = isConnected(cfg.service);
+                    const pendingSetup = isPendingSetup(cfg.service);
                     const hasError = integration?.syncStatus === 'error';
                     // GA4 and GSC share one connect button — show the button on GA4, hide on GSC
                     const isGscShared = cfg.service === 'gsc';
@@ -189,6 +213,7 @@ export function IntegrationsTab({ clientId }: Props) {
                             className={cn(
                                 'flex items-start justify-between rounded-xl border p-4 gap-4',
                                 connected ? 'border-green-500/20 bg-green-500/5' :
+                                pendingSetup ? 'border-yellow-500/20 bg-yellow-500/5' :
                                 hasError ? 'border-red-500/20 bg-red-500/5' :
                                 'border-border/50 bg-card',
                             )}
@@ -205,6 +230,12 @@ export function IntegrationsTab({ clientId }: Props) {
                                             <span className="flex items-center gap-1 text-xs text-green-500">
                                                 <CheckCircle2 className="h-3 w-3" />
                                                 Connected
+                                            </span>
+                                        )}
+                                        {pendingSetup && (
+                                            <span className="flex items-center gap-1 text-xs text-yellow-500">
+                                                <Settings2 className="h-3 w-3" />
+                                                Select property
                                             </span>
                                         )}
                                         {hasError && (
@@ -267,7 +298,7 @@ export function IntegrationsTab({ clientId }: Props) {
                                     null
                                 ) : (
                                     <div className="flex items-center gap-2">
-                                        {(connected || hasError) && (
+                                        {(connected || hasError || pendingSetup) && (
                                             <button
                                                 onClick={() => disconnect(cfg.service)}
                                                 disabled={disconnecting === cfg.service}
@@ -277,7 +308,16 @@ export function IntegrationsTab({ clientId }: Props) {
                                                 Disconnect
                                             </button>
                                         )}
-                                        <button
+                                        {pendingSetup && cfg.service === 'ga4' && (
+                                            <button
+                                                onClick={() => setShowPropertyPicker(true)}
+                                                className="flex items-center gap-1.5 text-xs bg-yellow-500 text-white rounded-md px-2.5 py-1.5 hover:bg-yellow-500/90 transition-colors"
+                                            >
+                                                <Settings2 className="h-3.5 w-3.5" />
+                                                Select Properties
+                                            </button>
+                                        )}
+                                        {!pendingSetup && <button
                                             onClick={() => connectGoogle(cfg.group as 'ga4-gsc' | 'gbp')}
                                             className={cn(
                                                 'flex items-center gap-1.5 text-xs rounded-md px-2.5 py-1.5 transition-all border',
@@ -297,7 +337,7 @@ export function IntegrationsTab({ clientId }: Props) {
                                                     {cfg.group === 'ga4-gsc' ? 'Connect GA4 + GSC' : 'Connect GBP'}
                                                 </>
                                             )}
-                                        </button>
+                                        </button>}
                                     </div>
                                 )}
                             </div>

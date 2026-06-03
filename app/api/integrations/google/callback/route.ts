@@ -81,8 +81,11 @@ export async function GET(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     const userId = user?.id ?? 'unknown';
 
-    // Upsert one row per service in the group
+    // GA4+GSC: store tokens but mark pending_setup so the property picker shows.
+    // GBP: no property picker needed — the token covers all locations on the account.
     const services = state.group === 'ga4-gsc' ? ['ga4', 'gsc'] as const : ['gbp'] as const;
+    const syncStatus = state.group === 'ga4-gsc' ? 'pending_setup' : 'active';
+
     for (const service of services) {
         await upsertIntegration({
             organizationId: state.orgId,
@@ -90,6 +93,7 @@ export async function GET(req: NextRequest) {
             service,
             credentials: tokens,
             connectedBy: userId,
+            syncStatus,
         });
     }
 

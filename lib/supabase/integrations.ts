@@ -41,6 +41,7 @@ export async function upsertIntegration(payload: {
     service: IntegrationService;
     credentials: Record<string, unknown>;
     connectedBy: string;
+    syncStatus?: string;
 }): Promise<{ success: boolean; error?: string }> {
     const admin = createAdminClient();
     if (!admin) return { success: false, error: 'Admin client unavailable' };
@@ -52,7 +53,7 @@ export async function upsertIntegration(payload: {
             credentials: payload.credentials,
             connected_by: payload.connectedBy,
             connected_at: new Date().toISOString(),
-            sync_status: 'active',
+            sync_status: payload.syncStatus ?? 'active',
             error_message: null,
         }, { onConflict: 'client_id,service' });
         if (error) throw error;

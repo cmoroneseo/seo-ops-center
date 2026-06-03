@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS public.client_integrations (
   connected_at     timestamptz DEFAULT now(),
   last_synced_at   timestamptz,
   sync_status      text DEFAULT 'active'
-                   CHECK (sync_status IN ('active', 'error', 'disconnected')),
+                   CHECK (sync_status IN ('active', 'pending_setup', 'error', 'disconnected')),
   error_message    text,
   created_at       timestamptz DEFAULT now() NOT NULL,
   UNIQUE (client_id, service)
