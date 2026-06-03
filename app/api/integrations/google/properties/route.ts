@@ -71,10 +71,23 @@ export async function GET(req: NextRequest) {
             { headers },
         );
         const accountsData = await accountsRes.json();
+
+        // Surface API errors clearly instead of silently returning empty
+        if (!accountsRes.ok) {
+            const msg = accountsData?.error?.message || accountsData?.error?.status || 'Unknown error';
+            const status = accountsData?.error?.status;
+            if (status === 'PERMISSION_DENIED' || accountsRes.status === 403) {
+                return NextResponse.json({
+                    error: 'Business Profile Account Management API is not enabled. Enable it in Google Cloud Console → APIs & Services → Library → search "Business Profile Account Management API".',
+                }, { status: 403 });
+            }
+            return NextResponse.json({ error: `GBP API error: ${msg}` }, { status: accountsRes.status });
+        }
+
         const accounts: any[] = accountsData.accounts ?? [];
 
         if (accounts.length === 0) {
-            return NextResponse.json({ gbpLocations: [] });
+            return NextResponse.json({ gbpLocations: [], warning: 'No Business Profile accounts found on this Google account. Make sure the connected account has access to Google Business Profile.' });
         }
 
         // 2. For each account, list locations
@@ -82,7 +95,11 @@ export async function GET(req: NextRequest) {
             fetch(
                 `https://mybusinessbusinessinformation.googleapis.com/v1/${acct.name}/locations?readMask=name,title,storefrontAddress`,
                 { headers },
-            ).then((r) => r.json()).then((d) => ({ account: acct, locations: d.locations ?? [] })),
+            ).then(async (r) => {
+                const d = await r.json();
+                if (!r.ok) console.error(`GBP locations error for ${acct.name}:`, d?.error?.message);
+                return { account: acct, locations: d.locations ?? [] };
+            }),
         );
         const results = await Promise.all(locationFetches);
 
@@ -94,7 +111,7 @@ export async function GET(req: NextRequest) {
                     ? [addr.addressLines?.[0], addr.locality, addr.administrativeArea].filter(Boolean).join(', ')
                     : '';
                 gbpLocations.push({
-                    name: loc.name,           // "accounts/123/locations/456"
+                    name: loc.name,
                     title: loc.title,
                     address: addressStr,
                     accountName: account.accountName,
