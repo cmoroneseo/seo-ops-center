@@ -31,7 +31,9 @@ export async function getTimeLogs(
         let q = supabase.from('time_logs').select('*').eq('organization_id', organizationId);
         if (opts.clientId) q = q.eq('client_id', opts.clientId);
         if (opts.month) {
-            q = q.gte('date', `${opts.month}-01`).lte('date', `${opts.month}-31`);
+            const [y, m] = opts.month.split('-').map(Number);
+            const lastDay = new Date(y, m, 0).getDate(); // day 0 of next month = last day of this month
+            q = q.gte('date', `${opts.month}-01`).lte('date', `${opts.month}-${String(lastDay).padStart(2, '0')}`);
         }
         const { data, error } = await q.order('date', { ascending: false });
         if (error) throw error;
