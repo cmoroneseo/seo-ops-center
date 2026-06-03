@@ -17,22 +17,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Missing params' }, { status: 400 });
     }
 
-    // Validate the key is reachable (lightweight check)
-    try {
-        const check = await fetch('https://api.ahrefs.com/v3/subscription-info', {
-            headers: { Authorization: `Bearer ${apiKey}` },
-        });
-        if (!check.ok) {
-            const body = await check.json().catch(() => ({}));
-            return NextResponse.json(
-                { error: body?.error?.message || 'Invalid Ahrefs API key' },
-                { status: 400 },
-            );
-        }
-    } catch {
-        return NextResponse.json({ error: 'Could not reach Ahrefs API' }, { status: 502 });
-    }
-
     const cookieStore = await cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
