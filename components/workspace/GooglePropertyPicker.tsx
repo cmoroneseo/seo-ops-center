@@ -14,55 +14,121 @@ interface GSCSite {
     permissionLevel: string;
 }
 
+interface GBPLocation {
+    name: string;
+    title: string;
+    address: string;
+    accountName: string;
+}
+
 interface Props {
     clientId: string;
+    group: 'ga4-gsc' | 'gbp';
     onComplete: () => void;
     onCancel: () => void;
 }
 
-export function GooglePropertyPicker({ clientId, onComplete, onCancel }: Props) {
+function PickerList<T>({
+    items,
+    selected,
+    onSelect,
+    getKey,
+    renderItem,
+}: {
+    items: T[];
+    selected: string;
+    onSelect: (key: string) => void;
+    getKey: (item: T) => string;
+    renderItem: (item: T) => React.ReactNode;
+}) {
+    if (items.length === 0) {
+        return <p className="text-xs text-muted-foreground italic">No options found on this account.</p>;
+    }
+    return (
+        <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+            {items.map((item) => {
+                const key = getKey(item);
+                const active = selected === key;
+                return (
+                    <button
+                        key={key}
+                        onClick={() => onSelect(key)}
+                        className={`w-full text-left rounded-lg border px-3 py-2.5 text-sm transition-all ${
+                            active
+                                ? 'border-primary bg-primary/10 text-foreground'
+                                : 'border-border bg-muted/20 text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                        }`}
+                    >
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">{renderItem(item)}</div>
+                            {active && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />}
+                        </div>
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
+
+export function GooglePropertyPicker({ clientId, group, onComplete, onCancel }: Props) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    // GA4 + GSC state
     const [ga4Properties, setGa4Properties] = useState<GA4Property[]>([]);
     const [gscSites, setGscSites] = useState<GSCSite[]>([]);
     const [selectedGA4, setSelectedGA4] = useState('');
     const [selectedGA4Name, setSelectedGA4Name] = useState('');
     const [selectedGSC, setSelectedGSC] = useState('');
-    const [saving, setSaving] = useState(false);
+
+    // GBP state
+    const [gbpLocations, setGbpLocations] = useState<GBPLocation[]>([]);
+    const [selectedGBP, setSelectedGBP] = useState('');
+    const [selectedGBPMeta, setSelectedGBPMeta] = useState<{ title: string; address: string }>({ title: '', address: '' });
 
     useEffect(() => {
-        fetch(`/api/integrations/google/properties?clientId=${clientId}`)
+        fetch(`/api/integrations/google/properties?clientId=${clientId}&group=${group}`)
             .then((r) => r.json())
             .then((data) => {
                 if (data.error) throw new Error(data.error);
-                setGa4Properties(data.ga4Properties ?? []);
-                setGscSites(data.gscSites ?? []);
-                // Auto-select if only one option
-                if (data.ga4Properties?.length === 1) {
-                    setSelectedGA4(data.ga4Properties[0].id);
-                    setSelectedGA4Name(data.ga4Properties[0].displayName);
-                }
-                if (data.gscSites?.length === 1) {
-                    setSelectedGSC(data.gscSites[0].siteUrl);
+                if (group === 'ga4-gsc') {
+                    setGa4Properties(data.ga4Properties ?? []);
+                    setGscSites(data.gscSites ?? []);
+                    if (data.ga4Properties?.length === 1) {
+                        setSelectedGA4(data.ga4Properties[0].id);
+                        setSelectedGA4Name(data.ga4Properties[0].displayName);
+                    }
+                    if (data.gscSites?.length === 1) setSelectedGSC(data.gscSites[0].siteUrl);
+                } else {
+                    setGbpLocations(data.gbpLocations ?? []);
+                    if (data.gbpLocations?.length === 1) {
+                        const loc = data.gbpLocations[0];
+                        setSelectedGBP(loc.name);
+                        setSelectedGBPMeta({ title: loc.title, address: loc.address });
+                    }
                 }
             })
             .catch((err) => setError(err.message))
             .finally(() => setLoading(false));
-    }, [clientId]);
+    }, [clientId, group]);
+
+    const canSave = group === 'ga4-gsc'
+        ? Boolean(selectedGA4 && selectedGSC)
+        : Boolean(selectedGBP);
 
     async function handleSave() {
-        if (!selectedGA4 || !selectedGSC) return;
+        if (!canSave) return;
         setSaving(true);
         try {
+            const body = group === 'ga4-gsc'
+                ? { clientId, ga4PropertyId: selectedGA4, ga4DisplayName: selectedGA4Name, gscSiteUrl: selectedGSC }
+                : { clientId, gbpLocationName: selectedGBP, gbpTitle: selectedGBPMeta.title, gbpAddress: selectedGBPMeta.address };
+
             const res = await fetch('/api/integrations/google/configure', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    clientId,
-                    ga4PropertyId: selectedGA4,
-                    ga4DisplayName: selectedGA4Name,
-                    gscSiteUrl: selectedGSC,
-                }),
+                body: JSON.stringify(body),
             });
             if (!res.ok) throw new Error((await res.json()).error);
             onComplete();
@@ -73,20 +139,23 @@ export function GooglePropertyPicker({ clientId, onComplete, onCancel }: Props) 
         }
     }
 
+    const title = group === 'ga4-gsc' ? 'Select Google Properties' : 'Select Business Location';
+    const subtitle = group === 'ga4-gsc'
+        ? 'Choose which GA4 property and Search Console site belong to this client.'
+        : 'Choose which Google Business Profile location belongs to this client.';
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
             <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 space-y-5">
                 <div>
-                    <h2 className="text-lg font-semibold">Select Google Properties</h2>
-                    <p className="text-sm text-muted-foreground mt-1">
-                        Choose which GA4 property and Search Console site belong to this client.
-                    </p>
+                    <h2 className="text-lg font-semibold">{title}</h2>
+                    <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
                 </div>
 
                 {loading && (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        Fetching your Google properties…
+                        Fetching your Google account data…
                     </div>
                 )}
 
@@ -97,67 +166,64 @@ export function GooglePropertyPicker({ clientId, onComplete, onCancel }: Props) 
                     </div>
                 )}
 
-                {!loading && !error && (
+                {!loading && !error && group === 'ga4-gsc' && (
                     <div className="space-y-5">
-                        {/* GA4 Property */}
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Google Analytics 4 Property</label>
-                            {ga4Properties.length === 0 ? (
-                                <p className="text-xs text-muted-foreground italic">No GA4 properties found on this account.</p>
-                            ) : (
-                                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                                    {ga4Properties.map((prop) => (
-                                        <button
-                                            key={prop.id}
-                                            onClick={() => { setSelectedGA4(prop.id); setSelectedGA4Name(prop.displayName); }}
-                                            className={`w-full text-left rounded-lg border px-3 py-2.5 text-sm transition-all ${
-                                                selectedGA4 === prop.id
-                                                    ? 'border-primary bg-primary/10 text-foreground'
-                                                    : 'border-border bg-muted/20 text-muted-foreground hover:border-primary/40 hover:text-foreground'
-                                            }`}
-                                        >
-                                            <div className="flex items-center justify-between gap-2">
-                                                <div>
-                                                    <div className="font-medium text-foreground">{prop.displayName}</div>
-                                                    <div className="text-xs text-muted-foreground">{prop.account} · {prop.id.replace('properties/', 'ID: ')}</div>
-                                                </div>
-                                                {selectedGA4 === prop.id && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />}
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
+                            <PickerList
+                                items={ga4Properties}
+                                selected={selectedGA4}
+                                onSelect={(id) => {
+                                    setSelectedGA4(id);
+                                    setSelectedGA4Name(ga4Properties.find(p => p.id === id)?.displayName ?? '');
+                                }}
+                                getKey={(p) => p.id}
+                                renderItem={(p) => (
+                                    <>
+                                        <div className="font-medium text-foreground">{p.displayName}</div>
+                                        <div className="text-xs text-muted-foreground">{p.account} · {p.id.replace('properties/', 'ID: ')}</div>
+                                    </>
+                                )}
+                            />
                         </div>
 
-                        {/* GSC Site */}
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Search Console Site</label>
-                            {gscSites.length === 0 ? (
-                                <p className="text-xs text-muted-foreground italic">No verified sites found on this account.</p>
-                            ) : (
-                                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                                    {gscSites.map((site) => (
-                                        <button
-                                            key={site.siteUrl}
-                                            onClick={() => setSelectedGSC(site.siteUrl)}
-                                            className={`w-full text-left rounded-lg border px-3 py-2.5 text-sm transition-all ${
-                                                selectedGSC === site.siteUrl
-                                                    ? 'border-primary bg-primary/10 text-foreground'
-                                                    : 'border-border bg-muted/20 text-muted-foreground hover:border-primary/40 hover:text-foreground'
-                                            }`}
-                                        >
-                                            <div className="flex items-center justify-between gap-2">
-                                                <div>
-                                                    <div className="font-medium text-foreground">{site.siteUrl}</div>
-                                                    <div className="text-xs text-muted-foreground capitalize">{site.permissionLevel.replace('s', 'S')}</div>
-                                                </div>
-                                                {selectedGSC === site.siteUrl && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />}
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
+                            <PickerList
+                                items={gscSites}
+                                selected={selectedGSC}
+                                onSelect={setSelectedGSC}
+                                getKey={(s) => s.siteUrl}
+                                renderItem={(s) => (
+                                    <>
+                                        <div className="font-medium text-foreground">{s.siteUrl}</div>
+                                        <div className="text-xs text-muted-foreground capitalize">{s.permissionLevel.replace('s', 'S')}</div>
+                                    </>
+                                )}
+                            />
                         </div>
+                    </div>
+                )}
+
+                {!loading && !error && group === 'gbp' && (
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Business Location</label>
+                        <PickerList
+                            items={gbpLocations}
+                            selected={selectedGBP}
+                            onSelect={(name) => {
+                                setSelectedGBP(name);
+                                const loc = gbpLocations.find(l => l.name === name);
+                                if (loc) setSelectedGBPMeta({ title: loc.title, address: loc.address });
+                            }}
+                            getKey={(l) => l.name}
+                            renderItem={(l) => (
+                                <>
+                                    <div className="font-medium text-foreground">{l.title}</div>
+                                    <div className="text-xs text-muted-foreground">{l.address || l.accountName}</div>
+                                </>
+                            )}
+                        />
                     </div>
                 )}
 
@@ -170,7 +236,7 @@ export function GooglePropertyPicker({ clientId, onComplete, onCancel }: Props) 
                     </button>
                     <button
                         onClick={handleSave}
-                        disabled={saving || !selectedGA4 || !selectedGSC}
+                        disabled={saving || !canSave}
                         className="flex items-center gap-2 text-sm bg-primary text-primary-foreground rounded-lg px-4 py-2 hover:bg-primary/90 transition-colors disabled:opacity-50"
                     >
                         {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}

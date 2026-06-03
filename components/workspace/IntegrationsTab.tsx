@@ -68,7 +68,7 @@ export function IntegrationsTab({ clientId }: Props) {
     const [ahrefsSaving, setAhrefsSaving] = useState(false);
     const [ahrefsError, setAhrefsError] = useState('');
     const [disconnecting, setDisconnecting] = useState<IntegrationService | null>(null);
-    const [showPropertyPicker, setShowPropertyPicker] = useState(false);
+    const [showPropertyPicker, setShowPropertyPicker] = useState<'ga4-gsc' | 'gbp' | null>(null);
     const [toast, setToast] = useState('');
 
     const orgId = organization?.id;
@@ -88,11 +88,11 @@ export function IntegrationsTab({ clientId }: Props) {
         if (success) {
             // Refresh integrations list
             getClientIntegrations(clientId).then(setIntegrations);
-            // GA4+GSC need property selection before they're fully active
+            // Both groups need a location/property picker before they're fully active
             if (success === 'ga4-gsc') {
-                setShowPropertyPicker(true);
-            } else {
-                setToast('Google Business Profile connected successfully');
+                setShowPropertyPicker('ga4-gsc');
+            } else if (success === 'gbp') {
+                setShowPropertyPicker('gbp');
             }
             // Strip query param
             const url = new URL(window.location.href);
@@ -181,13 +181,15 @@ export function IntegrationsTab({ clientId }: Props) {
             {showPropertyPicker && (
                 <GooglePropertyPicker
                     clientId={clientId}
+                    group={showPropertyPicker}
                     onComplete={async () => {
-                        setShowPropertyPicker(false);
-                        setToast('GA4 + GSC connected successfully');
+                        const label = showPropertyPicker === 'ga4-gsc' ? 'GA4 + GSC' : 'Google Business Profile';
+                        setShowPropertyPicker(null);
+                        setToast(`${label} connected successfully`);
                         const updated = await getClientIntegrations(clientId);
                         setIntegrations(updated);
                     }}
-                    onCancel={() => setShowPropertyPicker(false)}
+                    onCancel={() => setShowPropertyPicker(null)}
                 />
             )}
             {/* Toast */}
@@ -310,11 +312,20 @@ export function IntegrationsTab({ clientId }: Props) {
                                         )}
                                         {pendingSetup && cfg.service === 'ga4' && (
                                             <button
-                                                onClick={() => setShowPropertyPicker(true)}
+                                                onClick={() => setShowPropertyPicker('ga4-gsc')}
                                                 className="flex items-center gap-1.5 text-xs bg-yellow-500 text-white rounded-md px-2.5 py-1.5 hover:bg-yellow-500/90 transition-colors"
                                             >
                                                 <Settings2 className="h-3.5 w-3.5" />
                                                 Select Properties
+                                            </button>
+                                        )}
+                                        {pendingSetup && cfg.service === 'gbp' && (
+                                            <button
+                                                onClick={() => setShowPropertyPicker('gbp')}
+                                                className="flex items-center gap-1.5 text-xs bg-yellow-500 text-white rounded-md px-2.5 py-1.5 hover:bg-yellow-500/90 transition-colors"
+                                            >
+                                                <Settings2 className="h-3.5 w-3.5" />
+                                                Select Location
                                             </button>
                                         )}
                                         {!pendingSetup && <button

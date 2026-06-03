@@ -81,10 +81,9 @@ export async function GET(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     const userId = user?.id ?? 'unknown';
 
-    // GA4+GSC: store tokens but mark pending_setup so the property picker shows.
-    // GBP: no property picker needed — the token covers all locations on the account.
+    // Both groups need a picker: GA4+GSC to choose property/site, GBP to choose location.
     const services = state.group === 'ga4-gsc' ? ['ga4', 'gsc'] as const : ['gbp'] as const;
-    const syncStatus = state.group === 'ga4-gsc' ? 'pending_setup' : 'active';
+    const syncStatus = 'pending_setup';
 
     for (const service of services) {
         await upsertIntegration({
