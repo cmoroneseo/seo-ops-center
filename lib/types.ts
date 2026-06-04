@@ -253,6 +253,8 @@ export interface SyncRun {
     errorSummary: { clientId: string; service: string; message: string }[];
 }
 
+export type TimeLogStatus = 'in_progress' | 'logged' | 'needs_review';
+
 export interface TimeLog {
     id: string;
     organizationId: string;
@@ -264,4 +266,8 @@ export interface TimeLog {
     hours: number;
     description: string;
     billable: boolean;
+    status: TimeLogStatus;
+    timerStartedAt?: string; // ISO — when the timer was last started/resumed
+    elapsedSeconds: number;  // accumulated seconds (survives pause/resume)
+    category?: string;
 }

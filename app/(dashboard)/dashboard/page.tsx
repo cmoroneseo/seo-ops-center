@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { mockTasks } from '@/lib/mock-data/tasks';
-import { GlobalTaskProgress, GlobalNeedsAttention, AgencyQuickStats, GlobalUpcomingTasks, GlobalDeliverablesStats } from '@/components/dashboard/AgencyWidgets';
+import { GlobalTaskProgress, GlobalNeedsAttention, AgencyQuickStats, GlobalUpcomingTasks, GlobalDeliverablesStats, MyTimeWidget } from '@/components/dashboard/AgencyWidgets';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { getDeliverables } from '@/lib/supabase/deliverables';
 import { Deliverable } from '@/lib/types';
@@ -43,9 +43,14 @@ export default function DashboardPage() {
                 <AgencyQuickStats tasks={tasks} />
             </div>
 
-            {/* Bottom Row: Upcoming Tasks */}
-            <div className="flex-1 min-h-[400px]">
-                <GlobalUpcomingTasks tasks={tasks} />
+            {/* Bottom Row: Upcoming Tasks + My Time */}
+            <div className="flex-1 min-h-[400px] grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2">
+                    <GlobalUpcomingTasks tasks={tasks} />
+                </div>
+                <div>
+                    <MyTimeWidget />
+                </div>
             </div>
         </div>
     );

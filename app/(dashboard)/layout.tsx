@@ -3,6 +3,8 @@
 import { Sidebar } from '@/components/dashboard/Sidebar';
 import { ClientListPanel } from '@/components/workspace/ClientListPanel';
 import { useOrganization } from '@/components/providers/organization-provider';
+import { TimerProvider } from '@/components/providers/timer-provider';
+import { TimerNotifications } from '@/components/timer/TimerNotifications';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -43,17 +45,20 @@ export default function DashboardLayout({
     const showProjectSidebar = !isSetupPage && (isWorkspace || isTasks || isDashboard);
 
     return (
-        <div className="flex h-screen overflow-hidden bg-background">
-            {!isSetupPage && <Sidebar />}
-            {showProjectSidebar && <ClientListPanel />}
-            <main className={cn(
-                "flex-1 min-w-0 overflow-y-auto",
-                isSetupPage ? "flex flex-col items-center justify-center" : (showProjectSidebar ? "p-6 lg:p-8" : "p-8")
-            )}>
-                {children}
-            </main>
-            {/* OnboardingChecklist hidden until tasks are updated for public launch */}
-            {/* {!isSetupPage && <OnboardingChecklist />} */}
-        </div>
+        <TimerProvider>
+            <div className="flex h-screen overflow-hidden bg-background">
+                {!isSetupPage && <Sidebar />}
+                {showProjectSidebar && <ClientListPanel />}
+                <main className={cn(
+                    "flex-1 min-w-0 overflow-y-auto",
+                    isSetupPage ? "flex flex-col items-center justify-center" : (showProjectSidebar ? "p-6 lg:p-8" : "p-8")
+                )}>
+                    {children}
+                </main>
+                {/* OnboardingChecklist hidden until tasks are updated for public launch */}
+                {/* {!isSetupPage && <OnboardingChecklist />} */}
+            </div>
+            {!isSetupPage && <TimerNotifications />}
+        </TimerProvider>
     );
 }

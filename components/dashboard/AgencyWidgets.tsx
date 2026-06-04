@@ -4,6 +4,10 @@ import { Task, Deliverable } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { CheckSquare, Clock, AlertCircle, Users, ArrowUpRight, TrendingUp, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { useOrganization } from '@/components/providers/organization-provider';
+import { createClient } from '@/lib/supabase/client';
+import { getTimeLogs } from '@/lib/supabase/time-logs';
 
 interface AgencyWidgetProps {
     tasks: Task[];
@@ -236,6 +240,128 @@ export function GlobalUpcomingTasks({ tasks }: AgencyWidgetProps) {
                     </div>
                 )}
             </div>
+        </div>
+    );
+}
+
+// ── My Time This Month widget ────────────────────────────────────────────────
+
+interface ClientHours {
+    clientId: string;
+    clientName: string;
+    hours: number;
+}
+
+export function MyTimeWidget() {
+    const { organization } = useOrganization();
+    const [hoursThisWeek, setHoursThisWeek] = useState(0);
+    const [hoursThisMonth, setHoursThisMonth] = useState(0);
+    const [byClient, setByClient] = useState<ClientHours[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (!organization) return;
+
+        const load = async () => {
+            const supabase = createClient();
+            let userId: string | undefined;
+            if (supabase) {
+                const { data } = await supabase.auth.getUser();
+                userId = data.user?.id;
+            }
+
+            const today = new Date();
+            const month = today.toISOString().slice(0, 7);
+            const logs = await getTimeLogs(organization.id, { month });
+
+            // Filter to current user if we have an ID
+            const myLogs = userId ? logs.filter(l => l.userId === userId) : logs;
+
+            // Week boundary (Mon–Sun)
+            const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1;
+            const weekStart = new Date(today);
+            weekStart.setDate(today.getDate() - dayOfWeek);
+            weekStart.setHours(0, 0, 0, 0);
+
+            let week = 0;
+            let monthTotal = 0;
+            const clientMap: Record<string, ClientHours> = {};
+
+            for (const l of myLogs) {
+                monthTotal += l.hours;
+                const logDate = new Date(l.date + 'T00:00:00');
+                if (logDate >= weekStart) week += l.hours;
+                if (!clientMap[l.clientId]) {
+                    clientMap[l.clientId] = { clientId: l.clientId, clientName: l.clientId, hours: 0 };
+                }
+                clientMap[l.clientId].hours += l.hours;
+            }
+
+            setHoursThisWeek(Math.round(week * 10) / 10);
+            setHoursThisMonth(Math.round(monthTotal * 10) / 10);
+            setByClient(
+                Object.values(clientMap)
+                    .sort((a, b) => b.hours - a.hours)
+                    .slice(0, 5)
+            );
+            setLoading(false);
+        };
+
+        load();
+    }, [organization?.id]);
+
+    const maxHours = byClient[0]?.hours || 1;
+
+    return (
+        <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">My Time</h3>
+                <Clock className="h-4 w-4 text-muted-foreground" />
+            </div>
+
+            {loading ? (
+                <div className="flex items-center justify-center py-8">
+                    <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+            ) : (
+                <>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-lg bg-muted/50 p-3 text-center">
+                            <div className="text-2xl font-bold tabular-nums">{hoursThisWeek}h</div>
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">This Week</div>
+                        </div>
+                        <div className="rounded-lg bg-primary/8 p-3 text-center">
+                            <div className="text-2xl font-bold tabular-nums text-primary">{hoursThisMonth}h</div>
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">This Month</div>
+                        </div>
+                    </div>
+
+                    {byClient.length > 0 ? (
+                        <div className="space-y-2.5 pt-1">
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">By Client</p>
+                            {byClient.map(c => (
+                                <div key={c.clientId} className="space-y-1">
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="text-foreground truncate max-w-[160px]">{c.clientName}</span>
+                                        <span className="text-muted-foreground tabular-nums">{c.hours}h</span>
+                                    </div>
+                                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                                        <div
+                                            className="h-full rounded-full bg-primary/70 transition-all duration-500"
+                                            style={{ width: `${(c.hours / maxHours) * 100}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="py-4 text-center">
+                            <p className="text-sm text-muted-foreground">No time logged this month.</p>
+                            <p className="text-xs text-muted-foreground/60 mt-1">Start a timer or add a manual entry.</p>
+                        </div>
+                    )}
+                </>
+            )}
         </div>
     );
 }

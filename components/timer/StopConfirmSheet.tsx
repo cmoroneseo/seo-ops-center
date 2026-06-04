@@ -1,0 +1,207 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { X, Clock, CheckCircle2 } from 'lucide-react';
+import { useTimer, ActiveTimer } from '@/components/providers/timer-provider';
+import { cn } from '@/lib/utils';
+
+function secondsToHours(s: number) {
+    return Math.round((s / 3600) * 100) / 100;
+}
+
+function formatHHMM(s: number) {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+interface StopConfirmSheetProps {
+    timer: ActiveTimer;
+    onClose: () => void;
+}
+
+export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
+    const { stop, discard } = useTimer();
+    const [description, setDescription] = useState('');
+    const [hours, setHours] = useState(() => String(secondsToHours(timer.elapsedSeconds)));
+    const [billable, setBillable] = useState(true);
+    const [category, setCategory] = useState('');
+    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [showSuccess, setShowSuccess] = useState(false);
+
+    // Sync hours field when elapsed time changes (timer may still be ticking)
+    useEffect(() => {
+        setHours(String(secondsToHours(timer.elapsedSeconds)));
+    }, [timer.elapsedSeconds]);
+
+    const handleStop = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!description.trim()) return;
+        setIsSubmitting(true);
+        await stop({
+            description: description.trim(),
+            hours: parseFloat(hours) || secondsToHours(timer.elapsedSeconds),
+            billable,
+            category: category || undefined,
+            date,
+            clientId: timer.clientId,
+            taskId: timer.taskId,
+        });
+        setShowSuccess(true);
+        setTimeout(() => {
+            setShowSuccess(false);
+            onClose();
+        }, 1200);
+        setIsSubmitting(false);
+    };
+
+    const handleDiscard = async () => {
+        await discard();
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+            <div
+                className="w-full max-w-lg mb-0 bg-card border border-border border-b-0 rounded-t-2xl shadow-2xl animate-in slide-in-from-bottom-4 duration-200"
+                onClick={e => e.stopPropagation()}
+            >
+                {/* Handle bar */}
+                <div className="flex justify-center pt-3 pb-1">
+                    <div className="w-10 h-1 rounded-full bg-border" />
+                </div>
+
+                <div className="flex items-center justify-between px-5 py-3 border-b border-border/50">
+                    <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-primary" />
+                        <span className="font-semibold text-sm">Log Time</span>
+                        <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                            {formatHHMM(timer.elapsedSeconds)}
+                        </span>
+                    </div>
+                    <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+                        <X className="h-4 w-4" />
+                    </button>
+                </div>
+
+                {showSuccess ? (
+                    <div className="px-5 py-10 flex flex-col items-center gap-3 animate-in fade-in">
+                        <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center text-green-500">
+                            <CheckCircle2 className="h-6 w-6" />
+                        </div>
+                        <p className="font-semibold">Time logged!</p>
+                        <p className="text-sm text-muted-foreground">{hours}h for {timer.clientName}</p>
+                    </div>
+                ) : (
+                    <form onSubmit={handleStop} className="px-5 py-4 space-y-4">
+                        {/* Client / task context */}
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <span className="bg-primary/10 text-primary font-medium px-2 py-0.5 rounded-full text-xs">
+                                {timer.clientName || 'Unassigned'}
+                            </span>
+                            {timer.taskTitle && (
+                                <span className="text-xs truncate max-w-[200px]">{timer.taskTitle}</span>
+                            )}
+                        </div>
+
+                        {/* Description */}
+                        <div className="space-y-1.5">
+                            <label className="text-xs font-medium text-muted-foreground">What did you work on? *</label>
+                            <textarea
+                                autoFocus
+                                required
+                                rows={2}
+                                value={description}
+                                onChange={e => setDescription(e.target.value)}
+                                placeholder="Brief description of the work..."
+                                className="w-full p-2.5 rounded-lg bg-background border border-border text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all resize-none"
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-3">
+                            {/* Hours */}
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-medium text-muted-foreground">Hours</label>
+                                <input
+                                    type="number"
+                                    step="0.25"
+                                    min="0"
+                                    value={hours}
+                                    onChange={e => setHours(e.target.value)}
+                                    className="w-full p-2 rounded-lg bg-background border border-border text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all"
+                                />
+                            </div>
+
+                            {/* Date */}
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-medium text-muted-foreground">Date</label>
+                                <input
+                                    type="date"
+                                    value={date}
+                                    onChange={e => setDate(e.target.value)}
+                                    className="w-full p-2 rounded-lg bg-background border border-border text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all"
+                                />
+                            </div>
+
+                            {/* Category */}
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-medium text-muted-foreground">Category</label>
+                                <select
+                                    value={category}
+                                    onChange={e => setCategory(e.target.value)}
+                                    className="w-full p-2 rounded-lg bg-background border border-border text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all"
+                                >
+                                    <option value="">General</option>
+                                    <option value="Content">Content</option>
+                                    <option value="Technical">Technical</option>
+                                    <option value="Strategy">Strategy</option>
+                                    <option value="Reporting">Reporting</option>
+                                    <option value="Calls">Calls</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Billable toggle */}
+                        <label className="flex items-center gap-2 cursor-pointer select-none text-sm">
+                            <div
+                                className={cn(
+                                    'relative w-9 h-5 rounded-full transition-colors duration-200',
+                                    billable ? 'bg-primary' : 'bg-muted-foreground/30'
+                                )}
+                                onClick={() => setBillable(b => !b)}
+                            >
+                                <span className={cn(
+                                    'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200',
+                                    billable ? 'translate-x-4' : 'translate-x-0'
+                                )} />
+                            </div>
+                            <span className="text-muted-foreground">Billable</span>
+                        </label>
+
+                        {/* Actions */}
+                        <div className="flex gap-3 pt-1 pb-2">
+                            <button
+                                type="button"
+                                onClick={handleDiscard}
+                                className="flex-1 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 transition-colors"
+                            >
+                                Discard
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={isSubmitting || !description.trim()}
+                                className="flex-[2] py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            >
+                                {isSubmitting ? (
+                                    <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                ) : 'Log Time'}
+                            </button>
+                        </div>
+                    </form>
+                )}
+            </div>
+        </div>
+    );
+}

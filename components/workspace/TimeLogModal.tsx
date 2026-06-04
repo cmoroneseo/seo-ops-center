@@ -4,15 +4,18 @@ import { ClientProject, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { X, Clock, Calendar, FileText, CheckCircle2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { createTimeLog } from '@/lib/supabase/time-logs';
+import { createClient } from '@/lib/supabase/client';
 
 interface TimeLogModalProps {
     isOpen: boolean;
     onClose: () => void;
     clients: ClientProject[];
     initialClientId?: string;
+    organizationId?: string;
 }
 
-export function TimeLogModal({ isOpen, onClose, clients, initialClientId }: TimeLogModalProps) {
+export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organizationId }: TimeLogModalProps) {
     const [selectedClientId, setSelectedClientId] = useState(initialClientId || '');
     const [selectedTaskId, setSelectedTaskId] = useState('');
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -38,13 +41,27 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId }: Time
         e.preventDefault();
         setIsSubmitting(true);
 
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        let userId: string | undefined;
+        const supabase = createClient();
+        if (supabase) {
+            const { data } = await supabase.auth.getSession();
+            userId = data.session?.user?.id;
+        }
+
+        await createTimeLog({
+            organizationId: organizationId ?? 'org-1',
+            clientId: selectedClientId,
+            taskId: selectedTaskId || undefined,
+            userId: userId ?? 'mock-user-1',
+            date,
+            hours: parseFloat(hours),
+            description,
+            billable: true,
+        });
 
         setIsSubmitting(false);
         setShowSuccess(true);
 
-        // Close after success message
         setTimeout(() => {
             onClose();
         }, 1500);

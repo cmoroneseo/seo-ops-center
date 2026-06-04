@@ -18,8 +18,9 @@ import { IntegrationsTab } from '@/components/workspace/IntegrationsTab';
 import { EditClientPanel, ClientAvatar } from '@/components/workspace/EditClientPanel';
 import { getClients } from '@/lib/supabase/clients';
 import { useOrganization } from '@/components/providers/organization-provider';
+import { useTimer } from '@/components/providers/timer-provider';
 import { ClientProject } from '@/lib/types';
-import { Pencil } from 'lucide-react';
+import { Pencil, Play, Pause } from 'lucide-react';
 
 type Tab = 'overview' | 'integrations';
 
@@ -32,6 +33,18 @@ export default function ClientDetailPage() {
     const [showEditPanel, setShowEditPanel] = useState(false);
     const [activityRefreshKey, setActivityRefreshKey] = useState(0);
     const [activeTab, setActiveTab] = useState<Tab>('overview');
+    const { timer, start, pause } = useTimer();
+
+    const isThisClientRunning = timer?.status === 'running' && timer.clientId === id;
+
+    const handleTimerClick = async () => {
+        if (!client) return;
+        if (isThisClientRunning) {
+            await pause();
+        } else {
+            await start({ clientId: client.id, clientName: client.clientName });
+        }
+    };
 
     useEffect(() => {
         if (!organization) return;
@@ -115,6 +128,21 @@ export default function ClientDetailPage() {
                         )}>
                             {client.status}
                         </div>
+                        <button
+                            onClick={handleTimerClick}
+                            title={isThisClientRunning ? 'Pause timer' : 'Start timer for this client'}
+                            className={cn(
+                                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150',
+                                isThisClientRunning
+                                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 hover:bg-amber-500/25'
+                                    : 'bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-green-500/20 border border-green-500/20'
+                            )}
+                        >
+                            {isThisClientRunning
+                                ? <><Pause className="h-3.5 w-3.5 fill-current" /> Pause</>
+                                : <><Play className="h-3.5 w-3.5 fill-current" /> Start Timer</>
+                            }
+                        </button>
                         <button className="p-2 hover:bg-muted rounded-md transition-colors">
                             <MoreVertical className="h-5 w-5 text-muted-foreground" />
                         </button>
