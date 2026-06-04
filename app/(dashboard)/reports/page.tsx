@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, RefreshCw, Pencil, AlertCircle, CheckCircle2, Clock, BarChart3 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Plus, RefreshCw, Pencil, AlertCircle, CheckCircle2, Clock, BarChart3, FileText, ArrowRight, Trash2, Loader2 } from 'lucide-react';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { getClients } from '@/lib/supabase/clients';
 import { ClientProject } from '@/lib/types';
@@ -58,6 +59,50 @@ export default function ReportsPage() {
     const [syncing, setSyncing] = useState(false);
     const [syncResult, setSyncResult] = useState('');
     const [manualSource, setManualSource] = useState<string | null>(null);
+    const [reports, setReports] = useState<any[]>([]);
+    const [creatingReport, setCreatingReport] = useState(false);
+    const router = useRouter();
+
+    useEffect(() => {
+        if (!organization) return;
+        fetch(`/api/reports?orgId=${organization.id}`)
+            .then(r => r.json())
+            .then(d => setReports(d.reports ?? []))
+            .catch(() => setReports([]));
+    }, [organization?.id]);
+
+    async function buildReport() {
+        if (!selectedClient || !organization) return;
+        setCreatingReport(true);
+        try {
+            const res = await fetch('/api/reports', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orgId: organization.id,
+                    clientId: selectedClient.id,
+                    clientName: selectedClient.clientName,
+                    month: selectedMonth,
+                }),
+            });
+            const data = await res.json();
+            if (res.ok && data.report?.id) {
+                router.push(`/reports/${data.report.id}`);
+            } else {
+                setCreatingReport(false);
+            }
+        } catch {
+            setCreatingReport(false);
+        }
+    }
+
+    async function deleteReport(id: string) {
+        await fetch(`/api/reports/${id}`, { method: 'DELETE' });
+        setReports(prev => prev.filter(r => r.id !== id));
+    }
+
+    const reportMonthLabel = (m: string) =>
+        new Date(m + '-15').toLocaleString('default', { month: 'long', year: 'numeric' });
 
     useEffect(() => {
         if (!organization) return;
@@ -119,9 +164,19 @@ export default function ReportsPage() {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h2 className="text-3xl font-bold tracking-tight neon-gradient-text">Reports</h2>
-                <p className="text-muted-foreground mt-1">View synced metrics and enter data manually for any source.</p>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <h2 className="text-3xl font-bold tracking-tight neon-gradient-text">Reports</h2>
+                    <p className="text-muted-foreground mt-1">View synced metrics, enter data manually, and build branded client reports.</p>
+                </div>
+                <button
+                    onClick={buildReport}
+                    disabled={!selectedClient || creatingReport}
+                    className="flex items-center gap-2 text-sm bg-primary text-primary-foreground rounded-lg px-4 py-2.5 hover:bg-primary/90 transition-colors disabled:opacity-50 shadow-lg shadow-primary/20"
+                >
+                    {creatingReport ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                    {creatingReport ? 'Building…' : `Build ${reportMonthLabel(selectedMonth)} Report`}
+                </button>
             </div>
 
             {/* Controls */}
@@ -232,6 +287,36 @@ export default function ReportsPage() {
                             </div>
                         );
                     })}
+                </div>
+            )}
+
+            {/* Saved reports */}
+            {reports.length > 0 && (
+                <div className="space-y-3">
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                        <FileText className="h-4 w-4" /> Saved Reports
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {reports.map(r => (
+                            <div key={r.id} className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card px-4 py-3">
+                                <button onClick={() => router.push(`/reports/${r.id}`)} className="flex-1 text-left min-w-0">
+                                    <p className="text-sm font-medium truncate">{r.title}</p>
+                                    <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
+                                        <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', r.status === 'published' ? 'bg-green-500/15 text-green-500' : 'bg-muted text-muted-foreground')}>
+                                            {r.status}
+                                        </span>
+                                        {reportMonthLabel(r.report_month)}
+                                    </p>
+                                </button>
+                                <button onClick={() => deleteReport(r.id)} className="p-1.5 rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-500/10">
+                                    <Trash2 className="h-4 w-4" />
+                                </button>
+                                <button onClick={() => router.push(`/reports/${r.id}`)} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted">
+                                    <ArrowRight className="h-4 w-4" />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
 
