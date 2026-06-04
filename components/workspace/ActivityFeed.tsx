@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download } from 'lucide-react';
+// ChevronDown/ChevronUp kept — used in TimeLogRow and NoteRow expand toggles
 import { ClientProject, TimeLog, ClientNote, ClientAssignment, ClientActivityEvent } from '@/lib/types';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
 import { getClientNotes } from '@/lib/supabase/client-notes';
@@ -343,7 +344,6 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
     const [allItems, setAllItems] = useState<ActivityItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<ActivityType>('all');
-    const [showAll, setShowAll] = useState(false);
 
     useEffect(() => {
         if (!organization) return;
@@ -392,9 +392,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
             return true;
         });
 
-    const SHOW_LIMIT = 20;
-    const visible = showAll ? filtered : filtered.slice(0, SHOW_LIMIT);
-    const grouped = groupByDate(visible);
+    const grouped = groupByDate(filtered);
 
     const hourCount = allItems.filter(i => i.type === 'time_log').length;
     const noteCount = allItems.filter(i => i.type === 'note').length;
@@ -456,7 +454,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                     ] as { key: ActivityType; label: string }[]).map(f => (
                         <button
                             key={f.key}
-                            onClick={() => { setFilter(f.key); setShowAll(false); }}
+                            onClick={() => setFilter(f.key)}
                             className={cn(
                                 'px-3 py-1 text-xs font-medium rounded-md transition-all capitalize',
                                 filter === f.key
@@ -482,10 +480,10 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                     </p>
                 </div>
             ) : (
-                <div className="px-6 pb-4">
+                <div className="overflow-y-auto max-h-[520px] px-6 pb-4 scroll-smooth">
                     {grouped.map(group => (
                         <div key={group.label}>
-                            <div className="sticky top-0 bg-card/95 backdrop-blur-sm py-2 mt-4 first:mt-3">
+                            <div className="sticky top-0 bg-card/95 backdrop-blur-sm py-2 mt-4 first:mt-3 z-10">
                                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                     {group.label}
                                 </span>
@@ -507,18 +505,6 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                             </div>
                         </div>
                     ))}
-
-                    {filtered.length > SHOW_LIMIT && (
-                        <button
-                            onClick={() => setShowAll(!showAll)}
-                            className="mt-4 w-full text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1 py-2 rounded-lg hover:bg-muted/30"
-                        >
-                            {showAll
-                                ? <><ChevronUp className="h-3.5 w-3.5" /> Show less</>
-                                : <><ChevronDown className="h-3.5 w-3.5" /> Show {filtered.length - SHOW_LIMIT} more</>
-                            }
-                        </button>
-                    )}
                 </div>
             )}
         </div>
