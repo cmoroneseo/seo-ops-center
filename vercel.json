@@ -1,6 +1,12 @@
 {
     "cleanUrls": true,
     "framework": "nextjs",
+    "crons": [
+        {
+            "path": "/api/sync/metrics",
+            "schedule": "0 8 * * *"
+        }
+    ],
     "headers": [
         {
             "source": "/(.*)",
