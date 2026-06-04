@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download } from 'lucide-react';
 import { ClientProject, TimeLog, ClientNote, ClientAssignment, ClientActivityEvent } from '@/lib/types';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
 import { getClientNotes } from '@/lib/supabase/client-notes';
@@ -205,6 +205,138 @@ function IntegrationEventRow({ event }: { event: ClientActivityEvent }) {
     );
 }
 
+// ── PDF Export ─────────────────────────────────────────────────────────────
+
+function clientInitials(name: string) {
+    return name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+}
+
+function buildPrintHTML(client: ClientProject, items: ActivityItem[]): string {
+    const initials = clientInitials(client.clientName);
+    const now = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const totalHours = items
+        .filter((i): i is { type: 'time_log'; data: TimeLog; date: Date } => i.type === 'time_log')
+        .reduce((s, i) => s + i.data.hours, 0);
+
+    function fmtDate(d: Date) {
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    const rows = items.map(item => {
+        if (item.type === 'time_log') {
+            const log = item.data as TimeLog;
+            return `<tr><td>${fmtDate(item.date)}</td><td><strong>${log.hours}h logged</strong></td><td>${log.description || 'SEO Work'}</td></tr>`;
+        }
+        if (item.type === 'note') {
+            const note = item.data as ClientNote;
+            return `<tr><td>${fmtDate(item.date)}</td><td>Note by ${note.authorName}</td><td>${note.content}</td></tr>`;
+        }
+        if (item.type === 'assignment') {
+            const a = item.data as ClientAssignment;
+            return `<tr><td>${fmtDate(item.date)}</td><td>Reassigned</td><td>To ${a.assignedTo}${a.assignedBy ? ` by ${a.assignedBy}` : ''}</td></tr>`;
+        }
+        if (item.type === 'integration_event') {
+            const e = item.data as ClientActivityEvent;
+            const svc = ({ ga4: 'Google Analytics 4', gsc: 'Google Search Console', gbp: 'Google Business Profile', ahrefs: 'Ahrefs' } as Record<string, string>)[e.metadata.service as string] ?? String(e.metadata.service);
+            return `<tr><td>${fmtDate(item.date)}</td><td>${e.eventType.replace('integration.', '').replace(/^\w/, c => c.toUpperCase())} – ${svc}</td><td>${e.actorName ?? ''}</td></tr>`;
+        }
+        return '';
+    }).join('');
+
+    return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Activity Feed – ${client.clientName}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 40px; color: #111; font-size: 13px; }
+  .header { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; border-bottom: 2px solid #e5e7eb; padding-bottom: 20px; }
+  .logo { width: 52px; height: 52px; border-radius: 50%; background: #6366f1; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; flex-shrink: 0; }
+  .client-name { font-size: 22px; font-weight: 700; margin: 0 0 2px; }
+  .meta { color: #6b7280; font-size: 12px; margin: 0; }
+  .stats { display: flex; gap: 24px; margin-bottom: 24px; }
+  .stat { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 18px; }
+  .stat-value { font-size: 20px; font-weight: 700; color: #6366f1; }
+  .stat-label { font-size: 11px; color: #6b7280; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #6b7280; padding: 8px 12px; border-bottom: 1px solid #e5e7eb; }
+  td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+  td:first-child { white-space: nowrap; color: #6b7280; font-size: 12px; }
+  tr:last-child td { border-bottom: none; }
+  @media print { body { margin: 24px; } }
+</style></head><body>
+<div class="header">
+  <div class="logo">${initials}</div>
+  <div>
+    <p class="client-name">${client.clientName}</p>
+    <p class="meta">Activity Report &nbsp;·&nbsp; Generated ${now}</p>
+  </div>
+</div>
+<div class="stats">
+  <div class="stat"><div class="stat-value">${totalHours.toFixed(1)}h</div><div class="stat-label">Total Hours Logged</div></div>
+  <div class="stat"><div class="stat-value">${items.filter(i => i.type === 'time_log').length}</div><div class="stat-label">Work Sessions</div></div>
+  <div class="stat"><div class="stat-value">${items.filter(i => i.type === 'note').length}</div><div class="stat-label">Notes</div></div>
+  <div class="stat"><div class="stat-value">${items.length}</div><div class="stat-label">Total Events</div></div>
+</div>
+<table>
+  <thead><tr><th>Date</th><th>Event</th><th>Details</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+</body></html>`;
+}
+
+function downloadPDF(client: ClientProject, items: ActivityItem[]) {
+    const html = buildPrintHTML(client, items);
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); }, 400);
+}
+
+// ── Three-dot menu ──────────────────────────────────────────────────────────
+
+function FeedMenu({ client, items }: { client: ClientProject; items: ActivityItem[] }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        function handleClick(e: MouseEvent) {
+            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+        }
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, []);
+
+    return (
+        <div ref={ref} className="relative">
+            <button
+                onClick={() => setOpen(v => !v)}
+                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                aria-label="Feed options"
+            >
+                <MoreVertical className="h-4 w-4" />
+            </button>
+            {open && (
+                <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-lg border border-border bg-card shadow-lg py-1">
+                    <button
+                        onClick={() => { setOpen(false); downloadPDF(client, items); }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+                    >
+                        <Download className="h-3.5 w-3.5 text-muted-foreground" />
+                        Download PDF
+                    </button>
+                    <button
+                        onClick={() => { setOpen(false); const html = buildPrintHTML(client, items); const win = window.open('', '_blank'); if (!win) return; win.document.write(html); win.document.close(); win.focus(); setTimeout(() => win.print(), 400); }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+                    >
+                        <Printer className="h-3.5 w-3.5 text-muted-foreground" />
+                        Print
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
     const { organization } = useOrganization();
     const [allItems, setAllItems] = useState<ActivityItem[]>([]);
@@ -285,6 +417,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                             </span>
                         )}
                     </div>
+                    <FeedMenu client={client} items={allItems} />
                 </div>
 
                 {/* Stats row */}
