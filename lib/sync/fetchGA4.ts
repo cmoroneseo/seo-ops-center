@@ -31,7 +31,9 @@ export async function fetchGA4(
         dimensionFilter: {
             filter: {
                 fieldName: 'sessionDefaultChannelGroup',
-                stringFilter: { matchType: 'CONTAINS', value: 'Organic' },
+                // EXACT, not CONTAINS — "Organic" would also sweep in Organic
+                // Video / Shopping / Social. GA4's "Organic Search" is the SEO metric.
+                stringFilter: { matchType: 'EXACT', value: 'Organic Search' },
             },
         },
     };
