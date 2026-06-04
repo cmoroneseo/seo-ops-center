@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, CheckSquare, FileBarChart, MessageSquare, Settings, LogOut, Briefcase, Search, HelpCircle, History, FileText } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, FileBarChart, MessageSquare, Settings, LogOut, Briefcase, Search, HelpCircle, History, FileText, ClipboardList } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { OrganizationSwitcher } from '@/components/organization-switcher';
 import { TimeLogModal } from '@/components/workspace/TimeLogModal';
@@ -14,6 +14,7 @@ const navigation = [
   { name: 'Home', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Workspace', href: '/workspace', icon: Briefcase },
   { name: 'Analytics', href: '/analytics', icon: FileBarChart },
+  { name: 'Reports', href: '/reports', icon: ClipboardList },
   { name: 'Tasks', href: '/tasks', icon: CheckSquare },
   { name: 'Messages', href: '/messages', icon: MessageSquare },
   { name: 'History', href: '/history', icon: History },
