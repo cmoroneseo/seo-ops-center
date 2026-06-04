@@ -52,7 +52,8 @@ export default function DashboardLayout({
             )}>
                 {children}
             </main>
-            {!isSetupPage && <OnboardingChecklist />}
+            {/* OnboardingChecklist hidden until tasks are updated for public launch */}
+            {/* {!isSetupPage && <OnboardingChecklist />} */}
         </div>
     );
 }
