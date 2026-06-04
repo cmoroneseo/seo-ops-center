@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
-import { X, StickyNote, Link2 } from 'lucide-react';
+import { X, StickyNote, Link2, Pencil, Check } from 'lucide-react';
 import { useTimer } from '@/components/providers/timer-provider';
 import { SessionNote } from '@/lib/types';
 import { ClientProject } from '@/lib/types';
@@ -67,23 +67,82 @@ function MentionDropdown({ query, clients, onSelect, anchorRef }: MentionDropdow
 }
 
 // ── Note row ──────────────────────────────────────────────────────────────────
-function NoteRow({ note, onDelete }: { note: SessionNote; onDelete: () => void }) {
+function NoteRow({ note, onDelete, onEdit }: {
+    note: SessionNote;
+    onDelete: () => void;
+    onEdit: (newText: string) => void;
+}) {
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState(note.text);
+    const editRef = useRef<HTMLTextAreaElement>(null);
+
+    useEffect(() => {
+        if (editing) {
+            editRef.current?.focus();
+            // Place cursor at end
+            const len = draft.length;
+            editRef.current?.setSelectionRange(len, len);
+        }
+    }, [editing]);
+
+    const confirm = () => {
+        const trimmed = draft.trim();
+        if (trimmed && trimmed !== note.text) onEdit(trimmed);
+        else setDraft(note.text); // revert if empty or unchanged
+        setEditing(false);
+    };
+
+    const cancel = () => {
+        setDraft(note.text);
+        setEditing(false);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirm(); }
+        if (e.key === 'Escape') cancel();
+    };
+
     return (
         <div className="group flex items-start gap-2 py-2 border-b border-border/40 last:border-0">
             <div className="flex-1 min-w-0">
-                <p className="text-xs text-foreground leading-relaxed break-words">
-                    {renderNoteText(note.text)}
-                </p>
+                {editing ? (
+                    <textarea
+                        ref={editRef}
+                        value={draft}
+                        onChange={e => setDraft(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        onBlur={confirm}
+                        rows={2}
+                        className="w-full bg-background border border-primary/50 rounded-lg px-2 py-1.5 text-xs text-foreground outline-none resize-none focus:ring-1 focus:ring-primary/30 leading-relaxed"
+                    />
+                ) : (
+                    <p
+                        className="text-xs text-foreground leading-relaxed break-words cursor-text"
+                        onDoubleClick={() => setEditing(true)}
+                    >
+                        {renderNoteText(note.text)}
+                    </p>
+                )}
                 <span className="text-[10px] text-muted-foreground mt-0.5 block">
                     {formatNoteTime(note.createdAt)}
+                    {!editing && <span className="ml-1.5 opacity-0 group-hover:opacity-60 transition-opacity">· double-click to edit</span>}
                 </span>
             </div>
-            <button
-                onClick={onDelete}
-                className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive mt-0.5"
-            >
-                <X className="h-3 w-3" />
-            </button>
+
+            <div className="flex flex-col gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity mt-0.5">
+                {editing ? (
+                    <button onClick={confirm} className="text-green-500 hover:text-green-400 transition-colors">
+                        <Check className="h-3 w-3" />
+                    </button>
+                ) : (
+                    <button onClick={() => setEditing(true)} className="text-muted-foreground hover:text-foreground transition-colors">
+                        <Pencil className="h-3 w-3" />
+                    </button>
+                )}
+                <button onClick={onDelete} className="text-muted-foreground hover:text-destructive transition-colors">
+                    <X className="h-3 w-3" />
+                </button>
+            </div>
         </div>
     );
 }
@@ -95,7 +154,7 @@ interface TimerNotesProps {
 }
 
 export function TimerNotes({ clients, notes }: TimerNotesProps) {
-    const { addNote, deleteNote } = useTimer();
+    const { addNote, editNote, deleteNote } = useTimer();
     const [input, setInput] = useState('');
     const [mentionQuery, setMentionQuery] = useState<string | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -154,6 +213,7 @@ export function TimerNotes({ clients, notes }: TimerNotesProps) {
                         <NoteRow
                             key={note.id}
                             note={note}
+                            onEdit={newText => editNote(note.id, newText)}
                             onDelete={() => deleteNote(note.id)}
                         />
                     ))}

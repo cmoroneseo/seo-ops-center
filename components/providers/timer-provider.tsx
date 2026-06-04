@@ -37,6 +37,7 @@ interface TimerContextType {
     stop: (opts: { description: string; hours: number; billable: boolean; category?: string; date: string; clientId: string; taskId?: string }) => Promise<void>;
     discard: () => Promise<void>;
     addNote: (text: string) => Promise<void>;
+    editNote: (id: string, newText: string) => Promise<void>;
     deleteNote: (id: string) => Promise<void>;
     acceptRecovery: () => void;
     dismissRecovery: () => Promise<void>;
@@ -222,6 +223,16 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         });
     }, []);
 
+    const editNote = useCallback(async (noteId: string, newText: string) => {
+        const id = timerIdRef.current;
+        if (!id || !newText.trim()) return;
+        setNotes(prev => {
+            const updated = prev.map(n => n.id === noteId ? { ...n, text: newText.trim() } : n);
+            updateSessionNotes(id, updated);
+            return updated;
+        });
+    }, []);
+
     const deleteNote = useCallback(async (noteId: string) => {
         const id = timerIdRef.current;
         if (!id) return;
@@ -258,6 +269,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             stop,
             discard,
             addNote,
+            editNote,
             deleteNote,
             acceptRecovery,
             dismissRecovery,

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { X, Clock, CheckCircle2, StickyNote, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState, useEffect, useRef, KeyboardEvent } from 'react';
+import { X, Clock, CheckCircle2, StickyNote, ChevronDown, ChevronUp, Pencil, Check } from 'lucide-react';
 import { useTimer, ActiveTimer } from '@/components/providers/timer-provider';
+import { SessionNote } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 function renderNoteText(text: string) {
@@ -18,6 +19,37 @@ function renderNoteText(text: string) {
         }
         return <span key={i}>{part}</span>;
     });
+}
+
+function EditableNoteRow({ note, onEdit }: { note: SessionNote; onEdit: (text: string) => void }) {
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState(note.text);
+    const ref = useRef<HTMLTextAreaElement>(null);
+
+    useEffect(() => { if (editing) { ref.current?.focus(); const l = draft.length; ref.current?.setSelectionRange(l, l); } }, [editing]);
+
+    const confirm = () => { const t = draft.trim(); if (t && t !== note.text) onEdit(t); else setDraft(note.text); setEditing(false); };
+    const cancel = () => { setDraft(note.text); setEditing(false); };
+    const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirm(); } if (e.key === 'Escape') cancel(); };
+
+    return (
+        <div className="group flex items-start gap-2 pt-1.5">
+            <div className="flex-1 min-w-0">
+                {editing ? (
+                    <textarea ref={ref} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={handleKey} onBlur={confirm} rows={2}
+                        className="w-full bg-background border border-primary/50 rounded-lg px-2 py-1 text-xs outline-none resize-none focus:ring-1 focus:ring-primary/30 leading-relaxed" />
+                ) : (
+                    <p className="text-xs text-foreground/80 leading-relaxed cursor-text" onDoubleClick={() => setEditing(true)}>
+                        {renderNoteText(note.text)}
+                    </p>
+                )}
+                <span className="text-[10px] text-muted-foreground">{new Date(note.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            </div>
+            <button onClick={() => setEditing(e => !e)} className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground mt-0.5">
+                {editing ? <Check className="h-3 w-3 text-green-500" /> : <Pencil className="h-3 w-3" />}
+            </button>
+        </div>
+    );
 }
 
 function secondsToHours(s: number) {
@@ -37,7 +69,7 @@ interface StopConfirmSheetProps {
 }
 
 export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
-    const { stop, discard, notes } = useTimer();
+    const { stop, discard, notes, editNote } = useTimer();
     const [description, setDescription] = useState('');
     const [hours, setHours] = useState(() => String(secondsToHours(timer.elapsedSeconds)));
     const [billable, setBillable] = useState(true);
@@ -139,14 +171,11 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
                                 {showNotes && (
                                     <div className="px-3 pb-2 space-y-1.5 max-h-32 overflow-y-auto border-t border-border/40">
                                         {notes.map(n => (
-                                            <div key={n.id} className="pt-1.5">
-                                                <p className="text-xs text-foreground leading-relaxed">
-                                                    {renderNoteText(n.text)}
-                                                </p>
-                                                <span className="text-[10px] text-muted-foreground">
-                                                    {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                </span>
-                                            </div>
+                                            <EditableNoteRow
+                                                key={n.id}
+                                                note={n}
+                                                onEdit={text => editNote(n.id, text)}
+                                            />
                                         ))}
                                     </div>
                                 )}
