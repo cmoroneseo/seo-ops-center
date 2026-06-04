@@ -77,6 +77,22 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
     }, [timer?.status]);
 
+    // Update browser tab title while timer is active
+    useEffect(() => {
+        if (!timer) {
+            document.title = 'SEO Ops Center';
+            return;
+        }
+        const h = Math.floor(timer.elapsedSeconds / 3600);
+        const m = Math.floor((timer.elapsedSeconds % 3600) / 60);
+        const s = timer.elapsedSeconds % 60;
+        const elapsed = h > 0
+            ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+            : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        const icon = timer.status === 'running' ? '⏱' : '⏸';
+        document.title = `${icon} ${elapsed} — ${timer.clientName || 'Timer'} | SEO Ops`;
+    }, [timer?.elapsedSeconds, timer?.status, timer?.clientName]);
+
     // On mount: check for an orphaned in-progress timer (session recovery)
     useEffect(() => {
         if (!organization) return;
