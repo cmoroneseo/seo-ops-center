@@ -1,9 +1,24 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Clock, CheckCircle2 } from 'lucide-react';
+import { X, Clock, CheckCircle2, StickyNote, ChevronDown, ChevronUp } from 'lucide-react';
 import { useTimer, ActiveTimer } from '@/components/providers/timer-provider';
 import { cn } from '@/lib/utils';
+
+function renderNoteText(text: string) {
+    const parts = text.split(/(\[[^\]]+\]\([^)]+\))/g);
+    return parts.map((part, i) => {
+        const match = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+        if (match) {
+            return (
+                <a key={i} href={match[2]} className="text-primary underline underline-offset-2 hover:opacity-80">
+                    {match[1]}
+                </a>
+            );
+        }
+        return <span key={i}>{part}</span>;
+    });
+}
 
 function secondsToHours(s: number) {
     return Math.round((s / 3600) * 100) / 100;
@@ -22,12 +37,13 @@ interface StopConfirmSheetProps {
 }
 
 export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
-    const { stop, discard } = useTimer();
+    const { stop, discard, notes } = useTimer();
     const [description, setDescription] = useState('');
     const [hours, setHours] = useState(() => String(secondsToHours(timer.elapsedSeconds)));
     const [billable, setBillable] = useState(true);
     const [category, setCategory] = useState('');
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [showNotes, setShowNotes] = useState(notes.length > 0);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
 
@@ -105,6 +121,37 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
                                 <span className="text-xs truncate max-w-[200px]">{timer.taskTitle}</span>
                             )}
                         </div>
+
+                        {/* Session notes (read-only context) */}
+                        {notes.length > 0 && (
+                            <div className="rounded-xl border border-border/60 overflow-hidden">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowNotes(p => !p)}
+                                    className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                                >
+                                    <span className="flex items-center gap-1.5">
+                                        <StickyNote className="h-3 w-3" />
+                                        Session Notes ({notes.length})
+                                    </span>
+                                    {showNotes ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                                </button>
+                                {showNotes && (
+                                    <div className="px-3 pb-2 space-y-1.5 max-h-32 overflow-y-auto border-t border-border/40">
+                                        {notes.map(n => (
+                                            <div key={n.id} className="pt-1.5">
+                                                <p className="text-xs text-foreground leading-relaxed">
+                                                    {renderNoteText(n.text)}
+                                                </p>
+                                                <span className="text-[10px] text-muted-foreground">
+                                                    {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {/* Description */}
                         <div className="space-y-1.5">

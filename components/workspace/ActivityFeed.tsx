@@ -43,10 +43,23 @@ function groupByDate(items: ActivityItem[]): { label: string; items: ActivityIte
     return Array.from(groups.entries()).map(([label, items]) => ({ label, items }));
 }
 
+function renderNoteText(text: string) {
+    const parts = text.split(/(\[[^\]]+\]\([^)]+\))/g);
+    return parts.map((part, i) => {
+        const match = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+        if (match) {
+            return <a key={i} href={match[2]} className="text-primary underline underline-offset-2 hover:opacity-80">{match[1]}</a>;
+        }
+        return <span key={i}>{part}</span>;
+    });
+}
+
 function TimeLogRow({ log }: { log: TimeLog }) {
     const [expanded, setExpanded] = useState(false);
+    const [showNotes, setShowNotes] = useState(false);
     const hasDescription = log.description && log.description.trim().length > 0;
     const longDesc = hasDescription && log.description.length > 60;
+    const hasNotes = log.sessionNotes && log.sessionNotes.length > 0;
 
     return (
         <div className="flex items-start gap-3 py-3">
@@ -78,6 +91,30 @@ function TimeLogRow({ log }: { log: TimeLog }) {
                     )}>
                         {log.description}
                     </p>
+                )}
+                {hasNotes && (
+                    <div className="mt-1.5">
+                        <button
+                            onClick={() => setShowNotes(p => !p)}
+                            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                            <StickyNote className="h-3 w-3" />
+                            {log.sessionNotes.length} session note{log.sessionNotes.length !== 1 ? 's' : ''}
+                            {showNotes ? <ChevronUp className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />}
+                        </button>
+                        {showNotes && (
+                            <div className="mt-1.5 pl-2 border-l-2 border-primary/20 space-y-1.5">
+                                {log.sessionNotes.map(n => (
+                                    <div key={n.id}>
+                                        <p className="text-xs text-foreground/80 leading-relaxed">{renderNoteText(n.text)}</p>
+                                        <span className="text-[10px] text-muted-foreground">
+                                            {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 )}
             </div>
         </div>

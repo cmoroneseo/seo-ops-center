@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Square, Plus, RotateCcw, Clock, ChevronDown, X } from 'lucide-react';
+import { Play, Pause, Square, Plus, RotateCcw, Clock, ChevronDown, StickyNote } from 'lucide-react';
 import { useTimer } from '@/components/providers/timer-provider';
 import { StopConfirmSheet } from './StopConfirmSheet';
 import { QuickStartPopover } from './QuickStartPopover';
+import { TimerNotes } from './TimerNotes';
 import { ClientProject } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -21,8 +22,9 @@ interface FloatingTimerProps {
 }
 
 export function FloatingTimer({ clients }: FloatingTimerProps) {
-    const { timer, pause, resume, isRecovering, recoveryTimer, acceptRecovery, dismissRecovery } = useTimer();
+    const { timer, notes, pause, resume, isRecovering, recoveryTimer, acceptRecovery, dismissRecovery } = useTimer();
     const [expanded, setExpanded] = useState(false);
+    const [showNotes, setShowNotes] = useState(false);
     const [showStopSheet, setShowStopSheet] = useState(false);
     const [showQuickStart, setShowQuickStart] = useState(false);
     const widgetRef = useRef<HTMLDivElement>(null);
@@ -160,7 +162,7 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
                         : 'bg-amber-500/60'
                 )} />
 
-                <div className="p-4 space-y-3">
+                <div className="px-4 pt-4 pb-2 space-y-3">
                     {/* Header row: status + collapse */}
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -223,7 +225,35 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
                         </button>
                     </div>
 
-                    {/* Switch client */}
+                    {/* Notes toggle */}
+                    <button
+                        onClick={() => setShowNotes(prev => !prev)}
+                        className={cn(
+                            'w-full flex items-center justify-center gap-1.5 py-1.5 rounded-xl text-xs transition-colors',
+                            showNotes
+                                ? 'bg-primary/10 text-primary'
+                                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                        )}
+                    >
+                        <StickyNote className="h-3 w-3" />
+                        Session Notes
+                        {notes.length > 0 && (
+                            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary/20 text-primary text-[10px] font-bold leading-none">
+                                {notes.length}
+                            </span>
+                        )}
+                    </button>
+                </div>
+
+                {/* Expandable notes panel */}
+                {showNotes && (
+                    <div className="border-t border-border/50 animate-in slide-in-from-top-1 fade-in duration-150">
+                        <TimerNotes clients={clients} notes={notes} />
+                    </div>
+                )}
+
+                {/* Switch client */}
+                <div className="px-4 pb-3">
                     <button
                         onClick={() => setShowQuickStart(prev => !prev)}
                         className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"

@@ -255,6 +255,12 @@ export interface SyncRun {
 
 export type TimeLogStatus = 'in_progress' | 'logged' | 'needs_review';
 
+export interface SessionNote {
+    id: string;
+    text: string;      // may contain [Label](/path) internal links
+    createdAt: string; // ISO
+}
+
 export interface TimeLog {
     id: string;
     organizationId: string;
@@ -270,4 +276,5 @@ export interface TimeLog {
     timerStartedAt?: string; // ISO — when the timer was last started/resumed
     elapsedSeconds: number;  // accumulated seconds (survives pause/resume)
     category?: string;
+    sessionNotes: SessionNote[];
 }

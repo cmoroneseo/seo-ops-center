@@ -1,5 +1,5 @@
 import { createClient } from './client';
-import { TimeLog, TimeLogStatus } from '../types';
+import { TimeLog, TimeLogStatus, SessionNote } from '../types';
 
 function rowToTimeLog(row: any): TimeLog {
     return {
@@ -17,6 +17,7 @@ function rowToTimeLog(row: any): TimeLog {
         timerStartedAt: row.timer_started_at ?? undefined,
         elapsedSeconds: Number(row.elapsed_seconds) || 0,
         category: row.category ?? undefined,
+        sessionNotes: Array.isArray(row.session_notes) ? row.session_notes : [],
     };
 }
 
@@ -231,6 +232,25 @@ export async function stopTimer(
 /** Discard an in-progress timer without logging it. */
 export async function discardTimer(id: string): Promise<{ success: boolean; error?: string }> {
     return deleteTimeLog(id);
+}
+
+/** Persist the full session_notes array for an in-progress entry. */
+export async function updateSessionNotes(
+    id: string,
+    notes: SessionNote[],
+): Promise<{ success: boolean; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
+    try {
+        const { error } = await supabase
+            .from('time_logs')
+            .update({ session_notes: notes })
+            .eq('id', id);
+        if (error) throw error;
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
 }
 
 /** Find any in-progress timer for this user. Used for session recovery. */

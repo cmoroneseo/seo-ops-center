@@ -10,7 +10,9 @@ import {
     stopTimer,
     discardTimer,
     getInProgressTimer,
+    updateSessionNotes,
 } from '@/lib/supabase/time-logs';
+import { SessionNote } from '@/lib/types';
 
 export interface ActiveTimer {
     id: string;
@@ -18,23 +20,26 @@ export interface ActiveTimer {
     clientName: string;
     taskId?: string;
     taskTitle?: string;
-    elapsedSeconds: number; // live ticking value
-    savedSeconds: number;   // last value persisted to DB
+    elapsedSeconds: number;
+    savedSeconds: number;
     status: 'running' | 'paused';
-    startedAt: string;      // ISO — when timer_started_at was last set
+    startedAt: string;
 }
 
 interface TimerContextType {
     timer: ActiveTimer | null;
+    notes: SessionNote[];
     isRecovering: boolean;
+    recoveryTimer: ActiveTimer | null;
     start: (opts: { clientId: string; clientName: string; taskId?: string; taskTitle?: string }) => Promise<void>;
     pause: () => Promise<void>;
     resume: () => Promise<void>;
     stop: (opts: { description: string; hours: number; billable: boolean; category?: string; date: string; clientId: string; taskId?: string }) => Promise<void>;
     discard: () => Promise<void>;
-    dismissRecovery: () => void;
-    recoveryTimer: ActiveTimer | null;
+    addNote: (text: string) => Promise<void>;
+    deleteNote: (id: string) => Promise<void>;
     acceptRecovery: () => void;
+    dismissRecovery: () => Promise<void>;
 }
 
 const TimerContext = createContext<TimerContextType | undefined>(undefined);
@@ -42,10 +47,17 @@ const TimerContext = createContext<TimerContextType | undefined>(undefined);
 export function TimerProvider({ children }: { children: React.ReactNode }) {
     const { organization } = useOrganization();
     const [timer, setTimer] = useState<ActiveTimer | null>(null);
+    const [notes, setNotes] = useState<SessionNote[]>([]);
     const [recoveryTimer, setRecoveryTimer] = useState<ActiveTimer | null>(null);
     const [isRecovering, setIsRecovering] = useState(false);
     const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const userIdRef = useRef<string | null>(null);
+    const timerIdRef = useRef<string | null>(null);
+
+    // Keep timerIdRef in sync so note callbacks always have the current ID
+    useEffect(() => {
+        timerIdRef.current = timer?.id ?? null;
+    }, [timer?.id]);
 
     // Resolve current user ID
     useEffect(() => {
@@ -59,7 +71,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         });
     }, []);
 
-    // Tick interval while timer is running
+    // Tick interval
     useEffect(() => {
         if (timer?.status === 'running') {
             intervalRef.current = setInterval(() => {
@@ -77,7 +89,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
     }, [timer?.status]);
 
-    // Update browser tab title while timer is active
+    // Browser tab title
     useEffect(() => {
         if (!timer) {
             document.title = 'SEO Ops Center';
@@ -93,11 +105,10 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         document.title = `${icon} ${elapsed} — ${timer.clientName || 'Timer'} | SEO Ops`;
     }, [timer?.elapsedSeconds, timer?.status, timer?.clientName]);
 
-    // On mount: check for an orphaned in-progress timer (session recovery)
+    // Session recovery
     useEffect(() => {
         if (!organization) return;
         const tryRecover = async () => {
-            // Small delay to ensure userIdRef is populated
             await new Promise(r => setTimeout(r, 500));
             const userId = userIdRef.current;
             if (!userId) return;
@@ -105,7 +116,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             const existing = await getInProgressTimer(organization.id, userId);
             if (!existing) return;
 
-            // Reconstruct elapsed time
             const savedSeconds = existing.elapsedSeconds;
             const startedAt = existing.timerStartedAt;
             const liveSecs = startedAt
@@ -115,13 +125,14 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             const recovered: ActiveTimer = {
                 id: existing.id,
                 clientId: existing.clientId,
-                clientName: '', // will be resolved by caller after dismissal
+                clientName: '',
                 elapsedSeconds: liveSecs,
                 savedSeconds,
                 status: startedAt ? 'running' : 'paused',
                 startedAt: startedAt ?? new Date().toISOString(),
             };
             setRecoveryTimer(recovered);
+            setNotes(existing.sessionNotes ?? []);
             setIsRecovering(true);
         };
         tryRecover();
@@ -135,12 +146,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         taskTitle?: string;
     }) => {
         if (!organization || !userIdRef.current) return;
-
-        // If there is already a running timer, pause it first
         if (timer?.status === 'running') {
             await pauseTimer(timer.id, timer.elapsedSeconds);
         }
-
         const result = await startTimer({
             organizationId: organization.id,
             userId: userIdRef.current,
@@ -150,6 +158,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         if (!result.success || !result.id) return;
 
         const now = new Date().toISOString();
+        setNotes([]);
         setTimer({
             id: result.id,
             clientId: opts.clientId,
@@ -188,32 +197,59 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         if (!timer) return;
         await stopTimer(timer.id, opts);
         setTimer(null);
+        setNotes([]);
     }, [timer]);
 
     const discard = useCallback(async () => {
         if (!timer) return;
         await discardTimer(timer.id);
         setTimer(null);
+        setNotes([]);
     }, [timer]);
+
+    const addNote = useCallback(async (text: string) => {
+        const id = timerIdRef.current;
+        if (!id || !text.trim()) return;
+        const note: SessionNote = {
+            id: crypto.randomUUID(),
+            text: text.trim(),
+            createdAt: new Date().toISOString(),
+        };
+        setNotes(prev => {
+            const updated = [...prev, note];
+            updateSessionNotes(id, updated);
+            return updated;
+        });
+    }, []);
+
+    const deleteNote = useCallback(async (noteId: string) => {
+        const id = timerIdRef.current;
+        if (!id) return;
+        setNotes(prev => {
+            const updated = prev.filter(n => n.id !== noteId);
+            updateSessionNotes(id, updated);
+            return updated;
+        });
+    }, []);
 
     const acceptRecovery = useCallback(() => {
         if (!recoveryTimer) return;
-        setTimer({ ...recoveryTimer, status: recoveryTimer.status });
+        setTimer({ ...recoveryTimer });
         setRecoveryTimer(null);
         setIsRecovering(false);
     }, [recoveryTimer]);
 
     const dismissRecovery = useCallback(async () => {
-        if (recoveryTimer) {
-            await discardTimer(recoveryTimer.id);
-        }
+        if (recoveryTimer) await discardTimer(recoveryTimer.id);
         setRecoveryTimer(null);
+        setNotes([]);
         setIsRecovering(false);
     }, [recoveryTimer]);
 
     return (
         <TimerContext.Provider value={{
             timer,
+            notes,
             isRecovering,
             recoveryTimer,
             start,
@@ -221,8 +257,10 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             resume,
             stop,
             discard,
-            dismissRecovery,
+            addNote,
+            deleteNote,
             acceptRecovery,
+            dismissRecovery,
         }}>
             {children}
         </TimerContext.Provider>
