@@ -138,10 +138,7 @@ export default function ReportsPage() {
         try {
             const res = await fetch('/api/sync/metrics', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${process.env.NEXT_PUBLIC_CRON_SECRET ?? ''}`,
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ clientId: selectedClient.id, month: selectedMonth }),
             });
             const data = await res.json();

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { fetchGA4 } from '@/lib/sync/fetchGA4';
 import { fetchGSC } from '@/lib/sync/fetchGSC';
 import { fetchGBP } from '@/lib/sync/fetchGBP';
@@ -17,11 +19,30 @@ export const maxDuration = 300; // Vercel max for Pro plan
  * Headers: { Authorization: 'Bearer <CRON_SECRET>' }
  * Body (optional): { clientId: string, month: string } — sync a single client/month
  */
-export async function POST(req: NextRequest) {
-    // Auth check
-    const authHeader = req.headers.get('authorization');
+/** Allow either the cron secret (machine) or a logged-in user (manual "Sync Now"). */
+async function isAuthorized(req: NextRequest): Promise<boolean> {
     const secret = process.env.CRON_SECRET;
-    if (!secret || authHeader !== `Bearer ${secret}`) {
+    if (secret && req.headers.get('authorization') === `Bearer ${secret}`) return true;
+
+    // Fall back to an authenticated dashboard session — no secret needed in the browser.
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+            cookies: {
+                get(name: string) { return cookieStore.get(name)?.value; },
+                set(name: string, value: string, options: CookieOptions) { cookieStore.set({ name, value, ...options }); },
+                remove(name: string, options: CookieOptions) { cookieStore.set({ name, value: '', ...options }); },
+            },
+        },
+    );
+    const { data: { user } } = await supabase.auth.getUser();
+    return !!user;
+}
+
+export async function POST(req: NextRequest) {
+    if (!(await isAuthorized(req))) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
