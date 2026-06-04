@@ -4,10 +4,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, CheckSquare, FileBarChart, MessageSquare, Settings, LogOut, Briefcase, Search, HelpCircle, History, FileText, ClipboardList } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { OrganizationSwitcher } from '@/components/organization-switcher';
 import { TimeLogModal } from '@/components/workspace/TimeLogModal';
 import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
-import { TimerChip } from '@/components/timer/TimerChip';
 import { useClients } from '@/lib/hooks/use-clients';
 import { useState, useEffect } from 'react';
 
@@ -35,34 +33,22 @@ export function Sidebar() {
         e.preventDefault();
         setIsSearchOpen((prev) => !prev);
       }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  // Cmd+Shift+T: focus the timer chip quick-start (dispatched as a custom event)
-  useEffect(() => {
-    const handleTimerShortcut = (e: KeyboardEvent) => {
+      // Cmd+Shift+T — open floating timer quick-start
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 't') {
         e.preventDefault();
         window.dispatchEvent(new CustomEvent('timer:open-quick-start'));
       }
     };
-    window.addEventListener('keydown', handleTimerShortcut);
-    return () => window.removeEventListener('keydown', handleTimerShortcut);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   return (
     <div className="flex h-full w-20 flex-col bg-card border-r border-border items-center py-6">
-      <div className="mb-4">
+      <div className="mb-8">
         <div className="w-12 h-12 bg-primary rounded-xl flex items-center justify-center text-primary-foreground font-bold text-xl shadow-lg shadow-primary/20">
           A
         </div>
-      </div>
-
-      {/* Global timer chip — only renders when TimerProvider is mounted */}
-      <div className="w-full mb-2">
-        <TimerChip clients={clients} />
       </div>
 
       <div className="flex-1 flex flex-col items-center gap-4 w-full px-2">
@@ -80,8 +66,6 @@ export function Sidebar() {
               )}
             >
               <item.icon className="h-6 w-6" />
-
-              {/* Tooltip */}
               <div className="absolute left-16 px-2 py-1 bg-popover text-popover-foreground text-xs font-medium rounded border border-border opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">
                 {item.name}
               </div>

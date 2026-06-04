@@ -57,7 +57,7 @@ export function QuickStartPopover({ clients, onClose }: QuickStartPopoverProps) 
     return (
         <div
             ref={ref}
-            className="absolute left-24 top-0 z-50 w-72 bg-popover border border-border rounded-xl shadow-xl animate-in fade-in slide-in-from-left-2 duration-150 p-3 space-y-3"
+            className="w-72 bg-popover border border-border rounded-xl shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-150 p-3 space-y-3"
         >
             <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold">Start Timer</span>

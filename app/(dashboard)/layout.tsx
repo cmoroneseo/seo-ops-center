@@ -5,6 +5,8 @@ import { ClientListPanel } from '@/components/workspace/ClientListPanel';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { TimerProvider } from '@/components/providers/timer-provider';
 import { TimerNotifications } from '@/components/timer/TimerNotifications';
+import { FloatingTimer } from '@/components/timer/FloatingTimer';
+import { useClients } from '@/lib/hooks/use-clients';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -16,6 +18,7 @@ export default function DashboardLayout({
     children: React.ReactNode;
 }) {
     const { organization, isLoading } = useOrganization();
+    const { clients } = useClients({ statuses: ['Active'] });
     const router = useRouter();
     const pathname = usePathname();
     const [mounted, setMounted] = useState(false);
@@ -58,6 +61,7 @@ export default function DashboardLayout({
                 {/* OnboardingChecklist hidden until tasks are updated for public launch */}
                 {/* {!isSetupPage && <OnboardingChecklist />} */}
             </div>
+            {!isSetupPage && <FloatingTimer clients={clients} />}
             {!isSetupPage && <TimerNotifications />}
         </TimerProvider>
     );
