@@ -101,11 +101,12 @@ export async function POST(req: NextRequest) {
             try {
                 const ga4Data = await fetchGA4(client.id, targetMonth);
                 if (ga4Data) {
-                    await upsertMetric({
+                    const r = await upsertMetric({
                         organizationId: org.id, clientId: client.id,
                         source: 'ga4', metricMonth: targetMonth,
                         data: ga4Data, syncRunId,
                     });
+                    if (!r.success) throw new Error(`upsert failed: ${r.error}`);
                 }
             } catch (e: any) {
                 clientErrors.push(`ga4: ${e.message}`);
@@ -116,11 +117,12 @@ export async function POST(req: NextRequest) {
             try {
                 const gscData = await fetchGSC(client.id, targetMonth);
                 if (gscData) {
-                    await upsertMetric({
+                    const r = await upsertMetric({
                         organizationId: org.id, clientId: client.id,
                         source: 'gsc', metricMonth: targetMonth,
                         data: gscData, syncRunId,
                     });
+                    if (!r.success) throw new Error(`upsert failed: ${r.error}`);
                 }
             } catch (e: any) {
                 clientErrors.push(`gsc: ${e.message}`);
@@ -131,11 +133,12 @@ export async function POST(req: NextRequest) {
             try {
                 const gbpData = await fetchGBP(client.id, targetMonth);
                 if (gbpData) {
-                    await upsertMetric({
+                    const r = await upsertMetric({
                         organizationId: org.id, clientId: client.id,
                         source: 'gbp', metricMonth: targetMonth,
                         data: gbpData, syncRunId,
                     });
+                    if (!r.success) throw new Error(`upsert failed: ${r.error}`);
                 }
             } catch (e: any) {
                 // GBP failures are non-fatal — don't mark as client error
@@ -146,11 +149,12 @@ export async function POST(req: NextRequest) {
             try {
                 const ahrefsData = await fetchAhrefs(client.id);
                 if (ahrefsData) {
-                    await upsertMetric({
+                    const r = await upsertMetric({
                         organizationId: org.id, clientId: client.id,
                         source: 'ahrefs', metricMonth: targetMonth,
                         data: ahrefsData, syncRunId,
                     });
+                    if (!r.success) throw new Error(`upsert failed: ${r.error}`);
                 }
             } catch (e: any) {
                 clientErrors.push(`ahrefs: ${e.message}`);
