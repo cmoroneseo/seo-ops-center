@@ -139,6 +139,7 @@ export interface ClientProject {
     id: string;
     organizationId: string;
     clientName: string;
+    logoUrl?: string;
     launchDate: string;
     accountManager: string;
     status: ProjectStatus;

@@ -34,6 +34,7 @@ function rowToClientProject(row: any): ClientProject {
         id: row.id,
         organizationId: row.organization_id,
         clientName: row.name,
+        logoUrl: row.logo_url ?? undefined,
         launchDate,
         notes: row.notes ?? undefined,
         accountManager: row.account_manager_name || 'Unassigned',
@@ -75,6 +76,7 @@ function clientProjectToRow(client: Partial<ClientProject>) {
         account_manager_name: client.accountManager,
         status: client.status ? APP_TO_DB_STATUS[client.status] : undefined,
         tier: client.tier,
+        logo_url: client.logoUrl,
     };
 }
 

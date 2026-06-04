@@ -248,7 +248,8 @@ function buildPrintHTML(client: ClientProject, items: ActivityItem[]): string {
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 40px; color: #111; font-size: 13px; }
   .header { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; border-bottom: 2px solid #e5e7eb; padding-bottom: 20px; }
-  .logo { width: 52px; height: 52px; border-radius: 50%; background: #6366f1; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; flex-shrink: 0; }
+  .logo { width: 52px; height: 52px; border-radius: 50%; background: #6366f1; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; flex-shrink: 0; overflow: hidden; }
+  .logo img { width: 52px; height: 52px; object-fit: cover; border-radius: 50%; }
   .client-name { font-size: 22px; font-weight: 700; margin: 0 0 2px; }
   .meta { color: #6b7280; font-size: 12px; margin: 0; }
   .stats { display: flex; gap: 24px; margin-bottom: 24px; }
@@ -263,7 +264,7 @@ function buildPrintHTML(client: ClientProject, items: ActivityItem[]): string {
   @media print { body { margin: 24px; } }
 </style></head><body>
 <div class="header">
-  <div class="logo">${initials}</div>
+  <div class="logo">${client.logoUrl ? `<img src="${client.logoUrl}" alt="${client.clientName}" />` : initials}</div>
   <div>
     <p class="client-name">${client.clientName}</p>
     <p class="meta">Activity Report &nbsp;·&nbsp; Generated ${now}</p>

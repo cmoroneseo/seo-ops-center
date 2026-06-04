@@ -15,9 +15,11 @@ import { EngagementOverview } from '@/components/workspace/EngagementOverview';
 import { DeliverablesTracker } from '@/components/workspace/DeliverablesTracker';
 import { MonthlyPlannerCard } from '@/components/workspace/MonthlyPlannerCard';
 import { IntegrationsTab } from '@/components/workspace/IntegrationsTab';
+import { EditClientPanel, ClientAvatar } from '@/components/workspace/EditClientPanel';
 import { getClients } from '@/lib/supabase/clients';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { ClientProject } from '@/lib/types';
+import { Pencil } from 'lucide-react';
 
 type Tab = 'overview' | 'integrations';
 
@@ -27,6 +29,7 @@ export default function ClientDetailPage() {
     const { organization } = useOrganization();
     const [client, setClient] = useState<ClientProject | null | undefined>(undefined); // undefined = loading
     const [showReassign, setShowReassign] = useState(false);
+    const [showEditPanel, setShowEditPanel] = useState(false);
     const [activityRefreshKey, setActivityRefreshKey] = useState(0);
     const [activeTab, setActiveTab] = useState<Tab>('overview');
 
@@ -71,8 +74,19 @@ export default function ClientDetailPage() {
                 )}
 
                 <div className="flex items-start justify-between">
-                    <div className="space-y-1">
+                    <div className="flex items-center gap-4">
+                        <ClientAvatar name={client.clientName} logoUrl={client.logoUrl} size="lg" />
+                        <div className="space-y-1">
+                        <div className="flex items-center gap-2">
                         <h1 className="text-3xl font-bold tracking-tight neon-gradient-text">{client.clientName}</h1>
+                        <button
+                            onClick={() => setShowEditPanel(true)}
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            title="Edit client"
+                        >
+                            <Pencil className="h-4 w-4" />
+                        </button>
+                        </div>
                         <div className="flex items-center gap-4 text-sm text-muted-foreground">
                             {client.launchDate && (
                                 <div className="flex items-center gap-1.5">
@@ -89,7 +103,8 @@ export default function ClientDetailPage() {
                                 <span>{client.seoHours}h/mo</span>
                             </div>
                         </div>
-                    </div>
+                        </div>{/* end inner space-y-1 */}
+                    </div>{/* end flex items-center gap-4 (logo + text) */}
 
                     <div className="flex items-center gap-3 pr-2">
                         <div className={cn(
@@ -106,6 +121,18 @@ export default function ClientDetailPage() {
                     </div>
                 </div>
             </div>
+
+            {/* Edit client slide-over */}
+            {showEditPanel && (
+                <EditClientPanel
+                    client={client}
+                    onClose={() => setShowEditPanel(false)}
+                    onSaved={(updated) => {
+                        setClient(updated);
+                        setShowEditPanel(false);
+                    }}
+                />
+            )}
 
             {/* Tab bar */}
             <div className="flex items-center gap-1 border-b border-border/50">
