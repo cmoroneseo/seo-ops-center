@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download } from 'lucide-react';
+import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download, Pencil } from 'lucide-react';
 // ChevronDown/ChevronUp kept — used in TimeLogRow and NoteRow expand toggles
 import { ClientProject, TimeLog, ClientNote, ClientAssignment, ClientActivityEvent } from '@/lib/types';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
+import { EditTimeLogSheet } from '@/components/timer/EditTimeLogSheet';
 import { getClientNotes } from '@/lib/supabase/client-notes';
 import { getClientAssignments } from '@/lib/supabase/client-assignments';
 import { getClientActivity } from '@/lib/supabase/client-activity';
@@ -54,7 +55,7 @@ function renderNoteText(text: string) {
     });
 }
 
-function TimeLogRow({ log }: { log: TimeLog }) {
+function TimeLogRow({ log, onEdit }: { log: TimeLog; onEdit: (log: TimeLog) => void }) {
     const [expanded, setExpanded] = useState(false);
     const [showNotes, setShowNotes] = useState(false);
     const hasDescription = log.description && log.description.trim().length > 0;
@@ -62,7 +63,7 @@ function TimeLogRow({ log }: { log: TimeLog }) {
     const hasNotes = log.sessionNotes && log.sessionNotes.length > 0;
 
     return (
-        <div className="flex items-start gap-3 py-3">
+        <div className="group flex items-start gap-3 py-3">
             <div className="w-7 h-7 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0 mt-0.5">
                 <Clock className="h-3.5 w-3.5 text-blue-500" />
             </div>
@@ -75,14 +76,23 @@ function TimeLogRow({ log }: { log: TimeLog }) {
                             {new Date(log.date.includes('T') ? log.date : log.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         </span>
                     </p>
-                    {longDesc && (
+                    <div className="flex items-center gap-1 shrink-0">
+                        {longDesc && (
+                            <button
+                                onClick={() => setExpanded(!expanded)}
+                                className="text-muted-foreground hover:text-foreground transition-colors mt-0.5"
+                            >
+                                {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                            </button>
+                        )}
                         <button
-                            onClick={() => setExpanded(!expanded)}
-                            className="text-muted-foreground hover:text-foreground transition-colors shrink-0 mt-0.5"
+                            onClick={() => onEdit(log)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground mt-0.5 ml-1"
+                            title="Edit entry"
                         >
-                            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                            <Pencil className="h-3.5 w-3.5" />
                         </button>
-                    )}
+                    </div>
                 </div>
                 {hasDescription && (
                     <p className={cn(
@@ -381,6 +391,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
     const [allItems, setAllItems] = useState<ActivityItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<ActivityType>('all');
+    const [editingLog, setEditingLog] = useState<TimeLog | null>(null);
 
     useEffect(() => {
         if (!organization) return;
@@ -529,7 +540,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                                 {group.items.map(item => (
                                     <div key={`${item.type}-${item.data.id}`}>
                                         {item.type === 'time_log' ? (
-                                            <TimeLogRow log={item.data} />
+                                            <TimeLogRow log={item.data} onEdit={setEditingLog} />
                                         ) : item.type === 'note' ? (
                                             <NoteRow note={item.data} />
                                         ) : item.type === 'assignment' ? (
@@ -543,6 +554,21 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                         </div>
                     ))}
                 </div>
+            )}
+
+            {editingLog && (
+                <EditTimeLogSheet
+                    log={editingLog}
+                    onClose={() => setEditingLog(null)}
+                    onSaved={updated => {
+                        setAllItems(prev => prev.map(item =>
+                            item.type === 'time_log' && item.data.id === updated.id
+                                ? { ...item, data: updated }
+                                : item
+                        ));
+                        setEditingLog(null);
+                    }}
+                />
             )}
         </div>
     );

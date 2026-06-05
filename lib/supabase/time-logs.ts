@@ -95,12 +95,16 @@ export async function createTimeLog(
 
 export async function updateTimeLog(
     id: string,
-    patch: Partial<Pick<TimeLog, 'hours' | 'description' | 'date' | 'billable' | 'category'>>,
+    patch: Partial<Pick<TimeLog, 'hours' | 'description' | 'date' | 'billable' | 'category' | 'sessionNotes'>>,
 ): Promise<{ success: boolean; error?: string }> {
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
-        const { error } = await supabase.from('time_logs').update(patch).eq('id', id);
+        // Map camelCase sessionNotes → snake_case session_notes for Supabase
+        const { sessionNotes, ...rest } = patch;
+        const dbPatch: Record<string, unknown> = { ...rest };
+        if (sessionNotes !== undefined) dbPatch.session_notes = sessionNotes;
+        const { error } = await supabase.from('time_logs').update(dbPatch).eq('id', id);
         if (error) throw error;
         return { success: true };
     } catch (err: any) {
