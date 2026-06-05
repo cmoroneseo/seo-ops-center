@@ -79,10 +79,8 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
 
-    // Sync hours field when elapsed time changes (timer may still be ticking)
-    useEffect(() => {
-        setHours(String(secondsToHours(timer.elapsedSeconds)));
-    }, [timer.elapsedSeconds]);
+    // Hours is seeded once on mount from elapsed time — not synced again,
+    // so the user can freely edit it without it being overwritten by the ticking timer.
 
     const handleStop = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -202,7 +200,7 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
                                 <label className="text-xs font-medium text-muted-foreground">Hours</label>
                                 <input
                                     type="number"
-                                    step="0.25"
+                                    step="any"
                                     min="0"
                                     value={hours}
                                     onChange={e => setHours(e.target.value)}
