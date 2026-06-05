@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { MonthlyPlan, WeeklyPlan, ClientProject, TimeLog } from '@/lib/types';
 import { getMonthlyPlans, upsertMonthlyPlan } from '@/lib/supabase/monthly-plans';
 import { getTimeLogs, createTimeLog, updateTimeLog, deleteTimeLog } from '@/lib/supabase/time-logs';
+import { getSeoHoursForMonth } from '@/lib/supabase/change-log';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { createClient } from '@/lib/supabase/client';
 
@@ -179,19 +180,24 @@ export function MonthlyPlannerCard({ client }: MonthlyPlannerCardProps) {
     const [notesSaved, setNotesSaved] = useState(false);
     const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    // Historical-aware hours target for the currently viewed month
+    const [effectiveSeoHours, setEffectiveSeoHours] = useState(client.seoHours);
+
     const load = useCallback(async () => {
         if (!organization) return;
         setIsLoading(true);
-        const [plans, logs] = await Promise.all([
+        const [plans, logs, historicalHours] = await Promise.all([
             getMonthlyPlans(organization.id, { clientId: client.id, month }),
             getTimeLogs(organization.id, { clientId: client.id, month }),
+            getSeoHoursForMonth(organization.id, client.id, month, client.seoHours),
         ]);
         const p = plans[0] ?? null;
         setPlan(p);
         setMonthNotes(p?.notes ?? '');
         setTimeLogs(logs);
+        setEffectiveSeoHours(historicalHours);
         setIsLoading(false);
-    }, [organization?.id, client.id, month]);
+    }, [organization?.id, client.id, month, client.seoHours]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -223,9 +229,9 @@ export function MonthlyPlannerCard({ client }: MonthlyPlannerCardProps) {
 
     const totalPlanned = weeks.reduce((s, w) => s + w.planned, 0);
     const totalLogged = Object.values(loggedByWeek).reduce((s, h) => s + h, 0);
-    const remaining = client.seoHours - totalLogged;
-    const pct = client.seoHours > 0 ? Math.min((totalLogged / client.seoHours) * 100, 100) : 0;
-    const pace = getPaceStatus(client.seoHours, totalLogged, month);
+    const remaining = effectiveSeoHours - totalLogged;
+    const pct = effectiveSeoHours > 0 ? Math.min((totalLogged / effectiveSeoHours) * 100, 100) : 0;
+    const pace = getPaceStatus(effectiveSeoHours, totalLogged, month);
     const monthLabel = new Date(month + '-15').toLocaleString('default', { month: 'long', year: 'numeric' });
 
     // Week preview for log form
@@ -354,7 +360,7 @@ export function MonthlyPlannerCard({ client }: MonthlyPlannerCardProps) {
             <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">
-                        <span className="font-semibold text-foreground">{totalLogged.toFixed(1)}</span> of {client.seoHours}h used
+                        <span className="font-semibold text-foreground">{totalLogged.toFixed(1)}</span> of {effectiveSeoHours}h used
                     </span>
                     <span className={cn('font-medium text-sm', remaining < 0 ? 'text-red-500' : 'text-muted-foreground')}>
                         {remaining >= 0 ? `${remaining.toFixed(1)}h remaining` : `${Math.abs(remaining).toFixed(1)}h over budget`}
