@@ -6,6 +6,7 @@ function rowToTimeLog(row: any): TimeLog {
         id: row.id,
         organizationId: row.organization_id,
         clientId: row.client_id,
+        clientName: row.clients?.name ?? undefined,
         projectId: row.project_id ?? undefined,
         taskId: row.task_id ?? undefined,
         userId: row.user_id,
@@ -32,7 +33,7 @@ export async function getTimeLogs(
     const supabase = createClient();
     if (!supabase) return [];
     try {
-        let q = supabase.from('time_logs').select('*').eq('organization_id', organizationId);
+        let q = supabase.from('time_logs').select('*, clients(name)').eq('organization_id', organizationId);
         if (!opts.includeInProgress) q = q.eq('status', 'logged');
         if (opts.clientId) q = q.eq('client_id', opts.clientId);
         if (opts.month) {

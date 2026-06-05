@@ -265,6 +265,7 @@ export interface TimeLog {
     id: string;
     organizationId: string;
     clientId: string;
+    clientName?: string;
     projectId?: string;
     taskId?: string;
     userId: string;

@@ -292,7 +292,7 @@ export function MyTimeWidget() {
                 const logDate = new Date(l.date + 'T00:00:00');
                 if (logDate >= weekStart) week += l.hours;
                 if (!clientMap[l.clientId]) {
-                    clientMap[l.clientId] = { clientId: l.clientId, clientName: l.clientId, hours: 0 };
+                    clientMap[l.clientId] = { clientId: l.clientId, clientName: l.clientName || l.clientId, hours: 0 };
                 }
                 clientMap[l.clientId].hours += l.hours;
             }
