@@ -5,6 +5,7 @@ import { X, Upload, Loader2, Check, Trash2 } from 'lucide-react';
 import { ClientProject } from '@/lib/types';
 import { updateClientProject } from '@/lib/supabase/clients';
 import { createClient } from '@/lib/supabase/client';
+import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
 
 interface Props {
@@ -36,11 +37,15 @@ function ClientAvatar({ name, logoUrl, size = 'lg' }: { name: string; logoUrl?: 
 export { ClientAvatar };
 
 export function EditClientPanel({ client, onClose, onSaved }: Props) {
+    const { organization } = useOrganization();
     const [name, setName] = useState(client.clientName);
     const [logoUrl, setLogoUrl] = useState(client.logoUrl ?? '');
     const [logoPreview, setLogoPreview] = useState(client.logoUrl ?? '');
     const [uploadingLogo, setUploadingLogo] = useState(false);
     const [logoError, setLogoError] = useState('');
+    const [seoHours, setSeoHours] = useState(String(client.seoHours || ''));
+    const [blogsPerMonth, setBlogsPerMonth] = useState(String(client.blogsDuePerMonth || ''));
+    const [amendmentNote, setAmendmentNote] = useState('');
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
     const [error, setError] = useState('');
@@ -111,16 +116,46 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
         if (!name.trim()) { setError('Client name is required.'); return; }
         setSaving(true);
         setError('');
+
+        const newSeoHours = parseFloat(seoHours) || 0;
+        const newBlogs = parseInt(blogsPerMonth) || 0;
+        const hoursChanged = newSeoHours !== client.seoHours;
+        const blogsChanged = newBlogs !== client.blogsDuePerMonth;
+
         const result = await updateClientProject(client.id, {
             ...client,
             clientName: name.trim(),
             logoUrl: logoUrl || undefined,
+            seoHours: newSeoHours,
+            blogsDuePerMonth: newBlogs,
         });
         setSaving(false);
         if (!result.success || !result.data) {
             setError(result.error ?? 'Save failed.');
             return;
         }
+
+        // Log retainer amendment if hours/blogs changed or a note was provided
+        if (organization && (hoursChanged || blogsChanged || amendmentNote.trim())) {
+            const supabase = createClient();
+            const actorName = supabase
+                ? await supabase.auth.getUser().then((r: Awaited<ReturnType<typeof supabase.auth.getUser>>) => r.data.user?.user_metadata?.full_name ?? r.data.user?.email ?? undefined)
+                : undefined;
+            await fetch(`/api/clients/${client.id}/amend`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    organizationId: organization.id,
+                    oldSeoHours: client.seoHours,
+                    newSeoHours,
+                    oldBlogsPerMonth: client.blogsDuePerMonth,
+                    newBlogsPerMonth: newBlogs,
+                    note: amendmentNote.trim() || null,
+                    actorName,
+                }),
+            });
+        }
+
         setSaved(true);
         setTimeout(() => {
             onSaved(result.data!);
@@ -230,6 +265,45 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
                             onChange={e => setName(e.target.value)}
                             className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40"
                         />
+                    </div>
+
+                    {/* Hours & Deliverables */}
+                    <div className="space-y-3">
+                        <label className="text-sm font-medium">Hours &amp; Deliverables</label>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                                <label className="text-xs text-muted-foreground">Monthly SEO Hours</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="0.5"
+                                    value={seoHours}
+                                    onChange={e => setSeoHours(e.target.value)}
+                                    className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-xs text-muted-foreground">Blogs / Month</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    value={blogsPerMonth}
+                                    onChange={e => setBlogsPerMonth(e.target.value)}
+                                    className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-xs text-muted-foreground">Amendment Note <span className="opacity-50">(optional — what changed and why)</span></label>
+                            <textarea
+                                value={amendmentNote}
+                                onChange={e => setAmendmentNote(e.target.value)}
+                                placeholder="e.g. Replaced organic social with +3.5 SEO hrs + LinkedIn automation"
+                                rows={2}
+                                className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
+                            />
+                        </div>
                     </div>
 
                     {error && (

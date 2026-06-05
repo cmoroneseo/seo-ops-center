@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download, Pencil } from 'lucide-react';
+import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download, Pencil, RefreshCw } from 'lucide-react';
 // ChevronDown/ChevronUp kept — used in TimeLogRow and NoteRow expand toggles
 import { ClientProject, TimeLog, ClientNote, ClientAssignment, ClientActivityEvent } from '@/lib/types';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
@@ -247,6 +247,40 @@ function IntegrationEventRow({ event }: { event: ClientActivityEvent }) {
                             <>{displayName}{locationAddress ? ` · ${locationAddress}` : ''}</>
                         )}
                     </p>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function RetainerAmendedRow({ event }: { event: ClientActivityEvent }) {
+    const { metadata, actorName, occurredAt } = event;
+    const oldHours = metadata.oldSeoHours as number | undefined;
+    const newHours = metadata.newSeoHours as number | undefined;
+    const note = metadata.note as string | null | undefined;
+    const hoursChanged = oldHours !== undefined && newHours !== undefined && oldHours !== newHours;
+
+    return (
+        <div className="flex items-start gap-3 py-3">
+            <div className="w-7 h-7 rounded-full bg-violet-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                <RefreshCw className="h-3.5 w-3.5 text-violet-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+                <p className="text-sm leading-snug">
+                    {actorName && <span className="font-semibold">{actorName} </span>}
+                    <span className="text-foreground/80">updated retainer</span>
+                    {hoursChanged && (
+                        <span className="text-muted-foreground"> — SEO hours </span>
+                    )}
+                    {hoursChanged && (
+                        <span className="text-violet-500 font-medium">{oldHours}h → {newHours}h</span>
+                    )}
+                    <span className="text-muted-foreground text-xs ml-1.5">
+                        {new Date(occurredAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                </p>
+                {note && (
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed italic">"{note}"</p>
                 )}
             </div>
         </div>
@@ -545,6 +579,8 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                                             <NoteRow note={item.data} />
                                         ) : item.type === 'assignment' ? (
                                             <AssignmentRow assignment={item.data} />
+                                        ) : item.type === 'integration_event' && item.data.eventType === 'retainer.amended' ? (
+                                            <RetainerAmendedRow event={item.data} />
                                         ) : (
                                             <IntegrationEventRow event={item.data} />
                                         )}
