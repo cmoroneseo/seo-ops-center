@@ -47,22 +47,25 @@ export async function getSeoHoursForMonth(
     const [y, m] = month.split('-').map(Number);
     const monthEnd = new Date(y, m, 0); // day 0 of next month = last day of this month
 
-    // Sort ascending by effective_date
+    // Sort ascending by effective_date, ignore entries without one
     const sorted = [...entries]
         .filter(e => e.effectiveDate)
         .sort((a, b) => a.effectiveDate!.localeCompare(b.effectiveDate!));
 
-    // Walk forward: find the last change whose effective_date is <= monthEnd
-    // The hours in effect for that month = newSeoHours of that change (or
-    // prevSeoHours of the first change that comes AFTER monthEnd).
-    let hoursAtMonthEnd = currentHours;
+    if (!sorted.length) return currentHours;
+
+    // Start from what the hours were BEFORE any change was ever made
+    let result: number = sorted[0].prevSeoHours ?? currentHours;
+
+    // Apply each change that took effect on or before the end of this month
     for (const entry of sorted) {
         const eDate = new Date(entry.effectiveDate!);
         if (eDate <= monthEnd) {
-            hoursAtMonthEnd = entry.newSeoHours ?? hoursAtMonthEnd;
+            result = entry.newSeoHours ?? result;
         }
     }
-    return hoursAtMonthEnd;
+
+    return result;
 }
 
 /**
