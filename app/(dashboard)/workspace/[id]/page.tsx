@@ -18,6 +18,7 @@ import { IntegrationsTab } from '@/components/workspace/IntegrationsTab';
 import { EditClientPanel, ClientAvatar } from '@/components/workspace/EditClientPanel';
 import { getClients } from '@/lib/supabase/clients';
 import { useOrganization } from '@/components/providers/organization-provider';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { useTimer } from '@/components/providers/timer-provider';
 import { ClientProject } from '@/lib/types';
 import { Pencil, Play, Pause } from 'lucide-react';
@@ -28,6 +29,7 @@ export default function ClientDetailPage() {
     const params = useParams();
     const id = params.id as string;
     const { organization } = useOrganization();
+    const { isOwner } = useCurrentMember();
     const [client, setClient] = useState<ClientProject | null | undefined>(undefined); // undefined = loading
     const [showReassign, setShowReassign] = useState(false);
     const [showEditPanel, setShowEditPanel] = useState(false);
@@ -222,14 +224,16 @@ export default function ClientDetailPage() {
                             <div className="font-medium">{client.accountManager}</div>
                         </div>
                         <div className="flex items-center gap-2">
-                            <button
-                                onClick={() => setShowReassign(true)}
-                                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border hover:border-primary/40 rounded-md px-2.5 py-1.5 transition-all"
-                                title="Reassign account manager"
-                            >
-                                <UserCheck className="h-3.5 w-3.5" />
-                                Reassign
-                            </button>
+                            {isOwner && (
+                                <button
+                                    onClick={() => setShowReassign(true)}
+                                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border hover:border-primary/40 rounded-md px-2.5 py-1.5 transition-all"
+                                    title="Reassign account manager"
+                                >
+                                    <UserCheck className="h-3.5 w-3.5" />
+                                    Reassign
+                                </button>
+                            )}
                             <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-sm font-bold text-primary">
                                 {(client.accountManager || '?').charAt(0)}
                             </div>

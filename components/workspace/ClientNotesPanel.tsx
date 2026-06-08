@@ -6,6 +6,7 @@ import { ClientProject, ClientNote } from '@/lib/types';
 import { getClientNotes, createClientNote, updateClientNote, deleteClientNote } from '@/lib/supabase/client-notes';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { useOrganization } from '@/components/providers/organization-provider';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { cn } from '@/lib/utils';
 
 interface ClientNotesPanelProps {
@@ -207,15 +208,21 @@ function MentionTextarea({
 
 export function ClientNotesPanel({ client }: ClientNotesPanelProps) {
     const { organization } = useOrganization();
+    const { displayName } = useCurrentMember();
     const [notes, setNotes] = useState<ClientNote[]>([]);
     const [loading, setLoading] = useState(true);
     const [members, setMembers] = useState<TeamMember[]>([]);
     const [adding, setAdding] = useState(false);
     const [newContent, setNewContent] = useState('');
-    const [authorName, setAuthorName] = useState('Carlos');
+    const [authorName, setAuthorName] = useState('');
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editContent, setEditContent] = useState('');
     const [saving, setSaving] = useState(false);
+
+    // Auto-fill author name from session once loaded
+    useEffect(() => {
+        if (displayName) setAuthorName(displayName);
+    }, [displayName]);
 
     useEffect(() => {
         getClientNotes(client.id).then(data => {

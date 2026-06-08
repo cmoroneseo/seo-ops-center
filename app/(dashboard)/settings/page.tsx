@@ -1,8 +1,9 @@
 'use client';
 
-import { User, Bell, Shield, Users, Plus, Mail, Loader2 } from 'lucide-react';
+import { User, Bell, Shield, Users, Plus, Loader2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { getOrganizationMembers, addMemberByEmail } from '@/lib/supabase/organizations';
 import { User as UserType, OrganizationMember } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -13,6 +14,7 @@ interface MemberWithUser extends OrganizationMember {
 
 export default function SettingsPage() {
     const { organization } = useOrganization();
+    const { displayName, isOwner } = useCurrentMember();
     const [members, setMembers] = useState<MemberWithUser[]>([]);
     const [isInviteLoading, setIsInviteLoading] = useState(false);
     const [inviteEmail, setInviteEmail] = useState('');
@@ -47,7 +49,7 @@ export default function SettingsPage() {
                     email: inviteEmail.trim(),
                     organizationId: organization.id,
                     organizationName: organization.name,
-                    invitedByName: 'Carlos',
+                    invitedByName: displayName,
                 }),
             });
             const data = await res.json();
@@ -115,29 +117,31 @@ export default function SettingsPage() {
                     </div>
 
                     <div className="space-y-6">
-                        {/* Invite Form */}
-                        <form onSubmit={handleInvite} className="flex gap-2">
-                            <div className="flex-1">
-                                <input
-                                    type="email"
-                                    placeholder="teammate@example.com"
-                                    value={inviteEmail}
-                                    onChange={(e) => setInviteEmail(e.target.value)}
-                                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                                    required
-                                />
-                                {inviteError && <p className="text-xs text-red-500 mt-1">{inviteError}</p>}
-                                {inviteSuccess && <p className="text-xs text-green-500 mt-1">✓ Invitation sent! They'll receive an email with an activation link.</p>}
-                            </div>
-                            <button
-                                type="submit"
-                                disabled={isInviteLoading}
-                                className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 h-10"
-                            >
-                                {isInviteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                                Add Member
-                            </button>
-                        </form>
+                        {/* Invite Form — owners only */}
+                        {isOwner && (
+                            <form onSubmit={handleInvite} className="flex gap-2">
+                                <div className="flex-1">
+                                    <input
+                                        type="email"
+                                        placeholder="teammate@example.com"
+                                        value={inviteEmail}
+                                        onChange={(e) => setInviteEmail(e.target.value)}
+                                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                        required
+                                    />
+                                    {inviteError && <p className="text-xs text-red-500 mt-1">{inviteError}</p>}
+                                    {inviteSuccess && <p className="text-xs text-green-500 mt-1">✓ Invitation sent! They'll receive an email with an activation link.</p>}
+                                </div>
+                                <button
+                                    type="submit"
+                                    disabled={isInviteLoading}
+                                    className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 h-10"
+                                >
+                                    {isInviteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                                    Add Member
+                                </button>
+                            </form>
+                        )}
 
                         {/* Member List */}
                         <div className="divide-y divide-border/50 border rounded-md">

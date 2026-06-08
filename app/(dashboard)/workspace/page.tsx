@@ -6,14 +6,16 @@ import { CSVImportModal } from '@/components/workspace/CSVImportModal';
 import { PlanningTable } from '@/components/workspace/PlanningTable';
 import { ClientProject, ProjectStatus, MonthlyPlan } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { Search, Filter, Plus, X, LayoutList, CalendarRange } from 'lucide-react';
+import { Search, Filter, Plus, X, LayoutList, CalendarRange, User } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { getClients } from '@/lib/supabase/clients';
 import { getMonthlyPlans } from '@/lib/supabase/monthly-plans';
 import { useOrganization } from '@/components/providers/organization-provider';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 
 export default function WorkspacePage() {
     const { organization } = useOrganization();
+    const { displayName, isOwner } = useCurrentMember();
     const [clients, setClients] = useState<ClientProject[]>([]);
     const [plans, setPlans] = useState<MonthlyPlan[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -23,6 +25,7 @@ export default function WorkspacePage() {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [viewMode, setViewMode] = useState<'list' | 'planning'>('list');
+    const [myClientsOnly, setMyClientsOnly] = useState(!isOwner); // members default to their own clients
 
     const fetchClients = async () => {
         if (!organization) return;
@@ -49,20 +52,16 @@ export default function WorkspacePage() {
     // Filter clients
     const filteredClients = useMemo(() => {
         return clients.filter(client => {
-            // Search filter
             const matchesSearch =
                 client.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 client.accountManager.toLowerCase().includes(searchQuery.toLowerCase());
-
-            // Status filter
             const matchesStatus = statusFilter === 'All' || client.status === statusFilter;
-
-            // Manager filter
             const matchesManager = managerFilter === 'All' || client.accountManager === managerFilter;
-
-            return matchesSearch && matchesStatus && matchesManager;
+            const matchesMine = !myClientsOnly ||
+                client.accountManager.toLowerCase() === displayName.toLowerCase();
+            return matchesSearch && matchesStatus && matchesManager && matchesMine;
         });
-    }, [clients, searchQuery, statusFilter, managerFilter]);
+    }, [clients, searchQuery, statusFilter, managerFilter, myClientsOnly, displayName]);
 
     if (isLoading) return <div className="p-8">Loading client workspace...</div>;
 
@@ -73,7 +72,21 @@ export default function WorkspacePage() {
                     <h2 className="text-3xl font-bold tracking-tight neon-gradient-text">Workspace</h2>
                     <p className="text-muted-foreground">Manage your clients and SEO deliverables.</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap justify-end">
+                    {/* My Clients toggle */}
+                    <button
+                        onClick={() => setMyClientsOnly(p => !p)}
+                        className={cn(
+                            "flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg border transition-all",
+                            myClientsOnly
+                                ? "bg-primary/10 text-primary border-primary/30"
+                                : "bg-muted/50 text-muted-foreground border-border/50 hover:text-foreground"
+                        )}
+                    >
+                        <User className="h-4 w-4" />
+                        <span className="hidden sm:inline">{myClientsOnly ? 'My Clients' : 'All Clients'}</span>
+                    </button>
+
                     <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg border border-border/50">
                         <button
                             onClick={() => setViewMode('list')}
@@ -96,13 +109,16 @@ export default function WorkspacePage() {
                             <span className="hidden sm:inline">Planning</span>
                         </button>
                     </div>
-                    <button
-                        onClick={() => setIsAddModalOpen(true)}
-                        className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 w-full sm:w-auto justify-center"
-                    >
-                        <Plus className="h-4 w-4" />
-                        Add Client
-                    </button>
+
+                    {isOwner && (
+                        <button
+                            onClick={() => setIsAddModalOpen(true)}
+                            className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 w-full sm:w-auto justify-center"
+                        >
+                            <Plus className="h-4 w-4" />
+                            Add Client
+                        </button>
+                    )}
                 </div>
             </div>
 
