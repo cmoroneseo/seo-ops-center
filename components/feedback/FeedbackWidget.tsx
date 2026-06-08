@@ -79,10 +79,10 @@ export function FeedbackWidget() {
     };
 
     return (
-        <div ref={panelRef} className="fixed bottom-6 left-6 z-50">
+        <div ref={panelRef} className="fixed bottom-[88px] right-6 z-50">
             {/* Panel */}
             {open && (
-                <div className="absolute bottom-14 left-0 w-80 bg-card border border-border rounded-2xl shadow-2xl animate-in slide-in-from-bottom-3 fade-in duration-200 overflow-hidden">
+                <div className="absolute bottom-14 right-0 w-80 bg-card border border-border rounded-2xl shadow-2xl animate-in slide-in-from-bottom-3 fade-in duration-200 overflow-hidden">
                     {/* Header */}
                     <div className="flex items-center justify-between px-4 py-3 border-b border-border/50 bg-muted/20">
                         <div className="flex items-center gap-2">
