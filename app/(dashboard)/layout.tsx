@@ -11,6 +11,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { OnboardingChecklist } from '@/components/dashboard/OnboardingChecklist';
+import { FeedbackWidget } from '@/components/feedback/FeedbackWidget';
 
 export default function DashboardLayout({
     children,
@@ -63,6 +64,7 @@ export default function DashboardLayout({
             </div>
             {!isSetupPage && <FloatingTimer clients={clients} />}
             {!isSetupPage && <TimerNotifications />}
+            {!isSetupPage && <FeedbackWidget />}
         </TimerProvider>
     );
 }
