@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { logClientActivity } from '@/lib/supabase/client-activity';
 import { cookies } from 'next/headers';
 
 async function getUser() {
@@ -60,14 +61,17 @@ export async function POST(
 
     const admin = createAdminClient();
 
-    // Read existing custom_fields and merge
+    // Read existing custom_fields + client info for activity log
     const { data: existing } = await admin
         .from('clients')
-        .select('custom_fields')
+        .select('custom_fields, name, organization_id')
         .eq('id', id)
         .single();
 
     const currentFields = (existing?.custom_fields as Record<string, unknown>) ?? {};
+    const wasEnabled = !!(currentFields.basecamp_sync_enabled);
+    const hadProject = !!(currentFields.basecamp_project_id);
+
     const updatedFields = {
         ...currentFields,
         basecamp_project_id: basecamp_project_id || null,
@@ -81,6 +85,30 @@ export async function POST(
         .eq('id', id);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // Log activity
+    if (existing?.organization_id) {
+        const isDisabling = wasEnabled && !basecamp_sync_enabled;
+        const isFirstConnect = !hadProject && basecamp_project_id;
+        const eventType = isDisabling
+            ? 'integration.disconnected'
+            : isFirstConnect
+            ? 'integration.connected'
+            : 'integration.reconfigured';
+
+        await logClientActivity({
+            organizationId: existing.organization_id,
+            clientId: id,
+            eventType,
+            actorId: user.id,
+            metadata: {
+                service: 'basecamp',
+                basecamp_project_id: basecamp_project_id || null,
+                basecamp_todolist_id: basecamp_todolist_id || null,
+                sync_enabled: !!basecamp_sync_enabled,
+            },
+        });
+    }
 
     return NextResponse.json({ success: true });
 }

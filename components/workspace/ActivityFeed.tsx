@@ -205,6 +205,7 @@ const SERVICE_LABELS: Record<string, string> = {
     gsc: 'Google Search Console',
     gbp: 'Google Business Profile',
     ahrefs: 'Ahrefs',
+    basecamp: 'Basecamp',
 };
 
 function IntegrationEventRow({ event }: { event: ClientActivityEvent }) {
@@ -319,7 +320,7 @@ function buildPrintHTML(client: ClientProject, items: ActivityItem[]): string {
         }
         if (item.type === 'integration_event') {
             const e = item.data as ClientActivityEvent;
-            const svc = ({ ga4: 'Google Analytics 4', gsc: 'Google Search Console', gbp: 'Google Business Profile', ahrefs: 'Ahrefs' } as Record<string, string>)[e.metadata.service as string] ?? String(e.metadata.service);
+            const svc = ({ ga4: 'Google Analytics 4', gsc: 'Google Search Console', gbp: 'Google Business Profile', ahrefs: 'Ahrefs', basecamp: 'Basecamp' } as Record<string, string>)[e.metadata.service as string] ?? String(e.metadata.service);
             return `<tr><td>${fmtDate(item.date)}</td><td>${e.eventType.replace('integration.', '').replace(/^\w/, c => c.toUpperCase())} – ${svc}</td><td>${e.actorName ?? ''}</td></tr>`;
         }
         return '';
