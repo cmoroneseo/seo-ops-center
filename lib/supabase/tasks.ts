@@ -6,7 +6,38 @@ import {
     TaskCategory,
     TaskStatusHistoryEntry,
     TaskComment,
+    TaskTemplate,
 } from '../types';
+import { getNextDueDate } from '../utils/recurrence';
+
+// ---------------------------------------------------------------------------
+// Basecamp integration helpers (fire-and-forget, server-side only)
+// ---------------------------------------------------------------------------
+
+/** Checks if a client has Basecamp sync enabled and returns its config. */
+async function getClientBasecampConfig(clientId: string | undefined): Promise<{
+    projectId: string;
+    todolistId: string;
+} | null> {
+    if (!clientId) return null;
+    const supabase = createClient();
+    if (!supabase) return null;
+    try {
+        const { data } = await supabase
+            .from('clients')
+            .select('custom_fields')
+            .eq('id', clientId)
+            .single();
+        const cf = data?.custom_fields as Record<string, unknown> ?? {};
+        if (!cf.basecamp_sync_enabled) return null;
+        const projectId = cf.basecamp_project_id as string;
+        const todolistId = cf.basecamp_todolist_id as string;
+        if (!projectId || !todolistId) return null;
+        return { projectId, todolistId };
+    } catch {
+        return null;
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Row mappers
@@ -225,7 +256,33 @@ export async function createTask(
         };
         const { data, error } = await supabase.from('tasks').insert([row]).select('*, clients(name)').single();
         if (error) throw error;
-        return { success: true, data: rowToTask(data) };
+        const task = rowToTask(data);
+
+        // Basecamp push — fire-and-forget (only runs server-side where env vars are set)
+        if (typeof window === 'undefined' && t.clientId) {
+            getClientBasecampConfig(t.clientId).then(async (bc) => {
+                if (!bc) return;
+                try {
+                    const { createBasecampTodo } = await import('../basecamp/api');
+                    const result = await createBasecampTodo(bc.projectId, bc.todolistId, {
+                        content: task.title,
+                        dueOn: task.dueDate,
+                        description: task.description,
+                    });
+                    if (result) {
+                        await supabase
+                            .from('tasks')
+                            .update({ basecamp_todo_id: result.id, last_synced_at: new Date().toISOString() })
+                            .eq('id', task.id);
+                        task.basecampTodoId = result.id;
+                    }
+                } catch (err) {
+                    console.error('[Basecamp] createTask push error:', err);
+                }
+            });
+        }
+
+        return { success: true, data: task };
     } catch (err: any) {
         console.error('Error creating task:', err);
         return { success: false, error: err.message };
@@ -270,7 +327,7 @@ export async function updateTask(
         if (patch.status) {
             const { data: current } = await supabase
                 .from('tasks')
-                .select('status_history')
+                .select('status_history, recurrence, due_date, title, description, priority, category, tags, estimated_hours, assignee_ids, client_id, project_id, organization_id, template_id')
                 .eq('id', taskId)
                 .single();
             const history: TaskStatusHistoryEntry[] = current?.status_history ?? [];
@@ -285,16 +342,59 @@ export async function updateTask(
             if (patch.status !== 'done' && patch.completedAt === undefined) {
                 candidate.completed_at = null;
             }
+
+            // Auto-spawn next recurring instance when marking done
+            if (patch.status === 'done' && current?.recurrence) {
+                const nextDue = getNextDueDate(current.recurrence, current.due_date ?? new Date().toISOString().slice(0, 10));
+                if (nextDue) {
+                    // Fire-and-forget — don't block the main update
+                    createTask({
+                        organizationId: current.organization_id,
+                        projectId: current.project_id ?? undefined,
+                        clientId: current.client_id ?? undefined,
+                        title: current.title,
+                        description: current.description ?? undefined,
+                        priority: current.priority ?? 'medium',
+                        category: current.category ?? undefined,
+                        tags: current.tags ?? [],
+                        estimatedHours: current.estimated_hours ?? undefined,
+                        assigneeIds: current.assignee_ids ?? [],
+                        dueDate: nextDue,
+                        templateId: current.template_id ?? undefined,
+                        recurrence: current.recurrence,
+                        parentTaskId: taskId, // link back to this completed task
+                    }).catch(err => console.error('Recurring task spawn error:', err));
+                }
+            }
         }
 
         const { data, error } = await supabase
             .from('tasks')
             .update(candidate)
             .eq('id', taskId)
-            .select('*, clients(name)')
+            .select('*, clients(name), basecamp_todo_id, client_id')
             .single();
         if (error) throw error;
-        return { success: true, data: rowToTask(data) };
+        const updatedTask = rowToTask(data);
+
+        // Basecamp complete/reopen — fire-and-forget (server-side only)
+        if (typeof window === 'undefined' && patch.status && data.basecamp_todo_id) {
+            (async () => {
+                try {
+                    const { completeBasecampTodo, reopenBasecampTodo } = await import('../basecamp/api');
+                    if (patch.status === 'done') {
+                        await completeBasecampTodo(data.client_id ?? '', data.basecamp_todo_id);
+                    } else if (patch.status === 'todo' || patch.status === 'in_progress') {
+                        await reopenBasecampTodo(data.client_id ?? '', data.basecamp_todo_id);
+                    }
+                    await supabase.from('tasks').update({ last_synced_at: new Date().toISOString() }).eq('id', taskId);
+                } catch (err) {
+                    console.error('[Basecamp] updateTask sync error:', err);
+                }
+            })();
+        }
+
+        return { success: true, data: updatedTask };
     } catch (err: any) {
         console.error('Error updating task:', err);
         return { success: false, error: err.message };
@@ -360,7 +460,32 @@ export async function createTaskComment(params: {
             .select()
             .single();
         if (error) throw error;
-        return { success: true, data: rowToComment(data) };
+        const comment = rowToComment(data);
+
+        // Basecamp comment push — fire-and-forget (server-side only)
+        if (typeof window === 'undefined') {
+            (async () => {
+                try {
+                    const { data: taskRow } = await supabase
+                        .from('tasks')
+                        .select('basecamp_todo_id, client_id')
+                        .eq('id', params.taskId)
+                        .single();
+                    if (!taskRow?.basecamp_todo_id) return;
+                    const { createBasecampComment } = await import('../basecamp/api');
+                    const authorLabel = params.authorName ? `**${params.authorName}:** ` : '';
+                    await createBasecampComment(
+                        taskRow.client_id ?? '',
+                        taskRow.basecamp_todo_id,
+                        `${authorLabel}${params.body}`,
+                    );
+                } catch (err) {
+                    console.error('[Basecamp] comment push error:', err);
+                }
+            })();
+        }
+
+        return { success: true, data: comment };
     } catch (err: any) {
         console.error('Error creating task comment:', err);
         return { success: false, error: err.message };
@@ -376,6 +501,167 @@ export async function deleteTaskComment(commentId: string): Promise<{ success: b
         return { success: true };
     } catch (err: any) {
         console.error('Error deleting task comment:', err);
+        return { success: false, error: err.message };
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Task Templates
+// ---------------------------------------------------------------------------
+
+function rowToTemplate(row: any): TaskTemplate {
+    return {
+        id: row.id,
+        organizationId: row.organization_id,
+        name: row.name,
+        description: row.description ?? undefined,
+        category: row.category ?? undefined,
+        estimatedHours: row.estimated_hours ?? undefined,
+        priority: row.priority ?? 'medium',
+        tags: row.tags ?? [],
+        checklist: row.checklist ?? [],
+        recurrence: row.recurrence ?? undefined,
+        createdBy: row.created_by ?? undefined,
+        createdAt: row.created_at,
+    };
+}
+
+export async function getTaskTemplates(organizationId: string): Promise<TaskTemplate[]> {
+    const supabase = createClient();
+    if (!supabase) return [];
+    try {
+        const { data, error } = await supabase
+            .from('task_templates')
+            .select('*')
+            .eq('organization_id', organizationId)
+            .order('category', { ascending: true })
+            .order('name', { ascending: true });
+        if (error) throw error;
+        return (data || []).map(rowToTemplate);
+    } catch (err) {
+        console.error('Error fetching task templates:', err);
+        return [];
+    }
+}
+
+type TaskTemplateInsert = {
+    organizationId: string;
+    name: string;
+    description?: string;
+    category?: TaskCategory;
+    estimatedHours?: number;
+    priority?: TaskPriority;
+    tags?: string[];
+    checklist?: { title: string; required: boolean }[];
+    recurrence?: TaskTemplate['recurrence'];
+    createdBy?: string;
+};
+
+export async function createTaskTemplate(t: TaskTemplateInsert): Promise<{ success: boolean; data?: TaskTemplate; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
+    try {
+        const { data, error } = await supabase
+            .from('task_templates')
+            .insert([{
+                organization_id: t.organizationId,
+                name: t.name,
+                description: t.description,
+                category: t.category,
+                estimated_hours: t.estimatedHours,
+                priority: t.priority ?? 'medium',
+                tags: t.tags ?? [],
+                checklist: t.checklist ?? [],
+                recurrence: t.recurrence,
+                created_by: t.createdBy,
+            }])
+            .select()
+            .single();
+        if (error) throw error;
+        return { success: true, data: rowToTemplate(data) };
+    } catch (err: any) {
+        console.error('Error creating task template:', err);
+        return { success: false, error: err.message };
+    }
+}
+
+export async function updateTaskTemplate(
+    templateId: string,
+    patch: Partial<Omit<TaskTemplateInsert, 'organizationId'>>,
+): Promise<{ success: boolean; data?: TaskTemplate; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
+    try {
+        const candidate: Record<string, unknown> = {
+            ...(patch.name !== undefined && { name: patch.name }),
+            ...(patch.description !== undefined && { description: patch.description }),
+            ...(patch.category !== undefined && { category: patch.category }),
+            ...(patch.estimatedHours !== undefined && { estimated_hours: patch.estimatedHours }),
+            ...(patch.priority !== undefined && { priority: patch.priority }),
+            ...(patch.tags !== undefined && { tags: patch.tags }),
+            ...(patch.checklist !== undefined && { checklist: patch.checklist }),
+            ...(patch.recurrence !== undefined && { recurrence: patch.recurrence }),
+        };
+        const { data, error } = await supabase
+            .from('task_templates')
+            .update(candidate)
+            .eq('id', templateId)
+            .select()
+            .single();
+        if (error) throw error;
+        return { success: true, data: rowToTemplate(data) };
+    } catch (err: any) {
+        console.error('Error updating task template:', err);
+        return { success: false, error: err.message };
+    }
+}
+
+export async function deleteTaskTemplate(templateId: string): Promise<{ success: boolean; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
+    try {
+        const { error } = await supabase.from('task_templates').delete().eq('id', templateId);
+        if (error) throw error;
+        return { success: true };
+    } catch (err: any) {
+        console.error('Error deleting task template:', err);
+        return { success: false, error: err.message };
+    }
+}
+
+/** Create a task pre-filled from a template. Caller can override any field. */
+export async function createTaskFromTemplate(
+    templateId: string,
+    overrides: Partial<TaskInsert> & { organizationId: string },
+): Promise<{ success: boolean; data?: Task; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
+    try {
+        const { data: tpl, error: tplErr } = await supabase
+            .from('task_templates')
+            .select('*')
+            .eq('id', templateId)
+            .single();
+        if (tplErr || !tpl) throw tplErr ?? new Error('Template not found');
+
+        return createTask({
+            organizationId: overrides.organizationId,
+            title: overrides.title ?? tpl.name,
+            description: overrides.description ?? tpl.description,
+            priority: overrides.priority ?? tpl.priority ?? 'medium',
+            category: overrides.category ?? tpl.category,
+            estimatedHours: overrides.estimatedHours ?? tpl.estimated_hours,
+            tags: overrides.tags ?? tpl.tags ?? [],
+            recurrence: overrides.recurrence ?? tpl.recurrence,
+            templateId,
+            dueDate: overrides.dueDate,
+            clientId: overrides.clientId,
+            projectId: overrides.projectId,
+            createdBy: overrides.createdBy,
+            assigneeIds: overrides.assigneeIds,
+        });
+    } catch (err: any) {
+        console.error('Error creating task from template:', err);
         return { success: false, error: err.message };
     }
 }

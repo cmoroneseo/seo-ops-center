@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
-import { X, Plus } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Plus, LayoutTemplate } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Task, TaskPriority, TaskStatus, TaskCategory } from '@/lib/types';
-import { createTask } from '@/lib/supabase/tasks';
+import { Task, TaskPriority, TaskStatus, TaskCategory, TaskTemplate } from '@/lib/types';
+import { createTaskFromTemplate, createTask } from '@/lib/supabase/tasks';
+import { RecurrenceSelector } from './RecurrenceSelector';
 import { useOrganization } from '@/components/providers/organization-provider';
 
 interface CreateTaskModalProps {
@@ -17,6 +18,10 @@ interface CreateTaskModalProps {
     defaultClientId?: string;
     defaultClientName?: string;
     defaultProjectId?: string;
+    /** Pre-fill due date (e.g., when clicking a calendar cell) */
+    defaultDueDate?: string;
+    /** Pre-fill all fields from a template */
+    templatePrefill?: TaskTemplate;
 }
 
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
@@ -44,13 +49,36 @@ export function CreateTaskModal({
     defaultClientId,
     defaultClientName,
     defaultProjectId,
+    defaultDueDate,
+    templatePrefill,
 }: CreateTaskModalProps) {
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [priority, setPriority] = useState<TaskPriority>('medium');
     const [category, setCategory] = useState<TaskCategory | ''>('');
-    const [dueDate, setDueDate] = useState('');
+    const [dueDate, setDueDate] = useState(defaultDueDate ?? '');
+    const [recurrence, setRecurrence] = useState<Task['recurrence']>(undefined);
     const [status] = useState<TaskStatus>('todo');
+
+    // Sync fields when modal opens or template/date changes
+    useEffect(() => {
+        if (isOpen) {
+            setDueDate(defaultDueDate ?? '');
+            if (templatePrefill) {
+                setTitle(templatePrefill.name);
+                setDescription(templatePrefill.description ?? '');
+                setPriority(templatePrefill.priority);
+                setCategory(templatePrefill.category ?? '');
+                setRecurrence(templatePrefill.recurrence);
+            } else {
+                setTitle('');
+                setDescription('');
+                setPriority('medium');
+                setCategory('');
+                setRecurrence(undefined);
+            }
+        }
+    }, [isOpen, defaultDueDate, templatePrefill]);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
 
@@ -60,7 +88,8 @@ export function CreateTaskModal({
         if (!organizationId) { setError('Organization not found'); return; }
         setSaving(true);
         setError('');
-        const result = await createTask({
+
+        const overrides = {
             organizationId,
             projectId: defaultProjectId,
             clientId: defaultClientId,
@@ -71,16 +100,16 @@ export function CreateTaskModal({
             category: category as TaskCategory || undefined,
             dueDate: dueDate || undefined,
             createdBy: currentUserId,
-        });
+            recurrence: recurrence || undefined,
+        };
+
+        const result = templatePrefill
+            ? await createTaskFromTemplate(templatePrefill.id, overrides)
+            : await createTask(overrides);
+
         setSaving(false);
         if (result.success && result.data) {
             onCreated({ ...result.data, clientName: defaultClientName ?? result.data.clientName });
-            // Reset
-            setTitle('');
-            setDescription('');
-            setPriority('medium');
-            setCategory('');
-            setDueDate('');
             onClose();
         } else {
             setError(result.error ?? 'Failed to create task');
@@ -99,9 +128,17 @@ export function CreateTaskModal({
                         <h3 className="font-bold text-foreground flex items-center gap-2">
                             <Plus className="h-4 w-4" /> New Task
                         </h3>
-                        {defaultClientName && (
-                            <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-full">{defaultClientName}</span>
-                        )}
+                        <div className="flex items-center gap-2">
+                            {templatePrefill && (
+                                <span className="flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-1 rounded-full">
+                                    <LayoutTemplate className="h-3 w-3" />
+                                    {templatePrefill.name}
+                                </span>
+                            )}
+                            {defaultClientName && (
+                                <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-full">{defaultClientName}</span>
+                            )}
+                        </div>
                         <button onClick={onClose} className="p-1.5 hover:bg-muted rounded-lg text-muted-foreground">
                             <X className="h-4 w-4" />
                         </button>
@@ -165,6 +202,12 @@ export function CreateTaskModal({
                                 onChange={e => setDueDate(e.target.value)}
                                 className="w-full mt-1 bg-muted/30 border border-border rounded-lg p-2 text-sm focus:ring-1 focus:ring-primary"
                             />
+                        </div>
+
+                        {/* Recurrence */}
+                        <div>
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Recurrence</label>
+                            <RecurrenceSelector value={recurrence} onChange={setRecurrence} />
                         </div>
 
                         {error && <p className="text-xs text-red-500">{error}</p>}

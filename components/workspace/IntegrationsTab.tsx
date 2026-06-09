@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CheckCircle2, AlertCircle, Unlink, ExternalLink, RefreshCw, Key, Settings2 } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Unlink, ExternalLink, RefreshCw, Key, Settings2, ToggleLeft, ToggleRight, ChevronDown } from 'lucide-react';
 import { ClientIntegration, IntegrationService } from '@/lib/types';
 import { getClientIntegrations } from '@/lib/supabase/integrations';
 import { GooglePropertyPicker } from './GooglePropertyPicker';
@@ -64,6 +64,14 @@ export function IntegrationsTab({ clientId }: Props) {
 
     const [integrations, setIntegrations] = useState<ClientIntegration[]>([]);
     const [loading, setLoading] = useState(true);
+    // Basecamp config state
+    const [bcProjects, setBcProjects] = useState<{ id: number; name: string }[]>([]);
+    const [bcTodolists, setBcTodolists] = useState<{ id: number; title: string; name: string }[]>([]);
+    const [bcProjectId, setBcProjectId] = useState('');
+    const [bcTodolistId, setBcTodolistId] = useState('');
+    const [bcSyncEnabled, setBcSyncEnabled] = useState(false);
+    const [bcSaving, setBcSaving] = useState(false);
+    const [bcConfigured, setBcConfigured] = useState<boolean | null>(null); // null = not checked yet
     const [ahrefsKey, setAhrefsKey] = useState('');
     const [ahrefsSaving, setAhrefsSaving] = useState(false);
     const [ahrefsError, setAhrefsError] = useState('');
@@ -169,6 +177,62 @@ export function IntegrationsTab({ clientId }: Props) {
             }
         } finally {
             setDisconnecting(null);
+        }
+    }
+
+    // Load client's existing Basecamp config from custom_fields
+    useEffect(() => {
+        if (!clientId) return;
+        fetch(`/api/integrations/basecamp/projects`)
+            .then(r => r.json())
+            .then(d => {
+                setBcConfigured(d.configured ?? false);
+                if (d.projects) setBcProjects(d.projects);
+            })
+            .catch(() => setBcConfigured(false));
+    }, [clientId]);
+
+    // Load current Basecamp settings from client's custom_fields via API
+    useEffect(() => {
+        if (!clientId || !orgId) return;
+        fetch(`/api/clients/${clientId}/basecamp-config`)
+            .then(r => r.ok ? r.json() : null)
+            .then(d => {
+                if (!d) return;
+                setBcProjectId(d.basecamp_project_id ?? '');
+                setBcTodolistId(d.basecamp_todolist_id ?? '');
+                setBcSyncEnabled(d.basecamp_sync_enabled ?? false);
+            })
+            .catch(() => {});
+    }, [clientId, orgId]);
+
+    // When project is selected, fetch its todolists
+    useEffect(() => {
+        if (!bcProjectId) { setBcTodolists([]); return; }
+        fetch(`/api/integrations/basecamp/todolists?projectId=${bcProjectId}`)
+            .then(r => r.json())
+            .then(d => { if (d.todolists) setBcTodolists(d.todolists); })
+            .catch(() => {});
+    }, [bcProjectId]);
+
+    async function saveBasecampConfig() {
+        if (!orgId || !clientId) return;
+        setBcSaving(true);
+        try {
+            await fetch(`/api/clients/${clientId}/basecamp-config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    basecamp_project_id: bcProjectId,
+                    basecamp_todolist_id: bcTodolistId,
+                    basecamp_sync_enabled: bcSyncEnabled,
+                }),
+            });
+            setToast('Basecamp settings saved');
+        } catch {
+            setToast('Error saving Basecamp settings');
+        } finally {
+            setBcSaving(false);
         }
     }
 
@@ -373,6 +437,91 @@ export function IntegrationsTab({ clientId }: Props) {
                         </div>
                     );
                 })}
+            </div>
+
+            {/* Basecamp Sync */}
+            <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xl">🏕️</span>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <span className="font-medium text-sm">Basecamp</span>
+                                {bcSyncEnabled && bcProjectId && bcTodolistId && (
+                                    <span className="flex items-center gap-1 text-xs text-green-500">
+                                        <CheckCircle2 className="h-3 w-3" />
+                                        Sync enabled
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-xs text-muted-foreground">Push tasks to a Basecamp todolist automatically</p>
+                        </div>
+                    </div>
+                    {/* Sync toggle */}
+                    <button
+                        type="button"
+                        onClick={() => setBcSyncEnabled(p => !p)}
+                        className="text-muted-foreground hover:text-foreground transition-colors"
+                        title={bcSyncEnabled ? 'Disable sync' : 'Enable sync'}
+                    >
+                        {bcSyncEnabled
+                            ? <ToggleRight className="h-6 w-6 text-green-500" />
+                            : <ToggleLeft className="h-6 w-6" />
+                        }
+                    </button>
+                </div>
+
+                {bcConfigured === false && (
+                    <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/20 p-3 text-xs text-yellow-600">
+                        Basecamp not configured. Add <code className="font-mono">BASECAMP_ACCESS_TOKEN</code> and{' '}
+                        <code className="font-mono">BASECAMP_ACCOUNT_ID</code> to your Vercel environment variables to enable.
+                    </div>
+                )}
+
+                {bcConfigured === true && (
+                    <div className="space-y-3">
+                        {/* Project selector */}
+                        <div>
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Basecamp Project</label>
+                            <select
+                                value={bcProjectId}
+                                onChange={e => { setBcProjectId(e.target.value); setBcTodolistId(''); }}
+                                className="w-full mt-1 p-2 rounded-lg border border-border bg-muted/30 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                            >
+                                <option value="">Select a project…</option>
+                                {bcProjects.map(p => (
+                                    <option key={p.id} value={String(p.id)}>{p.name}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Todolist selector */}
+                        {bcProjectId && (
+                            <div>
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Todolist</label>
+                                <select
+                                    value={bcTodolistId}
+                                    onChange={e => setBcTodolistId(e.target.value)}
+                                    className="w-full mt-1 p-2 rounded-lg border border-border bg-muted/30 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                                >
+                                    <option value="">Select a todolist…</option>
+                                    {bcTodolists.map(t => (
+                                        <option key={t.id} value={String(t.id)}>{t.title || t.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        <button
+                            type="button"
+                            onClick={saveBasecampConfig}
+                            disabled={bcSaving}
+                            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                        >
+                            {bcSaving ? 'Saving…' : 'Save Basecamp Settings'}
+                        </button>
+                    </div>
+                )}
             </div>
 
             <div className="rounded-xl border border-border/30 bg-muted/20 p-4 text-xs text-muted-foreground space-y-1">

@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, LayoutGrid, List, User, Filter, X } from 'lucide-react';
+import { Plus, LayoutGrid, List, Calendar, User, Filter, X, LayoutTemplate } from 'lucide-react';
 import { TaskCard } from '@/components/tasks/TaskCard';
 import { TaskListView } from '@/components/tasks/TaskListView';
+import { TaskCalendarView } from '@/components/tasks/TaskCalendarView';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
-import { Task } from '@/lib/types';
+import { TaskTemplateLibrary } from '@/components/tasks/TaskTemplateLibrary';
+import { Task, TaskTemplate } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useSearchParams } from 'next/navigation';
 import { useOrganization } from '@/components/providers/organization-provider';
@@ -25,7 +27,10 @@ export default function TasksPage() {
     const clientFilter = searchParams.get('client');
     const { organization, memberships } = useOrganization();
     const member = memberships.find(m => m.organizationId === organization?.id);
-    const [view, setView] = useState<'kanban' | 'list'>('list');
+    const [view, setView] = useState<'kanban' | 'list' | 'calendar'>('list');
+    const [calendarCreateDate, setCalendarCreateDate] = useState<string | undefined>(undefined);
+    const [isTemplateLibraryOpen, setIsTemplateLibraryOpen] = useState(false);
+    const [templatePrefill, setTemplatePrefill] = useState<TaskTemplate | undefined>(undefined);
     const [selectedTask, setSelectedTask] = useState<Task | null>(null);
     const [isDetailOpen, setIsDetailOpen] = useState(false);
     const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -88,6 +93,7 @@ export default function TasksPage() {
                     <div className="bg-muted p-1 rounded-lg flex items-center gap-1">
                         <button
                             onClick={() => setView('kanban')}
+                            title="Kanban view"
                             className={cn(
                                 "p-1.5 rounded-md transition-all",
                                 view === 'kanban' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
@@ -97,12 +103,23 @@ export default function TasksPage() {
                         </button>
                         <button
                             onClick={() => setView('list')}
+                            title="List view"
                             className={cn(
                                 "p-1.5 rounded-md transition-all",
                                 view === 'list' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
                             )}
                         >
                             <List className="h-4 w-4" />
+                        </button>
+                        <button
+                            onClick={() => setView('calendar')}
+                            title="Calendar view"
+                            className={cn(
+                                "p-1.5 rounded-md transition-all",
+                                view === 'calendar' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                            )}
+                        >
+                            <Calendar className="h-4 w-4" />
                         </button>
                     </div>
 
@@ -154,6 +171,15 @@ export default function TasksPage() {
                         )}
                     </button>
 
+                    {/* Templates */}
+                    <button
+                        onClick={() => setIsTemplateLibraryOpen(true)}
+                        className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium border border-border hover:bg-muted transition-colors"
+                    >
+                        <LayoutTemplate className="h-4 w-4" />
+                        Templates
+                    </button>
+
                     {/* New Task */}
                     <button
                         onClick={() => setIsCreateOpen(true)}
@@ -183,6 +209,16 @@ export default function TasksPage() {
                     <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
                         Loading tasks...
                     </div>
+                ) : view === 'calendar' ? (
+                    <TaskCalendarView
+                        tasks={filteredTasks}
+                        onTaskClick={handleTaskClick}
+                        onTaskUpdated={handleTaskUpdated}
+                        onDateClick={(date) => {
+                            setCalendarCreateDate(date);
+                            setIsCreateOpen(true);
+                        }}
+                    />
                 ) : view === 'kanban' ? (
                     <div className="flex h-full gap-6 overflow-x-auto pb-4 custom-scrollbar">
                         {columns.map((col) => (
@@ -232,10 +268,23 @@ export default function TasksPage() {
 
             <CreateTaskModal
                 isOpen={isCreateOpen}
-                onClose={() => setIsCreateOpen(false)}
+                onClose={() => { setIsCreateOpen(false); setCalendarCreateDate(undefined); setTemplatePrefill(undefined); }}
                 onCreated={handleTaskCreated}
                 organizationId={organization?.id ?? ''}
                 currentUserId={member?.userId}
+                defaultDueDate={calendarCreateDate}
+                templatePrefill={templatePrefill}
+            />
+
+            <TaskTemplateLibrary
+                isOpen={isTemplateLibraryOpen}
+                onClose={() => setIsTemplateLibraryOpen(false)}
+                currentUserId={member?.userId}
+                onUseTemplate={(template) => {
+                    setTemplatePrefill(template);
+                    setIsTemplateLibraryOpen(false);
+                    setIsCreateOpen(true);
+                }}
             />
         </div>
     );
