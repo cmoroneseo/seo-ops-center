@@ -21,9 +21,14 @@ import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { useTimer } from '@/components/providers/timer-provider';
 import { ClientProject } from '@/lib/types';
-import { Pencil, Play, Pause } from 'lucide-react';
+import { Pencil, Play, Pause, ListTodo, Plus } from 'lucide-react';
+import { TaskListView } from '@/components/tasks/TaskListView';
+import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
+import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
+import { getTasksByClient, updateTask } from '@/lib/supabase/tasks';
+import { Task } from '@/lib/types';
 
-type Tab = 'overview' | 'integrations';
+type Tab = 'overview' | 'integrations' | 'tasks';
 
 export default function ClientDetailPage() {
     const params = useParams();
@@ -35,6 +40,11 @@ export default function ClientDetailPage() {
     const [showEditPanel, setShowEditPanel] = useState(false);
     const [activityRefreshKey, setActivityRefreshKey] = useState(0);
     const [activeTab, setActiveTab] = useState<Tab>('overview');
+    const [clientTasks, setClientTasks] = useState<Task[]>([]);
+    const [tasksLoading, setTasksLoading] = useState(false);
+    const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+    const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
+    const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
     const { timer, start, pause } = useTimer();
 
     const isThisClientRunning = timer?.status === 'running' && timer.clientId === id;
@@ -55,6 +65,15 @@ export default function ClientDetailPage() {
             setClient(found ?? null);
         });
     }, [organization?.id, id]);
+
+    useEffect(() => {
+        if (activeTab !== 'tasks' || !id) return;
+        setTasksLoading(true);
+        getTasksByClient(id).then(tasks => {
+            setClientTasks(tasks);
+            setTasksLoading(false);
+        });
+    }, [activeTab, id]);
 
     if (client === undefined) {
         return <div className="p-8 text-muted-foreground">Loading client...</div>;
@@ -178,6 +197,23 @@ export default function ClientDetailPage() {
                     Overview
                 </button>
                 <button
+                    onClick={() => setActiveTab('tasks')}
+                    className={cn(
+                        'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                        activeTab === 'tasks'
+                            ? 'border-primary text-foreground'
+                            : 'border-transparent text-muted-foreground hover:text-foreground',
+                    )}
+                >
+                    <ListTodo className="h-3.5 w-3.5" />
+                    Tasks
+                    {clientTasks.filter(t => t.status !== 'done').length > 0 && (
+                        <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold">
+                            {clientTasks.filter(t => t.status !== 'done').length}
+                        </span>
+                    )}
+                </button>
+                <button
                     onClick={() => setActiveTab('integrations')}
                     className={cn(
                         'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
@@ -190,6 +226,58 @@ export default function ClientDetailPage() {
                     Integrations
                 </button>
             </div>
+
+            {/* Tasks tab */}
+            {activeTab === 'tasks' && (
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h3 className="font-semibold text-foreground">Tasks for {client.clientName}</h3>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                                {clientTasks.filter(t => t.status !== 'done').length} active · {clientTasks.filter(t => t.status === 'done').length} completed
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => setIsCreateTaskOpen(true)}
+                            className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 transition-colors shadow-sm"
+                        >
+                            <Plus className="h-4 w-4" />
+                            New Task
+                        </button>
+                    </div>
+
+                    {tasksLoading ? (
+                        <div className="text-center py-12 text-muted-foreground text-sm italic">Loading tasks…</div>
+                    ) : (
+                        <TaskListView
+                            tasks={clientTasks}
+                            onTaskClick={(task) => {
+                                setSelectedTask(task);
+                                setIsTaskDetailOpen(true);
+                            }}
+                        />
+                    )}
+
+                    <TaskDetailModal
+                        task={selectedTask}
+                        isOpen={isTaskDetailOpen}
+                        onClose={() => setIsTaskDetailOpen(false)}
+                        onUpdate={(updated) => {
+                            setClientTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
+                            setSelectedTask(updated);
+                        }}
+                    />
+
+                    <CreateTaskModal
+                        isOpen={isCreateTaskOpen}
+                        onClose={() => setIsCreateTaskOpen(false)}
+                        onCreated={(created) => setClientTasks(prev => [created, ...prev])}
+                        organizationId={organization?.id ?? ''}
+                        defaultClientId={client.id}
+                        defaultClientName={client.clientName}
+                    />
+                </div>
+            )}
 
             {/* Integrations tab */}
             {activeTab === 'integrations' && (

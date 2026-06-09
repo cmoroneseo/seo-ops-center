@@ -1,15 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { mockTasks } from '@/lib/mock-data/tasks';
 import { GlobalTaskProgress, GlobalNeedsAttention, AgencyQuickStats, GlobalUpcomingTasks, GlobalDeliverablesStats, MyTimeWidget } from '@/components/dashboard/AgencyWidgets';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { getDeliverables } from '@/lib/supabase/deliverables';
-import { Deliverable } from '@/lib/types';
+import { getTasks } from '@/lib/supabase/tasks';
+import { Deliverable, Task } from '@/lib/types';
 
 export default function DashboardPage() {
     const { organization } = useOrganization();
-    const [tasks] = useState(mockTasks);
+    const [tasks, setTasks] = useState<Task[]>([]);
     const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
     const [mounted, setMounted] = useState(false);
 
@@ -20,6 +20,7 @@ export default function DashboardPage() {
     useEffect(() => {
         if (!organization) return;
         getDeliverables(organization.id).then(setDeliverables);
+        getTasks(organization.id).then(setTasks);
     }, [organization?.id]);
 
     if (!mounted) return null;

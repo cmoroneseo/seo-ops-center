@@ -1,56 +1,79 @@
 'use client';
 
-import { useState } from 'react';
-import { Plus, LayoutGrid, List, Search, Filter, User } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Plus, LayoutGrid, List, User, Filter, X } from 'lucide-react';
 import { TaskCard } from '@/components/tasks/TaskCard';
 import { TaskListView } from '@/components/tasks/TaskListView';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
-import { ClientListPanel } from '@/components/workspace/ClientListPanel';
+import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
 import { Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { mockTasks as initialTasks } from '@/lib/mock-data/tasks';
 import { useSearchParams } from 'next/navigation';
-import { useEffect } from 'react';
-
-const mockTasks = initialTasks;
+import { useOrganization } from '@/components/providers/organization-provider';
+import { getTasks, updateTask } from '@/lib/supabase/tasks';
 
 const columns = [
     { id: 'todo', title: 'To Do' },
     { id: 'in_progress', title: 'In Progress' },
     { id: 'review', title: 'Review' },
+    { id: 'approved', title: 'Approved' },
     { id: 'done', title: 'Done' },
-];
+] as const;
 
 export default function TasksPage() {
     const searchParams = useSearchParams();
     const clientFilter = searchParams.get('client');
+    const { organization, memberships } = useOrganization();
+    const member = memberships.find(m => m.organizationId === organization?.id);
     const [view, setView] = useState<'kanban' | 'list'>('list');
     const [selectedTask, setSelectedTask] = useState<Task | null>(null);
     const [isDetailOpen, setIsDetailOpen] = useState(false);
-    const [tasks, setTasks] = useState<Task[]>(mockTasks);
+    const [isCreateOpen, setIsCreateOpen] = useState(false);
+    const [tasks, setTasks] = useState<Task[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [filterMode, setFilterMode] = useState<'all' | 'unassigned' | 'overdue'>('all');
 
-    const filteredTasks = clientFilter
-        ? tasks.filter(t => t.projectId === clientFilter || t.clientName?.toLowerCase().includes(clientFilter.toLowerCase()))
-        : tasks;
+    const loadTasks = useCallback(async () => {
+        if (!organization) return;
+        setLoading(true);
+        const data = await getTasks(organization.id);
+        setTasks(data);
+        setLoading(false);
+    }, [organization?.id]);
+
+    useEffect(() => { loadTasks(); }, [loadTasks]);
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const filteredTasks = tasks.filter(t => {
+        // Client URL filter
+        if (clientFilter && !t.clientName?.toLowerCase().includes(clientFilter.toLowerCase()) && t.clientId !== clientFilter) return false;
+        // Button filters
+        if (filterMode === 'unassigned' && (t.assigneeIds ?? []).length > 0) return false;
+        if (filterMode === 'overdue' && (t.status === 'done' || !t.dueDate || t.dueDate >= today)) return false;
+        return true;
+    });
+
+    const unassignedCount = tasks.filter(t => t.status !== 'done' && (t.assigneeIds ?? []).length === 0).length;
+    const overdueCount = tasks.filter(t => t.status !== 'done' && t.dueDate && t.dueDate < today).length;
 
     const handleTaskClick = (task: Task) => {
         setSelectedTask(task);
         setIsDetailOpen(true);
     };
 
-    const toggleTimer = (taskId: string) => {
-        setTasks(prev => prev.map(t => {
-            if (t.id === taskId) {
-                const isRunning = !t.isTimerRunning;
-                return {
-                    ...t,
-                    isTimerRunning: isRunning,
-                    startTime: isRunning ? new Date().toISOString() : t.startTime,
-                    elapsedTime: t.elapsedTime || 0
-                };
-            }
-            return { ...t, isTimerRunning: false };
-        }));
+    const handleTaskUpdated = (updated: Task) => {
+        setTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
+        setSelectedTask(updated);
+    };
+
+    const handleTaskCreated = (created: Task) => {
+        setTasks(prev => [created, ...prev]);
+    };
+
+    const handleStatusChange = async (taskId: string, status: Task['status']) => {
+        const result = await updateTask(taskId, { status, updatedBy: member?.userId });
+        if (result.success && result.data) handleTaskUpdated(result.data);
     };
 
     return (
@@ -61,6 +84,7 @@ export default function TasksPage() {
                     <p className="text-muted-foreground text-sm">View and manage all tasks across projects</p>
                 </div>
                 <div className="flex items-center gap-3">
+                    {/* View toggle */}
                     <div className="bg-muted p-1 rounded-lg flex items-center gap-1">
                         <button
                             onClick={() => setView('kanban')}
@@ -81,22 +105,85 @@ export default function TasksPage() {
                             <List className="h-4 w-4" />
                         </button>
                     </div>
-                    <button className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 transition-colors shadow-lg shadow-red-600/20">
+
+                    {/* All Tasks filter */}
+                    <button
+                        onClick={() => setFilterMode('all')}
+                        className={cn(
+                            "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold transition-colors shadow-sm",
+                            filterMode === 'all'
+                                ? "bg-red-600 text-white shadow-red-600/20"
+                                : "bg-card border border-border hover:bg-muted"
+                        )}
+                    >
                         All Tasks
+                        <span className="ml-1 px-1.5 rounded bg-white/20 text-[10px] font-bold">{tasks.length}</span>
                     </button>
-                    <button className="flex items-center gap-2 rounded-lg bg-card border border-border px-4 py-2 text-sm font-medium hover:bg-muted transition-colors">
+
+                    {/* Unassigned filter */}
+                    <button
+                        onClick={() => setFilterMode(filterMode === 'unassigned' ? 'all' : 'unassigned')}
+                        className={cn(
+                            "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+                            filterMode === 'unassigned'
+                                ? "bg-orange-500/15 border border-orange-500/30 text-orange-500"
+                                : "bg-card border border-border hover:bg-muted"
+                        )}
+                    >
                         <User className="h-4 w-4" />
-                        Unassigned <span className="ml-1 px-1.5 rounded bg-orange-500/10 text-orange-500 text-[10px] font-bold">6</span>
+                        Unassigned
+                        {unassignedCount > 0 && (
+                            <span className="ml-1 px-1.5 rounded bg-orange-500/10 text-orange-500 text-[10px] font-bold">{unassignedCount}</span>
+                        )}
                     </button>
-                    <button className="flex items-center gap-2 rounded-lg bg-card border border-border px-4 py-2 text-sm font-medium hover:bg-muted transition-colors">
+
+                    {/* Overdue filter */}
+                    <button
+                        onClick={() => setFilterMode(filterMode === 'overdue' ? 'all' : 'overdue')}
+                        className={cn(
+                            "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+                            filterMode === 'overdue'
+                                ? "bg-red-500/15 border border-red-500/30 text-red-500"
+                                : "bg-card border border-border hover:bg-muted"
+                        )}
+                    >
                         <Filter className="h-4 w-4" />
-                        Overdue <span className="ml-1 px-1.5 rounded bg-red-500/10 text-red-500 text-[10px] font-bold">2</span>
+                        Overdue
+                        {overdueCount > 0 && (
+                            <span className="ml-1 px-1.5 rounded bg-red-500/10 text-red-500 text-[10px] font-bold">{overdueCount}</span>
+                        )}
+                    </button>
+
+                    {/* New Task */}
+                    <button
+                        onClick={() => setIsCreateOpen(true)}
+                        className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 transition-colors shadow-lg shadow-red-600/20"
+                    >
+                        <Plus className="h-4 w-4" />
+                        New Task
                     </button>
                 </div>
             </div>
 
+            {/* Active client filter chip */}
+            {clientFilter && (
+                <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-muted-foreground">Filtered by client:</span>
+                    <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                        {clientFilter}
+                        <a href="/tasks" className="ml-1 hover:text-primary/70">
+                            <X className="h-3 w-3" />
+                        </a>
+                    </span>
+                </div>
+            )}
+
             <div className="flex-1 min-h-0">
-                {view === 'kanban' ? (
+                {loading ? (
+                    <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
+                        Loading tasks...
+                    </div>
+                ) : view === 'kanban' ? (
                     <div className="flex h-full gap-6 overflow-x-auto pb-4 custom-scrollbar">
                         {columns.map((col) => (
                             <div key={col.id} className="flex h-full w-80 shrink-0 flex-col rounded-xl border border-border/50 bg-card/50 p-4">
@@ -111,9 +198,18 @@ export default function TasksPage() {
                                         .filter((task) => task.status === col.id)
                                         .map((task) => (
                                             <div key={task.id} onClick={() => handleTaskClick(task)}>
-                                                <TaskCard task={task as any} />
+                                                <TaskCard
+                                                    task={task}
+                                                    clientId={task.clientId}
+                                                    clientName={task.clientName}
+                                                />
                                             </div>
                                         ))}
+                                    {filteredTasks.filter(t => t.status === col.id).length === 0 && (
+                                        <div className="flex-1 flex items-center justify-center py-8 text-muted-foreground/40 text-xs italic">
+                                            No tasks
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ))}
@@ -122,7 +218,6 @@ export default function TasksPage() {
                     <TaskListView
                         tasks={filteredTasks}
                         onTaskClick={handleTaskClick}
-                        onToggleTimer={toggleTimer}
                     />
                 )}
             </div>
@@ -131,6 +226,16 @@ export default function TasksPage() {
                 task={selectedTask}
                 isOpen={isDetailOpen}
                 onClose={() => setIsDetailOpen(false)}
+                onUpdate={handleTaskUpdated}
+                currentUserId={member?.userId}
+            />
+
+            <CreateTaskModal
+                isOpen={isCreateOpen}
+                onClose={() => setIsCreateOpen(false)}
+                onCreated={handleTaskCreated}
+                organizationId={organization?.id ?? ''}
+                currentUserId={member?.userId}
             />
         </div>
     );

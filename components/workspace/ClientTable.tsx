@@ -235,7 +235,7 @@ export function ClientTable({ clients }: ClientTableProps) {
                                                                         </div>
                                                                         <div className="flex items-center gap-1">
                                                                             <Calendar className="h-3 w-3" />
-                                                                            {new Date(task.dueDate).toLocaleDateString()}
+                                                                            {task.dueDate ? new Date(task.dueDate + 'T00:00:00').toLocaleDateString() : '—'}
                                                                         </div>
                                                                     </div>
                                                                 </div>

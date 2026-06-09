@@ -78,6 +78,7 @@ export interface Deliverable {
     countsTowardsHours: boolean;
     assignee?: string;
     link?: string;
+    taskId?: string; // optional link to a task — advisory, not structural
 }
 
 export interface CampaignConfig {
@@ -111,6 +112,16 @@ export interface ApprovalItem {
     type: 'Blog' | 'Brief' | 'Audit' | 'Other';
 }
 
+export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'approved' | 'blocked' | 'done';
+export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type TaskCategory = 'content' | 'technical' | 'local' | 'links' | 'reporting' | 'admin';
+
+export interface TaskStatusHistoryEntry {
+    status: TaskStatus;
+    at: string;  // ISO
+    by?: string; // user ID
+}
+
 export interface Subtask {
     id: string;
     title: string;
@@ -121,18 +132,70 @@ export interface Task {
     id: string;
     organizationId: string;
     projectId?: string;
+    clientId?: string;
     clientName?: string;
     title: string;
     description?: string;
-    assignees: string[]; // Array of User IDs
-    dueDate: string;
-    priority: 'low' | 'medium' | 'high';
-    status: 'todo' | 'in_progress' | 'review' | 'done';
+    assigneeIds?: string[];   // multi-assignee (canonical new field)
+    assignees?: string[];     // backward compat — display names or IDs
+    dueDate?: string;
+    startDate?: string;
+    completedAt?: string;
+    priority: TaskPriority;
+    status: TaskStatus;
+    category?: TaskCategory;
     tags: string[];
     subtasks: Subtask[];
+    estimatedHours?: number;
+    deliverableId?: string;
+    parentTaskId?: string;
+    sortOrder?: number;
+    statusHistory?: TaskStatusHistoryEntry[];
+    customFields?: Record<string, unknown>;
+    watcherIds?: string[];
+    createdBy?: string;
+    templateId?: string;
+    recurrence?: {
+        freq: 'daily' | 'weekly' | 'monthly';
+        dayOfMonth?: number;
+        dayOfWeek?: number;
+        endDate?: string;
+    };
+    // Basecamp sync (Phase 2 — populated after sync)
+    basecampTodoId?: number;
+    basecampProjectId?: number;
+    lastSyncedAt?: string;
+    // Timer state (computed from time_logs, not stored on task)
     isTimerRunning?: boolean;
-    startTime?: string; // ISO string
-    elapsedTime?: number; // in seconds
+    elapsedTime?: number;
+}
+
+export interface TaskComment {
+    id: string;
+    organizationId: string;
+    taskId: string;
+    authorId?: string;
+    authorName?: string;
+    body: string;
+    mentions: string[];
+    basecampCommentId?: number;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface TaskTemplate {
+    id: string;
+    organizationId: string;
+    name: string;
+    description?: string;
+    category?: TaskCategory;
+    estimatedHours?: number;
+    priority: TaskPriority;
+    tags: string[];
+    checklist: { title: string; required: boolean }[];
+    recurrence?: Task['recurrence'];
+    createdBy?: string;
+    createdAt: string;
 }
 
 export interface ClientProject {

@@ -194,7 +194,7 @@ export function GlobalUpcomingTasks({ tasks }: AgencyWidgetProps) {
     // Sort by due date (ignore empty)
     const upcoming = tasks
         .filter(t => t.dueDate && t.status !== 'done')
-        .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+        .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
         .slice(0, 8);
 
     return (
@@ -225,9 +225,9 @@ export function GlobalUpcomingTasks({ tasks }: AgencyWidgetProps) {
                                 </span>
                                 <span className={cn(
                                     "text-[10px] font-bold",
-                                    new Date(task.dueDate) < new Date() ? "text-red-500" : "text-muted-foreground"
+                                    task.dueDate && new Date(task.dueDate) < new Date() ? "text-red-500" : "text-muted-foreground"
                                 )}>
-                                    {new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                    {task.dueDate ? new Date(task.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                                 </span>
                             </div>
                         </div>

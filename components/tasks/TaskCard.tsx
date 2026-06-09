@@ -23,7 +23,7 @@ export function TaskCard({ task, clientId, clientName }: TaskCardProps) {
             await pause();
         } else {
             await start({
-                clientId: clientId ?? task.projectId ?? '',
+                clientId: clientId ?? task.clientId ?? task.projectId ?? '',
                 clientName: clientName ?? task.clientName ?? 'Unknown',
                 taskId: task.id,
                 taskTitle: task.title,
@@ -31,7 +31,7 @@ export function TaskCard({ task, clientId, clientName }: TaskCardProps) {
         }
     };
 
-    const canStartTimer = !!(clientId || task.projectId);
+    const canStartTimer = !!(clientId || task.clientId || task.projectId);
 
     return (
         <div className="group relative flex flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-sm transition-all hover:shadow-md hover:border-primary/50">
@@ -39,16 +39,17 @@ export function TaskCard({ task, clientId, clientName }: TaskCardProps) {
                 <h4 className="font-medium text-foreground text-sm leading-snug">{task.title}</h4>
                 <span className={cn(
                     "h-2 w-2 shrink-0 rounded-full mt-1",
+                    task.priority === 'urgent' ? "bg-red-600 ring-1 ring-red-600/40" :
                     task.priority === 'high' ? "bg-red-500" :
-                        task.priority === 'medium' ? "bg-yellow-500" :
-                            "bg-blue-500"
+                    task.priority === 'medium' ? "bg-yellow-500" :
+                    "bg-blue-500"
                 )} />
             </div>
 
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
                 <div className="flex items-center gap-1">
                     <User className="h-3 w-3" />
-                    <span>{task.assignees[0] || 'Unassigned'}</span>
+                    <span>{(task.assigneeIds?.[0] || task.assignees?.[0]) ?? 'Unassigned'}</span>
                 </div>
                 <div className="flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
