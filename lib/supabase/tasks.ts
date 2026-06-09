@@ -114,6 +114,8 @@ type TaskInsert = {
     createdBy?: string;
     templateId?: string;
     recurrence?: Task['recurrence'];
+    /** If true, pushes this task to Basecamp on create (requires client Basecamp config). */
+    syncToBasecamp?: boolean;
 };
 
 function taskToRow(t: Partial<TaskInsert>) {
@@ -276,7 +278,8 @@ export async function createTask(
         }
 
         // Basecamp push — fire-and-forget via API route (works from browser)
-        if (t.clientId) {
+        // Only fires when the user explicitly opted in via the "Sync to Basecamp" toggle.
+        if (t.syncToBasecamp && t.clientId) {
             getClientBasecampConfig(t.clientId).then((bc) => {
                 if (!bc) return;
                 fetch('/api/integrations/basecamp/push', {
@@ -724,6 +727,7 @@ export async function createTaskFromTemplate(
             projectId: overrides.projectId,
             createdBy: overrides.createdBy,
             assigneeIds: overrides.assigneeIds,
+            syncToBasecamp: overrides.syncToBasecamp,
         });
     } catch (err: any) {
         console.error('Error creating task from template:', err);
