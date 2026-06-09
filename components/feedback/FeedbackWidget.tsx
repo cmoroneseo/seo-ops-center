@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { MessageSquarePlus, X, Bug, Lightbulb, MessageSquare, Loader2, Check } from 'lucide-react';
+import { MessageSquarePlus, X, Bug, Lightbulb, MessageSquare, Loader2, Check, ImagePlus, XCircle } from 'lucide-react';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -31,9 +31,12 @@ export function FeedbackWidget() {
     const [type, setType] = useState<FeedbackType>('bug');
     const [severity, setSeverity] = useState<Severity>('medium');
     const [description, setDescription] = useState('');
+    const [screenshot, setScreenshot] = useState<File | null>(null);
+    const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [submitted, setSubmitted] = useState(false);
     const panelRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Close on outside click
     useEffect(() => {
@@ -52,7 +55,28 @@ export function FeedbackWidget() {
         setDescription('');
         setType('bug');
         setSeverity('medium');
+        setScreenshot(null);
+        setScreenshotPreview(null);
         setOpen(true);
+    };
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024) {
+            alert('Screenshot must be under 5MB');
+            return;
+        }
+        setScreenshot(file);
+        const reader = new FileReader();
+        reader.onload = (ev) => setScreenshotPreview(ev.target?.result as string);
+        reader.readAsDataURL(file);
+    };
+
+    const clearScreenshot = () => {
+        setScreenshot(null);
+        setScreenshotPreview(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -61,17 +85,36 @@ export function FeedbackWidget() {
         setSubmitting(true);
 
         const supabase = createClient();
-        if (supabase) {
-            await supabase.from('feedback').insert({
-                organization_id: organization.id,
-                submitted_by: displayName || 'Unknown',
-                type,
-                severity: type === 'bug' ? severity : null,
-                description: description.trim(),
-                page: pathname,
-                status: 'open',
-            });
+        if (!supabase) { setSubmitting(false); return; }
+
+        let screenshotUrl: string | null = null;
+
+        // Upload screenshot if provided
+        if (screenshot) {
+            const ext = screenshot.name.split('.').pop();
+            const path = `feedback/${organization.id}/${Date.now()}.${ext}`;
+            const { error: uploadError } = await supabase.storage
+                .from('feedback-screenshots')
+                .upload(path, screenshot, { upsert: false });
+
+            if (!uploadError) {
+                const { data: urlData } = supabase.storage
+                    .from('feedback-screenshots')
+                    .getPublicUrl(path);
+                screenshotUrl = urlData?.publicUrl ?? null;
+            }
         }
+
+        await supabase.from('feedback').insert({
+            organization_id: organization.id,
+            submitted_by: displayName || 'Unknown',
+            type,
+            severity: type === 'bug' ? severity : null,
+            description: description.trim(),
+            page: pathname,
+            status: 'open',
+            screenshot_url: screenshotUrl,
+        });
 
         setSubmitting(false);
         setSubmitted(true);
@@ -164,13 +207,57 @@ export function FeedbackWidget() {
                                             : type === 'feature' ? 'e.g. Would love to export the activity feed as PDF...'
                                                 : 'e.g. The dashboard feels a bit slow on mobile...'
                                     }
-                                    rows={4}
+                                    rows={3}
                                     required
                                     className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none placeholder:text-muted-foreground/50"
                                 />
                                 <p className="text-[10px] text-muted-foreground">
                                     Page: <span className="font-mono">{pathname}</span>
                                 </p>
+                            </div>
+
+                            {/* Screenshot upload */}
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                    Screenshot <span className="normal-case font-normal">(optional)</span>
+                                </label>
+
+                                {screenshotPreview ? (
+                                    <div className="relative rounded-lg overflow-hidden border border-border">
+                                        <img
+                                            src={screenshotPreview}
+                                            alt="Screenshot preview"
+                                            className="w-full max-h-32 object-cover"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={clearScreenshot}
+                                            className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-0.5 hover:bg-black/80 transition-colors"
+                                        >
+                                            <XCircle className="h-4 w-4 text-white" />
+                                        </button>
+                                        <div className="px-2 py-1 bg-muted/80 text-[10px] text-muted-foreground truncate">
+                                            {screenshot?.name}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="w-full flex items-center justify-center gap-2 py-3 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-muted/30 transition-all"
+                                    >
+                                        <ImagePlus className="h-4 w-4" />
+                                        Attach a screenshot
+                                    </button>
+                                )}
+
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handleFileChange}
+                                    className="hidden"
+                                />
                             </div>
 
                             <button
@@ -197,7 +284,7 @@ export function FeedbackWidget() {
                 )}
                 title="Send feedback"
             >
-                <MessageSquarePlus className="h-4.5 w-4.5 h-[18px] w-[18px]" />
+                <MessageSquarePlus className="h-[18px] w-[18px]" />
             </button>
         </div>
     );
