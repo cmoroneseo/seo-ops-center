@@ -78,7 +78,8 @@ export async function middleware(request: NextRequest) {
         pathname === '/login' ||
         pathname === '/signup' ||
         pathname.startsWith('/tools') ||
-        pathname.startsWith('/vs')
+        pathname.startsWith('/vs') ||
+        pathname.startsWith('/api/admin') // admin API routes use their own secret-key guard
 
     // If user is not signed in and tries to access a protected route, redirect to /login
     if (!user && !isPublicRoute && !pathname.startsWith('/auth')) {
