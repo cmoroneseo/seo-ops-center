@@ -61,19 +61,36 @@ export function isBasecampConfigured(): boolean {
     return !!(process.env.BASECAMP_ACCESS_TOKEN && process.env.BASECAMP_ACCOUNT_ID);
 }
 
-/** List all active Basecamp projects */
+/**
+ * Parse the `Link` header returned by Basecamp to find the next page URL.
+ * Format: <https://...>; rel="next", <https://...>; rel="last"
+ */
+function parseNextLink(linkHeader: string | null): string | null {
+    if (!linkHeader) return null;
+    const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+    return match ? match[1] : null;
+}
+
+/** List ALL active Basecamp projects, following pagination automatically. */
 export async function listBasecampProjects(): Promise<BasecampProject[]> {
+    const all: BasecampProject[] = [];
+    let url: string | null = `${BASE_URL()}/projects.json`;
+
     try {
-        const res = await fetch(`${BASE_URL()}/projects.json`, {
-            headers: getHeaders(),
-            next: { revalidate: 300 },
-        });
-        if (!res.ok) throw new Error(`Basecamp projects fetch failed: ${res.status}`);
-        const data = await res.json() as BasecampProject[];
-        return data.filter(p => p.status === 'active');
+        while (url) {
+            const res = await fetch(url, {
+                headers: getHeaders(),
+                // No Next.js cache here — we need fresh data for the UI dropdown
+            });
+            if (!res.ok) throw new Error(`Basecamp projects fetch failed: ${res.status}`);
+            const page = await res.json() as BasecampProject[];
+            all.push(...page);
+            url = parseNextLink(res.headers.get('Link'));
+        }
+        return all.filter(p => p.status === 'active');
     } catch (err) {
         console.error('[Basecamp] listProjects error:', err);
-        return [];
+        return all.filter(p => p.status === 'active'); // return whatever we got before failure
     }
 }
 
@@ -101,12 +118,17 @@ export async function listBasecampTodolists(projectId: number | string): Promise
         const todosetId = todosetDock.url.split('/todosets/')[1]?.replace('.json', '');
         if (!todosetId) return [];
 
-        const todolistsRes = await fetch(
-            `${BASE_URL()}/buckets/${projectId}/todosets/${todosetId}/todolists.json`,
-            { headers: getHeaders(), next: { revalidate: 300 } },
-        );
-        if (!todolistsRes.ok) throw new Error(`Basecamp todolists fetch failed: ${todolistsRes.status}`);
-        return await todolistsRes.json() as BasecampTodolist[];
+        // Fetch all todolists following pagination
+        const allTodolists: BasecampTodolist[] = [];
+        let todolistsUrl: string | null = `${BASE_URL()}/buckets/${projectId}/todosets/${todosetId}/todolists.json`;
+        while (todolistsUrl) {
+            const todolistsRes = await fetch(todolistsUrl, { headers: getHeaders() });
+            if (!todolistsRes.ok) throw new Error(`Basecamp todolists fetch failed: ${todolistsRes.status}`);
+            const page = await todolistsRes.json() as BasecampTodolist[];
+            allTodolists.push(...page);
+            todolistsUrl = parseNextLink(todolistsRes.headers.get('Link'));
+        }
+        return allTodolists;
     } catch (err) {
         console.error('[Basecamp] listTodolists error:', err);
         return [];
