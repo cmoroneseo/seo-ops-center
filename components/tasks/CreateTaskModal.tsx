@@ -7,6 +7,7 @@ import { Task, TaskPriority, TaskStatus, TaskCategory, TaskTemplate } from '@/li
 import { createTaskFromTemplate, createTask } from '@/lib/supabase/tasks';
 import { RecurrenceSelector } from './RecurrenceSelector';
 import { useOrganization } from '@/components/providers/organization-provider';
+import { createClient } from '@/lib/supabase/client';
 
 interface CreateTaskModalProps {
     isOpen: boolean;
@@ -59,6 +60,8 @@ export function CreateTaskModal({
     const [dueDate, setDueDate] = useState(defaultDueDate ?? '');
     const [recurrence, setRecurrence] = useState<Task['recurrence']>(undefined);
     const [status] = useState<TaskStatus>('todo');
+    const [syncToBasecamp, setSyncToBasecamp] = useState(false);
+    const [clientHasBasecamp, setClientHasBasecamp] = useState(false);
 
     // Sync fields when modal opens or template/date changes
     useEffect(() => {
@@ -79,6 +82,37 @@ export function CreateTaskModal({
             }
         }
     }, [isOpen, defaultDueDate, templatePrefill]);
+
+    // Check if the selected client has Basecamp sync configured
+    useEffect(() => {
+        if (!defaultClientId) {
+            setClientHasBasecamp(false);
+            setSyncToBasecamp(false);
+            return;
+        }
+        const supabase = createClient();
+        if (!supabase) return;
+        supabase
+            .from('clients')
+            .select('custom_fields')
+            .eq('id', defaultClientId)
+            .single()
+            .then(({ data }: { data: any }) => {
+                const cf = (data?.custom_fields as Record<string, unknown>) ?? {};
+                const enabled = !!(
+                    cf.basecamp_sync_enabled &&
+                    cf.basecamp_project_id &&
+                    cf.basecamp_todolist_id
+                );
+                setClientHasBasecamp(enabled);
+                if (!enabled) setSyncToBasecamp(false);
+            })
+            .catch(() => {
+                setClientHasBasecamp(false);
+                setSyncToBasecamp(false);
+            });
+    }, [defaultClientId]);
+
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
 
@@ -101,6 +135,7 @@ export function CreateTaskModal({
             dueDate: dueDate || undefined,
             createdBy: currentUserId,
             recurrence: recurrence || undefined,
+            syncToBasecamp: clientHasBasecamp ? syncToBasecamp : false,
         };
 
         const result = templatePrefill
@@ -209,6 +244,38 @@ export function CreateTaskModal({
                             <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Recurrence</label>
                             <RecurrenceSelector value={recurrence} onChange={setRecurrence} />
                         </div>
+
+                        {/* Basecamp sync toggle — only shown when client has Basecamp configured */}
+                        {clientHasBasecamp && (
+                            <div className="flex items-center justify-between py-2 px-3 bg-muted/30 border border-border rounded-lg">
+                                <div className="flex items-center gap-2">
+                                    {/* Basecamp logo mark */}
+                                    <svg className="h-4 w-4 flex-shrink-0" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <circle cx="16" cy="16" r="16" fill="#1D2D35"/>
+                                        <path d="M16 8C11.582 8 8 11.582 8 16c0 2.21.895 4.21 2.344 5.656L16 28l5.656-6.344A7.953 7.953 0 0024 16c0-4.418-3.582-8-8-8z" fill="#53C68C"/>
+                                    </svg>
+                                    <span className="text-sm font-medium text-foreground">Sync to Basecamp</span>
+                                    <span className="text-xs text-muted-foreground">Push this task to your Basecamp todolist</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={syncToBasecamp}
+                                    onClick={() => setSyncToBasecamp(v => !v)}
+                                    className={cn(
+                                        'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2',
+                                        syncToBasecamp ? 'bg-green-500' : 'bg-muted',
+                                    )}
+                                >
+                                    <span
+                                        className={cn(
+                                            'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                                            syncToBasecamp ? 'translate-x-4' : 'translate-x-0',
+                                        )}
+                                    />
+                                </button>
+                            </div>
+                        )}
 
                         {error && <p className="text-xs text-red-500">{error}</p>}
 
