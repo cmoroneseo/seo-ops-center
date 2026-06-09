@@ -72,7 +72,7 @@ export default function SettingsPage() {
     }, [organization]);
 
     useEffect(() => {
-        if (organization && isOwner && activeTab === 'feedback') fetchFeedback();
+        if (organization && activeTab === 'feedback') fetchFeedback();
     }, [organization, isOwner, activeTab]);
 
     const fetchMembers = async () => {
@@ -86,11 +86,16 @@ export default function SettingsPage() {
         setFeedbackLoading(true);
         const supabase = createClient();
         if (!supabase) { setFeedbackLoading(false); return; }
-        const { data } = await supabase
+        let query = supabase
             .from('feedback')
             .select('*')
             .eq('organization_id', organization.id)
             .order('created_at', { ascending: false });
+        // Members only see their own submissions
+        if (!isOwner) {
+            query = query.eq('submitted_by', displayName);
+        }
+        const { data } = await query;
         setFeedback((data as FeedbackItem[]) ?? []);
         setFeedbackLoading(false);
     };
@@ -159,22 +164,20 @@ export default function SettingsPage() {
                 >
                     General
                 </button>
-                {isOwner && (
-                    <button
-                        onClick={() => setActiveTab('feedback')}
-                        className={cn(
-                            'flex items-center gap-2 px-4 py-1.5 text-sm font-medium rounded-md transition-all',
-                            activeTab === 'feedback' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
-                        )}
-                    >
-                        Feedback
-                        {openCount > 0 && (
-                            <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
-                                {openCount}
-                            </span>
-                        )}
-                    </button>
-                )}
+                <button
+                    onClick={() => setActiveTab('feedback')}
+                    className={cn(
+                        'flex items-center gap-2 px-4 py-1.5 text-sm font-medium rounded-md transition-all',
+                        activeTab === 'feedback' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                    )}
+                >
+                    Feedback
+                    {isOwner && openCount > 0 && (
+                        <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                            {openCount}
+                        </span>
+                    )}
+                </button>
             </div>
 
             {/* ── General Tab ── */}
@@ -295,11 +298,11 @@ export default function SettingsPage() {
                 </div>
             )}
 
-            {/* ── Feedback Tab (owner only) ── */}
-            {activeTab === 'feedback' && isOwner && (
+            {/* ── Feedback Tab ── */}
+            {activeTab === 'feedback' && (
                 <div className="space-y-4">
-                    {/* Filters */}
-                    <div className="flex items-center gap-3 flex-wrap">
+                    {/* Filters — owners only */}
+                    <div className={cn("flex items-center gap-3 flex-wrap", !isOwner && "hidden")}>
                         {/* Type filter */}
                         <div className="flex gap-1 bg-muted/30 p-1 rounded-lg border border-border/50">
                             {(['all', 'bug', 'feature', 'general'] as const).map(t => (
@@ -422,26 +425,35 @@ export default function SettingsPage() {
                                                 </div>
                                             )}
 
-                                            {/* Status controls */}
-                                            <div className="space-y-1.5">
-                                                <p className="text-xs text-muted-foreground font-medium">Update Status</p>
-                                                <div className="flex gap-2 flex-wrap">
-                                                    {STATUS_OPTIONS.map(s => (
-                                                        <button
-                                                            key={s}
-                                                            onClick={() => updateStatus(item.id, s)}
-                                                            disabled={item.status === s || updatingId === item.id}
-                                                            className={cn(
-                                                                'px-3 py-1 rounded-lg border text-xs font-medium transition-all capitalize disabled:opacity-40',
-                                                                item.status === s ? STATUS_STYLES[s] : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                                                            )}
-                                                        >
-                                                            {updatingId === item.id && item.status !== s ? <Loader2 className="h-3 w-3 animate-spin inline mr-1" /> : null}
-                                                            {s}
-                                                        </button>
-                                                    ))}
+                                            {/* Status controls — owners only */}
+                                            {isOwner ? (
+                                                <div className="space-y-1.5">
+                                                    <p className="text-xs text-muted-foreground font-medium">Update Status</p>
+                                                    <div className="flex gap-2 flex-wrap">
+                                                        {STATUS_OPTIONS.map(s => (
+                                                            <button
+                                                                key={s}
+                                                                onClick={() => updateStatus(item.id, s)}
+                                                                disabled={item.status === s || updatingId === item.id}
+                                                                className={cn(
+                                                                    'px-3 py-1 rounded-lg border text-xs font-medium transition-all capitalize disabled:opacity-40',
+                                                                    item.status === s ? STATUS_STYLES[s] : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                                                                )}
+                                                            >
+                                                                {updatingId === item.id && item.status !== s ? <Loader2 className="h-3 w-3 animate-spin inline mr-1" /> : null}
+                                                                {s}
+                                                            </button>
+                                                        ))}
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            ) : (
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs text-muted-foreground">Status:</span>
+                                                    <span className={cn('text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full border capitalize', STATUS_STYLES[item.status])}>
+                                                        {item.status}
+                                                    </span>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
