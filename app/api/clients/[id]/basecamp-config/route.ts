@@ -20,20 +20,20 @@ async function getUser() {
     return user;
 }
 
-/** GET /api/clients/[clientId]/basecamp-config — returns current Basecamp config */
+/** GET /api/clients/[id]/basecamp-config — returns current Basecamp config */
 export async function GET(
     _req: NextRequest,
-    { params }: { params: Promise<{ clientId: string }> },
+    { params }: { params: Promise<{ id: string }> },
 ) {
     const user = await getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { clientId } = await params;
+    const { id } = await params;
     const admin = createAdminClient();
     const { data, error } = await admin
         .from('clients')
         .select('custom_fields')
-        .eq('id', clientId)
+        .eq('id', id)
         .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 404 });
@@ -46,15 +46,15 @@ export async function GET(
     });
 }
 
-/** POST /api/clients/[clientId]/basecamp-config — saves Basecamp config to custom_fields */
+/** POST /api/clients/[id]/basecamp-config — saves Basecamp config to custom_fields */
 export async function POST(
     req: NextRequest,
-    { params }: { params: Promise<{ clientId: string }> },
+    { params }: { params: Promise<{ id: string }> },
 ) {
     const user = await getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { clientId } = await params;
+    const { id } = await params;
     const body = await req.json();
     const { basecamp_project_id, basecamp_todolist_id, basecamp_sync_enabled } = body;
 
@@ -64,7 +64,7 @@ export async function POST(
     const { data: existing } = await admin
         .from('clients')
         .select('custom_fields')
-        .eq('id', clientId)
+        .eq('id', id)
         .single();
 
     const currentFields = (existing?.custom_fields as Record<string, unknown>) ?? {};
@@ -78,7 +78,7 @@ export async function POST(
     const { error } = await admin
         .from('clients')
         .update({ custom_fields: updatedFields })
-        .eq('id', clientId);
+        .eq('id', id);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
