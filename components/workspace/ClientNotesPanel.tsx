@@ -51,6 +51,19 @@ function getAuthorColor(name: string): string {
     return authorColorMap.get(name)!;
 }
 
+/** Parse @Name patterns from content and return the user IDs of matched members */
+function parseMentionedUserIds(content: string, members: TeamMember[]): string[] {
+    const mentionRegex = /@([\w]+(?: [\w]+)?)/g;
+    const ids: string[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = mentionRegex.exec(content)) !== null) {
+        const name = match[1];
+        const member = members.find(m => m.name.toLowerCase() === name.toLowerCase());
+        if (member && !ids.includes(member.id)) ids.push(member.id);
+    }
+    return ids;
+}
+
 /** Render plain text and highlight @mentions in primary color */
 function renderContent(text: string) {
     const parts = text.split(/(@[\w]+(?:\s[\w]+)?)/g);
@@ -247,11 +260,13 @@ export function ClientNotesPanel({ client }: ClientNotesPanelProps) {
     const handleAdd = async () => {
         if (!newContent.trim() || !organization) return;
         setSaving(true);
+        const mentionedUserIds = parseMentionedUserIds(newContent.trim(), members);
         const result = await createClientNote({
             organizationId: organization.id,
             clientId: client.id,
             content: newContent.trim(),
             authorName: authorName.trim() || 'Team',
+            mentions: mentionedUserIds,
         });
         if (result.success && result.data) {
             setNotes(prev => [result.data!, ...prev]);

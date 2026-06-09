@@ -1,5 +1,6 @@
 import { createClient } from './client';
 import { ClientNote } from '../types';
+import { createNotification } from './notifications';
 
 function rowToClientNote(row: any): ClientNote {
     return {
@@ -35,6 +36,7 @@ export async function createClientNote(note: {
     clientId: string;
     content: string;
     authorName: string;
+    mentions?: string[];  // resolved user IDs of @mentioned team members
 }): Promise<{ success: boolean; data?: ClientNote; error?: string }> {
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
@@ -46,11 +48,28 @@ export async function createClientNote(note: {
                 client_id: note.clientId,
                 content: note.content,
                 author_name: note.authorName,
+                mentions: note.mentions ?? [],
             }])
             .select()
             .single();
         if (error) throw error;
-        return { success: true, data: rowToClientNote(data) };
+        const createdNote = rowToClientNote(data);
+
+        // Notify @mentioned users
+        (note.mentions ?? []).forEach((mentionedUserId) => {
+            createNotification({
+                organizationId: note.organizationId,
+                userId: mentionedUserId,
+                type: 'note_mentioned',
+                title: 'You were mentioned in a client note',
+                body: note.content.slice(0, 120),
+                entityType: 'client_note',
+                entityId: createdNote.id,
+                clientId: note.clientId,
+            });
+        });
+
+        return { success: true, data: createdNote };
     } catch (err: any) {
         console.error('Error creating client note:', err);
         return { success: false, error: err.message };

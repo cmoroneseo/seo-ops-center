@@ -6,6 +6,7 @@ import { LayoutDashboard, CheckSquare, FileBarChart, MessageSquare, Settings, Lo
 import { cn } from '@/lib/utils';
 import { TimeLogModal } from '@/components/workspace/TimeLogModal';
 import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useClients } from '@/lib/hooks/use-clients';
 import { useState, useEffect } from 'react';
 
@@ -88,6 +89,8 @@ export function Sidebar() {
         >
           <HelpCircle className="h-6 w-6" />
         </button>
+
+        <NotificationBell />
 
         <button
           onClick={async () => {

@@ -1,4 +1,5 @@
 import { createClient } from './client';
+import { createNotification } from './notifications';
 import {
     Task,
     TaskStatus,
@@ -258,27 +259,39 @@ export async function createTask(
         if (error) throw error;
         const task = rowToTask(data);
 
-        // Basecamp push — fire-and-forget (only runs server-side where env vars are set)
-        if (typeof window === 'undefined' && t.clientId) {
-            getClientBasecampConfig(t.clientId).then(async (bc) => {
+        // Notify each assignee that they've been assigned this task
+        if (t.assigneeIds && t.assigneeIds.length > 0) {
+            t.assigneeIds.forEach((recipientId) => {
+                createNotification({
+                    organizationId: t.organizationId,
+                    userId: recipientId,
+                    type: 'task_assigned',
+                    title: 'You were assigned a task',
+                    body: task.title,
+                    entityType: 'task',
+                    entityId: task.id,
+                    clientId: task.clientId,
+                });
+            });
+        }
+
+        // Basecamp push — fire-and-forget via API route (works from browser)
+        if (t.clientId) {
+            getClientBasecampConfig(t.clientId).then((bc) => {
                 if (!bc) return;
-                try {
-                    const { createBasecampTodo } = await import('../basecamp/api');
-                    const result = await createBasecampTodo(bc.projectId, bc.todolistId, {
+                fetch('/api/integrations/basecamp/push', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'create_todo',
+                        taskId: task.id,
+                        projectId: bc.projectId,
+                        todolistId: bc.todolistId,
                         content: task.title,
                         dueOn: task.dueDate,
                         description: task.description,
-                    });
-                    if (result) {
-                        await supabase
-                            .from('tasks')
-                            .update({ basecamp_todo_id: result.id, last_synced_at: new Date().toISOString() })
-                            .eq('id', task.id);
-                        task.basecampTodoId = result.id;
-                    }
-                } catch (err) {
-                    console.error('[Basecamp] createTask push error:', err);
-                }
+                    }),
+                }).catch(err => console.error('[Basecamp] createTask push error:', err));
             });
         }
 
@@ -323,14 +336,21 @@ export async function updateTask(
             ...(patch.completedAt !== undefined && { completed_at: patch.completedAt }),
         };
 
-        // Append to status_history when status changes
-        if (patch.status) {
-            const { data: current } = await supabase
+        // Fetch current task row when status or assignees are changing
+        // (needed for status_history append, recurring spawn, and assignee diff)
+        let current: Record<string, any> | null = null;
+        if (patch.status || patch.assigneeIds !== undefined) {
+            const { data: cur } = await supabase
                 .from('tasks')
                 .select('status_history, recurrence, due_date, title, description, priority, category, tags, estimated_hours, assignee_ids, client_id, project_id, organization_id, template_id')
                 .eq('id', taskId)
                 .single();
-            const history: TaskStatusHistoryEntry[] = current?.status_history ?? [];
+            current = cur;
+        }
+
+        // Append to status_history when status changes
+        if (patch.status && current) {
+            const history: TaskStatusHistoryEntry[] = current.status_history ?? [];
             history.push({ status: patch.status, at: new Date().toISOString(), by: patch.updatedBy });
             candidate.status_history = history;
 
@@ -344,7 +364,7 @@ export async function updateTask(
             }
 
             // Auto-spawn next recurring instance when marking done
-            if (patch.status === 'done' && current?.recurrence) {
+            if (patch.status === 'done' && current.recurrence) {
                 const nextDue = getNextDueDate(current.recurrence, current.due_date ?? new Date().toISOString().slice(0, 10));
                 if (nextDue) {
                     // Fire-and-forget — don't block the main update
@@ -368,30 +388,50 @@ export async function updateTask(
             }
         }
 
+        // Notify newly added assignees
+        if (patch.assigneeIds !== undefined && current) {
+            const prevIds: string[] = current.assignee_ids ?? [];
+            const addedIds = patch.assigneeIds.filter((id) => !prevIds.includes(id));
+            addedIds.forEach((recipientId) => {
+                createNotification({
+                    organizationId: current!.organization_id,
+                    userId: recipientId,
+                    type: 'task_assigned',
+                    title: 'You were assigned a task',
+                    body: current!.title,
+                    entityType: 'task',
+                    entityId: taskId,
+                    clientId: current!.client_id ?? undefined,
+                });
+            });
+        }
+
         const { data, error } = await supabase
             .from('tasks')
             .update(candidate)
             .eq('id', taskId)
-            .select('*, clients(name), basecamp_todo_id, client_id')
+            .select('*, clients(name), basecamp_todo_id, basecamp_project_id, client_id')
             .single();
         if (error) throw error;
         const updatedTask = rowToTask(data);
 
-        // Basecamp complete/reopen — fire-and-forget (server-side only)
-        if (typeof window === 'undefined' && patch.status && data.basecamp_todo_id) {
-            (async () => {
-                try {
-                    const { completeBasecampTodo, reopenBasecampTodo } = await import('../basecamp/api');
-                    if (patch.status === 'done') {
-                        await completeBasecampTodo(data.client_id ?? '', data.basecamp_todo_id);
-                    } else if (patch.status === 'todo' || patch.status === 'in_progress') {
-                        await reopenBasecampTodo(data.client_id ?? '', data.basecamp_todo_id);
-                    }
-                    await supabase.from('tasks').update({ last_synced_at: new Date().toISOString() }).eq('id', taskId);
-                } catch (err) {
-                    console.error('[Basecamp] updateTask sync error:', err);
-                }
-            })();
+        // Basecamp complete/reopen — fire-and-forget via API route
+        if (patch.status && data.basecamp_todo_id && data.basecamp_project_id) {
+            const bcAction = patch.status === 'done' ? 'complete_todo'
+                : (patch.status === 'todo' || patch.status === 'in_progress') ? 'reopen_todo'
+                : null;
+            if (bcAction) {
+                fetch('/api/integrations/basecamp/push', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: bcAction,
+                        taskId,
+                        projectId: data.basecamp_project_id,
+                        todoId: data.basecamp_todo_id,
+                    }),
+                }).catch(err => console.error('[Basecamp] updateTask sync error:', err));
+            }
         }
 
         return { success: true, data: updatedTask };
@@ -462,28 +502,53 @@ export async function createTaskComment(params: {
         if (error) throw error;
         const comment = rowToComment(data);
 
-        // Basecamp comment push — fire-and-forget (server-side only)
-        if (typeof window === 'undefined') {
-            (async () => {
-                try {
-                    const { data: taskRow } = await supabase
-                        .from('tasks')
-                        .select('basecamp_todo_id, client_id')
-                        .eq('id', params.taskId)
-                        .single();
-                    if (!taskRow?.basecamp_todo_id) return;
-                    const { createBasecampComment } = await import('../basecamp/api');
-                    const authorLabel = params.authorName ? `**${params.authorName}:** ` : '';
-                    await createBasecampComment(
-                        taskRow.client_id ?? '',
-                        taskRow.basecamp_todo_id,
-                        `${authorLabel}${params.body}`,
-                    );
-                } catch (err) {
-                    console.error('[Basecamp] comment push error:', err);
-                }
-            })();
+        // Notify @mentioned users in the comment
+        if (params.mentions && params.mentions.length > 0) {
+            // Fetch the task to get clientId for navigation
+            supabase
+                .from('tasks')
+                .select('client_id, organization_id, title')
+                .eq('id', params.taskId)
+                .single()
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                .then(({ data: taskRow }: { data: any }) => {
+                    (params.mentions ?? []).forEach((mentionedUserId) => {
+                        createNotification({
+                            organizationId: taskRow?.organization_id ?? params.organizationId,
+                            userId: mentionedUserId,
+                            type: 'task_mentioned',
+                            title: 'You were mentioned in a task comment',
+                            body: params.body.slice(0, 120),
+                            entityType: 'task_comment',
+                            entityId: comment.id,
+                            clientId: taskRow?.client_id ?? undefined,
+                        });
+                    });
+                });
         }
+
+        // Basecamp comment push — fire-and-forget via API route
+        supabase
+            .from('tasks')
+            .select('basecamp_todo_id, basecamp_project_id')
+            .eq('id', params.taskId)
+            .single()
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .then(({ data: taskRow }: { data: any }) => {
+                if (!taskRow?.basecamp_todo_id || !taskRow?.basecamp_project_id) return;
+                const authorLabel = params.authorName ? `**${params.authorName}:** ` : '';
+                fetch('/api/integrations/basecamp/push', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'create_comment',
+                        taskId: params.taskId,
+                        projectId: taskRow.basecamp_project_id,
+                        todoId: taskRow.basecamp_todo_id,
+                        content: `${authorLabel}${params.body}`,
+                    }),
+                }).catch(err => console.error('[Basecamp] comment push error:', err));
+            });
 
         return { success: true, data: comment };
     } catch (err: any) {
