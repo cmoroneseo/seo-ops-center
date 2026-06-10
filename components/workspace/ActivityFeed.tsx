@@ -28,10 +28,15 @@ interface ActivityFeedProps {
 function formatDate(date: Date): string {
     const now = new Date();
     const diffDays = Math.floor((now.getTime() - date.getTime()) / 86400000);
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return date.toLocaleDateString('en-US', { weekday: 'long' });
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+    const includeYear = date.getFullYear() !== now.getFullYear();
+    const dateStr = date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        ...(includeYear ? { year: 'numeric' } : {}),
+    });
+    if (diffDays === 0) return `Today — ${dateStr}`;
+    if (diffDays === 1) return `Yesterday — ${dateStr}`;
+    return dateStr;
 }
 
 function groupByDate(items: ActivityItem[]): { label: string; items: ActivityItem[] }[] {
