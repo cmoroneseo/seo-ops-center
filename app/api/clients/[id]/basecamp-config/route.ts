@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { logClientActivity } from '@/lib/supabase/client-activity';
 import { cookies } from 'next/headers';
 
-async function getUser() {
+async function resolveActor() {
     const cookieStore = await cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,7 +18,11 @@ async function getUser() {
         },
     );
     const { data: { user } } = await supabase.auth.getUser();
-    return user;
+    return {
+        user,
+        actorId: user?.id,
+        actorName: user?.user_metadata?.full_name || user?.email || undefined,
+    };
 }
 
 /** GET /api/clients/[id]/basecamp-config — returns current Basecamp config */
@@ -26,7 +30,7 @@ export async function GET(
     _req: NextRequest,
     { params }: { params: Promise<{ id: string }> },
 ) {
-    const user = await getUser();
+    const { user } = await resolveActor();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await params;
@@ -52,7 +56,7 @@ export async function POST(
     req: NextRequest,
     { params }: { params: Promise<{ id: string }> },
 ) {
-    const user = await getUser();
+    const { user, actorId, actorName } = await resolveActor();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await params;
@@ -100,7 +104,8 @@ export async function POST(
             organizationId: existing.organization_id,
             clientId: id,
             eventType,
-            actorId: user.id,
+            actorId,
+            actorName,
             metadata: {
                 service: 'basecamp',
                 basecamp_project_id: basecamp_project_id || null,
