@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Clock, Calendar, Tag, CheckSquare, MessageSquare, ChevronDown, Trash2, Plus } from 'lucide-react';
+import { X, Clock, Calendar, Tag, CheckSquare, MessageSquare, ChevronDown, Trash2, Plus, UserCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Task, TaskComment, TaskStatus, TaskPriority, TaskCategory } from '@/lib/types';
 import { getTask, updateTask, createTask, deleteTask, getTaskComments, createTaskComment } from '@/lib/supabase/tasks';
+import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useTimer } from '@/components/providers/timer-provider';
 
@@ -63,6 +64,8 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, currentUserId
     const [dueDate, setDueDate] = useState('');
     const [tags, setTags] = useState<string[]>([]);
     const [newTag, setNewTag] = useState('');
+    const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+    const [orgMembers, setOrgMembers] = useState<{ id: string; name: string }[]>([]);
 
     useEffect(() => { setMounted(true); }, []);
 
@@ -76,7 +79,19 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, currentUserId
         setCategory((task.category as TaskCategory) ?? '');
         setDueDate(task.dueDate ? task.dueDate.slice(0, 10) : '');
         setTags(task.tags ?? []);
+        setAssigneeIds(task.assigneeIds ?? []);
     }, [task?.id]);
+
+    // Fetch org members once per organization
+    useEffect(() => {
+        if (!organization?.id || orgMembers.length > 0) return;
+        getOrganizationMembers(organization.id).then(members => {
+            setOrgMembers(members.map(m => ({
+                id: m.userId,
+                name: (m.user as any)?.fullName || (m.user as any)?.email || 'Team member',
+            })));
+        }).catch(() => {});
+    }, [organization?.id]);
 
     // Load comments + hours when task opens
     const loadTaskData = useCallback(async () => {
@@ -192,6 +207,14 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, currentUserId
             setNewComment('');
         }
         setPostingComment(false);
+    };
+
+    const handleAssigneeToggle = async (memberId: string) => {
+        const next = assigneeIds.includes(memberId)
+            ? assigneeIds.filter(id => id !== memberId)
+            : [...assigneeIds, memberId];
+        setAssigneeIds(next);
+        await save({ assigneeIds: next });
     };
 
     const isThisTaskRunning = timer?.status === 'running' && timer.taskId === task?.id;
@@ -371,6 +394,35 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, currentUserId
                                 className="w-full bg-muted/30 border border-border rounded-lg p-2 text-sm focus:ring-1 focus:ring-primary focus:border-primary"
                             />
                         </div>
+
+                        {/* Assignees */}
+                        {orgMembers.length > 0 && (
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                                    <UserCircle2 className="h-3 w-3" /> Assigned To
+                                </label>
+                                <div className="flex flex-wrap gap-2">
+                                    {orgMembers.map(m => {
+                                        const selected = assigneeIds.includes(m.id);
+                                        return (
+                                            <button
+                                                key={m.id}
+                                                type="button"
+                                                onClick={() => handleAssigneeToggle(m.id)}
+                                                className={cn(
+                                                    'px-3 py-1.5 rounded-full text-xs border transition-all',
+                                                    selected
+                                                        ? 'bg-primary/15 border-primary text-primary font-semibold'
+                                                        : 'border-border hover:bg-muted text-muted-foreground hover:text-foreground',
+                                                )}
+                                            >
+                                                {m.name.split(' ')[0]}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Client Context */}
                         {task.clientName && (
