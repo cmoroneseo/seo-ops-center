@@ -55,8 +55,8 @@ function rowToTask(row: any): Task {
         description: row.description ?? undefined,
         assigneeIds: row.assignee_ids ?? [],
         assignees: row.assignee_ids ?? [], // backward compat
-        dueDate: row.due_date ?? undefined,
-        startDate: row.start_date ?? undefined,
+        dueDate: row.due_date ? (row.due_date as string).slice(0, 10) : undefined,
+        startDate: row.start_date ? (row.start_date as string).slice(0, 10) : undefined,
         completedAt: row.completed_at ?? undefined,
         priority: (row.priority as TaskPriority) ?? 'medium',
         status: (row.status as TaskStatus) ?? 'todo',
