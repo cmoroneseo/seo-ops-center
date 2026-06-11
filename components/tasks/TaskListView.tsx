@@ -3,8 +3,10 @@
 import { Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Play, Pause, ChevronDown, ChevronRight, Calendar, MoreVertical } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTimer } from '@/components/providers/timer-provider';
+import { useOrganization } from '@/components/providers/organization-provider';
+import { getOrganizationMembers } from '@/lib/supabase/organizations';
 
 interface TaskListViewProps {
     tasks: Task[];
@@ -15,6 +17,19 @@ interface TaskListViewProps {
 
 export function TaskListView({ tasks, onTaskClick }: TaskListViewProps) {
     const { timer, start, pause } = useTimer();
+    const { organization } = useOrganization();
+    const [memberMap, setMemberMap] = useState<Record<string, string>>({});
+
+    useEffect(() => {
+        if (!organization?.id) return;
+        getOrganizationMembers(organization.id).then(members => {
+            const map: Record<string, string> = {};
+            members.forEach(m => {
+                map[m.userId] = (m.user as any)?.fullName || (m.user as any)?.email || 'Team';
+            });
+            setMemberMap(map);
+        }).catch(() => {});
+    }, [organization?.id]);
     const [expandedClients, setExpandedClients] = useState<Set<string>>(() => {
         // Expand all client groups by default
         const groups = new Set<string>();
@@ -168,15 +183,19 @@ export function TaskListView({ tasks, onTaskClick }: TaskListViewProps) {
                                                     {assignees.length === 0 ? (
                                                         <span className="text-[10px] text-muted-foreground/50 italic">—</span>
                                                     ) : (
-                                                        assignees.slice(0, 3).map((assignee, i) => (
-                                                            <div
-                                                                key={i}
-                                                                className="w-6 h-6 rounded-full border-2 border-card bg-primary/20 flex items-center justify-center text-[8px] font-bold text-primary"
-                                                                title={assignee}
-                                                            >
-                                                                {assignee.charAt(0).toUpperCase()}
-                                                            </div>
-                                                        ))
+                                                        assignees.slice(0, 3).map((assigneeId, i) => {
+                                                            const name = memberMap[assigneeId] ?? assigneeId;
+                                                            const initial = name.charAt(0).toUpperCase();
+                                                            return (
+                                                                <div
+                                                                    key={i}
+                                                                    className="w-6 h-6 rounded-full border-2 border-card bg-primary/20 flex items-center justify-center text-[8px] font-bold text-primary"
+                                                                    title={name}
+                                                                >
+                                                                    {initial}
+                                                                </div>
+                                                            );
+                                                        })
                                                     )}
                                                     {assignees.length > 3 && (
                                                         <div className="w-6 h-6 rounded-full border-2 border-card bg-muted flex items-center justify-center text-[8px] font-bold text-muted-foreground">
