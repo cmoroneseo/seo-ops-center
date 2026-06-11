@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download, Pencil, RefreshCw } from 'lucide-react';
+import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download, Pencil, RefreshCw, CheckSquare, ClipboardList } from 'lucide-react';
 // ChevronDown/ChevronUp kept — used in TimeLogRow and NoteRow expand toggles
 import { ClientProject, TimeLog, ClientNote, ClientAssignment, ClientActivityEvent } from '@/lib/types';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
@@ -287,6 +287,40 @@ function RetainerAmendedRow({ event }: { event: ClientActivityEvent }) {
                 </p>
                 {note && (
                     <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed italic">"{note}"</p>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function TaskEventRow({ event }: { event: ClientActivityEvent }) {
+    const { eventType, metadata, actorName, occurredAt } = event;
+    const isCompleted = eventType === 'task.completed';
+    const title = metadata.title as string | undefined;
+    const category = metadata.category as string | undefined;
+    const priority = metadata.priority as string | undefined;
+
+    return (
+        <div className="flex items-start gap-3 py-3">
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${isCompleted ? 'bg-green-500/10' : 'bg-blue-500/10'}`}>
+                {isCompleted
+                    ? <CheckSquare className="h-3.5 w-3.5 text-green-500" />
+                    : <ClipboardList className="h-3.5 w-3.5 text-blue-500" />
+                }
+            </div>
+            <div className="flex-1 min-w-0">
+                <p className="text-sm leading-snug">
+                    {actorName && <span className="font-semibold">{actorName} </span>}
+                    <span className="text-foreground/80">{isCompleted ? 'completed task ' : 'created task '}</span>
+                    {title && <span className={`font-medium ${isCompleted ? 'text-green-500' : 'text-blue-500'}`}>"{title}"</span>}
+                    <span className="text-muted-foreground text-xs ml-1.5">
+                        {new Date(occurredAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                </p>
+                {(category || priority) && (
+                    <p className="text-xs text-muted-foreground mt-0.5 capitalize">
+                        {[category, priority ? `${priority} priority` : null].filter(Boolean).join(' · ')}
+                    </p>
                 )}
             </div>
         </div>
@@ -587,6 +621,8 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                                             <AssignmentRow assignment={item.data} />
                                         ) : item.type === 'integration_event' && item.data.eventType === 'retainer.amended' ? (
                                             <RetainerAmendedRow event={item.data} />
+                                        ) : item.type === 'integration_event' && (item.data.eventType === 'task.created' || item.data.eventType === 'task.completed') ? (
+                                            <TaskEventRow event={item.data} />
                                         ) : (
                                             <IntegrationEventRow event={item.data} />
                                         )}

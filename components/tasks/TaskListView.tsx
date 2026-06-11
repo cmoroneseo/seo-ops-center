@@ -144,16 +144,22 @@ export function TaskListView({ tasks, onTaskClick }: TaskListViewProps) {
                                                 </span>
                                             </td>
                                             <td className="px-4 py-4">
-                                                {task.dueDate ? (
-                                                    <div className={cn(
-                                                        "flex items-center gap-2 text-xs",
-                                                        isOverdue ? "text-red-500 font-medium" : "text-muted-foreground"
-                                                    )}>
-                                                        <Calendar className="h-3 w-3" />
-                                                        {new Date(task.dueDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                                                        {isOverdue && <span className="text-[9px] font-bold">OVERDUE</span>}
-                                                    </div>
-                                                ) : (
+                                                {task.dueDate ? (() => {
+                                                    const d = new Date(task.dueDate + 'T00:00:00');
+                                                    const valid = !isNaN(d.getTime());
+                                                    return valid ? (
+                                                        <div className={cn(
+                                                            "flex items-center gap-2 text-xs",
+                                                            isOverdue ? "text-red-500 font-medium" : "text-muted-foreground"
+                                                        )}>
+                                                            <Calendar className="h-3 w-3" />
+                                                            {d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                            {isOverdue && <span className="text-[9px] font-bold">OVERDUE</span>}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-xs text-muted-foreground/40 italic">No date</span>
+                                                    );
+                                                })() : (
                                                     <span className="text-xs text-muted-foreground/40 italic">No date</span>
                                                 )}
                                             </td>

@@ -118,6 +118,8 @@ type TaskInsert = {
     syncToBasecamp?: boolean;
     /** Override the client's default todolist for this specific task. */
     basecampTodolistId?: string;
+    /** Display name of the creator — used in activity log entries. */
+    actorName?: string;
 };
 
 function taskToRow(t: Partial<TaskInsert>) {
@@ -303,6 +305,27 @@ export async function createTask(
             });
         }
 
+        // Log task creation to client activity feed (fire-and-forget)
+        if (t.clientId && t.organizationId) {
+            fetch('/api/tasks/activity', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    organizationId: t.organizationId,
+                    clientId: t.clientId,
+                    eventType: 'task.created',
+                    actorId: t.createdBy,
+                    actorName: t.actorName,
+                    metadata: {
+                        taskId: task.id,
+                        title: task.title,
+                        priority: task.priority,
+                        category: task.category,
+                    },
+                }),
+            }).catch(err => console.error('[tasks] activity log error:', err));
+        }
+
         return { success: true, data: task };
     } catch (err: any) {
         console.error('Error creating task:', err);
@@ -440,6 +463,26 @@ export async function updateTask(
                     }),
                 }).catch(err => console.error('[Basecamp] updateTask sync error:', err));
             }
+        }
+
+        // Log task completion to client activity feed (fire-and-forget)
+        if (patch.status === 'done' && data.client_id && data.organization_id) {
+            fetch('/api/tasks/activity', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    organizationId: data.organization_id,
+                    clientId: data.client_id,
+                    eventType: 'task.completed',
+                    actorId: patch.updatedBy,
+                    metadata: {
+                        taskId,
+                        title: data.title,
+                        priority: data.priority,
+                        category: data.category,
+                    },
+                }),
+            }).catch(err => console.error('[tasks] activity log error:', err));
         }
 
         return { success: true, data: updatedTask };

@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Plus, LayoutTemplate } from 'lucide-react';
+import { X, Plus, LayoutTemplate, UserCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Task, TaskPriority, TaskStatus, TaskCategory, TaskTemplate } from '@/lib/types';
 import { createTaskFromTemplate, createTask } from '@/lib/supabase/tasks';
+import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { RecurrenceSelector } from './RecurrenceSelector';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { createClient } from '@/lib/supabase/client';
@@ -53,6 +54,22 @@ export function CreateTaskModal({
     defaultDueDate,
     templatePrefill,
 }: CreateTaskModalProps) {
+    const { organization } = useOrganization();
+
+    const [orgMembers, setOrgMembers] = useState<{ id: string; name: string }[]>([]);
+    const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+
+    // Fetch org members once per modal session
+    useEffect(() => {
+        if (!isOpen || !organizationId || orgMembers.length > 0) return;
+        getOrganizationMembers(organizationId).then(members => {
+            setOrgMembers(members.map(m => ({
+                id: m.userId,
+                name: (m.user as any)?.fullName || (m.user as any)?.email || 'Team member',
+            })));
+        }).catch(() => {});
+    }, [isOpen, organizationId]);
+
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [priority, setPriority] = useState<TaskPriority>('medium');
@@ -72,6 +89,7 @@ export function CreateTaskModal({
     useEffect(() => {
         if (isOpen) {
             setDueDate(defaultDueDate ?? '');
+            setAssigneeIds([]);
             if (templatePrefill) {
                 setTitle(templatePrefill.name);
                 setDescription(templatePrefill.description ?? '');
@@ -164,6 +182,8 @@ export function CreateTaskModal({
             category: category as TaskCategory || undefined,
             dueDate: dueDate || undefined,
             createdBy: currentUserId,
+            actorName: orgMembers.find(m => m.id === currentUserId)?.name,
+            assigneeIds: assigneeIds.length > 0 ? assigneeIds : undefined,
             recurrence: recurrence || undefined,
             syncToBasecamp: clientHasBasecamp ? syncToBasecamp : false,
             basecampTodolistId: (clientHasBasecamp && syncToBasecamp && bcTodolistId) ? bcTodolistId : undefined,
@@ -258,6 +278,37 @@ export function CreateTaskModal({
                                 </select>
                             </div>
                         </div>
+
+                        {/* Assignee */}
+                        {orgMembers.length > 0 && (
+                            <div>
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                                    <UserCircle2 className="h-3 w-3" /> Assign To
+                                </label>
+                                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                    {orgMembers.map(m => {
+                                        const selected = assigneeIds.includes(m.id);
+                                        return (
+                                            <button
+                                                key={m.id}
+                                                type="button"
+                                                onClick={() => setAssigneeIds(prev =>
+                                                    selected ? prev.filter(id => id !== m.id) : [...prev, m.id]
+                                                )}
+                                                className={cn(
+                                                    'px-2.5 py-1 rounded-full text-xs border transition-all',
+                                                    selected
+                                                        ? 'bg-primary text-primary-foreground border-primary font-medium'
+                                                        : 'bg-muted/30 text-muted-foreground border-border hover:border-primary/40 hover:text-foreground',
+                                                )}
+                                            >
+                                                {m.name.split(' ')[0]}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Due Date */}
                         <div>
