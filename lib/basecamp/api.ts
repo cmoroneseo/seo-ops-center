@@ -95,40 +95,47 @@ export async function listBasecampProjects(): Promise<BasecampProject[]> {
 }
 
 /**
- * List all todolists for a project.
- * Basecamp 3 requires fetching the project first to get the todoset URL,
- * then fetching todolists from that todoset.
+ * Fetch all todolists from a single todoset, following pagination.
+ */
+async function fetchTodolistsFromTodoset(projectId: number | string, todosetId: string): Promise<BasecampTodolist[]> {
+    const results: BasecampTodolist[] = [];
+    let url: string | null = `${BASE_URL()}/buckets/${projectId}/todosets/${todosetId}/todolists.json`;
+    while (url) {
+        const res = await fetch(url, { headers: getHeaders() });
+        if (!res.ok) break;
+        const page = await res.json() as BasecampTodolist[];
+        results.push(...page);
+        url = parseNextLink(res.headers.get('Link'));
+    }
+    return results;
+}
+
+/**
+ * List all todolists for a project across ALL camps/todosets.
+ * Basecamp projects can have multiple todosets (one per camp/group).
+ * The dock lists every todoset — we fetch from all of them and combine.
  */
 export async function listBasecampTodolists(projectId: number | string): Promise<BasecampTodolist[]> {
     try {
-        // Step 1: get the project dock to find the todoset URL
+        // Step 1: get the project dock to find ALL todoset URLs
         const projectRes = await fetch(`${BASE_URL()}/projects/${projectId}.json`, {
             headers: getHeaders(),
-            next: { revalidate: 300 },
         });
         if (!projectRes.ok) throw new Error(`Basecamp project fetch failed: ${projectRes.status}`);
         const project = await projectRes.json() as { dock: Array<{ name: string; enabled: boolean; url: string }> };
 
-        // Find the first enabled todoset
-        const todosetDock = project.dock?.find(d => d.name === 'todoset' && d.enabled);
-        if (!todosetDock) return [];
+        // Find ALL enabled todosets (one per camp — projects can have many)
+        const todosetDocks = (project.dock ?? []).filter(d => d.name === 'todoset' && d.enabled);
+        if (todosetDocks.length === 0) return [];
 
-        // Step 2: extract todoset ID from URL and fetch todolists
-        // URL format: .../buckets/{projectId}/todosets/{todosetId}.json
-        const todosetId = todosetDock.url.split('/todosets/')[1]?.replace('.json', '');
-        if (!todosetId) return [];
-
-        // Fetch all todolists following pagination
-        const allTodolists: BasecampTodolist[] = [];
-        let todolistsUrl: string | null = `${BASE_URL()}/buckets/${projectId}/todosets/${todosetId}/todolists.json`;
-        while (todolistsUrl) {
-            const todolistsRes = await fetch(todolistsUrl, { headers: getHeaders() });
-            if (!todolistsRes.ok) throw new Error(`Basecamp todolists fetch failed: ${todolistsRes.status}`);
-            const page = await todolistsRes.json() as BasecampTodolist[];
-            allTodolists.push(...page);
-            todolistsUrl = parseNextLink(todolistsRes.headers.get('Link'));
-        }
-        return allTodolists;
+        // Step 2: fetch todolists from every todoset in parallel
+        const perTodoset = await Promise.all(
+            todosetDocks.map(dock => {
+                const todosetId = dock.url.split('/todosets/')[1]?.replace('.json', '');
+                return todosetId ? fetchTodolistsFromTodoset(projectId, todosetId) : Promise.resolve([]);
+            }),
+        );
+        return perTodoset.flat();
     } catch (err) {
         console.error('[Basecamp] listTodolists error:', err);
         return [];
