@@ -447,14 +447,14 @@ export function IntegrationsTab({ clientId }: Props) {
                         <div>
                             <div className="flex items-center gap-2">
                                 <span className="font-medium text-sm">Basecamp</span>
-                                {bcSyncEnabled && bcProjectId && bcTodolistId && (
+                                {bcSyncEnabled && bcProjectId && (
                                     <span className="flex items-center gap-1 text-xs text-green-500">
                                         <CheckCircle2 className="h-3 w-3" />
                                         Sync enabled
                                     </span>
                                 )}
                             </div>
-                            <p className="text-xs text-muted-foreground">Push tasks to a Basecamp todolist automatically</p>
+                            <p className="text-xs text-muted-foreground">Push tasks to Basecamp — set a default list or choose per task</p>
                         </div>
                     </div>
                     {/* Sync toggle */}
@@ -495,16 +495,18 @@ export function IntegrationsTab({ clientId }: Props) {
                             </select>
                         </div>
 
-                        {/* Todolist selector */}
+                        {/* Default todolist selector (optional) */}
                         {bcProjectId && (
                             <div>
-                                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Todolist</label>
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                    Default Todolist <span className="normal-case font-normal">(optional — can override per task)</span>
+                                </label>
                                 <select
                                     value={bcTodolistId}
                                     onChange={e => setBcTodolistId(e.target.value)}
                                     className="w-full mt-1 p-2 rounded-lg border border-border bg-muted/30 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                                 >
-                                    <option value="">Select a todolist…</option>
+                                    <option value="">No default — choose when creating each task</option>
                                     {bcTodolists.map(t => (
                                         <option key={t.id} value={String(t.id)}>{t.title || t.name}</option>
                                     ))}

@@ -32,8 +32,8 @@ async function getClientBasecampConfig(clientId: string | undefined): Promise<{
         const cf = data?.custom_fields as Record<string, unknown> ?? {};
         if (!cf.basecamp_sync_enabled) return null;
         const projectId = cf.basecamp_project_id as string;
-        const todolistId = cf.basecamp_todolist_id as string;
-        if (!projectId || !todolistId) return null;
+        if (!projectId) return null;
+        const todolistId = (cf.basecamp_todolist_id as string) ?? '';
         return { projectId, todolistId };
     } catch {
         return null;
@@ -116,6 +116,8 @@ type TaskInsert = {
     recurrence?: Task['recurrence'];
     /** If true, pushes this task to Basecamp on create (requires client Basecamp config). */
     syncToBasecamp?: boolean;
+    /** Override the client's default todolist for this specific task. */
+    basecampTodolistId?: string;
 };
 
 function taskToRow(t: Partial<TaskInsert>) {
@@ -282,6 +284,9 @@ export async function createTask(
         if (t.syncToBasecamp && t.clientId) {
             getClientBasecampConfig(t.clientId).then((bc) => {
                 if (!bc) return;
+                // Per-task override takes priority over the client's default todolist
+                const todolistId = t.basecampTodolistId || bc.todolistId;
+                if (!todolistId) return;
                 fetch('/api/integrations/basecamp/push', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -289,7 +294,7 @@ export async function createTask(
                         action: 'create_todo',
                         taskId: task.id,
                         projectId: bc.projectId,
-                        todolistId: bc.todolistId,
+                        todolistId,
                         content: task.title,
                         dueOn: task.dueDate,
                         description: task.description,
@@ -728,6 +733,7 @@ export async function createTaskFromTemplate(
             createdBy: overrides.createdBy,
             assigneeIds: overrides.assigneeIds,
             syncToBasecamp: overrides.syncToBasecamp,
+            basecampTodolistId: overrides.basecampTodolistId,
         });
     } catch (err: any) {
         console.error('Error creating task from template:', err);
