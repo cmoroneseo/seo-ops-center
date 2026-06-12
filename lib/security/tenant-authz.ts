@@ -105,6 +105,18 @@ export async function requireClientIntegrationManager(
     const role = membership.role as 'owner' | 'admin' | 'member' | 'viewer';
     const roleCanManageIntegrations = role === 'owner' || role === 'admin';
 
+    if (roleCanManageIntegrations) {
+        return {
+            ok: true,
+            userId: actor.id,
+            actorName: actor.name,
+            organizationId: client.organization_id,
+            clientId,
+            role,
+            canManageIntegrations: true,
+        };
+    }
+
     const { data: permission, error: permissionError } = await admin
         .from('organization_member_permissions')
         .select('can_manage_integrations')
@@ -116,10 +128,7 @@ export async function requireClientIntegrationManager(
         return { ok: false, status: 500, error: 'Unable to verify integration permission' };
     }
 
-    const hasExplicitIntegrationPermission = permission?.can_manage_integrations === true;
-    const canManageIntegrations = roleCanManageIntegrations || hasExplicitIntegrationPermission;
-
-    if (!canManageIntegrations) {
+    if (permission?.can_manage_integrations !== true) {
         return { ok: false, status: 403, error: 'Forbidden' };
     }
 
@@ -130,6 +139,6 @@ export async function requireClientIntegrationManager(
         organizationId: client.organization_id,
         clientId,
         role,
-        canManageIntegrations,
+        canManageIntegrations: true,
     };
 }
