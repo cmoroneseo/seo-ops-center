@@ -50,3 +50,13 @@ This project is ready to be deployed on **Vercel**.
 2. Import project in Vercel.
 3. Add environment variables (if connecting to real Supabase instance).
 4. Deploy.
+
+## Security Workflow
+
+See [`docs/security/README.md`](docs/security/README.md) for the Codex-powered DevSecOps workflow, reusable review prompts, GitHub/Vercel/Supabase checklists, privacy data map, scheduled review cadence, and vulnerability triage rules.
+
+Local security checks:
+
+```bash
+npm run security:all
+```
