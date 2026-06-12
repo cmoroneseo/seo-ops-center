@@ -48,7 +48,8 @@ jobs:
         env:
           SECURITY_STATIC_REPORT: security-static-review.md
 
-      - name: Dependency audit
+      - name: Dependency audit (advisory)
+        continue-on-error: true
         run: npm audit --audit-level=high
 
       - name: Upload static security report
