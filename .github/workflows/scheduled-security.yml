@@ -37,9 +37,12 @@ jobs:
       - name: Determine cadence
         id: cadence
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_CADENCE: ${{ inputs.cadence }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "cadence=${{ inputs.cadence }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "cadence=$INPUT_CADENCE" >> "$GITHUB_OUTPUT"
           else
             node -e "const d=new Date(); const c=['daily']; if(d.getUTCDay()===1)c.push('weekly'); if(d.getUTCDate()===1)c.push('monthly'); if(d.getUTCDate()===1 && [0,3,6,9].includes(d.getUTCMonth()))c.push('quarterly'); console.log('cadence='+c.join(','));" >> "$GITHUB_OUTPUT"
           fi
