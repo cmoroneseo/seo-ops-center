@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { upsertIntegration } from '@/lib/supabase/integrations';
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { verifyGoogleOAuthState } from '@/lib/security/oauth-state';
+import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
+
+function getRequestOrigin(req: NextRequest) {
+    const host = req.headers.get('x-forwarded-host') || new URL(req.url).host;
+    const protocol = req.headers.get('x-forwarded-proto') || 'https';
+    return `${protocol}://${host}`;
+}
+
+function redirectWithIntegrationError(origin: string, error: string, clientId?: string) {
+    const path = clientId ? `/workspace/${clientId}` : '/workspace';
+    return NextResponse.redirect(`${origin}${path}?integrationError=${encodeURIComponent(error)}`);
+}
 
 /**
  * GET /api/integrations/google/callback?code=...&state=...
@@ -14,31 +25,33 @@ export async function GET(req: NextRequest) {
     const code = searchParams.get('code');
     const stateParam = searchParams.get('state');
     const errorParam = searchParams.get('error');
-
-    const host = req.headers.get('x-forwarded-host') || new URL(req.url).host;
-    const protocol = req.headers.get('x-forwarded-proto') || 'https';
-    const origin = `${protocol}://${host}`;
+    const origin = getRequestOrigin(req);
 
     if (errorParam) {
-        return NextResponse.redirect(`${origin}/workspace?integrationError=${errorParam}`);
+        return redirectWithIntegrationError(origin, errorParam);
     }
 
     if (!code || !stateParam) {
-        return NextResponse.redirect(`${origin}/workspace?integrationError=missing_params`);
+        return redirectWithIntegrationError(origin, 'missing_params');
     }
 
-    // Decode state
-    let state: { clientId: string; orgId: string; group: 'ga4-gsc' | 'gbp' };
-    try {
-        state = JSON.parse(Buffer.from(stateParam, 'base64url').toString('utf8'));
-    } catch {
-        return NextResponse.redirect(`${origin}/workspace?integrationError=invalid_state`);
+    const state = verifyGoogleOAuthState(stateParam);
+    if (!state) {
+        return redirectWithIntegrationError(origin, 'invalid_state');
     }
 
-    // Exchange code for tokens
-    const clientIdEnv = process.env.GOOGLE_CLIENT_ID!;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
-    const redirectUri = process.env.GOOGLE_REDIRECT_URI!;
+    const authorization = await requireClientIntegrationManager(state.clientId, state.orgId);
+    if (!authorization.ok) {
+        return redirectWithIntegrationError(origin, 'unauthorized_integration', state.clientId);
+    }
+
+    const clientIdEnv = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+
+    if (!clientIdEnv || !clientSecret || !redirectUri) {
+        return redirectWithIntegrationError(origin, 'google_oauth_not_configured', state.clientId);
+    }
 
     let tokens: { access_token: string; refresh_token?: string; expiry_date?: number };
     try {
@@ -60,41 +73,23 @@ export async function GET(req: NextRequest) {
             refresh_token: tokenData.refresh_token,
             expiry_date: Date.now() + (tokenData.expires_in ?? 3600) * 1000,
         };
-    } catch (err: any) {
-        console.error('Google token exchange failed:', err);
-        return NextResponse.redirect(`${origin}/workspace/${state.clientId}?integrationError=token_exchange`);
+    } catch {
+        return redirectWithIntegrationError(origin, 'token_exchange', state.clientId);
     }
 
-    // Get the current user id from the Supabase session
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                get(name: string) { return cookieStore.get(name)?.value; },
-                set(name: string, value: string, options: CookieOptions) { cookieStore.set({ name, value, ...options }); },
-                remove(name: string, options: CookieOptions) { cookieStore.set({ name, value: '', ...options }); },
-            },
-        },
-    );
-    const { data: { user } } = await supabase.auth.getUser();
-    const userId = user?.id ?? 'unknown';
-
-    // Both groups need a picker: GA4+GSC to choose property/site, GBP to choose location.
     const services = state.group === 'ga4-gsc' ? ['ga4', 'gsc'] as const : ['gbp'] as const;
     const syncStatus = 'pending_setup';
 
     for (const service of services) {
         await upsertIntegration({
-            organizationId: state.orgId,
-            clientId: state.clientId,
+            organizationId: authorization.organizationId,
+            clientId: authorization.clientId,
             service,
             credentials: tokens,
-            connectedBy: userId,
+            connectedBy: authorization.userId,
             syncStatus,
         });
     }
 
-    return NextResponse.redirect(`${origin}/workspace/${state.clientId}?integrationSuccess=${state.group}`);
+    return NextResponse.redirect(`${origin}/workspace/${authorization.clientId}?integrationSuccess=${state.group}`);
 }
