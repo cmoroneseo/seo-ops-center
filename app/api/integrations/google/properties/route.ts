@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
 
 async function refreshAccessToken(refreshToken: string): Promise<string | null> {
     const res = await fetch('https://oauth2.googleapis.com/token', {
@@ -54,13 +55,22 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Missing clientId or group' }, { status: 400 });
     }
 
+    if (!['ga4-gsc', 'gbp'].includes(group)) {
+        return NextResponse.json({ error: 'Invalid group' }, { status: 400 });
+    }
+
+    const authorization = await requireClientIntegrationManager(clientId);
+    if (!authorization.ok) {
+        return NextResponse.json({ error: authorization.error }, { status: authorization.status });
+    }
+
     const admin = createAdminClient();
     if (!admin) return NextResponse.json({ error: 'DB unavailable' }, { status: 500 });
 
     if (group === 'gbp') {
-        const accessToken = await getAccessToken(admin, clientId, 'gbp');
+        const accessToken = await getAccessToken(admin, authorization.clientId, 'gbp');
         if (!accessToken) {
-            return NextResponse.json({ error: 'No GBP token found — connect first' }, { status: 404 });
+            return NextResponse.json({ error: 'No GBP token found -- connect first' }, { status: 404 });
         }
 
         const headers = { Authorization: `Bearer ${accessToken}` };
@@ -78,7 +88,7 @@ export async function GET(req: NextRequest) {
             const status = accountsData?.error?.status;
             if (status === 'PERMISSION_DENIED' || accountsRes.status === 403) {
                 return NextResponse.json({
-                    error: 'Business Profile Account Management API is not enabled. Enable it in Google Cloud Console → APIs & Services → Library → search "Business Profile Account Management API".',
+                    error: 'Business Profile Account Management API is not enabled. Enable it in Google Cloud Console -> APIs & Services -> Library -> search "Business Profile Account Management API".',
                 }, { status: 403 });
             }
             return NextResponse.json({ error: `GBP API error: ${msg}` }, { status: accountsRes.status });
@@ -97,7 +107,6 @@ export async function GET(req: NextRequest) {
                 { headers },
             ).then(async (r) => {
                 const d = await r.json();
-                if (!r.ok) console.error(`GBP locations error for ${acct.name}:`, d?.error?.message);
                 return { account: acct, locations: d.locations ?? [] };
             }),
         );
@@ -123,9 +132,9 @@ export async function GET(req: NextRequest) {
     }
 
     // ga4-gsc group
-    const accessToken = await getAccessToken(admin, clientId, 'ga4');
+    const accessToken = await getAccessToken(admin, authorization.clientId, 'ga4');
     if (!accessToken) {
-        return NextResponse.json({ error: 'No GA4 token found — connect first' }, { status: 404 });
+        return NextResponse.json({ error: 'No GA4 token found -- connect first' }, { status: 404 });
     }
 
     const headers = { Authorization: `Bearer ${accessToken}` };
