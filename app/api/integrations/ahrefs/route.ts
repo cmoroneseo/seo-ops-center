@@ -1,61 +1,61 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { upsertIntegration, disconnectIntegration } from '@/lib/supabase/integrations';
-import { createAdminClient } from '@/lib/supabase/admin';
 import { logClientActivity } from '@/lib/supabase/client-activity';
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
 
-async function resolveActor() {
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                get(name: string) { return cookieStore.get(name)?.value; },
-                set(name: string, value: string, options: CookieOptions) { cookieStore.set({ name, value, ...options }); },
-                remove(name: string, options: CookieOptions) { cookieStore.set({ name, value: '', ...options }); },
-            },
-        },
-    );
-    const { data: { user } } = await supabase.auth.getUser();
-    return {
-        actorId: user?.id,
-        actorName: user?.user_metadata?.full_name || user?.email || 'Unknown',
-    };
+function getString(value: unknown) {
+    return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+async function readJsonBody(req: NextRequest) {
+    try {
+        return await req.json();
+    } catch {
+        return null;
+    }
 }
 
 /**
  * POST /api/integrations/ahrefs
- * Body: { clientId, orgId, apiKey }
+ * Body: { clientId, orgId?, apiKey }
  */
 export async function POST(req: NextRequest) {
-    const { clientId, orgId, apiKey } = await req.json();
+    const body = await readJsonBody(req);
+    if (!body || typeof body !== 'object') {
+        return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
 
-    if (!clientId || !orgId || !apiKey) {
+    const clientId = getString((body as Record<string, unknown>).clientId);
+    const orgId = getString((body as Record<string, unknown>).orgId);
+    const apiKey = getString((body as Record<string, unknown>).apiKey);
+
+    if (!clientId || !apiKey) {
         return NextResponse.json({ error: 'Missing params' }, { status: 400 });
     }
 
-    const { actorId, actorName } = await resolveActor();
+    const authorization = await requireClientIntegrationManager(clientId, orgId);
+    if (!authorization.ok) {
+        return NextResponse.json({ error: authorization.error }, { status: authorization.status });
+    }
 
     const result = await upsertIntegration({
-        organizationId: orgId,
-        clientId,
+        organizationId: authorization.organizationId,
+        clientId: authorization.clientId,
         service: 'ahrefs',
         credentials: { api_key: apiKey },
-        connectedBy: actorId ?? 'unknown',
+        connectedBy: authorization.userId,
     });
 
     if (!result.success) {
-        return NextResponse.json({ error: result.error }, { status: 500 });
+        return NextResponse.json({ error: 'Failed to save Ahrefs integration' }, { status: 500 });
     }
 
     await logClientActivity({
-        organizationId: orgId,
-        clientId,
+        organizationId: authorization.organizationId,
+        clientId: authorization.clientId,
         eventType: 'integration.connected',
-        actorId,
-        actorName,
+        actorId: authorization.userId,
+        actorName: authorization.actorName,
         metadata: { service: 'ahrefs' },
     });
 
@@ -63,40 +63,35 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * DELETE /api/integrations/ahrefs?clientId=...&service=...
+ * DELETE /api/integrations/ahrefs?clientId=...
  */
 export async function DELETE(req: NextRequest) {
     const { searchParams } = req.nextUrl;
     const clientId = searchParams.get('clientId');
-    const service = searchParams.get('service') as 'ga4' | 'gsc' | 'gbp' | 'ahrefs' | null;
+    const service = searchParams.get('service');
 
-    if (!clientId || !service) {
-        return NextResponse.json({ error: 'Missing params' }, { status: 400 });
+    if (service && service !== 'ahrefs') {
+        return NextResponse.json({ error: 'Invalid service for Ahrefs endpoint' }, { status: 400 });
     }
 
-    // Look up org before disconnecting
-    const admin = createAdminClient();
-    const { data: row } = admin
-        ? await admin.from('client_integrations').select('organization_id').eq('client_id', clientId).eq('service', service).maybeSingle()
-        : { data: null };
-    const organizationId = row?.organization_id;
+    const authorization = await requireClientIntegrationManager(clientId);
+    if (!authorization.ok) {
+        return NextResponse.json({ error: authorization.error }, { status: authorization.status });
+    }
 
-    const result = await disconnectIntegration(clientId, service);
+    const result = await disconnectIntegration(authorization.clientId, 'ahrefs');
     if (!result.success) {
-        return NextResponse.json({ error: result.error }, { status: 500 });
+        return NextResponse.json({ error: 'Failed to disconnect Ahrefs integration' }, { status: 500 });
     }
 
-    if (organizationId) {
-        const { actorId, actorName } = await resolveActor();
-        await logClientActivity({
-            organizationId,
-            clientId,
-            eventType: 'integration.disconnected',
-            actorId,
-            actorName,
-            metadata: { service },
-        });
-    }
+    await logClientActivity({
+        organizationId: authorization.organizationId,
+        clientId: authorization.clientId,
+        eventType: 'integration.disconnected',
+        actorId: authorization.userId,
+        actorName: authorization.actorName,
+        metadata: { service: 'ahrefs' },
+    });
 
     return NextResponse.json({ success: true });
 }
