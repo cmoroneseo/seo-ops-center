@@ -12,7 +12,7 @@ import { ReassignModal } from '@/components/workspace/ReassignModal';
 import { isClientAtRisk } from '@/lib/utils';
 import { AlertTriangle } from 'lucide-react';
 import { EngagementOverview } from '@/components/workspace/EngagementOverview';
-import { DeliverablesTracker } from '@/components/workspace/DeliverablesTracker';
+import { ClientDeliverablesTab } from '@/components/deliverables/ClientDeliverablesTab';
 import { MonthlyPlannerCard } from '@/components/workspace/MonthlyPlannerCard';
 import { IntegrationsTab } from '@/components/workspace/IntegrationsTab';
 import { EditClientPanel, ClientAvatar } from '@/components/workspace/EditClientPanel';
@@ -334,7 +334,11 @@ export default function ClientDetailPage() {
             <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 space-y-6">
                     <MonthlyPlannerCard client={client} />
-                    <DeliverablesTracker client={client} />
+                    <ClientDeliverablesTab
+                        organizationId={organization?.id ?? ''}
+                        clientId={client.id}
+                        clientName={client.clientName}
+                    />
                     <ClientNotesPanel client={client} />
                 </div>
 

@@ -67,6 +67,22 @@ export type Tier = 1 | 2 | 3;
 export type DeliverableType = 'Content' | 'Backlink' | 'GBP' | 'Other';
 export type DeliverableStatus = 'Pending' | 'In Progress' | 'Review' | 'Approved' | 'Published';
 
+export type DeliverableSubtype =
+    | 'blog'
+    | 'service_page'
+    | 'city_page'
+    | 'landing_page'
+    | 'link_building'
+    | 'gbp_management'
+    | 'technical_seo'
+    | string; // custom subtypes allowed
+
+export interface DeliverableStatusHistoryEntry {
+    status: DeliverableStatus;
+    at: string;  // ISO
+    by?: string; // user ID
+}
+
 export interface Deliverable {
     id: string;
     clientId: string;
@@ -76,9 +92,59 @@ export interface Deliverable {
     dueDate: string;
     completedDate?: string;
     countsTowardsHours: boolean;
-    assignee?: string;
+    assignee?: string;        // legacy: account_manager_id
     link?: string;
     taskId?: string; // optional link to a task — advisory, not structural
+    // Commitment-driven fulfillment (migration 015)
+    commitmentId?: string;
+    assigneeId?: string;      // the person producing this deliverable
+    publishedUrl?: string;
+    wordCount?: number;
+    subtype?: DeliverableSubtype;
+    generatedBy?: 'manual' | 'cron' | 'import';
+    sequenceInMonth?: number; // "Blog 2 of 4"
+    month?: string;           // 'YYYY-MM'
+    notes?: string;
+    statusHistory?: DeliverableStatusHistoryEntry[];
+}
+
+export type CommitmentCadence = 'monthly' | 'quarterly' | 'one_time';
+
+/** The contract layer: what a client agreement promises per month. */
+export interface DeliverableCommitment {
+    id: string;
+    organizationId: string;
+    clientId: string;
+    type: DeliverableType;
+    subtype?: DeliverableSubtype;
+    title: string;                 // "Blog Posts", "City Pages"
+    quantityPerMonth: number;
+    cadence: CommitmentCadence;
+    engagementModel: EngagementModel;
+    totalQuantity?: number;        // campaign cap
+    startsOn: string;              // YYYY-MM-DD
+    endsOn?: string;               // YYYY-MM-DD; undefined = open-ended
+    isActive: boolean;
+    defaultAssigneeId?: string;
+    dueDay?: number;               // 1–28
+    countsTowardHours: boolean;
+    taskTemplateId?: string;
+    generateTasks: boolean;
+    notes?: string;
+    customFields?: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string;
+}
+
+/** One cell of the fulfillment matrix: a client+type's month at a glance. */
+export interface FulfillmentCell {
+    clientId: string;
+    type: DeliverableType;
+    promised: number;     // prorated expected quantity this month
+    generated: number;    // rows that exist this month
+    delivered: number;    // Approved or Published
+    inProgress: number;   // In Progress or Review
+    overdue: number;      // past due_date and not delivered
 }
 
 export interface CampaignConfig {

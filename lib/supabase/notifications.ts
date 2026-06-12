@@ -4,8 +4,15 @@ import { createClient } from './client';
 // Types
 // ============================================================
 
-export type NotificationType = 'task_assigned' | 'task_mentioned' | 'note_mentioned';
-export type EntityType = 'task' | 'task_comment' | 'client_note';
+export type NotificationType =
+  | 'task_assigned'
+  | 'task_mentioned'
+  | 'note_mentioned'
+  | 'deliverable_assigned'
+  | 'deliverable_overdue'
+  | 'deliverable_at_risk'
+  | 'deliverable_status';
+export type EntityType = 'task' | 'task_comment' | 'client_note' | 'deliverable';
 
 export interface AppNotification {
   id: string;

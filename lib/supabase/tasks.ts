@@ -465,6 +465,43 @@ export async function updateTask(
             }
         }
 
+        // Deliverable nudges (fire-and-forget): a linked production task starting
+        // pulls a Pending deliverable into In Progress; finishing one prompts the
+        // assignee to move it to Review. One-way only — Basecamp can mutate task
+        // status externally, so the contractual record never hard-syncs.
+        if (patch.status && data.deliverable_id) {
+            (async () => {
+                const { data: d } = await supabase
+                    .from('deliverables')
+                    .select('id, title, status, assignee_id, client_id, organization_id')
+                    .eq('id', data.deliverable_id)
+                    .single();
+                if (!d) return;
+                if (patch.status === 'in_progress' && d.status === 'Pending') {
+                    const { data: cur } = await supabase
+                        .from('deliverables').select('status_history').eq('id', d.id).single();
+                    await supabase.from('deliverables').update({
+                        status: 'In Progress',
+                        status_history: [
+                            ...(Array.isArray(cur?.status_history) ? cur.status_history : []),
+                            { status: 'In Progress', at: new Date().toISOString(), by: patch.updatedBy },
+                        ],
+                    }).eq('id', d.id);
+                } else if (patch.status === 'done' && ['Pending', 'In Progress'].includes(d.status) && d.assignee_id) {
+                    createNotification({
+                        organizationId: d.organization_id,
+                        userId: d.assignee_id,
+                        type: 'deliverable_status',
+                        title: 'Production task done — move deliverable to Review?',
+                        body: d.title,
+                        entityType: 'deliverable',
+                        entityId: d.id,
+                        clientId: d.client_id ?? undefined,
+                    });
+                }
+            })().catch(err => console.error('[tasks] deliverable nudge error:', err));
+        }
+
         // Log task completion to client activity feed (fire-and-forget)
         if (patch.status === 'done' && data.client_id && data.organization_id) {
             fetch('/api/tasks/activity', {

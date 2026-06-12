@@ -212,10 +212,20 @@ create table public.deliverables (
   delivered_on timestamp with time zone,
   status_history jsonb not null default '[]'::jsonb,
   custom_fields jsonb not null default '{}'::jsonb,
+  -- Commitment-driven fulfillment (migration 015)
+  commitment_id uuid,                             -- FK added after deliverable_commitments below
+  assignee_id uuid references public.users(id),
+  published_url text,
+  word_count integer,
+  subtype text,
+  generated_by text check (generated_by is null or generated_by in ('manual', 'cron', 'import')) default 'manual',
+  sequence_in_month smallint,                     -- "Blog 2 of 4"
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 create index deliverables_client_month_idx on public.deliverables (client_id, month);
 create index deliverables_org_idx on public.deliverables (organization_id);
+create index deliverables_commitment_month_idx on public.deliverables (commitment_id, month);
+create index deliverables_assignee_idx on public.deliverables (assignee_id) where assignee_id is not null;
 
 -- 14. Client Change Log. Written automatically by a trigger (see bottom of file)
 -- when seo_hours / blogs_due_per_month change — no more hand-typed entries.
@@ -251,6 +261,59 @@ create table public.team_bonus (
 );
 create index team_bonus_org_month_idx on public.team_bonus (organization_id, month);
 
+-- 16. Deliverable Commitments (migration 015). The contract layer: what each
+-- client agreement promises per month ("2 blogs/month"). A daily cron generates
+-- the month's rows in public.deliverables (the fulfillment layer) from these.
+create table public.deliverable_commitments (
+  id uuid default uuid_generate_v4() primary key,
+  organization_id uuid references public.organizations(id) on delete cascade not null,
+  client_id uuid references public.clients(id) on delete cascade not null,
+  type text not null check (type in ('Content', 'Backlink', 'GBP', 'Other')) default 'Content',
+  subtype text,                                   -- 'blog' | 'service_page' | 'city_page' | 'landing_page' |
+                                                  -- 'link_building' | 'gbp_management' | 'technical_seo' | custom
+  title text not null,                            -- display name, e.g. "Blog Posts"
+  quantity_per_month numeric(5, 1) not null default 1,
+  cadence text not null default 'monthly' check (cadence in ('monthly', 'quarterly', 'one_time')),
+  engagement_model text not null default 'Retainer' check (engagement_model in ('Retainer', 'Campaign')),
+  total_quantity integer,                         -- campaign cap; null for open-ended retainers
+  starts_on date not null,
+  ends_on date,                                   -- null = open-ended
+  is_active boolean not null default true,
+  default_assignee_id uuid references public.users(id),
+  due_day smallint check (due_day between 1 and 28),
+  counts_toward_hours boolean default true,
+  task_template_id uuid references public.task_templates(id) on delete set null,
+  generate_tasks boolean not null default false,  -- Phase 2: auto-create production tasks
+  notes text,
+  custom_fields jsonb not null default '{}'::jsonb,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+create index deliverable_commitments_client_idx on public.deliverable_commitments (client_id, is_active);
+create index deliverable_commitments_org_idx on public.deliverable_commitments (organization_id);
+
+-- Late FK: deliverables.commitment_id (declared before the commitments table exists).
+alter table public.deliverables
+  add constraint deliverables_commitment_id_fkey
+  foreign key (commitment_id) references public.deliverable_commitments(id) on delete set null;
+
+-- 17. Commitment Change Log (migration 015). Audit trail for agreement changes,
+-- written automatically by a trigger (see bottom of file).
+create table public.commitment_change_log (
+  id uuid default uuid_generate_v4() primary key,
+  organization_id uuid references public.organizations(id) on delete cascade not null,
+  client_id uuid references public.clients(id) on delete cascade not null,
+  commitment_id uuid references public.deliverable_commitments(id) on delete set null,
+  changed_by_id uuid references public.users(id),
+  change_type text not null check (change_type in ('created', 'quantity', 'dates', 'paused', 'resumed', 'ended')),
+  prev_values jsonb,
+  new_values jsonb,
+  effective_date date,
+  notes text,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+create index commitment_change_log_client_idx on public.commitment_change_log (client_id, created_at desc);
+
 
 -- =============================================================================
 -- Row Level Security
@@ -270,6 +333,8 @@ alter table public.usage_logs           enable row level security;
 alter table public.deliverables         enable row level security;
 alter table public.client_change_log    enable row level security;
 alter table public.team_bonus           enable row level security;
+alter table public.deliverable_commitments enable row level security;
+alter table public.commitment_change_log   enable row level security;
 
 -- Helper: org ids the current user belongs to.
 -- SECURITY DEFINER so it bypasses RLS internally (prevents recursion when used
@@ -380,6 +445,16 @@ create policy "Org members can manage client_change_log"
   using      ( organization_id in (select get_user_org_ids()) )
   with check ( organization_id in (select get_user_org_ids()) );
 
+create policy "Org members can manage deliverable_commitments"
+  on public.deliverable_commitments for all
+  using      ( organization_id in (select get_user_org_ids()) )
+  with check ( organization_id in (select get_user_org_ids()) );
+
+create policy "Org members can manage commitment_change_log"
+  on public.commitment_change_log for all
+  using      ( organization_id in (select get_user_org_ids()) )
+  with check ( organization_id in (select get_user_org_ids()) );
+
 -- Team bonus: compensation data — owner/admin only (members/viewers cannot read).
 create policy "Admins can manage team_bonus"
   on public.team_bonus for all
@@ -452,3 +527,74 @@ drop trigger if exists on_client_budget_change on public.clients;
 create trigger on_client_budget_change
   after update on public.clients
   for each row execute procedure public.log_client_change();
+
+
+-- =============================================================================
+-- Auto change-log: record a commitment_change_log row when an agreement's
+-- deliverable commitment is created or its quantity/dates/active state change.
+-- Same suppress GUC as log_client_change for bulk imports.
+-- =============================================================================
+create or replace function public.log_commitment_change()
+returns trigger as $$
+declare
+  v_change_type text;
+begin
+  if coalesce(current_setting('app.suppress_change_log', true), 'off') = 'on' then
+    return new;
+  end if;
+
+  if tg_op = 'INSERT' then
+    insert into public.commitment_change_log (
+      organization_id, client_id, commitment_id, changed_by_id,
+      change_type, new_values, effective_date
+    ) values (
+      new.organization_id, new.client_id, new.id, auth.uid(),
+      'created',
+      jsonb_build_object(
+        'type', new.type, 'subtype', new.subtype, 'title', new.title,
+        'quantity_per_month', new.quantity_per_month, 'cadence', new.cadence,
+        'starts_on', new.starts_on, 'ends_on', new.ends_on, 'total_quantity', new.total_quantity
+      ),
+      new.starts_on
+    );
+    return new;
+  end if;
+
+  if new.is_active is distinct from old.is_active then
+    v_change_type := case when new.is_active then 'resumed' else 'paused' end;
+  elsif new.ends_on is not null and old.ends_on is null then
+    v_change_type := 'ended';
+  elsif new.quantity_per_month is distinct from old.quantity_per_month
+     or new.total_quantity is distinct from old.total_quantity then
+    v_change_type := 'quantity';
+  elsif new.starts_on is distinct from old.starts_on
+     or new.ends_on is distinct from old.ends_on then
+    v_change_type := 'dates';
+  else
+    return new;
+  end if;
+
+  insert into public.commitment_change_log (
+    organization_id, client_id, commitment_id, changed_by_id,
+    change_type, prev_values, new_values, effective_date
+  ) values (
+    new.organization_id, new.client_id, new.id, auth.uid(),
+    v_change_type,
+    jsonb_build_object(
+      'quantity_per_month', old.quantity_per_month, 'total_quantity', old.total_quantity,
+      'starts_on', old.starts_on, 'ends_on', old.ends_on, 'is_active', old.is_active
+    ),
+    jsonb_build_object(
+      'quantity_per_month', new.quantity_per_month, 'total_quantity', new.total_quantity,
+      'starts_on', new.starts_on, 'ends_on', new.ends_on, 'is_active', new.is_active
+    ),
+    current_date
+  );
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_commitment_change on public.deliverable_commitments;
+create trigger on_commitment_change
+  after insert or update on public.deliverable_commitments
+  for each row execute procedure public.log_commitment_change();

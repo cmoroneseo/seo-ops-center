@@ -166,6 +166,76 @@ export function onTrackStatus(i: OnTrackInput): StatusResult<OnTrackStatus> {
 }
 
 // ---------------------------------------------------------------------------
+// Deliverable commitments — prorated monthly quantity + fulfillment status
+// ---------------------------------------------------------------------------
+
+export interface CommitmentWindow {
+  quantityPerMonth: number;
+  startsOn: Date | string;        // commitment effective start
+  endsOn?: Date | string | null;  // null/undefined = open-ended
+}
+
+/**
+ * Expected quantity for a commitment in a given 'YYYY-MM' month, prorated for
+ * mid-month starts/ends: ceil(qty × activeDays / daysInMonth). A commitment
+ * fully covering the month yields quantityPerMonth; one not overlapping it, 0.
+ */
+export function proratedQuantity(c: CommitmentWindow, month: string): number {
+  const [y, m] = month.split('-').map(Number);
+  if (!y || !m) return 0;
+  const monthStart = new Date(y, m - 1, 1);
+  const monthEnd = new Date(y, m, 0); // last day of month
+  const daysInMonth = monthEnd.getDate();
+
+  const starts = toDate(c.startsOn);
+  const ends = c.endsOn ? toDate(c.endsOn) : null;
+  if (starts > monthEnd || (ends && ends < monthStart)) return 0;
+
+  const activeFrom = starts > monthStart ? starts : monthStart;
+  const activeTo = ends && ends < monthEnd ? ends : monthEnd;
+  const activeDays = activeTo.getDate() - activeFrom.getDate() + 1;
+  if (activeDays >= daysInMonth) return c.quantityPerMonth;
+  return Math.max(0, Math.ceil(c.quantityPerMonth * (activeDays / daysInMonth)));
+}
+
+export type FulfillmentStatus = 'Fulfilled' | 'On Pace' | 'At Risk' | 'Behind' | 'Overdue';
+
+export interface FulfillmentInput {
+  promised: number;       // prorated expected quantity this month
+  delivered: number;      // Approved/Published count
+  inProgress: number;     // In Progress/Review count
+  overdue: number;        // past due_date and not delivered
+  daysLeftInMonth: number;
+}
+
+/**
+ * Health of a client+type's monthly fulfillment. Same {status, severity,
+ * reason} shape as onTrackStatus so the UI badge components are shared.
+ */
+export function fulfillmentStatus(i: FulfillmentInput): StatusResult<FulfillmentStatus> {
+  if (i.promised <= 0) {
+    return { status: 'Fulfilled', severity: 'ok', reason: 'nothing promised this month' };
+  }
+  if (i.delivered >= i.promised) {
+    return { status: 'Fulfilled', severity: 'ok', reason: `${i.delivered}/${i.promised} delivered` };
+  }
+  if (i.overdue > 0) {
+    return { status: 'Overdue', severity: 'critical', reason: `${i.overdue} past due` };
+  }
+  const remaining = i.promised - i.delivered;
+  if (i.daysLeftInMonth <= 5 && remaining > i.inProgress) {
+    return { status: 'Behind', severity: 'critical', reason: `${remaining} remaining, ${i.daysLeftInMonth} days left` };
+  }
+  if (i.inProgress >= remaining) {
+    return { status: 'On Pace', severity: 'info', reason: `${remaining} remaining, all in production` };
+  }
+  if (i.daysLeftInMonth <= 10) {
+    return { status: 'At Risk', severity: 'warn', reason: `${remaining - i.inProgress} not started, ${i.daysLeftInMonth} days left` };
+  }
+  return { status: 'On Pace', severity: 'ok', reason: `${i.delivered}/${i.promised} delivered, ${i.daysLeftInMonth} days left` };
+}
+
+// ---------------------------------------------------------------------------
 // Hours usage status (Monthly SEO Summary col F)
 // ---------------------------------------------------------------------------
 
