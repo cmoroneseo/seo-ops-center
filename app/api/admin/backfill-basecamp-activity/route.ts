@@ -1,8 +1,21 @@
+import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { logClientActivity } from '@/lib/supabase/client-activity';
 
 export const dynamic = 'force-dynamic';
+
+function isAuthorizedBackfillRequest(authHeader: string | null) {
+    const secret = process.env.ADMIN_BACKFILL_SECRET;
+    if (!secret || !authHeader) {
+        return false;
+    }
+
+    const expected = Buffer.from(`Bearer ${secret}`);
+    const received = Buffer.from(authHeader);
+
+    return received.length === expected.length && timingSafeEqual(received, expected);
+}
 
 /**
  * POST /api/admin/backfill-basecamp-activity
@@ -11,13 +24,10 @@ export const dynamic = 'force-dynamic';
  * custom_fields but have no 'integration.connected' activity log entry
  * for the 'basecamp' service, then inserts the missing entries.
  *
- * Safe to run multiple times — skips clients that already have an entry.
+ * Safe to run multiple times -- skips clients that already have an entry.
  */
 export async function POST(req: NextRequest) {
-    // Simple shared secret guard — not a full auth flow since this is one-time
-    const authHeader = req.headers.get('authorization');
-    const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!authHeader || authHeader !== `Bearer ${secret}`) {
+    if (!isAuthorizedBackfillRequest(req.headers.get('authorization'))) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -63,7 +73,7 @@ export async function POST(req: NextRequest) {
                 organizationId: client.organization_id,
                 clientId: client.id,
                 eventType: 'integration.connected',
-                // No actorId — retroactive entry, actor unknown
+                // No actorId -- retroactive entry, actor unknown
                 metadata: {
                     service: 'basecamp',
                     basecamp_project_id: cf.basecamp_project_id ?? null,
@@ -80,7 +90,7 @@ export async function POST(req: NextRequest) {
 
     const skipped = basecampClients
         .filter((c: any) => alreadyLogged.has(c.id))
-        .map((c: any) => ({ client: c.name, status: 'already logged — skipped' }));
+        .map((c: any) => ({ client: c.name, status: 'already logged -- skipped' }));
 
     return NextResponse.json({
         message: `Backfill complete. ${toBackfill.length} inserted, ${skipped.length} skipped.`,
