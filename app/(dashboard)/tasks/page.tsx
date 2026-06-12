@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { useSearchParams } from 'next/navigation';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { getTasks, updateTask } from '@/lib/supabase/tasks';
+import { getOrganizationMembers } from '@/lib/supabase/organizations';
 
 const columns = [
     { id: 'todo', title: 'To Do' },
@@ -37,6 +38,16 @@ export default function TasksPage() {
     const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(true);
     const [filterMode, setFilterMode] = useState<'all' | 'unassigned' | 'overdue'>('all');
+    const [memberMap, setMemberMap] = useState<Record<string, string>>({});
+
+    useEffect(() => {
+        if (!organization?.id) return;
+        getOrganizationMembers(organization.id).then(members => {
+            const map: Record<string, string> = {};
+            members.forEach(m => { map[m.userId] = (m.user as any)?.fullName || (m.user as any)?.email || 'Team'; });
+            setMemberMap(map);
+        }).catch(() => {});
+    }, [organization?.id]);
 
     const loadTasks = useCallback(async () => {
         if (!organization) return;
@@ -238,6 +249,7 @@ export default function TasksPage() {
                                                     task={task}
                                                     clientId={task.clientId}
                                                     clientName={task.clientName}
+                                                    memberMap={memberMap}
                                                 />
                                             </div>
                                         ))}

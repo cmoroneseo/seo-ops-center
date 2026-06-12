@@ -9,9 +9,10 @@ interface TaskCardProps {
     task: Task;
     clientId?: string;
     clientName?: string;
+    memberMap?: Record<string, string>;
 }
 
-export function TaskCard({ task, clientId, clientName }: TaskCardProps) {
+export function TaskCard({ task, clientId, clientName, memberMap = {} }: TaskCardProps) {
     const { timer, start, pause } = useTimer();
 
     const isThisTaskRunning =
@@ -49,12 +50,18 @@ export function TaskCard({ task, clientId, clientName }: TaskCardProps) {
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
                 <div className="flex items-center gap-1">
                     <User className="h-3 w-3" />
-                    <span>{(task.assigneeIds?.[0] || task.assignees?.[0]) ?? 'Unassigned'}</span>
+                    <span>{(() => {
+                        const id = task.assigneeIds?.[0] || task.assignees?.[0];
+                        if (!id) return 'Unassigned';
+                        return memberMap[id] ?? 'Unassigned';
+                    })()}</span>
                 </div>
-                <div className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    <span>{task.dueDate}</span>
-                </div>
+                {task.dueDate && (
+                    <div className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        <span>{new Date(task.dueDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    </div>
+                )}
             </div>
 
             {canStartTimer && (
