@@ -14,6 +14,7 @@ interface TaskDetailModalProps {
     isOpen: boolean;
     onClose: () => void;
     onUpdate?: (task: Task) => void;
+    onDelete?: (taskId: string) => void;
     currentUserId?: string;
 }
 
@@ -42,7 +43,7 @@ const CATEGORY_OPTIONS: { value: TaskCategory; label: string }[] = [
     { value: 'admin', label: 'Admin' },
 ];
 
-export function TaskDetailModal({ task, isOpen, onClose, onUpdate, currentUserId }: TaskDetailModalProps) {
+export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId }: TaskDetailModalProps) {
     const { organization, memberships } = useOrganization();
     const { timer, start, pause } = useTimer();
     const [mounted, setMounted] = useState(false);
@@ -66,6 +67,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, currentUserId
     const [newTag, setNewTag] = useState('');
     const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
     const [orgMembers, setOrgMembers] = useState<{ id: string; name: string }[]>([]);
+    const [confirmDelete, setConfirmDelete] = useState(false);
 
     useEffect(() => { setMounted(true); }, []);
 
@@ -282,6 +284,36 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, currentUserId
                                 >
                                     <Clock className="h-4 w-4" />
                                     {isThisTaskRunning ? 'Pause' : 'Start Timer'}
+                                </button>
+                            )}
+                            {confirmDelete ? (
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-red-500 font-medium">Delete this task?</span>
+                                    <button
+                                        onClick={async () => {
+                                            if (!task) return;
+                                            await deleteTask(task.id);
+                                            onDelete?.(task.id);
+                                            onClose();
+                                        }}
+                                        className="px-2 py-1 text-xs font-medium bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors"
+                                    >
+                                        Yes, delete
+                                    </button>
+                                    <button
+                                        onClick={() => setConfirmDelete(false)}
+                                        className="px-2 py-1 text-xs font-medium bg-muted text-muted-foreground rounded-md hover:bg-muted/80 transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={() => setConfirmDelete(true)}
+                                    className="p-2 hover:bg-red-500/10 rounded-lg text-muted-foreground hover:text-red-500 transition-colors"
+                                    title="Delete task"
+                                >
+                                    <Trash2 className="h-4 w-4" />
                                 </button>
                             )}
                             <button

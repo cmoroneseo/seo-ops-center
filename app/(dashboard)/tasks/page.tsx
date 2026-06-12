@@ -275,6 +275,7 @@ export default function TasksPage() {
                 isOpen={isDetailOpen}
                 onClose={() => setIsDetailOpen(false)}
                 onUpdate={handleTaskUpdated}
+                onDelete={(id) => setTasks(prev => prev.filter(t => t.id !== id))}
                 currentUserId={member?.userId}
             />
 
