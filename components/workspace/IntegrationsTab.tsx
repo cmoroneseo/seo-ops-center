@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CheckCircle2, AlertCircle, Unlink, ExternalLink, RefreshCw, Key, Settings2, ToggleLeft, ToggleRight, ChevronDown } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Unlink, ExternalLink, RefreshCw, Key, Settings2, ToggleLeft, ToggleRight } from 'lucide-react';
 import { ClientIntegration, IntegrationService } from '@/lib/types';
-import { getClientIntegrations } from '@/lib/supabase/integrations';
 import { GooglePropertyPicker } from './GooglePropertyPicker';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
@@ -52,10 +51,21 @@ const SERVICES: ServiceConfig[] = [
     },
 ];
 
-// GA4 and GSC share one Google OAuth flow — connecting either connects both
-const GOOGLE_GROUPS: Record<string, string[]> = {
-    'ga4-gsc': ['ga4', 'gsc'],
-};
+async function getClientIntegrations(clientId: string, orgId?: string): Promise<ClientIntegration[]> {
+    const params = new URLSearchParams({ clientId });
+    if (orgId) params.set('orgId', orgId);
+
+    const res = await fetch(`/api/integrations/status?${params.toString()}`, {
+        credentials: 'same-origin',
+    });
+
+    if (!res.ok) {
+        throw new Error('Unable to load integrations');
+    }
+
+    const data = await res.json();
+    return Array.isArray(data.integrations) ? data.integrations : [];
+}
 
 export function IntegrationsTab({ clientId }: Props) {
     const { organization } = useOrganization();
@@ -83,11 +93,11 @@ export function IntegrationsTab({ clientId }: Props) {
 
     useEffect(() => {
         if (!clientId) return;
-        getClientIntegrations(clientId).then((data) => {
-            setIntegrations(data);
-            setLoading(false);
-        });
-    }, [clientId]);
+        getClientIntegrations(clientId, orgId)
+            .then(setIntegrations)
+            .catch(() => setIntegrations([]))
+            .finally(() => setLoading(false));
+    }, [clientId, orgId]);
 
     // Show feedback toast after OAuth redirect
     useEffect(() => {
@@ -95,7 +105,7 @@ export function IntegrationsTab({ clientId }: Props) {
         const error = searchParams.get('integrationError');
         if (success) {
             // Refresh integrations list
-            getClientIntegrations(clientId).then(setIntegrations);
+            getClientIntegrations(clientId, orgId).then(setIntegrations).catch(() => {});
             // Both groups need a location/property picker before they're fully active
             if (success === 'ga4-gsc') {
                 setShowPropertyPicker('ga4-gsc');
@@ -112,7 +122,7 @@ export function IntegrationsTab({ clientId }: Props) {
             url.searchParams.delete('integrationError');
             router.replace(url.pathname + url.search);
         }
-    }, []);
+    }, [clientId, orgId, router, searchParams]);
 
     useEffect(() => {
         if (!toast) return;
@@ -154,7 +164,7 @@ export function IntegrationsTab({ clientId }: Props) {
             if (!res.ok) throw new Error(data.error || 'Unknown error');
             setAhrefsKey('');
             setToast('Ahrefs connected successfully');
-            const updated = await getClientIntegrations(clientId);
+            const updated = await getClientIntegrations(clientId, orgId);
             setIntegrations(updated);
         } catch (err: any) {
             setAhrefsError(err.message);
@@ -251,7 +261,7 @@ export function IntegrationsTab({ clientId }: Props) {
                         const label = showPropertyPicker === 'ga4-gsc' ? 'GA4 + GSC' : 'Google Business Profile';
                         setShowPropertyPicker(null);
                         setToast(`${label} connected successfully`);
-                        const updated = await getClientIntegrations(clientId);
+                        const updated = await getClientIntegrations(clientId, orgId);
                         setIntegrations(updated);
                     }}
                     onCancel={() => setShowPropertyPicker(null)}

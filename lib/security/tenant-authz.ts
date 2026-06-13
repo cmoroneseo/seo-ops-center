@@ -18,6 +18,21 @@ type ManageClientAuthorization =
         error: string;
     };
 
+type ClientMemberAuthorization =
+    | {
+        ok: true;
+        userId: string;
+        actorName: string;
+        organizationId: string;
+        clientId: string;
+        role: 'owner' | 'admin' | 'member' | 'viewer';
+    }
+    | {
+        ok: false;
+        status: 400 | 401 | 403 | 404 | 500;
+        error: string;
+    };
+
 function normalizeString(value: unknown) {
     return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
@@ -47,15 +62,10 @@ async function getAuthenticatedActor() {
     };
 }
 
-/**
- * Verifies that the current Supabase user can manage integrations for a client.
- * The caller may pass an asserted organization id, but authorization is based on
- * the client's organization_id stored in the database.
- */
-export async function requireClientIntegrationManager(
+async function requireClientMember(
     clientIdInput: unknown,
     assertedOrganizationIdInput?: unknown,
-): Promise<ManageClientAuthorization> {
+): Promise<ClientMemberAuthorization> {
     const clientId = normalizeString(clientIdInput);
     const assertedOrganizationId = normalizeString(assertedOrganizationIdInput);
 
@@ -103,25 +113,57 @@ export async function requireClientIntegrationManager(
     }
 
     const role = membership.role as 'owner' | 'admin' | 'member' | 'viewer';
-    const roleCanManageIntegrations = role === 'owner' || role === 'admin';
+    return {
+        ok: true,
+        userId: actor.id,
+        actorName: actor.name,
+        organizationId: client.organization_id,
+        clientId,
+        role,
+    };
+}
+
+/**
+ * Verifies that the current Supabase user belongs to the client's organization.
+ * The caller may pass an asserted organization id, but authorization is based on
+ * the client's organization_id stored in the database.
+ */
+export async function requireClientOrgMember(
+    clientIdInput: unknown,
+    assertedOrganizationIdInput?: unknown,
+): Promise<ClientMemberAuthorization> {
+    return requireClientMember(clientIdInput, assertedOrganizationIdInput);
+}
+
+/**
+ * Verifies that the current Supabase user can manage integrations for a client.
+ * The caller may pass an asserted organization id, but authorization is based on
+ * the client's organization_id stored in the database.
+ */
+export async function requireClientIntegrationManager(
+    clientIdInput: unknown,
+    assertedOrganizationIdInput?: unknown,
+): Promise<ManageClientAuthorization> {
+    const member = await requireClientMember(clientIdInput, assertedOrganizationIdInput);
+    if (!member.ok) {
+        return member;
+    }
+
+    const roleCanManageIntegrations = member.role === 'owner' || member.role === 'admin';
 
     if (roleCanManageIntegrations) {
         return {
-            ok: true,
-            userId: actor.id,
-            actorName: actor.name,
-            organizationId: client.organization_id,
-            clientId,
-            role,
+            ...member,
             canManageIntegrations: true,
         };
     }
 
+    const admin = createAdminClient();
     const { data: permission, error: permissionError } = await admin
         .from('organization_member_permissions')
         .select('can_manage_integrations')
-        .eq('organization_id', client.organization_id)
-        .eq('user_id', actor.id)
+        .eq('organization_id', member.organizationId)
+        .eq('user_id', member.userId)
         .maybeSingle();
 
     if (permissionError) {
@@ -133,12 +175,7 @@ export async function requireClientIntegrationManager(
     }
 
     return {
-        ok: true,
-        userId: actor.id,
-        actorName: actor.name,
-        organizationId: client.organization_id,
-        clientId,
-        role,
+        ...member,
         canManageIntegrations: true,
     };
 }
