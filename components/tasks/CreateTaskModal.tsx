@@ -93,7 +93,7 @@ export function CreateTaskModal({
             if (templatePrefill) {
                 setTitle(templatePrefill.name);
                 setDescription(templatePrefill.description ?? '');
-                setPriority(templatePrefill.priority);
+                setPriority(templatePrefill.priority ?? 'medium');
                 setCategory(templatePrefill.category ?? '');
                 setRecurrence(templatePrefill.recurrence);
             } else {

@@ -90,7 +90,7 @@ export function DeliverablesTracker({ client }: DeliverablesTrackerProps) {
                                     <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
                                         <div className="flex items-center gap-1">
                                             <Calendar className="h-3 w-3" />
-                                            Due {new Date(item.dueDate).toLocaleDateString()}
+                                            Due {item.dueDate ? new Date(String(item.dueDate)).toLocaleDateString() : '—'}
                                         </div>
                                         {item.link && (
                                             <a href={item.link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary transition-colors">

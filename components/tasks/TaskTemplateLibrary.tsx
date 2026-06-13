@@ -168,7 +168,7 @@ export function TaskTemplateLibrary({ isOpen, onClose, onUseTemplate, currentUse
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-center gap-2">
                                                             <span className="font-semibold text-sm truncate">{template.name}</span>
-                                                            <span className={cn('text-[10px] font-bold capitalize', PRIORITY_COLOR[template.priority])}>
+                                                            <span className={cn('text-[10px] font-bold capitalize', PRIORITY_COLOR[template.priority ?? 'medium'])}>
                                                                 {template.priority}
                                                             </span>
                                                         </div>
