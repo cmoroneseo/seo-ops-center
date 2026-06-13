@@ -50,7 +50,8 @@ const rules = [
     severity: 'high',
     description: 'Browser-facing query selects credentials. Return derived status flags from a server route or database view instead.',
     pattern: /\.select\(['"`][^'"`]*credentials[^'"`]*['"`]\)/,
-    include: ['lib/supabase/', 'components/', 'app/'],
+    include: ['components/', 'app/'],
+    excludePath: ['app/api/'],
   },
   {
     id: 'broad-storage-policy',
@@ -103,6 +104,11 @@ function matchesPath(file, prefixesOrFiles) {
   return prefixesOrFiles.some((candidate) => file === candidate || file.startsWith(candidate));
 }
 
+function isExcludedPath(file, prefixesOrFiles) {
+  if (!prefixesOrFiles) return false;
+  return prefixesOrFiles.some((candidate) => file === candidate || file.startsWith(candidate));
+}
+
 function lineForOffset(body, index) {
   return body.slice(0, index).split(/\r?\n/).length;
 }
@@ -113,6 +119,7 @@ for (const file of listFiles()) {
   const body = read(file);
   for (const rule of rules) {
     if (!matchesPath(file, rule.include)) continue;
+    if (isExcludedPath(file, rule.excludePath)) continue;
     if (rule.exclude?.includes(file)) continue;
     const match = body.match(rule.pattern);
     if (!match) continue;

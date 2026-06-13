@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
+import { createGoogleOAuthState } from '@/lib/security/oauth-state';
 
 // Scopes for each service group
 const SCOPES: Record<string, string[]> = {
@@ -28,6 +30,11 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Missing or invalid params' }, { status: 400 });
     }
 
+    const authorization = await requireClientIntegrationManager(clientId, orgId);
+    if (!authorization.ok) {
+        return NextResponse.json({ error: authorization.error }, { status: authorization.status });
+    }
+
     const clientIdEnv = process.env.GOOGLE_CLIENT_ID;
     const redirectUri = process.env.GOOGLE_REDIRECT_URI;
 
@@ -38,8 +45,11 @@ export async function GET(req: NextRequest) {
         );
     }
 
-    // Encode state so the callback knows where to route the tokens
-    const state = Buffer.from(JSON.stringify({ clientId, orgId, group })).toString('base64url');
+    const state = createGoogleOAuthState({
+        clientId: authorization.clientId,
+        orgId: authorization.organizationId,
+        group,
+    });
 
     const params = new URLSearchParams({
         client_id: clientIdEnv,
