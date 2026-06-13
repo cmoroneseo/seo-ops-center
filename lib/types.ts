@@ -269,6 +269,7 @@ export interface ClientProject {
     logoUrl?: string;
     launchDate: string;
     accountManager: string;
+    accountManagerId?: string;
     status: ProjectStatus;
     tier: Tier;
     notes?: string;
@@ -282,6 +283,7 @@ export interface ClientProject {
     seoHours: number; // derived from config
     deliverables: string; // display string
     blogsDuePerMonth: number; // derived from config
+    campaignTotalBlogs?: number;
 
     blogProgress: {
         target: number;
