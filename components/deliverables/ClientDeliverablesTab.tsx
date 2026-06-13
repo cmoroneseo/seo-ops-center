@@ -154,10 +154,10 @@ export function ClientDeliverablesTab({ organizationId, clientId, clientName }: 
                     <button
                         onClick={() => setShowCommitments(true)}
                         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
-                        title="Manage commitments"
+                        title="Manage client scope"
                     >
                         <Settings2 className="h-3.5 w-3.5" />
-                        Commitments
+                        Client Scope
                     </button>
                 </div>
             </div>
@@ -223,7 +223,7 @@ export function ClientDeliverablesTab({ organizationId, clientId, clientName }: 
                             <div className="flex flex-col items-center justify-center h-40 text-muted-foreground text-center">
                                 <FileText className="h-10 w-10 mb-2 opacity-20" />
                                 <p className="text-sm font-medium">No deliverables for {monthDisplay(month)}</p>
-                                <p className="text-xs opacity-60">Set up commitments to auto-generate them monthly</p>
+                                <p className="text-xs opacity-60">Set up client scope to auto-generate deliverables monthly</p>
                             </div>
                         )}
 

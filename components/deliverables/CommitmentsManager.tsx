@@ -109,7 +109,7 @@ export function CommitmentsManager({
                 <div className="flex items-center justify-between p-4 border-b border-border/50 bg-muted/30">
                     <h3 className="font-semibold flex items-center gap-2">
                         <FileSignature className="h-4 w-4 text-primary" />
-                        Commitments — {clientName}
+                        Client Scope — {clientName}
                     </h3>
                     <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
                         <X className="h-4 w-4" />
@@ -245,7 +245,7 @@ export function CommitmentsManager({
                                     disabled={isSubmitting || !form.title.trim()}
                                     className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
                                 >
-                                    {isSubmitting ? 'Saving…' : editing === 'new' ? 'Add Commitment' : 'Save Changes'}
+                                    {isSubmitting ? 'Saving…' : editing === 'new' ? 'Add Scope Item' : 'Save Changes'}
                                 </button>
                             </div>
                         </form>
@@ -254,8 +254,8 @@ export function CommitmentsManager({
                             {commitments.length === 0 && (
                                 <div className="text-center py-8 text-muted-foreground">
                                     <FileSignature className="h-10 w-10 mx-auto mb-2 opacity-20" />
-                                    <p className="text-sm font-medium">No commitments yet</p>
-                                    <p className="text-xs opacity-60">Add what this client&apos;s agreement promises each month</p>
+                                    <p className="text-sm font-medium">No scope items yet</p>
+                                    <p className="text-xs opacity-60">Add what this client&apos;s scope includes each month</p>
                                 </div>
                             )}
                             {commitments.map((c) => (
@@ -282,7 +282,7 @@ export function CommitmentsManager({
                                     <button
                                         onClick={() => setEditing(c)}
                                         className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                                        title="Edit commitment"
+                                        title="Edit scope item"
                                     >
                                         <Pencil className="h-3.5 w-3.5" />
                                     </button>
@@ -290,7 +290,7 @@ export function CommitmentsManager({
                                         <button
                                             onClick={() => handleEnd(c)}
                                             className="p-1.5 rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
-                                            title="End commitment"
+                                            title="End scope item"
                                         >
                                             <Ban className="h-3.5 w-3.5" />
                                         </button>
@@ -301,7 +301,7 @@ export function CommitmentsManager({
                                 onClick={() => setEditing('new')}
                                 className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
                             >
-                                <Plus className="h-4 w-4" /> Add Commitment
+                                <Plus className="h-4 w-4" /> Add Scope Item
                             </button>
                         </>
                     )}
