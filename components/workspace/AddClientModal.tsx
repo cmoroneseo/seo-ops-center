@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { X } from 'lucide-react';
+import { X, CheckCircle2 } from 'lucide-react';
 import { ClientProject, EngagementModel, ProjectStatus, Tier } from '@/lib/types';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { createClientProject } from '@/lib/supabase/clients';
@@ -10,11 +10,13 @@ interface AddClientModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSuccess: () => void;
+    onImportFromBasecamp?: (clientId: string, organizationId: string) => void;
 }
 
-export function AddClientModal({ isOpen, onClose, onSuccess }: AddClientModalProps) {
+export function AddClientModal({ isOpen, onClose, onSuccess, onImportFromBasecamp }: AddClientModalProps) {
     const { organization } = useOrganization();
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [createdClient, setCreatedClient] = useState<{ id: string; name: string } | null>(null);
     const [formData, setFormData] = useState({
         clientName: '',
         launchDate: '',
@@ -74,36 +76,93 @@ export function AddClientModal({ isOpen, onClose, onSuccess }: AddClientModalPro
         setIsSubmitting(false);
         if (result.success) {
             onSuccess();
-            onClose();
-            // Reset form
-            setFormData({
-                clientName: '',
-                launchDate: '',
-                seoHours: 0,
-                engagementModel: 'Retainer',
-                startDate: '',
-                endDate: '',
-                deliverables: '',
-                blogsDuePerMonth: 0,
-                accountManager: '',
-                status: 'Active',
-                tier: 1
-            });
+            if (onImportFromBasecamp && result.data?.id) {
+                // Show post-create prompt instead of closing immediately
+                setCreatedClient({ id: result.data.id, name: formData.clientName });
+                setFormData({
+                    clientName: '',
+                    launchDate: '',
+                    seoHours: 0,
+                    engagementModel: 'Retainer',
+                    startDate: '',
+                    endDate: '',
+                    deliverables: '',
+                    blogsDuePerMonth: 0,
+                    accountManager: '',
+                    status: 'Active',
+                    tier: 1,
+                });
+            } else {
+                onClose();
+                setFormData({
+                    clientName: '',
+                    launchDate: '',
+                    seoHours: 0,
+                    engagementModel: 'Retainer',
+                    startDate: '',
+                    endDate: '',
+                    deliverables: '',
+                    blogsDuePerMonth: 0,
+                    accountManager: '',
+                    status: 'Active',
+                    tier: 1,
+                });
+            }
         } else {
             console.error('Failed to add client:', result.error);
             alert(`Error: ${result.error}`);
         }
     };
 
+    function handleClose() {
+        setCreatedClient(null);
+        onClose();
+    }
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
             <div className="bg-card border border-border w-full max-w-lg rounded-xl shadow-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                 <div className="flex items-center justify-between p-4 border-b border-border bg-muted/30">
-                    <h2 className="text-lg font-semibold">Add New Client</h2>
-                    <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+                    <h2 className="text-lg font-semibold">{createdClient ? 'Client Created' : 'Add New Client'}</h2>
+                    <button onClick={handleClose} className="text-muted-foreground hover:text-foreground">
                         <X className="h-5 w-5" />
                     </button>
                 </div>
+
+                {/* Post-create Basecamp prompt */}
+                {createdClient && organization && (
+                    <div className="p-6 flex flex-col items-center text-center gap-4">
+                        <CheckCircle2 className="h-12 w-12 text-green-500" />
+                        <div>
+                            <p className="text-base font-semibold">{createdClient.name} added successfully!</p>
+                            <p className="text-sm text-muted-foreground mt-1">
+                                Want to import tasks from their Basecamp project?
+                            </p>
+                        </div>
+                        <div className="flex gap-3 mt-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    handleClose();
+                                    onImportFromBasecamp!(createdClient.id, organization.id);
+                                }}
+                                className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                            >
+                                🏕️ Import from Basecamp
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleClose}
+                                className="px-4 py-2 text-sm font-medium border border-border rounded-lg hover:bg-muted/30 transition-colors"
+                            >
+                                Skip for now
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Form (hidden after creation) */}
+                {!createdClient && (
 
                 <form onSubmit={handleSubmit} className="p-4 space-y-4">
                     <div className="grid grid-cols-2 gap-4">
@@ -246,7 +305,7 @@ export function AddClientModal({ isOpen, onClose, onSuccess }: AddClientModalPro
                     <div className="flex justify-end gap-3 pt-4 border-t border-border mt-4">
                         <button
                             type="button"
-                            onClick={onClose}
+                            onClick={handleClose}
                             className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
                         >
                             Cancel
@@ -267,6 +326,7 @@ export function AddClientModal({ isOpen, onClose, onSuccess }: AddClientModalPro
                         </button>
                     </div>
                 </form>
+                )}
             </div>
         </div>
     );

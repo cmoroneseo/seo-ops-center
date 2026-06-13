@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CheckCircle2, AlertCircle, Unlink, ExternalLink, RefreshCw, Key, Settings2, ToggleLeft, ToggleRight } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Unlink, ExternalLink, RefreshCw, Key, Settings2, ToggleLeft, ToggleRight, Download } from 'lucide-react';
 import { ClientIntegration, IntegrationService } from '@/lib/types';
 import { GooglePropertyPicker } from './GooglePropertyPicker';
+import { BasecampImportModal } from './BasecampImportModal';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
 
@@ -82,6 +83,7 @@ export function IntegrationsTab({ clientId }: Props) {
     const [bcSyncEnabled, setBcSyncEnabled] = useState(false);
     const [bcSaving, setBcSaving] = useState(false);
     const [bcConfigured, setBcConfigured] = useState<boolean | null>(null); // null = not checked yet
+    const [bcImportOpen, setBcImportOpen] = useState(false);
     const [ahrefsKey, setAhrefsKey] = useState('');
     const [ahrefsSaving, setAhrefsSaving] = useState(false);
     const [ahrefsError, setAhrefsError] = useState('');
@@ -524,14 +526,26 @@ export function IntegrationsTab({ clientId }: Props) {
                             </div>
                         )}
 
-                        <button
-                            type="button"
-                            onClick={saveBasecampConfig}
-                            disabled={bcSaving}
-                            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
-                        >
-                            {bcSaving ? 'Saving…' : 'Save Basecamp Settings'}
-                        </button>
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <button
+                                type="button"
+                                onClick={saveBasecampConfig}
+                                disabled={bcSaving}
+                                className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                            >
+                                {bcSaving ? 'Saving…' : 'Save Basecamp Settings'}
+                            </button>
+                            {bcProjectId && (
+                                <button
+                                    type="button"
+                                    onClick={() => setBcImportOpen(true)}
+                                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted/30 transition-colors"
+                                >
+                                    <Download className="h-4 w-4" />
+                                    Import Tasks from Basecamp
+                                </button>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>
@@ -541,6 +555,17 @@ export function IntegrationsTab({ clientId }: Props) {
                 <p>GA4 + GSC share a single Google login — click once to authorize both. GBP requires a separate Google authorization. Ahrefs uses a single API key across all clients — enter it once per client or set a global key in org settings (coming soon).</p>
                 <p>Data syncs nightly. You can trigger a manual sync from the Analytics page once connected.</p>
             </div>
+
+            {bcImportOpen && orgId && (
+                <BasecampImportModal
+                    isOpen={true}
+                    onClose={() => setBcImportOpen(false)}
+                    onSuccess={() => setBcImportOpen(false)}
+                    clientId={clientId}
+                    organizationId={orgId}
+                    preselectedProjectId={bcProjectId || undefined}
+                />
+            )}
         </div>
     );
 }

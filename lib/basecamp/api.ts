@@ -56,6 +56,16 @@ export interface BasecampTodo {
     app_url: string;
 }
 
+export interface BasecampTodoFull {
+    id: number;
+    title: string;
+    due_on: string | null;
+    completed: boolean;
+    description: string;
+    assignees: { name: string }[];
+    app_url: string;
+}
+
 /** Check if Basecamp credentials are configured */
 export function isBasecampConfigured(): boolean {
     return !!(process.env.BASECAMP_ACCESS_TOKEN && process.env.BASECAMP_ACCOUNT_ID);
@@ -139,6 +149,29 @@ export async function listBasecampTodolists(projectId: number | string): Promise
     } catch (err) {
         console.error('[Basecamp] listTodolists error:', err);
         return [];
+    }
+}
+
+/** List all todos for a todolist, following pagination. Excludes completed by default. */
+export async function listBasecampTodos(
+    projectId: number | string,
+    todolistId: number | string,
+    includeCompleted = false,
+): Promise<BasecampTodoFull[]> {
+    const results: BasecampTodoFull[] = [];
+    let url: string | null = `${BASE_URL()}/buckets/${projectId}/todolists/${todolistId}/todos.json`;
+    try {
+        while (url) {
+            const res = await fetch(url, { headers: getHeaders() });
+            if (!res.ok) break;
+            const page = await res.json() as BasecampTodoFull[];
+            results.push(...page);
+            url = parseNextLink(res.headers.get('Link'));
+        }
+        return includeCompleted ? results : results.filter(t => !t.completed);
+    } catch (err) {
+        console.error('[Basecamp] listTodos error:', err);
+        return results.filter(t => includeCompleted || !t.completed);
     }
 }
 

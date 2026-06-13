@@ -3,6 +3,7 @@
 import { ClientTable } from '@/components/workspace/ClientTable';
 import { AddClientModal } from '@/components/workspace/AddClientModal';
 import { CSVImportModal } from '@/components/workspace/CSVImportModal';
+import { BasecampImportModal } from '@/components/workspace/BasecampImportModal';
 import { PlanningTable } from '@/components/workspace/PlanningTable';
 import { ClientProject, ProjectStatus, MonthlyPlan } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -24,6 +25,7 @@ export default function WorkspacePage() {
     const [managerFilter, setManagerFilter] = useState<string>('All');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [bcImportTarget, setBcImportTarget] = useState<{ clientId: string; orgId: string } | null>(null);
     const [viewMode, setViewMode] = useState<'list' | 'planning'>('list');
     const [myClientsOnly, setMyClientsOnly] = useState(!isOwner); // members default to their own clients
 
@@ -190,7 +192,18 @@ export default function WorkspacePage() {
                 isOpen={isAddModalOpen}
                 onClose={() => setIsAddModalOpen(false)}
                 onSuccess={fetchClients}
+                onImportFromBasecamp={(clientId, orgId) => setBcImportTarget({ clientId, orgId })}
             />
+
+            {bcImportTarget && organization && (
+                <BasecampImportModal
+                    isOpen={true}
+                    onClose={() => setBcImportTarget(null)}
+                    onSuccess={() => { setBcImportTarget(null); }}
+                    clientId={bcImportTarget.clientId}
+                    organizationId={bcImportTarget.orgId}
+                />
+            )}
 
             <CSVImportModal
                 isOpen={isImportModalOpen}
