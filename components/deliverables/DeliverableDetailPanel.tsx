@@ -38,11 +38,15 @@ export function DeliverableDetailPanel({
     const [wordCount, setWordCount] = useState('');
     const [taskCreated, setTaskCreated] = useState(false);
     const [isCreatingTask, setIsCreatingTask] = useState(false);
+    const [editingTitle, setEditingTitle] = useState(false);
+    const [titleDraft, setTitleDraft] = useState('');
 
     useEffect(() => {
         if (!isOpen || !deliverable) return;
         setPublishedUrl(deliverable.publishedUrl ?? '');
         setWordCount(deliverable.wordCount ? String(deliverable.wordCount) : '');
+        setTitleDraft(deliverable.title);
+        setEditingTitle(false);
         setTaskCreated(false);
         getOrganizationMembers(organizationId).then(setMembers);
     }, [isOpen, deliverable?.id, organizationId]);
@@ -65,7 +69,7 @@ export function DeliverableDetailPanel({
             status: 'todo',
             category: TYPE_TO_TASK_CATEGORY[deliverable.type] ?? 'content',
             tags: [],
-            dueDate: deliverable.dueDate,
+            dueDate: deliverable.dueDate ?? undefined,
             assigneeIds: deliverable.assigneeId ? [deliverable.assigneeId] : [],
             deliverableId: deliverable.id,
             createdBy: userId,
@@ -92,8 +96,33 @@ export function DeliverableDetailPanel({
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="sticky top-0 z-10 flex items-start justify-between p-4 border-b border-border/50 bg-card">
-                    <div className="min-w-0">
-                        <h3 className="font-semibold truncate">{deliverable.title}</h3>
+                    <div className="min-w-0 flex-1">
+                        {editingTitle ? (
+                            <input
+                                autoFocus
+                                value={titleDraft}
+                                onChange={(e) => setTitleDraft(e.target.value)}
+                                onBlur={() => {
+                                    setEditingTitle(false);
+                                    const trimmed = titleDraft.trim();
+                                    if (trimmed && trimmed !== deliverable.title) patch({ title: trimmed });
+                                    else setTitleDraft(deliverable.title);
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') e.currentTarget.blur();
+                                    if (e.key === 'Escape') { setTitleDraft(deliverable.title); setEditingTitle(false); }
+                                }}
+                                className="w-full font-semibold bg-transparent border-b border-primary focus:outline-none text-sm pb-0.5"
+                            />
+                        ) : (
+                            <h3
+                                className="font-semibold truncate cursor-text hover:text-primary transition-colors"
+                                onClick={() => setEditingTitle(true)}
+                                title="Click to edit title"
+                            >
+                                {deliverable.title}
+                            </h3>
+                        )}
                         <p className="text-xs text-muted-foreground mt-0.5">
                             {clientName ? `${clientName} · ` : ''}{deliverable.type}
                             {deliverable.subtype ? ` · ${subtypeLabel(deliverable.subtype)}` : ''}
@@ -141,7 +170,7 @@ export function DeliverableDetailPanel({
                             <input
                                 type="date"
                                 value={deliverable.dueDate ? String(deliverable.dueDate).slice(0, 10) : ''}
-                                onChange={(e) => patch({ dueDate: e.target.value, month: e.target.value.slice(0, 7) })}
+                                onChange={(e) => patch({ dueDate: e.target.value || undefined, month: e.target.value.slice(0, 7) })}
                                 className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                             />
                         </div>

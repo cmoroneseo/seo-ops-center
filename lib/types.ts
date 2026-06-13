@@ -66,67 +66,60 @@ export type Tier = 1 | 2 | 3;
 
 export type DeliverableType = 'Content' | 'Backlink' | 'GBP' | 'Other';
 export type DeliverableStatus = 'Pending' | 'In Progress' | 'Review' | 'Approved' | 'Published';
-
-export type DeliverableSubtype =
-    | 'blog'
-    | 'service_page'
-    | 'city_page'
-    | 'landing_page'
-    | 'link_building'
-    | 'gbp_management'
-    | 'technical_seo'
-    | string; // custom subtypes allowed
+export type DeliverableSubtype = 'blog' | 'service_page' | 'city_page' | 'landing_page' | 'link_building' | 'gbp_management' | 'technical_seo' | string;
+export type CommitmentCadence = 'monthly' | 'quarterly' | 'one_time';
 
 export interface DeliverableStatusHistoryEntry {
     status: DeliverableStatus;
-    at: string;  // ISO
-    by?: string; // user ID
+    at: string;
+    by?: string;
 }
 
 export interface Deliverable {
     id: string;
+    organizationId?: string;
     clientId: string;
     title: string;
     type: DeliverableType;
+    subtype?: DeliverableSubtype;
     status: DeliverableStatus;
-    dueDate: string;
+    month?: string; // YYYY-MM
+    dueDate?: string | null;
     completedDate?: string;
+    deliveredOn?: string;
     countsTowardsHours: boolean;
-    assignee?: string;        // legacy: account_manager_id
+    assignee?: string;    // legacy display name field
+    assigneeId?: string;  // FK to users
     link?: string;
-    taskId?: string; // optional link to a task — advisory, not structural
-    // Commitment-driven fulfillment (migration 015)
-    commitmentId?: string;
-    assigneeId?: string;      // the person producing this deliverable
     publishedUrl?: string;
     wordCount?: number;
-    subtype?: DeliverableSubtype;
+    commitmentId?: string;
     generatedBy?: 'manual' | 'cron' | 'import';
-    sequenceInMonth?: number; // "Blog 2 of 4"
-    month?: string;           // 'YYYY-MM'
+    sequenceInMonth?: number;
     notes?: string;
     statusHistory?: DeliverableStatusHistoryEntry[];
+    createdAt?: string;
+    updatedAt?: string;
 }
 
-export type CommitmentCadence = 'monthly' | 'quarterly' | 'one_time';
+export type CommitmentEngagementModel = 'Retainer' | 'Campaign';
 
-/** The contract layer: what a client agreement promises per month. */
 export interface DeliverableCommitment {
     id: string;
     organizationId: string;
     clientId: string;
     type: DeliverableType;
     subtype?: DeliverableSubtype;
-    title: string;                 // "Blog Posts", "City Pages"
+    title: string;
     quantityPerMonth: number;
     cadence: CommitmentCadence;
-    engagementModel: EngagementModel;
-    totalQuantity?: number;        // campaign cap
-    startsOn: string;              // YYYY-MM-DD
-    endsOn?: string;               // YYYY-MM-DD; undefined = open-ended
+    engagementModel: CommitmentEngagementModel;
+    totalQuantity?: number;
+    startsOn: string;
+    endsOn?: string;
     isActive: boolean;
     defaultAssigneeId?: string;
-    dueDay?: number;               // 1–28
+    dueDay?: number;
     countsTowardHours: boolean;
     taskTemplateId?: string;
     generateTasks: boolean;
@@ -136,15 +129,14 @@ export interface DeliverableCommitment {
     updatedAt: string;
 }
 
-/** One cell of the fulfillment matrix: a client+type's month at a glance. */
 export interface FulfillmentCell {
     clientId: string;
     type: DeliverableType;
-    promised: number;     // prorated expected quantity this month
-    generated: number;    // rows that exist this month
-    delivered: number;    // Approved or Published
-    inProgress: number;   // In Progress or Review
-    overdue: number;      // past due_date and not delivered
+    promised: number;
+    generated: number;
+    delivered: number;
+    inProgress: number;
+    overdue: number;
 }
 
 export interface CampaignConfig {
@@ -178,62 +170,20 @@ export interface ApprovalItem {
     type: 'Blog' | 'Brief' | 'Audit' | 'Other';
 }
 
-export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'approved' | 'blocked' | 'done';
-export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
-export type TaskCategory = 'content' | 'technical' | 'local' | 'links' | 'reporting' | 'admin';
-
-export interface TaskStatusHistoryEntry {
-    status: TaskStatus;
-    at: string;  // ISO
-    by?: string; // user ID
-}
-
 export interface Subtask {
     id: string;
     title: string;
     completed: boolean;
 }
 
-export interface Task {
-    id: string;
-    organizationId: string;
-    projectId?: string;
-    clientId?: string;
-    clientName?: string;
-    title: string;
-    description?: string;
-    assigneeIds?: string[];   // multi-assignee (canonical new field)
-    assignees?: string[];     // backward compat — display names or IDs
-    dueDate?: string;
-    startDate?: string;
-    completedAt?: string;
-    priority: TaskPriority;
+export type TaskCategory = 'content' | 'technical' | 'local' | 'links' | 'strategy' | 'admin' | string;
+export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'done' | 'approved' | 'blocked';
+
+export interface TaskStatusHistoryEntry {
     status: TaskStatus;
-    category?: TaskCategory;
-    tags: string[];
-    subtasks: Subtask[];
-    estimatedHours?: number;
-    deliverableId?: string;
-    parentTaskId?: string;
-    sortOrder?: number;
-    statusHistory?: TaskStatusHistoryEntry[];
-    customFields?: Record<string, unknown>;
-    watcherIds?: string[];
-    createdBy?: string;
-    templateId?: string;
-    recurrence?: {
-        freq: 'daily' | 'weekly' | 'monthly';
-        dayOfMonth?: number;
-        dayOfWeek?: number;
-        endDate?: string;
-    };
-    // Basecamp sync (Phase 2 — populated after sync)
-    basecampTodoId?: number;
-    basecampProjectId?: number;
-    lastSyncedAt?: string;
-    // Timer state (computed from time_logs, not stored on task)
-    isTimerRunning?: boolean;
-    elapsedTime?: number;
+    at: string;
+    by?: string;
 }
 
 export interface TaskComment {
@@ -253,15 +203,63 @@ export interface TaskTemplate {
     id: string;
     organizationId: string;
     name: string;
+    title?: string;
     description?: string;
     category?: TaskCategory;
+    priority?: TaskPriority;
     estimatedHours?: number;
-    priority: TaskPriority;
     tags: string[];
+    defaultAssigneeIds?: string[];
     checklist: { title: string; required: boolean }[];
     recurrence?: Task['recurrence'];
     createdBy?: string;
     createdAt: string;
+    updatedAt?: string;
+}
+
+export interface Task {
+    id: string;
+    organizationId: string;
+    projectId?: string;
+    clientId?: string;
+    clientName?: string;
+    title: string;
+    description?: string;
+    assignees: string[];    // legacy display array
+    assigneeIds?: string[]; // FK array to users
+    dueDate?: string | null;
+    startDate?: string;
+    completedAt?: string;
+    priority: TaskPriority;
+    status: TaskStatus;
+    category?: TaskCategory;
+    tags: string[];
+    subtasks: Subtask[];
+    deliverableId?: string;
+    parentTaskId?: string;
+    estimatedHours?: number;
+    sortOrder?: number;
+    statusHistory?: TaskStatusHistoryEntry[];
+    customFields?: Record<string, unknown>;
+    watcherIds?: string[];
+    templateId?: string;
+    recurrence?: {
+        freq: 'daily' | 'weekly' | 'monthly';
+        interval?: number;
+        dayOfWeek?: number;
+        dayOfMonth?: number;
+        endDate?: string;
+    };
+    basecampTodoId?: number;
+    basecampProjectId?: number;
+    basecampTodolistId?: number;
+    lastSyncedAt?: string;
+    isTimerRunning?: boolean;
+    startTime?: string;
+    elapsedTime?: number;
+    createdAt?: string;
+    updatedAt?: string;
+    createdBy?: string;
 }
 
 export interface ClientProject {
