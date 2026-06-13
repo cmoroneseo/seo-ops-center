@@ -16,7 +16,7 @@ https://seo-ops-center.vercel.app
 - **Compute on read:** rollups/aggregates computed in TS from indexed queries — never stored in DB (see `lib/seo-ops-logic.ts`)
 - **No soft deletes** on most tables; `status_history jsonb[]` for audit trails
 - **Migrations:** numbered `migrations/0XX_name.sql`, mirrored into `schema.sql`
-- **No co-author lines** in commits
+- **No co-author lines in commits** — never add `Co-Authored-By:` or any Anthropic trailer to any commit message, ever
 
 ## Key files
 - `lib/types.ts` — all shared TypeScript interfaces
