@@ -1,0 +1,36 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - security
+    groups:
+      nextjs-react:
+        patterns:
+          - next
+          - react
+          - react-dom
+          - eslint-config-next
+      supabase:
+        patterns:
+          - "@supabase/*"
+      payments-email:
+        patterns:
+          - stripe
+          - resend
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:15"
+    labels:
+      - dependencies
+      - security
