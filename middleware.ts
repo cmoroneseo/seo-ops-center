@@ -15,8 +15,11 @@ export async function middleware(request: NextRequest) {
         supabaseUrl.includes('your_supabase') ||
         supabaseKey.includes('your_supabase')
 
-    // Mock Mode: If keys are missing or placeholders, bypass auth check
+    // Mock Mode is only safe for local development without connected Supabase.
     if (isMock) {
+        if (process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production') {
+            return new NextResponse('Supabase environment is not configured', { status: 500 })
+        }
         return NextResponse.next({
             request: {
                 headers: request.headers,
@@ -78,8 +81,7 @@ export async function middleware(request: NextRequest) {
         pathname === '/login' ||
         pathname === '/signup' ||
         pathname.startsWith('/tools') ||
-        pathname.startsWith('/vs') ||
-        pathname.startsWith('/api/admin') // admin API routes use their own secret-key guard
+        pathname.startsWith('/vs')
 
     // If user is not signed in and tries to access a protected route, redirect to /login
     if (!user && !isPublicRoute && !pathname.startsWith('/auth')) {

@@ -7,7 +7,13 @@
     "reset": "rm -rf .next && next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "security:env": "node scripts/security/check-env.mjs",
+    "security:env:production": "SECURITY_ENV_TARGET=production node scripts/security/check-env.mjs",
+    "security:static": "node scripts/security/static-review.mjs",
+    "security:static:strict": "SECURITY_STATIC_STRICT=true node scripts/security/static-review.mjs",
+    "security:all": "npm run security:env && npm run security:static"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

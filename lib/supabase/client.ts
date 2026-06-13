@@ -11,6 +11,9 @@ export function createClient() {
         supabaseKey.includes('your_supabase')
 
     if (isMock) {
+        if (process.env.NODE_ENV === 'production') {
+            throw new Error('Supabase browser credentials are required in production')
+        }
         if (typeof window !== 'undefined') {
             console.warn('Running in Mock Mode: Supabase environment variables are missing or placeholders.')
         }
