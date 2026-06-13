@@ -52,6 +52,15 @@ https://seo-ops-center.vercel.app
   - `ClientDeliverablesTab` on workspace/[id] (replaced DeliverablesTracker)
   - Daily cron `/api/cron/generate-deliverables` (idempotent, prorated, campaign-capped)
   - `CommitmentsManager`, `CreateDeliverableModal`, `DeliverableDetailPanel` components
+  - Deliverable title editable inline in detail panel (click to edit, Enter/Escape/blur to save)
+  - 37 client commitments backfilled; 269 existing deliverables linked
+  - `lib/types.ts` fully updated: `Deliverable`, `Task`, `TaskTemplate`, `TaskComment`, `TaskStatusHistoryEntry`, `TaskCategory`, `TaskPriority`, `TaskStatus`, `DeliverableCommitment`, `FulfillmentCell`, `CommitmentCadence`, `DeliverableSubtype` all match actual DB schema
+
+## Git workflow
+- **Always use a feature branch** — never commit directly to `main`
+- Start: `git checkout main && git pull && git checkout -b feat/<name>`
+- Codex (GitHub AI) merges security PRs into `main` concurrently — direct pushes cause conflicts
+- Run `npx tsc --noEmit` before pushing to catch build errors locally
 
 ## Migrations applied to production
 001–013: init, analytics, time tracking, notes, feedback, tasks V2, notifications
