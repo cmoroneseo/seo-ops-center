@@ -70,7 +70,7 @@ function clientProjectToRow(client: Partial<ClientProject>) {
     return {
         organization_id: client.organizationId,
         name: client.clientName,
-        launch_date: client.launchDate,
+        launch_date: client.launchDate || null,
         seo_hours: client.seoHours,
         engagement_model: client.engagementModel,
         deliverables_spec: client.deliverables,
