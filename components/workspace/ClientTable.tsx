@@ -110,7 +110,7 @@ export function ClientTable({ clients }: ClientTableProps) {
                                         </td>
                                         <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                                             <div className="flex items-center gap-2">
-                                                <span>{new Date(client.launchDate).toLocaleDateString()}</span>
+                                                <span>{client.launchDate ? new Date(client.launchDate + 'T00:00:00').toLocaleDateString() : '—'}</span>
                                                 <button
                                                     onClick={(e) => handleLogTime(client.id, e)}
                                                     className="opacity-0 group-hover:opacity-100 p-1 hover:bg-primary/10 rounded text-primary transition-all"

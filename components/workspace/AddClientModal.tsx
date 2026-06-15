@@ -26,7 +26,7 @@ const BLANK_FORM = {
     deliverables: '',
     blogsDuePerMonth: 0,
     accountManagerId: '',
-    status: 'Active' as ProjectStatus,
+    status: 'Onboarding' as ProjectStatus,
     tier: 1 as Tier,
 };
 
@@ -93,10 +93,11 @@ export function AddClientModal({ isOpen, onClose, onSuccess, onImportFromBasecam
             const newClientId = result.data.id;
             const startsOn = formData.launchDate || new Date().toISOString().slice(0, 10);
 
-            // Auto-create services based on the form data
+            // Only auto-create services for active clients — onboarding clients
+            // get services created when they transition to Active with a launch date.
             const serviceCreates: Promise<unknown>[] = [];
 
-            if (formData.blogsDuePerMonth > 0) {
+            if (formData.status !== 'Onboarding' && formData.blogsDuePerMonth > 0) {
                 serviceCreates.push(createCommitment({
                     organizationId: organization.id,
                     clientId: newClientId,
@@ -115,7 +116,7 @@ export function AddClientModal({ isOpen, onClose, onSuccess, onImportFromBasecam
                 }));
             }
 
-            if (formData.seoHours > 0) {
+            if (formData.status !== 'Onboarding' && formData.seoHours > 0) {
                 serviceCreates.push(createCommitment({
                     organizationId: organization.id,
                     clientId: newClientId,
@@ -212,9 +213,11 @@ export function AddClientModal({ isOpen, onClose, onSuccess, onImportFromBasecam
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium">Launch Date</label>
+                                <label className="text-sm font-medium">
+                                    {formData.status === 'Onboarding' ? 'Expected Launch Date (optional)' : 'Launch Date'}
+                                </label>
                                 <input
-                                    required
+                                    required={formData.status !== 'Onboarding'}
                                     type="date"
                                     className="w-full px-3 py-2 rounded-md bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                                     value={formData.launchDate}

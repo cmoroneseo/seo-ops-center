@@ -267,7 +267,7 @@ export interface ClientProject {
     organizationId: string;
     clientName: string;
     logoUrl?: string;
-    launchDate: string;
+    launchDate?: string;
     accountManager: string;
     accountManagerId?: string;
     status: ProjectStatus;

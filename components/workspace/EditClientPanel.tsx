@@ -2,9 +2,10 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { X, Upload, Loader2, Check, Trash2 } from 'lucide-react';
-import { ClientProject } from '@/lib/types';
+import { ClientProject, ProjectStatus } from '@/lib/types';
 import { updateClientProject } from '@/lib/supabase/clients';
 import { createClient } from '@/lib/supabase/client';
+import { createCommitment, getCommitments } from '@/lib/supabase/commitments';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
 
@@ -45,6 +46,8 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
     const [logoError, setLogoError] = useState('');
     const [seoHours, setSeoHours] = useState(String(client.seoHours || ''));
     const [blogsPerMonth, setBlogsPerMonth] = useState(String(client.blogsDuePerMonth || ''));
+    const [status, setStatus] = useState<ProjectStatus>(client.status);
+    const [launchDate, setLaunchDate] = useState(client.launchDate ?? '');
     const [amendmentNote, setAmendmentNote] = useState('');
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
@@ -114,6 +117,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
 
     const handleSave = async () => {
         if (!name.trim()) { setError('Client name is required.'); return; }
+        if (status !== 'Onboarding' && !launchDate) { setError('Launch date is required for active clients.'); return; }
         setSaving(true);
         setError('');
 
@@ -121,6 +125,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
         const newBlogs = parseInt(blogsPerMonth) || 0;
         const hoursChanged = newSeoHours !== client.seoHours;
         const blogsChanged = newBlogs !== client.blogsDuePerMonth;
+        const activating = client.status === 'Onboarding' && status === 'Active';
 
         const result = await updateClientProject(client.id, {
             ...client,
@@ -128,11 +133,53 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
             logoUrl: logoUrl || undefined,
             seoHours: newSeoHours,
             blogsDuePerMonth: newBlogs,
+            status,
+            launchDate: launchDate || undefined,
         });
         setSaving(false);
         if (!result.success || !result.data) {
             setError(result.error ?? 'Save failed.');
             return;
+        }
+
+        // When transitioning from Onboarding → Active, auto-create service rows
+        // if none exist yet, using the hours/blogs already on the client record.
+        if (activating && organization && launchDate) {
+            const existing = await getCommitments(organization.id, { clientId: client.id });
+            if (existing.length === 0) {
+                const startsOn = launchDate;
+                const creates: Promise<unknown>[] = [];
+                if (newBlogs > 0) {
+                    creates.push(createCommitment({
+                        organizationId: organization.id,
+                        clientId: client.id,
+                        title: 'Blog Posts',
+                        type: 'Content',
+                        subtype: 'blog',
+                        quantityPerMonth: newBlogs,
+                        cadence: 'monthly',
+                        engagementModel: client.engagementModel,
+                        startsOn,
+                        isActive: true,
+                        countsTowardHours: false,
+                    }));
+                }
+                if (newSeoHours > 0) {
+                    creates.push(createCommitment({
+                        organizationId: organization.id,
+                        clientId: client.id,
+                        title: 'SEO Hours',
+                        type: 'Other',
+                        quantityPerMonth: newSeoHours,
+                        cadence: 'monthly',
+                        engagementModel: client.engagementModel,
+                        startsOn,
+                        isActive: true,
+                        countsTowardHours: true,
+                    }));
+                }
+                await Promise.allSettled(creates);
+            }
         }
 
         // Log retainer amendment if hours/blogs changed or a note was provided
@@ -294,16 +341,54 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
                                 />
                             </div>
                         </div>
-                        <div className="space-y-1.5">
-                            <label className="text-xs text-muted-foreground">Amendment Note <span className="opacity-50">(optional — what changed and why)</span></label>
-                            <textarea
-                                value={amendmentNote}
-                                onChange={e => setAmendmentNote(e.target.value)}
-                                placeholder="e.g. Replaced organic social with +3.5 SEO hrs + LinkedIn automation"
-                                rows={2}
-                                className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
-                            />
+                    </div>
+
+                    {/* Status & Launch Date */}
+                    <div className="space-y-3">
+                        <label className="text-sm font-medium">Status &amp; Launch</label>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                                <label className="text-xs text-muted-foreground">Status</label>
+                                <select
+                                    value={status}
+                                    onChange={e => setStatus(e.target.value as ProjectStatus)}
+                                    className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                >
+                                    <option value="Onboarding">Onboarding</option>
+                                    <option value="Active">Active</option>
+                                    <option value="Paused">Paused</option>
+                                    <option value="Cancelled">Cancelled</option>
+                                </select>
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-xs text-muted-foreground">
+                                    {status === 'Onboarding' ? 'Expected Launch (optional)' : 'Launch Date'}
+                                </label>
+                                <input
+                                    type="date"
+                                    value={launchDate}
+                                    onChange={e => setLaunchDate(e.target.value)}
+                                    className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                />
+                            </div>
                         </div>
+                        {status === 'Active' && client.status === 'Onboarding' && (
+                            <p className="text-xs text-primary bg-primary/10 rounded-md px-3 py-2">
+                                Activating this client will auto-create their services and start deliverable tracking from the launch date.
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Amendment note */}
+                    <div className="space-y-1.5">
+                        <label className="text-xs text-muted-foreground">Amendment Note <span className="opacity-50">(optional — what changed and why)</span></label>
+                        <textarea
+                            value={amendmentNote}
+                            onChange={e => setAmendmentNote(e.target.value)}
+                            placeholder="e.g. Replaced organic social with +3.5 SEO hrs + LinkedIn automation"
+                            rows={2}
+                            className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
+                        />
                     </div>
 
                     {error && (

@@ -18,7 +18,7 @@ const APP_TO_DB_STATUS: Record<ProjectStatus, string> = {
 /** Map a Supabase clients row to the app's ClientProject shape. */
 function rowToClientProject(row: any): ClientProject {
     const engagementModel: EngagementModel = (row.engagement_model as EngagementModel) || 'Retainer';
-    const launchDate = row.launch_date || row.created_at || new Date().toISOString();
+    const launchDate: string | undefined = row.launch_date ?? undefined;
     const engagement = {
         engagementModel,
         blogsDuePerMonth: Number(row.blogs_due_per_month) || 0,
