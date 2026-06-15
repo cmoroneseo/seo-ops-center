@@ -360,11 +360,37 @@ export interface ClientIntegration {
     needsPropertySetup?: boolean;
 }
 
+/**
+ * Canonical activity event types. Convention: `{domain}.{action}`.
+ * Add new types here so the feed, filters, and API allowlist stay in sync.
+ */
+export type ActivityEventType =
+    // Integrations
+    | 'integration.connected'
+    | 'integration.disconnected'
+    | 'integration.reconfigured'
+    | 'integration.tasks_imported'
+    // Contract / retainer
+    | 'retainer.amended'
+    // Tasks
+    | 'task.created'
+    | 'task.completed'
+    | 'task.assigned'
+    | 'task.status_changed'
+    // Deliverables
+    | 'deliverable.created'
+    | 'deliverable.status_changed'
+    | 'deliverable.published'
+    // Client lifecycle
+    | 'client.created'
+    | 'client.status_changed'
+    | 'client.tier_changed';
+
 export interface ClientActivityEvent {
     id: string;
     organizationId: string;
     clientId: string;
-    eventType: string;   // 'integration.connected' | 'integration.disconnected' | 'integration.reconfigured'
+    eventType: ActivityEventType;
     actorId?: string;
     actorName?: string;
     metadata: Record<string, unknown>;

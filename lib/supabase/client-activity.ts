@@ -1,6 +1,42 @@
 import { createAdminClient } from './admin';
 import { createClient } from './client';
-import { ClientActivityEvent } from '../types';
+import { ClientActivityEvent, ActivityEventType } from '../types';
+
+/**
+ * Set of event types the authenticated /api/activity endpoint will accept from
+ * the browser. Server-only writers (integration routes, retainer amend) call
+ * logClientActivity directly and are not constrained by this list.
+ */
+export const ALLOWED_ACTIVITY_EVENT_TYPES: ReadonlySet<ActivityEventType> = new Set([
+    'task.created',
+    'task.completed',
+    'task.assigned',
+    'task.status_changed',
+    'deliverable.created',
+    'deliverable.status_changed',
+    'deliverable.published',
+    'client.created',
+    'client.status_changed',
+    'client.tier_changed',
+]);
+
+/**
+ * Browser-safe activity logger. POSTs to /api/activity, which derives the actor
+ * and organization from the authenticated session (never trusts the client for
+ * those) and verifies the user can access the target client via RLS.
+ * Fire-and-forget — failures are logged, never thrown, so they can't break UX.
+ */
+export function logActivity(payload: {
+    clientId: string;
+    eventType: ActivityEventType;
+    metadata?: Record<string, unknown>;
+}): void {
+    fetch('/api/activity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    }).catch((err) => console.error('logActivity error:', err));
+}
 
 function rowToEvent(row: any): ClientActivityEvent {
     return {

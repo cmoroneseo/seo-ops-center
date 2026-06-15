@@ -1,5 +1,6 @@
 import { createClient } from './client';
 import { createNotification } from './notifications';
+import { logActivity } from './client-activity';
 import {
     Task,
     TaskStatus,
@@ -305,25 +306,18 @@ export async function createTask(
             });
         }
 
-        // Log task creation to client activity feed (fire-and-forget)
-        if (t.clientId && t.organizationId) {
-            fetch('/api/tasks/activity', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    organizationId: t.organizationId,
-                    clientId: t.clientId,
-                    eventType: 'task.created',
-                    actorId: t.createdBy,
-                    actorName: t.actorName,
-                    metadata: {
-                        taskId: task.id,
-                        title: task.title,
-                        priority: task.priority,
-                        category: task.category,
-                    },
-                }),
-            }).catch(err => console.error('[tasks] activity log error:', err));
+        // Log task creation to the client activity feed (server derives actor/org)
+        if (t.clientId) {
+            logActivity({
+                clientId: t.clientId,
+                eventType: 'task.created',
+                metadata: {
+                    taskId: task.id,
+                    title: task.title,
+                    priority: task.priority,
+                    category: task.category,
+                },
+            });
         }
 
         return { success: true, data: task };
@@ -435,6 +429,13 @@ export async function updateTask(
                     clientId: current!.client_id ?? undefined,
                 });
             });
+            if (addedIds.length > 0 && current.client_id) {
+                logActivity({
+                    clientId: current.client_id,
+                    eventType: 'task.assigned',
+                    metadata: { taskId, title: current.title, assigneeIds: addedIds },
+                });
+            }
         }
 
         const { data, error } = await supabase
@@ -502,24 +503,20 @@ export async function updateTask(
             })().catch(err => console.error('[tasks] deliverable nudge error:', err));
         }
 
-        // Log task completion to client activity feed (fire-and-forget)
-        if (patch.status === 'done' && data.client_id && data.organization_id) {
-            fetch('/api/tasks/activity', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    organizationId: data.organization_id,
-                    clientId: data.client_id,
-                    eventType: 'task.completed',
-                    actorId: patch.updatedBy,
-                    metadata: {
-                        taskId,
-                        title: data.title,
-                        priority: data.priority,
-                        category: data.category,
-                    },
-                }),
-            }).catch(err => console.error('[tasks] activity log error:', err));
+        // Log task status changes to the client activity feed (server derives actor/org).
+        // Completion is its own high-value event; other transitions log as status_changed.
+        if (patch.status && data.client_id) {
+            logActivity({
+                clientId: data.client_id,
+                eventType: patch.status === 'done' ? 'task.completed' : 'task.status_changed',
+                metadata: {
+                    taskId,
+                    title: data.title,
+                    status: patch.status,
+                    priority: data.priority,
+                    category: data.category,
+                },
+            });
         }
 
         return { success: true, data: updatedTask };

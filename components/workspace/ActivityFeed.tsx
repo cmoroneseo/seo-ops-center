@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download, Pencil, RefreshCw, CheckSquare, ClipboardList } from 'lucide-react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download, Pencil, RefreshCw, CheckSquare, ClipboardList, Send, Package, Building2 } from 'lucide-react';
 // ChevronDown/ChevronUp kept — used in TimeLogRow and NoteRow expand toggles
 import { ClientProject, TimeLog, ClientNote, ClientAssignment, ClientActivityEvent } from '@/lib/types';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
@@ -12,13 +12,25 @@ import { getClientActivity } from '@/lib/supabase/client-activity';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
 
-type ActivityType = 'all' | 'hours' | 'notes' | 'assignments' | 'integrations';
+type ActivityType = 'all' | 'hours' | 'notes' | 'tasks' | 'deliverables' | 'updates' | 'assignments' | 'integrations';
 
 type ActivityItem =
     | { type: 'time_log'; data: TimeLog; date: Date }
     | { type: 'note'; data: ClientNote; date: Date }
     | { type: 'assignment'; data: ClientAssignment; date: Date }
     | { type: 'integration_event'; data: ClientActivityEvent; date: Date };
+
+/** Bucket an activity item into a filter domain based on its event type. */
+function domainOf(item: ActivityItem): Exclude<ActivityType, 'all'> {
+    if (item.type === 'time_log') return 'hours';
+    if (item.type === 'note') return 'notes';
+    if (item.type === 'assignment') return 'assignments';
+    const t = item.data.eventType;
+    if (t.startsWith('task.')) return 'tasks';
+    if (t.startsWith('deliverable.')) return 'deliverables';
+    if (t.startsWith('client.') || t === 'retainer.amended') return 'updates';
+    return 'integrations';
+}
 
 interface ActivityFeedProps {
     client: ClientProject;
@@ -293,31 +305,47 @@ function RetainerAmendedRow({ event }: { event: ClientActivityEvent }) {
     );
 }
 
+function humanizeStatus(s?: string): string {
+    if (!s) return '';
+    return s.replace(/_/g, ' ');
+}
+
 function TaskEventRow({ event }: { event: ClientActivityEvent }) {
     const { eventType, metadata, actorName, occurredAt } = event;
-    const isCompleted = eventType === 'task.completed';
     const title = metadata.title as string | undefined;
     const category = metadata.category as string | undefined;
     const priority = metadata.priority as string | undefined;
+    const status = metadata.status as string | undefined;
+
+    const isCompleted = eventType === 'task.completed';
+    const isAssigned = eventType === 'task.assigned';
+    const isStatus = eventType === 'task.status_changed';
+
+    const accent = isCompleted ? 'text-green-500' : isAssigned ? 'text-amber-500' : 'text-blue-500';
+    const bg = isCompleted ? 'bg-green-500/10' : isAssigned ? 'bg-amber-500/10' : 'bg-blue-500/10';
+    const Icon = isCompleted ? CheckSquare : isAssigned ? UserCheck : ClipboardList;
+
+    let verb = 'created task ';
+    if (isCompleted) verb = 'completed task ';
+    else if (isAssigned) verb = 'updated assignees on ';
+    else if (isStatus) verb = 'updated task ';
 
     return (
         <div className="flex items-start gap-3 py-3">
-            <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${isCompleted ? 'bg-green-500/10' : 'bg-blue-500/10'}`}>
-                {isCompleted
-                    ? <CheckSquare className="h-3.5 w-3.5 text-green-500" />
-                    : <ClipboardList className="h-3.5 w-3.5 text-blue-500" />
-                }
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${bg}`}>
+                <Icon className={`h-3.5 w-3.5 ${accent}`} />
             </div>
             <div className="flex-1 min-w-0">
                 <p className="text-sm leading-snug">
                     {actorName && <span className="font-semibold">{actorName} </span>}
-                    <span className="text-foreground/80">{isCompleted ? 'completed task ' : 'created task '}</span>
-                    {title && <span className={`font-medium ${isCompleted ? 'text-green-500' : 'text-blue-500'}`}>"{title}"</span>}
+                    <span className="text-foreground/80">{verb}</span>
+                    {title && <span className={`font-medium ${accent}`}>"{title}"</span>}
+                    {isStatus && status && <span className="text-muted-foreground"> → <span className="capitalize">{humanizeStatus(status)}</span></span>}
                     <span className="text-muted-foreground text-xs ml-1.5">
                         {new Date(occurredAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                     </span>
                 </p>
-                {(category || priority) && (
+                {!isStatus && !isAssigned && (category || priority) && (
                     <p className="text-xs text-muted-foreground mt-0.5 capitalize">
                         {[category, priority ? `${priority} priority` : null].filter(Boolean).join(' · ')}
                     </p>
@@ -325,6 +353,89 @@ function TaskEventRow({ event }: { event: ClientActivityEvent }) {
             </div>
         </div>
     );
+}
+
+function DeliverableEventRow({ event }: { event: ClientActivityEvent }) {
+    const { eventType, metadata, actorName, occurredAt } = event;
+    const title = metadata.title as string | undefined;
+    const fromStatus = metadata.fromStatus as string | undefined;
+    const toStatus = metadata.toStatus as string | undefined;
+
+    const isPublished = eventType === 'deliverable.published';
+    const isCreated = eventType === 'deliverable.created';
+
+    const accent = isPublished ? 'text-green-500' : isCreated ? 'text-indigo-500' : 'text-amber-500';
+    const bg = isPublished ? 'bg-green-500/10' : isCreated ? 'bg-indigo-500/10' : 'bg-amber-500/10';
+    const Icon = isPublished ? Send : Package;
+
+    const verb = isPublished ? 'published ' : isCreated ? 'created deliverable ' : 'updated deliverable ';
+
+    return (
+        <div className="flex items-start gap-3 py-3">
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${bg}`}>
+                <Icon className={`h-3.5 w-3.5 ${accent}`} />
+            </div>
+            <div className="flex-1 min-w-0">
+                <p className="text-sm leading-snug">
+                    {actorName && <span className="font-semibold">{actorName} </span>}
+                    <span className="text-foreground/80">{verb}</span>
+                    {title && <span className={`font-medium ${accent}`}>"{title}"</span>}
+                    <span className="text-muted-foreground text-xs ml-1.5">
+                        {new Date(occurredAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                </p>
+                {!isCreated && !isPublished && fromStatus && toStatus && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                        <span className="line-through opacity-50">{fromStatus}</span> → {toStatus}
+                    </p>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function ClientEventRow({ event }: { event: ClientActivityEvent }) {
+    const { eventType, metadata, actorName, occurredAt } = event;
+    const isCreated = eventType === 'client.created';
+    const isTier = eventType === 'client.tier_changed';
+
+    let detail: ReactNode = null;
+    let verb = 'onboarded the client';
+    if (eventType === 'client.status_changed') {
+        verb = 'changed status';
+        detail = <><span className="line-through opacity-50">{String(metadata.fromStatus ?? '')}</span> → {String(metadata.toStatus ?? '')}</>;
+    } else if (isTier) {
+        verb = 'changed tier';
+        detail = <>Tier {String(metadata.fromTier ?? '')} → Tier {String(metadata.toTier ?? '')}</>;
+    }
+
+    return (
+        <div className="flex items-start gap-3 py-3">
+            <div className="w-7 h-7 rounded-full bg-teal-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                <Building2 className="h-3.5 w-3.5 text-teal-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+                <p className="text-sm leading-snug">
+                    {actorName && <span className="font-semibold">{actorName} </span>}
+                    <span className="text-foreground/80">{verb}</span>
+                    <span className="text-muted-foreground text-xs ml-1.5">
+                        {new Date(occurredAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                </p>
+                {detail && <p className="text-xs text-muted-foreground mt-0.5">{detail}</p>}
+            </div>
+        </div>
+    );
+}
+
+/** Dispatch a logged activity event to the right row renderer by domain. */
+function EventRow({ event }: { event: ClientActivityEvent }) {
+    const t = event.eventType;
+    if (t === 'retainer.amended') return <RetainerAmendedRow event={event} />;
+    if (t.startsWith('task.')) return <TaskEventRow event={event} />;
+    if (t.startsWith('deliverable.')) return <DeliverableEventRow event={event} />;
+    if (t.startsWith('client.')) return <ClientEventRow event={event} />;
+    return <IntegrationEventRow event={event} />;
 }
 
 // ── PDF Export ─────────────────────────────────────────────────────────────
@@ -359,8 +470,21 @@ function buildPrintHTML(client: ClientProject, items: ActivityItem[]): string {
         }
         if (item.type === 'integration_event') {
             const e = item.data as ClientActivityEvent;
-            const svc = ({ ga4: 'Google Analytics 4', gsc: 'Google Search Console', gbp: 'Google Business Profile', ahrefs: 'Ahrefs', basecamp: 'Basecamp' } as Record<string, string>)[e.metadata.service as string] ?? String(e.metadata.service);
-            return `<tr><td>${fmtDate(item.date)}</td><td>${e.eventType.replace('integration.', '').replace(/^\w/, c => c.toUpperCase())} – ${svc}</td><td>${e.actorName ?? ''}</td></tr>`;
+            const m = e.metadata;
+            // "domain.action" → "Domain action"
+            const label = e.eventType.replace(/\./g, ' ').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+            let detail = '';
+            if (e.eventType.startsWith('integration.')) {
+                detail = ({ ga4: 'Google Analytics 4', gsc: 'Google Search Console', gbp: 'Google Business Profile', ahrefs: 'Ahrefs', basecamp: 'Basecamp' } as Record<string, string>)[m.service as string] ?? String(m.service ?? '');
+            } else if (m.title) {
+                detail = String(m.title);
+            } else if (m.toStatus) {
+                detail = `${m.fromStatus ?? ''} → ${m.toStatus}`;
+            } else if (m.clientName) {
+                detail = String(m.clientName);
+            }
+            if (e.actorName) detail = detail ? `${detail} · ${e.actorName}` : String(e.actorName);
+            return `<tr><td>${fmtDate(item.date)}</td><td>${label}</td><td>${detail}</td></tr>`;
         }
         return '';
     }).join('');
@@ -506,20 +630,18 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
 
     const filtered = filter === 'all'
         ? allItems
-        : allItems.filter(i => {
-            if (filter === 'hours') return i.type === 'time_log';
-            if (filter === 'notes') return i.type === 'note';
-            if (filter === 'assignments') return i.type === 'assignment';
-            if (filter === 'integrations') return i.type === 'integration_event';
-            return true;
-        });
+        : allItems.filter(i => domainOf(i) === filter);
 
     const grouped = groupByDate(filtered);
 
-    const hourCount = allItems.filter(i => i.type === 'time_log').length;
-    const noteCount = allItems.filter(i => i.type === 'note').length;
-    const assignmentCount = allItems.filter(i => i.type === 'assignment').length;
-    const integrationCount = allItems.filter(i => i.type === 'integration_event').length;
+    const counts = allItems.reduce((acc, i) => {
+        const d = domainOf(i);
+        acc[d] = (acc[d] ?? 0) + 1;
+        return acc;
+    }, {} as Record<string, number>);
+    const hourCount = counts.hours ?? 0;
+    const noteCount = counts.notes ?? 0;
+    const assignmentCount = counts.assignments ?? 0;
     const totalHours = allItems
         .filter((i): i is { type: 'time_log'; data: TimeLog; date: Date } => i.type === 'time_log')
         .reduce((sum, i) => sum + i.data.hours, 0);
@@ -571,8 +693,11 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                         { key: 'all', label: `All (${allItems.length})` },
                         { key: 'hours', label: `Hours (${hourCount})` },
                         { key: 'notes', label: `Notes (${noteCount})` },
+                        ...(counts.tasks ? [{ key: 'tasks', label: `Tasks (${counts.tasks})` }] : []),
+                        ...(counts.deliverables ? [{ key: 'deliverables', label: `Deliverables (${counts.deliverables})` }] : []),
+                        ...(counts.updates ? [{ key: 'updates', label: `Updates (${counts.updates})` }] : []),
                         ...(assignmentCount > 0 ? [{ key: 'assignments', label: `Assignments (${assignmentCount})` }] : []),
-                        ...(integrationCount > 0 ? [{ key: 'integrations', label: `Integrations (${integrationCount})` }] : []),
+                        ...(counts.integrations ? [{ key: 'integrations', label: `Integrations (${counts.integrations})` }] : []),
                     ] as { key: ActivityType; label: string }[]).map(f => (
                         <button
                             key={f.key}
@@ -619,12 +744,8 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                                             <NoteRow note={item.data} />
                                         ) : item.type === 'assignment' ? (
                                             <AssignmentRow assignment={item.data} />
-                                        ) : item.type === 'integration_event' && item.data.eventType === 'retainer.amended' ? (
-                                            <RetainerAmendedRow event={item.data} />
-                                        ) : item.type === 'integration_event' && (item.data.eventType === 'task.created' || item.data.eventType === 'task.completed') ? (
-                                            <TaskEventRow event={item.data} />
                                         ) : (
-                                            <IntegrationEventRow event={item.data} />
+                                            <EventRow event={item.data} />
                                         )}
                                     </div>
                                 ))}

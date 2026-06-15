@@ -1,6 +1,7 @@
 import { createClient } from './client';
 import { Deliverable, DeliverableType, DeliverableStatus } from '../types';
 import { createNotification } from './notifications';
+import { logActivity } from './client-activity';
 
 function rowToDeliverable(row: any): Deliverable {
     return {
@@ -103,6 +104,13 @@ export async function createDeliverable(
         if (error) throw error;
         const created = rowToDeliverable(data);
         if (created.assigneeId) await notifyAssigned(d.organizationId, created, created.assigneeId);
+        if (created.clientId) {
+            logActivity({
+                clientId: created.clientId,
+                eventType: 'deliverable.created',
+                metadata: { deliverableId: created.id, title: created.title, type: created.type, status: created.status },
+            });
+        }
         return { success: true, data: created };
     } catch (err: any) {
         console.error('Error creating deliverable:', err);
@@ -125,6 +133,7 @@ export async function updateDeliverable(
 
         // Read current row when the change needs context (history append / assignee diff).
         let prevAssigneeId: string | null | undefined;
+        let prevStatus: DeliverableStatus | undefined;
         if (patch.status || patch.assigneeId) {
             const { data: current } = await supabase
                 .from('deliverables')
@@ -134,6 +143,7 @@ export async function updateDeliverable(
             prevAssigneeId = current?.assignee_id;
             // Status change: append to status_history; stamp delivered_on at Published.
             if (patch.status && current && current.status !== patch.status) {
+                prevStatus = current.status as DeliverableStatus;
                 const history = Array.isArray(current.status_history) ? current.status_history : [];
                 payload.status_history = [
                     ...history,
@@ -154,6 +164,21 @@ export async function updateDeliverable(
         if (patch.assigneeId && patch.assigneeId !== prevAssigneeId && patch.assigneeId !== opts.actorId) {
             const orgId = opts.organizationId ?? (data as any).organization_id;
             if (orgId) await notifyAssigned(orgId, updated, patch.assigneeId);
+        }
+
+        // Log status transitions to the client activity feed. Publishing is its
+        // own high-value event; other transitions log as status_changed.
+        if (prevStatus && prevStatus !== updated.status && updated.clientId) {
+            logActivity({
+                clientId: updated.clientId,
+                eventType: updated.status === 'Published' ? 'deliverable.published' : 'deliverable.status_changed',
+                metadata: {
+                    deliverableId: updated.id,
+                    title: updated.title,
+                    fromStatus: prevStatus,
+                    toStatus: updated.status,
+                },
+            });
         }
         return { success: true, data: updated };
     } catch (err: any) {

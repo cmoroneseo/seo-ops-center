@@ -1,6 +1,7 @@
 import { createClient } from './client';
 import { ClientProject, ProjectStatus, EngagementModel, Tier } from '../types';
 import { actualBlogsDueToDate, targetBlogCount } from '../seo-ops-logic';
+import { logActivity } from './client-activity';
 
 // --- status mapping between the app's ProjectStatus and the DB's clients.status ---
 const DB_TO_APP_STATUS: Record<string, ProjectStatus> = {
@@ -98,7 +99,13 @@ export async function createClientProject(
             .single();
 
         if (error) throw error;
-        return { success: true, data: rowToClientProject(data) };
+        const created = rowToClientProject(data);
+        logActivity({
+            clientId: created.id,
+            eventType: 'client.created',
+            metadata: { clientName: created.clientName, status: created.status, tier: created.tier },
+        });
+        return { success: true, data: created };
     } catch (err: any) {
         console.error('Error creating client:', err);
         return { success: false, error: err.message };
@@ -139,9 +146,34 @@ export async function updateClientProject(
         const row = clientProjectToRow(patch);
         // strip undefined so we only update provided fields
         const payload = Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined));
+
+        // Capture prior status/tier so we can log what actually changed.
+        let prev: { status?: ProjectStatus; tier?: Tier } = {};
+        if (patch.status !== undefined || patch.tier !== undefined) {
+            const { data: cur } = await supabase.from('clients').select('status, tier').eq('id', id).single();
+            if (cur) prev = { status: DB_TO_APP_STATUS[cur.status] || 'Active', tier: (cur.tier as Tier) || 1 };
+        }
+
         const { data, error } = await supabase.from('clients').update(payload).eq('id', id).select().single();
         if (error) throw error;
-        return { success: true, data: rowToClientProject(data) };
+        const updated = rowToClientProject(data);
+
+        if (patch.status !== undefined && prev.status !== updated.status) {
+            logActivity({
+                clientId: id,
+                eventType: 'client.status_changed',
+                metadata: { clientName: updated.clientName, fromStatus: prev.status, toStatus: updated.status },
+            });
+        }
+        if (patch.tier !== undefined && prev.tier !== updated.tier) {
+            logActivity({
+                clientId: id,
+                eventType: 'client.tier_changed',
+                metadata: { clientName: updated.clientName, fromTier: prev.tier, toTier: updated.tier },
+            });
+        }
+
+        return { success: true, data: updated };
     } catch (err: any) {
         console.error('Error updating client:', err);
         return { success: false, error: err.message };
