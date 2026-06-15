@@ -17,6 +17,7 @@ export interface OrganizationMember {
     userId: string;
     role: 'owner' | 'admin' | 'member' | 'viewer';
     createdAt: string;
+    basecampPersonId?: string;
     organization?: Organization;
 }
 

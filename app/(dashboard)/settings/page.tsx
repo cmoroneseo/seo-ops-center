@@ -4,7 +4,7 @@ import { User, Bell, Shield, Users, Plus, Loader2, MessageSquarePlus, Bug, Light
 import { useState, useEffect } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
-import { getOrganizationMembers, addMemberByEmail } from '@/lib/supabase/organizations';
+import { getOrganizationMembers, addMemberByEmail, updateMemberBasecampPersonId } from '@/lib/supabase/organizations';
 import { createClient } from '@/lib/supabase/client';
 import { User as UserType, OrganizationMember } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -59,6 +59,11 @@ export default function SettingsPage() {
     const [inviteError, setInviteError] = useState<string | null>(null);
     const [inviteSuccess, setInviteSuccess] = useState(false);
 
+    // Basecamp person ID mapping state (userId → input value)
+    const [bcPersonIds, setBcPersonIds] = useState<Record<string, string>>({});
+    const [bcSaving, setBcSaving] = useState<Record<string, boolean>>({});
+    const [bcSaved, setBcSaved] = useState<Record<string, boolean>>({});
+
     // Feedback state
     const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
     const [feedbackLoading, setFeedbackLoading] = useState(false);
@@ -79,6 +84,9 @@ export default function SettingsPage() {
         if (!organization) return;
         const data = await getOrganizationMembers(organization.id);
         setMembers(data);
+        const initial: Record<string, string> = {};
+        data.forEach(m => { initial[m.userId] = m.basecampPersonId ?? ''; });
+        setBcPersonIds(initial);
     };
 
     const fetchFeedback = async () => {
@@ -279,6 +287,62 @@ export default function SettingsPage() {
                             <input type="checkbox" defaultChecked className="h-4 w-4" />
                         </div>
                     </div>
+
+                    {/* Basecamp — owner only */}
+                    {isOwner && (
+                        <div className="rounded-xl border border-border bg-card p-6">
+                            <div className="flex items-center gap-4 mb-2">
+                                <div className="h-10 w-10 rounded-full bg-orange-500/10 flex items-center justify-center">
+                                    <svg className="h-5 w-5 text-orange-500" viewBox="0 0 32 32" fill="currentColor"><path d="M16 2C8.268 2 2 8.268 2 16s6.268 14 14 14 14-6.268 14-14S23.732 2 16 2zm0 4a10 10 0 110 20A10 10 0 0116 6z"/></svg>
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-medium">Basecamp Person IDs</h3>
+                                    <p className="text-sm text-muted-foreground">Map each team member to their Basecamp account so task assignments sync automatically.</p>
+                                </div>
+                            </div>
+                            <p className="text-xs text-muted-foreground mb-4">
+                                Find a person's ID in Basecamp: open their profile → the number in the URL is their person ID (e.g. basecamp.com/123456/people/<strong>789012</strong>).
+                            </p>
+                            <div className="divide-y divide-border/50 border rounded-md">
+                                {members.map(member => (
+                                    <div key={member.userId} className="p-4 flex items-center justify-between gap-4">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="h-8 w-8 shrink-0 rounded-full bg-accent/50 flex items-center justify-center text-xs font-bold">
+                                                {(member.user.fullName || member.user.email).charAt(0).toUpperCase()}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-medium truncate">{member.user.fullName || 'User'}</p>
+                                                <p className="text-xs text-muted-foreground truncate">{member.user.email}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            <input
+                                                type="text"
+                                                placeholder="Person ID (numbers only)"
+                                                value={bcPersonIds[member.userId] ?? ''}
+                                                onChange={e => setBcPersonIds(prev => ({ ...prev, [member.userId]: e.target.value }))}
+                                                className="w-44 text-xs px-2.5 py-1.5 rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                                            />
+                                            <button
+                                                disabled={bcSaving[member.userId]}
+                                                onClick={async () => {
+                                                    if (!organization) return;
+                                                    setBcSaving(prev => ({ ...prev, [member.userId]: true }));
+                                                    await updateMemberBasecampPersonId(organization.id, member.userId, bcPersonIds[member.userId] || null);
+                                                    setBcSaving(prev => ({ ...prev, [member.userId]: false }));
+                                                    setBcSaved(prev => ({ ...prev, [member.userId]: true }));
+                                                    setTimeout(() => setBcSaved(prev => ({ ...prev, [member.userId]: false })), 2000);
+                                                }}
+                                                className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                                            >
+                                                {bcSaving[member.userId] ? 'Saving…' : bcSaved[member.userId] ? '✓ Saved' : 'Save'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Security */}
                     <div className="rounded-xl border border-border bg-card p-6">

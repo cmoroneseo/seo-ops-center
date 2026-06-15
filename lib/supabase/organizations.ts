@@ -22,6 +22,7 @@ export async function getOrganizationMembers(organizationId: string): Promise<(O
             userId: m.user_id,
             role: m.role,
             createdAt: m.created_at,
+            basecampPersonId: m.basecamp_person_id ?? undefined,
             user: {
                 id: m.user.id,
                 email: m.user.email,
@@ -34,6 +35,22 @@ export async function getOrganizationMembers(organizationId: string): Promise<(O
         console.error('Error fetching members:', err);
         return [];
     }
+}
+
+export async function updateMemberBasecampPersonId(
+    organizationId: string,
+    userId: string,
+    basecampPersonId: string | null,
+): Promise<{ success: boolean; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
+    const { error } = await supabase
+        .from('organization_members')
+        .update({ basecamp_person_id: basecampPersonId || null })
+        .eq('organization_id', organizationId)
+        .eq('user_id', userId);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
 }
 
 export async function addMemberByEmail(organizationId: string, email: string, role: string = 'member'): Promise<{ success: boolean; error?: string }> {

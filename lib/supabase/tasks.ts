@@ -284,12 +284,18 @@ export async function createTask(
 
         // Basecamp push — fire-and-forget via API route (works from browser)
         // Only fires when the user explicitly opted in via the "Sync to Basecamp" toggle.
-        if (t.syncToBasecamp && t.clientId) {
-            getClientBasecampConfig(t.clientId).then((bc) => {
+        if (t.syncToBasecamp && t.clientId && t.organizationId) {
+            Promise.all([
+                getClientBasecampConfig(t.clientId),
+                import('./organizations').then(m => m.getOrganizationMembers(t.organizationId!)),
+            ]).then(([bc, members]) => {
                 if (!bc) return;
-                // Per-task override takes priority over the client's default todolist
                 const todolistId = t.basecampTodolistId || bc.todolistId;
                 if (!todolistId) return;
+                const assigneePersonIds = (t.assigneeIds ?? [])
+                    .map(uid => members.find(m => m.userId === uid)?.basecampPersonId)
+                    .filter((id): id is string => !!id)
+                    .map(Number);
                 fetch('/api/integrations/basecamp/push', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -301,6 +307,7 @@ export async function createTask(
                         content: task.title,
                         dueOn: task.dueDate,
                         description: task.description,
+                        assigneePersonIds: assigneePersonIds.length ? assigneePersonIds : undefined,
                     }),
                 }).catch(err => console.error('[Basecamp] createTask push error:', err));
             });

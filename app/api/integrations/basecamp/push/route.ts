@@ -54,8 +54,8 @@ export async function POST(req: NextRequest) {
     try {
         switch (action) {
             case 'create_todo': {
-                const { projectId, todolistId, content, dueOn, description } = body;
-                const result = await createBasecampTodo(projectId, todolistId, { content, dueOn, description });
+                const { projectId, todolistId, content, dueOn, description, assigneePersonIds } = body;
+                const result = await createBasecampTodo(projectId, todolistId, { content, dueOn, description, assigneePersonIds });
                 if (result) {
                     // Store basecamp_todo_id and basecamp_project_id on the task row
                     await admin

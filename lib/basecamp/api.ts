@@ -183,12 +183,14 @@ export async function createBasecampTodo(
         content: string;
         dueOn?: string;       // YYYY-MM-DD
         description?: string;
+        assigneePersonIds?: number[];
     },
 ): Promise<{ id: number; appUrl: string } | null> {
     try {
         const body: Record<string, unknown> = { content: params.content };
         if (params.dueOn) body.due_on = params.dueOn;
         if (params.description) body.description = params.description;
+        if (params.assigneePersonIds?.length) body.assignee_ids = params.assigneePersonIds;
 
         const res = await fetch(
             `${BASE_URL()}/buckets/${projectId}/todolists/${todolistId}/todos.json`,
