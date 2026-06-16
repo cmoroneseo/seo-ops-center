@@ -62,7 +62,7 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
         const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
 
         return (
-            <div className="fixed bottom-6 right-6 z-50 w-72 animate-in slide-in-from-bottom-4 fade-in duration-300">
+            <div className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50 w-72 animate-in slide-in-from-bottom-4 fade-in duration-300">
                 <div className="bg-card border border-amber-500/40 rounded-2xl shadow-2xl overflow-hidden">
                     <div className="h-1 w-full bg-amber-500/60" />
                     <div className="p-4 space-y-3">
@@ -96,7 +96,7 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
     // ── Idle state: subtle clock button ────────────────────────────────────
     if (!timer) {
         return (
-            <div ref={widgetRef} className="fixed bottom-6 right-6 z-50">
+            <div ref={widgetRef} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50">
                 <div className="relative">
                     <button
                         onClick={() => setShowQuickStart(prev => !prev)}
@@ -122,7 +122,7 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
     // ── Active: minimized pill ──────────────────────────────────────────────
     if (!expanded) {
         return (
-            <div className="fixed bottom-6 right-6 z-50">
+            <div className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50">
                 <button
                     onClick={() => setExpanded(true)}
                     className={cn(
@@ -149,7 +149,7 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
 
     // ── Active: expanded card ───────────────────────────────────────────────
     return (
-        <div ref={widgetRef} className="fixed bottom-6 right-6 z-50 w-72 animate-in slide-in-from-bottom-3 fade-in duration-200">
+        <div ref={widgetRef} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50 w-72 animate-in slide-in-from-bottom-3 fade-in duration-200">
             <div className={cn(
                 'bg-card border rounded-2xl shadow-2xl overflow-hidden',
                 isRunning ? 'border-green-500/30 shadow-green-500/5' : 'border-amber-500/30'
