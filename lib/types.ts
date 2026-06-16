@@ -93,6 +93,7 @@ export interface Deliverable {
     assigneeId?: string;  // FK to users
     link?: string;
     publishedUrl?: string;
+    docUrl?: string;
     wordCount?: number;
     commitmentId?: string;
     generatedBy?: 'manual' | 'cron' | 'import';

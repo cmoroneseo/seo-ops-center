@@ -35,7 +35,7 @@ export function DeliverableDetailPanel({
     const { userId } = useCurrentMember();
     const [members, setMembers] = useState<(OrganizationMember & { user: User })[]>([]);
     const [publishedUrl, setPublishedUrl] = useState('');
-    const [wordCount, setWordCount] = useState('');
+    const [docUrl, setDocUrl] = useState('');
     const [taskCreated, setTaskCreated] = useState(false);
     const [isCreatingTask, setIsCreatingTask] = useState(false);
     const [editingTitle, setEditingTitle] = useState(false);
@@ -44,7 +44,7 @@ export function DeliverableDetailPanel({
     useEffect(() => {
         if (!isOpen || !deliverable) return;
         setPublishedUrl(deliverable.publishedUrl ?? '');
-        setWordCount(deliverable.wordCount ? String(deliverable.wordCount) : '');
+        setDocUrl(deliverable.docUrl ?? '');
         setTitleDraft(deliverable.title);
         setEditingTitle(false);
         setTaskCreated(false);
@@ -191,9 +191,35 @@ export function DeliverableDetailPanel({
                         </div>
                     </div>
 
-                    {/* Published URL + word count */}
+                    {/* Doc URL (internal draft / Google Doc) */}
+                    <div>
+                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Doc URL</label>
+                        <p className="text-[11px] text-muted-foreground/70 mt-0.5">Internal draft or Google Doc shared with client for approval</p>
+                        <div className="flex items-center gap-2 mt-1.5">
+                            <input
+                                value={docUrl}
+                                onChange={(e) => setDocUrl(e.target.value)}
+                                onBlur={() => docUrl !== (deliverable.docUrl ?? '') && patch({ docUrl: docUrl || undefined })}
+                                placeholder="https://docs.google.com/…"
+                                className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                            />
+                            {deliverable.docUrl && (
+                                <a
+                                    href={deliverable.docUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-2 rounded-lg border border-border text-muted-foreground hover:text-primary transition-colors"
+                                >
+                                    <ExternalLink className="h-4 w-4" />
+                                </a>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Published URL (live page) */}
                     <div>
                         <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Published URL</label>
+                        <p className="text-[11px] text-muted-foreground/70 mt-0.5">Live URL once the content is published to the site</p>
                         <div className="flex items-center gap-2 mt-1.5">
                             <input
                                 value={publishedUrl}
@@ -214,19 +240,6 @@ export function DeliverableDetailPanel({
                             )}
                         </div>
                     </div>
-
-                    {deliverable.type === 'Content' && (
-                        <div>
-                            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Word count</label>
-                            <input
-                                type="number"
-                                value={wordCount}
-                                onChange={(e) => setWordCount(e.target.value)}
-                                onBlur={() => patch({ wordCount: wordCount ? Number(wordCount) : undefined })}
-                                className="mt-1.5 w-32 rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                            />
-                        </div>
-                    )}
 
                     {/* Production task shortcut */}
                     <button
