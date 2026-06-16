@@ -330,7 +330,7 @@ export function MonthlyPlannerCard({ client }: MonthlyPlannerCardProps) {
     // ── Render ─────────────────────────────────────────────────────────────
 
     return (
-        <div className="rounded-xl border border-border/50 bg-card p-6 space-y-5">
+        <div className="rounded-xl border border-border/50 bg-card p-4 sm:p-6 space-y-5">
 
             {/* Header */}
             <div className="flex items-center justify-between">
@@ -381,7 +381,7 @@ export function MonthlyPlannerCard({ client }: MonthlyPlannerCardProps) {
             ) : (
                 <div className="space-y-0.5">
                     {/* Column headers */}
-                    <div className="grid grid-cols-4 gap-2 px-8 pb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    <div className="grid grid-cols-4 gap-2 px-2 sm:px-8 pb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                         <span>Week</span>
                         <span className="text-right">Planned</span>
                         <span className="text-right">Logged</span>
@@ -510,7 +510,7 @@ export function MonthlyPlannerCard({ client }: MonthlyPlannerCardProps) {
                     })}
 
                     {/* Totals row */}
-                    <div className="grid grid-cols-4 gap-2 items-center px-8 py-2.5 mt-1 border-t border-border/50">
+                    <div className="grid grid-cols-4 gap-2 items-center px-2 sm:px-8 py-2.5 mt-1 border-t border-border/50">
                         <span className="text-sm font-semibold">Total</span>
                         <span className="text-sm font-semibold text-right">{totalPlanned > 0 ? `${totalPlanned}h` : '—'}</span>
                         <span className="text-sm font-semibold text-right">{totalLogged > 0 ? `${totalLogged.toFixed(1)}h` : '—'}</span>
