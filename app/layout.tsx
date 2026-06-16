@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 
@@ -11,6 +11,16 @@ export const metadata: Metadata = {
   title: "SEO Project Management Software | SEO Ops Command Center",
   description: "The ultimate SEO project management software for agencies. Prove ROI, track deliverables, and manage clients in one real-time command center.",
   keywords: ["SEO project management software", "agency SEO tool", "SEO ROI tracking", "SEO agency management", "real-time SEO dashboard"],
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+  ],
 };
 
 import { OrganizationProvider } from "@/components/providers/organization-provider";

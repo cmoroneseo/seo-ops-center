@@ -10,7 +10,7 @@ import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useClients } from '@/lib/hooks/use-clients';
 import { useState, useEffect } from 'react';
 
-const navigation = [
+export const navigation = [
   { name: 'Home', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Workspace', href: '/workspace', icon: Briefcase },
   { name: 'Analytics', href: '/analytics', icon: FileBarChart },
@@ -46,7 +46,7 @@ export function Sidebar() {
   }, []);
 
   return (
-    <div className="flex h-full w-20 flex-col bg-card border-r border-border items-center py-6">
+    <div className="hidden lg:flex h-full w-20 flex-col bg-card border-r border-border items-center py-6">
       <div className="mb-8">
         <div className="w-12 h-12 bg-primary rounded-xl flex items-center justify-center text-primary-foreground font-bold text-xl shadow-lg shadow-primary/20">
           A
