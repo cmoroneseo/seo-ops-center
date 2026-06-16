@@ -7,7 +7,13 @@ import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-export function ClientListPanel() {
+export function ClientListPanel({
+    variant = 'sidebar',
+    onNavigate,
+}: {
+    variant?: 'sidebar' | 'drawer';
+    onNavigate?: () => void;
+} = {}) {
     const [searchQuery, setSearchQuery] = useState('');
     const [showArchived, setShowArchived] = useState(false);
     const pathname = usePathname();
@@ -27,7 +33,10 @@ export function ClientListPanel() {
     }, [displayClients, searchQuery]);
 
     return (
-        <div className="flex h-full w-72 flex-col bg-muted/30 border-r border-border">
+        <div className={cn(
+            "h-full flex-col bg-muted/30 border-r border-border",
+            variant === 'drawer' ? "flex w-full" : "hidden lg:flex w-72"
+        )}>
             <div className="p-4 border-b border-border bg-background/50">
                 <div className="relative mb-4">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -89,6 +98,7 @@ export function ClientListPanel() {
                                 <Link
                                     key={client.id}
                                     href={targetHref}
+                                    onClick={onNavigate}
                                     className={cn(
                                         'group flex flex-col gap-1 p-2 rounded-lg transition-all',
                                         isActive
@@ -131,6 +141,7 @@ export function ClientListPanel() {
             <div className="p-4 bg-background/50 border-t border-border">
                 <Link
                     href="/workspace"
+                    onClick={onNavigate}
                     className="w-full flex items-center justify-center gap-2 p-2 rounded-lg bg-primary/10 text-primary text-sm font-medium hover:bg-primary/20 transition-colors"
                 >
                     <Plus className="h-4 w-4" />
