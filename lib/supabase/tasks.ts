@@ -313,8 +313,15 @@ export async function createTask(
             });
         }
 
-        // Log task creation to the client activity feed (server derives actor/org)
+        // Log task creation to the client activity feed (server derives actor/org).
+        // Subtasks carry their parent so the feed reads "created subtask X in Y".
         if (t.clientId) {
+            let parentTitle: string | undefined;
+            if (t.parentTaskId) {
+                const { data: parent } = await supabase
+                    .from('tasks').select('title').eq('id', t.parentTaskId).single();
+                parentTitle = parent?.title ?? undefined;
+            }
             logActivity({
                 clientId: t.clientId,
                 eventType: 'task.created',
@@ -323,6 +330,7 @@ export async function createTask(
                     title: task.title,
                     priority: task.priority,
                     category: task.category,
+                    ...(t.parentTaskId ? { parentTaskId: t.parentTaskId, parentTitle } : {}),
                 },
             });
         }

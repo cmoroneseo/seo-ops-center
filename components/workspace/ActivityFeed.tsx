@@ -238,10 +238,12 @@ function IntegrationEventRow({ event }: { event: ClientActivityEvent }) {
     const isConnect = eventType === 'integration.connected';
     const isDisconnect = eventType === 'integration.disconnected';
     const isReconfig = eventType === 'integration.reconfigured';
+    const isImport = eventType === 'integration.tasks_imported';
+    const importedCount = metadata.imported as number | undefined;
 
-    const iconColor = isConnect ? 'text-green-500' : isDisconnect ? 'text-red-400' : 'text-yellow-500';
-    const bgColor = isConnect ? 'bg-green-500/10' : isDisconnect ? 'bg-red-400/10' : 'bg-yellow-500/10';
-    const Icon = isConnect ? Plug : isDisconnect ? Unlink : Settings2;
+    const iconColor = isConnect ? 'text-green-500' : isDisconnect ? 'text-red-400' : isImport ? 'text-blue-500' : 'text-yellow-500';
+    const bgColor = isConnect ? 'bg-green-500/10' : isDisconnect ? 'bg-red-400/10' : isImport ? 'bg-blue-500/10' : 'bg-yellow-500/10';
+    const Icon = isConnect ? Plug : isDisconnect ? Unlink : isImport ? Download : Settings2;
 
     return (
         <div className="flex items-start gap-3 py-3">
@@ -254,6 +256,11 @@ function IntegrationEventRow({ event }: { event: ClientActivityEvent }) {
                     {isConnect && <span className="text-foreground/80">connected </span>}
                     {isDisconnect && <span className="text-foreground/80">disconnected </span>}
                     {isReconfig && <span className="text-foreground/80">changed </span>}
+                    {isImport && (
+                        <span className="text-foreground/80">
+                            imported {importedCount ?? ''} task{importedCount === 1 ? '' : 's'} from{' '}
+                        </span>
+                    )}
                     <span className={`font-medium ${iconColor}`}>{serviceLabel}</span>
                     <span className="text-muted-foreground text-xs ml-1.5">
                         {new Date(occurredAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
@@ -319,9 +326,13 @@ function TaskEventRow({ event }: { event: ClientActivityEvent }) {
     const priority = metadata.priority as string | undefined;
     const status = metadata.status as string | undefined;
 
+    const parentTitle = metadata.parentTitle as string | undefined;
+
     const isCompleted = eventType === 'task.completed';
     const isAssigned = eventType === 'task.assigned';
     const isStatus = eventType === 'task.status_changed';
+    // Real subtask vs. a recurring-task backlink (which reuses the parent's title).
+    const isSubtask = eventType === 'task.created' && !!metadata.parentTaskId && parentTitle !== title;
 
     const accent = isCompleted ? 'text-green-500' : isAssigned ? 'text-amber-500' : 'text-blue-500';
     const bg = isCompleted ? 'bg-green-500/10' : isAssigned ? 'bg-amber-500/10' : 'bg-blue-500/10';
@@ -331,6 +342,7 @@ function TaskEventRow({ event }: { event: ClientActivityEvent }) {
     if (isCompleted) verb = 'completed task ';
     else if (isAssigned) verb = 'updated assignees on ';
     else if (isStatus) verb = 'updated task ';
+    else if (isSubtask) verb = 'created subtask ';
 
     return (
         <div className="flex items-start gap-3 py-3">
@@ -347,7 +359,12 @@ function TaskEventRow({ event }: { event: ClientActivityEvent }) {
                         {new Date(occurredAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                     </span>
                 </p>
-                {!isStatus && !isAssigned && (category || priority) && (
+                {isSubtask && parentTitle && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                        in <span className="text-foreground/70">"{parentTitle}"</span>
+                    </p>
+                )}
+                {!isSubtask && !isStatus && !isAssigned && (category || priority) && (
                     <p className="text-xs text-muted-foreground mt-0.5 capitalize">
                         {[category, priority ? `${priority} priority` : null].filter(Boolean).join(' · ')}
                     </p>
