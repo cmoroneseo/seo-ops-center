@@ -122,7 +122,7 @@ export function FeedbackWidget() {
     };
 
     return (
-        <div ref={panelRef} className="fixed bottom-[88px] right-6 z-50">
+        <div ref={panelRef} className="fixed bottom-[10.5rem] right-4 lg:bottom-[88px] lg:right-6 z-50">
             {/* Panel */}
             {open && (
                 <div className="absolute bottom-14 right-0 w-80 bg-card border border-border rounded-2xl shadow-2xl animate-in slide-in-from-bottom-3 fade-in duration-200 overflow-hidden">
