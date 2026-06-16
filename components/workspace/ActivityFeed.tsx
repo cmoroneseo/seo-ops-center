@@ -9,6 +9,7 @@ import { EditTimeLogSheet } from '@/components/timer/EditTimeLogSheet';
 import { getClientNotes } from '@/lib/supabase/client-notes';
 import { getClientAssignments } from '@/lib/supabase/client-assignments';
 import { getClientActivity } from '@/lib/supabase/client-activity';
+import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
 
@@ -72,7 +73,7 @@ function renderNoteText(text: string) {
     });
 }
 
-function TimeLogRow({ log, onEdit }: { log: TimeLog; onEdit: (log: TimeLog) => void }) {
+function TimeLogRow({ log, onEdit, loggerName }: { log: TimeLog; onEdit: (log: TimeLog) => void; loggerName?: string }) {
     const [expanded, setExpanded] = useState(false);
     const [showNotes, setShowNotes] = useState(false);
     const hasDescription = log.description && log.description.trim().length > 0;
@@ -89,6 +90,7 @@ function TimeLogRow({ log, onEdit }: { log: TimeLog; onEdit: (log: TimeLog) => v
                     <p className="text-sm leading-snug">
                         <span className="font-semibold text-blue-500">{log.hours}h</span>
                         <span className="text-foreground/80"> logged</span>
+                        {loggerName && <span className="text-foreground/80"> by <span className="font-semibold">{loggerName}</span></span>}
                         <span className="text-muted-foreground text-xs ml-1.5">
                             {new Date(log.date.includes('T') ? log.date : log.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         </span>
@@ -444,7 +446,7 @@ function clientInitials(name: string) {
     return name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
 }
 
-function buildPrintHTML(client: ClientProject, items: ActivityItem[]): string {
+function buildPrintHTML(client: ClientProject, items: ActivityItem[], memberNames: Record<string, string> = {}): string {
     const initials = clientInitials(client.clientName);
     const now = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const totalHours = items
@@ -458,7 +460,8 @@ function buildPrintHTML(client: ClientProject, items: ActivityItem[]): string {
     const rows = items.map(item => {
         if (item.type === 'time_log') {
             const log = item.data as TimeLog;
-            return `<tr><td>${fmtDate(item.date)}</td><td><strong>${log.hours}h logged</strong></td><td>${log.description || 'SEO Work'}</td></tr>`;
+            const who = memberNames[log.userId];
+            return `<tr><td>${fmtDate(item.date)}</td><td><strong>${log.hours}h logged</strong>${who ? ` by ${who}` : ''}</td><td>${log.description || 'SEO Work'}</td></tr>`;
         }
         if (item.type === 'note') {
             const note = item.data as ClientNote;
@@ -529,8 +532,8 @@ function buildPrintHTML(client: ClientProject, items: ActivityItem[]): string {
 </body></html>`;
 }
 
-function downloadPDF(client: ClientProject, items: ActivityItem[]) {
-    const html = buildPrintHTML(client, items);
+function downloadPDF(client: ClientProject, items: ActivityItem[], memberNames: Record<string, string> = {}) {
+    const html = buildPrintHTML(client, items, memberNames);
     const win = window.open('', '_blank');
     if (!win) return;
     win.document.write(html);
@@ -541,7 +544,7 @@ function downloadPDF(client: ClientProject, items: ActivityItem[]) {
 
 // ── Three-dot menu ──────────────────────────────────────────────────────────
 
-function FeedMenu({ client, items }: { client: ClientProject; items: ActivityItem[] }) {
+function FeedMenu({ client, items, memberNames }: { client: ClientProject; items: ActivityItem[]; memberNames: Record<string, string> }) {
     const [open, setOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
 
@@ -565,14 +568,14 @@ function FeedMenu({ client, items }: { client: ClientProject; items: ActivityIte
             {open && (
                 <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-lg border border-border bg-card shadow-lg py-1">
                     <button
-                        onClick={() => { setOpen(false); downloadPDF(client, items); }}
+                        onClick={() => { setOpen(false); downloadPDF(client, items, memberNames); }}
                         className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
                     >
                         <Download className="h-3.5 w-3.5 text-muted-foreground" />
                         Download PDF
                     </button>
                     <button
-                        onClick={() => { setOpen(false); const html = buildPrintHTML(client, items); const win = window.open('', '_blank'); if (!win) return; win.document.write(html); win.document.close(); win.focus(); setTimeout(() => win.print(), 400); }}
+                        onClick={() => { setOpen(false); const html = buildPrintHTML(client, items, memberNames); const win = window.open('', '_blank'); if (!win) return; win.document.write(html); win.document.close(); win.focus(); setTimeout(() => win.print(), 400); }}
                         className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
                     >
                         <Printer className="h-3.5 w-3.5 text-muted-foreground" />
@@ -590,6 +593,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<ActivityType>('all');
     const [editingLog, setEditingLog] = useState<TimeLog | null>(null);
+    const [memberNames, setMemberNames] = useState<Record<string, string>>({});
 
     useEffect(() => {
         if (!organization) return;
@@ -599,7 +603,13 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
             getClientNotes(client.id),
             getClientAssignments(client.id),
             getClientActivity(client.id),
-        ]).then(([logs, notes, assignments, activityEvents]) => {
+            getOrganizationMembers(organization.id),
+        ]).then(([logs, notes, assignments, activityEvents, members]) => {
+            setMemberNames(
+                Object.fromEntries(
+                    members.map(m => [m.userId, m.user.fullName || m.user.email || 'Unknown']),
+                ),
+            );
             const items: ActivityItem[] = [
                 ...logs.map(l => ({
                     type: 'time_log' as const,
@@ -660,7 +670,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                             </span>
                         )}
                     </div>
-                    <FeedMenu client={client} items={allItems} />
+                    <FeedMenu client={client} items={allItems} memberNames={memberNames} />
                 </div>
 
                 {/* Stats row */}
@@ -739,7 +749,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                                 {group.items.map(item => (
                                     <div key={`${item.type}-${item.data.id}`}>
                                         {item.type === 'time_log' ? (
-                                            <TimeLogRow log={item.data} onEdit={setEditingLog} />
+                                            <TimeLogRow log={item.data} onEdit={setEditingLog} loggerName={memberNames[item.data.userId]} />
                                         ) : item.type === 'note' ? (
                                             <NoteRow note={item.data} />
                                         ) : item.type === 'assignment' ? (
