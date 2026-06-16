@@ -46,7 +46,54 @@ export function FulfillmentMatrix({ clients, cells, daysLeftInMonth, onCellClick
                     Fulfillment Matrix
                 </h3>
             </div>
-            <div className="overflow-x-auto">
+            {/* Mobile: stacked cards (table side-scroll is unusable on a phone) */}
+            <div className="md:hidden divide-y divide-border/50">
+                {rows.length === 0 && (
+                    <div className="text-center py-10 text-muted-foreground text-sm">No active clients</div>
+                )}
+                {rows.map(({ client, hasWork }) => {
+                    const clientCells = columns
+                        .map((t) => ({ t, cell: cellFor(client.id, t) }))
+                        .filter(({ cell }) => cell && (cell.promised > 0 || cell.generated > 0));
+                    if (!hasWork || clientCells.length === 0) return null;
+                    return (
+                        <div key={client.id} className="p-4">
+                            <Link href={`/workspace/${client.id}`} className="font-medium hover:text-primary transition-colors">
+                                {client.name}
+                            </Link>
+                            {client.accountManager && (
+                                <span className="block text-[10px] text-muted-foreground mb-2">{client.accountManager}</span>
+                            )}
+                            <div className="flex flex-wrap gap-2 mt-2">
+                                {clientCells.map(({ t, cell }) => {
+                                    const c = cell!;
+                                    const pace = fulfillmentStatus({
+                                        promised: c.promised, delivered: c.delivered,
+                                        inProgress: c.inProgress, overdue: c.overdue, daysLeftInMonth,
+                                    });
+                                    const promisedShown = c.promised || c.generated;
+                                    return (
+                                        <button
+                                            key={t}
+                                            onClick={() => onCellClick(client.id, t)}
+                                            className={cn(
+                                                'inline-flex items-center gap-1.5 min-h-[44px] px-3 rounded-xl text-sm font-bold border active:scale-95 transition-transform',
+                                                severityBadgeClass(pace.severity),
+                                            )}
+                                        >
+                                            <span className="text-[11px] font-semibold uppercase tracking-wide opacity-70">{t}</span>
+                                            {c.delivered}/{promisedShown}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Desktop: full matrix table */}
+            <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm">
                     <thead className="bg-muted/50">
                         <tr>
