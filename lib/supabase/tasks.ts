@@ -481,6 +481,28 @@ export async function updateTask(
             }
         }
 
+        // Basecamp assignee sync — mirror new assignees to Basecamp when the task is linked
+        if (patch.assigneeIds !== undefined && data.basecamp_todo_id && data.basecamp_project_id && current) {
+            import('./organizations').then(async m => {
+                const members = await m.getOrganizationMembers(current.organization_id);
+                const assigneePersonIds = (patch.assigneeIds ?? [])
+                    .map(uid => members.find(mem => mem.userId === uid)?.basecampPersonId)
+                    .filter((id): id is string => !!id)
+                    .map(Number);
+                fetch('/api/integrations/basecamp/push', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'update_todo_assignees',
+                        taskId,
+                        projectId: data.basecamp_project_id,
+                        todoId: data.basecamp_todo_id,
+                        assigneePersonIds,
+                    }),
+                }).catch(err => console.error('[Basecamp] assignee sync error:', err));
+            }).catch(err => console.error('[Basecamp] org members fetch error:', err));
+        }
+
         // Deliverable nudges (fire-and-forget): a linked production task starting
         // pulls a Pending deliverable into In Progress; finishing one prompts the
         // assignee to move it to Review. One-way only — Basecamp can mutate task

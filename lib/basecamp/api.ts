@@ -205,6 +205,28 @@ export async function createBasecampTodo(
     }
 }
 
+/** Update assignees on an existing Basecamp todo (PATCH). Pass empty array to clear all. */
+export async function updateBasecampTodoAssignees(
+    projectId: number | string,
+    todoId: number | string,
+    assigneePersonIds: number[],
+): Promise<boolean> {
+    try {
+        const res = await fetch(
+            `${BASE_URL()}/buckets/${projectId}/todos/${todoId}.json`,
+            {
+                method: 'PATCH',
+                headers: getHeaders(),
+                body: JSON.stringify({ assignee_ids: assigneePersonIds }),
+            },
+        );
+        return res.ok;
+    } catch (err) {
+        console.error('[Basecamp] updateTodoAssignees error:', err);
+        return false;
+    }
+}
+
 /** Mark a Basecamp todo as complete */
 export async function completeBasecampTodo(
     projectId: number | string,
