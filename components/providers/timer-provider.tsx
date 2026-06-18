@@ -127,6 +127,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
                 id: existing.id,
                 clientId: existing.clientId,
                 clientName: '',
+                taskId: existing.taskId ?? undefined,
+                taskTitle: existing.description ?? undefined,
                 elapsedSeconds: liveSecs,
                 savedSeconds,
                 status: startedAt ? 'running' : 'paused',

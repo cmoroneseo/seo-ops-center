@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Clock, Calendar, Tag, CheckSquare, MessageSquare, ChevronDown, Trash2, Plus, UserCircle2 } from 'lucide-react';
+import { X, Clock, Calendar, Tag, CheckSquare, MessageSquare, ChevronDown, Trash2, Plus, UserCircle2, PenLine } from 'lucide-react';
+import { createTimeLog } from '@/lib/supabase/time-logs';
 import { cn } from '@/lib/utils';
 import { Task, TaskComment, TaskStatus, TaskPriority, TaskCategory } from '@/lib/types';
 import { getTask, updateTask, createTask, deleteTask, getTaskComments, createTaskComment } from '@/lib/supabase/tasks';
@@ -68,6 +69,11 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
     const [orgMembers, setOrgMembers] = useState<{ id: string; name: string }[]>([]);
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const [showLogForm, setShowLogForm] = useState(false);
+    const [logHours, setLogHours] = useState('');
+    const [logDate, setLogDate] = useState(new Date().toISOString().slice(0, 10));
+    const [logNote, setLogNote] = useState('');
+    const [submittingLog, setSubmittingLog] = useState(false);
 
     useEffect(() => { setMounted(true); }, []);
 
@@ -549,27 +555,98 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                 <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
                                     <Clock className="h-3 w-3" /> Time Logged
                                 </label>
+                                <button
+                                    onClick={() => { setShowLogForm(v => !v); setLogHours(''); setLogNote(''); setLogDate(new Date().toISOString().slice(0, 10)); }}
+                                    className="flex items-center gap-1 text-[10px] text-primary hover:underline"
+                                >
+                                    <PenLine className="h-3 w-3" /> Log time manually
+                                </button>
                             </div>
+
+                            {/* Summary */}
                             {loggedHours > 0 ? (
                                 <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/30 border border-border">
                                     <Clock className="h-5 w-5 text-muted-foreground" />
-                                    <div>
-                                        <p className="text-sm font-semibold">{loggedHours.toFixed(1)}h logged</p>
-                                        <p className="text-[10px] text-muted-foreground">Use the timer to track more time on this task</p>
-                                    </div>
+                                    <p className="text-sm font-semibold">{loggedHours.toFixed(1)}h logged</p>
                                 </div>
-                            ) : (
-                                <div className="border border-dashed border-border rounded-xl py-8 flex flex-col items-center justify-center text-muted-foreground gap-2">
+                            ) : !showLogForm ? (
+                                <div className="border border-dashed border-border rounded-xl py-6 flex flex-col items-center justify-center text-muted-foreground gap-2">
                                     <Clock className="h-6 w-6 opacity-20" />
                                     <p className="text-xs italic">No time logged yet</p>
-                                    {(task.clientId || task.projectId) && (
+                                </div>
+                            ) : null}
+
+                            {/* Manual entry form */}
+                            {showLogForm && (
+                                <div className="border border-border rounded-xl p-4 space-y-3 bg-muted/20">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Hours</label>
+                                            <input
+                                                type="number"
+                                                min="0.1"
+                                                step="0.25"
+                                                placeholder="e.g. 1.5"
+                                                value={logHours}
+                                                onChange={e => setLogHours(e.target.value)}
+                                                className="w-full text-sm bg-background border border-border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Date</label>
+                                            <input
+                                                type="date"
+                                                value={logDate}
+                                                onChange={e => setLogDate(e.target.value)}
+                                                className="w-full text-sm bg-background border border-border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Note (optional)</label>
+                                        <input
+                                            type="text"
+                                            placeholder="What did you work on?"
+                                            value={logNote}
+                                            onChange={e => setLogNote(e.target.value)}
+                                            className="w-full text-sm bg-background border border-border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
+                                        />
+                                    </div>
+                                    <div className="flex items-center gap-2 justify-end">
                                         <button
-                                            onClick={handleTimerClick}
-                                            className="mt-1 text-[11px] text-primary hover:underline"
+                                            onClick={() => setShowLogForm(false)}
+                                            className="text-xs text-muted-foreground hover:text-foreground"
                                         >
-                                            Start timer for this task →
+                                            Cancel
                                         </button>
-                                    )}
+                                        <button
+                                            disabled={!logHours || parseFloat(logHours) <= 0 || submittingLog || !task.clientId}
+                                            onClick={async () => {
+                                                if (!task.clientId || !organization) return;
+                                                setSubmittingLog(true);
+                                                const result = await createTimeLog({
+                                                    organizationId: organization.id,
+                                                    clientId: task.clientId,
+                                                    taskId: task.id,
+                                                    userId: currentUserId,
+                                                    hours: parseFloat(logHours),
+                                                    date: logDate,
+                                                    description: logNote || task.title,
+                                                    billable: true,
+                                                });
+                                                if (result.success) {
+                                                    setLoggedHours(prev => prev + parseFloat(logHours));
+                                                    setShowLogForm(false);
+                                                    setLogHours('');
+                                                    setLogNote('');
+                                                }
+                                                setSubmittingLog(false);
+                                            }}
+                                            className="px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                                        >
+                                            {submittingLog ? 'Saving…' : 'Save Entry'}
+                                        </button>
+                                    </div>
                                 </div>
                             )}
                         </div>
