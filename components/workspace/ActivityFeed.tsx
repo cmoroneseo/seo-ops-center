@@ -113,12 +113,17 @@ function TimeLogRow({ log, onEdit, loggerName }: { log: TimeLog; onEdit: (log: T
                         </button>
                     </div>
                 </div>
-                {hasDescription && (
+                {(hasDescription || log.taskTitle) && (
                     <p className={cn(
                         'text-xs text-muted-foreground mt-0.5 leading-relaxed',
                         !expanded && longDesc && 'truncate'
                     )}>
-                        {log.description}
+                        {hasDescription && log.description}
+                        {log.taskTitle && (
+                            <span className={hasDescription ? 'ml-1.5' : ''}>
+                                {hasDescription && '·'} <span className="italic">via "{log.taskTitle}"</span>
+                            </span>
+                        )}
                     </p>
                 )}
                 {hasNotes && (
@@ -478,7 +483,8 @@ function buildPrintHTML(client: ClientProject, items: ActivityItem[], memberName
         if (item.type === 'time_log') {
             const log = item.data as TimeLog;
             const who = memberNames[log.userId];
-            return `<tr><td>${fmtDate(item.date)}</td><td><strong>${log.hours}h logged</strong>${who ? ` by ${who}` : ''}</td><td>${log.description || 'SEO Work'}</td></tr>`;
+            const desc = [log.description || 'SEO Work', log.taskTitle ? `via "${log.taskTitle}"` : ''].filter(Boolean).join(' · ');
+            return `<tr><td>${fmtDate(item.date)}</td><td><strong>${log.hours}h logged</strong>${who ? ` by ${who}` : ''}</td><td>${desc}</td></tr>`;
         }
         if (item.type === 'note') {
             const note = item.data as ClientNote;

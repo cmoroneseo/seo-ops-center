@@ -624,14 +624,15 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                             onClick={async () => {
                                                 if (!task.clientId || !organization) return;
                                                 setSubmittingLog(true);
+                                                const currentMember = memberships.find(m => m.organizationId === organization.id);
                                                 const result = await createTimeLog({
                                                     organizationId: organization.id,
                                                     clientId: task.clientId,
                                                     taskId: task.id,
-                                                    userId: currentUserId,
+                                                    userId: currentUserId ?? currentMember?.userId,
                                                     hours: parseFloat(logHours),
                                                     date: logDate,
-                                                    description: logNote || task.title,
+                                                    description: logNote || undefined,
                                                     billable: true,
                                                 });
                                                 if (result.success) {

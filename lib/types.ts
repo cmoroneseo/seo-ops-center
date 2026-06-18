@@ -425,6 +425,7 @@ export interface TimeLog {
     clientName?: string;
     projectId?: string;
     taskId?: string;
+    taskTitle?: string;
     userId: string;
     date: string;
     hours: number;

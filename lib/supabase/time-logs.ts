@@ -9,6 +9,7 @@ function rowToTimeLog(row: any): TimeLog {
         clientName: row.clients?.name ?? undefined,
         projectId: row.project_id ?? undefined,
         taskId: row.task_id ?? undefined,
+        taskTitle: row.tasks?.title ?? undefined,
         userId: row.user_id,
         date: row.date,
         hours: Number(row.hours) || 0,
@@ -33,7 +34,7 @@ export async function getTimeLogs(
     const supabase = createClient();
     if (!supabase) return [];
     try {
-        let q = supabase.from('time_logs').select('*, clients(name)').eq('organization_id', organizationId);
+        let q = supabase.from('time_logs').select('*, clients(name), tasks(title)').eq('organization_id', organizationId);
         if (!opts.includeInProgress) q = q.eq('status', 'logged');
         if (opts.clientId) q = q.eq('client_id', opts.clientId);
         if (opts.month) {
