@@ -62,7 +62,7 @@ export interface BasecampTodoFull {
     due_on: string | null;
     completed: boolean;
     description: string;
-    assignees: { name: string }[];
+    assignees: { id: number; name: string }[];
     app_url: string;
 }
 
@@ -205,19 +205,46 @@ export async function createBasecampTodo(
     }
 }
 
-/** Update assignees on an existing Basecamp todo (PATCH). Pass empty array to clear all. */
+/** Fetch a single Basecamp todo (includes current assignees with their IDs). */
+export async function getBasecampTodo(
+    projectId: number | string,
+    todoId: number | string,
+): Promise<BasecampTodoFull | null> {
+    try {
+        const res = await fetch(
+            `${BASE_URL()}/buckets/${projectId}/todos/${todoId}.json`,
+            { headers: getHeaders() },
+        );
+        if (!res.ok) return null;
+        return await res.json() as BasecampTodoFull;
+    } catch (err) {
+        console.error('[Basecamp] getTodo error:', err);
+        return null;
+    }
+}
+
+/**
+ * Add assignees to a Basecamp todo without removing existing ones.
+ * Fetches current assignees first, merges, then PATCHes — so people assigned
+ * directly in Basecamp (e.g. Mike) are never removed by SEO PM changes.
+ */
 export async function updateBasecampTodoAssignees(
     projectId: number | string,
     todoId: number | string,
-    assigneePersonIds: number[],
+    addPersonIds: number[],
 ): Promise<boolean> {
     try {
+        // Fetch current todo to preserve assignees set directly in Basecamp
+        const current = await getBasecampTodo(projectId, todoId);
+        const existingIds = (current?.assignees ?? []).map(a => a.id);
+        const merged = Array.from(new Set([...existingIds, ...addPersonIds]));
+
         const res = await fetch(
             `${BASE_URL()}/buckets/${projectId}/todos/${todoId}.json`,
             {
                 method: 'PATCH',
                 headers: getHeaders(),
-                body: JSON.stringify({ assignee_ids: assigneePersonIds }),
+                body: JSON.stringify({ assignee_ids: merged }),
             },
         );
         return res.ok;
