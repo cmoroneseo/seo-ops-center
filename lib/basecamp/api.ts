@@ -223,6 +223,28 @@ export async function getBasecampTodo(
     }
 }
 
+/** Update the due date on a Basecamp todo. Pass null to clear it. */
+export async function updateBasecampTodoDueDate(
+    projectId: number | string,
+    todoId: number | string,
+    dueOn: string | null,
+): Promise<boolean> {
+    try {
+        const res = await fetch(
+            `${BASE_URL()}/buckets/${projectId}/todos/${todoId}.json`,
+            {
+                method: 'PATCH',
+                headers: getHeaders(),
+                body: JSON.stringify({ due_on: dueOn }),
+            },
+        );
+        return res.ok;
+    } catch (err) {
+        console.error('[Basecamp] updateTodoDueDate error:', err);
+        return false;
+    }
+}
+
 /**
  * Add assignees to a Basecamp todo without removing existing ones.
  * Fetches current assignees first, merges, then PATCHes — so people assigned

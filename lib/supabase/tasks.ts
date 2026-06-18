@@ -481,6 +481,21 @@ export async function updateTask(
             }
         }
 
+        // Basecamp due date sync — push when dueDate changes on a linked task
+        if (patch.dueDate !== undefined && data.basecamp_todo_id && data.basecamp_project_id) {
+            fetch('/api/integrations/basecamp/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'update_todo_due_date',
+                    taskId,
+                    projectId: data.basecamp_project_id,
+                    todoId: data.basecamp_todo_id,
+                    dueOn: patch.dueDate ?? null,
+                }),
+            }).catch(err => console.error('[Basecamp] due date sync error:', err));
+        }
+
         // Basecamp assignee sync — add newly assigned members to Basecamp without removing others
         if (patch.assigneeIds !== undefined && data.basecamp_todo_id && data.basecamp_project_id && current) {
             const prevIds: string[] = current.assignee_ids ?? [];

@@ -9,6 +9,7 @@ import {
     reopenBasecampTodo,
     createBasecampComment,
     updateBasecampTodoAssignees,
+    updateBasecampTodoDueDate,
 } from '@/lib/basecamp/api';
 
 export const dynamic = 'force-dynamic';
@@ -93,6 +94,18 @@ export async function POST(req: NextRequest) {
                 const { projectId, todoId, content } = body;
                 const commentId = await createBasecampComment(projectId, todoId, content);
                 return NextResponse.json({ success: !!commentId, commentId });
+            }
+
+            case 'update_todo_due_date': {
+                const { projectId, todoId, dueOn } = body;
+                const ok = await updateBasecampTodoDueDate(projectId, todoId, dueOn ?? null);
+                if (ok) {
+                    await admin
+                        .from('tasks')
+                        .update({ last_synced_at: new Date().toISOString() })
+                        .eq('id', taskId);
+                }
+                return NextResponse.json({ success: ok });
             }
 
             case 'update_todo_assignees': {
