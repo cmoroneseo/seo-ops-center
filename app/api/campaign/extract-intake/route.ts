@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const SYSTEM_PROMPT = `You are an SEO strategist intake processor. You receive a client questionnaire or intake document and extract structured data for building an SEO campaign plan.
 
@@ -70,7 +69,9 @@ Guidelines:
 - Derive the strategyModel from the overall picture (local-heavy = "local", content-focused = "authority_relevance_trust", etc.).`;
 
 async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
-  const doc = await getDocument({ data: new Uint8Array(buffer), useSystemFonts: true }).promise;
+  // Dynamic import to avoid bundling issues in serverless
+  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer), useSystemFonts: true }).promise;
   const pages: string[] = [];
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);
@@ -85,64 +86,65 @@ async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
 }
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
-  }
-
-  let text: string;
-
-  const contentType = req.headers.get('content-type') ?? '';
-  if (contentType.includes('multipart/form-data')) {
-    const formData = await req.formData();
-    const file = formData.get('file') as File | null;
-    const pastedText = formData.get('text') as string | null;
-
-    if (file && (file.type === 'application/pdf' || file.name.endsWith('.pdf'))) {
-      const buffer = await file.arrayBuffer();
-      text = await extractPdfText(buffer);
-    } else if (file) {
-      text = await file.text();
-    } else if (pastedText) {
-      text = pastedText;
-    } else {
-      return NextResponse.json({ error: 'No file or text provided' }, { status: 400 });
-    }
-  } else {
-    const body = await req.json();
-    text = body.text ?? '';
-  }
-
-  if (!text || text.trim().length < 50) {
-    return NextResponse.json({ error: 'Questionnaire text is too short or missing' }, { status: 400 });
-  }
-
-  const client = new Anthropic({ apiKey });
-
-  const message = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 4096,
-    system: SYSTEM_PROMPT,
-    messages: [
-      {
-        role: 'user',
-        content: `Extract the campaign plan data from this client questionnaire:\n\n${text.slice(0, 15000)}`,
-      },
-    ],
-  });
-
-  const responseText = message.content
-    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-    .map(b => b.text)
-    .join('');
-
   try {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
+    }
+
+    let text: string;
+
+    const contentType = req.headers.get('content-type') ?? '';
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await req.formData();
+      const file = formData.get('file') as File | null;
+      const pastedText = formData.get('text') as string | null;
+
+      if (file && (file.type === 'application/pdf' || file.name.endsWith('.pdf'))) {
+        const buffer = await file.arrayBuffer();
+        text = await extractPdfText(buffer);
+      } else if (file) {
+        text = await file.text();
+      } else if (pastedText) {
+        text = pastedText;
+      } else {
+        return NextResponse.json({ error: 'No file or text provided' }, { status: 400 });
+      }
+    } else {
+      const body = await req.json();
+      text = body.text ?? '';
+    }
+
+    if (!text || text.trim().length < 50) {
+      return NextResponse.json({ error: 'Questionnaire text is too short or missing' }, { status: 400 });
+    }
+
+    const client = new Anthropic({ apiKey });
+
+    const message = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4096,
+      system: SYSTEM_PROMPT,
+      messages: [
+        {
+          role: 'user',
+          content: `Extract the campaign plan data from this client questionnaire:\n\n${text.slice(0, 15000)}`,
+        },
+      ],
+    });
+
+    const responseText = message.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map(b => b.text)
+      .join('');
+
     const cleaned = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(cleaned);
     return NextResponse.json(parsed);
-  } catch {
+  } catch (err: any) {
+    console.error('extract-intake error:', err);
     return NextResponse.json(
-      { error: 'Failed to parse AI response', raw: responseText },
+      { error: err.message || 'Internal server error' },
       { status: 500 },
     );
   }
