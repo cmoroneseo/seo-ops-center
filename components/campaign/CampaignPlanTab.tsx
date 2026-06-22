@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
     Target, BarChart3, Layers, Clock, ShieldCheck,
     Plus, ChevronDown, ChevronRight, Trash2, Check, X,
-    FileText, Send, CheckCircle2, AlertTriangle, Sparkles,
+    FileText, Send, CheckCircle2, AlertTriangle, Sparkles, Pencil,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -520,24 +520,55 @@ function InlineSelect({ value, onChange, options }: {
 // Goals Section
 // ===========================================================================
 
+const GOAL_STATUSES: { value: string; label: string }[] = [
+    { value: 'active', label: 'Active' },
+    { value: 'achieved', label: 'Achieved' },
+    { value: 'at_risk', label: 'At Risk' },
+    { value: 'dropped', label: 'Dropped' },
+];
+
 function GoalsSection({ plan, organizationId, clientId, expanded, onToggle, onRefresh }: {
     plan: CampaignPlan; organizationId: string; clientId: string;
     expanded: boolean; onToggle: () => void; onRefresh: () => void;
 }) {
     const goals = plan.goals ?? [];
     const [adding, setAdding] = useState(false);
-    const [newTitle, setNewTitle] = useState('');
-    const [newCategory, setNewCategory] = useState('');
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [form, setForm] = useState({ title: '', category: '', description: '', status: 'active' });
+
+    const startEdit = (g: CampaignGoal) => {
+        setEditingId(g.id);
+        setForm({ title: g.title, category: g.category ?? '', description: g.description ?? '', status: g.status });
+    };
+
+    const handleSave = async (g: CampaignGoal) => {
+        if (!form.title.trim()) return;
+        await upsertCampaignGoal({
+            id: g.id, campaignPlanId: plan.id, organizationId, clientId,
+            title: form.title.trim(), category: form.category || undefined,
+            description: form.description.trim() || undefined,
+            status: form.status || 'active', sortOrder: g.sortOrder,
+        });
+        setEditingId(null);
+        onRefresh();
+    };
 
     const handleAdd = async () => {
-        if (!newTitle.trim()) return;
+        if (!form.title.trim()) return;
         await upsertCampaignGoal({
             campaignPlanId: plan.id, organizationId, clientId,
-            title: newTitle.trim(), category: newCategory || undefined,
+            title: form.title.trim(), category: form.category || undefined,
+            description: form.description.trim() || undefined,
             sortOrder: goals.length,
         });
-        setNewTitle(''); setNewCategory(''); setAdding(false);
+        setForm({ title: '', category: '', description: '', status: 'active' });
+        setAdding(false);
         onRefresh();
+    };
+
+    const startAdd = () => {
+        setForm({ title: '', category: '', description: '', status: 'active' });
+        setAdding(true);
     };
 
     const handleDelete = async (id: string) => {
@@ -548,13 +579,26 @@ function GoalsSection({ plan, organizationId, clientId, expanded, onToggle, onRe
     return (
         <SectionCard
             icon={Target} title="Goals" count={goals.length}
-            expanded={expanded} onToggle={onToggle} onAdd={() => setAdding(true)}
+            expanded={expanded} onToggle={onToggle} onAdd={startAdd}
         >
             {goals.length === 0 && !adding && (
                 <p className="text-sm text-muted-foreground italic">No goals defined yet.</p>
             )}
-            {goals.map(g => (
-                <div key={g.id} className="flex items-start justify-between p-3 rounded-lg bg-muted/30 border border-border/30 group">
+            {goals.map(g => editingId === g.id ? (
+                <div key={g.id} className="space-y-2 p-3 rounded-lg bg-muted/20 border border-primary/30">
+                    <div className="flex items-center gap-2">
+                        <InlineInput value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="Goal title…" className="flex-1" />
+                        <InlineSelect value={form.category} onChange={v => setForm(f => ({ ...f, category: v }))} options={GOAL_CATEGORIES} />
+                        <InlineSelect value={form.status} onChange={v => setForm(f => ({ ...f, status: v }))} options={GOAL_STATUSES} />
+                    </div>
+                    <InlineInput value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="Description (optional)…" />
+                    <div className="flex justify-end gap-2">
+                        <button onClick={() => handleSave(g)} className="text-green-500 hover:text-green-400 p-1"><Check className="h-4 w-4" /></button>
+                        <button onClick={() => setEditingId(null)} className="text-muted-foreground hover:text-foreground p-1"><X className="h-4 w-4" /></button>
+                    </div>
+                </div>
+            ) : (
+                <div key={g.id} className="flex items-start justify-between p-3 rounded-lg bg-muted/30 border border-border/30 group cursor-pointer hover:border-border/60" onClick={() => startEdit(g)}>
                     <div className="space-y-1 flex-1">
                         <div className="flex items-center gap-2">
                             <span className="font-medium text-sm">{g.title}</span>
@@ -575,20 +619,28 @@ function GoalsSection({ plan, organizationId, clientId, expanded, onToggle, onRe
                         </div>
                         {g.description && <p className="text-xs text-muted-foreground">{g.description}</p>}
                     </div>
-                    <button
-                        onClick={() => handleDelete(g.id)}
-                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 transition-all p-1"
-                    >
-                        <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                        <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 text-muted-foreground transition-all" />
+                        <button
+                            onClick={(e) => { e.stopPropagation(); handleDelete(g.id); }}
+                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 transition-all p-1"
+                        >
+                            <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                    </div>
                 </div>
             ))}
             {adding && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/20 border border-dashed border-border">
-                    <InlineInput value={newTitle} onChange={setNewTitle} placeholder="Goal title…" className="flex-1" />
-                    <InlineSelect value={newCategory} onChange={setNewCategory} options={GOAL_CATEGORIES} />
-                    <button onClick={handleAdd} className="text-green-500 hover:text-green-400 p-1"><Check className="h-4 w-4" /></button>
-                    <button onClick={() => { setAdding(false); setNewTitle(''); }} className="text-muted-foreground hover:text-foreground p-1"><X className="h-4 w-4" /></button>
+                <div className="space-y-2 p-3 rounded-lg bg-muted/20 border border-dashed border-border">
+                    <div className="flex items-center gap-2">
+                        <InlineInput value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="Goal title…" className="flex-1" />
+                        <InlineSelect value={form.category} onChange={v => setForm(f => ({ ...f, category: v }))} options={GOAL_CATEGORIES} />
+                    </div>
+                    <InlineInput value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="Description (optional)…" />
+                    <div className="flex justify-end gap-2">
+                        <button onClick={handleAdd} className="text-green-500 hover:text-green-400 p-1"><Check className="h-4 w-4" /></button>
+                        <button onClick={() => { setAdding(false); }} className="text-muted-foreground hover:text-foreground p-1"><X className="h-4 w-4" /></button>
+                    </div>
                 </div>
             )}
         </SectionCard>
@@ -599,28 +651,81 @@ function GoalsSection({ plan, organizationId, clientId, expanded, onToggle, onRe
 // KPIs Section
 // ===========================================================================
 
+function KpiEditForm({ form, setForm, onSave, onCancel }: {
+    form: { metricName: string; kpiGroup: string; source: string; baselineValue: string; targetValue: string; confidence: string };
+    setForm: (fn: (f: typeof form) => typeof form) => void;
+    onSave: () => void; onCancel: () => void;
+}) {
+    return (
+        <div className="space-y-2 p-3 rounded-lg bg-muted/20 border border-primary/30">
+            <div className="flex items-center gap-2">
+                <InlineInput value={form.metricName} onChange={v => setForm(f => ({ ...f, metricName: v }))} placeholder="Metric name…" className="flex-1" />
+                <InlineSelect value={form.kpiGroup} onChange={v => setForm(f => ({ ...f, kpiGroup: v }))} options={KPI_GROUPS} />
+                <InlineSelect value={form.source} onChange={v => setForm(f => ({ ...f, source: v }))} options={KPI_SOURCES} />
+            </div>
+            <div className="flex items-center gap-2">
+                <input type="number" value={form.baselineValue} onChange={e => setForm(f => ({ ...f, baselineValue: e.target.value }))} placeholder="Baseline" className="bg-transparent border border-border/50 rounded-md text-xs py-1 px-2 w-24 outline-none focus:border-primary" />
+                <input type="number" value={form.targetValue} onChange={e => setForm(f => ({ ...f, targetValue: e.target.value }))} placeholder="Target" className="bg-transparent border border-border/50 rounded-md text-xs py-1 px-2 w-24 outline-none focus:border-primary" />
+                <InlineSelect value={form.confidence} onChange={v => setForm(f => ({ ...f, confidence: v }))} options={CONFIDENCE_OPTIONS} />
+                <div className="flex-1" />
+                <button onClick={onSave} className="text-green-500 hover:text-green-400 p-1"><Check className="h-4 w-4" /></button>
+                <button onClick={onCancel} className="text-muted-foreground hover:text-foreground p-1"><X className="h-4 w-4" /></button>
+            </div>
+        </div>
+    );
+}
+
 function KpisSection({ plan, organizationId, clientId, expanded, onToggle, onRefresh }: {
     plan: CampaignPlan; organizationId: string; clientId: string;
     expanded: boolean; onToggle: () => void; onRefresh: () => void;
 }) {
     const kpis = plan.kpis ?? [];
     const [adding, setAdding] = useState(false);
-    const [form, setForm] = useState({ metricName: '', kpiGroup: '', source: '', baselineValue: '', targetValue: '' });
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [form, setForm] = useState({ metricName: '', kpiGroup: '', source: '', baselineValue: '', targetValue: '', confidence: 'medium' });
+
+    const startEdit = (k: CampaignKpi) => {
+        setEditingId(k.id);
+        setForm({
+            metricName: k.metricName, kpiGroup: k.kpiGroup ?? '', source: k.source ?? '',
+            baselineValue: k.baselineValue != null ? String(k.baselineValue) : '',
+            targetValue: k.targetValue != null ? String(k.targetValue) : '',
+            confidence: k.confidence ?? 'medium',
+        });
+    };
+
+    const handleSave = async (k: CampaignKpi) => {
+        if (!form.metricName.trim()) return;
+        await upsertCampaignKpi({
+            id: k.id, campaignPlanId: plan.id, organizationId, clientId,
+            metricName: form.metricName.trim(),
+            kpiGroup: form.kpiGroup || undefined, source: form.source || undefined,
+            baselineValue: form.baselineValue ? Number(form.baselineValue) : undefined,
+            targetValue: form.targetValue ? Number(form.targetValue) : undefined,
+            confidence: form.confidence || undefined, sortOrder: k.sortOrder,
+        });
+        setEditingId(null);
+        onRefresh();
+    };
 
     const handleAdd = async () => {
         if (!form.metricName.trim()) return;
         await upsertCampaignKpi({
             campaignPlanId: plan.id, organizationId, clientId,
             metricName: form.metricName.trim(),
-            kpiGroup: form.kpiGroup || undefined,
-            source: form.source || undefined,
+            kpiGroup: form.kpiGroup || undefined, source: form.source || undefined,
             baselineValue: form.baselineValue ? Number(form.baselineValue) : undefined,
             targetValue: form.targetValue ? Number(form.targetValue) : undefined,
-            sortOrder: kpis.length,
+            confidence: form.confidence || undefined, sortOrder: kpis.length,
         });
-        setForm({ metricName: '', kpiGroup: '', source: '', baselineValue: '', targetValue: '' });
+        setForm({ metricName: '', kpiGroup: '', source: '', baselineValue: '', targetValue: '', confidence: 'medium' });
         setAdding(false);
         onRefresh();
+    };
+
+    const startAdd = () => {
+        setForm({ metricName: '', kpiGroup: '', source: '', baselineValue: '', targetValue: '', confidence: 'medium' });
+        setAdding(true);
     };
 
     const handleDelete = async (id: string) => {
@@ -631,14 +736,16 @@ function KpisSection({ plan, organizationId, clientId, expanded, onToggle, onRef
     return (
         <SectionCard
             icon={BarChart3} title="KPIs" count={kpis.length}
-            expanded={expanded} onToggle={onToggle} onAdd={() => setAdding(true)}
+            expanded={expanded} onToggle={onToggle} onAdd={startAdd}
         >
             {kpis.length === 0 && !adding && (
                 <p className="text-sm text-muted-foreground italic">No KPIs defined yet.</p>
             )}
             <div className="space-y-2">
-                {kpis.map(k => (
-                    <div key={k.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/30 group">
+                {kpis.map(k => editingId === k.id ? (
+                    <KpiEditForm key={k.id} form={form} setForm={setForm} onSave={() => handleSave(k)} onCancel={() => setEditingId(null)} />
+                ) : (
+                    <div key={k.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/30 group cursor-pointer hover:border-border/60" onClick={() => startEdit(k)}>
                         <div className="flex items-center gap-3 flex-1 min-w-0">
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
@@ -665,30 +772,20 @@ function KpisSection({ plan, organizationId, clientId, expanded, onToggle, onRef
                                 )}
                             </div>
                         </div>
-                        <button
-                            onClick={() => handleDelete(k.id)}
-                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 transition-all p-1 ml-2"
-                        >
-                            <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                            <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 text-muted-foreground transition-all" />
+                            <button
+                                onClick={(e) => { e.stopPropagation(); handleDelete(k.id); }}
+                                className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 transition-all p-1 ml-1"
+                            >
+                                <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                        </div>
                     </div>
                 ))}
             </div>
             {adding && (
-                <div className="space-y-2 p-3 rounded-lg bg-muted/20 border border-dashed border-border">
-                    <div className="flex items-center gap-2">
-                        <InlineInput value={form.metricName} onChange={v => setForm(f => ({ ...f, metricName: v }))} placeholder="Metric name…" className="flex-1" />
-                        <InlineSelect value={form.kpiGroup} onChange={v => setForm(f => ({ ...f, kpiGroup: v }))} options={KPI_GROUPS} />
-                        <InlineSelect value={form.source} onChange={v => setForm(f => ({ ...f, source: v }))} options={KPI_SOURCES} />
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <input type="number" value={form.baselineValue} onChange={e => setForm(f => ({ ...f, baselineValue: e.target.value }))} placeholder="Baseline" className="bg-transparent border border-border/50 rounded-md text-xs py-1 px-2 w-24 outline-none focus:border-primary" />
-                        <input type="number" value={form.targetValue} onChange={e => setForm(f => ({ ...f, targetValue: e.target.value }))} placeholder="Target" className="bg-transparent border border-border/50 rounded-md text-xs py-1 px-2 w-24 outline-none focus:border-primary" />
-                        <div className="flex-1" />
-                        <button onClick={handleAdd} className="text-green-500 hover:text-green-400 p-1"><Check className="h-4 w-4" /></button>
-                        <button onClick={() => setAdding(false)} className="text-muted-foreground hover:text-foreground p-1"><X className="h-4 w-4" /></button>
-                    </div>
-                </div>
+                <KpiEditForm form={form} setForm={setForm} onSave={handleAdd} onCancel={() => setAdding(false)} />
             )}
         </SectionCard>
     );
@@ -705,24 +802,76 @@ const WS_STATUS_COLORS: Record<WorkstreamStatus, string> = {
     completed: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
 };
 
+function WsEditForm({ form, setForm, onSave, onCancel }: {
+    form: { name: string; category: string; currentState: string; targetState: string; risks: string };
+    setForm: (fn: (f: typeof form) => typeof form) => void;
+    onSave: () => void; onCancel: () => void;
+}) {
+    return (
+        <div className="space-y-2 p-3 rounded-lg bg-muted/20 border border-primary/30">
+            <div className="flex items-center gap-2">
+                <InlineInput value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="Workstream name…" className="flex-1" />
+                <InlineSelect value={form.category} onChange={v => setForm(f => ({ ...f, category: v }))} options={WORKSTREAM_CATEGORIES} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+                <InlineInput value={form.currentState} onChange={v => setForm(f => ({ ...f, currentState: v }))} placeholder="Current state…" />
+                <InlineInput value={form.targetState} onChange={v => setForm(f => ({ ...f, targetState: v }))} placeholder="Target state…" />
+            </div>
+            <InlineInput value={form.risks} onChange={v => setForm(f => ({ ...f, risks: v }))} placeholder="Risks (optional)…" />
+            <div className="flex justify-end gap-2">
+                <button onClick={onSave} className="text-green-500 hover:text-green-400 p-1"><Check className="h-4 w-4" /></button>
+                <button onClick={onCancel} className="text-muted-foreground hover:text-foreground p-1"><X className="h-4 w-4" /></button>
+            </div>
+        </div>
+    );
+}
+
 function WorkstreamsSection({ plan, organizationId, clientId, expanded, onToggle, onRefresh }: {
     plan: CampaignPlan; organizationId: string; clientId: string;
     expanded: boolean; onToggle: () => void; onRefresh: () => void;
 }) {
     const workstreams = plan.workstreams ?? [];
     const [adding, setAdding] = useState(false);
-    const [newName, setNewName] = useState('');
-    const [newCategory, setNewCategory] = useState('');
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [form, setForm] = useState({ name: '', category: '', currentState: '', targetState: '', risks: '' });
+
+    const startEdit = (ws: CampaignWorkstream) => {
+        setEditingId(ws.id);
+        setForm({ name: ws.name, category: ws.category ?? '', currentState: ws.currentState ?? '', targetState: ws.targetState ?? '', risks: ws.risks ?? '' });
+    };
+
+    const handleSave = async (ws: CampaignWorkstream) => {
+        if (!form.name.trim()) return;
+        await upsertCampaignWorkstream({
+            id: ws.id, campaignPlanId: plan.id, organizationId, clientId,
+            name: form.name.trim(), category: form.category || undefined,
+            currentState: form.currentState.trim() || undefined,
+            targetState: form.targetState.trim() || undefined,
+            risks: form.risks.trim() || undefined,
+            status: ws.status, sortOrder: ws.sortOrder,
+        });
+        setEditingId(null);
+        onRefresh();
+    };
 
     const handleAdd = async () => {
-        if (!newName.trim()) return;
+        if (!form.name.trim()) return;
         await upsertCampaignWorkstream({
             campaignPlanId: plan.id, organizationId, clientId,
-            name: newName.trim(), category: newCategory || undefined,
+            name: form.name.trim(), category: form.category || undefined,
+            currentState: form.currentState.trim() || undefined,
+            targetState: form.targetState.trim() || undefined,
+            risks: form.risks.trim() || undefined,
             sortOrder: workstreams.length,
         });
-        setNewName(''); setNewCategory(''); setAdding(false);
+        setForm({ name: '', category: '', currentState: '', targetState: '', risks: '' });
+        setAdding(false);
         onRefresh();
+    };
+
+    const startAdd = () => {
+        setForm({ name: '', category: '', currentState: '', targetState: '', risks: '' });
+        setAdding(true);
     };
 
     const handleStatusChange = async (ws: CampaignWorkstream, status: string) => {
@@ -743,14 +892,16 @@ function WorkstreamsSection({ plan, organizationId, clientId, expanded, onToggle
     return (
         <SectionCard
             icon={Layers} title="Workstreams" count={workstreams.length}
-            expanded={expanded} onToggle={onToggle} onAdd={() => setAdding(true)}
+            expanded={expanded} onToggle={onToggle} onAdd={startAdd}
         >
             {workstreams.length === 0 && !adding && (
                 <p className="text-sm text-muted-foreground italic">No workstreams defined yet.</p>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {workstreams.map(ws => (
-                    <div key={ws.id} className="p-3 rounded-lg bg-muted/30 border border-border/30 group space-y-2">
+                {workstreams.map(ws => editingId === ws.id ? (
+                    <WsEditForm key={ws.id} form={form} setForm={setForm} onSave={() => handleSave(ws)} onCancel={() => setEditingId(null)} />
+                ) : (
+                    <div key={ws.id} className="p-3 rounded-lg bg-muted/30 border border-border/30 group space-y-2 cursor-pointer hover:border-border/60" onClick={() => startEdit(ws)}>
                         <div className="flex items-start justify-between">
                             <div>
                                 <div className="font-medium text-sm">{ws.name}</div>
@@ -763,7 +914,8 @@ function WorkstreamsSection({ plan, organizationId, clientId, expanded, onToggle
                             <div className="flex items-center gap-1">
                                 <select
                                     value={ws.status}
-                                    onChange={(e) => handleStatusChange(ws, e.target.value)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => { e.stopPropagation(); handleStatusChange(ws, e.target.value); }}
                                     className={cn(
                                         'text-[10px] font-medium rounded-full px-2 py-0.5 border outline-none cursor-pointer appearance-none',
                                         WS_STATUS_COLORS[ws.status],
@@ -774,8 +926,9 @@ function WorkstreamsSection({ plan, organizationId, clientId, expanded, onToggle
                                     <option value="paused">Paused</option>
                                     <option value="completed">Completed</option>
                                 </select>
+                                <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 text-muted-foreground transition-all" />
                                 <button
-                                    onClick={() => handleDelete(ws.id)}
+                                    onClick={(e) => { e.stopPropagation(); handleDelete(ws.id); }}
                                     className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 transition-all p-1"
                                 >
                                     <Trash2 className="h-3 w-3" />
@@ -798,12 +951,7 @@ function WorkstreamsSection({ plan, organizationId, clientId, expanded, onToggle
                 ))}
             </div>
             {adding && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/20 border border-dashed border-border">
-                    <InlineInput value={newName} onChange={setNewName} placeholder="Workstream name…" className="flex-1" />
-                    <InlineSelect value={newCategory} onChange={setNewCategory} options={WORKSTREAM_CATEGORIES} />
-                    <button onClick={handleAdd} className="text-green-500 hover:text-green-400 p-1"><Check className="h-4 w-4" /></button>
-                    <button onClick={() => { setAdding(false); setNewName(''); }} className="text-muted-foreground hover:text-foreground p-1"><X className="h-4 w-4" /></button>
-                </div>
+                <WsEditForm form={form} setForm={setForm} onSave={handleAdd} onCancel={() => setAdding(false)} />
             )}
         </SectionCard>
     );
@@ -820,24 +968,74 @@ const PHASE_STATUS_COLORS: Record<PhaseStatus, string> = {
     skipped: 'bg-gray-500/10 text-gray-300 border-gray-500/20',
 };
 
+function PhaseEditForm({ form, setForm, onSave, onCancel }: {
+    form: { name: string; objective: string; exitCriteria: string; startDate: string; endDate: string };
+    setForm: (fn: (f: typeof form) => typeof form) => void;
+    onSave: () => void; onCancel: () => void;
+}) {
+    return (
+        <div className="space-y-2 p-3 rounded-lg bg-muted/20 border border-primary/30">
+            <InlineInput value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="Phase name…" />
+            <InlineInput value={form.objective} onChange={v => setForm(f => ({ ...f, objective: v }))} placeholder="Objective…" />
+            <InlineInput value={form.exitCriteria} onChange={v => setForm(f => ({ ...f, exitCriteria: v }))} placeholder="Exit criteria (optional)…" />
+            <div className="flex items-center gap-2">
+                <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} className="bg-transparent border border-border/50 rounded-md text-xs py-1 px-2 outline-none focus:border-primary" />
+                <span className="text-xs text-muted-foreground">to</span>
+                <input type="date" value={form.endDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} className="bg-transparent border border-border/50 rounded-md text-xs py-1 px-2 outline-none focus:border-primary" />
+                <div className="flex-1" />
+                <button onClick={onSave} className="text-green-500 hover:text-green-400 p-1"><Check className="h-4 w-4" /></button>
+                <button onClick={onCancel} className="text-muted-foreground hover:text-foreground p-1"><X className="h-4 w-4" /></button>
+            </div>
+        </div>
+    );
+}
+
 function TimelineSection({ plan, organizationId, clientId, expanded, onToggle, onRefresh }: {
     plan: CampaignPlan; organizationId: string; clientId: string;
     expanded: boolean; onToggle: () => void; onRefresh: () => void;
 }) {
     const phases = plan.phases ?? [];
     const [adding, setAdding] = useState(false);
-    const [newName, setNewName] = useState('');
-    const [newObjective, setNewObjective] = useState('');
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [form, setForm] = useState({ name: '', objective: '', exitCriteria: '', startDate: '', endDate: '' });
+
+    const startEdit = (ph: CampaignPhase) => {
+        setEditingId(ph.id);
+        setForm({ name: ph.name, objective: ph.objective ?? '', exitCriteria: ph.exitCriteria ?? '', startDate: ph.startDate ?? '', endDate: ph.endDate ?? '' });
+    };
+
+    const handleSave = async (ph: CampaignPhase) => {
+        if (!form.name.trim()) return;
+        await upsertCampaignPhase({
+            id: ph.id, campaignPlanId: plan.id, organizationId, clientId,
+            name: form.name.trim(), phaseOrder: ph.phaseOrder, status: ph.status,
+            objective: form.objective.trim() || undefined,
+            exitCriteria: form.exitCriteria.trim() || undefined,
+            startDate: form.startDate || undefined,
+            endDate: form.endDate || undefined,
+        });
+        setEditingId(null);
+        onRefresh();
+    };
 
     const handleAdd = async () => {
-        if (!newName.trim()) return;
+        if (!form.name.trim()) return;
         await upsertCampaignPhase({
             campaignPlanId: plan.id, organizationId, clientId,
-            name: newName.trim(), objective: newObjective.trim() || undefined,
-            phaseOrder: phases.length,
+            name: form.name.trim(), phaseOrder: phases.length,
+            objective: form.objective.trim() || undefined,
+            exitCriteria: form.exitCriteria.trim() || undefined,
+            startDate: form.startDate || undefined,
+            endDate: form.endDate || undefined,
         });
-        setNewName(''); setNewObjective(''); setAdding(false);
+        setForm({ name: '', objective: '', exitCriteria: '', startDate: '', endDate: '' });
+        setAdding(false);
         onRefresh();
+    };
+
+    const startAdd = () => {
+        setForm({ name: '', objective: '', exitCriteria: '', startDate: '', endDate: '' });
+        setAdding(true);
     };
 
     const handleStatusChange = async (ph: CampaignPhase, status: string) => {
@@ -859,7 +1057,7 @@ function TimelineSection({ plan, organizationId, clientId, expanded, onToggle, o
     return (
         <SectionCard
             icon={Clock} title="Timeline" count={phases.length}
-            expanded={expanded} onToggle={onToggle} onAdd={() => setAdding(true)}
+            expanded={expanded} onToggle={onToggle} onAdd={startAdd}
         >
             {phases.length === 0 && !adding && (
                 <p className="text-sm text-muted-foreground italic">No phases defined yet.</p>
@@ -867,7 +1065,6 @@ function TimelineSection({ plan, organizationId, clientId, expanded, onToggle, o
             <div className="space-y-2">
                 {phases.map((ph, idx) => (
                     <div key={ph.id} className="flex items-start gap-3 group">
-                        {/* Timeline connector */}
                         <div className="flex flex-col items-center pt-1">
                             <div className={cn(
                                 'w-6 h-6 rounded-full border-2 flex items-center justify-center text-[10px] font-bold',
@@ -879,56 +1076,56 @@ function TimelineSection({ plan, organizationId, clientId, expanded, onToggle, o
                             </div>
                             {idx < phases.length - 1 && <div className="w-px h-full min-h-[2rem] bg-border/50 mt-1" />}
                         </div>
-                        {/* Phase card */}
-                        <div className="flex-1 p-3 rounded-lg bg-muted/30 border border-border/30 space-y-1">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <span className="font-medium text-sm">{ph.name}</span>
-                                    <select
-                                        value={ph.status}
-                                        onChange={(e) => handleStatusChange(ph, e.target.value)}
-                                        className={cn(
-                                            'text-[10px] font-medium rounded-full px-2 py-0.5 border outline-none cursor-pointer appearance-none',
-                                            PHASE_STATUS_COLORS[ph.status],
-                                        )}
-                                    >
-                                        <option value="upcoming">Upcoming</option>
-                                        <option value="active">Active</option>
-                                        <option value="completed">Completed</option>
-                                        <option value="skipped">Skipped</option>
-                                    </select>
-                                </div>
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                    {ph.startDate && <span>{new Date(ph.startDate + 'T00:00:00').toLocaleDateString()}</span>}
-                                    {ph.startDate && ph.endDate && <span>→</span>}
-                                    {ph.endDate && <span>{new Date(ph.endDate + 'T00:00:00').toLocaleDateString()}</span>}
-                                    <button
-                                        onClick={() => handleDelete(ph.id)}
-                                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 transition-all p-1"
-                                    >
-                                        <Trash2 className="h-3 w-3" />
-                                    </button>
-                                </div>
+                        {editingId === ph.id ? (
+                            <div className="flex-1">
+                                <PhaseEditForm form={form} setForm={setForm} onSave={() => handleSave(ph)} onCancel={() => setEditingId(null)} />
                             </div>
-                            {ph.objective && <p className="text-xs text-muted-foreground">{ph.objective}</p>}
-                            {ph.exitCriteria && (
-                                <div className="text-xs text-muted-foreground">
-                                    <span className="font-medium">Exit criteria:</span> {ph.exitCriteria}
+                        ) : (
+                            <div className="flex-1 p-3 rounded-lg bg-muted/30 border border-border/30 space-y-1 cursor-pointer hover:border-border/60" onClick={() => startEdit(ph)}>
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-medium text-sm">{ph.name}</span>
+                                        <select
+                                            value={ph.status}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={(e) => { e.stopPropagation(); handleStatusChange(ph, e.target.value); }}
+                                            className={cn(
+                                                'text-[10px] font-medium rounded-full px-2 py-0.5 border outline-none cursor-pointer appearance-none',
+                                                PHASE_STATUS_COLORS[ph.status],
+                                            )}
+                                        >
+                                            <option value="upcoming">Upcoming</option>
+                                            <option value="active">Active</option>
+                                            <option value="completed">Completed</option>
+                                            <option value="skipped">Skipped</option>
+                                        </select>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                        {ph.startDate && <span>{new Date(ph.startDate + 'T00:00:00').toLocaleDateString()}</span>}
+                                        {ph.startDate && ph.endDate && <span>→</span>}
+                                        {ph.endDate && <span>{new Date(ph.endDate + 'T00:00:00').toLocaleDateString()}</span>}
+                                        <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 text-muted-foreground transition-all" />
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleDelete(ph.id); }}
+                                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 transition-all p-1"
+                                        >
+                                            <Trash2 className="h-3 w-3" />
+                                        </button>
+                                    </div>
                                 </div>
-                            )}
-                        </div>
+                                {ph.objective && <p className="text-xs text-muted-foreground">{ph.objective}</p>}
+                                {ph.exitCriteria && (
+                                    <div className="text-xs text-muted-foreground">
+                                        <span className="font-medium">Exit criteria:</span> {ph.exitCriteria}
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 ))}
             </div>
             {adding && (
-                <div className="space-y-2 p-3 rounded-lg bg-muted/20 border border-dashed border-border">
-                    <InlineInput value={newName} onChange={setNewName} placeholder="Phase name…" />
-                    <InlineInput value={newObjective} onChange={setNewObjective} placeholder="Objective (optional)…" />
-                    <div className="flex justify-end gap-2">
-                        <button onClick={handleAdd} className="text-green-500 hover:text-green-400 p-1"><Check className="h-4 w-4" /></button>
-                        <button onClick={() => { setAdding(false); setNewName(''); setNewObjective(''); }} className="text-muted-foreground hover:text-foreground p-1"><X className="h-4 w-4" /></button>
-                    </div>
-                </div>
+                <PhaseEditForm form={form} setForm={setForm} onSave={handleAdd} onCancel={() => { setAdding(false); }} />
             )}
         </SectionCard>
     );
@@ -938,27 +1135,88 @@ function TimelineSection({ plan, organizationId, clientId, expanded, onToggle, o
 // Expectations Section
 // ===========================================================================
 
+function ExpEditForm({ form, setForm, onSave, onCancel }: {
+    form: { statement: string; type: string; targetWindowDays: string; confidence: string; preconditions: string; escalationRule: string };
+    setForm: (fn: (f: typeof form) => typeof form) => void;
+    onSave: () => void; onCancel: () => void;
+}) {
+    return (
+        <div className="space-y-2 p-3 rounded-lg bg-muted/20 border border-primary/30">
+            <textarea
+                value={form.statement}
+                onChange={(e) => setForm(f => ({ ...f, statement: e.target.value }))}
+                placeholder="Expectation statement…"
+                rows={2}
+                className="w-full bg-transparent border border-border/50 rounded-md text-sm p-2 outline-none focus:border-primary resize-none"
+            />
+            <div className="flex items-center gap-2">
+                <InlineSelect value={form.type} onChange={v => setForm(f => ({ ...f, type: v }))} options={EXPECTATION_TYPES} />
+                <input type="number" value={form.targetWindowDays} onChange={e => setForm(f => ({ ...f, targetWindowDays: e.target.value }))} placeholder="Days" className="bg-transparent border border-border/50 rounded-md text-xs py-1 px-2 w-20 outline-none focus:border-primary" />
+                <InlineSelect value={form.confidence} onChange={v => setForm(f => ({ ...f, confidence: v }))} options={CONFIDENCE_OPTIONS} />
+            </div>
+            <InlineInput value={form.preconditions} onChange={v => setForm(f => ({ ...f, preconditions: v }))} placeholder="Preconditions (optional)…" />
+            <InlineInput value={form.escalationRule} onChange={v => setForm(f => ({ ...f, escalationRule: v }))} placeholder="Escalation rule (optional)…" />
+            <div className="flex justify-end gap-2">
+                <button onClick={onSave} className="text-green-500 hover:text-green-400 p-1"><Check className="h-4 w-4" /></button>
+                <button onClick={onCancel} className="text-muted-foreground hover:text-foreground p-1"><X className="h-4 w-4" /></button>
+            </div>
+        </div>
+    );
+}
+
 function ExpectationsSection({ plan, organizationId, clientId, expanded, onToggle, onRefresh }: {
     plan: CampaignPlan; organizationId: string; clientId: string;
     expanded: boolean; onToggle: () => void; onRefresh: () => void;
 }) {
     const expectations = plan.expectations ?? [];
     const [adding, setAdding] = useState(false);
-    const [form, setForm] = useState({ statement: '', type: '', targetWindowDays: '', confidence: 'medium' });
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [form, setForm] = useState({ statement: '', type: '', targetWindowDays: '', confidence: 'medium', preconditions: '', escalationRule: '' });
+
+    const startEdit = (exp: CampaignExpectation) => {
+        setEditingId(exp.id);
+        setForm({
+            statement: exp.statement, type: exp.type ?? '',
+            targetWindowDays: exp.targetWindowDays != null ? String(exp.targetWindowDays) : '',
+            confidence: exp.confidence ?? 'medium',
+            preconditions: exp.preconditions ?? '', escalationRule: exp.escalationRule ?? '',
+        });
+    };
+
+    const handleSave = async (exp: CampaignExpectation) => {
+        if (!form.statement.trim()) return;
+        await upsertCampaignExpectation({
+            id: exp.id, campaignPlanId: plan.id, organizationId, clientId,
+            statement: form.statement.trim(), type: form.type || undefined,
+            targetWindowDays: form.targetWindowDays ? Number(form.targetWindowDays) : undefined,
+            confidence: form.confidence || undefined,
+            preconditions: form.preconditions.trim() || undefined,
+            escalationRule: form.escalationRule.trim() || undefined,
+            sortOrder: exp.sortOrder,
+        });
+        setEditingId(null);
+        onRefresh();
+    };
 
     const handleAdd = async () => {
         if (!form.statement.trim()) return;
         await upsertCampaignExpectation({
             campaignPlanId: plan.id, organizationId, clientId,
-            statement: form.statement.trim(),
-            type: form.type || undefined,
+            statement: form.statement.trim(), type: form.type || undefined,
             targetWindowDays: form.targetWindowDays ? Number(form.targetWindowDays) : undefined,
             confidence: form.confidence || undefined,
+            preconditions: form.preconditions.trim() || undefined,
+            escalationRule: form.escalationRule.trim() || undefined,
             sortOrder: expectations.length,
         });
-        setForm({ statement: '', type: '', targetWindowDays: '', confidence: 'medium' });
+        setForm({ statement: '', type: '', targetWindowDays: '', confidence: 'medium', preconditions: '', escalationRule: '' });
         setAdding(false);
         onRefresh();
+    };
+
+    const startAdd = () => {
+        setForm({ statement: '', type: '', targetWindowDays: '', confidence: 'medium', preconditions: '', escalationRule: '' });
+        setAdding(true);
     };
 
     const handleDelete = async (id: string) => {
@@ -975,13 +1233,15 @@ function ExpectationsSection({ plan, organizationId, clientId, expanded, onToggl
     return (
         <SectionCard
             icon={ShieldCheck} title="Expectations" count={expectations.length}
-            expanded={expanded} onToggle={onToggle} onAdd={() => setAdding(true)}
+            expanded={expanded} onToggle={onToggle} onAdd={startAdd}
         >
             {expectations.length === 0 && !adding && (
                 <p className="text-sm text-muted-foreground italic">No expectations defined yet.</p>
             )}
-            {expectations.map(exp => (
-                <div key={exp.id} className="p-3 rounded-lg bg-muted/30 border border-border/30 group space-y-1">
+            {expectations.map(exp => editingId === exp.id ? (
+                <ExpEditForm key={exp.id} form={form} setForm={setForm} onSave={() => handleSave(exp)} onCancel={() => setEditingId(null)} />
+            ) : (
+                <div key={exp.id} className="p-3 rounded-lg bg-muted/30 border border-border/30 group space-y-1 cursor-pointer hover:border-border/60" onClick={() => startEdit(exp)}>
                     <div className="flex items-start justify-between">
                         <div className="flex-1 space-y-1">
                             <div className="flex items-center gap-2">
@@ -1009,39 +1269,20 @@ function ExpectationsSection({ plan, organizationId, clientId, expanded, onToggl
                                 <p className="text-xs text-yellow-500"><span className="font-medium">Escalation:</span> {exp.escalationRule}</p>
                             )}
                         </div>
-                        <button
-                            onClick={() => handleDelete(exp.id)}
-                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 transition-all p-1"
-                        >
-                            <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                            <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 text-muted-foreground transition-all" />
+                            <button
+                                onClick={(e) => { e.stopPropagation(); handleDelete(exp.id); }}
+                                className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 transition-all p-1"
+                            >
+                                <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                        </div>
                     </div>
                 </div>
             ))}
             {adding && (
-                <div className="space-y-2 p-3 rounded-lg bg-muted/20 border border-dashed border-border">
-                    <textarea
-                        value={form.statement}
-                        onChange={(e) => setForm(f => ({ ...f, statement: e.target.value }))}
-                        placeholder="Expectation statement…"
-                        rows={2}
-                        className="w-full bg-transparent border border-border/50 rounded-md text-sm p-2 outline-none focus:border-primary resize-none"
-                    />
-                    <div className="flex items-center gap-2">
-                        <InlineSelect value={form.type} onChange={v => setForm(f => ({ ...f, type: v }))} options={EXPECTATION_TYPES} />
-                        <input
-                            type="number"
-                            value={form.targetWindowDays}
-                            onChange={(e) => setForm(f => ({ ...f, targetWindowDays: e.target.value }))}
-                            placeholder="Days"
-                            className="bg-transparent border border-border/50 rounded-md text-xs py-1 px-2 w-20 outline-none focus:border-primary"
-                        />
-                        <InlineSelect value={form.confidence} onChange={v => setForm(f => ({ ...f, confidence: v }))} options={CONFIDENCE_OPTIONS} />
-                        <div className="flex-1" />
-                        <button onClick={handleAdd} className="text-green-500 hover:text-green-400 p-1"><Check className="h-4 w-4" /></button>
-                        <button onClick={() => setAdding(false)} className="text-muted-foreground hover:text-foreground p-1"><X className="h-4 w-4" /></button>
-                    </div>
-                </div>
+                <ExpEditForm form={form} setForm={setForm} onSave={handleAdd} onCancel={() => setAdding(false)} />
             )}
         </SectionCard>
     );
