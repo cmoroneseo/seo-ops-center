@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, type ReactNode } from 'react';
-import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download, Pencil, RefreshCw, CheckSquare, ClipboardList, Send, Package, Building2 } from 'lucide-react';
+import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download, Pencil, RefreshCw, CheckSquare, ClipboardList, Send, Package, Building2, Target, Shield } from 'lucide-react';
 // ChevronDown/ChevronUp kept — used in TimeLogRow and NoteRow expand toggles
 import { ClientProject, TimeLog, ClientNote, ClientAssignment, ClientActivityEvent } from '@/lib/types';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
@@ -30,6 +30,7 @@ function domainOf(item: ActivityItem): Exclude<ActivityType, 'all'> {
     if (t.startsWith('task.')) return 'tasks';
     if (t.startsWith('deliverable.')) return 'deliverables';
     if (t.startsWith('client.') || t === 'retainer.amended') return 'updates';
+    if (t.startsWith('campaign.')) return 'updates';
     return 'integrations';
 }
 
@@ -452,6 +453,56 @@ function ClientEventRow({ event }: { event: ClientActivityEvent }) {
     );
 }
 
+function CampaignEventRow({ event }: { event: ClientActivityEvent }) {
+    const { eventType, metadata, actorName, occurredAt } = event;
+
+    const CAMPAIGN_VERBS: Record<string, string> = {
+        'campaign.created': 'created campaign plan',
+        'campaign.submitted_for_review': 'submitted campaign plan for review',
+        'campaign.approved': 'approved campaign plan',
+        'campaign.phase_status_changed': 'updated campaign phase',
+        'campaign.expectation_flagged': 'flagged an expectation at risk',
+        'campaign.kpi_rebaselined': 'rebaselined a KPI',
+    };
+
+    const verb = CAMPAIGN_VERBS[eventType] ?? 'updated campaign plan';
+    const template = metadata.template as string | undefined;
+    const phase = metadata.phase as string | undefined;
+    const newStatus = metadata.newStatus as string | undefined;
+
+    const isApproved = eventType === 'campaign.approved';
+    const isFlagged = eventType === 'campaign.expectation_flagged';
+
+    const accent = isApproved ? 'text-green-500' : isFlagged ? 'text-red-500' : 'text-purple-500';
+    const bg = isApproved ? 'bg-green-500/10' : isFlagged ? 'bg-red-500/10' : 'bg-purple-500/10';
+    const Icon = isFlagged ? Shield : Target;
+
+    return (
+        <div className="flex items-start gap-3 py-3">
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${bg}`}>
+                <Icon className={`h-3.5 w-3.5 ${accent}`} />
+            </div>
+            <div className="flex-1 min-w-0">
+                <p className="text-sm leading-snug">
+                    {actorName && <span className="font-semibold">{actorName} </span>}
+                    <span className="text-foreground/80">{verb}</span>
+                    <span className="text-muted-foreground text-xs ml-1.5">
+                        {new Date(occurredAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                </p>
+                {template && template !== 'blank' && (
+                    <p className="text-xs text-muted-foreground mt-0.5">Template: {template.replace(/_/g, ' ')}</p>
+                )}
+                {phase && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                        {phase}{newStatus ? ` → ${newStatus.replace(/_/g, ' ')}` : ''}
+                    </p>
+                )}
+            </div>
+        </div>
+    );
+}
+
 /** Dispatch a logged activity event to the right row renderer by domain. */
 function EventRow({ event }: { event: ClientActivityEvent }) {
     const t = event.eventType;
@@ -459,6 +510,7 @@ function EventRow({ event }: { event: ClientActivityEvent }) {
     if (t.startsWith('task.')) return <TaskEventRow event={event} />;
     if (t.startsWith('deliverable.')) return <DeliverableEventRow event={event} />;
     if (t.startsWith('client.')) return <ClientEventRow event={event} />;
+    if (t.startsWith('campaign.')) return <CampaignEventRow event={event} />;
     return <IntegrationEventRow event={event} />;
 }
 
