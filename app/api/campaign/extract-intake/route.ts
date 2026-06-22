@@ -69,8 +69,10 @@ Guidelines:
 - Derive the strategyModel from the overall picture (local-heavy = "local", content-focused = "authority_relevance_trust", etc.).`;
 
 async function extractPdfText(buffer: Buffer): Promise<string> {
+  // Import the inner lib directly — the main entry point tries to load a test
+  // PDF at import time which fails in serverless (ENOENT).
   // @ts-expect-error pdf-parse v1 has no type declarations
-  const mod = await import('pdf-parse');
+  const mod = await import('pdf-parse/lib/pdf-parse.js');
   const pdfParse = (mod as any).default ?? mod;
   const result = await pdfParse(buffer);
   return result.text;
