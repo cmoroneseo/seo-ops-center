@@ -82,59 +82,23 @@ interface QuestionnaireImportModalProps {
 }
 
 // ---------------------------------------------------------------------------
-// PDF text extraction via browser
+// Send file or text to the server for extraction
 // ---------------------------------------------------------------------------
 
-async function extractTextFromFile(file: File): Promise<string> {
-    if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
-        return file.text();
+async function callExtractAPI(fileOrText: File | string): Promise<Response> {
+    if (typeof fileOrText === 'string') {
+        return fetch('/api/campaign/extract-intake', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: fileOrText }),
+        });
     }
-    if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-        const arrayBuffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        let text = '';
-        let i = 0;
-        while (i < bytes.length) {
-            const start = findNext(bytes, '(', i);
-            if (start === -1) break;
-            const end = findMatchingParen(bytes, start);
-            if (end === -1) { i = start + 1; continue; }
-            const slice = bytes.slice(start + 1, end);
-            const decoded = new TextDecoder('latin1').decode(slice);
-            if (decoded.length > 1 && /[a-zA-Z]/.test(decoded)) {
-                text += decoded + ' ';
-            }
-            i = end + 1;
-        }
-        if (text.trim().length < 100) {
-            return new TextDecoder('utf-8', { fatal: false }).decode(bytes)
-                .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
-                .replace(/\s{3,}/g, '\n')
-                .trim();
-        }
-        return text.replace(/\s{3,}/g, '\n').trim();
-    }
-    return file.text();
-}
-
-function findNext(bytes: Uint8Array, char: string, from: number): number {
-    const code = char.charCodeAt(0);
-    for (let i = from; i < bytes.length; i++) {
-        if (bytes[i] === code && (i === 0 || bytes[i - 1] !== 0x5c)) return i;
-    }
-    return -1;
-}
-
-function findMatchingParen(bytes: Uint8Array, start: number): number {
-    let depth = 0;
-    for (let i = start; i < bytes.length; i++) {
-        if (bytes[i] === 0x28 && (i === 0 || bytes[i - 1] !== 0x5c)) depth++;
-        if (bytes[i] === 0x29 && (i === 0 || bytes[i - 1] !== 0x5c)) {
-            depth--;
-            if (depth === 0) return i;
-        }
-    }
-    return -1;
+    const formData = new FormData();
+    formData.append('file', fileOrText);
+    return fetch('/api/campaign/extract-intake', {
+        method: 'POST',
+        body: formData,
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -180,19 +144,15 @@ export function QuestionnaireImportModal({ onClose, onConfirm }: QuestionnaireIm
     const toggleSection = (key: string) =>
         setExpandedSections(prev => ({ ...prev, [key]: !prev[key] }));
 
-    const handleExtract = async (text: string) => {
-        if (text.trim().length < 50) {
+    const handleExtract = async (fileOrText: File | string) => {
+        if (typeof fileOrText === 'string' && fileOrText.trim().length < 50) {
             setError('Text is too short. Please paste the full questionnaire or upload the PDF.');
             return;
         }
         setStep('extracting');
         setError('');
         try {
-            const res = await fetch('/api/campaign/extract-intake', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text }),
-            });
+            const res = await callExtractAPI(fileOrText);
             if (!res.ok) {
                 const err = await res.json();
                 throw new Error(err.error || 'Extraction failed');
@@ -211,16 +171,6 @@ export function QuestionnaireImportModal({ onClose, onConfirm }: QuestionnaireIm
             setStep('review');
         } catch (err: any) {
             setError(err.message || 'Failed to extract data');
-            setStep('upload');
-        }
-    };
-
-    const handleFileUpload = async (file: File) => {
-        try {
-            const text = await extractTextFromFile(file);
-            await handleExtract(text);
-        } catch {
-            setError('Failed to read file. Try pasting the text instead.');
             setStep('upload');
         }
     };
@@ -285,7 +235,7 @@ export function QuestionnaireImportModal({ onClose, onConfirm }: QuestionnaireIm
                                     className="hidden"
                                     onChange={(e) => {
                                         const file = e.target.files?.[0];
-                                        if (file) handleFileUpload(file);
+                                        if (file) handleExtract(file);
                                     }}
                                 />
                             </div>
