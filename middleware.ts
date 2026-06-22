@@ -83,8 +83,12 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/tools') ||
         pathname.startsWith('/vs')
 
+    // API routes that authenticate via secret/token, not session cookies
+    const isWebhookRoute = pathname.startsWith('/api/integrations/basecamp/webhook') ||
+        pathname.startsWith('/api/cron/')
+
     // If user is not signed in and tries to access a protected route, redirect to /login
-    if (!user && !isPublicRoute && !pathname.startsWith('/auth')) {
+    if (!user && !isPublicRoute && !isWebhookRoute && !pathname.startsWith('/auth')) {
         return NextResponse.redirect(new URL('/login', request.url))
     }
 
