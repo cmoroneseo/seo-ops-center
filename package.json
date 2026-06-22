@@ -16,6 +16,7 @@
     "security:all": "npm run security:env && npm run security:static"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.105.0",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-popover": "^1.1.15",

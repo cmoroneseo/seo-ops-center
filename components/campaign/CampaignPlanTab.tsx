@@ -24,6 +24,8 @@ import {
 } from '@/lib/supabase/campaign-plans';
 import { logActivity } from '@/lib/supabase/client-activity';
 import { CAMPAIGN_TEMPLATES, CampaignTemplate } from '@/lib/campaign-templates';
+import { QuestionnaireImportModal, ExtractedCampaignData } from './QuestionnaireImportModal';
+import { Upload } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Shared label maps
@@ -112,6 +114,7 @@ export function CampaignPlanTab({ organizationId, clientId, clientName }: Campai
     const [plan, setPlan] = useState<CampaignPlan | null>(null);
     const [loading, setLoading] = useState(true);
     const [showTemplateSelector, setShowTemplateSelector] = useState(false);
+    const [showImportModal, setShowImportModal] = useState(false);
     const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
         overview: true, goals: true, kpis: true, workstreams: true, timeline: true, expectations: true,
     });
@@ -185,6 +188,80 @@ export function CampaignPlanTab({ organizationId, clientId, clientName }: Campai
         await loadPlan();
     };
 
+    // Create from questionnaire import
+    const handleImportConfirm = async (data: ExtractedCampaignData) => {
+        setShowImportModal(false);
+        const planTitle = data.intake.businessName
+            ? `${data.intake.businessName} — Campaign Plan`
+            : `${clientName} — Campaign Plan`;
+
+        const intakeContext: Record<string, unknown> = {};
+        if (data.intake.businessDescription) intakeContext.businessDescription = data.intake.businessDescription;
+        if (data.intake.targetServices?.length) intakeContext.targetServices = data.intake.targetServices;
+        if (data.intake.targetLocations?.length) intakeContext.targetLocations = data.intake.targetLocations;
+        if (data.intake.primaryConversionEvents?.length) intakeContext.primaryConversionEvents = data.intake.primaryConversionEvents;
+        if (data.intake.analyticsConfidence) intakeContext.analyticsConfidence = data.intake.analyticsConfidence;
+        if (data.intake.knownCompetitors?.length) intakeContext.knownCompetitors = data.intake.knownCompetitors;
+        if (data.intake.constraints?.length) intakeContext.constraints = data.intake.constraints;
+        if (data.intake.riskNotes?.length) intakeContext.riskNotes = data.intake.riskNotes;
+
+        const res = await createCampaignPlan({
+            organizationId, clientId,
+            title: planTitle,
+            strategyModel: data.strategyModel,
+        });
+        if (!res.success || !res.data) return;
+        const planId = res.data.id;
+
+        // Store intake context in custom_fields
+        if (Object.keys(intakeContext).length > 0) {
+            await updateCampaignPlan(planId, { customFields: intakeContext });
+        }
+
+        // Seed selected items in parallel
+        await Promise.all([
+            ...data.goals.filter(g => g._selected).map((g, i) =>
+                upsertCampaignGoal({
+                    campaignPlanId: planId, organizationId, clientId,
+                    title: g.title, category: g.category, description: g.description,
+                    sortOrder: i,
+                }),
+            ),
+            ...data.kpis.filter(k => k._selected).map((k, i) =>
+                upsertCampaignKpi({
+                    campaignPlanId: planId, organizationId, clientId,
+                    metricName: k.metricName, kpiGroup: k.kpiGroup, source: k.source,
+                    baselineValue: k.baselineValue ?? undefined,
+                    targetValue: k.targetValue ?? undefined,
+                    confidence: k.confidence, sortOrder: i,
+                }),
+            ),
+            ...data.workstreams.filter(w => w._selected).map((w, i) =>
+                upsertCampaignWorkstream({
+                    campaignPlanId: planId, organizationId, clientId,
+                    name: w.name, category: w.category, sortOrder: i,
+                }),
+            ),
+            ...data.phases.filter(p => p._selected).map(p =>
+                upsertCampaignPhase({
+                    campaignPlanId: planId, organizationId, clientId,
+                    name: p.name, phaseOrder: p.phaseOrder, objective: p.objective,
+                }),
+            ),
+            ...data.expectations.filter(e => e._selected).map((e, i) =>
+                upsertCampaignExpectation({
+                    campaignPlanId: planId, organizationId, clientId,
+                    type: e.type, statement: e.statement,
+                    targetWindowDays: e.targetWindowDays, confidence: e.confidence,
+                    sortOrder: i,
+                }),
+            ),
+        ]);
+
+        logActivity({ clientId, eventType: 'campaign.created', metadata: { source: 'questionnaire_import' } });
+        await loadPlan();
+    };
+
     // Status transitions
     const handleStatusChange = async (newStatus: CampaignPlanStatus) => {
         if (!plan) return;
@@ -224,8 +301,15 @@ export function CampaignPlanTab({ organizationId, clientId, clientName }: Campai
                     </p>
                     <div className="flex items-center justify-center gap-3 pt-2">
                         <button
-                            onClick={() => setShowTemplateSelector(true)}
+                            onClick={() => setShowImportModal(true)}
                             className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 transition-colors"
+                        >
+                            <Upload className="h-4 w-4" />
+                            Import from Questionnaire
+                        </button>
+                        <button
+                            onClick={() => setShowTemplateSelector(true)}
+                            className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted transition-colors"
                         >
                             <Sparkles className="h-4 w-4" />
                             Create from Template
@@ -265,6 +349,14 @@ export function CampaignPlanTab({ organizationId, clientId, clientName }: Campai
                             </button>
                         ))}
                     </div>
+                )}
+
+                {/* Questionnaire import modal */}
+                {showImportModal && (
+                    <QuestionnaireImportModal
+                        onClose={() => setShowImportModal(false)}
+                        onConfirm={handleImportConfirm}
+                    />
                 )}
             </div>
         );
