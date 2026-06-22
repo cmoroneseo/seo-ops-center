@@ -68,21 +68,12 @@ Guidelines:
 - If the client mentions specific revenue targets, include them as KPIs with source "manual".
 - Derive the strategyModel from the overall picture (local-heavy = "local", content-focused = "authority_relevance_trust", etc.).`;
 
-async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
-  // Dynamic import to avoid bundling issues in serverless
-  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer), useSystemFonts: true }).promise;
-  const pages: string[] = [];
-  for (let i = 1; i <= doc.numPages; i++) {
-    const page = await doc.getPage(i);
-    const content = await page.getTextContent();
-    const text = content.items
-      .filter((item: any) => 'str' in item)
-      .map((item: any) => item.str)
-      .join(' ');
-    pages.push(text);
-  }
-  return pages.join('\n\n');
+async function extractPdfText(buffer: Buffer): Promise<string> {
+  // @ts-expect-error pdf-parse v1 has no type declarations
+  const mod = await import('pdf-parse');
+  const pdfParse = (mod as any).default ?? mod;
+  const result = await pdfParse(buffer);
+  return result.text;
 }
 
 export async function POST(req: NextRequest) {
@@ -101,7 +92,7 @@ export async function POST(req: NextRequest) {
       const pastedText = formData.get('text') as string | null;
 
       if (file && (file.type === 'application/pdf' || file.name.endsWith('.pdf'))) {
-        const buffer = await file.arrayBuffer();
+        const buffer = Buffer.from(await file.arrayBuffer());
         text = await extractPdfText(buffer);
       } else if (file) {
         text = await file.text();
