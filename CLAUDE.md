@@ -56,6 +56,17 @@ https://seo-ops-center.vercel.app
   - 37 client commitments backfilled; 269 existing deliverables linked
   - `lib/types.ts` fully updated: `Deliverable`, `Task`, `TaskTemplate`, `TaskComment`, `TaskStatusHistoryEntry`, `TaskCategory`, `TaskPriority`, `TaskStatus`, `DeliverableCommitment`, `FulfillmentCell`, `CommitmentCadence`, `DeliverableSubtype` all match actual DB schema
 
+- **Campaign Plan Onboarding** (migration 019, Jun 2026):
+  - 6 new tables: `campaign_plans`, `campaign_goals`, `campaign_kpis`, `campaign_workstreams`, `campaign_phases`, `campaign_expectations` + `campaign_phase_workstreams` join table
+  - `campaign_phase_id` FK on `tasks` for phase-to-task linkage
+  - Campaign Plan tab on workspace/[id] with collapsible sections: Goals, KPIs, Workstreams, Timeline, Expectations
+  - Create from template (Local SEO Retainer, Content-Led SEO Retainer, Technical + Growth) or blank
+  - Status lifecycle: draft → internal_review → approved → active → archived
+  - Activity feed integration for campaign lifecycle events
+  - Templates hardcoded in `lib/campaign-templates.ts`
+  - CRUD layer: `lib/supabase/campaign-plans.ts`
+  - Types: `CampaignPlan`, `CampaignGoal`, `CampaignKpi`, `CampaignWorkstream`, `CampaignPhase`, `CampaignExpectation`
+
 ## Git workflow
 - **Always use a feature branch** — never commit directly to `main`
 - Start: `git checkout main && git pull && git checkout -b feat/<name>`
@@ -65,6 +76,7 @@ https://seo-ops-center.vercel.app
 ## Migrations applied to production
 001–013: init, analytics, time tracking, notes, feedback, tasks V2, notifications
 015: deliverable_commitments (applied Jun 2026)
+019: campaign_plans (pending — run in Supabase Dashboard SQL editor)
 
 ## Pending manual Supabase step
 Run once in Supabase Dashboard SQL editor (enables realtime push for notification bell):

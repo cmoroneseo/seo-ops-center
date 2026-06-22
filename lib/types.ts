@@ -386,7 +386,14 @@ export type ActivityEventType =
     // Client lifecycle
     | 'client.created'
     | 'client.status_changed'
-    | 'client.tier_changed';
+    | 'client.tier_changed'
+    // Campaign plans
+    | 'campaign.created'
+    | 'campaign.submitted_for_review'
+    | 'campaign.approved'
+    | 'campaign.phase_status_changed'
+    | 'campaign.expectation_flagged'
+    | 'campaign.kpi_rebaselined';
 
 export interface ClientActivityEvent {
     id: string;
@@ -397,6 +404,143 @@ export interface ClientActivityEvent {
     actorName?: string;
     metadata: Record<string, unknown>;
     occurredAt: string;
+}
+
+// =============================================================================
+// Campaign Plans
+// =============================================================================
+
+export type CampaignPlanStatus = 'draft' | 'internal_review' | 'approved' | 'active' | 'archived';
+export type CampaignStrategyModel = 'authority_relevance_trust' | 'custom' | 'local' | 'ecommerce' | 'saas' | 'other';
+export type CampaignGoalCategory = 'leads' | 'sales' | 'local_visibility' | 'authority' | 'traffic' | 'content_moat' | 'launch_support' | 'reputation' | 'other';
+export type CampaignGoalStatus = 'active' | 'achieved' | 'at_risk' | 'dropped';
+export type KpiGroup = 'visibility' | 'traffic' | 'conversion' | 'authority' | 'content' | 'technical';
+export type KpiSource = 'gsc' | 'ga4' | 'gbp' | 'ahrefs' | 'manual' | 'internal';
+export type KpiConfidence = 'low' | 'medium' | 'high';
+export type WorkstreamCategory = 'research_strategy' | 'technical_seo' | 'on_page' | 'content' | 'authority' | 'local_seo' | 'analytics' | 'cro';
+export type WorkstreamStatus = 'planned' | 'active' | 'paused' | 'completed';
+export type PhaseStatus = 'upcoming' | 'active' | 'completed' | 'skipped';
+export type ExpectationType = 'ranking' | 'traffic' | 'conversion' | 'content' | 'technical' | 'authority' | 'local';
+
+export interface CampaignPlan {
+    id: string;
+    organizationId: string;
+    clientId: string;
+    status: CampaignPlanStatus;
+    title: string;
+    summary?: string;
+    strategyModel?: CampaignStrategyModel;
+    startDate?: string;
+    targetReviewDate?: string;
+    createdById?: string;
+    approvedById?: string;
+    approvedAt?: string;
+    customFields: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string;
+    // Populated on fetch
+    goals?: CampaignGoal[];
+    kpis?: CampaignKpi[];
+    workstreams?: CampaignWorkstream[];
+    phases?: CampaignPhase[];
+    expectations?: CampaignExpectation[];
+}
+
+export interface CampaignGoal {
+    id: string;
+    campaignPlanId: string;
+    organizationId: string;
+    clientId: string;
+    title: string;
+    category?: CampaignGoalCategory;
+    description?: string;
+    priority: number;
+    ownerId?: string;
+    status: CampaignGoalStatus;
+    sortOrder: number;
+    createdAt: string;
+    updatedAt: string;
+    kpis?: CampaignKpi[];
+}
+
+export interface CampaignKpi {
+    id: string;
+    campaignGoalId?: string;
+    campaignPlanId: string;
+    organizationId: string;
+    clientId: string;
+    metricName: string;
+    kpiGroup?: KpiGroup;
+    source?: KpiSource;
+    baselineValue?: number;
+    targetValue?: number;
+    targetRangeMin?: number;
+    targetRangeMax?: number;
+    targetDate?: string;
+    cadence?: string;
+    confidence?: KpiConfidence;
+    measurementNotes?: string;
+    sortOrder: number;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface CampaignWorkstream {
+    id: string;
+    campaignPlanId: string;
+    organizationId: string;
+    clientId: string;
+    name: string;
+    category?: WorkstreamCategory;
+    status: WorkstreamStatus;
+    priority: number;
+    ownerId?: string;
+    currentState?: string;
+    targetState?: string;
+    risks?: string;
+    customFields: Record<string, unknown>;
+    sortOrder: number;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface CampaignPhase {
+    id: string;
+    campaignPlanId: string;
+    organizationId: string;
+    clientId: string;
+    name: string;
+    phaseOrder: number;
+    startDate?: string;
+    endDate?: string;
+    objective?: string;
+    exitCriteria?: string;
+    status: PhaseStatus;
+    notes?: string;
+    createdAt: string;
+    updatedAt: string;
+    workstreamIds?: string[];
+}
+
+export interface CampaignExpectation {
+    id: string;
+    campaignPlanId: string;
+    organizationId: string;
+    clientId: string;
+    type?: ExpectationType;
+    statement: string;
+    targetWindowDays?: number;
+    measurementDefinition?: string;
+    confidence?: KpiConfidence;
+    preconditions?: string;
+    exclusions?: string;
+    reviewCheckpointDate?: string;
+    escalationRule?: string;
+    approvedById?: string;
+    approvedAt?: string;
+    sortOrder: number;
+    createdAt: string;
+    updatedAt: string;
 }
 
 export interface SyncRun {

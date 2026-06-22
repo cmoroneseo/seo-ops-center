@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useParams } from 'next/navigation';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck, Plug } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck, Plug, Target } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { ClientNotesPanel } from '@/components/workspace/ClientNotesPanel';
@@ -27,8 +27,9 @@ import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
 import { getTasksByClient, updateTask } from '@/lib/supabase/tasks';
 import { Task } from '@/lib/types';
+import { CampaignPlanTab } from '@/components/campaign/CampaignPlanTab';
 
-type Tab = 'overview' | 'integrations' | 'tasks';
+type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations';
 
 export default function ClientDetailPage() {
     const params = useParams();
@@ -197,6 +198,18 @@ export default function ClientDetailPage() {
                     Overview
                 </button>
                 <button
+                    onClick={() => setActiveTab('campaign')}
+                    className={cn(
+                        'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                        activeTab === 'campaign'
+                            ? 'border-primary text-foreground'
+                            : 'border-transparent text-muted-foreground hover:text-foreground',
+                    )}
+                >
+                    <Target className="h-3.5 w-3.5" />
+                    Campaign Plan
+                </button>
+                <button
                     onClick={() => setActiveTab('tasks')}
                     className={cn(
                         'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
@@ -226,6 +239,15 @@ export default function ClientDetailPage() {
                     Integrations
                 </button>
             </div>
+
+            {/* Campaign Plan tab */}
+            {activeTab === 'campaign' && (
+                <CampaignPlanTab
+                    organizationId={organization?.id ?? ''}
+                    clientId={client.id}
+                    clientName={client.clientName}
+                />
+            )}
 
             {/* Tasks tab */}
             {activeTab === 'tasks' && (

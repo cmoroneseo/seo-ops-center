@@ -18,6 +18,12 @@ export const ALLOWED_ACTIVITY_EVENT_TYPES: ReadonlySet<ActivityEventType> = new 
     'client.created',
     'client.status_changed',
     'client.tier_changed',
+    'campaign.created',
+    'campaign.submitted_for_review',
+    'campaign.approved',
+    'campaign.phase_status_changed',
+    'campaign.expectation_flagged',
+    'campaign.kpi_rebaselined',
 ]);
 
 /**
