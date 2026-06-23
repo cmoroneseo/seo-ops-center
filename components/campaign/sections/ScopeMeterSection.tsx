@@ -16,12 +16,14 @@ interface ScopeItem {
 
 interface ScopePlanningData {
     monthlyHours: number;
+    contractMonths: number;
     items: ScopeItem[];
 }
 
 export function ScopeMeterSection({ plan, expanded, onToggle, onRefresh }: CustomFieldSectionProps) {
     const saved = (plan.customFields.scopePlanning ?? {}) as Partial<ScopePlanningData>;
     const [monthlyHours, setMonthlyHours] = useState(saved.monthlyHours ?? 0);
+    const [contractMonths, setContractMonths] = useState(saved.contractMonths ?? 6);
     const [items, setItems] = useState<ScopeItem[]>(() => {
         const savedItems = saved.items ?? [];
         return SEO_ACTIVITIES.map(act => {
@@ -33,6 +35,7 @@ export function ScopeMeterSection({ plan, expanded, onToggle, onRefresh }: Custo
     useEffect(() => {
         const s = (plan.customFields.scopePlanning ?? {}) as Partial<ScopePlanningData>;
         setMonthlyHours(s.monthlyHours ?? 0);
+        setContractMonths(s.contractMonths ?? 6);
         if (s.items?.length) {
             setItems(SEO_ACTIVITIES.map(act => {
                 const existing = s.items!.find(i => i.key === act.key);
@@ -41,8 +44,8 @@ export function ScopeMeterSection({ plan, expanded, onToggle, onRefresh }: Custo
         }
     }, [plan.customFields.scopePlanning]);
 
-    const save = async (hours: number, updatedItems: ScopeItem[]) => {
-        const data: ScopePlanningData = { monthlyHours: hours, items: updatedItems.filter(i => i.inScope || i.upsellOpportunity) };
+    const save = async (hours: number, months: number, updatedItems: ScopeItem[]) => {
+        const data: ScopePlanningData = { monthlyHours: hours, contractMonths: months, items: updatedItems.filter(i => i.inScope || i.upsellOpportunity) };
         await updateCampaignPlan(plan.id, {
             customFields: { ...plan.customFields, scopePlanning: data },
         });
@@ -52,24 +55,31 @@ export function ScopeMeterSection({ plan, expanded, onToggle, onRefresh }: Custo
     const toggleInScope = (key: string) => {
         const updated = items.map(i => i.key === key ? { ...i, inScope: !i.inScope, upsellOpportunity: false } : i);
         setItems(updated);
-        save(monthlyHours, updated);
+        save(monthlyHours, contractMonths, updated);
     };
 
     const toggleUpsell = (key: string) => {
         const updated = items.map(i => i.key === key ? { ...i, upsellOpportunity: !i.upsellOpportunity, inScope: false } : i);
         setItems(updated);
-        save(monthlyHours, updated);
+        save(monthlyHours, contractMonths, updated);
     };
 
     const handleHoursChange = (hours: number) => {
         setMonthlyHours(hours);
-        save(hours, items);
+        save(hours, contractMonths, items);
+    };
+
+    const handleMonthsChange = (months: number) => {
+        setContractMonths(months);
+        save(monthlyHours, months, items);
     };
 
     // Calculations
+    const totalContractHours = monthlyHours * contractMonths;
     const inScopeItems = items.filter(i => i.inScope);
     const upsellItems = items.filter(i => i.upsellOpportunity);
-    const monthlyInScope = inScopeItems.reduce((sum, item) => {
+
+    const recurringMonthlyHours = inScopeItems.reduce((sum, item) => {
         const act = SEO_ACTIVITIES.find(a => a.key === item.key);
         if (!act) return sum;
         const hours = item.customHours ?? getActivityAvgHours(act);
@@ -77,14 +87,16 @@ export function ScopeMeterSection({ plan, expanded, onToggle, onRefresh }: Custo
         if (act.frequency === 'quarterly') return sum + hours / 3;
         return sum;
     }, 0);
+
     const oneTimeTotal = inScopeItems.reduce((sum, item) => {
         const act = SEO_ACTIVITIES.find(a => a.key === item.key);
         if (!act || act.frequency !== 'one_time') return sum;
         return sum + (item.customHours ?? getActivityAvgHours(act));
     }, 0);
 
-    const utilizationPercent = monthlyHours > 0 ? Math.round((monthlyInScope / monthlyHours) * 100) : 0;
-    const overScope = monthlyInScope > monthlyHours;
+    const totalScopeHours = (recurringMonthlyHours * contractMonths) + oneTimeTotal;
+    const utilizationPercent = totalContractHours > 0 ? Math.round((totalScopeHours / totalContractHours) * 100) : 0;
+    const overScope = totalScopeHours > totalContractHours;
     const barColor = overScope ? 'bg-red-500' : utilizationPercent >= 80 ? 'bg-yellow-500' : 'bg-green-500';
 
     const categories = [...new Set(SEO_ACTIVITIES.map(a => a.category))];
@@ -95,23 +107,49 @@ export function ScopeMeterSection({ plan, expanded, onToggle, onRefresh }: Custo
             expanded={expanded} onToggle={onToggle}
         >
             <div className="space-y-5">
-                {/* Hours input + meter */}
-                <div className="flex items-end gap-4">
-                    <div className="space-y-1">
-                        <label className="text-xs font-medium text-muted-foreground">Monthly SEO Hours</label>
-                        <input
-                            type="number"
-                            value={monthlyHours || ''}
-                            onChange={e => handleHoursChange(Number(e.target.value) || 0)}
-                            placeholder="e.g. 20"
-                            className="bg-transparent border border-border/50 rounded-md text-sm py-1.5 px-3 w-24 outline-none focus:border-primary"
-                        />
+                {/* Contract inputs + meter */}
+                <div className="space-y-3">
+                    <div className="flex items-end gap-4">
+                        <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">Monthly Hours</label>
+                            <input
+                                type="number"
+                                value={monthlyHours || ''}
+                                onChange={e => handleHoursChange(Number(e.target.value) || 0)}
+                                placeholder="e.g. 5"
+                                className="bg-transparent border border-border/50 rounded-md text-sm py-1.5 px-3 w-20 outline-none focus:border-primary"
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">Contract Term</label>
+                            <select
+                                value={contractMonths}
+                                onChange={e => handleMonthsChange(Number(e.target.value))}
+                                className="bg-transparent border border-border/50 rounded-md text-sm py-1.5 px-3 outline-none focus:border-primary"
+                            >
+                                <option value={3}>3 months</option>
+                                <option value={6}>6 months</option>
+                                <option value={9}>9 months</option>
+                                <option value={12}>12 months</option>
+                                <option value={18}>18 months</option>
+                                <option value={24}>24 months</option>
+                            </select>
+                        </div>
+                        <div className="p-2 rounded-lg bg-muted/30 border border-border/30">
+                            <div className="text-[10px] text-muted-foreground">Total Contract Hours</div>
+                            <div className="text-lg font-bold">{totalContractHours}h</div>
+                            <div className="text-[10px] text-muted-foreground">{monthlyHours}h × {contractMonths}mo</div>
+                        </div>
                     </div>
-                    <div className="flex-1 space-y-1">
+
+                    {/* Scope bar */}
+                    <div className="space-y-1">
                         <div className="flex items-center justify-between text-xs">
                             <span className="text-muted-foreground">
-                                {monthlyInScope.toFixed(1)}h recurring / {monthlyHours}h available
-                                {oneTimeTotal > 0 && <span className="ml-2 text-muted-foreground/60">+ {oneTimeTotal.toFixed(1)}h one-time setup</span>}
+                                {totalScopeHours.toFixed(1)}h planned / {totalContractHours}h available
+                                <span className="ml-2 text-muted-foreground/60">
+                                    ({recurringMonthlyHours.toFixed(1)}h/mo recurring{oneTimeTotal > 0 ? ` + ${oneTimeTotal.toFixed(1)}h setup` : ''})
+                                </span>
                             </span>
                             <span className={cn(
                                 'font-medium',
@@ -129,7 +167,7 @@ export function ScopeMeterSection({ plan, expanded, onToggle, onRefresh }: Custo
                         {overScope && (
                             <p className="text-[10px] text-red-500 flex items-center gap-1">
                                 <AlertTriangle className="h-3 w-3" />
-                                Over scope by {(monthlyInScope - monthlyHours).toFixed(1)}h — reduce activities or increase hours
+                                Over scope by {(totalScopeHours - totalContractHours).toFixed(1)}h over the {contractMonths}-month term — reduce activities or increase hours
                             </p>
                         )}
                     </div>

@@ -12,6 +12,7 @@ export function WebsiteAnalysisSection({ plan, expanded, onToggle, onRefresh }: 
         observations: saved.observations ?? '',
         technicalFindings: saved.technicalFindings ?? '',
         competitorExamples: saved.competitorExamples ?? [],
+        screenshots: saved.screenshots ?? [],
     });
 
     useEffect(() => {
@@ -20,6 +21,7 @@ export function WebsiteAnalysisSection({ plan, expanded, onToggle, onRefresh }: 
             observations: s.observations ?? '',
             technicalFindings: s.technicalFindings ?? '',
             competitorExamples: s.competitorExamples ?? [],
+            screenshots: s.screenshots ?? [],
         });
     }, [plan.customFields.websiteAnalysis]);
 
