@@ -60,13 +60,17 @@ Extract the following from the document. If a field cannot be determined, omit i
 }
 
 Guidelines:
+- SCOPE: This is an SEO-ONLY campaign plan. Extract ONLY items related to organic search, technical SEO, content for SEO purposes, local SEO (GBP, citations, local pages), link building/authority, on-page optimization, and SEO analytics.
+- EXCLUDE: Do NOT include workstreams, phases, goals, KPIs, or activities for paid advertising (PPC, Google Ads, Meta Ads), social media management, email marketing, influencer marketing, branding, PR, video production, graphic design, or any non-organic-search channel. If the questionnaire covers these areas, skip them entirely.
+- REFRAME: If the client mentions a non-SEO goal (e.g., "grow social media following", "launch email campaigns"), only include it if it has a direct SEO connection (e.g., content repurposing for SEO, link acquisition via PR). Otherwise omit it.
+- KPI FILTER: Only include KPIs measurable through organic search channels — GSC impressions/clicks/position, GA4 organic traffic/conversions, GBP views/actions, Ahrefs domain rating/backlinks/keyword rankings, or manually tracked SEO metrics. Exclude paid media ROAS, email open rates, social engagement, ad spend metrics.
 - Extract real data from the document, don't fabricate metrics or targets.
 - If the client says "no idea" or leaves a field blank, set confidence to "low" and omit baseline values.
 - Infer workstreams from what the client needs (e.g., multi-location = local_seo workstream).
-- Create realistic phases based on the client's situation (2-year startup vs. enterprise).
+- Create realistic phases based on the client's situation — phases should cover SEO activities only (research, technical fixes, content, link building, ongoing optimization).
 - Keep expectations conservative and measurable — never guarantee outcomes.
-- If the client mentions specific revenue targets, include them as KPIs with source "manual".
-- Derive the strategyModel from the overall picture (local-heavy = "local", content-focused = "authority_relevance_trust", etc.).`;
+- If the client mentions specific revenue targets, include them as KPIs only if attributable to organic search (source "manual" with a note about organic attribution).
+- Derive the strategyModel from the SEO picture (local-heavy = "local", content-focused = "authority_relevance_trust", etc.).`;
 
 async function extractPdfText(buffer: Buffer): Promise<string> {
   // Import the inner lib directly — the main entry point tries to load a test
