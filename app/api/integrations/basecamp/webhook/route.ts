@@ -4,15 +4,23 @@ import { logClientActivity } from '@/lib/supabase/client-activity';
 
 export const dynamic = 'force-dynamic';
 
+const COMPLETION_KINDS = new Set([
+    'todo_completion_created',
+    'todo_completed',
+    'todo_changed',
+]);
+
+const REOPEN_KINDS = new Set([
+    'todo_completion_destroyed',
+    'todo_uncompleted',
+]);
+
 /**
  * POST /api/integrations/basecamp/webhook?secret=BASECAMP_WEBHOOK_SECRET
  *
- * Receives Basecamp 3 webhook payloads. Currently handles:
- *   - todo_completion_created  → marks the linked SEO PM task as done
- *   - todo_completion_destroyed → reopens the linked SEO PM task
- *
- * Setup: In each Basecamp project → Settings → Webhooks → add:
- *   https://seo-ops-center.vercel.app/api/integrations/basecamp/webhook?secret=<BASECAMP_WEBHOOK_SECRET>
+ * Receives Basecamp 3 webhook payloads. Handles:
+ *   - Todo completion → marks the linked SEO PM task as done
+ *   - Todo uncomplete → reopens the linked SEO PM task
  */
 export async function POST(req: NextRequest) {
     const secret = req.nextUrl.searchParams.get('secret');
@@ -28,31 +36,50 @@ export async function POST(req: NextRequest) {
     }
 
     const { kind, recording, creator } = payload;
+    console.log('[Basecamp webhook] kind:', kind, 'recording.id:', recording?.id, 'recording.type:', recording?.type);
+
     if (!recording?.id) {
         return NextResponse.json({ ok: true, skipped: 'no recording id' });
+    }
+
+    // For todo_changed, check if the todo was actually completed
+    const isCompletion = COMPLETION_KINDS.has(kind) &&
+        (kind !== 'todo_changed' || recording.completed === true);
+    const isReopen = REOPEN_KINDS.has(kind) ||
+        (kind === 'todo_changed' && recording.completed === false);
+
+    if (!isCompletion && !isReopen) {
+        console.log('[Basecamp webhook] skipping kind:', kind);
+        return NextResponse.json({ ok: true, skipped: kind });
     }
 
     const admin = createAdminClient();
 
     // Look up the task by basecamp_todo_id
-    const { data: task } = await admin
+    const { data: task, error: lookupError } = await admin
         .from('tasks')
         .select('id, status, status_history, organization_id, client_id, title')
         .eq('basecamp_todo_id', recording.id)
         .maybeSingle();
 
+    if (lookupError) {
+        console.error('[Basecamp webhook] lookup error:', lookupError);
+        return NextResponse.json({ error: 'DB lookup failed' }, { status: 500 });
+    }
+
     if (!task) {
+        console.log('[Basecamp webhook] no linked task for basecamp_todo_id:', recording.id);
         return NextResponse.json({ ok: true, skipped: 'no linked task' });
     }
 
     const now = new Date().toISOString();
     const actorName = creator?.name ?? 'Basecamp';
 
-    if (kind === 'todo_completion_created' && task.status !== 'done') {
+    if (isCompletion && task.status !== 'done') {
         const history = Array.isArray(task.status_history) ? task.status_history : [];
         history.push({ status: 'done', at: now, by: actorName });
 
-        await admin
+        const { error: updateError } = await admin
             .from('tasks')
             .update({
                 status: 'done',
@@ -61,6 +88,11 @@ export async function POST(req: NextRequest) {
                 last_synced_at: now,
             })
             .eq('id', task.id);
+
+        if (updateError) {
+            console.error('[Basecamp webhook] update error:', updateError);
+            return NextResponse.json({ error: 'Update failed' }, { status: 500 });
+        }
 
         if (task.client_id) {
             await logClientActivity({
@@ -72,10 +104,11 @@ export async function POST(req: NextRequest) {
             });
         }
 
+        console.log('[Basecamp webhook] completed task:', task.id, task.title);
         return NextResponse.json({ ok: true, action: 'completed', taskId: task.id });
     }
 
-    if (kind === 'todo_completion_destroyed' && task.status === 'done') {
+    if (isReopen && task.status === 'done') {
         const history = Array.isArray(task.status_history) ? task.status_history : [];
         history.push({ status: 'todo', at: now, by: actorName });
 
@@ -89,8 +122,9 @@ export async function POST(req: NextRequest) {
             })
             .eq('id', task.id);
 
+        console.log('[Basecamp webhook] reopened task:', task.id, task.title);
         return NextResponse.json({ ok: true, action: 'reopened', taskId: task.id });
     }
 
-    return NextResponse.json({ ok: true, skipped: kind });
+    return NextResponse.json({ ok: true, skipped: 'no status change needed' });
 }
