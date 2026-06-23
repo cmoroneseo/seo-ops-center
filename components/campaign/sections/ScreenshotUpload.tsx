@@ -19,13 +19,18 @@ interface ScreenshotUploadProps {
 
 export function ScreenshotUpload({ screenshots, onUpdate, label = 'Screenshots' }: ScreenshotUploadProps) {
     const [uploading, setUploading] = useState(false);
+    const [uploadError, setUploadError] = useState('');
     const [editingCaption, setEditingCaption] = useState<number | null>(null);
     const fileRef = useRef<HTMLInputElement>(null);
 
     const handleUpload = async (files: FileList) => {
         const supabase = createClient();
-        if (!supabase) return;
+        if (!supabase) {
+            setUploadError('Supabase not available');
+            return;
+        }
         setUploading(true);
+        setUploadError('');
 
         const newScreenshots = [...screenshots];
 
@@ -36,10 +41,11 @@ export function ScreenshotUpload({ screenshots, onUpdate, label = 'Screenshots' 
 
             const { error } = await supabase.storage
                 .from('campaign-screenshots')
-                .upload(path, file, { contentType: file.type });
+                .upload(path, file, { contentType: file.type, upsert: true });
 
             if (error) {
                 console.error('Upload error:', error);
+                setUploadError(`Upload failed: ${error.message}. Make sure the "campaign-screenshots" storage bucket exists in Supabase.`);
                 continue;
             }
 
@@ -54,7 +60,9 @@ export function ScreenshotUpload({ screenshots, onUpdate, label = 'Screenshots' 
             });
         }
 
-        onUpdate(newScreenshots);
+        if (newScreenshots.length > screenshots.length) {
+            onUpdate(newScreenshots);
+        }
         setUploading(false);
     };
 
@@ -88,6 +96,12 @@ export function ScreenshotUpload({ screenshots, onUpdate, label = 'Screenshots' 
                     onChange={(e) => e.target.files && handleUpload(e.target.files)}
                 />
             </div>
+
+            {uploadError && (
+                <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded-lg p-2">
+                    {uploadError}
+                </div>
+            )}
 
             {screenshots.length === 0 ? (
                 <div

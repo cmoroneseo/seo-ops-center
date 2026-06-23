@@ -54,12 +54,14 @@ export function CampaignPlanTab({ organizationId, clientId, clientName }: Campai
     const toggleSection = (key: string) =>
         setExpandedSections(prev => ({ ...prev, [key]: !prev[key] }));
 
-    const loadPlan = useCallback(async () => {
-        setLoading(true);
+    const loadPlan = useCallback(async (silent = false) => {
+        if (!silent) setLoading(true);
         const p = await getCampaignPlanFull(clientId);
         setPlan(p);
         setLoading(false);
     }, [clientId]);
+
+    const refreshPlan = useCallback(() => loadPlan(true), [loadPlan]);
 
     useEffect(() => { loadPlan(); }, [loadPlan]);
 
@@ -418,17 +420,17 @@ export function CampaignPlanTab({ organizationId, clientId, clientName }: Campai
                     <GoalsSection
                         plan={plan} organizationId={organizationId} clientId={clientId}
                         expanded={expandedSections.goals} onToggle={() => toggleSection('goals')}
-                        onRefresh={loadPlan}
+                        onRefresh={refreshPlan}
                     />
                     <KpisSection
                         plan={plan} organizationId={organizationId} clientId={clientId}
                         expanded={expandedSections.kpis} onToggle={() => toggleSection('kpis')}
-                        onRefresh={loadPlan}
+                        onRefresh={refreshPlan}
                     />
                     <ExpectationsSection
                         plan={plan} organizationId={organizationId} clientId={clientId}
                         expanded={expandedSections.expectations} onToggle={() => toggleSection('expectations')}
-                        onRefresh={loadPlan}
+                        onRefresh={refreshPlan}
                     />
                 </div>
             )}
@@ -437,23 +439,23 @@ export function CampaignPlanTab({ organizationId, clientId, clientName }: Campai
                 <div className="space-y-6">
                     <SeoOverviewSection
                         plan={plan} expanded={expandedSections.seoOverview}
-                        onToggle={() => toggleSection('seoOverview')} onRefresh={loadPlan}
+                        onToggle={() => toggleSection('seoOverview')} onRefresh={refreshPlan}
                     />
                     <WebsiteAnalysisSection
                         plan={plan} expanded={expandedSections.websiteAnalysis}
-                        onToggle={() => toggleSection('websiteAnalysis')} onRefresh={loadPlan}
+                        onToggle={() => toggleSection('websiteAnalysis')} onRefresh={refreshPlan}
                     />
                     <KeywordSnapshotSection
                         plan={plan} expanded={expandedSections.keywordSnapshot}
-                        onToggle={() => toggleSection('keywordSnapshot')} onRefresh={loadPlan}
+                        onToggle={() => toggleSection('keywordSnapshot')} onRefresh={refreshPlan}
                     />
                     <KeyActivitiesSection
                         plan={plan} expanded={expandedSections.keyActivities}
-                        onToggle={() => toggleSection('keyActivities')} onRefresh={loadPlan}
+                        onToggle={() => toggleSection('keyActivities')} onRefresh={refreshPlan}
                     />
                     <ScopeMeterSection
                         plan={plan} expanded={expandedSections.scopeMeter ?? false}
-                        onToggle={() => toggleSection('scopeMeter')} onRefresh={loadPlan}
+                        onToggle={() => toggleSection('scopeMeter')} onRefresh={refreshPlan}
                     />
                 </div>
             )}
@@ -462,12 +464,12 @@ export function CampaignPlanTab({ organizationId, clientId, clientName }: Campai
                 <div className="space-y-6">
                     <PreliminaryRoadmapSection
                         plan={plan} expanded={expandedSections.preliminaryRoadmap}
-                        onToggle={() => toggleSection('preliminaryRoadmap')} onRefresh={loadPlan}
+                        onToggle={() => toggleSection('preliminaryRoadmap')} onRefresh={refreshPlan}
                     />
                     <TimelineSection
                         plan={plan} organizationId={organizationId} clientId={clientId}
                         expanded={expandedSections.timeline} onToggle={() => toggleSection('timeline')}
-                        onRefresh={loadPlan}
+                        onRefresh={refreshPlan}
                     />
                 </div>
             )}
