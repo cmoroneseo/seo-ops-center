@@ -23,7 +23,7 @@ import { KpisSection } from './sections/KpisSection';
 import { KeywordSnapshotSection } from './sections/KeywordSnapshotSection';
 import { WebsiteAnalysisSection } from './sections/WebsiteAnalysisSection';
 import { KeyActivitiesSection } from './sections/KeyActivitiesSection';
-import { WorkstreamsSection } from './sections/WorkstreamsSection';
+// WorkstreamsSection removed — covered by Key Activities + Scope Meter
 import { PreliminaryRoadmapSection } from './sections/PreliminaryRoadmapSection';
 import { TimelineSection } from './sections/TimelineSection';
 import { ExpectationsSection } from './sections/ExpectationsSection';
@@ -450,11 +450,6 @@ export function CampaignPlanTab({ organizationId, clientId, clientName }: Campai
                     <KeyActivitiesSection
                         plan={plan} expanded={expandedSections.keyActivities}
                         onToggle={() => toggleSection('keyActivities')} onRefresh={loadPlan}
-                    />
-                    <WorkstreamsSection
-                        plan={plan} organizationId={organizationId} clientId={clientId}
-                        expanded={expandedSections.workstreams} onToggle={() => toggleSection('workstreams')}
-                        onRefresh={loadPlan}
                     />
                     <ScopeMeterSection
                         plan={plan} expanded={expandedSections.scopeMeter ?? false}
