@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Globe, Plus, Trash2 } from 'lucide-react';
 import { updateCampaignPlan } from '@/lib/supabase/campaign-plans';
 import { SectionCard, InlineTextarea, InlineInput, CustomFieldSectionProps, WebsiteAnalysisData } from './SectionCard';
+import { ScreenshotUpload } from './ScreenshotUpload';
 
 export function WebsiteAnalysisSection({ plan, expanded, onToggle, onRefresh }: CustomFieldSectionProps) {
     const saved = (plan.customFields.websiteAnalysis ?? {}) as WebsiteAnalysisData;
@@ -68,7 +69,15 @@ export function WebsiteAnalysisSection({ plan, expanded, onToggle, onRefresh }: 
             icon={Globe} title="Website Analysis" count={count}
             expanded={expanded} onToggle={onToggle}
         >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-6">
+                <ScreenshotUpload
+                    screenshots={data.screenshots ?? []}
+                    onUpdate={async (screenshots) => {
+                        await save({ ...data, screenshots });
+                    }}
+                    label="Website & SEO Screenshots"
+                />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-4">
                     <div className="space-y-1">
                         <label className="text-xs font-medium text-muted-foreground">Observations</label>
@@ -141,6 +150,7 @@ export function WebsiteAnalysisSection({ plan, expanded, onToggle, onRefresh }: 
                         </div>
                     ))}
                 </div>
+            </div>
             </div>
         </SectionCard>
     );

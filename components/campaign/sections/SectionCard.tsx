@@ -33,6 +33,7 @@ export interface WebsiteAnalysisData {
     observations?: string;
     technicalFindings?: string;
     competitorExamples?: { name: string; url: string; notes: string }[];
+    screenshots?: { url: string; caption: string; addedAt: string }[];
 }
 
 export interface KeyActivityItem {
