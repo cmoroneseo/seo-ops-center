@@ -121,6 +121,7 @@ type TaskInsert = {
     basecampTodolistId?: string;
     /** Display name of the creator — used in activity log entries. */
     actorName?: string;
+    campaignPhaseId?: string;
 };
 
 function taskToRow(t: Partial<TaskInsert>) {
@@ -144,6 +145,7 @@ function taskToRow(t: Partial<TaskInsert>) {
         created_by: t.createdBy,
         template_id: t.templateId,
         recurrence: t.recurrence,
+        campaign_phase_id: t.campaignPhaseId ?? null,
     };
 }
 

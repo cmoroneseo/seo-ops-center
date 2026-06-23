@@ -27,6 +27,7 @@ import { WorkstreamsSection } from './sections/WorkstreamsSection';
 import { PreliminaryRoadmapSection } from './sections/PreliminaryRoadmapSection';
 import { TimelineSection } from './sections/TimelineSection';
 import { ExpectationsSection } from './sections/ExpectationsSection';
+import { ScopeMeterSection } from './sections/ScopeMeterSection';
 
 // ---------------------------------------------------------------------------
 
@@ -454,6 +455,10 @@ export function CampaignPlanTab({ organizationId, clientId, clientName }: Campai
                         plan={plan} organizationId={organizationId} clientId={clientId}
                         expanded={expandedSections.workstreams} onToggle={() => toggleSection('workstreams')}
                         onRefresh={loadPlan}
+                    />
+                    <ScopeMeterSection
+                        plan={plan} expanded={expandedSections.scopeMeter ?? false}
+                        onToggle={() => toggleSection('scopeMeter')} onRefresh={loadPlan}
                     />
                 </div>
             )}

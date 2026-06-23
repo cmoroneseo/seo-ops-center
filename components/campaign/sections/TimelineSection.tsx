@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { Clock, Check, X, Trash2, Pencil } from 'lucide-react';
+import { Clock, Check, X, Trash2, Pencil, ListTodo, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CampaignPhase } from '@/lib/types';
 import { upsertCampaignPhase, deleteCampaignPhase } from '@/lib/supabase/campaign-plans';
+import { createTask } from '@/lib/supabase/tasks';
 import { logActivity } from '@/lib/supabase/client-activity';
 import { SectionCard, InlineInput, PHASE_STATUS_COLORS, SectionProps } from './SectionCard';
 
@@ -91,6 +92,34 @@ export function TimelineSection({ plan, organizationId, clientId, expanded, onTo
         onRefresh();
     };
 
+    const [generatingFor, setGeneratingFor] = useState<string | null>(null);
+
+    const handleGenerateTasks = async (ph: CampaignPhase) => {
+        setGeneratingFor(ph.id);
+        const objective = ph.objective ?? ph.name;
+        const taskTitles = objective
+            .split(/[,;.\n]/)
+            .map(s => s.trim())
+            .filter(s => s.length > 5);
+
+        const titles = taskTitles.length > 0
+            ? taskTitles
+            : [`${ph.name}: Research & planning`, `${ph.name}: Implementation`, `${ph.name}: Review & QA`];
+
+        for (const title of titles) {
+            await createTask({
+                organizationId, clientId, title,
+                category: 'seo',
+                priority: 'medium',
+                campaignPhaseId: ph.id,
+                description: `Generated from campaign phase: ${ph.name}`,
+            });
+        }
+
+        logActivity({ clientId, eventType: 'campaign.phase_status_changed', metadata: { phase: ph.name, action: 'tasks_generated', count: titles.length } });
+        setGeneratingFor(null);
+    };
+
     return (
         <SectionCard
             icon={Clock} title="Timeline" count={phases.length}
@@ -156,6 +185,14 @@ export function TimelineSection({ plan, organizationId, clientId, expanded, onTo
                                         <span className="font-medium">Exit criteria:</span> {ph.exitCriteria}
                                     </div>
                                 )}
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handleGenerateTasks(ph); }}
+                                    disabled={generatingFor === ph.id}
+                                    className="flex items-center gap-1.5 text-[10px] text-primary hover:text-primary/80 transition-colors mt-1 disabled:opacity-50"
+                                >
+                                    {generatingFor === ph.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <ListTodo className="h-3 w-3" />}
+                                    {generatingFor === ph.id ? 'Generating…' : 'Generate Tasks'}
+                                </button>
                             </div>
                         )}
                     </div>
