@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Upload, X, ImageIcon, Loader2 } from 'lucide-react';
+import { Upload, X, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 
@@ -45,7 +45,7 @@ export function ScreenshotUpload({ screenshots, onUpdate, label = 'Screenshots' 
 
             if (error) {
                 console.error('Upload error:', error);
-                setUploadError(`Upload failed: ${error.message}. Make sure the "campaign-screenshots" storage bucket exists in Supabase.`);
+                setUploadError(`Upload failed: ${error.message}`);
                 continue;
             }
 
@@ -78,7 +78,7 @@ export function ScreenshotUpload({ screenshots, onUpdate, label = 'Screenshots' 
     return (
         <div className="space-y-3">
             <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-muted-foreground">{label}</label>
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{label}</label>
                 <button
                     onClick={() => fileRef.current?.click()}
                     disabled={uploading}
@@ -93,7 +93,10 @@ export function ScreenshotUpload({ screenshots, onUpdate, label = 'Screenshots' 
                     accept="image/*"
                     multiple
                     className="hidden"
-                    onChange={(e) => e.target.files && handleUpload(e.target.files)}
+                    onChange={(e) => {
+                        if (e.target.files) handleUpload(e.target.files);
+                        e.target.value = '';
+                    }}
                 />
             </div>
 
@@ -106,26 +109,25 @@ export function ScreenshotUpload({ screenshots, onUpdate, label = 'Screenshots' 
             {screenshots.length === 0 ? (
                 <div
                     onClick={() => fileRef.current?.click()}
-                    className="border-2 border-dashed border-border/50 rounded-lg p-6 text-center cursor-pointer hover:border-primary/30 transition-colors"
+                    className="border border-dashed border-border/60 rounded-lg p-8 text-center cursor-pointer hover:border-primary/30 hover:bg-muted/10 transition-colors"
                 >
-                    <ImageIcon className="h-6 w-6 text-muted-foreground/40 mx-auto mb-2" />
-                    <p className="text-xs text-muted-foreground">Drop screenshots here or click to upload</p>
-                    <p className="text-[10px] text-muted-foreground/60 mt-1">Ahrefs, PageSpeed Insights, Screaming Frog, etc.</p>
+                    <Upload className="h-5 w-5 text-muted-foreground/30 mx-auto mb-2" />
+                    <p className="text-xs text-muted-foreground">Upload Ahrefs, PageSpeed, or audit screenshots</p>
                 </div>
             ) : (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-3">
                     {screenshots.map((s, i) => (
-                        <div key={i} className="group relative rounded-lg border border-border/50 overflow-hidden bg-muted/20">
+                        <div key={i} className="group relative rounded-lg border border-border/30 overflow-hidden bg-black/5">
                             <img
                                 src={s.url}
                                 alt={s.caption}
-                                className="w-full h-40 object-cover object-top"
+                                className="w-full max-h-[400px] object-contain bg-black/5"
                             />
                             <button
                                 onClick={() => handleDelete(i)}
-                                className="absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/90"
                             >
-                                <X className="h-3 w-3" />
+                                <X className="h-3.5 w-3.5" />
                             </button>
                             {editingCaption === i ? (
                                 <input
@@ -135,30 +137,27 @@ export function ScreenshotUpload({ screenshots, onUpdate, label = 'Screenshots' 
                                     onBlur={() => setEditingCaption(null)}
                                     onKeyDown={(e) => e.key === 'Enter' && setEditingCaption(null)}
                                     autoFocus
-                                    className="w-full px-2 py-1.5 text-xs bg-transparent border-t border-border/50 outline-none focus:border-primary"
+                                    className="w-full px-3 py-2 text-xs bg-card border-t border-border/30 outline-none focus:border-primary"
                                 />
                             ) : (
                                 <div
                                     onClick={() => setEditingCaption(i)}
                                     className={cn(
-                                        'px-2 py-1.5 text-xs border-t border-border/50 cursor-text',
+                                        'px-3 py-2 text-xs border-t border-border/30 cursor-text bg-card',
                                         s.caption ? 'text-foreground' : 'text-muted-foreground italic',
                                     )}
                                 >
-                                    {s.caption || 'Add caption…'}
+                                    {s.caption || 'Click to add caption…'}
                                 </div>
                             )}
                         </div>
                     ))}
-                    <div
+                    <button
                         onClick={() => fileRef.current?.click()}
-                        className="flex items-center justify-center rounded-lg border-2 border-dashed border-border/50 h-40 cursor-pointer hover:border-primary/30 transition-colors"
+                        className="w-full py-2 text-xs text-muted-foreground hover:text-primary border border-dashed border-border/40 rounded-lg hover:border-primary/30 transition-colors"
                     >
-                        <div className="text-center">
-                            <Upload className="h-5 w-5 text-muted-foreground/40 mx-auto mb-1" />
-                            <span className="text-[10px] text-muted-foreground">Add more</span>
-                        </div>
-                    </div>
+                        + Add more screenshots
+                    </button>
                 </div>
             )}
         </div>

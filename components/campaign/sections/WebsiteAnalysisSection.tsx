@@ -33,24 +33,12 @@ export function WebsiteAnalysisSection({ plan, expanded, onToggle, onRefresh }: 
         onRefresh();
     };
 
-    const saveField = async (field: keyof Pick<WebsiteAnalysisData, 'observations' | 'technicalFindings'>) => {
-        await save({ ...data });
-    };
-
     const addCompetitor = async () => {
-        const updated = {
-            ...data,
-            competitorExamples: [...(data.competitorExamples ?? []), { name: '', url: '', notes: '' }],
-        };
-        await save(updated);
+        await save({ ...data, competitorExamples: [...(data.competitorExamples ?? []), { name: '', url: '', notes: '' }] });
     };
 
     const removeCompetitor = async (idx: number) => {
-        const updated = {
-            ...data,
-            competitorExamples: (data.competitorExamples ?? []).filter((_, i) => i !== idx),
-        };
-        await save(updated);
+        await save({ ...data, competitorExamples: (data.competitorExamples ?? []).filter((_, i) => i !== idx) });
     };
 
     const updateCompetitor = (idx: number, field: string, value: string) => {
@@ -59,12 +47,10 @@ export function WebsiteAnalysisSection({ plan, expanded, onToggle, onRefresh }: 
         setData(d => ({ ...d, competitorExamples: comps }));
     };
 
-    const saveCompetitors = async () => {
-        await save({ ...data });
-    };
-
-    const filledFields = [data.observations, data.technicalFindings].filter(v => v && v.trim().length > 0).length;
-    const count = filledFields + (data.competitorExamples?.length ?? 0);
+    const screenshotCount = data.screenshots?.length ?? 0;
+    const textCount = [data.observations, data.technicalFindings].filter(v => v?.trim()).length;
+    const compCount = data.competitorExamples?.length ?? 0;
+    const count = screenshotCount + textCount + compCount;
 
     return (
         <SectionCard
@@ -72,6 +58,7 @@ export function WebsiteAnalysisSection({ plan, expanded, onToggle, onRefresh }: 
             expanded={expanded} onToggle={onToggle}
         >
             <div className="space-y-6">
+                {/* Screenshots — full width, prominent */}
                 <ScreenshotUpload
                     screenshots={data.screenshots ?? []}
                     onUpdate={async (screenshots) => {
@@ -79,32 +66,38 @@ export function WebsiteAnalysisSection({ plan, expanded, onToggle, onRefresh }: 
                     }}
                     label="Website & SEO Screenshots"
                 />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                {/* Divider */}
+                {screenshotCount > 0 && <div className="border-t border-border/30" />}
+
+                {/* Findings — stacked, not side by side */}
                 <div className="space-y-4">
                     <div className="space-y-1">
-                        <label className="text-xs font-medium text-muted-foreground">Observations</label>
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Observations</label>
                         <InlineTextarea
                             value={data.observations ?? ''}
                             onChange={v => setData(d => ({ ...d, observations: v }))}
-                            onBlur={() => saveField('observations')}
-                            placeholder="General observations about the website..."
-                            rows={4}
+                            onBlur={() => save({ ...data })}
+                            placeholder="What stands out about this website? Current SEO state, content quality, UX issues, mobile experience..."
+                            rows={3}
                         />
                     </div>
                     <div className="space-y-1">
-                        <label className="text-xs font-medium text-muted-foreground">Technical Findings</label>
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Technical Findings</label>
                         <InlineTextarea
                             value={data.technicalFindings ?? ''}
                             onChange={v => setData(d => ({ ...d, technicalFindings: v }))}
-                            onBlur={() => saveField('technicalFindings')}
-                            placeholder="Technical SEO findings..."
-                            rows={4}
+                            onBlur={() => save({ ...data })}
+                            placeholder="Crawl issues, indexing problems, CWV scores, sitemap/robots status, schema markup, page speed..."
+                            rows={3}
                         />
                     </div>
                 </div>
+
+                {/* Competitors — compact list */}
                 <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                        <label className="text-xs font-medium text-muted-foreground">Competitor Examples</label>
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Competitors</label>
                         <button
                             onClick={addCompetitor}
                             className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
@@ -113,46 +106,43 @@ export function WebsiteAnalysisSection({ plan, expanded, onToggle, onRefresh }: 
                         </button>
                     </div>
                     {(data.competitorExamples ?? []).length === 0 && (
-                        <p className="text-sm text-muted-foreground italic">No competitors added yet.</p>
+                        <p className="text-xs text-muted-foreground italic py-2">No competitors added yet.</p>
                     )}
                     {(data.competitorExamples ?? []).map((comp, idx) => (
-                        <div key={idx} className="p-3 rounded-lg bg-muted/30 border border-border/30 space-y-2 group">
-                            <div className="flex items-center justify-between">
-                                <InlineInput
-                                    value={comp.name}
-                                    onChange={v => updateCompetitor(idx, 'name', v)}
-                                    placeholder="Competitor name…"
-                                    className="flex-1"
-                                />
-                                <button
-                                    onClick={() => removeCompetitor(idx)}
-                                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 transition-all p-1 ml-2"
-                                >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                            </div>
+                        <div key={idx} className="flex items-center gap-2 p-2 rounded-lg bg-muted/20 border border-border/30 group">
+                            <InlineInput
+                                value={comp.name}
+                                onChange={v => updateCompetitor(idx, 'name', v)}
+                                placeholder="Name"
+                                className="w-32"
+                            />
                             <InlineInput
                                 value={comp.url}
                                 onChange={v => updateCompetitor(idx, 'url', v)}
-                                placeholder="URL…"
+                                placeholder="domain.com"
+                                className="w-40"
                             />
                             <InlineInput
                                 value={comp.notes}
                                 onChange={v => updateCompetitor(idx, 'notes', v)}
-                                placeholder="Notes…"
+                                placeholder="Notes..."
+                                className="flex-1"
                             />
-                            <div className="flex justify-end">
-                                <button
-                                    onClick={saveCompetitors}
-                                    className="text-[10px] text-primary hover:text-primary/80"
-                                >
-                                    Save
-                                </button>
-                            </div>
+                            <button
+                                onClick={() => save({ ...data })}
+                                className="text-[10px] text-primary hover:text-primary/80 px-1.5"
+                            >
+                                Save
+                            </button>
+                            <button
+                                onClick={() => removeCompetitor(idx)}
+                                className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 transition-all p-1"
+                            >
+                                <Trash2 className="h-3 w-3" />
+                            </button>
                         </div>
                     ))}
                 </div>
-            </div>
             </div>
         </SectionCard>
     );

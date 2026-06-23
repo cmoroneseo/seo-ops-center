@@ -5,6 +5,7 @@ import { Search, Plus, Check, X, Trash2, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { updateCampaignPlan } from '@/lib/supabase/campaign-plans';
 import { SectionCard, InlineInput, InlineSelect, CustomFieldSectionProps, KeywordEntry } from './SectionCard';
+import { ScreenshotUpload } from './ScreenshotUpload';
 
 const PRIORITY_OPTIONS = [
     { value: 'high', label: 'High' },
@@ -19,24 +20,29 @@ const PRIORITY_COLORS: Record<string, string> = {
 };
 
 export function KeywordSnapshotSection({ plan, expanded, onToggle, onRefresh }: CustomFieldSectionProps) {
-    const snapshot = (plan.customFields.keywordSnapshot ?? {}) as { keywords?: KeywordEntry[] };
+    const snapshot = (plan.customFields.keywordSnapshot ?? {}) as { keywords?: KeywordEntry[]; screenshots?: { url: string; caption: string; addedAt: string }[] };
     const [keywords, setKeywords] = useState<KeywordEntry[]>(snapshot.keywords ?? []);
+    const [screenshots, setScreenshots] = useState(snapshot.screenshots ?? []);
     const [adding, setAdding] = useState(false);
     const [editingIdx, setEditingIdx] = useState<number | null>(null);
     const [form, setForm] = useState({ keyword: '', volume: '', difficulty: '', priority: '', cluster: '' });
 
     useEffect(() => {
-        const snap = (plan.customFields.keywordSnapshot ?? {}) as { keywords?: KeywordEntry[] };
+        const snap = (plan.customFields.keywordSnapshot ?? {}) as { keywords?: KeywordEntry[]; screenshots?: { url: string; caption: string; addedAt: string }[] };
         setKeywords(snap.keywords ?? []);
+        setScreenshots(snap.screenshots ?? []);
     }, [plan.customFields.keywordSnapshot]);
 
-    const saveKeywords = async (updated: KeywordEntry[]) => {
-        setKeywords(updated);
+    const saveAll = async (updatedKeywords: KeywordEntry[], updatedScreenshots: typeof screenshots) => {
+        setKeywords(updatedKeywords);
+        setScreenshots(updatedScreenshots);
         await updateCampaignPlan(plan.id, {
-            customFields: { ...plan.customFields, keywordSnapshot: { keywords: updated } },
+            customFields: { ...plan.customFields, keywordSnapshot: { keywords: updatedKeywords, screenshots: updatedScreenshots } },
         });
         onRefresh();
     };
+
+    const saveKeywords = async (updated: KeywordEntry[]) => saveAll(updated, screenshots);
 
     const startAdd = () => {
         setForm({ keyword: '', volume: '', difficulty: '', priority: '', cluster: '' });
@@ -106,11 +112,21 @@ export function KeywordSnapshotSection({ plan, expanded, onToggle, onRefresh }: 
 
     return (
         <SectionCard
-            icon={Search} title="Keyword Snapshot" count={keywords.length}
+            icon={Search} title="Keyword Snapshot" count={keywords.length + screenshots.length}
             expanded={expanded} onToggle={onToggle} onAdd={startAdd}
         >
+            <ScreenshotUpload
+                screenshots={screenshots}
+                onUpdate={(updated) => saveAll(keywords, updated)}
+                label="Keyword Research Screenshots"
+            />
+
+            {screenshots.length > 0 && keywords.length === 0 && !adding && (
+                <div className="border-t border-border/30 pt-3" />
+            )}
+
             {keywords.length === 0 && !adding && (
-                <p className="text-sm text-muted-foreground italic">No keywords added yet.</p>
+                <p className="text-xs text-muted-foreground italic">No keywords added yet. Click + Add to enter target keywords.</p>
             )}
             <div className="space-y-2">
                 {keywords.map((k, idx) => editingIdx === idx ? (
