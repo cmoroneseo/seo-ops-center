@@ -305,6 +305,40 @@ export function CampaignPlanTab({ organizationId, clientId, clientName }: Campai
 
     const statusInfo = STATUS_LABELS[plan.status];
 
+    // Compute section completeness
+    const cf = plan.customFields as Record<string, any>;
+    const seoOverview = (cf.seoOverview ?? {}) as Record<string, string>;
+    const seoOverviewFilled = ['artExplanation', 'currentState', 'opportunities', 'challenges', 'campaignObjectives']
+        .filter(k => seoOverview[k]?.trim()).length;
+    const goalCount = plan.goals?.length ?? 0;
+    const kpiCount = plan.kpis?.length ?? 0;
+    const keywordCount = ((cf.keywordSnapshot as any)?.keywords ?? []).length;
+    const analysisData = (cf.websiteAnalysis ?? {}) as Record<string, any>;
+    const analysisFilled = ['observations', 'technicalFindings'].filter(k => analysisData[k]?.trim()).length
+        + (analysisData.competitorExamples?.length ?? 0);
+    const activityCount = ((cf.keyActivities as any)?.items ?? []).length;
+    const workstreamCount = plan.workstreams?.length ?? 0;
+    const roadmapCount = ((cf.preliminaryRoadmap as any)?.stages ?? []).length;
+    const phaseCount = plan.phases?.length ?? 0;
+    const expectationCount = plan.expectations?.length ?? 0;
+
+    type StepStatus = 'empty' | 'partial' | 'complete';
+    const steps: { key: string; label: string; status: StepStatus }[] = [
+        { key: 'seoOverview', label: 'SEO Overview', status: seoOverviewFilled === 0 ? 'empty' : seoOverviewFilled >= 5 ? 'complete' : 'partial' },
+        { key: 'goals', label: 'Goals', status: goalCount === 0 ? 'empty' : goalCount >= 2 ? 'complete' : 'partial' },
+        { key: 'kpis', label: 'KPIs', status: kpiCount === 0 ? 'empty' : kpiCount >= 3 ? 'complete' : 'partial' },
+        { key: 'keywordSnapshot', label: 'Keywords', status: keywordCount === 0 ? 'empty' : keywordCount >= 5 ? 'complete' : 'partial' },
+        { key: 'websiteAnalysis', label: 'Analysis', status: analysisFilled === 0 ? 'empty' : analysisFilled >= 2 ? 'complete' : 'partial' },
+        { key: 'keyActivities', label: 'Activities', status: activityCount === 0 ? 'empty' : activityCount >= 3 ? 'complete' : 'partial' },
+        { key: 'workstreams', label: 'Workstreams', status: workstreamCount === 0 ? 'empty' : workstreamCount >= 3 ? 'complete' : 'partial' },
+        { key: 'preliminaryRoadmap', label: 'Roadmap', status: roadmapCount === 0 ? 'empty' : roadmapCount >= 3 ? 'complete' : 'partial' },
+        { key: 'timeline', label: 'Timeline', status: phaseCount === 0 ? 'empty' : phaseCount >= 3 ? 'complete' : 'partial' },
+        { key: 'expectations', label: 'Expectations', status: expectationCount === 0 ? 'empty' : expectationCount >= 2 ? 'complete' : 'partial' },
+    ];
+    const completedCount = steps.filter(s => s.status === 'complete').length;
+    const partialCount = steps.filter(s => s.status === 'partial').length;
+    const progressPercent = Math.round(((completedCount + partialCount * 0.5) / steps.length) * 100);
+
     return (
         <div className="space-y-6">
             {/* Plan header */}
@@ -351,52 +385,115 @@ export function CampaignPlanTab({ organizationId, clientId, clientName }: Campai
                 </div>
             </div>
 
+            {/* Step progress bar */}
+            <div className="rounded-xl border border-border/50 bg-card px-5 py-4">
+                <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-semibold">Campaign Setup Progress</span>
+                    <span className="text-xs text-muted-foreground">
+                        {completedCount} of {steps.length} complete · {progressPercent}%
+                    </span>
+                </div>
+                <div className="w-full h-2 bg-muted rounded-full overflow-hidden mb-3">
+                    <div
+                        className="h-full bg-primary rounded-full transition-all duration-500"
+                        style={{ width: `${progressPercent}%` }}
+                    />
+                </div>
+                <div className="flex gap-1 flex-wrap">
+                    {steps.map((s, i) => (
+                        <button
+                            key={s.key}
+                            onClick={() => {
+                                setExpandedSections(prev => ({ ...prev, [s.key]: true }));
+                                document.getElementById(`section-${s.key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }}
+                            className={cn(
+                                'flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors',
+                                s.status === 'complete' ? 'bg-green-500/10 text-green-500' :
+                                s.status === 'partial' ? 'bg-yellow-500/10 text-yellow-500' :
+                                'bg-muted text-muted-foreground',
+                            )}
+                        >
+                            <span className={cn(
+                                'w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-bold',
+                                s.status === 'complete' ? 'bg-green-500/20' :
+                                s.status === 'partial' ? 'bg-yellow-500/20' :
+                                'bg-muted-foreground/20',
+                            )}>
+                                {s.status === 'complete' ? '✓' : i + 1}
+                            </span>
+                            {s.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
             {/* Sections */}
-            <SeoOverviewSection
-                plan={plan} expanded={expandedSections.seoOverview}
-                onToggle={() => toggleSection('seoOverview')} onRefresh={loadPlan}
-            />
-            <GoalsSection
-                plan={plan} organizationId={organizationId} clientId={clientId}
-                expanded={expandedSections.goals} onToggle={() => toggleSection('goals')}
-                onRefresh={loadPlan}
-            />
-            <KpisSection
-                plan={plan} organizationId={organizationId} clientId={clientId}
-                expanded={expandedSections.kpis} onToggle={() => toggleSection('kpis')}
-                onRefresh={loadPlan}
-            />
-            <KeywordSnapshotSection
-                plan={plan} expanded={expandedSections.keywordSnapshot}
-                onToggle={() => toggleSection('keywordSnapshot')} onRefresh={loadPlan}
-            />
-            <WebsiteAnalysisSection
-                plan={plan} expanded={expandedSections.websiteAnalysis}
-                onToggle={() => toggleSection('websiteAnalysis')} onRefresh={loadPlan}
-            />
-            <KeyActivitiesSection
-                plan={plan} expanded={expandedSections.keyActivities}
-                onToggle={() => toggleSection('keyActivities')} onRefresh={loadPlan}
-            />
-            <WorkstreamsSection
-                plan={plan} organizationId={organizationId} clientId={clientId}
-                expanded={expandedSections.workstreams} onToggle={() => toggleSection('workstreams')}
-                onRefresh={loadPlan}
-            />
-            <PreliminaryRoadmapSection
-                plan={plan} expanded={expandedSections.preliminaryRoadmap}
-                onToggle={() => toggleSection('preliminaryRoadmap')} onRefresh={loadPlan}
-            />
-            <TimelineSection
-                plan={plan} organizationId={organizationId} clientId={clientId}
-                expanded={expandedSections.timeline} onToggle={() => toggleSection('timeline')}
-                onRefresh={loadPlan}
-            />
-            <ExpectationsSection
-                plan={plan} organizationId={organizationId} clientId={clientId}
-                expanded={expandedSections.expectations} onToggle={() => toggleSection('expectations')}
-                onRefresh={loadPlan}
-            />
+            <div id="section-seoOverview">
+                <SeoOverviewSection
+                    plan={plan} expanded={expandedSections.seoOverview}
+                    onToggle={() => toggleSection('seoOverview')} onRefresh={loadPlan}
+                />
+            </div>
+            <div id="section-goals">
+                <GoalsSection
+                    plan={plan} organizationId={organizationId} clientId={clientId}
+                    expanded={expandedSections.goals} onToggle={() => toggleSection('goals')}
+                    onRefresh={loadPlan}
+                />
+            </div>
+            <div id="section-kpis">
+                <KpisSection
+                    plan={plan} organizationId={organizationId} clientId={clientId}
+                    expanded={expandedSections.kpis} onToggle={() => toggleSection('kpis')}
+                    onRefresh={loadPlan}
+                />
+            </div>
+            <div id="section-keywordSnapshot">
+                <KeywordSnapshotSection
+                    plan={plan} expanded={expandedSections.keywordSnapshot}
+                    onToggle={() => toggleSection('keywordSnapshot')} onRefresh={loadPlan}
+                />
+            </div>
+            <div id="section-websiteAnalysis">
+                <WebsiteAnalysisSection
+                    plan={plan} expanded={expandedSections.websiteAnalysis}
+                    onToggle={() => toggleSection('websiteAnalysis')} onRefresh={loadPlan}
+                />
+            </div>
+            <div id="section-keyActivities">
+                <KeyActivitiesSection
+                    plan={plan} expanded={expandedSections.keyActivities}
+                    onToggle={() => toggleSection('keyActivities')} onRefresh={loadPlan}
+                />
+            </div>
+            <div id="section-workstreams">
+                <WorkstreamsSection
+                    plan={plan} organizationId={organizationId} clientId={clientId}
+                    expanded={expandedSections.workstreams} onToggle={() => toggleSection('workstreams')}
+                    onRefresh={loadPlan}
+                />
+            </div>
+            <div id="section-preliminaryRoadmap">
+                <PreliminaryRoadmapSection
+                    plan={plan} expanded={expandedSections.preliminaryRoadmap}
+                    onToggle={() => toggleSection('preliminaryRoadmap')} onRefresh={loadPlan}
+                />
+            </div>
+            <div id="section-timeline">
+                <TimelineSection
+                    plan={plan} organizationId={organizationId} clientId={clientId}
+                    expanded={expandedSections.timeline} onToggle={() => toggleSection('timeline')}
+                    onRefresh={loadPlan}
+                />
+            </div>
+            <div id="section-expectations">
+                <ExpectationsSection
+                    plan={plan} organizationId={organizationId} clientId={clientId}
+                    expanded={expandedSections.expectations} onToggle={() => toggleSection('expectations')}
+                    onRefresh={loadPlan}
+                />
+            </div>
         </div>
     );
 }

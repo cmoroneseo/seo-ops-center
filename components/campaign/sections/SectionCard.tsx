@@ -163,22 +163,49 @@ export interface CustomFieldSectionProps {
 // SectionCard component
 // ---------------------------------------------------------------------------
 
-export function SectionCard({ icon: Icon, title, count, expanded, onToggle, onAdd, children }: {
-    icon: React.ElementType; title: string; count: number;
+export type SectionStatus = 'empty' | 'partial' | 'complete';
+
+export function SectionCard({ icon: Icon, title, count, total, status, stepNumber, expanded, onToggle, onAdd, children }: {
+    icon: React.ElementType; title: string; count: number; total?: number;
+    status?: SectionStatus; stepNumber?: number;
     expanded: boolean; onToggle: () => void; onAdd?: () => void;
     children: React.ReactNode;
 }) {
+    const statusDot = status === 'complete'
+        ? 'bg-green-500'
+        : status === 'partial'
+        ? 'bg-yellow-500'
+        : 'bg-gray-400/40';
+
     return (
-        <div className="rounded-xl border border-border/50 bg-card">
+        <div className={cn(
+            'rounded-xl border bg-card transition-colors',
+            expanded ? 'border-border' : 'border-border/50',
+        )}>
             <div
                 className="flex items-center justify-between px-5 py-3 cursor-pointer select-none"
                 onClick={onToggle}
             >
                 <div className="flex items-center gap-2">
+                    {stepNumber != null && (
+                        <span className={cn(
+                            'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0',
+                            status === 'complete' ? 'bg-green-500/20 text-green-500' :
+                            status === 'partial' ? 'bg-yellow-500/20 text-yellow-500' :
+                            'bg-muted text-muted-foreground',
+                        )}>
+                            {status === 'complete' ? '✓' : stepNumber}
+                        </span>
+                    )}
                     {expanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                     <Icon className="h-4 w-4 text-primary" />
                     <span className="font-semibold text-sm">{title}</span>
-                    <span className="text-xs text-muted-foreground">({count})</span>
+                    {total != null ? (
+                        <span className="text-xs text-muted-foreground">{count}/{total}</span>
+                    ) : (
+                        <span className="text-xs text-muted-foreground">({count})</span>
+                    )}
+                    {status && <div className={cn('w-2 h-2 rounded-full shrink-0', statusDot)} />}
                 </div>
                 {onAdd && (
                     <button
