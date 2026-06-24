@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Crosshair, Plus, Check, X, Trash2, Pencil } from 'lucide-react';
+import { Crosshair, Plus, Check, X, Trash2, Pencil, Download, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { updateCampaignPlan } from '@/lib/supabase/campaign-plans';
 import { SectionCard, InlineInput, InlineSelect, CustomFieldSectionProps, KeywordEntry } from './SectionCard';
@@ -19,10 +19,46 @@ const PRIORITY_COLORS: Record<string, string> = {
     low: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
 };
 
-export function KeywordSnapshotSection({ plan, expanded, onToggle, onRefresh }: CustomFieldSectionProps) {
+export function KeywordSnapshotSection({ plan, expanded, onToggle, onRefresh, clientId }: CustomFieldSectionProps & { clientId?: string }) {
     const snapshot = (plan.customFields.keywordSnapshot ?? {}) as { keywords?: KeywordEntry[]; screenshots?: { url: string; caption: string; addedAt: string }[] };
     const [keywords, setKeywords] = useState<KeywordEntry[]>(snapshot.keywords ?? []);
     const [screenshots, setScreenshots] = useState(snapshot.screenshots ?? []);
+    const [pulling, setPulling] = useState(false);
+    const [pullError, setPullError] = useState('');
+
+    const handleAhrefsPull = async () => {
+        if (!clientId) return;
+        setPulling(true);
+        setPullError('');
+        try {
+            const res = await fetch(`/api/campaign/keyword-research?clientId=${clientId}`);
+            if (!res.ok) {
+                const err = await res.json();
+                setPullError(err.error || 'Failed to fetch keywords');
+                return;
+            }
+            const data = await res.json();
+            const pulled: KeywordEntry[] = (data.keywords ?? []).map((k: any) => ({
+                keyword: k.keyword,
+                volume: k.volume,
+                difficulty: k.difficulty,
+                priority: k.difficulty <= 30 ? 'high' as const : k.difficulty <= 60 ? 'medium' as const : 'low' as const,
+                cluster: undefined,
+            }));
+            const merged = [...keywords];
+            const existingSet = new Set(keywords.map(k => k.keyword.toLowerCase()));
+            for (const kw of pulled) {
+                if (!existingSet.has(kw.keyword.toLowerCase())) {
+                    merged.push(kw);
+                }
+            }
+            await saveAll(merged, screenshots);
+        } catch (err: any) {
+            setPullError(err.message || 'Network error');
+        } finally {
+            setPulling(false);
+        }
+    };
     const [adding, setAdding] = useState(false);
     const [editingIdx, setEditingIdx] = useState<number | null>(null);
     const [form, setForm] = useState({ keyword: '', volume: '', difficulty: '', priority: '', cluster: '' });
@@ -115,6 +151,26 @@ export function KeywordSnapshotSection({ plan, expanded, onToggle, onRefresh }: 
             icon={Crosshair} title="Keyword Opportunities" count={keywords.length + screenshots.length}
             expanded={expanded} onToggle={onToggle} onAdd={startAdd}
         >
+            {/* Ahrefs pull */}
+            <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">Keywords to track and target throughout the campaign.</p>
+                {clientId && (
+                    <button
+                        onClick={handleAhrefsPull}
+                        disabled={pulling}
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 transition-colors disabled:opacity-50"
+                    >
+                        {pulling ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                        {pulling ? 'Pulling…' : 'Pull from Ahrefs'}
+                    </button>
+                )}
+            </div>
+            {pullError && (
+                <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded-lg p-2">
+                    {pullError}
+                </div>
+            )}
+
             <ScreenshotUpload
                 screenshots={screenshots}
                 onUpdate={(updated) => saveAll(keywords, updated)}

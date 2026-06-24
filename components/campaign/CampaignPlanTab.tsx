@@ -448,6 +448,7 @@ export function CampaignPlanTab({ organizationId, clientId, clientName }: Campai
                     <KeywordSnapshotSection
                         plan={plan} expanded={expandedSections.keywordSnapshot}
                         onToggle={() => toggleSection('keywordSnapshot')} onRefresh={refreshPlan}
+                        clientId={clientId}
                     />
                     <KeyActivitiesSection
                         plan={plan} expanded={expandedSections.keyActivities}
