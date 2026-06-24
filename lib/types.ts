@@ -268,6 +268,7 @@ export interface ClientProject {
     id: string;
     organizationId: string;
     clientName: string;
+    domain?: string;
     logoUrl?: string;
     launchDate?: string;
     accountManager: string;

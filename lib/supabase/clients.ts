@@ -35,6 +35,7 @@ function rowToClientProject(row: any): ClientProject {
         id: row.id,
         organizationId: row.organization_id,
         clientName: row.name,
+        domain: row.domain ?? undefined,
         logoUrl: row.logo_url ?? undefined,
         launchDate,
         notes: row.notes ?? undefined,
@@ -82,6 +83,7 @@ function clientProjectToRow(client: Partial<ClientProject>) {
         status: client.status ? APP_TO_DB_STATUS[client.status] : undefined,
         tier: client.tier,
         logo_url: client.logoUrl,
+        domain: client.domain ?? undefined,
     };
 }
 

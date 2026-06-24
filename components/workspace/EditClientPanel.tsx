@@ -40,6 +40,7 @@ export { ClientAvatar };
 export function EditClientPanel({ client, onClose, onSaved }: Props) {
     const { organization } = useOrganization();
     const [name, setName] = useState(client.clientName);
+    const [domain, setDomain] = useState(client.domain ?? '');
     const [logoUrl, setLogoUrl] = useState(client.logoUrl ?? '');
     const [logoPreview, setLogoPreview] = useState(client.logoUrl ?? '');
     const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -135,6 +136,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
             blogsDuePerMonth: newBlogs,
             status,
             launchDate: launchDate || undefined,
+            domain: domain.trim() || undefined,
         });
         setSaving(false);
         if (!result.success || !result.data) {
@@ -312,6 +314,19 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
                             onChange={e => setName(e.target.value)}
                             className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40"
                         />
+                    </div>
+
+                    {/* Domain */}
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Website Domain</label>
+                        <input
+                            type="text"
+                            value={domain}
+                            onChange={e => setDomain(e.target.value)}
+                            placeholder="example.com"
+                            className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40"
+                        />
+                        <p className="text-[10px] text-muted-foreground">Used for Ahrefs keyword research and site analysis.</p>
                     </div>
 
                     {/* Hours & Deliverables */}
