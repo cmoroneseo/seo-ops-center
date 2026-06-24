@@ -29,10 +29,19 @@ export interface KeywordEntry {
     cluster?: string;
 }
 
+export interface AnalysisFinding {
+    id: string;
+    title: string;
+    description: string;
+    screenshot?: { url: string; caption: string; addedAt: string };
+}
+
 export interface WebsiteAnalysisData {
+    findings?: AnalysisFinding[];
+    competitorExamples?: { name: string; url: string; notes: string }[];
+    // Legacy fields — auto-migrated to findings on load
     observations?: string;
     technicalFindings?: string;
-    competitorExamples?: { name: string; url: string; notes: string }[];
     screenshots?: { url: string; caption: string; addedAt: string }[];
 }
 

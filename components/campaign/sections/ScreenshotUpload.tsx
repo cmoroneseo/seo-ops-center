@@ -15,9 +15,10 @@ interface ScreenshotUploadProps {
     screenshots: Screenshot[];
     onUpdate: (screenshots: Screenshot[]) => void;
     label?: string;
+    single?: boolean;
 }
 
-export function ScreenshotUpload({ screenshots, onUpdate, label = 'Screenshots' }: ScreenshotUploadProps) {
+export function ScreenshotUpload({ screenshots, onUpdate, label = 'Screenshots', single = false }: ScreenshotUploadProps) {
     const [uploading, setUploading] = useState(false);
     const [uploadError, setUploadError] = useState('');
     const [editingCaption, setEditingCaption] = useState<number | null>(null);
@@ -32,7 +33,7 @@ export function ScreenshotUpload({ screenshots, onUpdate, label = 'Screenshots' 
         setUploading(true);
         setUploadError('');
 
-        const newScreenshots = [...screenshots];
+        const newScreenshots = single ? [] : [...screenshots];
 
         for (const file of Array.from(files)) {
             if (!file.type.startsWith('image/')) continue;
@@ -152,12 +153,14 @@ export function ScreenshotUpload({ screenshots, onUpdate, label = 'Screenshots' 
                             )}
                         </div>
                     ))}
-                    <button
-                        onClick={() => fileRef.current?.click()}
-                        className="w-full py-2 text-xs text-muted-foreground hover:text-primary border border-dashed border-border/40 rounded-lg hover:border-primary/30 transition-colors"
-                    >
-                        + Add more screenshots
-                    </button>
+                    {!single && (
+                        <button
+                            onClick={() => fileRef.current?.click()}
+                            className="w-full py-2 text-xs text-muted-foreground hover:text-primary border border-dashed border-border/40 rounded-lg hover:border-primary/30 transition-colors"
+                        >
+                            + Add more screenshots
+                        </button>
+                    )}
                 </div>
             )}
         </div>
