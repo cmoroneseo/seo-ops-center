@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, Plus, Check, X, Trash2, Pencil } from 'lucide-react';
+import { Crosshair, Plus, Check, X, Trash2, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { updateCampaignPlan } from '@/lib/supabase/campaign-plans';
 import { SectionCard, InlineInput, InlineSelect, CustomFieldSectionProps, KeywordEntry } from './SectionCard';
@@ -112,7 +112,7 @@ export function KeywordSnapshotSection({ plan, expanded, onToggle, onRefresh }: 
 
     return (
         <SectionCard
-            icon={Search} title="Keyword Snapshot" count={keywords.length + screenshots.length}
+            icon={Crosshair} title="Keyword Opportunities" count={keywords.length + screenshots.length}
             expanded={expanded} onToggle={onToggle} onAdd={startAdd}
         >
             <ScreenshotUpload
@@ -126,7 +126,7 @@ export function KeywordSnapshotSection({ plan, expanded, onToggle, onRefresh }: 
             )}
 
             {keywords.length === 0 && !adding && (
-                <p className="text-xs text-muted-foreground italic">No keywords added yet. Click + Add to enter target keywords.</p>
+                <p className="text-xs text-muted-foreground italic">No keyword opportunities added yet. Click + Add to enter target keywords for rank tracking.</p>
             )}
             <div className="space-y-2">
                 {keywords.map((k, idx) => editingIdx === idx ? (
