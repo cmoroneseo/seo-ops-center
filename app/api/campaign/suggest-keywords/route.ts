@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
 
     const message = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
+      max_tokens: 4096,
       system: `You are an SEO keyword researcher. Generate keyword opportunities for a local/regional business based on their services and locations.
 
 Return valid JSON only — no markdown, no commentary. The JSON must be an array of objects:
@@ -29,7 +29,7 @@ Return valid JSON only — no markdown, no commentary. The JSON must be an array
 ]
 
 Guidelines:
-- Generate 20-40 keyword opportunities
+- Generate 15-25 keyword opportunities
 - Include a mix of: service keywords, location + service combinations, question-based queries, long-tail variations
 - Prioritize bottom-of-funnel (high commercial intent) keywords as "high" priority
 - Include informational keywords as "medium" or "low" priority
