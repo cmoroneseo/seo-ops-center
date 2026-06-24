@@ -23,15 +23,60 @@ const BASE_URL = () => {
     return `https://3.basecampapi.com/${accountId}`;
 };
 
-function getHeaders(): Record<string, string> {
+let cachedAccessToken: string | null = null;
+
+async function getAccessToken(): Promise<string> {
+    if (cachedAccessToken) return cachedAccessToken;
     const token = process.env.BASECAMP_ACCESS_TOKEN;
     if (!token) throw new Error('BASECAMP_ACCESS_TOKEN env var not set');
+    return token;
+}
+
+async function refreshAccessToken(): Promise<string> {
+    const refreshToken = process.env.BASECAMP_REFRESH_TOKEN;
+    const clientId = process.env.BASECAMP_CLIENT_ID;
+    const clientSecret = process.env.BASECAMP_CLIENT_SECRET;
+    if (!refreshToken || !clientId || !clientSecret) {
+        throw new Error('Cannot refresh Basecamp token — BASECAMP_REFRESH_TOKEN, BASECAMP_CLIENT_ID, and BASECAMP_CLIENT_SECRET are all required');
+    }
+    const res = await fetch('https://launchpad.37signals.com/authorization/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            type: 'refresh',
+            client_id: clientId,
+            client_secret: clientSecret,
+            refresh_token: refreshToken,
+        }),
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`Basecamp token refresh failed (${res.status}): ${body}`);
+    }
+    const data = await res.json();
+    cachedAccessToken = data.access_token;
+    console.log('[Basecamp] Access token refreshed successfully');
+    return data.access_token;
+}
+
+function buildHeaders(token: string): Record<string, string> {
     return {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
         'User-Agent': 'SEO Ops Center (seo@marketingempiregroup.com)',
     };
 }
+
+async function basecampFetch(url: string, init?: RequestInit): Promise<Response> {
+    const token = await getAccessToken();
+    const res = await fetch(url, { ...init, headers: { ...buildHeaders(token), ...init?.headers } });
+    if (res.status === 401) {
+        const freshToken = await refreshAccessToken();
+        return fetch(url, { ...init, headers: { ...buildHeaders(freshToken), ...init?.headers } });
+    }
+    return res;
+}
+
 
 export interface BasecampProject {
     id: number;
@@ -88,10 +133,7 @@ export async function listBasecampProjects(): Promise<BasecampProject[]> {
 
     try {
         while (url) {
-            const res = await fetch(url, {
-                headers: getHeaders(),
-                // No Next.js cache here — we need fresh data for the UI dropdown
-            });
+            const res = await basecampFetch(url);
             if (!res.ok) throw new Error(`Basecamp projects fetch failed: ${res.status}`);
             const page = await res.json() as BasecampProject[];
             all.push(...page);
@@ -111,7 +153,7 @@ async function fetchTodolistsFromTodoset(projectId: number | string, todosetId: 
     const results: BasecampTodolist[] = [];
     let url: string | null = `${BASE_URL()}/buckets/${projectId}/todosets/${todosetId}/todolists.json`;
     while (url) {
-        const res = await fetch(url, { headers: getHeaders() });
+        const res = await basecampFetch(url);
         if (!res.ok) break;
         const page = await res.json() as BasecampTodolist[];
         results.push(...page);
@@ -127,10 +169,7 @@ async function fetchTodolistsFromTodoset(projectId: number | string, todosetId: 
  */
 export async function listBasecampTodolists(projectId: number | string): Promise<BasecampTodolist[]> {
     try {
-        // Step 1: get the project dock to find ALL todoset URLs
-        const projectRes = await fetch(`${BASE_URL()}/projects/${projectId}.json`, {
-            headers: getHeaders(),
-        });
+        const projectRes = await basecampFetch(`${BASE_URL()}/projects/${projectId}.json`);
         if (!projectRes.ok) throw new Error(`Basecamp project fetch failed: ${projectRes.status}`);
         const project = await projectRes.json() as { dock: Array<{ name: string; enabled: boolean; url: string }> };
 
@@ -162,7 +201,7 @@ export async function listBasecampTodos(
     let url: string | null = `${BASE_URL()}/buckets/${projectId}/todolists/${todolistId}/todos.json`;
     try {
         while (url) {
-            const res = await fetch(url, { headers: getHeaders() });
+            const res = await basecampFetch(url);
             if (!res.ok) break;
             const page = await res.json() as BasecampTodoFull[];
             results.push(...page);
@@ -192,9 +231,9 @@ export async function createBasecampTodo(
         if (params.description) body.description = params.description;
         if (params.assigneePersonIds?.length) body.assignee_ids = params.assigneePersonIds;
 
-        const res = await fetch(
+        const res = await basecampFetch(
             `${BASE_URL()}/buckets/${projectId}/todolists/${todolistId}/todos.json`,
-            { method: 'POST', headers: getHeaders(), body: JSON.stringify(body) },
+            { method: 'POST', body: JSON.stringify(body) },
         );
         if (!res.ok) throw new Error(`Basecamp createTodo failed: ${res.status} ${await res.text()}`);
         const todo = await res.json() as BasecampTodo;
@@ -211,9 +250,8 @@ export async function getBasecampTodo(
     todoId: number | string,
 ): Promise<BasecampTodoFull | null> {
     try {
-        const res = await fetch(
+        const res = await basecampFetch(
             `${BASE_URL()}/buckets/${projectId}/todos/${todoId}.json`,
-            { headers: getHeaders() },
         );
         if (!res.ok) return null;
         return await res.json() as BasecampTodoFull;
@@ -230,13 +268,9 @@ export async function updateBasecampTodoDueDate(
     dueOn: string | null,
 ): Promise<boolean> {
     try {
-        const res = await fetch(
+        const res = await basecampFetch(
             `${BASE_URL()}/buckets/${projectId}/todos/${todoId}.json`,
-            {
-                method: 'PATCH',
-                headers: getHeaders(),
-                body: JSON.stringify({ due_on: dueOn }),
-            },
+            { method: 'PATCH', body: JSON.stringify({ due_on: dueOn }) },
         );
         return res.ok;
     } catch (err) {
@@ -261,13 +295,9 @@ export async function updateBasecampTodoAssignees(
         const existingIds = (current?.assignees ?? []).map(a => a.id);
         const merged = Array.from(new Set([...existingIds, ...addPersonIds]));
 
-        const res = await fetch(
+        const res = await basecampFetch(
             `${BASE_URL()}/buckets/${projectId}/todos/${todoId}.json`,
-            {
-                method: 'PATCH',
-                headers: getHeaders(),
-                body: JSON.stringify({ assignee_ids: merged }),
-            },
+            { method: 'PATCH', body: JSON.stringify({ assignee_ids: merged }) },
         );
         return res.ok;
     } catch (err) {
@@ -282,9 +312,9 @@ export async function completeBasecampTodo(
     todoId: number | string,
 ): Promise<boolean> {
     try {
-        const res = await fetch(
+        const res = await basecampFetch(
             `${BASE_URL()}/buckets/${projectId}/todos/${todoId}/completion.json`,
-            { method: 'POST', headers: getHeaders() },
+            { method: 'POST' },
         );
         return res.ok;
     } catch (err) {
@@ -299,9 +329,9 @@ export async function reopenBasecampTodo(
     todoId: number | string,
 ): Promise<boolean> {
     try {
-        const res = await fetch(
+        const res = await basecampFetch(
             `${BASE_URL()}/buckets/${projectId}/todos/${todoId}/completion.json`,
-            { method: 'DELETE', headers: getHeaders() },
+            { method: 'DELETE' },
         );
         return res.ok;
     } catch (err) {
@@ -317,9 +347,9 @@ export async function createBasecampComment(
     content: string,
 ): Promise<number | null> {
     try {
-        const res = await fetch(
+        const res = await basecampFetch(
             `${BASE_URL()}/buckets/${projectId}/recordings/${todoId}/comments.json`,
-            { method: 'POST', headers: getHeaders(), body: JSON.stringify({ content }) },
+            { method: 'POST', body: JSON.stringify({ content }) },
         );
         if (!res.ok) throw new Error(`Basecamp createComment failed: ${res.status}`);
         const comment = await res.json() as { id: number };
