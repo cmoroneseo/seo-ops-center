@@ -11,13 +11,13 @@ interface ReassignModalProps {
     client: ClientProject;
     currentManager: string;
     onClose: () => void;
-    onSuccess: (newManager: string) => void;
+    onSuccess: (newManager: string, newManagerId?: string) => void;
 }
 
 export function ReassignModal({ client, currentManager, onClose, onSuccess }: ReassignModalProps) {
     const { organization } = useOrganization();
-    const [members, setMembers] = useState<{ name: string; email: string }[]>([]);
-    const [selectedName, setSelectedName] = useState('');
+    const [members, setMembers] = useState<{ userId: string; name: string; email: string }[]>([]);
+    const [selectedAssignee, setSelectedAssignee] = useState('');
     const [customName, setCustomName] = useState('');
     const [notes, setNotes] = useState('');
     const [assignedByName, setAssignedByName] = useState('');
@@ -28,6 +28,7 @@ export function ReassignModal({ client, currentManager, onClose, onSuccess }: Re
         if (!organization) return;
         getOrganizationMembers(organization.id).then((data: any[]) => {
             const mapped = data.map((m: any) => ({
+                userId: m.userId,
                 name: m.user?.fullName || m.user?.email || 'Team Member',
                 email: m.user?.email || '',
             }));
@@ -35,7 +36,10 @@ export function ReassignModal({ client, currentManager, onClose, onSuccess }: Re
         });
     }, [organization]);
 
-    const finalName = selectedName === '__custom__' ? customName.trim() : selectedName;
+    const selectedMember = selectedAssignee === '__custom__'
+        ? undefined
+        : members.find((m) => m.userId === selectedAssignee);
+    const finalName = selectedAssignee === '__custom__' ? customName.trim() : selectedMember?.name ?? '';
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -47,6 +51,7 @@ export function ReassignModal({ client, currentManager, onClose, onSuccess }: Re
             clientId: client.id,
             organizationId: organization.id,
             newAssigneeName: finalName,
+            newAssigneeId: selectedMember?.userId,
             assignedByName: assignedByName.trim() || 'Team',
             notes: notes.trim() || undefined,
         });
@@ -55,7 +60,7 @@ export function ReassignModal({ client, currentManager, onClose, onSuccess }: Re
         if (err) {
             setError(err);
         } else {
-            onSuccess(finalName);
+            onSuccess(finalName, selectedMember?.userId);
         }
     };
 
@@ -89,20 +94,20 @@ export function ReassignModal({ client, currentManager, onClose, onSuccess }: Re
                     <div className="space-y-2">
                         <label className="text-sm font-medium">Assign to</label>
                         <select
-                            value={selectedName}
-                            onChange={(e) => setSelectedName(e.target.value)}
+                            value={selectedAssignee}
+                            onChange={(e) => setSelectedAssignee(e.target.value)}
                             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                             required
                         >
                             <option value="">Select team member…</option>
                             {members.map((m) => (
-                                <option key={m.email} value={m.name}>{m.name}</option>
+                                <option key={m.userId || m.email} value={m.userId}>{m.name}</option>
                             ))}
                             <option value="__custom__">Enter name manually…</option>
                         </select>
                     </div>
 
-                    {selectedName === '__custom__' && (
+                    {selectedAssignee === '__custom__' && (
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Name</label>
                             <input

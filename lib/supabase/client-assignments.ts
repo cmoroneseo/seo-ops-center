@@ -42,12 +42,14 @@ export async function reassignClient({
     clientId,
     organizationId,
     newAssigneeName,
+    newAssigneeId,
     assignedByName,
     notes,
 }: {
     clientId: string;
     organizationId: string;
     newAssigneeName: string;
+    newAssigneeId?: string;
     assignedByName: string;
     notes?: string;
 }): Promise<{ error: string | null }> {
@@ -83,10 +85,13 @@ export async function reassignClient({
         return { error: insertError.message };
     }
 
-    // Update account_manager on clients table
+    // Update account manager fields on clients table.
     const { error: updateError } = await supabase
         .from('clients')
-        .update({ account_manager: newAssigneeName })
+        .update({
+            account_manager_name: newAssigneeName,
+            ...(newAssigneeId ? { account_manager_id: newAssigneeId } : {}),
+        })
         .eq('id', clientId);
 
     if (updateError) {

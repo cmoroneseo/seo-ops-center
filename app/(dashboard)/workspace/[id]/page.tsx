@@ -409,8 +409,8 @@ export default function ClientDetailPage() {
                     client={client}
                     currentManager={client.accountManager}
                     onClose={() => setShowReassign(false)}
-                    onSuccess={(newManager) => {
-                        setClient({ ...client, accountManager: newManager });
+                    onSuccess={(newManager, newManagerId) => {
+                        setClient({ ...client, accountManager: newManager, accountManagerId: newManagerId });
                         setShowReassign(false);
                         setActivityRefreshKey(k => k + 1);
                     }}
