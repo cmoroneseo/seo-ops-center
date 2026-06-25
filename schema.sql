@@ -66,7 +66,7 @@ create table public.clients (
   name text not null,
   domain text,
   logo_url text,
-  status text check (status in ('active', 'inactive', 'pending')) default 'active',
+  status text check (status in ('active', 'inactive', 'pending', 'paused', 'onboarding')) default 'active',
   -- Workbook import join key: lowercased-alphanumeric of name. Not user-facing.
   client_slug text,
   -- Engagement / budget
