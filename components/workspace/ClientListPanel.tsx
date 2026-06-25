@@ -18,8 +18,8 @@ export function ClientListPanel({
     const [showArchived, setShowArchived] = useState(false);
     const pathname = usePathname();
 
-    const { clients: activeClients, isLoading } = useClients({ statuses: ['Active'] });
-    const { clients: archivedClients } = useClients({ statuses: ['Cancelled', 'Onboarding'] });
+    const { clients: activeClients, isLoading } = useClients({ statuses: ['Active', 'Onboarding'] });
+    const { clients: archivedClients } = useClients({ statuses: ['Cancelled', 'Paused'] });
 
     const displayClients = showArchived ? archivedClients : activeClients;
 

@@ -14,9 +14,16 @@ import { getMonthlyPlans } from '@/lib/supabase/monthly-plans';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 
+type ManagerFilterOption = {
+    value: string;
+    label: string;
+    accountManagerId?: string;
+    aliases: string[];
+};
+
 export default function WorkspacePage() {
     const { organization } = useOrganization();
-    const { displayName, isOwner } = useCurrentMember();
+    const { userId, displayName, isOwner } = useCurrentMember();
     const [clients, setClients] = useState<ClientProject[]>([]);
     const [plans, setPlans] = useState<MonthlyPlan[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -45,25 +52,95 @@ export default function WorkspacePage() {
         fetchClients();
     }, [organization]);
 
-    // Extract unique managers
+    // Extract unique managers, preferring stable user IDs over display names.
     const managers = useMemo(() => {
-        const uniqueManagers = new Set(clients.map(c => c.accountManager));
-        return Array.from(uniqueManagers).sort();
+        const normalizeName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, ' ');
+        const isNameVariant = (a: string, b: string) => {
+            if (!a || !b) return false;
+            return a === b || a.startsWith(`${b} `) || b.startsWith(`${a} `);
+        };
+        const isBetterName = (next: string, current: string) => next.length > current.length;
+
+        const byId = new Map<string, ManagerFilterOption>();
+        const orphanManagers: ManagerFilterOption[] = [];
+
+        for (const client of clients) {
+            const label = client.accountManager || 'Unassigned';
+            const normalized = normalizeName(label);
+
+            if (client.accountManagerId) {
+                const existing = byId.get(client.accountManagerId);
+                if (existing) {
+                    if (isBetterName(label, existing.label)) existing.label = label;
+                    if (!existing.aliases.includes(normalized)) existing.aliases.push(normalized);
+                } else {
+                    byId.set(client.accountManagerId, {
+                        value: client.accountManagerId,
+                        label,
+                        accountManagerId: client.accountManagerId,
+                        aliases: [normalized],
+                    });
+                }
+                continue;
+            }
+
+            const existingOrphan = orphanManagers.find((manager) =>
+                manager.aliases.some((alias) => isNameVariant(alias, normalized))
+            );
+            if (existingOrphan) {
+                if (isBetterName(label, existingOrphan.label)) existingOrphan.label = label;
+                if (!existingOrphan.aliases.includes(normalized)) existingOrphan.aliases.push(normalized);
+            } else {
+                orphanManagers.push({
+                    value: `name:${normalized}`,
+                    label,
+                    aliases: [normalized],
+                });
+            }
+        }
+
+        const mergedOrphans: typeof orphanManagers = [];
+        for (const orphan of orphanManagers) {
+            const idMatch = Array.from(byId.values()).find((manager) =>
+                manager.aliases.some((alias) =>
+                    orphan.aliases.some((orphanAlias) => isNameVariant(alias, orphanAlias))
+                )
+            );
+            if (idMatch) {
+                if (isBetterName(orphan.label, idMatch.label)) idMatch.label = orphan.label;
+                for (const alias of orphan.aliases) {
+                    if (!idMatch.aliases.includes(alias)) idMatch.aliases.push(alias);
+                }
+            } else {
+                mergedOrphans.push(orphan);
+            }
+        }
+
+        return [...byId.values(), ...mergedOrphans].sort((a, b) => a.label.localeCompare(b.label));
     }, [clients]);
 
     // Filter clients
     const filteredClients = useMemo(() => {
+        const normalizeName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, ' ');
+        const selectedManager = managers.find((manager) => manager.value === managerFilter);
+
         return clients.filter(client => {
             const matchesSearch =
                 client.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 client.accountManager.toLowerCase().includes(searchQuery.toLowerCase());
             const matchesStatus = statusFilter === 'All' || client.status === statusFilter;
-            const matchesManager = managerFilter === 'All' || client.accountManager === managerFilter;
+            const matchesManager = managerFilter === 'All' ||
+                (selectedManager
+                    ? client.accountManagerId
+                        ? client.accountManagerId === selectedManager.accountManagerId
+                        : selectedManager.aliases.includes(normalizeName(client.accountManager))
+                    : false);
             const matchesMine = !myClientsOnly ||
-                client.accountManager.toLowerCase() === displayName.toLowerCase();
+                (client.accountManagerId && client.accountManagerId === userId) ||
+                (!client.accountManagerId && client.accountManager.toLowerCase().includes(displayName.toLowerCase()));
             return matchesSearch && matchesStatus && matchesManager && matchesMine;
         });
-    }, [clients, searchQuery, statusFilter, managerFilter, myClientsOnly, displayName]);
+    }, [clients, searchQuery, statusFilter, managerFilter, myClientsOnly, userId, displayName, managers]);
 
     if (isLoading) return <div className="p-8">Loading client workspace...</div>;
 
@@ -168,7 +245,7 @@ export default function WorkspacePage() {
                         >
                             <option value="All">All Managers</option>
                             {managers.map(manager => (
-                                <option key={manager} value={manager}>{manager}</option>
+                                <option key={manager.value} value={manager.value}>{manager.label}</option>
                             ))}
                         </select>
                         <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />

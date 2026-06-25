@@ -15,6 +15,7 @@ import { EngagementOverview } from '@/components/workspace/EngagementOverview';
 import { ClientDeliverablesTab } from '@/components/deliverables/ClientDeliverablesTab';
 import { MonthlyPlannerCard } from '@/components/workspace/MonthlyPlannerCard';
 import { IntegrationsTab } from '@/components/workspace/IntegrationsTab';
+import { ClientOverviewWidget } from '@/components/workspace/ClientOverviewWidget';
 import { EditClientPanel, ClientAvatar } from '@/components/workspace/EditClientPanel';
 import { getClients } from '@/lib/supabase/clients';
 import { useOrganization } from '@/components/providers/organization-provider';
@@ -311,6 +312,8 @@ export default function ClientDetailPage() {
             {/* Overview tab content */}
             {activeTab === 'overview' && <>
 
+            <ClientOverviewWidget client={client} organizationId={organization?.id ?? ''} />
+
             {/* Engagement & Stats */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
@@ -409,8 +412,8 @@ export default function ClientDetailPage() {
                     client={client}
                     currentManager={client.accountManager}
                     onClose={() => setShowReassign(false)}
-                    onSuccess={(newManager) => {
-                        setClient({ ...client, accountManager: newManager });
+                    onSuccess={(newManager, newManagerId) => {
+                        setClient({ ...client, accountManager: newManager, accountManagerId: newManagerId });
                         setShowReassign(false);
                         setActivityRefreshKey(k => k + 1);
                     }}
