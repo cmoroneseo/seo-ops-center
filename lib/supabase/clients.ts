@@ -8,11 +8,13 @@ const DB_TO_APP_STATUS: Record<string, ProjectStatus> = {
     active: 'Active',
     inactive: 'Cancelled',
     pending: 'Onboarding',
+    paused: 'Paused',
+    onboarding: 'Onboarding',
 };
 const APP_TO_DB_STATUS: Record<ProjectStatus, string> = {
     Active: 'active',
-    Paused: 'pending',
-    Onboarding: 'pending',
+    Paused: 'paused',
+    Onboarding: 'onboarding',
     Cancelled: 'inactive',
 };
 
