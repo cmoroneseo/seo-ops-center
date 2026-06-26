@@ -56,16 +56,38 @@ https://seo-ops-center.vercel.app
   - 37 client commitments backfilled; 269 existing deliverables linked
   - `lib/types.ts` fully updated: `Deliverable`, `Task`, `TaskTemplate`, `TaskComment`, `TaskStatusHistoryEntry`, `TaskCategory`, `TaskPriority`, `TaskStatus`, `DeliverableCommitment`, `FulfillmentCell`, `CommitmentCadence`, `DeliverableSubtype` all match actual DB schema
 
-- **Campaign Plan Onboarding** (migration 019, Jun 2026):
-  - 6 new tables: `campaign_plans`, `campaign_goals`, `campaign_kpis`, `campaign_workstreams`, `campaign_phases`, `campaign_expectations` + `campaign_phase_workstreams` join table
+- **Campaign Plan / SEO Strategy Builder** (migration 019, Jun 2026):
+  - 6 DB tables: `campaign_plans`, `campaign_goals`, `campaign_kpis`, `campaign_workstreams`, `campaign_phases`, `campaign_expectations` + join table
   - `campaign_phase_id` FK on `tasks` for phase-to-task linkage
-  - Campaign Plan tab on workspace/[id] with collapsible sections: Goals, KPIs, Workstreams, Timeline, Expectations
-  - Create from template (Local SEO Retainer, Content-Led SEO Retainer, Technical + Growth) or blank
+  - **3-tab layout** on workspace/[id] Campaign Plan tab: Goals & KPIs | SEO Campaign | Timeline
+  - **Tab 1 — Goals & KPIs:** Goals, KPIs, Expectations (inline add/edit/delete)
+  - **Tab 2 — SEO Campaign:** SEO Overview (ART framework + AI Draft button), Website Analysis (findings builder with per-finding screenshot upload), Keyword Opportunities (3 sources: Site Keywords via Ahrefs, Competitor pull, AI Suggest), Key Activities, Scope Meter (monthly hours × contract term capacity planning)
+  - **Tab 3 — Timeline:** Preliminary Roadmap (3-stage client-facing), Execution Phases (internal, with "Generate Tasks" button per phase)
+  - Create from: questionnaire PDF import (AI extraction, SEO-only filter) | template (3 templates) | blank
   - Status lifecycle: draft → internal_review → approved → active → archived
-  - Activity feed integration for campaign lifecycle events
-  - Templates hardcoded in `lib/campaign-templates.ts`
+  - Progress bar tracking completion across 3 tabs
+  - All new section data stored in `campaign_plans.custom_fields` jsonb — no extra tables needed
+  - Screenshot uploads via Supabase Storage bucket `campaign-screenshots`
+  - Templates in `lib/campaign-templates.ts` with default content for SEO Overview, Roadmap, Key Activities
   - CRUD layer: `lib/supabase/campaign-plans.ts`
-  - Types: `CampaignPlan`, `CampaignGoal`, `CampaignKpi`, `CampaignWorkstream`, `CampaignPhase`, `CampaignExpectation`
+  - Section components: `components/campaign/sections/*.tsx` (11 files)
+  - API routes: `extract-intake` (questionnaire PDF → AI), `draft-overview` (AI SEO Overview), `keyword-research` (Ahrefs API), `suggest-keywords` (AI keyword ideas)
+  - Scope estimates catalog: `lib/scope-estimates.ts` (28 SEO activities with time ranges)
+  - Anthropic SDK: `@anthropic-ai/sdk` — requires `ANTHROPIC_API_KEY` env var on Vercel
+  - PDF parsing: `pdf-parse@1.1.1` (import via `pdf-parse/lib/pdf-parse.js` to avoid test-file ENOENT in serverless)
+
+## Key files (campaign)
+- `components/campaign/CampaignPlanTab.tsx` — 3-tab orchestrator
+- `components/campaign/sections/SectionCard.tsx` — shared helpers, types, label maps
+- `components/campaign/sections/SeoOverviewSection.tsx` — ART framework + AI Draft
+- `components/campaign/sections/WebsiteAnalysisSection.tsx` — findings builder with screenshots
+- `components/campaign/sections/KeywordSnapshotSection.tsx` — keyword opportunities + 3 pull sources
+- `components/campaign/sections/ScopeMeterSection.tsx` — capacity planning
+- `components/campaign/sections/PreliminaryRoadmapSection.tsx` — client-facing roadmap
+- `components/campaign/sections/TimelineSection.tsx` — execution phases + task generation
+- `components/campaign/QuestionnaireImportModal.tsx` — PDF upload → AI extraction → review → create
+- `lib/campaign-templates.ts` — 3 templates with default content
+- `lib/scope-estimates.ts` — 28 SEO activities with hour estimates
 
 ## Git workflow
 - **Always use a feature branch** — never commit directly to `main`
@@ -76,18 +98,25 @@ https://seo-ops-center.vercel.app
 ## Migrations applied to production
 001–013: init, analytics, time tracking, notes, feedback, tasks V2, notifications
 015: deliverable_commitments (applied Jun 2026)
-019: campaign_plans (pending — run in Supabase Dashboard SQL editor)
+019: campaign_plans (applied Jun 2026)
 
-## Pending manual Supabase step
-Run once in Supabase Dashboard SQL editor (enables realtime push for notification bell):
-```sql
-ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
-```
+## Supabase Storage buckets
+- `client-logos` — public, 1MB max, image types
+- `campaign-screenshots` — public, 50MB max, image types (needs INSERT/SELECT/DELETE policies on storage.objects)
 
-## Pending Phase 2 (not built)
+## Known bugs (workspace module)
+- Manager filter dropdown shows duplicates ("Abel" + "Abel Miranda") — `account_manager_name` is denormalized text, not normalized via `account_manager_id`
+- "My Clients" toggle shows empty — string comparison of `accountManager` vs `displayName` fails when names don't match exactly; should use `accountManagerId`
+- "Onboarding" clients appear in Archived tab in ClientListPanel — should be in Active
+- Client table has no column sorting
+- `Paused` and `Onboarding` both map to DB status `pending` — Paused is unrecoverable on read
+
+## Pending work
+- **Client-facing presentation view** — read-only Better Proposals-style document from campaign plan data
+- **PDF/Proposal export** — print button for campaign plans
+- **Workspace bugs** — fix manager duplicates, My Clients filter, Onboarding categorization, add table sorting
 - Task auto-generation from `task_template_id` on commitments
 - Retire `clients.blogs_due_per_month` (swap `onTrackStatus()` to use commitments)
 - Quarterly cadence for commitments
 - Client-facing read-only deliverables view
 - Fulfillment section in reports
-- Word-count / QA analytics from status_history cycle times
