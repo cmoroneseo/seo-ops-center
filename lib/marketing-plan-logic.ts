@@ -1,4 +1,4 @@
-import {
+import type {
     MarketingPlanItem, MarketingPlanStep,
     MarketingPlanItemPriority, MarketingPlanItemStatus,
 } from './types';

@@ -4,8 +4,8 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computePlanSummary, groupItems, filterItems } from './marketing-plan-logic';
-import { MarketingPlanItem, MarketingPlanStep } from './types';
+import { computePlanSummary, groupItems, filterItems } from './marketing-plan-logic.ts';
+import type { MarketingPlanItem, MarketingPlanStep } from './types.ts';
 
 function item(over: Partial<MarketingPlanItem>): MarketingPlanItem {
     return {
