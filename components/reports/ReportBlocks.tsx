@@ -22,7 +22,7 @@ export type MetricMap = Partial<Record<ReportSourceKey, Record<string, any>>>;
 export type HistoryMap = Partial<Record<ReportSourceKey, { month: string; data: Record<string, any> }[]>>;
 
 export interface ReportContext {
-    client: ClientProject;
+    client: ClientProject | null;
     reportMonth: string;
     executiveSummary: string;
     recommendations: string;
@@ -50,6 +50,24 @@ function EmptyNote({ text }: { text: string }) {
 
 export function CoverBlock({ ctx }: { ctx: ReportContext }) {
     const { client, reportMonth } = ctx;
+
+    if (!client) {
+        return (
+            <div className="flex flex-col justify-between" style={{ minHeight: 420 }}>
+                <div className="h-2 rounded-full" style={{ background: ACCENT, opacity: 0.3 }} />
+                <div className="flex flex-col items-center text-center gap-5 py-10">
+                    <div className="h-20 w-20 rounded-2xl border-2 border-dashed flex items-center justify-center" style={{ borderColor: '#d1d5db' }} />
+                    <div>
+                        <h1 className="text-2xl font-semibold" style={{ color: '#9ca3af' }}>No client selected</h1>
+                        <p className="text-sm mt-2" style={{ color: '#9ca3af' }}>Pick a client in Settings to populate this cover.</p>
+                        <p className="text-base font-medium mt-1" style={{ color: ACCENT }}>{monthLabel(reportMonth)}</p>
+                    </div>
+                </div>
+                <div />
+            </div>
+        );
+    }
+
     const initials = client.clientName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
     return (
         <div className="flex flex-col justify-between" style={{ minHeight: 420 }}>

@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 interface ReportRow {
     id: string;
     title: string;
-    client_id: string;
+    client_id: string | null;
     report_month: string;
     status: 'draft' | 'published';
     updated_at: string;
@@ -32,7 +32,7 @@ export function ReportsTable({ reports, clientNames, onDelete }: Props) {
         if (!q) return reports;
         return reports.filter(r =>
             r.title.toLowerCase().includes(q) ||
-            (clientNames[r.client_id] ?? '').toLowerCase().includes(q),
+            (r.client_id && clientNames[r.client_id] || '').toLowerCase().includes(q),
         );
     }, [reports, clientNames, query]);
 
@@ -73,7 +73,7 @@ export function ReportsTable({ reports, clientNames, onDelete }: Props) {
                             {filtered.map(r => (
                                 <tr key={r.id} onClick={() => router.push(`/reports/${r.id}`)} className="hover:bg-muted/30 cursor-pointer transition-colors">
                                     <td className="px-4 py-3 font-medium truncate max-w-xs">{r.title}</td>
-                                    <td className="px-4 py-3 text-muted-foreground">{clientNames[r.client_id] ?? '—'}</td>
+                                    <td className="px-4 py-3 text-muted-foreground">{(r.client_id && clientNames[r.client_id]) || '—'}</td>
                                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{reportMonthLabel(r.report_month)}</td>
                                     <td className="px-4 py-3">
                                         <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', r.status === 'published' ? 'bg-green-500/15 text-green-500' : 'bg-muted text-muted-foreground')}>

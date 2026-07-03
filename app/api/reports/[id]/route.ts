@@ -14,6 +14,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const report = await getReport(id);
     if (!report) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
+    // Unassigned report — no client to pull metrics for yet.
+    if (!report.client_id) {
+        return NextResponse.json({ report, metrics: { current: {}, previous: {} }, history: {} });
+    }
+
     const allRows = await getClientMetrics(report.client_id); // all months, desc
     const toMap = (rows: { source: string; data: Record<string, any> }[]) =>
         Object.fromEntries(rows.map(r => [r.source, r.data])) as Partial<Record<ReportSourceKey, Record<string, any>>>;

@@ -4,7 +4,7 @@
 // page itself, not a modal). Stock templates + the org's saved templates.
 // Clicking a card creates the report immediately.
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { FileText, Star, Trash2, Loader2 } from 'lucide-react';
 import { STOCK_TEMPLATES } from '@/lib/reports/reportTemplates';
 import { blockLabel, Block } from '@/lib/reports/blocks';
@@ -17,8 +17,6 @@ export interface CustomTemplate {
 }
 
 interface Props {
-    orgId: string;
-    disabled: boolean;
     creating: boolean;
     onPick: (blocks: { type: string; props?: Record<string, any> }[]) => void;
     /** Lifted so the Templates tab can reuse the same fetched list. */
@@ -26,18 +24,18 @@ interface Props {
     onDeleteCustom: (id: string) => void;
 }
 
-export function TemplateGallery({ orgId, disabled, creating, onPick, customTemplates, onDeleteCustom }: Props) {
+export function TemplateGallery({ creating, onPick, customTemplates, onDeleteCustom }: Props) {
     const [pickedKey, setPickedKey] = useState<string | null>(null);
 
     const pick = (key: string, blocks: { type: string; props?: Record<string, any> }[]) => {
-        if (creating || disabled) return;
+        if (creating) return;
         setPickedKey(key);
         onPick(blocks);
     };
 
-    const cardCls = (isDisabled: boolean) => cn(
+    const cardCls = cn(
         'group relative text-left border border-border/60 rounded-xl p-4 transition-colors shrink-0 w-56',
-        isDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-primary/50 hover:bg-muted/40 cursor-pointer',
+        'hover:border-primary/50 hover:bg-muted/40 cursor-pointer',
     );
 
     return (
@@ -46,7 +44,7 @@ export function TemplateGallery({ orgId, disabled, creating, onPick, customTempl
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Start from template</p>
                 <div className="flex gap-3 overflow-x-auto pb-1">
                     {STOCK_TEMPLATES.map(t => (
-                        <div key={t.key} onClick={() => pick(t.key, t.build())} className={cardCls(disabled)}>
+                        <div key={t.key} onClick={() => pick(t.key, t.build())} className={cardCls}>
                             <div className="flex items-center gap-2 mb-1.5">
                                 <FileText className="h-4 w-4 text-primary shrink-0" />
                                 <p className="text-sm font-semibold truncate">{t.name}</p>
@@ -71,7 +69,7 @@ export function TemplateGallery({ orgId, disabled, creating, onPick, customTempl
                     </p>
                     <div className="flex gap-3 overflow-x-auto pb-1">
                         {customTemplates.map(t => (
-                            <div key={t.id} onClick={() => pick(t.id, t.blocks)} className={cardCls(disabled)}>
+                            <div key={t.id} onClick={() => pick(t.id, t.blocks)} className={cardCls}>
                                 <div className="flex items-center gap-2 mb-1.5">
                                     <Star className="h-4 w-4 text-amber-400 shrink-0" />
                                     <p className="text-sm font-semibold truncate">{t.name}</p>

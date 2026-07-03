@@ -27,11 +27,6 @@ export default function ReportsPage() {
     const [customTemplates, setCustomTemplates] = useState<CustomTemplate[]>([]);
     const router = useRouter();
 
-    // Client/period are no longer chosen up front — a new report defaults to
-    // the first active client and the current month, both adjustable inside
-    // the builder's Settings tab (matches SE Ranking's pattern).
-    const defaultClient = clients[0] ?? null;
-
     useEffect(() => {
         if (!organization) return;
         fetch(`/api/reports?orgId=${organization.id}`)
@@ -49,16 +44,16 @@ export default function ReportsPage() {
     }, [organization?.id]);
 
     async function buildReport(blocks: { type: string; props?: Record<string, any> }[]) {
-        if (!defaultClient || !organization) return;
+        if (!organization) return;
         setCreatingReport(true);
         try {
+            // No client pre-selected — the report starts blank and stays that
+            // way until one is picked in the builder's Settings tab.
             const res = await fetch('/api/reports', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     orgId: organization.id,
-                    clientId: defaultClient.id,
-                    clientName: defaultClient.clientName,
                     month: currentMonth(),
                     blocks,
                 }),
@@ -95,7 +90,7 @@ export default function ReportsPage() {
                 </div>
                 <button
                     onClick={() => buildReport(STOCK_TEMPLATES[0].build())}
-                    disabled={!defaultClient || creatingReport}
+                    disabled={creatingReport}
                     className="flex items-center gap-2 text-sm bg-primary text-primary-foreground rounded-lg px-4 py-2.5 hover:bg-primary/90 transition-colors disabled:opacity-50 shadow-lg shadow-primary/20"
                 >
                     {creatingReport ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
@@ -119,8 +114,6 @@ export default function ReportsPage() {
             {tab === 'reports' && (
                 <div className="space-y-8">
                     <TemplateGallery
-                        orgId={organization?.id ?? ''}
-                        disabled={!defaultClient}
                         creating={creatingReport}
                         onPick={buildReport}
                         customTemplates={customTemplates}

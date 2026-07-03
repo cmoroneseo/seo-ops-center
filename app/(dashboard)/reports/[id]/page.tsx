@@ -14,6 +14,7 @@ export default function ReportBuilderPage() {
     const { organization } = useOrganization();
     const [data, setData] = useState<{ report: any; metrics: any; history: any } | null | undefined>(undefined);
     const [client, setClient] = useState<ClientProject | null>(null);
+    const [clientResolved, setClientResolved] = useState(false);
 
     const fetchReport = useCallback(() => {
         fetch(`/api/reports/${id}`)
@@ -26,13 +27,21 @@ export default function ReportBuilderPage() {
 
     useEffect(() => {
         if (!organization || !data?.report) return;
+        // No client assigned yet — nothing to resolve.
+        if (!data.report.client_id) {
+            setClient(null);
+            setClientResolved(true);
+            return;
+        }
+        setClientResolved(false);
         // Unfiltered lookup — a saved report's client may since be archived/inactive.
         getClients(organization.id).then(all => {
             setClient(all.find(c => c.id === data.report.client_id) ?? null);
+            setClientResolved(true);
         });
     }, [organization?.id, data?.report?.client_id]);
 
-    if (data === undefined || (data && !client)) {
+    if (data === undefined || (data && !clientResolved)) {
         return (
             <div className="flex items-center justify-center h-[60vh] text-muted-foreground gap-2">
                 <Loader2 className="h-5 w-5 animate-spin" /> Loading report…
@@ -50,7 +59,7 @@ export default function ReportBuilderPage() {
                 // Remount with fresh metrics/history whenever the report's
                 // client or period changes (Settings tab reassignment / sync).
                 key={`${data.report.client_id}-${data.report.report_month}`}
-                client={client!}
+                client={client}
                 initialReport={data.report}
                 metrics={data.metrics}
                 history={data.history ?? {}}

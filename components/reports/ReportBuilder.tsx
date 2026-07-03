@@ -7,9 +7,9 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-    ArrowLeft, Download, Search, Plus, ChevronUp, ChevronDown,
+    ArrowLeft, Download, Search, Plus, ChevronUp, ChevronDown, ChevronRight,
     Trash2, Eye, EyeOff, LayoutGrid, Type, Settings2, BookmarkPlus, Check,
-    RefreshCw, Pencil, AlertCircle, CheckCircle2, Clock, BarChart3, Database,
+    RefreshCw, Pencil, AlertCircle, CheckCircle2, BarChart3, Database, Folder,
 } from 'lucide-react';
 import { ClientProject } from '@/lib/types';
 import { useClients } from '@/lib/hooks/use-clients';
@@ -34,7 +34,9 @@ interface ReportData {
 }
 
 interface Props {
-    client: ClientProject;
+    /** Null when the report has no client assigned yet — canvas stays blank
+     *  until one is picked via the Settings tab's Bulk parameters. */
+    client: ClientProject | null;
     initialReport: ReportData;
     metrics: { current: MetricMap; previous: MetricMap };
     history: HistoryMap;
@@ -58,8 +60,10 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
     const [title, setTitle] = useState(initialReport.title);
     const [summary, setSummary] = useState(initialReport.executive_summary ?? '');
     const [recs, setRecs] = useState(initialReport.recommendations ?? '');
-    const [tab, setTab] = useState<PanelTab>('sections');
+    // Unassigned reports open straight to Settings — that's where a client gets picked.
+    const [tab, setTab] = useState<PanelTab>(client ? 'sections' : 'settings');
     const [query, setQuery] = useState('');
+    const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
     const [hideEmpty, setHideEmpty] = useState(true);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -124,7 +128,7 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
 
     // ── Save current layout as a reusable org template ────────────────────────
     const saveAsTemplate = async () => {
-        const name = window.prompt('Template name:', `${title.replace(client.clientName, '').trim() || 'My template'}`);
+        const name = window.prompt('Template name:', `${title.replace(client?.clientName ?? '', '').trim() || 'My template'}`);
         if (!name) return;
         // Strip client-bound text content; keep structure + bound fields
         const templateBlocks = blocks.map(b => ({ type: b.type, props: { ...b.props } }));
@@ -156,6 +160,7 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
 
     // ── Data Sources (sync + manual entry), scoped to this report's client/month ──
     const triggerSync = async () => {
+        if (!client) return;
         setSyncing(true);
         setSyncResult('');
         try {
@@ -233,7 +238,13 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
                             onChange={e => { setTitle(e.target.value); queueSave({ title: e.target.value }); }}
                             className="text-sm font-semibold bg-transparent focus:outline-none focus:border-b focus:border-primary w-72 truncate"
                         />
-                        <p className="text-xs text-muted-foreground">{client.clientName} · {monthLabel(initialReport.report_month)}</p>
+                        {client ? (
+                            <p className="text-xs text-muted-foreground">{client.clientName} · {monthLabel(initialReport.report_month)}</p>
+                        ) : (
+                            <button onClick={() => setTab('settings')} className="text-xs text-amber-500 hover:underline">
+                                No client selected — pick one in Settings
+                            </button>
+                        )}
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -268,7 +279,14 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
 
                     <div className="flex-1 overflow-y-auto">
                         {tab === 'sections' && (
-                            <div className="p-4 space-y-4">
+                            <div className="p-4 space-y-3">
+                                {!client && (
+                                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-600 dark:text-amber-400">
+                                        Select a client in{' '}
+                                        <button onClick={() => setTab('settings')} className="font-medium underline">Settings</button>
+                                        {' '}before adding data sections — widgets will stay empty until then.
+                                    </div>
+                                )}
                                 <div className="relative">
                                     <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
                                     <input
@@ -277,28 +295,43 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
                                         className="w-full text-sm bg-muted/40 border border-border rounded-lg pl-8 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40"
                                     />
                                 </div>
-                                {filteredLibrary.map(group => (
-                                    <div key={group.name}>
-                                        <div className="flex items-center gap-2 mb-1.5">
-                                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.name}</p>
-                                            {!hasData(group.source) && (
-                                                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">no data</span>
+                                {filteredLibrary.map(group => {
+                                    const isOpen = query.trim() ? true : openGroups.has(group.name);
+                                    return (
+                                        <div key={group.name}>
+                                            <button
+                                                onClick={() => setOpenGroups(prev => {
+                                                    const next = new Set(prev);
+                                                    next.has(group.name) ? next.delete(group.name) : next.add(group.name);
+                                                    return next;
+                                                })}
+                                                className="w-full flex items-center gap-2 py-1.5 rounded-lg hover:bg-muted/60 transition-colors"
+                                            >
+                                                <Folder className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex-1 text-left">{group.name}</span>
+                                                <span className="text-[10px] text-muted-foreground">{group.items.length}</span>
+                                                {!hasData(group.source) && (
+                                                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">no data</span>
+                                                )}
+                                                {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                                            </button>
+                                            {isOpen && (
+                                                <div className="space-y-1 pl-1 mt-0.5">
+                                                    {group.items.map(item => (
+                                                        <button key={item.key} onClick={() => addBlock(item.type, item.props)}
+                                                            className="w-full group flex items-start gap-2 text-left px-3 py-2 rounded-lg hover:bg-muted transition-colors">
+                                                            <Plus className="h-3.5 w-3.5 mt-0.5 text-muted-foreground group-hover:text-primary shrink-0" />
+                                                            <span>
+                                                                <span className="block text-sm">{item.name}</span>
+                                                                <span className="block text-xs text-muted-foreground">{item.description}</span>
+                                                            </span>
+                                                        </button>
+                                                    ))}
+                                                </div>
                                             )}
                                         </div>
-                                        <div className="space-y-1">
-                                            {group.items.map(item => (
-                                                <button key={item.key} onClick={() => addBlock(item.type, item.props)}
-                                                    className="w-full group flex items-start gap-2 text-left px-3 py-2 rounded-lg hover:bg-muted transition-colors">
-                                                    <Plus className="h-3.5 w-3.5 mt-0.5 text-muted-foreground group-hover:text-primary shrink-0" />
-                                                    <span>
-                                                        <span className="block text-sm">{item.name}</span>
-                                                        <span className="block text-xs text-muted-foreground">{item.description}</span>
-                                                    </span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
 
@@ -334,12 +367,16 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
                                     <div>
                                         <label className="text-xs font-medium text-muted-foreground">Client</label>
                                         <select
-                                            value={client.id}
+                                            value={client?.id ?? ''}
                                             disabled={reassigning}
-                                            onChange={e => reassign({ client_id: e.target.value })}
-                                            className="mt-1 w-full text-sm bg-muted/40 border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
+                                            onChange={e => e.target.value && reassign({ client_id: e.target.value })}
+                                            className={cn(
+                                                'mt-1 w-full text-sm bg-muted/40 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50',
+                                                client ? 'border-border' : 'border-amber-500/40',
+                                            )}
                                         >
-                                            {!activeClients.some(c => c.id === client.id) && (
+                                            {!client && <option value="" disabled>Select a client…</option>}
+                                            {client && !activeClients.some(c => c.id === client.id) && (
                                                 <option value={client.id}>{client.clientName}</option>
                                             )}
                                             {activeClients.map(c => <option key={c.id} value={c.id}>{c.clientName}</option>)}
@@ -385,6 +422,10 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
                                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
                                         <Database className="h-3.5 w-3.5" /> Data Sources
                                     </p>
+                                    {!client ? (
+                                        <p className="text-xs text-muted-foreground">Select a client above to sync or enter metrics.</p>
+                                    ) : (
+                                    <>
                                     <div className="flex flex-wrap items-center gap-2">
                                         <button
                                             onClick={triggerSync}
@@ -438,6 +479,8 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
                                             );
                                         })}
                                     </div>
+                                    </>
+                                    )}
                                 </div>
 
                                 <p className="text-xs text-muted-foreground pt-1 border-t border-border">Export: PDF (print dialog → Save as PDF)</p>
@@ -498,7 +541,7 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
                 </main>
             </div>
 
-            {manualSource && (
+            {manualSource && client && (
                 <ManualMetricsModal
                     client={client}
                     orgId={organizationId}

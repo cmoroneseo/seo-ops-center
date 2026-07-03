@@ -4,7 +4,7 @@ import { blocksFromLegacy, makeBlock, ReportSectionsField, BlockType } from './b
 export interface ReportRow {
     id: string;
     organization_id: string;
-    client_id: string;
+    client_id: string | null;
     report_month: string;
     title: string;
     executive_summary: string | null;
@@ -48,7 +48,8 @@ export async function getReport(id: string): Promise<ReportRow | null> {
 /** Create a report shell with a v2 block layout (template blocks or default). */
 export async function createReport(params: {
     organizationId: string;
-    clientId: string;
+    /** Omitted/null → report starts unassigned; picked later in builder Settings. */
+    clientId?: string | null;
     reportMonth: string;
     title: string;
     createdBy?: string | null;
@@ -64,7 +65,7 @@ export async function createReport(params: {
 
     const insert: Record<string, unknown> = {
         organization_id: organizationId,
-        client_id: clientId,
+        client_id: clientId ?? null,
         report_month: reportMonth,
         title,
         sections: { version: 2, blocks },
