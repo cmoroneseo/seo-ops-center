@@ -7,12 +7,12 @@ import {
     FileText, Loader2, ChevronDown, ChevronRight, Database,
 } from 'lucide-react';
 import { useOrganization } from '@/components/providers/organization-provider';
-import { getClients } from '@/lib/supabase/clients';
-import { ClientProject } from '@/lib/types';
 import { ManualMetricsModal } from '@/components/reports/ManualMetricsModal';
 import { TemplateGallery, CustomTemplate } from '@/components/reports/TemplateGallery';
 import { TemplatesTab } from '@/components/reports/TemplatesTab';
 import { ReportsTable } from '@/components/reports/ReportsTable';
+import { ClientSwitcher } from '@/components/reports/ClientSwitcher';
+import { useActiveClient } from '@/components/reports/ActiveClientContext';
 import { STOCK_TEMPLATES } from '@/lib/reports/reportTemplates';
 import { cn } from '@/lib/utils';
 
@@ -57,9 +57,8 @@ type PageTab = 'reports' | 'templates';
 
 export default function ReportsPage() {
     const { organization } = useOrganization();
+    const { clients, activeClient: selectedClient } = useActiveClient();
     const [tab, setTab] = useState<PageTab>('reports');
-    const [clients, setClients] = useState<ClientProject[]>([]);
-    const [selectedClient, setSelectedClient] = useState<ClientProject | null>(null);
     const [selectedMonth, setSelectedMonth] = useState(() => {
         const now = new Date();
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -131,15 +130,6 @@ export default function ReportsPage() {
         new Date(m + '-15').toLocaleString('default', { month: 'long', year: 'numeric' });
 
     useEffect(() => {
-        if (!organization) return;
-        getClients(organization.id).then(all => {
-            const active = all.filter(c => c.status === 'Active');
-            setClients(active);
-            if (active.length > 0) setSelectedClient(active[0]);
-        });
-    }, [organization?.id]);
-
-    useEffect(() => {
         if (!selectedClient) return;
         setLoadingMetrics(true);
         fetch(`/api/metrics?clientId=${selectedClient.id}&month=${selectedMonth}`)
@@ -203,15 +193,9 @@ export default function ReportsPage() {
                 </button>
             </div>
 
-            {/* Context selector — which client/month templates & sync apply to */}
+            {/* Global-style project switcher — persists as you move around Reports */}
             <div className="flex flex-wrap items-center gap-3">
-                <select
-                    value={selectedClient?.id ?? ''}
-                    onChange={e => setSelectedClient(clients.find(c => c.id === e.target.value) ?? null)}
-                    className="text-sm bg-background border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                >
-                    {clients.map(c => <option key={c.id} value={c.id}>{c.clientName}</option>)}
-                </select>
+                <ClientSwitcher />
 
                 <select
                     value={selectedMonth}

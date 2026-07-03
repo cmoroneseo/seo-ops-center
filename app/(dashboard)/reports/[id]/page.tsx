@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { getClients } from '@/lib/supabase/clients';
 import { useOrganization } from '@/components/providers/organization-provider';
+import { useActiveClient } from '@/components/reports/ActiveClientContext';
 import { ClientProject } from '@/lib/types';
 import { ReportBuilder } from '@/components/reports/ReportBuilder';
 
@@ -12,6 +13,7 @@ export default function ReportBuilderPage() {
     const params = useParams();
     const id = params.id as string;
     const { organization } = useOrganization();
+    const { setActiveClientId } = useActiveClient();
     const [data, setData] = useState<{ report: any; metrics: any; history: any } | null | undefined>(undefined);
     const [client, setClient] = useState<ClientProject | null>(null);
 
@@ -24,10 +26,16 @@ export default function ReportBuilderPage() {
 
     useEffect(() => {
         if (!organization || !data?.report) return;
+        // Unfiltered lookup — a saved report's client may since be archived/inactive.
         getClients(organization.id).then(all => {
             setClient(all.find(c => c.id === data.report.client_id) ?? null);
         });
     }, [organization?.id, data?.report?.client_id]);
+
+    // Keep the global project switcher in sync with whichever client's report is open.
+    useEffect(() => {
+        if (data?.report?.client_id) setActiveClientId(data.report.client_id);
+    }, [data?.report?.client_id]);
 
     if (data === undefined || (data && !client)) {
         return (
