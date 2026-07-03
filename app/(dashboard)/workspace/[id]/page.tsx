@@ -28,7 +28,7 @@ import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
 import { getTasksByClient, updateTask } from '@/lib/supabase/tasks';
 import { Task } from '@/lib/types';
-import { CampaignPlanTab } from '@/components/campaign/CampaignPlanTab';
+import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
 
 type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations';
 
@@ -208,7 +208,7 @@ export default function ClientDetailPage() {
                     )}
                 >
                     <Target className="h-3.5 w-3.5" />
-                    Campaign Plan
+                    SEO Marketing Plan
                 </button>
                 <button
                     onClick={() => setActiveTab('tasks')}
@@ -241,9 +241,9 @@ export default function ClientDetailPage() {
                 </button>
             </div>
 
-            {/* Campaign Plan tab */}
+            {/* SEO Marketing Plan tab */}
             {activeTab === 'campaign' && (
-                <CampaignPlanTab
+                <MarketingPlanTab
                     organizationId={organization?.id ?? ''}
                     clientId={client.id}
                     clientName={client.clientName}
