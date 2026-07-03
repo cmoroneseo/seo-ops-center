@@ -76,6 +76,15 @@ https://seo-ops-center.vercel.app
   - Anthropic SDK: `@anthropic-ai/sdk` — requires `ANTHROPIC_API_KEY` env var on Vercel
   - PDF parsing: `pdf-parse@1.1.1` (import via `pdf-parse/lib/pdf-parse.js` to avoid test-file ENOENT in serverless)
 
+- **SEO Marketing Plan** (migration 021, Jul 2026):
+  - SE Ranking-style checklist replacing the Campaign Plan UI on workspace/[id]
+  - `marketing_plans` (one per client, steps jsonb) + `marketing_plan_items` (status todo/done/ignored, priority, assignee, due date, comments jsonb, task_id FK)
+  - 7-step template (~56 items) in `lib/marketing-plan-template.ts`
+  - Summary strip, sticky step rail, By Step/Priority/Status grouping, keyword search, Add Item
+  - Promote to Task (creates real Task, links via task_id; no completion sync back)
+  - Export via window.print(); AI Suggest Items via `/api/marketing-plan/suggest-items`
+  - Campaign Plan code (`components/campaign/*`, `campaign_*` tables) unmounted but preserved
+
 ## Key files (campaign)
 - `components/campaign/CampaignPlanTab.tsx` — 3-tab orchestrator
 - `components/campaign/sections/SectionCard.tsx` — shared helpers, types, label maps
@@ -99,6 +108,7 @@ https://seo-ops-center.vercel.app
 001–013: init, analytics, time tracking, notes, feedback, tasks V2, notifications
 015: deliverable_commitments (applied Jun 2026)
 019: campaign_plans (applied Jun 2026)
+021: marketing_plans (pending manual apply in Supabase Dashboard)
 
 ## Supabase Storage buckets
 - `client-logos` — public, 1MB max, image types
@@ -112,8 +122,6 @@ https://seo-ops-center.vercel.app
 - `Paused` and `Onboarding` both map to DB status `pending` — Paused is unrecoverable on read
 
 ## Pending work
-- **Client-facing presentation view** — read-only Better Proposals-style document from campaign plan data
-- **PDF/Proposal export** — print button for campaign plans
 - **Workspace bugs** — fix manager duplicates, My Clients filter, Onboarding categorization, add table sorting
 - Task auto-generation from `task_template_id` on commitments
 - Retire `clients.blogs_due_per_month` (swap `onTrackStatus()` to use commitments)
