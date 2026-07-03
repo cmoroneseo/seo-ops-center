@@ -9,18 +9,22 @@ import { useRouter } from 'next/navigation';
 import {
     ArrowLeft, Download, Search, Plus, ChevronUp, ChevronDown,
     Trash2, Eye, EyeOff, LayoutGrid, Type, Settings2, BookmarkPlus, Check,
+    RefreshCw, Pencil, AlertCircle, CheckCircle2, Clock, BarChart3, Database,
 } from 'lucide-react';
 import { ClientProject } from '@/lib/types';
-import { monthLabel, ReportSourceKey } from '@/lib/reports/sections';
+import { useClients } from '@/lib/hooks/use-clients';
+import { REPORT_SECTIONS, monthLabel, ReportSourceKey } from '@/lib/reports/sections';
 import {
     Block, ReportSectionsField, resolveBlocks, makeBlock, blockLabel,
     WIDGET_LIBRARY, FORMATTING_ITEMS,
 } from '@/lib/reports/blocks';
 import { RenderBlock, ReportContext, MetricMap, HistoryMap } from './ReportBlocks';
+import { ManualMetricsModal } from './ManualMetricsModal';
 import { cn } from '@/lib/utils';
 
 interface ReportData {
     id: string;
+    client_id: string;
     title: string;
     report_month: string;
     executive_summary: string | null;
@@ -35,11 +39,20 @@ interface Props {
     metrics: { current: MetricMap; previous: MetricMap };
     history: HistoryMap;
     organizationId: string;
+    /** Called after the client or report period is reassigned, so the parent
+     *  page can refetch metrics/history scoped to the new client+month. */
+    onDataChanged?: () => void;
 }
 
 type PanelTab = 'sections' | 'formatting' | 'settings';
 
-export function ReportBuilder({ client, initialReport, metrics, history, organizationId }: Props) {
+const monthOptions = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - i);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+});
+
+export function ReportBuilder({ client, initialReport, metrics, history, organizationId, onDataChanged }: Props) {
     const router = useRouter();
     const [blocks, setBlocks] = useState<Block[]>(() => resolveBlocks(initialReport.sections));
     const [title, setTitle] = useState(initialReport.title);
@@ -51,6 +64,11 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
     const [templateSaved, setTemplateSaved] = useState(false);
+    const [reassigning, setReassigning] = useState(false);
+    const [syncing, setSyncing] = useState(false);
+    const [syncResult, setSyncResult] = useState('');
+    const [manualSource, setManualSource] = useState<string | null>(null);
+    const { clients: activeClients } = useClients({ statuses: ['Active'] });
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // ── Persistence ───────────────────────────────────────────────────────────
@@ -122,6 +140,41 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
     };
 
     const downloadPDF = () => window.print();
+
+    // ── Client / period reassignment (Settings tab) ────────────────────────────
+    const reassign = async (patch: { client_id?: string; report_month?: string }) => {
+        setReassigning(true);
+        await fetch(`/api/reports/${initialReport.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(patch),
+        });
+        onDataChanged?.();
+        // Parent remounts this component (keyed by client+month) once fresh
+        // props arrive, so no local state reset is needed here.
+    };
+
+    // ── Data Sources (sync + manual entry), scoped to this report's client/month ──
+    const triggerSync = async () => {
+        setSyncing(true);
+        setSyncResult('');
+        try {
+            const res = await fetch('/api/sync/metrics', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId: client.id, month: initialReport.report_month }),
+            });
+            const data = await res.json();
+            setSyncResult(res.ok
+                ? `Sync complete — ${data.errors === 0 ? 'all sources updated' : `${data.errors} source(s) had errors`}`
+                : `Sync failed: ${data.error}`);
+            if (res.ok) onDataChanged?.();
+        } catch (e: any) {
+            setSyncResult(`Sync error: ${e.message}`);
+        } finally {
+            setSyncing(false);
+        }
+    };
 
     // ── Canvas: split blocks into pages on page_break ─────────────────────────
     const pages = useMemo(() => {
@@ -274,6 +327,40 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
                                         className="mt-1 w-full text-sm bg-muted/40 border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40"
                                     />
                                 </div>
+
+                                {/* Bulk parameters — client + period, applied to every widget on this report */}
+                                <div className="space-y-3 pb-1 border-b border-border">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Bulk parameters</p>
+                                    <div>
+                                        <label className="text-xs font-medium text-muted-foreground">Client</label>
+                                        <select
+                                            value={client.id}
+                                            disabled={reassigning}
+                                            onChange={e => reassign({ client_id: e.target.value })}
+                                            className="mt-1 w-full text-sm bg-muted/40 border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
+                                        >
+                                            {!activeClients.some(c => c.id === client.id) && (
+                                                <option value={client.id}>{client.clientName}</option>
+                                            )}
+                                            {activeClients.map(c => <option key={c.id} value={c.id}>{c.clientName}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-medium text-muted-foreground">Report period</label>
+                                        <select
+                                            value={initialReport.report_month}
+                                            disabled={reassigning}
+                                            onChange={e => reassign({ report_month: e.target.value })}
+                                            className="mt-1 w-full text-sm bg-muted/40 border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
+                                        >
+                                            {!monthOptions.includes(initialReport.report_month) && (
+                                                <option value={initialReport.report_month}>{monthLabel(initialReport.report_month)}</option>
+                                            )}
+                                            {monthOptions.map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <p className="text-sm">Hide empty widgets</p>
@@ -284,6 +371,7 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
                                         <span className={cn('absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all', hideEmpty ? 'left-[18px]' : 'left-0.5')} />
                                     </button>
                                 </div>
+
                                 <div className="pt-1 border-t border-border">
                                     <button onClick={saveAsTemplate}
                                         className="w-full flex items-center justify-center gap-2 text-sm border border-border rounded-lg px-3 py-2 hover:bg-muted transition-colors">
@@ -291,11 +379,68 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
                                     </button>
                                     <p className="text-xs text-muted-foreground mt-2">Saves this layout to “My templates” for reuse on any client.</p>
                                 </div>
-                                <div className="text-xs text-muted-foreground space-y-1 pt-1 border-t border-border">
-                                    <p><span className="font-medium text-foreground">Client:</span> {client.clientName}</p>
-                                    <p><span className="font-medium text-foreground">Period:</span> {monthLabel(initialReport.report_month)}</p>
-                                    <p><span className="font-medium text-foreground">Export:</span> PDF (print dialog → Save as PDF)</p>
+
+                                {/* Data Sources — sync/manual entry, scoped to this report's client + period */}
+                                <div className="pt-1 border-t border-border space-y-3">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                                        <Database className="h-3.5 w-3.5" /> Data Sources
+                                    </p>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                            onClick={triggerSync}
+                                            disabled={syncing}
+                                            className="flex items-center gap-1.5 text-xs border border-border rounded-lg px-2.5 py-1.5 hover:bg-muted transition-colors disabled:opacity-50"
+                                        >
+                                            <RefreshCw className={cn('h-3 w-3', syncing && 'animate-spin')} />
+                                            {syncing ? 'Syncing…' : 'Sync Now'}
+                                        </button>
+                                    </div>
+                                    {syncResult && (
+                                        <p className={cn(
+                                            'flex items-center gap-1.5 text-xs',
+                                            syncResult.includes('error') || syncResult.includes('failed') ? 'text-red-500' : 'text-green-500',
+                                        )}>
+                                            {syncResult.includes('error') || syncResult.includes('failed')
+                                                ? <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                                                : <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />}
+                                            {syncResult}
+                                        </p>
+                                    )}
+                                    <div className="space-y-2">
+                                        {REPORT_SECTIONS.map(def => {
+                                            const cur = metrics.current[def.key];
+                                            const hasData = !!cur && Object.keys(cur).length > 0;
+                                            return (
+                                                <div key={def.key} className="border border-border/60 rounded-lg px-3 py-2">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <span className="flex items-center gap-1.5 text-xs">
+                                                            <span>{def.icon}</span> {def.name}
+                                                            {hasData && <CheckCircle2 className="h-3 w-3 text-green-500" />}
+                                                        </span>
+                                                        <button
+                                                            onClick={() => setManualSource(def.key)}
+                                                            className={cn(
+                                                                'flex items-center gap-1 text-[11px] rounded-md px-2 py-1 border transition-colors',
+                                                                hasData
+                                                                    ? 'text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
+                                                                    : 'bg-primary text-primary-foreground border-primary hover:bg-primary/90',
+                                                            )}
+                                                        >
+                                                            {hasData ? <><Pencil className="h-2.5 w-2.5" /> Edit</> : <><Plus className="h-2.5 w-2.5" /> Enter manually</>}
+                                                        </button>
+                                                    </div>
+                                                    {!hasData && (
+                                                        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground mt-1.5">
+                                                            <BarChart3 className="h-3 w-3" /> No data for {monthLabel(initialReport.report_month)}.
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
+
+                                <p className="text-xs text-muted-foreground pt-1 border-t border-border">Export: PDF (print dialog → Save as PDF)</p>
                             </div>
                         )}
                     </div>
@@ -352,6 +497,21 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
                     </div>
                 </main>
             </div>
+
+            {manualSource && (
+                <ManualMetricsModal
+                    client={client}
+                    orgId={organizationId}
+                    source={manualSource}
+                    month={initialReport.report_month}
+                    existingData={metrics.current[manualSource as ReportSourceKey]}
+                    onClose={() => setManualSource(null)}
+                    onSaved={() => {
+                        setManualSource(null);
+                        onDataChanged?.();
+                    }}
+                />
+            )}
         </div>
     );
 }

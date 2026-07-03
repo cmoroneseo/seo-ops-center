@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { getClients } from '@/lib/supabase/clients';
 import { useOrganization } from '@/components/providers/organization-provider';
-import { useActiveClient } from '@/components/reports/ActiveClientContext';
 import { ClientProject } from '@/lib/types';
 import { ReportBuilder } from '@/components/reports/ReportBuilder';
 
@@ -13,16 +12,17 @@ export default function ReportBuilderPage() {
     const params = useParams();
     const id = params.id as string;
     const { organization } = useOrganization();
-    const { setActiveClientId } = useActiveClient();
     const [data, setData] = useState<{ report: any; metrics: any; history: any } | null | undefined>(undefined);
     const [client, setClient] = useState<ClientProject | null>(null);
 
-    useEffect(() => {
+    const fetchReport = useCallback(() => {
         fetch(`/api/reports/${id}`)
             .then(r => (r.ok ? r.json() : null))
             .then(d => setData(d ?? null))
             .catch(() => setData(null));
     }, [id]);
+
+    useEffect(() => { fetchReport(); }, [fetchReport]);
 
     useEffect(() => {
         if (!organization || !data?.report) return;
@@ -31,11 +31,6 @@ export default function ReportBuilderPage() {
             setClient(all.find(c => c.id === data.report.client_id) ?? null);
         });
     }, [organization?.id, data?.report?.client_id]);
-
-    // Keep the global project switcher in sync with whichever client's report is open.
-    useEffect(() => {
-        if (data?.report?.client_id) setActiveClientId(data.report.client_id);
-    }, [data?.report?.client_id]);
 
     if (data === undefined || (data && !client)) {
         return (
@@ -52,11 +47,15 @@ export default function ReportBuilderPage() {
     return (
         <div className="-m-8">
             <ReportBuilder
+                // Remount with fresh metrics/history whenever the report's
+                // client or period changes (Settings tab reassignment / sync).
+                key={`${data.report.client_id}-${data.report.report_month}`}
                 client={client!}
                 initialReport={data.report}
                 metrics={data.metrics}
                 history={data.history ?? {}}
                 organizationId={organization?.id ?? ''}
+                onDataChanged={fetchReport}
             />
         </div>
     );

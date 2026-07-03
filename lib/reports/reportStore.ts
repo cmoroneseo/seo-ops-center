@@ -80,7 +80,7 @@ export async function createReport(params: {
 
 export async function updateReport(
     id: string,
-    patch: Partial<Pick<ReportRow, 'title' | 'executive_summary' | 'recommendations' | 'sections' | 'status' | 'pdf_url'>>,
+    patch: Partial<Pick<ReportRow, 'title' | 'executive_summary' | 'recommendations' | 'sections' | 'status' | 'pdf_url' | 'client_id' | 'report_month'>>,
 ): Promise<{ report?: ReportRow; error?: string }> {
     const admin = createAdminClient();
     const { data, error } = await admin
