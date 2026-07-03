@@ -100,6 +100,28 @@ export function ItemRow({ item, members, currentUser, onChanged }: ItemRowProps)
     const initials = (name: string) =>
         name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?';
 
+    // Render [label](url) markdown links in descriptions as clickable anchors
+    const renderDescription = (text: string) => {
+        const parts = text.split(/(\[[^\]]+\]\([^)]+\))/g);
+        return parts.map((part, i) => {
+            const m = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+            if (m) {
+                return (
+                    <a
+                        key={i}
+                        href={m[2]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary underline underline-offset-2 hover:opacity-80"
+                    >
+                        {m[1]}
+                    </a>
+                );
+            }
+            return <span key={i}>{part}</span>;
+        });
+    };
+
     return (
         <div className={cn(
             'py-4 border-b border-border/40 last:border-b-0',
@@ -169,6 +191,13 @@ export function ItemRow({ item, members, currentUser, onChanged }: ItemRowProps)
                 </div>
             </div>
 
+            {/* Description — always visible, like SE Ranking */}
+            {item.description && (
+                <p className="text-sm text-muted-foreground leading-relaxed mt-2 ml-7">
+                    {renderDescription(item.description)}
+                </p>
+            )}
+
             {/* Details toggle + meta chips */}
             <div className="flex items-center justify-between mt-2 ml-7">
                 <button
@@ -191,12 +220,9 @@ export function ItemRow({ item, members, currentUser, onChanged }: ItemRowProps)
                 </div>
             </div>
 
-            {/* Expanded details */}
+            {/* Expanded: assignee/due controls + comment section */}
             {expanded && (
-                <div className="ml-7 mt-3 space-y-4">
-                    {item.description && (
-                        <p className="text-sm text-muted-foreground leading-relaxed">{item.description}</p>
-                    )}
+                <div className="ml-7 mt-3 space-y-4 rounded-lg bg-muted/30 p-4">
                     <div className="flex items-center gap-3 print:hidden">
                         <select
                             value={item.assigneeId ?? ''}
@@ -241,27 +267,25 @@ export function ItemRow({ item, members, currentUser, onChanged }: ItemRowProps)
                             <input
                                 value={commentDraft}
                                 onChange={e => setCommentDraft(e.target.value)}
-                                onKeyDown={e => { if (e.key === 'Enter') submitComment(); }}
+                                onKeyDown={e => { if (e.key === 'Enter' && !saving) submitComment(); }}
                                 placeholder="Add a comment..."
                                 className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card"
                             />
-                            {commentDraft.trim() && (
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={submitComment}
-                                        disabled={saving}
-                                        className="text-xs font-semibold bg-primary text-primary-foreground rounded-lg px-3 py-1.5"
-                                    >
-                                        Save
-                                    </button>
-                                    <button
-                                        onClick={() => setCommentDraft('')}
-                                        className="text-xs font-medium border border-border rounded-lg px-3 py-1.5"
-                                    >
-                                        Cancel
-                                    </button>
-                                </div>
-                            )}
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => { setCommentDraft(''); setExpanded(false); }}
+                                    className="text-xs font-medium border border-border rounded-lg px-3 py-1.5 hover:bg-muted"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={submitComment}
+                                    disabled={saving || !commentDraft.trim()}
+                                    className="text-xs font-semibold bg-primary text-primary-foreground rounded-lg px-3 py-1.5 disabled:opacity-50"
+                                >
+                                    Save
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
