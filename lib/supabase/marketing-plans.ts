@@ -101,7 +101,10 @@ export async function createMarketingPlanFromTemplate(input: {
         sort_order: i,
     }));
     const { error: itemsError } = await supabase.from('marketing_plan_items').insert(rows);
-    if (itemsError) return { success: false, error: itemsError.message };
+    if (itemsError) {
+        await supabase.from('marketing_plans').delete().eq('id', plan.id);
+        return { success: false, error: itemsError.message };
+    }
 
     return { success: true, data: plan };
 }

@@ -23,6 +23,7 @@ export function SuggestItemsPanel({ plan, clientName, onAdded, onClose }: Sugges
     const [loading, setLoading] = useState(false);
     const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [accepting, setAccepting] = useState<string | null>(null);
 
     const fetchSuggestions = async () => {
         setLoading(true);
@@ -48,8 +49,10 @@ export function SuggestItemsPanel({ plan, clientName, onAdded, onClose }: Sugges
     };
 
     const accept = async (s: Suggestion) => {
+        const key = `${s.stepKey}:${s.title}`;
+        setAccepting(key);
         const maxSort = Math.max(0, ...(plan.items ?? []).map(i => i.sortOrder));
-        await addCustomItem({
+        const res = await addCustomItem({
             marketingPlanId: plan.id,
             organizationId: plan.organizationId,
             clientId: plan.clientId,
@@ -59,6 +62,12 @@ export function SuggestItemsPanel({ plan, clientName, onAdded, onClose }: Sugges
             priority: s.priority,
             sortOrder: maxSort + 1,
         });
+        setAccepting(null);
+        if (!res.success) {
+            setError(res.error ?? 'Failed to add item');
+            return;
+        }
+        setError(null);
         setSuggestions(prev => (prev ?? []).filter(x => x !== s));
         onAdded();
     };
@@ -88,6 +97,8 @@ export function SuggestItemsPanel({ plan, clientName, onAdded, onClose }: Sugges
             )}
             {suggestions?.map((s, i) => {
                 const step = plan.steps.find(st => st.key === s.stepKey);
+                const key = `${s.stepKey}:${s.title}`;
+                const isAccepting = accepting === key;
                 return (
                     <div key={i} className="flex items-start justify-between gap-3 border border-border/50 rounded-lg p-3">
                         <div className="min-w-0">
@@ -100,14 +111,16 @@ export function SuggestItemsPanel({ plan, clientName, onAdded, onClose }: Sugges
                         <div className="flex gap-1 shrink-0">
                             <button
                                 onClick={() => accept(s)}
-                                className="p-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700"
+                                disabled={accepting !== null}
+                                className="p-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
                                 title="Add to plan"
                             >
                                 <Plus className="h-3.5 w-3.5" />
                             </button>
                             <button
                                 onClick={() => setSuggestions(prev => (prev ?? []).filter(x => x !== s))}
-                                className="p-1.5 rounded-lg border border-border hover:bg-muted"
+                                disabled={isAccepting}
+                                className="p-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-50"
                                 title="Dismiss"
                             >
                                 <X className="h-3.5 w-3.5" />

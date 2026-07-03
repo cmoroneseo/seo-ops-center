@@ -72,6 +72,8 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
         const res = await createMarketingPlanFromTemplate({ organizationId, clientId, clientName });
         if (res.success) {
             logActivity({ clientId, eventType: 'campaign.created', metadata: { source: 'marketing_plan_template' } });
+        } else {
+            alert(res.error ?? 'Failed to create plan');
         }
         setCreating(false);
         await loadPlan();
