@@ -582,3 +582,54 @@ export interface TimeLog {
     category?: string;
     sessionNotes: SessionNote[];
 }
+
+// ---------------------------------------------------------------------------
+// SEO Marketing Plan (checklist) — migration 021
+// ---------------------------------------------------------------------------
+
+export type MarketingPlanItemStatus = 'todo' | 'done' | 'ignored';
+export type MarketingPlanItemPriority = 'high' | 'medium' | 'low';
+
+export interface MarketingPlanStep {
+    key: string;
+    name: string;
+    sortOrder: number;
+}
+
+export interface MarketingPlanItemComment {
+    authorId?: string;
+    authorName: string;
+    body: string;
+    createdAt: string; // ISO timestamp
+}
+
+export interface MarketingPlanItem {
+    id: string;
+    marketingPlanId: string;
+    organizationId: string;
+    clientId: string;
+    stepKey: string;
+    title: string;
+    description?: string;
+    status: MarketingPlanItemStatus;
+    priority: MarketingPlanItemPriority;
+    assigneeId?: string;
+    dueDate?: string; // YYYY-MM-DD
+    sortOrder: number;
+    comments: MarketingPlanItemComment[];
+    taskId?: string; // set when promoted to a real Task
+    isCustom: boolean;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface MarketingPlan {
+    id: string;
+    organizationId: string;
+    clientId: string;
+    title: string;
+    steps: MarketingPlanStep[];
+    createdAt: string;
+    updatedAt: string;
+    items?: MarketingPlanItem[]; // populated by getMarketingPlan
+}
