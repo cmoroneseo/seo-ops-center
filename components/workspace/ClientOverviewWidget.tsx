@@ -136,16 +136,44 @@ export function ClientOverviewWidget({ client, organizationId }: ClientOverviewW
                 icon={<FileText className="h-4 w-4 text-primary" />}
                 label="Deliverables"
                 value={<>{overview.deliverables.delivered}<span className="text-sm font-medium text-muted-foreground"> / {overview.deliverables.promised}</span></>}
-                badge={overview.deliverables.overdue > 0 ? (
-                    <span className="px-2 py-0.5 rounded text-xs font-medium border text-red-500 bg-red-500/10 border-red-500/20">
-                        {overview.deliverables.overdue} overdue
-                    </span>
-                ) : (
-                    <span className="px-2 py-0.5 rounded text-xs font-medium border text-green-500 bg-green-500/10 border-green-500/20">
-                        On pace
-                    </span>
-                )}
-                detail={`${overview.deliverables.inProgress} in production, ${overview.deliverables.atRisk} at risk groups.`}
+                badge={(() => {
+                    const { overdue, atRisk, delivered, promised } = overview.deliverables;
+                    if (overdue > 0) {
+                        return (
+                            <span className={cn('px-2 py-0.5 rounded text-xs font-medium border', severityBadgeClass('critical'))}>
+                                {overdue} overdue
+                            </span>
+                        );
+                    }
+                    if (atRisk > 0) {
+                        return (
+                            <span className={cn('px-2 py-0.5 rounded text-xs font-medium border', severityBadgeClass('warn'))}>
+                                At risk
+                            </span>
+                        );
+                    }
+                    if (delivered >= promised && promised > 0) {
+                        return (
+                            <span className={cn('px-2 py-0.5 rounded text-xs font-medium border', severityBadgeClass('ok'))}>
+                                Fulfilled
+                            </span>
+                        );
+                    }
+                    return (
+                        <span className={cn('px-2 py-0.5 rounded text-xs font-medium border', severityBadgeClass('ok'))}>
+                            On pace
+                        </span>
+                    );
+                })()}
+                detail={(() => {
+                    const { delivered, promised, inProgress, atRisk, cells } = overview.deliverables;
+                    const behindCells = cells.filter((c) => c.status.severity === 'critical' || c.status.severity === 'warn');
+                    if (behindCells.length > 0) {
+                        const typeLabels = behindCells.map((c) => c.type.replace(/_/g, ' ')).join(', ');
+                        return `${delivered}/${promised} delivered — ${typeLabels} at risk`;
+                    }
+                    return `${inProgress} in production, ${atRisk} at risk groups.`;
+                })()}
             />
             <OverviewCard
                 icon={<Target className="h-4 w-4 text-primary" />}
