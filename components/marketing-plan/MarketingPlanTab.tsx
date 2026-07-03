@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { ClipboardList, Plus, Search, Upload } from 'lucide-react';
+import { ClipboardList, Plus, Search, Sparkles, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MarketingPlan, MarketingPlanItem } from '@/lib/types';
 import {
@@ -17,6 +17,7 @@ import { SummaryStrip } from './SummaryStrip';
 import { StepRail } from './StepRail';
 import { ItemRow, MemberOption } from './ItemRow';
 import { AddItemForm } from './AddItemForm';
+import { SuggestItemsPanel } from './SuggestItemsPanel';
 
 interface MarketingPlanTabProps {
     organizationId: string;
@@ -32,6 +33,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
     const [query, setQuery] = useState('');
     const [activeStepKey, setActiveStepKey] = useState<string | null>(null);
     const [showAddForm, setShowAddForm] = useState(false);
+    const [showSuggest, setShowSuggest] = useState(false);
     const [members, setMembers] = useState<MemberOption[]>([]);
     const [currentUser, setCurrentUser] = useState<{ id?: string; name: string }>({ name: 'Team' });
 
@@ -188,6 +190,12 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
                             />
                         </div>
                         <button
+                            onClick={() => setShowSuggest(s => !s)}
+                            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted transition-colors"
+                        >
+                            <Sparkles className="h-4 w-4" /> Suggest Items
+                        </button>
+                        <button
                             onClick={() => setShowAddForm(f => !f)}
                             className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-green-700 transition-colors"
                         >
@@ -201,6 +209,15 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
                             defaultStepKey={activeStepKey ?? undefined}
                             onSubmit={handleAddItem}
                             onCancel={() => setShowAddForm(false)}
+                        />
+                    )}
+
+                    {showSuggest && (
+                        <SuggestItemsPanel
+                            plan={plan}
+                            clientName={clientName}
+                            onAdded={refresh}
+                            onClose={() => setShowSuggest(false)}
                         />
                     )}
 
