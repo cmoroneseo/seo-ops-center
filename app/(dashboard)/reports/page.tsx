@@ -7,6 +7,7 @@ import { useOrganization } from '@/components/providers/organization-provider';
 import { getClients } from '@/lib/supabase/clients';
 import { ClientProject } from '@/lib/types';
 import { ManualMetricsModal } from '@/components/reports/ManualMetricsModal';
+import { TemplateGalleryModal } from '@/components/reports/TemplateGalleryModal';
 import { cn } from '@/lib/utils';
 
 interface MetricRow {
@@ -61,6 +62,7 @@ export default function ReportsPage() {
     const [manualSource, setManualSource] = useState<string | null>(null);
     const [reports, setReports] = useState<any[]>([]);
     const [creatingReport, setCreatingReport] = useState(false);
+    const [showTemplates, setShowTemplates] = useState(false);
     const router = useRouter();
 
     useEffect(() => {
@@ -71,7 +73,7 @@ export default function ReportsPage() {
             .catch(() => setReports([]));
     }, [organization?.id]);
 
-    async function buildReport() {
+    async function buildReport(blocks: { type: string; props?: Record<string, any> }[]) {
         if (!selectedClient || !organization) return;
         setCreatingReport(true);
         try {
@@ -83,6 +85,7 @@ export default function ReportsPage() {
                     clientId: selectedClient.id,
                     clientName: selectedClient.clientName,
                     month: selectedMonth,
+                    blocks,
                 }),
             });
             const data = await res.json();
@@ -167,7 +170,7 @@ export default function ReportsPage() {
                     <p className="text-muted-foreground mt-1">View synced metrics, enter data manually, and build branded client reports.</p>
                 </div>
                 <button
-                    onClick={buildReport}
+                    onClick={() => setShowTemplates(true)}
                     disabled={!selectedClient || creatingReport}
                     className="flex items-center gap-2 text-sm bg-primary text-primary-foreground rounded-lg px-4 py-2.5 hover:bg-primary/90 transition-colors disabled:opacity-50 shadow-lg shadow-primary/20"
                 >
@@ -315,6 +318,18 @@ export default function ReportsPage() {
                         ))}
                     </div>
                 </div>
+            )}
+
+            {/* Template gallery */}
+            {showTemplates && selectedClient && organization && (
+                <TemplateGalleryModal
+                    orgId={organization.id}
+                    clientName={selectedClient.clientName}
+                    monthLabel={reportMonthLabel(selectedMonth)}
+                    creating={creatingReport}
+                    onClose={() => !creatingReport && setShowTemplates(false)}
+                    onPick={buildReport}
+                />
             )}
 
             {/* Manual entry modal */}

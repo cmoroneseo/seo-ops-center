@@ -22,10 +22,12 @@ export async function GET(req: NextRequest) {
  * POST /api/reports
  * Create a report for a client+month and auto-fill the executive summary
  * + recommendations from synced/manual metrics.
- * Body: { orgId, clientId, clientName, month, createdBy? }
+ * Body: { orgId, clientId, clientName, month, createdBy?, blocks? }
+ * `blocks` (from a stock or custom template) sets the v2 block layout;
+ * omitted → the default Monthly SEO Report layout.
  */
 export async function POST(req: NextRequest) {
-    const { orgId, clientId, clientName, month, createdBy } = await req.json();
+    const { orgId, clientId, clientName, month, createdBy, blocks } = await req.json();
     if (!orgId || !clientId || !month) {
         return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
@@ -39,6 +41,7 @@ export async function POST(req: NextRequest) {
         reportMonth: month,
         title,
         createdBy,
+        blocks: Array.isArray(blocks) ? blocks : undefined,
     });
     if (error || !report) {
         return NextResponse.json({ error: error ?? 'Create failed' }, { status: 500 });

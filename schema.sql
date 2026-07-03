@@ -865,3 +865,28 @@ create policy "Org members can manage marketing_plan_items"
   on public.marketing_plan_items for all
   using      ( organization_id in (select get_user_org_ids()) )
   with check ( organization_id in (select get_user_org_ids()) );
+
+-- =============================================================================
+-- Migration 022: Custom report templates ("My templates")
+-- =============================================================================
+
+create table public.report_templates (
+  id              uuid default uuid_generate_v4() primary key,
+  organization_id uuid references public.organizations(id) on delete cascade not null,
+  name            text not null,
+  blocks          jsonb default '[]'::jsonb not null, -- Block[] without ids
+  created_by      uuid references public.users(id),
+  created_at      timestamp with time zone default timezone('utc'::text, now()) not null
+);
+create index report_templates_org_idx on public.report_templates (organization_id, created_at desc);
+
+alter table public.report_templates enable row level security;
+
+create policy "Org members can view report templates"
+  on public.report_templates for select
+  using ( organization_id in (select get_user_org_ids()) );
+
+create policy "Org members can manage report templates"
+  on public.report_templates for all
+  using      ( organization_id in (select get_user_org_ids()) )
+  with check ( organization_id in (select get_user_org_ids()) );

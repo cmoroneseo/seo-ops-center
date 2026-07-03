@@ -12,7 +12,7 @@ export default function ReportBuilderPage() {
     const params = useParams();
     const id = params.id as string;
     const { organization } = useOrganization();
-    const [data, setData] = useState<{ report: any; metrics: any } | null | undefined>(undefined);
+    const [data, setData] = useState<{ report: any; metrics: any; history: any } | null | undefined>(undefined);
     const [client, setClient] = useState<ClientProject | null>(null);
 
     useEffect(() => {
@@ -43,7 +43,13 @@ export default function ReportBuilderPage() {
 
     return (
         <div className="-m-8">
-            <ReportBuilder client={client!} initialReport={data.report} metrics={data.metrics} />
+            <ReportBuilder
+                client={client!}
+                initialReport={data.report}
+                metrics={data.metrics}
+                history={data.history ?? {}}
+                organizationId={organization?.id ?? ''}
+            />
         </div>
     );
 }
