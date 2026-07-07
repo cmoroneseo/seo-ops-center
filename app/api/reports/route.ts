@@ -20,31 +20,39 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/reports
- * Create a report for a client+month and auto-fill the executive summary
- * + recommendations from synced/manual metrics.
- * Body: { orgId, clientId, clientName, month, createdBy? }
+ * Create a report shell for a month, optionally pre-assigned to a client.
+ * When a client is given, auto-fills the executive summary + recommendations
+ * from synced/manual metrics. Without one, the report starts blank — the
+ * canvas stays empty until a client is picked in the builder's Settings tab.
+ * Body: { orgId, month, clientId?, clientName?, createdBy?, blocks? }
+ * `blocks` (from a stock or custom template) sets the v2 block layout;
+ * omitted → the default Monthly SEO Report layout.
  */
 export async function POST(req: NextRequest) {
-    const { orgId, clientId, clientName, month, createdBy } = await req.json();
-    if (!orgId || !clientId || !month) {
+    const { orgId, clientId, clientName, month, createdBy, blocks } = await req.json();
+    if (!orgId || !month) {
         return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const name = clientName || 'Client';
-    const title = `${name} — ${monthLabel(month)} SEO Report`;
+    const title = clientId
+        ? `${clientName || 'Client'} — ${monthLabel(month)} SEO Report`
+        : `New Report — ${monthLabel(month)}`;
 
     const { report, error } = await createReport({
         organizationId: orgId,
-        clientId,
+        clientId: clientId ?? null,
         reportMonth: month,
         title,
         createdBy,
+        blocks: Array.isArray(blocks) ? blocks : undefined,
     });
     if (error || !report) {
         return NextResponse.json({ error: error ?? 'Create failed' }, { status: 500 });
     }
 
-    // Auto-fill summary from metrics (current + previous month).
+    if (!clientId) return NextResponse.json({ report });
+
+    // Auto-fill summary from metrics (current + previous month) — client known upfront.
     const [curRows, prevRows] = await Promise.all([
         getClientMetrics(clientId, { month }),
         getClientMetrics(clientId, { month: previousMonth(month) }),
@@ -53,7 +61,7 @@ export async function POST(req: NextRequest) {
         Object.fromEntries(rows.map(r => [r.source, r.data])) as Partial<Record<ReportSourceKey, Record<string, any>>>;
 
     const { executiveSummary, recommendations } = generateAutoSummary(
-        name, monthLabel(month), toMap(curRows), toMap(prevRows),
+        clientName || 'Client', monthLabel(month), toMap(curRows), toMap(prevRows),
     );
     const { report: updated } = await updateReport(report.id, {
         executive_summary: executiveSummary,
