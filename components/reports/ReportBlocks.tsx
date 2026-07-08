@@ -45,6 +45,30 @@ function shortMonth(month: string): string {
     return new Date(month + '-15').toLocaleString('default', { month: 'short', year: '2-digit' });
 }
 
+function ordinal(n: number): string {
+    const v = n % 100;
+    if (v >= 11 && v <= 13) return `${n}th`;
+    switch (n % 10) {
+        case 1: return `${n}st`;
+        case 2: return `${n}nd`;
+        case 3: return `${n}rd`;
+        default: return `${n}th`;
+    }
+}
+
+/** 'YYYY-MM' + day-of-month -> "Jun 1st". */
+function monthDayOrdinal(month: string, day: number): string {
+    const [y, m] = month.split('-').map(Number);
+    const d = new Date(y, m - 1, day);
+    const monthAbbr = d.toLocaleString('default', { month: 'short' });
+    return `${monthAbbr} ${ordinal(day)}`;
+}
+
+function lastDayOfMonth(month: string): number {
+    const [y, m] = month.split('-').map(Number);
+    return new Date(y, m, 0).getDate();
+}
+
 function EmptyNote({ text }: { text: string }) {
     return <p className="text-sm italic" style={{ color: '#9ca3af' }}>{text}</p>;
 }
@@ -179,7 +203,6 @@ export function MetricsOverviewBlock({ block, ctx }: { block: Block; ctx: Report
     return (
         <div>
             <div className="flex items-center gap-2 border-b-2 pb-2 mb-4" style={{ borderColor: ACCENT }}>
-                <span className="text-lg">{def?.icon}</span>
                 <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>{def?.name}</h2>
             </div>
             {empty ? <EmptyNote text="No data for this source — sync or enter it manually on the Reports page." /> : (
@@ -351,12 +374,14 @@ export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: R
     // "Hide empty widgets" is on, or the block just silently vanishes.
 
     const hasAnyLocation = result?.status === 'ok' && result.rows.some(r => r.location);
+    const startLabel = monthDayOrdinal(ctx.reportMonth, 1);
+    const endLabel = monthDayOrdinal(ctx.reportMonth, lastDayOfMonth(ctx.reportMonth));
 
     return (
         <div>
             <div className="flex items-center gap-2 border-b-2 pb-2 mb-4" style={{ borderColor: ACCENT }}>
-                <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>All Keywords Rankings</h2>
-                <span className="text-xs" style={{ color: '#6b7280' }}>{monthLabel(ctx.reportMonth)} — 1st vs last day</span>
+                <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>Keyword Rankings</h2>
+                <span className="text-xs" style={{ color: '#6b7280' }}>{startLabel} — {endLabel}</span>
                 {ctx.onEditText && hasAnyLocation && (
                     <label className="print-hidden ml-auto flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: '#6b7280' }}>
                         <input
@@ -380,7 +405,7 @@ export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: R
                 <table className="w-full text-sm" style={{ color: '#374151' }}>
                     <thead>
                         <tr className="border-b" style={{ borderColor: '#e5e7eb' }}>
-                            {[...(showLocation ? ['Location'] : []), 'Keyword', 'Start Position', 'End Position', 'Change'].map(h => (
+                            {[...(showLocation ? ['Location'] : []), 'Keyword', startLabel, endLabel, 'Change'].map(h => (
                                 <th key={h} className="text-left py-2 pr-3 text-[11px] uppercase tracking-wide font-medium" style={{ color: '#6b7280' }}>{h}</th>
                             ))}
                         </tr>
