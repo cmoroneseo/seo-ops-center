@@ -10,6 +10,8 @@ export interface RankTrackerRow {
     positionDiff: number | null;
     volume: number | null;
     url: string | null;
+    /** e.g. "Corona, California, United States" — set when the project tracks multiple locations. */
+    location: string | null;
 }
 
 export type RankTrackerResult =
@@ -54,7 +56,7 @@ export async function fetchAhrefsRankTracker(
         limit: '100',
         order_by: 'traffic:desc',
         project_id: projectId,
-        select: 'keyword,position,position_prev,volume,url',
+        select: 'keyword,position,position_prev,volume,url,location',
     });
 
     const res = await fetch(`https://api.ahrefs.com/v3/rank-tracker/overview?${params}`, {
@@ -80,6 +82,7 @@ export async function fetchAhrefsRankTracker(
             positionDiff,
             volume: k.volume ?? null,
             url: k.url ?? null,
+            location: k.location ?? null,
         };
     });
 

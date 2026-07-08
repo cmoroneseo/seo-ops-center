@@ -362,18 +362,25 @@ export function KeywordRankingsTableBlock({ ctx }: { ctx: ReportContext }) {
                 <EmptyNote text={result.message} />
             ) : result.rows.length === 0 ? (
                 <EmptyNote text="No tracked keywords found in this Rank Tracker project." />
-            ) : (
+            ) : (() => {
+                // Only show a Location column when the project actually tracks
+                // more than one — single-location projects don't need the noise.
+                const hasMultipleLocations = new Set(result.rows.map(r => r.location).filter(Boolean)).size > 1;
+                return (
                 <table className="w-full text-sm" style={{ color: '#374151' }}>
                     <thead>
                         <tr className="border-b" style={{ borderColor: '#e5e7eb' }}>
-                            {['Keyword', 'Start Position', 'End Position', 'Change'].map(h => (
+                            {[...(hasMultipleLocations ? ['Location'] : []), 'Keyword', 'Start Position', 'End Position', 'Change'].map(h => (
                                 <th key={h} className="text-left py-2 pr-3 text-[11px] uppercase tracking-wide font-medium" style={{ color: '#6b7280' }}>{h}</th>
                             ))}
                         </tr>
                     </thead>
                     <tbody>
-                        {result.rows.map(row => (
-                            <tr key={row.keyword} className="border-b" style={{ borderColor: '#f3f4f6' }}>
+                        {result.rows.map((row, i) => (
+                            <tr key={`${row.keyword}-${row.location ?? i}`} className="border-b" style={{ borderColor: '#f3f4f6' }}>
+                                {hasMultipleLocations && (
+                                    <td className="py-2 pr-3 whitespace-nowrap" style={{ color: '#6b7280' }}>{row.location?.split(',')[0] ?? '—'}</td>
+                                )}
                                 <td className="py-2 pr-3 font-medium" style={{ color: '#111827' }}>{row.keyword}</td>
                                 <td className="py-2 pr-3">{row.positionPrev ?? '—'}</td>
                                 <td className="py-2 pr-3">{row.position ?? '—'}</td>
@@ -390,7 +397,8 @@ export function KeywordRankingsTableBlock({ ctx }: { ctx: ReportContext }) {
                         ))}
                     </tbody>
                 </table>
-            )}
+                );
+            })()}
         </div>
     );
 }
