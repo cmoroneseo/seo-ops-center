@@ -310,6 +310,10 @@ export function IntegrationsTab({ clientId }: Props) {
                     const pendingSetup = isPendingSetup(cfg.service);
                     const needsPropertySetup = integration?.needsPropertySetup ?? false;
                     const hasError = integration?.syncStatus === 'error';
+                    // API key/credentials exist even mid-error (sync only flips
+                    // back to 'active' after a successful run) — an error status
+                    // doesn't mean the key needs re-entering.
+                    const hasCredentials = !!integration && integration.syncStatus !== 'disconnected';
                     // GA4 and GSC share one connect button — show the button on GA4, hide on GSC
                     const isGscShared = cfg.service === 'gsc';
 
@@ -473,7 +477,7 @@ export function IntegrationsTab({ clientId }: Props) {
                                 )}
                             </div>
 
-                            {cfg.service === 'ahrefs' && connected && (
+                            {cfg.service === 'ahrefs' && hasCredentials && (
                                 <div className="w-full pt-3 mt-1 border-t border-border/50 flex items-end gap-2">
                                     <div className="flex flex-col gap-1 flex-1 max-w-xs">
                                         <label className="text-xs text-muted-foreground">Rank Tracker project ID</label>
