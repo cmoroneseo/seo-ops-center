@@ -32,12 +32,14 @@ export async function fetchAhrefsRankTracker(
     dateEnd: string,   // 'YYYY-MM-DD'
 ): Promise<RankTrackerResult> {
     const admin = createAdminClient();
+    // No sync_status filter — that field reflects the domain-metrics fetch
+    // (fetchAhrefs.ts), a separate feature. Rank Tracker just needs its own
+    // credentials to be present, regardless of whether the other one is erroring.
     const { data: row } = await admin
         .from('client_integrations')
         .select('credentials')
         .eq('client_id', clientId)
         .eq('service', 'ahrefs')
-        .eq('sync_status', 'active')
         .maybeSingle();
 
     const creds = (row?.credentials ?? {}) as Record<string, any>;
@@ -65,7 +67,7 @@ export async function fetchAhrefsRankTracker(
     }
 
     const data = await res.json();
-    const keywords: any[] = data.keywords ?? [];
+    const keywords: any[] = data.overviews ?? [];
 
     const rows: RankTrackerRow[] = keywords.map(k => {
         const position = k.position ?? null;
