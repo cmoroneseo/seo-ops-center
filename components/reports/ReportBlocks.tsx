@@ -344,7 +344,9 @@ export function KeywordRankingsTableBlock({ ctx }: { ctx: ReportContext }) {
         return () => { cancelled = true; };
     }, [ctx.reportId]);
 
-    if (result?.status === 'not_configured' && ctx.hideEmpty) return null;
+    // Unlike "no data yet" for a synced metric, an unconnected Rank Tracker
+    // project is actionable setup guidance — never auto-hide it, even when
+    // "Hide empty widgets" is on, or the block just silently vanishes.
 
     return (
         <div>
