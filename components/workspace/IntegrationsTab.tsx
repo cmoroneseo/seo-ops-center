@@ -87,6 +87,9 @@ export function IntegrationsTab({ clientId }: Props) {
     const [ahrefsKey, setAhrefsKey] = useState('');
     const [ahrefsSaving, setAhrefsSaving] = useState(false);
     const [ahrefsError, setAhrefsError] = useState('');
+    const [rankTrackerProjectId, setRankTrackerProjectId] = useState('');
+    const [rankTrackerSaving, setRankTrackerSaving] = useState(false);
+    const [rankTrackerError, setRankTrackerError] = useState('');
     const [disconnecting, setDisconnecting] = useState<IntegrationService | null>(null);
     const [showPropertyPicker, setShowPropertyPicker] = useState<'ga4-gsc' | 'gbp' | null>(null);
     const [toast, setToast] = useState('');
@@ -172,6 +175,29 @@ export function IntegrationsTab({ clientId }: Props) {
             setAhrefsError(err.message);
         } finally {
             setAhrefsSaving(false);
+        }
+    }
+
+    async function saveRankTrackerProjectId() {
+        if (!orgId || !rankTrackerProjectId.trim()) return;
+        setRankTrackerSaving(true);
+        setRankTrackerError('');
+        try {
+            const res = await fetch('/api/integrations/ahrefs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId, orgId, rankTrackerProjectId: rankTrackerProjectId.trim() }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Unknown error');
+            setRankTrackerProjectId('');
+            setToast('Rank Tracker project connected');
+            const updated = await getClientIntegrations(clientId, orgId);
+            setIntegrations(updated);
+        } catch (err: any) {
+            setRankTrackerError(err.message);
+        } finally {
+            setRankTrackerSaving(false);
         }
     }
 
@@ -291,7 +317,7 @@ export function IntegrationsTab({ clientId }: Props) {
                         <div
                             key={cfg.service}
                             className={cn(
-                                'flex items-start justify-between rounded-xl border p-4 gap-4',
+                                'flex flex-wrap items-start justify-between rounded-xl border p-4 gap-4',
                                 (pendingSetup || needsPropertySetup) ? 'border-yellow-500/20 bg-yellow-500/5' :
                                 connected ? 'border-green-500/20 bg-green-500/5' :
                                 hasError ? 'border-red-500/20 bg-red-500/5' :
@@ -446,6 +472,35 @@ export function IntegrationsTab({ clientId }: Props) {
                                     </div>
                                 )}
                             </div>
+
+                            {cfg.service === 'ahrefs' && connected && (
+                                <div className="w-full pt-3 mt-1 border-t border-border/50 flex items-end gap-2">
+                                    <div className="flex flex-col gap-1 flex-1 max-w-xs">
+                                        <label className="text-xs text-muted-foreground">Rank Tracker project ID</label>
+                                        <input
+                                            type="text"
+                                            value={rankTrackerProjectId}
+                                            onChange={(e) => setRankTrackerProjectId(e.target.value)}
+                                            placeholder={integration?.hasRankTrackerProjectId ? 'Project ID set — enter to change' : 'e.g. 8659380'}
+                                            className="text-xs bg-background border border-border rounded-md px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                                        />
+                                        {rankTrackerError && <p className="text-xs text-red-500">{rankTrackerError}</p>}
+                                    </div>
+                                    <button
+                                        onClick={saveRankTrackerProjectId}
+                                        disabled={rankTrackerSaving || !rankTrackerProjectId.trim()}
+                                        className="flex items-center gap-1.5 text-xs bg-primary text-primary-foreground rounded-md px-2.5 py-1.5 hover:bg-primary/90 transition-colors disabled:opacity-50"
+                                    >
+                                        <Key className="h-3.5 w-3.5" />
+                                        {rankTrackerSaving ? 'Saving...' : 'Save'}
+                                    </button>
+                                    {integration?.hasRankTrackerProjectId && (
+                                        <span className="flex items-center gap-1 text-xs text-green-500 mb-2">
+                                            <CheckCircle2 className="h-3 w-3" /> Connected
+                                        </span>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     );
                 })}

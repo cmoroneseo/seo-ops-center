@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { upsertIntegration, disconnectIntegration } from '@/lib/supabase/integrations';
+import { mergeIntegrationCredentials, disconnectIntegration } from '@/lib/supabase/integrations';
 import { logClientActivity } from '@/lib/supabase/client-activity';
 import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
 
@@ -17,7 +17,9 @@ async function readJsonBody(req: NextRequest) {
 
 /**
  * POST /api/integrations/ahrefs
- * Body: { clientId, orgId?, apiKey }
+ * Body: { clientId, orgId?, apiKey?, rankTrackerProjectId? }
+ * Either field may be sent alone — credentials are merged, not replaced, so
+ * e.g. adding a rank tracker project ID later doesn't drop the API key.
  */
 export async function POST(req: NextRequest) {
     const body = await readJsonBody(req);
@@ -28,8 +30,9 @@ export async function POST(req: NextRequest) {
     const clientId = getString((body as Record<string, unknown>).clientId);
     const orgId = getString((body as Record<string, unknown>).orgId);
     const apiKey = getString((body as Record<string, unknown>).apiKey);
+    const rankTrackerProjectId = getString((body as Record<string, unknown>).rankTrackerProjectId);
 
-    if (!clientId || !apiKey) {
+    if (!clientId || (!apiKey && !rankTrackerProjectId)) {
         return NextResponse.json({ error: 'Missing params' }, { status: 400 });
     }
 
@@ -38,11 +41,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: authorization.error }, { status: authorization.status });
     }
 
-    const result = await upsertIntegration({
+    const patch: Record<string, unknown> = {};
+    if (apiKey) patch.api_key = apiKey;
+    if (rankTrackerProjectId) patch.rank_tracker_project_id = rankTrackerProjectId;
+
+    const result = await mergeIntegrationCredentials({
         organizationId: authorization.organizationId,
         clientId: authorization.clientId,
         service: 'ahrefs',
-        credentials: { api_key: apiKey },
+        patch,
         connectedBy: authorization.userId,
     });
 
@@ -56,7 +63,7 @@ export async function POST(req: NextRequest) {
         eventType: 'integration.connected',
         actorId: authorization.userId,
         actorName: authorization.actorName,
-        metadata: { service: 'ahrefs' },
+        metadata: { service: 'ahrefs', rankTracker: !!rankTrackerProjectId },
     });
 
     return NextResponse.json({ success: true });
