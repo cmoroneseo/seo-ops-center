@@ -331,8 +331,10 @@ export function OrganicTableBlock({ ctx }: { ctx: ReportContext }) {
     );
 }
 
-export function KeywordRankingsTableBlock({ ctx }: { ctx: ReportContext }) {
+export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: ReportContext }) {
     const [result, setResult] = useState<RankTrackerResult | null>(null);
+    // Off by default — cleaner table. Turned on per-widget via the toggle below.
+    const showLocation = block.props.showLocation === true;
 
     useEffect(() => {
         let cancelled = false;
@@ -348,11 +350,23 @@ export function KeywordRankingsTableBlock({ ctx }: { ctx: ReportContext }) {
     // project is actionable setup guidance — never auto-hide it, even when
     // "Hide empty widgets" is on, or the block just silently vanishes.
 
+    const hasAnyLocation = result?.status === 'ok' && result.rows.some(r => r.location);
+
     return (
         <div>
             <div className="flex items-center gap-2 border-b-2 pb-2 mb-4" style={{ borderColor: ACCENT }}>
                 <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>All Keywords Rankings</h2>
                 <span className="text-xs" style={{ color: '#6b7280' }}>{monthLabel(ctx.reportMonth)} — 1st vs last day</span>
+                {ctx.onEditText && hasAnyLocation && (
+                    <label className="print-hidden ml-auto flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: '#6b7280' }}>
+                        <input
+                            type="checkbox"
+                            checked={showLocation}
+                            onChange={e => ctx.onEditText!(block.id, { showLocation: e.target.checked })}
+                        />
+                        Show location
+                    </label>
+                )}
             </div>
             {result === null ? (
                 <p className="text-sm" style={{ color: '#9ca3af' }}>Loading tracked keywords…</p>
@@ -362,15 +376,11 @@ export function KeywordRankingsTableBlock({ ctx }: { ctx: ReportContext }) {
                 <EmptyNote text={result.message} />
             ) : result.rows.length === 0 ? (
                 <EmptyNote text="No tracked keywords found in this Rank Tracker project." />
-            ) : (() => {
-                // Only show a Location column when the project actually tracks
-                // more than one — single-location projects don't need the noise.
-                const hasMultipleLocations = new Set(result.rows.map(r => r.location).filter(Boolean)).size > 1;
-                return (
+            ) : (
                 <table className="w-full text-sm" style={{ color: '#374151' }}>
                     <thead>
                         <tr className="border-b" style={{ borderColor: '#e5e7eb' }}>
-                            {[...(hasMultipleLocations ? ['Location'] : []), 'Keyword', 'Start Position', 'End Position', 'Change'].map(h => (
+                            {[...(showLocation ? ['Location'] : []), 'Keyword', 'Start Position', 'End Position', 'Change'].map(h => (
                                 <th key={h} className="text-left py-2 pr-3 text-[11px] uppercase tracking-wide font-medium" style={{ color: '#6b7280' }}>{h}</th>
                             ))}
                         </tr>
@@ -378,7 +388,7 @@ export function KeywordRankingsTableBlock({ ctx }: { ctx: ReportContext }) {
                     <tbody>
                         {result.rows.map((row, i) => (
                             <tr key={`${row.keyword}-${row.location ?? i}`} className="border-b" style={{ borderColor: '#f3f4f6' }}>
-                                {hasMultipleLocations && (
+                                {showLocation && (
                                     <td className="py-2 pr-3 whitespace-nowrap" style={{ color: '#6b7280' }}>{row.location?.split(',')[0] ?? '—'}</td>
                                 )}
                                 <td className="py-2 pr-3 font-medium" style={{ color: '#111827' }}>{row.keyword}</td>
@@ -397,8 +407,7 @@ export function KeywordRankingsTableBlock({ ctx }: { ctx: ReportContext }) {
                         ))}
                     </tbody>
                 </table>
-                );
-            })()}
+            )}
         </div>
     );
 }
@@ -414,7 +423,7 @@ export function RenderBlock({ block, ctx }: { block: Block; ctx: ReportContext }
         case 'trend': return <TrendBlock block={block} ctx={ctx} />;
         case 'distribution': return <DistributionBlock ctx={ctx} />;
         case 'organic_table': return <OrganicTableBlock ctx={ctx} />;
-        case 'keyword_rankings_table': return <KeywordRankingsTableBlock ctx={ctx} />;
+        case 'keyword_rankings_table': return <KeywordRankingsTableBlock block={block} ctx={ctx} />;
         case 'page_break': return null; // handled by the canvas (page split)
         default: return null;
     }
