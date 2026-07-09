@@ -207,3 +207,10 @@ export function blockLabel(block: Block): string {
         default: return 'Block';
     }
 }
+
+/**
+ * Block types with their own expandable "⚙ Settings" panel — the shared
+ * hover toolbar shows a pencil icon for these, toggling block.props.settingsOpen.
+ * Add a block type here once its widget reads that flag to show its panel.
+ */
+export const BLOCK_TYPES_WITH_SETTINGS = new Set<BlockType>(['keyword_rankings_table']);

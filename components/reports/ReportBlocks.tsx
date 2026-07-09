@@ -71,6 +71,14 @@ function lastDayOfMonth(month: string): number {
     return new Date(y, m, 0).getDate();
 }
 
+/** 'YYYY-MM-DD' -> "Jun 1st". */
+function fullDateOrdinal(dateStr: string): string {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    const monthAbbr = date.toLocaleString('default', { month: 'short' });
+    return `${monthAbbr} ${ordinal(d)}`;
+}
+
 function EmptyNote({ text }: { text: string }) {
     return <p className="text-sm italic" style={{ color: '#9ca3af' }}>{text}</p>;
 }
@@ -624,45 +632,159 @@ export function OrganicTableBlock({ ctx }: { ctx: ReportContext }) {
     );
 }
 
+const RANK_TRACKER_PERIODS: { value: string; label: string }[] = [
+    { value: 'report_month', label: "This report's month" },
+    { value: 'last_month', label: 'Last month' },
+    { value: 'last_7d', label: 'Last 7 days' },
+    { value: 'last_30d', label: 'Last 30 days' },
+    { value: 'last_90d', label: 'Last 90 days' },
+];
+
+const RANK_TRACKER_SORT_FIELDS: { value: string; label: string }[] = [
+    { value: 'traffic', label: 'Traffic' },
+    { value: 'volume', label: 'Volume' },
+    { value: 'position', label: 'Position' },
+    { value: 'keyword_difficulty', label: 'Keyword Difficulty' },
+];
+
+const RANK_TRACKER_RESULT_LIMITS = [10, 25, 50, 100];
+
+type RankTrackerApiResult = RankTrackerResult & { dateStart?: string; dateEnd?: string };
+
 export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: ReportContext }) {
-    const [result, setResult] = useState<RankTrackerResult | null>(null);
+    const [result, setResult] = useState<RankTrackerApiResult | null>(null);
+    // Opened via the pencil icon on the shared block hover toolbar (see
+    // BLOCK_TYPES_WITH_SETTINGS in lib/reports/blocks.ts) rather than a
+    // button inside the widget itself — the two controls used to overlap.
+    const showSettings = block.props.settingsOpen === true;
     // Off by default — cleaner table. Turned on per-widget via the toggle below.
     const showLocation = block.props.showLocation === true;
+    const columns: string[] = block.props.columns ?? [];
+    const heading = block.props.heading || 'Keyword Rankings';
+    const period = block.props.period || 'report_month';
+    const device = block.props.device === 'mobile' ? 'mobile' : 'desktop';
+    const limit = RANK_TRACKER_RESULT_LIMITS.includes(block.props.limit) ? block.props.limit : 50;
+    const sortBy = block.props.sortBy || 'traffic';
+    const sortDir = block.props.sortDir === 'asc' ? 'asc' : 'desc';
+
+    const set = (patch: Record<string, any>) => ctx.onEditText?.(block.id, patch);
+    const toggleColumn = (col: string) => set({
+        columns: columns.includes(col) ? columns.filter(c => c !== col) : [...columns, col],
+    });
 
     useEffect(() => {
         let cancelled = false;
         setResult(null);
-        fetch(`/api/reports/${ctx.reportId}/rank-tracker`)
+        const params = new URLSearchParams({
+            period, device, limit: String(limit), sortBy, sortDir,
+            columns: columns.filter(c => c === 'traffic' || c === 'keyword_difficulty').join(','),
+        });
+        fetch(`/api/reports/${ctx.reportId}/rank-tracker?${params}`)
             .then(r => r.json())
             .then(d => { if (!cancelled) setResult(d); })
             .catch(() => { if (!cancelled) setResult({ status: 'error', message: 'Failed to load' }); });
         return () => { cancelled = true; };
-    }, [ctx.reportId]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [ctx.reportId, period, device, limit, sortBy, sortDir, columns.join(',')]);
 
     // Unlike "no data yet" for a synced metric, an unconnected Rank Tracker
     // project is actionable setup guidance — never auto-hide it, even when
     // "Hide empty widgets" is on, or the block just silently vanishes.
 
     const hasAnyLocation = result?.status === 'ok' && result.rows.some(r => r.location);
-    const startLabel = monthDayOrdinal(ctx.reportMonth, 1);
-    const endLabel = monthDayOrdinal(ctx.reportMonth, lastDayOfMonth(ctx.reportMonth));
+    const isCustomPeriod = period !== 'report_month';
+    // Use the API's resolved date range once loaded (accurate for every
+    // period, including rolling windows and "last month"); fall back to the
+    // report's own month while still loading.
+    const startLabel = result?.status === 'ok' && result.dateStart
+        ? fullDateOrdinal(result.dateStart) : monthDayOrdinal(ctx.reportMonth, 1);
+    const endLabel = result?.status === 'ok' && result.dateEnd
+        ? fullDateOrdinal(result.dateEnd) : monthDayOrdinal(ctx.reportMonth, lastDayOfMonth(ctx.reportMonth));
+    const periodLabel = RANK_TRACKER_PERIODS.find(p => p.value === period)?.label;
+    const showVolume = columns.includes('volume');
+    const showTraffic = columns.includes('traffic');
+    const showKd = columns.includes('keyword_difficulty');
+    const showUrl = columns.includes('url');
 
     return (
         <div>
             <div className="flex items-center gap-2 border-b-2 pb-2 mb-4" style={{ borderColor: ACCENT }}>
-                <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>Keyword Rankings</h2>
-                <span className="text-xs" style={{ color: '#6b7280' }}>{startLabel} — {endLabel}</span>
-                {ctx.onEditText && hasAnyLocation && (
-                    <label className="print-hidden ml-auto flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: '#6b7280' }}>
-                        <input
-                            type="checkbox"
-                            checked={showLocation}
-                            onChange={e => ctx.onEditText!(block.id, { showLocation: e.target.checked })}
-                        />
-                        Show location
-                    </label>
-                )}
+                <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>{heading}</h2>
+                <span className="text-xs" style={{ color: '#6b7280' }}>
+                    {startLabel} — {endLabel}{isCustomPeriod && periodLabel ? ` (${periodLabel})` : ''}
+                </span>
             </div>
+
+            {ctx.onEditText && showSettings && (
+                <div className="print-hidden mb-4 p-3 rounded-lg border grid grid-cols-2 gap-3" style={{ borderColor: '#e5e7eb', background: '#f9fafb' }}>
+                    <label className="text-xs col-span-2" style={{ color: '#374151' }}>
+                        Heading
+                        <input
+                            value={block.props.heading ?? ''} onChange={e => set({ heading: e.target.value })}
+                            placeholder="Keyword Rankings"
+                            className="mt-1 w-full text-sm border rounded px-2 py-1" style={{ borderColor: '#e5e7eb' }}
+                        />
+                    </label>
+
+                    <label className="text-xs" style={{ color: '#374151' }}>
+                        Period
+                        <select value={period} onChange={e => set({ period: e.target.value })}
+                            className="mt-1 w-full text-sm border rounded px-2 py-1" style={{ borderColor: '#e5e7eb' }}>
+                            {RANK_TRACKER_PERIODS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                        </select>
+                    </label>
+
+                    <label className="text-xs" style={{ color: '#374151' }}>
+                        Device
+                        <select value={device} onChange={e => set({ device: e.target.value })}
+                            className="mt-1 w-full text-sm border rounded px-2 py-1" style={{ borderColor: '#e5e7eb' }}>
+                            <option value="desktop">Desktop</option>
+                            <option value="mobile">Mobile</option>
+                        </select>
+                    </label>
+
+                    <label className="text-xs" style={{ color: '#374151' }}>
+                        Results
+                        <select value={limit} onChange={e => set({ limit: Number(e.target.value) })}
+                            className="mt-1 w-full text-sm border rounded px-2 py-1" style={{ borderColor: '#e5e7eb' }}>
+                            {RANK_TRACKER_RESULT_LIMITS.map(n => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                    </label>
+
+                    <label className="text-xs" style={{ color: '#374151' }}>
+                        Sort by
+                        <div className="flex gap-1 mt-1">
+                            <select value={sortBy} onChange={e => set({ sortBy: e.target.value })}
+                                className="flex-1 text-sm border rounded px-2 py-1" style={{ borderColor: '#e5e7eb' }}>
+                                {RANK_TRACKER_SORT_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                            </select>
+                            <button onClick={() => set({ sortDir: sortDir === 'asc' ? 'desc' : 'asc' })}
+                                className="text-sm border rounded px-2" style={{ borderColor: '#e5e7eb', color: '#374151' }}>
+                                {sortDir === 'asc' ? '↑' : '↓'}
+                            </button>
+                        </div>
+                    </label>
+
+                    <div className="col-span-2 text-xs" style={{ color: '#374151' }}>
+                        Columns to display
+                        <div className="flex flex-wrap gap-3 mt-1">
+                            {hasAnyLocation && (
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" checked={showLocation} onChange={e => set({ showLocation: e.target.checked })} />
+                                    Location
+                                </label>
+                            )}
+                            {([['volume', 'Volume'], ['traffic', 'Traffic'], ['keyword_difficulty', 'Keyword Difficulty'], ['url', 'URL']] as const).map(([col, label]) => (
+                                <label key={col} className="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" checked={columns.includes(col)} onChange={() => toggleColumn(col)} />
+                                    {label}
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {result === null ? (
                 <p className="text-sm" style={{ color: '#9ca3af' }}>Loading tracked keywords…</p>
             ) : result.status === 'not_configured' ? (
@@ -675,7 +797,15 @@ export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: R
                 <table className="w-full text-sm" style={{ color: '#374151' }}>
                     <thead>
                         <tr className="border-b" style={{ borderColor: '#e5e7eb' }}>
-                            {[...(showLocation ? ['Location'] : []), 'Keyword', startLabel, endLabel, 'Change'].map(h => (
+                            {[
+                                ...(showLocation ? ['Location'] : []),
+                                'Keyword',
+                                ...(showVolume ? ['Volume'] : []),
+                                ...(showTraffic ? ['Traffic'] : []),
+                                ...(showKd ? ['KD'] : []),
+                                startLabel, endLabel, 'Change',
+                                ...(showUrl ? ['URL'] : []),
+                            ].map(h => (
                                 <th key={h} className="text-left py-2 pr-3 text-[11px] uppercase tracking-wide font-medium" style={{ color: '#6b7280' }}>{h}</th>
                             ))}
                         </tr>
@@ -687,6 +817,9 @@ export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: R
                                     <td className="py-2 pr-3 whitespace-nowrap" style={{ color: '#6b7280' }}>{row.location?.split(',')[0] ?? '—'}</td>
                                 )}
                                 <td className="py-2 pr-3 font-medium" style={{ color: '#111827' }}>{row.keyword}</td>
+                                {showVolume && <td className="py-2 pr-3">{row.volume ?? '—'}</td>}
+                                {showTraffic && <td className="py-2 pr-3">{row.traffic ?? '—'}</td>}
+                                {showKd && <td className="py-2 pr-3">{row.keywordDifficulty ?? '—'}</td>}
                                 <td className="py-2 pr-3">{row.positionPrev ?? '—'}</td>
                                 <td className="py-2 pr-3">{row.position ?? '—'}</td>
                                 <td className="py-2 pr-3">
@@ -698,6 +831,9 @@ export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: R
                                         </span>
                                     )}
                                 </td>
+                                {showUrl && (
+                                    <td className="py-2 pr-3 truncate" style={{ maxWidth: 200, color: '#6b7280' }}>{row.url ?? '—'}</td>
+                                )}
                             </tr>
                         ))}
                     </tbody>

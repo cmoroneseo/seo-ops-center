@@ -16,7 +16,7 @@ import { useClients } from '@/lib/hooks/use-clients';
 import { REPORT_SECTIONS, monthLabel, ReportSourceKey } from '@/lib/reports/sections';
 import {
     Block, ReportSectionsField, resolveBlocks, makeBlock, blockLabel,
-    WIDGET_LIBRARY, FORMATTING_ITEMS,
+    WIDGET_LIBRARY, FORMATTING_ITEMS, BLOCK_TYPES_WITH_SETTINGS,
 } from '@/lib/reports/blocks';
 import { RenderBlock, ReportContext, MetricMap, HistoryMap } from './ReportBlocks';
 import { ManualMetricsModal } from './ManualMetricsModal';
@@ -527,6 +527,13 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
                                                 selectedId === block.id ? 'flex' : 'hidden group-hover/block:flex',
                                             )}>
                                                 <span className="text-[10px] text-muted-foreground px-1.5 max-w-40 truncate">{blockLabel(block)}</span>
+                                                {BLOCK_TYPES_WITH_SETTINGS.has(block.type) && (
+                                                    <button onClick={e => { e.stopPropagation(); editBlockProps(block.id, { settingsOpen: !block.props.settingsOpen }); }}
+                                                        title="Widget settings"
+                                                        className={cn('p-1 rounded hover:bg-muted', block.props.settingsOpen && 'text-primary')}>
+                                                        <Pencil className="h-3.5 w-3.5" />
+                                                    </button>
+                                                )}
                                                 <button disabled={idx === 0} onClick={e => { e.stopPropagation(); moveBlock(block.id, -1); }}
                                                     className="p-1 rounded hover:bg-muted disabled:opacity-30"><ChevronUp className="h-3.5 w-3.5" /></button>
                                                 <button disabled={idx === blocks.length - 1} onClick={e => { e.stopPropagation(); moveBlock(block.id, 1); }}

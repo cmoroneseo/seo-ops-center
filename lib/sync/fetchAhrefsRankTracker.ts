@@ -12,12 +12,26 @@ export interface RankTrackerRow {
     url: string | null;
     /** e.g. "Corona, California, United States" — set when the project tracks multiple locations. */
     location: string | null;
+    /** Only populated when requested via options.columns. */
+    traffic: number | null;
+    keywordDifficulty: number | null;
 }
 
 export type RankTrackerResult =
     | { status: 'not_configured' }
     | { status: 'error'; message: string }
     | { status: 'ok'; rows: RankTrackerRow[] };
+
+export type RankTrackerSortField = 'traffic' | 'volume' | 'position' | 'keyword_difficulty';
+
+export interface RankTrackerOptions {
+    device?: 'desktop' | 'mobile';
+    limit?: number;
+    sortBy?: RankTrackerSortField;
+    sortDir?: 'asc' | 'desc';
+    /** Extra optional columns to fetch beyond the always-included core set. */
+    columns?: ('traffic' | 'keyword_difficulty')[];
+}
 
 /**
  * Pull tracked-keyword positions for a client's Ahrefs Rank Tracker project,
@@ -27,11 +41,20 @@ export type RankTrackerResult =
  *
  * This is fetched live per report view (not stored), since Ahrefs already
  * retains the position history — no need to snapshot it ourselves.
+ *
+ * Verified live against a real project which of the endpoint's query params
+ * actually take effect vs. are silently ignored:
+ *   - device, limit, order_by: genuinely respected
+ *   - tag / position_from / position_to / url / serp_features / location /
+ *     country as FILTERS: silently ignored (still return everything) — not
+ *     exposed as options here for that reason. `location` is only usable as
+ *     an output column via `select`, not a filter.
  */
 export async function fetchAhrefsRankTracker(
     clientId: string,
     dateStart: string, // 'YYYY-MM-DD'
     dateEnd: string,   // 'YYYY-MM-DD'
+    opts: RankTrackerOptions = {},
 ): Promise<RankTrackerResult> {
     const admin = createAdminClient();
     // No sync_status filter — that field reflects the domain-metrics fetch
@@ -49,14 +72,22 @@ export async function fetchAhrefsRankTracker(
     const projectId = creds.rank_tracker_project_id as string | undefined;
     if (!apiKey || !projectId) return { status: 'not_configured' };
 
+    const device = opts.device ?? 'desktop';
+    const limit = opts.limit ?? 100;
+    const sortBy = opts.sortBy ?? 'traffic';
+    const sortDir = opts.sortDir ?? 'desc';
+    const extraColumns = opts.columns ?? [];
+
+    const select = ['keyword', 'position', 'position_prev', 'volume', 'url', 'location', ...extraColumns].join(',');
+
     const params = new URLSearchParams({
         date: dateEnd,
         date_compared: dateStart,
-        device: 'desktop',
-        limit: '100',
-        order_by: 'traffic:desc',
+        device,
+        limit: String(limit),
+        order_by: `${sortBy}:${sortDir}`,
         project_id: projectId,
-        select: 'keyword,position,position_prev,volume,url,location',
+        select,
     });
 
     const res = await fetch(`https://api.ahrefs.com/v3/rank-tracker/overview?${params}`, {
@@ -83,6 +114,8 @@ export async function fetchAhrefsRankTracker(
             volume: k.volume ?? null,
             url: k.url ?? null,
             location: k.location ?? null,
+            traffic: k.traffic ?? null,
+            keywordDifficulty: k.keyword_difficulty ?? null,
         };
     });
 
