@@ -12,7 +12,8 @@ export type BlockType =
     | 'metrics_overview'   // KPI card grid for one source (props.source)
     | 'trend'              // multi-month line chart (props.source, props.metrics)
     | 'distribution'       // keywords by top-position buckets (Ahrefs)
-    | 'organic_table';     // monthly organic history table (GSC + GA4)
+    | 'organic_table'      // monthly organic history table (GSC + GA4)
+    | 'keyword_rankings_table'; // tracked-keyword start vs end of period (Ahrefs Rank Tracker)
 
 export interface Block {
     id: string;
@@ -100,6 +101,11 @@ export const WIDGET_LIBRARY: LibraryGroup[] = [
                 key: 'top_positions_distribution', name: 'Distribution by top positions',
                 description: 'Keywords bucketed 1–10 / 11–20 / 21–50 / 51+',
                 type: 'distribution', props: {},
+            },
+            {
+                key: 'all_keywords_rankings', name: 'All keywords rankings',
+                description: 'Tracked keywords: start vs end-of-period position',
+                type: 'keyword_rankings_table', props: {},
             },
         ],
     },
@@ -197,6 +203,7 @@ export function blockLabel(block: Block): string {
         case 'distribution': return 'Distribution by top positions';
         case 'organic_table': return 'Organic traffic table';
         case 'grid_comparison': return 'Keyword Visibility Heatmaps';
+        case 'keyword_rankings_table': return 'All keywords rankings';
         default: return 'Block';
     }
 }

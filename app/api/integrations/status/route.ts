@@ -27,6 +27,7 @@ function toSafeIntegration(row: any): ClientIntegration {
         needsPropertySetup: propertyField
             ? row.sync_status === 'active' && !credentials[propertyField]
             : false,
+        hasRankTrackerProjectId: service === 'ahrefs' ? !!credentials.rank_tracker_project_id : undefined,
     };
 }
 
