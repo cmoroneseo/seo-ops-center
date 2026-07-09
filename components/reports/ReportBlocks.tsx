@@ -653,7 +653,10 @@ type RankTrackerApiResult = RankTrackerResult & { dateStart?: string; dateEnd?: 
 
 export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: ReportContext }) {
     const [result, setResult] = useState<RankTrackerApiResult | null>(null);
-    const [showSettings, setShowSettings] = useState(false);
+    // Opened via the pencil icon on the shared block hover toolbar (see
+    // BLOCK_TYPES_WITH_SETTINGS in lib/reports/blocks.ts) rather than a
+    // button inside the widget itself — the two controls used to overlap.
+    const showSettings = block.props.settingsOpen === true;
     // Off by default — cleaner table. Turned on per-widget via the toggle below.
     const showLocation = block.props.showLocation === true;
     const columns: string[] = block.props.columns ?? [];
@@ -710,15 +713,6 @@ export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: R
                 <span className="text-xs" style={{ color: '#6b7280' }}>
                     {startLabel} — {endLabel}{isCustomPeriod && periodLabel ? ` (${periodLabel})` : ''}
                 </span>
-                {ctx.onEditText && (
-                    <button
-                        onClick={() => setShowSettings(v => !v)}
-                        className="print-hidden ml-auto text-xs px-2 py-1 rounded"
-                        style={{ background: showSettings ? ACCENT : 'transparent', color: showSettings ? '#fff' : '#6b7280' }}
-                    >
-                        ⚙ Settings
-                    </button>
-                )}
             </div>
 
             {ctx.onEditText && showSettings && (
