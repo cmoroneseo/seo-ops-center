@@ -15,7 +15,7 @@ export interface SectionDef {
 export const REPORT_SECTIONS: SectionDef[] = [
     { key: 'gsc', name: 'Organic Search', source: 'gsc', icon: '🔍', blurb: 'Search Console — clicks, impressions & rankings' },
     { key: 'ga4', name: 'Website Traffic', source: 'ga4', icon: '📊', blurb: 'Google Analytics — sessions, users & engagement' },
-    { key: 'gbp', name: 'Local Presence', source: 'gbp', icon: '📍', blurb: 'Business Profile — calls, directions & reviews' },
+    { key: 'gbp', name: 'Google Business Profile', source: 'gbp', icon: '📍', blurb: 'Business Profile — calls, directions & reviews' },
     { key: 'ahrefs', name: 'Authority & Rankings', source: 'ahrefs', icon: '🔗', blurb: 'Ahrefs — domain rating & keyword positions' },
 ];
 
