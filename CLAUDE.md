@@ -103,6 +103,8 @@ https://seo-ops-center.vercel.app
 - Start: `git checkout main && git pull && git checkout -b feat/<name>`
 - Codex (GitHub AI) merges security PRs into `main` concurrently — direct pushes cause conflicts
 - Run `npx tsc --noEmit` before pushing to catch build errors locally
+- **Cap concurrent feature branches at ~2 per subsystem.** If two branches both touch the same core file (e.g. the report block renderer), merge the first one before starting deep work on the second — conflicts caught same-day are a 5-minute fix; conflicts after a week of divergence on both sides are a slog.
+- **New chat session = new problem domain, not new branch.** Sequential, tightly-coupled features (same subsystem, same session) are fine and often better — shared context makes merge conflicts fast to resolve. Start a fresh session when switching to an unrelated feature area, not just because you're switching branches.
 
 ## Migrations applied to production
 001–013: init, analytics, time tracking, notes, feedback, tasks V2, notifications
