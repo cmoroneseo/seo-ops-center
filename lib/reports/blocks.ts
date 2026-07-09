@@ -173,7 +173,7 @@ export const FORMATTING_ITEMS: FormattingItem[] = [
     { key: 'image', name: 'Image', description: 'Embed an image by URL', type: 'image', props: { url: '', caption: '' } },
     { key: 'page_break', name: 'Page break', description: 'Start a new page in the PDF', type: 'page_break', props: {} },
     {
-        key: 'grid_comparison', name: 'Grid Comparison', description: 'Before/after ranking grid screenshots, side-by-side or slider',
+        key: 'grid_comparison', name: 'Keyword Visibility Heatmaps', description: 'Before/after ranking grid screenshots, side-by-side or slider',
         type: 'grid_comparison', props: { viewMode: 'slider' },
     },
 ];
@@ -196,7 +196,7 @@ export function blockLabel(block: Block): string {
         case 'trend': return block.props.title ? `${block.props.title} trend` : 'Trend chart';
         case 'distribution': return 'Distribution by top positions';
         case 'organic_table': return 'Organic traffic table';
-        case 'grid_comparison': return 'Grid Comparison';
+        case 'grid_comparison': return 'Keyword Visibility Heatmaps';
         default: return 'Block';
     }
 }

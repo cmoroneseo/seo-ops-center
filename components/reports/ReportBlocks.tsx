@@ -303,7 +303,7 @@ export function GridComparisonBlock({ block, ctx }: { block: Block; ctx: ReportC
     return (
         <div>
             <div className="flex items-center gap-2 border-b-2 pb-2 mb-4" style={{ borderColor: ACCENT }}>
-                <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>Grid Comparison</h2>
+                <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>Keyword Visibility Heatmaps</h2>
                 {editable && bothUploaded && (
                     <div className="print-hidden ml-auto flex gap-1 text-xs">
                         {(['slider', 'side_by_side'] as const).map(mode => (
