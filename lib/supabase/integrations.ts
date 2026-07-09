@@ -32,6 +32,48 @@ export async function upsertIntegration(payload: {
     }
 }
 
+/**
+ * Merge new keys into an existing integration's credentials without
+ * clobbering the rest (e.g. adding a rank tracker project ID alongside
+ * an already-saved API key). Creates the row if it doesn't exist yet.
+ */
+export async function mergeIntegrationCredentials(payload: {
+    organizationId: string;
+    clientId: string;
+    service: IntegrationService;
+    patch: Record<string, unknown>;
+    connectedBy: string;
+}): Promise<{ success: boolean; error?: string }> {
+    const admin = createAdminClient();
+    if (!admin) return { success: false, error: 'Admin client unavailable' };
+    try {
+        const { data: existing } = await admin
+            .from('client_integrations')
+            .select('credentials, sync_status')
+            .eq('client_id', payload.clientId)
+            .eq('service', payload.service)
+            .maybeSingle();
+
+        const credentials = { ...(existing?.credentials as Record<string, unknown> ?? {}), ...payload.patch };
+
+        const { error } = await admin.from('client_integrations').upsert({
+            organization_id: payload.organizationId,
+            client_id: payload.clientId,
+            service: payload.service,
+            credentials,
+            connected_by: payload.connectedBy,
+            connected_at: new Date().toISOString(),
+            sync_status: existing?.sync_status === 'disconnected' || !existing ? 'active' : existing.sync_status,
+            error_message: null,
+        }, { onConflict: 'client_id,service' });
+        if (error) throw error;
+        return { success: true };
+    } catch (err: any) {
+        console.error('Error merging integration credentials:', err);
+        return { success: false, error: err.message };
+    }
+}
+
 /** Disconnect an integration (admin only). */
 export async function disconnectIntegration(
     clientId: string,

@@ -50,18 +50,25 @@ export async function fetchAhrefs(
         return null;
     }
 
-    const cleanTarget = target.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    // Strip GSC's "sc-domain:" domain-property prefix and any URL scheme/trailing slash —
+    // Ahrefs rejects both ("bad target").
+    const cleanTarget = target
+        .replace(/^sc-domain:/, '')
+        .replace(/^https?:\/\//, '')
+        .replace(/\/$/, '');
 
     const headers = { Authorization: `Bearer ${apiKey}` };
+    const today = new Date().toISOString().slice(0, 10);
 
-    // Fetch Domain Rating and ranked keywords in parallel
+    // Fetch Domain Rating and ranked keywords in parallel.
+    // Both now require `date`; organic-keywords also requires an explicit `select`.
     const [drRes, kwRes] = await Promise.all([
         fetch(
-            `https://api.ahrefs.com/v3/site-explorer/domain-rating?target=${encodeURIComponent(cleanTarget)}&output=json`,
+            `https://api.ahrefs.com/v3/site-explorer/domain-rating?${new URLSearchParams({ target: cleanTarget, date: today, output: 'json' })}`,
             { headers },
         ),
         fetch(
-            `https://api.ahrefs.com/v3/site-explorer/organic-keywords?target=${encodeURIComponent(cleanTarget)}&country=us&limit=1000&output=json`,
+            `https://api.ahrefs.com/v3/site-explorer/organic-keywords?${new URLSearchParams({ target: cleanTarget, country: 'us', limit: '1000', date: today, select: 'keyword,best_position', output: 'json' })}`,
             { headers },
         ),
     ]);
@@ -74,13 +81,13 @@ export async function fetchAhrefs(
 
     const [drData, kwData] = await Promise.all([drRes.json(), kwRes.json()]);
 
-    const domain_rating = Math.round(drData.domain?.domain_rating ?? 0);
+    const domain_rating = Math.round(drData.domain_rating?.domain_rating ?? 0);
     const keywords: any[] = kwData.keywords ?? [];
 
-    const ranked_keywords = kwData.meta?.total ?? keywords.length;
-    const top_10_keywords = keywords.filter(k => k.serp_position <= 10).length;
-    const top_20_keywords = keywords.filter(k => k.serp_position <= 20).length;
-    const top_50_keywords = keywords.filter(k => k.serp_position <= 50).length;
+    const ranked_keywords = keywords.length;
+    const top_10_keywords = keywords.filter(k => k.best_position <= 10).length;
+    const top_20_keywords = keywords.filter(k => k.best_position <= 20).length;
+    const top_50_keywords = keywords.filter(k => k.best_position <= 50).length;
 
     await markIntegrationSynced(clientId, 'ahrefs');
     return { domain_rating, ranked_keywords, top_10_keywords, top_20_keywords, top_50_keywords };

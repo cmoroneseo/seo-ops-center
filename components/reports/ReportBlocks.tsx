@@ -4,6 +4,7 @@
 // double as the print/PDF output, so colors are a fixed light palette rather
 // than theme variables.
 
+import { useEffect, useState } from 'react';
 import {
     LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
     Tooltip, Legend, ResponsiveContainer,
@@ -14,6 +15,7 @@ import {
     monthLabel, ReportSourceKey,
 } from '@/lib/reports/sections';
 import { Block } from '@/lib/reports/blocks';
+import type { RankTrackerResult } from '@/lib/sync/fetchAhrefsRankTracker';
 
 const ACCENT = '#ef4444';
 const CHART_COLORS = ['#ef4444', '#3b82f6', '#f59e0b', '#10b981'];
@@ -22,6 +24,7 @@ export type MetricMap = Partial<Record<ReportSourceKey, Record<string, any>>>;
 export type HistoryMap = Partial<Record<ReportSourceKey, { month: string; data: Record<string, any> }[]>>;
 
 export interface ReportContext {
+    reportId: string;
     client: ClientProject | null;
     reportMonth: string;
     executiveSummary: string;
@@ -40,6 +43,30 @@ const METRIC_LABELS: Record<string, string> = Object.fromEntries(
 
 function shortMonth(month: string): string {
     return new Date(month + '-15').toLocaleString('default', { month: 'short', year: '2-digit' });
+}
+
+function ordinal(n: number): string {
+    const v = n % 100;
+    if (v >= 11 && v <= 13) return `${n}th`;
+    switch (n % 10) {
+        case 1: return `${n}st`;
+        case 2: return `${n}nd`;
+        case 3: return `${n}rd`;
+        default: return `${n}th`;
+    }
+}
+
+/** 'YYYY-MM' + day-of-month -> "Jun 1st". */
+function monthDayOrdinal(month: string, day: number): string {
+    const [y, m] = month.split('-').map(Number);
+    const d = new Date(y, m - 1, day);
+    const monthAbbr = d.toLocaleString('default', { month: 'short' });
+    return `${monthAbbr} ${ordinal(day)}`;
+}
+
+function lastDayOfMonth(month: string): number {
+    const [y, m] = month.split('-').map(Number);
+    return new Date(y, m, 0).getDate();
 }
 
 function EmptyNote({ text }: { text: string }) {
@@ -176,7 +203,6 @@ export function MetricsOverviewBlock({ block, ctx }: { block: Block; ctx: Report
     return (
         <div>
             <div className="flex items-center gap-2 border-b-2 pb-2 mb-4" style={{ borderColor: ACCENT }}>
-                <span className="text-lg">{def?.icon}</span>
                 <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>{def?.name}</h2>
             </div>
             {empty ? <EmptyNote text="No data for this source — sync or enter it manually on the Reports page." /> : (
@@ -328,6 +354,89 @@ export function OrganicTableBlock({ ctx }: { ctx: ReportContext }) {
     );
 }
 
+export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: ReportContext }) {
+    const [result, setResult] = useState<RankTrackerResult | null>(null);
+    // Off by default — cleaner table. Turned on per-widget via the toggle below.
+    const showLocation = block.props.showLocation === true;
+
+    useEffect(() => {
+        let cancelled = false;
+        setResult(null);
+        fetch(`/api/reports/${ctx.reportId}/rank-tracker`)
+            .then(r => r.json())
+            .then(d => { if (!cancelled) setResult(d); })
+            .catch(() => { if (!cancelled) setResult({ status: 'error', message: 'Failed to load' }); });
+        return () => { cancelled = true; };
+    }, [ctx.reportId]);
+
+    // Unlike "no data yet" for a synced metric, an unconnected Rank Tracker
+    // project is actionable setup guidance — never auto-hide it, even when
+    // "Hide empty widgets" is on, or the block just silently vanishes.
+
+    const hasAnyLocation = result?.status === 'ok' && result.rows.some(r => r.location);
+    const startLabel = monthDayOrdinal(ctx.reportMonth, 1);
+    const endLabel = monthDayOrdinal(ctx.reportMonth, lastDayOfMonth(ctx.reportMonth));
+
+    return (
+        <div>
+            <div className="flex items-center gap-2 border-b-2 pb-2 mb-4" style={{ borderColor: ACCENT }}>
+                <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>Keyword Rankings</h2>
+                <span className="text-xs" style={{ color: '#6b7280' }}>{startLabel} — {endLabel}</span>
+                {ctx.onEditText && hasAnyLocation && (
+                    <label className="print-hidden ml-auto flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: '#6b7280' }}>
+                        <input
+                            type="checkbox"
+                            checked={showLocation}
+                            onChange={e => ctx.onEditText!(block.id, { showLocation: e.target.checked })}
+                        />
+                        Show location
+                    </label>
+                )}
+            </div>
+            {result === null ? (
+                <p className="text-sm" style={{ color: '#9ca3af' }}>Loading tracked keywords…</p>
+            ) : result.status === 'not_configured' ? (
+                <EmptyNote text="No Ahrefs Rank Tracker project connected for this client — add a project ID in Client → Integrations." />
+            ) : result.status === 'error' ? (
+                <EmptyNote text={result.message} />
+            ) : result.rows.length === 0 ? (
+                <EmptyNote text="No tracked keywords found in this Rank Tracker project." />
+            ) : (
+                <table className="w-full text-sm" style={{ color: '#374151' }}>
+                    <thead>
+                        <tr className="border-b" style={{ borderColor: '#e5e7eb' }}>
+                            {[...(showLocation ? ['Location'] : []), 'Keyword', startLabel, endLabel, 'Change'].map(h => (
+                                <th key={h} className="text-left py-2 pr-3 text-[11px] uppercase tracking-wide font-medium" style={{ color: '#6b7280' }}>{h}</th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {result.rows.map((row, i) => (
+                            <tr key={`${row.keyword}-${row.location ?? i}`} className="border-b" style={{ borderColor: '#f3f4f6' }}>
+                                {showLocation && (
+                                    <td className="py-2 pr-3 whitespace-nowrap" style={{ color: '#6b7280' }}>{row.location?.split(',')[0] ?? '—'}</td>
+                                )}
+                                <td className="py-2 pr-3 font-medium" style={{ color: '#111827' }}>{row.keyword}</td>
+                                <td className="py-2 pr-3">{row.positionPrev ?? '—'}</td>
+                                <td className="py-2 pr-3">{row.position ?? '—'}</td>
+                                <td className="py-2 pr-3">
+                                    {row.positionDiff == null || row.positionDiff === 0 ? (
+                                        <span style={{ color: '#9ca3af' }}>—</span>
+                                    ) : (
+                                        <span style={{ color: row.positionDiff > 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
+                                            {row.positionDiff > 0 ? '▲' : '▼'} {Math.abs(row.positionDiff)}
+                                        </span>
+                                    )}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            )}
+        </div>
+    );
+}
+
 /** Dispatch a block to its renderer. Returns null for hidden/empty widgets. */
 export function RenderBlock({ block, ctx }: { block: Block; ctx: ReportContext }) {
     switch (block.type) {
@@ -339,6 +448,7 @@ export function RenderBlock({ block, ctx }: { block: Block; ctx: ReportContext }
         case 'trend': return <TrendBlock block={block} ctx={ctx} />;
         case 'distribution': return <DistributionBlock ctx={ctx} />;
         case 'organic_table': return <OrganicTableBlock ctx={ctx} />;
+        case 'keyword_rankings_table': return <KeywordRankingsTableBlock block={block} ctx={ctx} />;
         case 'page_break': return null; // handled by the canvas (page split)
         default: return null;
     }

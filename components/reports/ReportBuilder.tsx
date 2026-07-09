@@ -192,6 +192,7 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
     }, [blocks]);
 
     const ctx: ReportContext = {
+        reportId: initialReport.id,
         client,
         reportMonth: initialReport.report_month,
         executiveSummary: summary,
