@@ -4,7 +4,8 @@
 // double as the print/PDF output, so colors are a fixed light palette rather
 // than theme variables.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Upload, X, Loader2, GripVertical, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import {
     LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
     Tooltip, Legend, ResponsiveContainer,
@@ -15,6 +16,7 @@ import {
     monthLabel, ReportSourceKey,
 } from '@/lib/reports/sections';
 import { Block } from '@/lib/reports/blocks';
+import { createClient } from '@/lib/supabase/client';
 import type { RankTrackerResult } from '@/lib/sync/fetchAhrefsRankTracker';
 
 const ACCENT = '#ef4444';
@@ -186,6 +188,274 @@ export function ImageBlock({ block, ctx }: { block: Block; ctx: ReportContext })
                     style={{ color: '#6b7280' }}
                 />
             ) : caption ? <p className="text-xs mt-1.5" style={{ color: '#6b7280' }}>{caption}</p> : null}
+        </div>
+    );
+}
+
+const GRID_BOX_HEIGHT = 320;
+
+function formatGridDate(d?: string): string | null {
+    if (!d) return null;
+    return new Date(d + 'T00:00:00').toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function GridUploadSlot({
+    label, url, date, uploading, editable, onUpload, onClear, onDateChange,
+}: {
+    label: string;
+    url?: string;
+    date?: string;
+    uploading: boolean;
+    editable: boolean;
+    onUpload: (file: File) => void;
+    onClear: () => void;
+    onDateChange: (v: string) => void;
+}) {
+    const fileRef = useRef<HTMLInputElement>(null);
+    const boxStyle = { height: GRID_BOX_HEIGHT, background: '#f9fafb' };
+
+    return (
+        <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide mb-1.5" style={{ color: '#6b7280' }}>{label}</p>
+            {url ? (
+                <div className="relative rounded-lg border overflow-hidden" style={{ borderColor: '#e5e7eb', ...boxStyle }}>
+                    <img src={url} alt={label} className="w-full h-full" style={{ objectFit: 'contain' }} />
+                    {editable && (
+                        <button onClick={onClear} className="print-hidden absolute top-1.5 right-1.5 rounded-full p-1" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
+                            <X className="h-3 w-3" />
+                        </button>
+                    )}
+                </div>
+            ) : editable ? (
+                <button
+                    onClick={() => fileRef.current?.click()}
+                    disabled={uploading}
+                    className="print-hidden w-full rounded-lg border-2 border-dashed flex flex-col items-center justify-center gap-1.5 hover:border-gray-400 transition-colors"
+                    style={{ borderColor: '#d1d5db', color: '#9ca3af', ...boxStyle }}
+                >
+                    {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
+                    <span className="text-xs">{uploading ? 'Uploading…' : `Upload ${label} screenshot`}</span>
+                </button>
+            ) : (
+                <div className="rounded-lg border border-dashed flex items-center justify-center text-xs" style={{ borderColor: '#e5e7eb', color: '#9ca3af', ...boxStyle }}>
+                    No image
+                </div>
+            )}
+            <input
+                ref={fileRef} type="file" accept="image/*" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ''; }}
+            />
+            {editable && (
+                <input
+                    type="date" value={date ?? ''} onChange={e => onDateChange(e.target.value)}
+                    className="print-hidden text-xs border rounded px-1.5 py-1 mt-1.5 w-full"
+                    style={{ borderColor: '#e5e7eb', color: '#374151' }}
+                />
+            )}
+            {formatGridDate(date) && <p className="text-xs mt-1" style={{ color: '#6b7280' }}>{formatGridDate(date)}</p>}
+        </div>
+    );
+}
+
+function GridSideBySide({ beforeUrl, afterUrl, beforeDate, afterDate }: { beforeUrl?: string; afterUrl?: string; beforeDate?: string; afterDate?: string }) {
+    const boxStyle = { height: GRID_BOX_HEIGHT, background: '#f9fafb' };
+    return (
+        <div className="flex gap-4">
+            {([['Before', beforeUrl, beforeDate], ['After', afterUrl, afterDate]] as const).map(([label, url, date]) => (
+                <div key={label} className="flex-1 min-w-0">
+                    <div className="rounded-lg border overflow-hidden" style={{ borderColor: '#e5e7eb', ...boxStyle }}>
+                        {url && <img src={url} alt={label} className="w-full h-full" style={{ objectFit: 'contain' }} />}
+                    </div>
+                    <p className="text-xs font-semibold mt-1.5" style={{ color: '#111827' }}>{label}</p>
+                    {formatGridDate(date) && <p className="text-xs" style={{ color: '#6b7280' }}>{formatGridDate(date)}</p>}
+                </div>
+            ))}
+        </div>
+    );
+}
+
+export function GridComparisonBlock({ block, ctx }: { block: Block; ctx: ReportContext }) {
+    const editable = !!ctx.onEditText;
+    const { beforeUrl, beforeDate, afterUrl, afterDate } = block.props;
+    const viewMode: 'slider' | 'side_by_side' = block.props.viewMode === 'side_by_side' ? 'side_by_side' : 'slider';
+    const [uploadingSlot, setUploadingSlot] = useState<'before' | 'after' | null>(null);
+    const [pct, setPct] = useState(50);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const addFileRef = useRef<HTMLInputElement>(null);
+    const bothUploaded = !!beforeUrl && !!afterUrl;
+    // Exactly one scan uploaded — e.g. a client's first month, before any
+    // baseline exists to compare against. This is the default path: a fresh
+    // block starts as a single upload, not a two-slot Before/After form.
+    const singleSide: 'before' | 'after' | null = beforeUrl && !afterUrl ? 'before' : afterUrl && !beforeUrl ? 'after' : null;
+    // Only consulted while both slots are still empty — decides whether the
+    // very first upload prompt is one generic dropzone or the two-slot form.
+    const comparisonMode = block.props.comparisonMode === true;
+    const position: 'left' | 'center' | 'right' =
+        block.props.position === 'left' || block.props.position === 'right' ? block.props.position : 'center';
+    const justify = position === 'left' ? 'flex-start' : position === 'right' ? 'flex-end' : 'center';
+
+    async function upload(slot: 'before' | 'after', file: File) {
+        setUploadingSlot(slot);
+        try {
+            const supabase = createClient();
+            if (!supabase) return;
+            const ext = file.name.split('.').pop() ?? 'png';
+            const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+            const { error } = await supabase.storage.from('campaign-screenshots').upload(path, file, { contentType: file.type, upsert: true });
+            if (error) return;
+            const { data } = supabase.storage.from('campaign-screenshots').getPublicUrl(path);
+            ctx.onEditText!(block.id, { [`${slot}Url`]: data.publicUrl });
+        } finally {
+            setUploadingSlot(null);
+        }
+    }
+
+    function startDrag(e: React.PointerEvent) {
+        e.preventDefault();
+        const move = (ev: PointerEvent) => {
+            if (!containerRef.current) return;
+            const rect = containerRef.current.getBoundingClientRect();
+            const x = Math.min(Math.max(ev.clientX - rect.left, 0), rect.width);
+            setPct((x / rect.width) * 100);
+        };
+        const up = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+    }
+
+    return (
+        <div>
+            <div className="flex items-center gap-2 border-b-2 pb-2 mb-4" style={{ borderColor: ACCENT }}>
+                <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>Keyword Visibility Heatmaps</h2>
+                {editable && bothUploaded && (
+                    <div className="print-hidden ml-auto flex gap-1 text-xs">
+                        {(['slider', 'side_by_side'] as const).map(mode => (
+                            <button key={mode} onClick={() => ctx.onEditText!(block.id, { viewMode: mode })}
+                                className="px-2 py-1 rounded"
+                                style={{ background: viewMode === mode ? ACCENT : 'transparent', color: viewMode === mode ? '#fff' : '#6b7280' }}>
+                                {mode === 'slider' ? 'Slider' : 'Side by side'}
+                            </button>
+                        ))}
+                    </div>
+                )}
+                {editable && singleSide && (
+                    <div className="print-hidden ml-auto flex gap-1">
+                        {([['left', AlignLeft], ['center', AlignCenter], ['right', AlignRight]] as const).map(([pos, Icon]) => (
+                            <button key={pos} onClick={() => ctx.onEditText!(block.id, { position: pos })}
+                                title={`Align ${pos}`}
+                                className="p-1.5 rounded"
+                                style={{ background: position === pos ? ACCENT : 'transparent', color: position === pos ? '#fff' : '#6b7280' }}>
+                                <Icon className="h-3.5 w-3.5" />
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {singleSide ? (
+                // One scan only — the default state. No Before/After framing
+                // since there's nothing yet to compare it against. Aligned
+                // per the Left/Center/Right toggle in the header above.
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: justify }}>
+                    <div className="relative rounded-lg border overflow-hidden" style={{ borderColor: '#e5e7eb', height: GRID_BOX_HEIGHT, width: '100%', maxWidth: 480, background: '#f9fafb' }}>
+                        <img src={singleSide === 'before' ? beforeUrl : afterUrl} alt="Ranking grid scan" className="w-full h-full" style={{ objectFit: 'contain' }} />
+                        {editable && (
+                            <button
+                                onClick={() => ctx.onEditText!(block.id, singleSide === 'before' ? { beforeUrl: '' } : { afterUrl: '' })}
+                                className="print-hidden absolute top-1.5 right-1.5 rounded-full p-1"
+                                style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}
+                            >
+                                <X className="h-3 w-3" />
+                            </button>
+                        )}
+                    </div>
+                    {formatGridDate(singleSide === 'before' ? beforeDate : afterDate) && (
+                        <p className="text-xs mt-1.5" style={{ color: '#6b7280' }}>{formatGridDate(singleSide === 'before' ? beforeDate : afterDate)}</p>
+                    )}
+                    {editable && (
+                        <div className="print-hidden flex mt-2">
+                            <button
+                                onClick={() => addFileRef.current?.click()}
+                                disabled={uploadingSlot !== null}
+                                className="text-xs flex items-center gap-1.5 hover:underline"
+                                style={{ color: '#6b7280' }}
+                            >
+                                {uploadingSlot ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                                + Add {singleSide === 'before' ? 'After' : 'Before'} scan to enable comparison
+                            </button>
+                            <input
+                                ref={addFileRef} type="file" accept="image/*" className="hidden"
+                                onChange={e => { const f = e.target.files?.[0]; if (f) upload(singleSide === 'before' ? 'after' : 'before', f); e.target.value = ''; }}
+                            />
+                        </div>
+                    )}
+                </div>
+            ) : bothUploaded ? (
+                <>
+                    {/* Screen view — whichever mode is toggled. Always excluded from print. */}
+                    <div className="print-hidden">
+                        {viewMode === 'slider' ? (
+                            <div ref={containerRef} className="relative select-none rounded-lg overflow-hidden border" style={{ borderColor: '#e5e7eb', height: GRID_BOX_HEIGHT, background: '#f9fafb' }}>
+                                <img src={afterUrl} alt="After" className="absolute inset-0 w-full h-full" style={{ objectFit: 'contain' }} />
+                                <div className="absolute inset-0 overflow-hidden" style={{ clipPath: `inset(0 ${100 - pct}% 0 0)` }}>
+                                    <img src={beforeUrl} alt="Before" className="absolute inset-0 w-full h-full" style={{ objectFit: 'contain' }} />
+                                </div>
+                                <div className="absolute top-2 left-2 text-xs font-semibold px-2 py-0.5 rounded" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>Before</div>
+                                <div className="absolute top-2 right-2 text-xs font-semibold px-2 py-0.5 rounded" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>After</div>
+                                <div
+                                    onPointerDown={startDrag}
+                                    className="absolute top-0 bottom-0 cursor-ew-resize"
+                                    style={{ left: `calc(${pct}% - 14px)`, width: 28, display: 'flex', justifyContent: 'center' }}
+                                >
+                                    <div style={{ width: 2, background: '#fff', boxShadow: '0 0 0 1px rgba(0,0,0,0.2)' }} />
+                                    <div className="absolute top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-white flex items-center justify-center shadow" style={{ color: '#374151' }}>
+                                        <GripVertical className="h-4 w-4" />
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <GridSideBySide beforeUrl={beforeUrl} afterUrl={afterUrl} beforeDate={beforeDate} afterDate={afterDate} />
+                        )}
+                    </div>
+                    {/* Print/PDF — always side-by-side; a mid-drag slider position is meaningless on a static page. */}
+                    <div className="print-only">
+                        <GridSideBySide beforeUrl={beforeUrl} afterUrl={afterUrl} beforeDate={beforeDate} afterDate={afterDate} />
+                    </div>
+                </>
+            ) : comparisonMode ? (
+                // Explicitly opted into comparison mode before uploading anything —
+                // two slots up front instead of the single default prompt.
+                <div className="flex gap-4">
+                    <GridUploadSlot label="Before" url={beforeUrl} date={beforeDate} uploading={uploadingSlot === 'before'} editable={editable}
+                        onUpload={f => upload('before', f)} onClear={() => ctx.onEditText!(block.id, { beforeUrl: '' })}
+                        onDateChange={v => ctx.onEditText!(block.id, { beforeDate: v })} />
+                    <GridUploadSlot label="After" url={afterUrl} date={afterDate} uploading={uploadingSlot === 'after'} editable={editable}
+                        onUpload={f => upload('after', f)} onClear={() => ctx.onEditText!(block.id, { afterUrl: '' })}
+                        onDateChange={v => ctx.onEditText!(block.id, { afterDate: v })} />
+                </div>
+            ) : (
+                // Default state — a single upload prompt. Lands in `afterUrl`;
+                // comparison against a prior scan is opt-in from here.
+                <div>
+                    <GridUploadSlot label="Ranking Grid Scan" uploading={uploadingSlot === 'after'} editable={editable}
+                        onUpload={f => upload('after', f)} onClear={() => {}}
+                        onDateChange={v => ctx.onEditText!(block.id, { afterDate: v })} />
+                    {editable && (
+                        <div className="print-hidden flex justify-center mt-2">
+                            <button
+                                onClick={() => ctx.onEditText!(block.id, { comparisonMode: true })}
+                                className="text-xs hover:underline"
+                                style={{ color: '#6b7280' }}
+                            >
+                                Or add two scans to compare →
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -444,6 +714,7 @@ export function RenderBlock({ block, ctx }: { block: Block; ctx: ReportContext }
         case 'title': return <TitleBlock block={block} ctx={ctx} />;
         case 'text': return <TextBlock block={block} ctx={ctx} />;
         case 'image': return <ImageBlock block={block} ctx={ctx} />;
+        case 'grid_comparison': return <GridComparisonBlock block={block} ctx={ctx} />;
         case 'metrics_overview': return <MetricsOverviewBlock block={block} ctx={ctx} />;
         case 'trend': return <TrendBlock block={block} ctx={ctx} />;
         case 'distribution': return <DistributionBlock ctx={ctx} />;

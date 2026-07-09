@@ -7,6 +7,7 @@ import { ReportSourceKey, SectionConfig, defaultSectionConfig } from './sections
 export type BlockType =
     // Formatting blocks
     | 'cover' | 'title' | 'text' | 'image' | 'page_break'
+    | 'grid_comparison'    // before/after screenshot comparison (manual upload, no data source)
     // Data widgets
     | 'metrics_overview'   // KPI card grid for one source (props.source)
     | 'trend'              // multi-month line chart (props.source, props.metrics)
@@ -177,6 +178,10 @@ export const FORMATTING_ITEMS: FormattingItem[] = [
     { key: 'text', name: 'Text', description: 'Free-form paragraph', type: 'text', props: { field: null, label: null, content: '' } },
     { key: 'image', name: 'Image', description: 'Embed an image by URL', type: 'image', props: { url: '', caption: '' } },
     { key: 'page_break', name: 'Page break', description: 'Start a new page in the PDF', type: 'page_break', props: {} },
+    {
+        key: 'grid_comparison', name: 'Keyword Visibility Heatmaps', description: 'Before/after ranking grid screenshots, side-by-side or slider',
+        type: 'grid_comparison', props: { viewMode: 'slider' },
+    },
 ];
 
 /** Human label for a block instance (canvas toolbar, template previews). */
@@ -197,6 +202,7 @@ export function blockLabel(block: Block): string {
         case 'trend': return block.props.title ? `${block.props.title} trend` : 'Trend chart';
         case 'distribution': return 'Distribution by top positions';
         case 'organic_table': return 'Organic traffic table';
+        case 'grid_comparison': return 'Keyword Visibility Heatmaps';
         case 'keyword_rankings_table': return 'All keywords rankings';
         default: return 'Block';
     }

@@ -217,12 +217,14 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
         <div className="min-h-screen flex flex-col">
             {/* Print CSS: only the canvas pages print */}
             <style>{`
+                .print-only { display: none; }
                 @media print {
                     body * { visibility: hidden; }
                     #report-print-area, #report-print-area * { visibility: visible; }
                     #report-print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 0 !important; background: white !important; }
                     .report-page { box-shadow: none !important; border: none !important; border-radius: 0 !important; margin: 0 0 24px !important; break-after: page; }
                     .print-hidden { display: none !important; }
+                    .print-only { display: block !important; }
                     @page { margin: 14mm; }
                 }
             `}</style>
