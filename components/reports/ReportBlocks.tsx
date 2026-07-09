@@ -5,7 +5,7 @@
 // than theme variables.
 
 import { useRef, useState } from 'react';
-import { Upload, X, Loader2, GripVertical } from 'lucide-react';
+import { Upload, X, Loader2, GripVertical, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import {
     LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
     Tooltip, Legend, ResponsiveContainer,
@@ -258,8 +258,15 @@ export function GridComparisonBlock({ block, ctx }: { block: Block; ctx: ReportC
     const addFileRef = useRef<HTMLInputElement>(null);
     const bothUploaded = !!beforeUrl && !!afterUrl;
     // Exactly one scan uploaded — e.g. a client's first month, before any
-    // baseline exists to compare against.
+    // baseline exists to compare against. This is the default path: a fresh
+    // block starts as a single upload, not a two-slot Before/After form.
     const singleSide: 'before' | 'after' | null = beforeUrl && !afterUrl ? 'before' : afterUrl && !beforeUrl ? 'after' : null;
+    // Only consulted while both slots are still empty — decides whether the
+    // very first upload prompt is one generic dropzone or the two-slot form.
+    const comparisonMode = block.props.comparisonMode === true;
+    const position: 'left' | 'center' | 'right' =
+        block.props.position === 'left' || block.props.position === 'right' ? block.props.position : 'center';
+    const justify = position === 'left' ? 'flex-start' : position === 'right' ? 'flex-end' : 'center';
 
     async function upload(slot: 'before' | 'after', file: File) {
         setUploadingSlot(slot);
@@ -308,13 +315,26 @@ export function GridComparisonBlock({ block, ctx }: { block: Block; ctx: ReportC
                         ))}
                     </div>
                 )}
+                {editable && singleSide && (
+                    <div className="print-hidden ml-auto flex gap-1">
+                        {([['left', AlignLeft], ['center', AlignCenter], ['right', AlignRight]] as const).map(([pos, Icon]) => (
+                            <button key={pos} onClick={() => ctx.onEditText!(block.id, { position: pos })}
+                                title={`Align ${pos}`}
+                                className="p-1.5 rounded"
+                                style={{ background: position === pos ? ACCENT : 'transparent', color: position === pos ? '#fff' : '#6b7280' }}>
+                                <Icon className="h-3.5 w-3.5" />
+                            </button>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {singleSide ? (
-                // One scan only — show it on its own, no Before/After framing since
-                // there's nothing yet to compare it against.
-                <div>
-                    <div className="relative rounded-lg border overflow-hidden mx-auto" style={{ borderColor: '#e5e7eb', height: GRID_BOX_HEIGHT, maxWidth: 480, background: '#f9fafb' }}>
+                // One scan only — the default state. No Before/After framing
+                // since there's nothing yet to compare it against. Aligned
+                // per the Left/Center/Right toggle in the header above.
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: justify }}>
+                    <div className="relative rounded-lg border overflow-hidden" style={{ borderColor: '#e5e7eb', height: GRID_BOX_HEIGHT, width: '100%', maxWidth: 480, background: '#f9fafb' }}>
                         <img src={singleSide === 'before' ? beforeUrl : afterUrl} alt="Ranking grid scan" className="w-full h-full" style={{ objectFit: 'contain' }} />
                         {editable && (
                             <button
@@ -327,10 +347,10 @@ export function GridComparisonBlock({ block, ctx }: { block: Block; ctx: ReportC
                         )}
                     </div>
                     {formatGridDate(singleSide === 'before' ? beforeDate : afterDate) && (
-                        <p className="text-xs mt-1.5 text-center" style={{ color: '#6b7280' }}>{formatGridDate(singleSide === 'before' ? beforeDate : afterDate)}</p>
+                        <p className="text-xs mt-1.5" style={{ color: '#6b7280' }}>{formatGridDate(singleSide === 'before' ? beforeDate : afterDate)}</p>
                     )}
                     {editable && (
-                        <div className="print-hidden flex justify-center mt-2">
+                        <div className="print-hidden flex mt-2">
                             <button
                                 onClick={() => addFileRef.current?.click()}
                                 disabled={uploadingSlot !== null}
@@ -347,16 +367,7 @@ export function GridComparisonBlock({ block, ctx }: { block: Block; ctx: ReportC
                         </div>
                     )}
                 </div>
-            ) : !bothUploaded ? (
-                <div className="flex gap-4">
-                    <GridUploadSlot label="Before" url={beforeUrl} date={beforeDate} uploading={uploadingSlot === 'before'} editable={editable}
-                        onUpload={f => upload('before', f)} onClear={() => ctx.onEditText!(block.id, { beforeUrl: '' })}
-                        onDateChange={v => ctx.onEditText!(block.id, { beforeDate: v })} />
-                    <GridUploadSlot label="After" url={afterUrl} date={afterDate} uploading={uploadingSlot === 'after'} editable={editable}
-                        onUpload={f => upload('after', f)} onClear={() => ctx.onEditText!(block.id, { afterUrl: '' })}
-                        onDateChange={v => ctx.onEditText!(block.id, { afterDate: v })} />
-                </div>
-            ) : (
+            ) : bothUploaded ? (
                 <>
                     {/* Screen view — whichever mode is toggled. Always excluded from print. */}
                     <div className="print-hidden">
@@ -388,6 +399,36 @@ export function GridComparisonBlock({ block, ctx }: { block: Block; ctx: ReportC
                         <GridSideBySide beforeUrl={beforeUrl} afterUrl={afterUrl} beforeDate={beforeDate} afterDate={afterDate} />
                     </div>
                 </>
+            ) : comparisonMode ? (
+                // Explicitly opted into comparison mode before uploading anything —
+                // two slots up front instead of the single default prompt.
+                <div className="flex gap-4">
+                    <GridUploadSlot label="Before" url={beforeUrl} date={beforeDate} uploading={uploadingSlot === 'before'} editable={editable}
+                        onUpload={f => upload('before', f)} onClear={() => ctx.onEditText!(block.id, { beforeUrl: '' })}
+                        onDateChange={v => ctx.onEditText!(block.id, { beforeDate: v })} />
+                    <GridUploadSlot label="After" url={afterUrl} date={afterDate} uploading={uploadingSlot === 'after'} editable={editable}
+                        onUpload={f => upload('after', f)} onClear={() => ctx.onEditText!(block.id, { afterUrl: '' })}
+                        onDateChange={v => ctx.onEditText!(block.id, { afterDate: v })} />
+                </div>
+            ) : (
+                // Default state — a single upload prompt. Lands in `afterUrl`;
+                // comparison against a prior scan is opt-in from here.
+                <div>
+                    <GridUploadSlot label="Ranking Grid Scan" uploading={uploadingSlot === 'after'} editable={editable}
+                        onUpload={f => upload('after', f)} onClear={() => {}}
+                        onDateChange={v => ctx.onEditText!(block.id, { afterDate: v })} />
+                    {editable && (
+                        <div className="print-hidden flex justify-center mt-2">
+                            <button
+                                onClick={() => ctx.onEditText!(block.id, { comparisonMode: true })}
+                                className="text-xs hover:underline"
+                                style={{ color: '#6b7280' }}
+                            >
+                                Or add two scans to compare →
+                            </button>
+                        </div>
+                    )}
+                </div>
             )}
         </div>
     );
