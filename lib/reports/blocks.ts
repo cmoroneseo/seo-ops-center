@@ -213,4 +213,4 @@ export function blockLabel(block: Block): string {
  * hover toolbar shows a pencil icon for these, toggling block.props.settingsOpen.
  * Add a block type here once its widget reads that flag to show its panel.
  */
-export const BLOCK_TYPES_WITH_SETTINGS = new Set<BlockType>(['keyword_rankings_table']);
+export const BLOCK_TYPES_WITH_SETTINGS = new Set<BlockType>(['keyword_rankings_table', 'cover']);
