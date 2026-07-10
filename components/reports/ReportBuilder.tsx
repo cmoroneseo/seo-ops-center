@@ -4,7 +4,7 @@
 // Left: Sections (widget library) | Formatting | Settings tabs.
 // Right: live white-page canvas that doubles as the print/PDF output.
 
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
     ArrowLeft, Download, Search, Plus, ChevronUp, ChevronDown, ChevronRight,
@@ -142,6 +142,16 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
             setTimeout(() => setTemplateSaved(false), 2000);
         }
     };
+
+    // Chrome/Safari/Firefox all suggest document.title as the default
+    // filename in the "Save as PDF" print dialog — set it to the report's
+    // client/month so exports don't all save as the app's generic page title.
+    useEffect(() => {
+        if (!client) return;
+        const previousTitle = document.title;
+        document.title = `${client.clientName} ${monthLabel(initialReport.report_month)} SEO Report`;
+        return () => { document.title = previousTitle; };
+    }, [client, initialReport.report_month]);
 
     const downloadPDF = () => window.print();
 
