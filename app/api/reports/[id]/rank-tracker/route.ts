@@ -26,10 +26,17 @@ function shiftDate(dateStr: string, deltaDays: number): string {
  * Resolve a widget's chosen period into a concrete date range. Rolling
  * windows (7/30/90 days) anchor to the report month's last day, not
  * "today" — reports are often built for a month that's already ended.
+ *
+ * Exception: if the report's month is still in progress (its calendar
+ * last day hasn't happened yet), Ahrefs rejects any future date outright
+ * ("bad date") — so the effective end is clamped to today, giving a
+ * month-to-date range instead of erroring.
  */
 function computeDateRange(reportMonth: string, period: RankTrackerPeriod): { dateStart: string; dateEnd: string } {
+    const today = new Date().toISOString().slice(0, 10);
     const monthStart = `${reportMonth}-01`;
-    const monthEnd = `${reportMonth}-${pad(lastDayOfMonth(reportMonth))}`;
+    const trueMonthEnd = `${reportMonth}-${pad(lastDayOfMonth(reportMonth))}`;
+    const monthEnd = trueMonthEnd > today ? today : trueMonthEnd;
 
     switch (period) {
         case 'last_7d': return { dateStart: shiftDate(monthEnd, -7), dateEnd: monthEnd };

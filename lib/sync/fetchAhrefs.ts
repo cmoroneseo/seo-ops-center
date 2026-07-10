@@ -85,10 +85,15 @@ export async function fetchAhrefs(
 
     const headers = { Authorization: `Bearer ${apiKey}` };
 
+    // Ahrefs rejects any future date outright ("bad date") — if metricMonth is
+    // still in progress (e.g. syncing mid-month), clamp to today for a
+    // month-to-date range instead of erroring on the theoretical month-end.
+    const today = new Date().toISOString().slice(0, 10);
     const [y, m] = metricMonth.split('-').map(Number);
     const dateStart = `${metricMonth}-01`;
     const lastDay = new Date(y, m, 0).getDate();
-    const dateEnd = `${metricMonth}-${String(lastDay).padStart(2, '0')}`;
+    const trueDateEnd = `${metricMonth}-${String(lastDay).padStart(2, '0')}`;
+    const dateEnd = trueDateEnd > today ? today : trueDateEnd;
 
     const [drRes, kwRes] = await Promise.all([
         fetch(
