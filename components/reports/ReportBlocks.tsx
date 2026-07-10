@@ -83,10 +83,22 @@ function EmptyNote({ text }: { text: string }) {
     return <p className="text-sm italic" style={{ color: '#9ca3af' }}>{text}</p>;
 }
 
+/** Two-letter monogram, preferring words that start with a letter — "12 Volt
+ *  Power" should read "VP", not "1V". Falls back to the naive first-letters
+ *  if nothing in the name starts with a letter at all. */
+function clientInitials(name: string): string {
+    const words = name.split(' ').filter(Boolean);
+    const letterWords = words.filter(w => /[a-zA-Z]/.test(w[0]));
+    const source = letterWords.length > 0 ? letterWords : words;
+    return source.map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
+
 // ─── Formatting blocks ────────────────────────────────────────────────────────
 
-export function CoverBlock({ ctx }: { ctx: ReportContext }) {
+export function CoverBlock({ block, ctx }: { block: Block; ctx: ReportContext }) {
     const { client, reportMonth } = ctx;
+    const editable = !!ctx.onEditText;
+    const set = (patch: Record<string, any>) => ctx.onEditText?.(block.id, patch);
 
     if (!client) {
         return (
@@ -105,22 +117,63 @@ export function CoverBlock({ ctx }: { ctx: ReportContext }) {
         );
     }
 
-    const initials = client.clientName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    const title = block.props.title || client.clientName;
+    const subtitle = block.props.subtitle || 'SEO Performance Report';
+    const preparedBy = block.props.preparedBy || client.accountManager || 'Marketing Empire Group';
+    const hideLogo = block.props.hideLogo === true;
+    const initials = clientInitials(client.clientName);
+
     return (
-        <div className="flex flex-col justify-between" style={{ minHeight: 420 }}>
-            <div className="h-2 rounded-full" style={{ background: ACCENT }} />
-            <div className="flex flex-col items-center text-center gap-5 py-10">
-                {client.logoUrl
-                    ? <img src={client.logoUrl} alt="" className="h-20 w-20 rounded-2xl object-cover" />
-                    : <div className="h-20 w-20 rounded-2xl flex items-center justify-center text-2xl font-bold text-white" style={{ background: ACCENT }}>{initials}</div>}
-                <div>
-                    <h1 className="text-3xl font-bold" style={{ color: '#111827' }}>{client.clientName}</h1>
-                    <p className="text-lg mt-2" style={{ color: '#6b7280' }}>SEO Performance Report</p>
-                    <p className="text-base font-medium mt-1" style={{ color: ACCENT }}>{monthLabel(reportMonth)}</p>
+        <div>
+            {editable && block.props.settingsOpen && (
+                <div className="print-hidden mb-4 p-3 rounded-lg border grid grid-cols-2 gap-3" style={{ borderColor: '#e5e7eb', background: '#f9fafb' }}>
+                    <label className="text-xs" style={{ color: '#374151' }}>
+                        Title
+                        <input
+                            value={block.props.title ?? ''} onChange={e => set({ title: e.target.value })}
+                            placeholder={client.clientName}
+                            className="mt-1 w-full text-sm border rounded px-2 py-1" style={{ borderColor: '#e5e7eb' }}
+                        />
+                    </label>
+                    <label className="text-xs" style={{ color: '#374151' }}>
+                        Subtitle
+                        <input
+                            value={block.props.subtitle ?? ''} onChange={e => set({ subtitle: e.target.value })}
+                            placeholder="SEO Performance Report"
+                            className="mt-1 w-full text-sm border rounded px-2 py-1" style={{ borderColor: '#e5e7eb' }}
+                        />
+                    </label>
+                    <label className="text-xs col-span-2" style={{ color: '#374151' }}>
+                        Prepared by
+                        <input
+                            value={block.props.preparedBy ?? ''} onChange={e => set({ preparedBy: e.target.value })}
+                            placeholder={client.accountManager || 'Marketing Empire Group'}
+                            className="mt-1 w-full text-sm border rounded px-2 py-1" style={{ borderColor: '#e5e7eb' }}
+                        />
+                    </label>
+                    <label className="col-span-2 flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: '#374151' }}>
+                        <input type="checkbox" checked={hideLogo} onChange={e => set({ hideLogo: e.target.checked })} />
+                        Hide logo / placeholder (client has no logo loaded)
+                    </label>
                 </div>
-            </div>
-            <div className="text-xs text-center" style={{ color: '#9ca3af' }}>
-                Prepared by {client.accountManager || 'Marketing Empire Group'}
+            )}
+            <div className="flex flex-col justify-between" style={{ minHeight: 420 }}>
+                <div className="h-2 rounded-full" style={{ background: ACCENT }} />
+                <div className="flex flex-col items-center text-center gap-5 py-10">
+                    {!hideLogo && (
+                        client.logoUrl
+                            ? <img src={client.logoUrl} alt="" className="h-20 w-20 rounded-2xl object-cover" />
+                            : <div className="h-20 w-20 rounded-2xl flex items-center justify-center text-2xl font-bold text-white" style={{ background: ACCENT }}>{initials}</div>
+                    )}
+                    <div>
+                        <h1 className="text-3xl font-bold" style={{ color: '#111827' }}>{title}</h1>
+                        <p className="text-lg mt-2" style={{ color: '#6b7280' }}>{subtitle}</p>
+                        <p className="text-base font-medium mt-1" style={{ color: ACCENT }}>{monthLabel(reportMonth)}</p>
+                    </div>
+                </div>
+                <div className="text-xs text-center" style={{ color: '#9ca3af' }}>
+                    Prepared by {preparedBy}
+                </div>
             </div>
         </div>
     );
@@ -846,7 +899,7 @@ export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: R
 /** Dispatch a block to its renderer. Returns null for hidden/empty widgets. */
 export function RenderBlock({ block, ctx }: { block: Block; ctx: ReportContext }) {
     switch (block.type) {
-        case 'cover': return <CoverBlock ctx={ctx} />;
+        case 'cover': return <CoverBlock block={block} ctx={ctx} />;
         case 'title': return <TitleBlock block={block} ctx={ctx} />;
         case 'text': return <TextBlock block={block} ctx={ctx} />;
         case 'image': return <ImageBlock block={block} ctx={ctx} />;
