@@ -32,12 +32,18 @@ export async function fetchAhrefs(
 ): Promise<Record<string, number> | null> {
     const admin = createAdminClient();
 
+    // No sync_status filter — gating the credentials lookup on the *previous*
+    // attempt's outcome creates a deadlock: once a sync fails and flips status
+    // to 'error', every subsequent attempt would silently refuse to even try,
+    // since only a successful sync can flip it back to 'active'. This
+    // function decides active/error based on THIS attempt, not the last one.
+    // A disconnected integration has its credentials wiped to {}, so the
+    // api_key check just below already excludes it — no extra status check needed.
     const { data: row } = await admin
         .from('client_integrations')
         .select('credentials')
         .eq('client_id', clientId)
         .eq('service', 'ahrefs')
-        .eq('sync_status', 'active')
         .maybeSingle();
 
     if (!row?.credentials) return null;
