@@ -147,7 +147,7 @@ export async function POST(req: NextRequest) {
 
             // ── Ahrefs ───────────────────────────────────────────────────────
             try {
-                const ahrefsData = await fetchAhrefs(client.id);
+                const ahrefsData = await fetchAhrefs(client.id, targetMonth);
                 if (ahrefsData) {
                     const r = await upsertMetric({
                         organizationId: org.id, clientId: client.id,
