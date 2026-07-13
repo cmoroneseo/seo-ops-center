@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, CheckSquare, FileBarChart, MessageSquare, Settings, LogOut, Briefcase, Search, HelpCircle, History, FileText, ClipboardList, PackageCheck } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Settings, LogOut, Briefcase, Search, HelpCircle, ClipboardList, PackageCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TimeLogModal } from '@/components/workspace/TimeLogModal';
 import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
@@ -13,13 +13,9 @@ import { useState, useEffect } from 'react';
 export const navigation = [
   { name: 'Home', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Workspace', href: '/workspace', icon: Briefcase },
-  { name: 'Analytics', href: '/analytics', icon: FileBarChart },
   { name: 'Reports', href: '/reports', icon: ClipboardList },
   { name: 'Tasks', href: '/tasks', icon: CheckSquare },
   { name: 'Deliverables', href: '/deliverables', icon: PackageCheck },
-  { name: 'Messages', href: '/messages', icon: MessageSquare },
-  { name: 'History', href: '/history', icon: History },
-  { name: 'Documents', href: '/documents', icon: FileText },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
@@ -46,14 +42,12 @@ export function Sidebar() {
   }, []);
 
   return (
-    <div className="hidden lg:flex h-full w-20 flex-col bg-card border-r border-border items-center py-6">
-      <div className="mb-8">
+    <div className="hidden lg:flex h-full w-20 flex-col bg-card border-r border-border items-center py-4">
+      <div className="flex-1 flex flex-col items-center justify-evenly w-full px-2">
         <div className="w-12 h-12 bg-primary rounded-xl flex items-center justify-center text-primary-foreground font-bold text-xl shadow-lg shadow-primary/20">
           A
         </div>
-      </div>
 
-      <div className="flex-1 flex flex-col items-center gap-4 w-full px-2">
         {navigation.map((item) => {
           const isActive = pathname === item.href || (item.href !== '/' && pathname?.startsWith(item.href));
           return (
@@ -74,9 +68,7 @@ export function Sidebar() {
             </Link>
           );
         })}
-      </div>
 
-      <div className="flex flex-col items-center gap-4 pb-4">
         <button
           onClick={() => setIsSearchOpen(true)}
           className="h-12 w-12 flex items-center justify-center rounded-xl bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105 transition-transform"
