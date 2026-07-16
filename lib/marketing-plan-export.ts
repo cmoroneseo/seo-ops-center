@@ -56,14 +56,14 @@ export function buildMarketingPlanExportHtml(input: {
     };
 
     const sections = steps
-        .map((step, idx) => {
+        .map(step => {
             const stepItems = items
                 .filter(i => i.stepKey === step.key)
                 .sort((a, b) => a.sortOrder - b.sortOrder);
             if (stepItems.length === 0) return '';
             return `
         <section class="step">
-            <h2>Step ${idx + 1}: ${escapeHtml(step.name)}</h2>
+            <h2>${escapeHtml(step.name)}</h2>
             ${stepItems.map(renderItem).join('')}
         </section>`;
         })
