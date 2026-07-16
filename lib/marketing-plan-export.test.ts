@@ -35,7 +35,6 @@ test('excludes ignored items', () => {
             item({ id: 'b', title: 'Hidden ignored item', status: 'ignored' }),
         ]),
         clientName: 'Looda House Pawn',
-        memberNames: {},
     });
     assert.ok(html.includes('Visible item'));
     assert.ok(!html.includes('Hidden ignored item'));
@@ -47,7 +46,6 @@ test('includes comments as notes', () => {
             item({ comments: [{ authorName: 'Abel Miranda', body: 'Access granted on Monday', createdAt: '2026-07-10T00:00:00Z' }] }),
         ]),
         clientName: 'Client',
-        memberNames: {},
     });
     assert.ok(html.includes('Abel Miranda'));
     assert.ok(html.includes('Access granted on Monday'));
@@ -63,20 +61,19 @@ test('renders markdown links and escapes HTML in user content', () => {
             }),
         ]),
         clientName: 'Client',
-        memberNames: {},
     });
     assert.ok(html.includes('<a href="https://example.com/guide">help guide</a>'));
     assert.ok(!html.includes('<script>alert(1)</script>'));
     assert.ok(html.includes('&lt;script&gt;'));
 });
 
-test('skips empty steps and resolves assignee names', () => {
+test('skips empty steps and omits internal meta (priority/assignee/due/progress)', () => {
     const html = buildMarketingPlanExportHtml({
-        plan: plan([item({ assigneeId: 'u1', dueDate: '2026-08-01' })]),
+        plan: plan([item({ priority: 'high', assigneeId: 'u1', dueDate: '2026-08-01' })]),
         clientName: 'Client',
-        memberNames: { u1: 'Carlos Morones' },
     });
     assert.ok(!html.includes('Technical SEO'));
-    assert.ok(html.includes('Carlos Morones'));
-    assert.ok(html.includes('Due 2026-08-01'));
+    assert.ok(!html.includes('High'));
+    assert.ok(!html.includes('Due 2026-08-01'));
+    assert.ok(!html.includes('complete'));
 });

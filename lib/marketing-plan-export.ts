@@ -16,23 +16,17 @@ function linkify(text: string): string {
     );
 }
 
-const PRIORITY_LABELS: Record<string, string> = {
-    high: 'High', medium: 'Medium', low: 'Low',
-};
-
 /**
  * Builds a clean, self-contained HTML document for exporting a marketing plan
  * to PDF (print) or Word (.doc). Excludes ignored items; includes comments as notes.
+ * Client-facing: no progress counts, priorities, assignees, or due dates.
  */
 export function buildMarketingPlanExportHtml(input: {
     plan: MarketingPlan;
     clientName: string;
-    memberNames: Record<string, string>;
 }): string {
-    const { plan, clientName, memberNames } = input;
+    const { plan, clientName } = input;
     const items = (plan.items ?? []).filter(i => i.status !== 'ignored');
-    const doneCount = items.filter(i => i.status === 'done').length;
-    const progressPercent = items.length === 0 ? 0 : Math.round((doneCount / items.length) * 100);
     const generatedOn = new Date().toLocaleDateString('en-US', {
         year: 'numeric', month: 'long', day: 'numeric',
     });
@@ -41,10 +35,6 @@ export function buildMarketingPlanExportHtml(input: {
 
     const renderItem = (item: MarketingPlanItem): string => {
         const done = item.status === 'done';
-        const meta: string[] = [PRIORITY_LABELS[item.priority] ?? item.priority];
-        if (item.assigneeId && memberNames[item.assigneeId]) meta.push(memberNames[item.assigneeId]);
-        if (item.dueDate) meta.push(`Due ${item.dueDate}`);
-
         const notes = item.comments.length > 0
             ? `<div class="notes">
                 <div class="notes-label">Notes</div>
@@ -59,10 +49,7 @@ export function buildMarketingPlanExportHtml(input: {
 
         return `
         <div class="item">
-            <div class="item-head">
-                <span class="item-title${done ? ' done' : ''}">${done ? '<span class="check">✓</span> ' : ''}${escapeHtml(item.title)}</span>
-                <span class="item-meta">${meta.map(escapeHtml).join(' · ')}</span>
-            </div>
+            <div class="item-title${done ? ' done' : ''}">${done ? '<span class="check">✓</span> ' : ''}${escapeHtml(item.title)}</div>
             ${item.description ? `<div class="item-desc">${linkify(item.description)}</div>` : ''}
             ${notes}
         </div>`;
@@ -74,10 +61,9 @@ export function buildMarketingPlanExportHtml(input: {
                 .filter(i => i.stepKey === step.key)
                 .sort((a, b) => a.sortOrder - b.sortOrder);
             if (stepItems.length === 0) return '';
-            const doneCount = stepItems.filter(i => i.status === 'done').length;
             return `
         <section class="step">
-            <h2>Step ${idx + 1}: ${escapeHtml(step.name)} <span class="step-count">${doneCount} of ${stepItems.length} complete</span></h2>
+            <h2>Step ${idx + 1}: ${escapeHtml(step.name)}</h2>
             ${stepItems.map(renderItem).join('')}
         </section>`;
         })
@@ -96,16 +82,12 @@ export function buildMarketingPlanExportHtml(input: {
     .doc-header { border-bottom: 3px solid #1a1a1a; padding-bottom: 16px; margin-bottom: 28px; }
     h1 { font-size: 26px; margin: 0 0 4px; }
     .subtitle { font-size: 13px; color: #555; }
-    .progress { font-size: 13px; color: #555; margin-top: 6px; }
     h2 { font-size: 17px; border-bottom: 1px solid #ccc; padding-bottom: 6px; margin: 28px 0 12px; }
     .step { page-break-inside: auto; }
-    .step-count { font-size: 12px; font-weight: normal; color: #777; float: right; }
     .item { margin: 0 0 16px; page-break-inside: avoid; }
-    .item-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
     .item-title { font-weight: bold; font-size: 14px; }
     .item-title.done { color: #555; }
     .check { color: #16a34a; }
-    .item-meta { font-size: 11px; color: #777; white-space: nowrap; }
     .item-desc { font-size: 13px; color: #333; margin-top: 3px; }
     .notes { margin: 8px 0 0 14px; padding: 8px 12px; background: #f6f6f4; border-left: 3px solid #d4d4d0; }
     .notes-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #888; margin-bottom: 4px; }
@@ -123,7 +105,6 @@ export function buildMarketingPlanExportHtml(input: {
     <div class="doc-header">
         <h1>${escapeHtml(clientName)} — SEO Marketing Plan</h1>
         <div class="subtitle">Marketing Empire Group · Generated ${generatedOn}</div>
-        <div class="progress">${doneCount} of ${items.length} items complete (${progressPercent}%)</div>
     </div>
     ${sections}
 </body>

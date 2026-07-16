@@ -135,11 +135,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
     ];
 
     const handleExport = (mode: 'pdf' | 'doc') => {
-        const html = buildMarketingPlanExportHtml({
-            plan,
-            clientName,
-            memberNames: Object.fromEntries(members.map(m => [m.userId, m.displayName])),
-        });
+        const html = buildMarketingPlanExportHtml({ plan, clientName });
         if (mode === 'pdf') {
             const w = window.open('', '_blank');
             if (!w) { alert('Pop-up blocked — allow pop-ups to export PDF.'); return; }
