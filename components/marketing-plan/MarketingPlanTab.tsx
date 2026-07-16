@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { ClipboardList, Plus, Search, Sparkles, Upload } from 'lucide-react';
+import { ClipboardList, FileDown, Plus, Printer, Search, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MarketingPlan, MarketingPlanItem } from '@/lib/types';
 import {
@@ -10,6 +10,7 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { logActivity } from '@/lib/supabase/client-activity';
+import { buildMarketingPlanExportHtml } from '@/lib/marketing-plan-export';
 import {
     computePlanSummary, groupItems, filterItems, GroupMode,
 } from '@/lib/marketing-plan-logic';
@@ -133,20 +134,45 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
         { key: 'status', label: 'By Status' },
     ];
 
+    const handleExport = (mode: 'pdf' | 'doc') => {
+        const html = buildMarketingPlanExportHtml({ plan, clientName });
+        if (mode === 'pdf') {
+            const w = window.open('', '_blank');
+            if (!w) { alert('Pop-up blocked — allow pop-ups to export PDF.'); return; }
+            w.document.write(html);
+            w.document.close();
+            w.focus();
+            setTimeout(() => w.print(), 300);
+        } else {
+            const blob = new Blob(['﻿' + html], { type: 'application/msword' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${clientName} - SEO Marketing Plan.doc`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+    };
+
     return (
         <div className="space-y-6" id="marketing-plan-root">
-            {/* Print rules: hide app chrome when exporting */}
-            <style>{`@media print { nav, aside, header, .print\\:hidden { display: none !important; } }`}</style>
-
             {/* Header */}
             <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold">{plan.title}</h3>
-                <button
-                    onClick={() => window.print()}
-                    className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors print:hidden"
-                >
-                    <Upload className="h-3.5 w-3.5" /> Export
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => handleExport('pdf')}
+                        className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
+                    >
+                        <Printer className="h-3.5 w-3.5" /> Export PDF
+                    </button>
+                    <button
+                        onClick={() => handleExport('doc')}
+                        className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
+                    >
+                        <FileDown className="h-3.5 w-3.5" /> Export Word
+                    </button>
+                </div>
             </div>
 
             <SummaryStrip summary={summary} />
