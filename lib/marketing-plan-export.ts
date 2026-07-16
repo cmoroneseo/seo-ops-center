@@ -1,0 +1,131 @@
+import type { MarketingPlan, MarketingPlanItem } from './types';
+
+function escapeHtml(s: string): string {
+    return s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+/** Escape user text, then convert [label](url) markdown links to anchors. */
+function linkify(text: string): string {
+    return escapeHtml(text).replace(
+        /\[([^\]]+)\]\(([^)]+)\)/g,
+        (_m, label, url) => `<a href="${url}">${label}</a>`,
+    );
+}
+
+const PRIORITY_LABELS: Record<string, string> = {
+    high: 'High', medium: 'Medium', low: 'Low',
+};
+
+/**
+ * Builds a clean, self-contained HTML document for exporting a marketing plan
+ * to PDF (print) or Word (.doc). Excludes ignored items; includes comments as notes.
+ */
+export function buildMarketingPlanExportHtml(input: {
+    plan: MarketingPlan;
+    clientName: string;
+    memberNames: Record<string, string>;
+}): string {
+    const { plan, clientName, memberNames } = input;
+    const items = (plan.items ?? []).filter(i => i.status !== 'ignored');
+    const doneCount = items.filter(i => i.status === 'done').length;
+    const progressPercent = items.length === 0 ? 0 : Math.round((doneCount / items.length) * 100);
+    const generatedOn = new Date().toLocaleDateString('en-US', {
+        year: 'numeric', month: 'long', day: 'numeric',
+    });
+
+    const steps = [...plan.steps].sort((a, b) => a.sortOrder - b.sortOrder);
+
+    const renderItem = (item: MarketingPlanItem): string => {
+        const done = item.status === 'done';
+        const meta: string[] = [PRIORITY_LABELS[item.priority] ?? item.priority];
+        if (item.assigneeId && memberNames[item.assigneeId]) meta.push(memberNames[item.assigneeId]);
+        if (item.dueDate) meta.push(`Due ${item.dueDate}`);
+
+        const notes = item.comments.length > 0
+            ? `<div class="notes">
+                <div class="notes-label">Notes</div>
+                ${item.comments.map(c => `
+                <div class="note">
+                    <span class="note-author">${escapeHtml(c.authorName)}</span>
+                    <span class="note-date">${new Date(c.createdAt).toLocaleDateString()}</span>
+                    <div class="note-body">${linkify(c.body)}</div>
+                </div>`).join('')}
+               </div>`
+            : '';
+
+        return `
+        <div class="item">
+            <div class="item-head">
+                <span class="item-title${done ? ' done' : ''}">${done ? '<span class="check">✓</span> ' : ''}${escapeHtml(item.title)}</span>
+                <span class="item-meta">${meta.map(escapeHtml).join(' · ')}</span>
+            </div>
+            ${item.description ? `<div class="item-desc">${linkify(item.description)}</div>` : ''}
+            ${notes}
+        </div>`;
+    };
+
+    const sections = steps
+        .map((step, idx) => {
+            const stepItems = items
+                .filter(i => i.stepKey === step.key)
+                .sort((a, b) => a.sortOrder - b.sortOrder);
+            if (stepItems.length === 0) return '';
+            const doneCount = stepItems.filter(i => i.status === 'done').length;
+            return `
+        <section class="step">
+            <h2>Step ${idx + 1}: ${escapeHtml(step.name)} <span class="step-count">${doneCount} of ${stepItems.length} complete</span></h2>
+            ${stepItems.map(renderItem).join('')}
+        </section>`;
+        })
+        .join('');
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>${escapeHtml(clientName)} — SEO Marketing Plan</title>
+<style>
+    :root { color-scheme: light; }
+    html, body { background: #ffffff; }
+    body { font-family: Georgia, 'Times New Roman', serif; color: #1a1a1a; max-width: 800px; margin: 0 auto; padding: 40px 32px; line-height: 1.5; }
+    a { color: #1d4ed8; }
+    .doc-header { border-bottom: 3px solid #1a1a1a; padding-bottom: 16px; margin-bottom: 28px; }
+    h1 { font-size: 26px; margin: 0 0 4px; }
+    .subtitle { font-size: 13px; color: #555; }
+    .progress { font-size: 13px; color: #555; margin-top: 6px; }
+    h2 { font-size: 17px; border-bottom: 1px solid #ccc; padding-bottom: 6px; margin: 28px 0 12px; }
+    .step { page-break-inside: auto; }
+    .step-count { font-size: 12px; font-weight: normal; color: #777; float: right; }
+    .item { margin: 0 0 16px; page-break-inside: avoid; }
+    .item-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+    .item-title { font-weight: bold; font-size: 14px; }
+    .item-title.done { color: #555; }
+    .check { color: #16a34a; }
+    .item-meta { font-size: 11px; color: #777; white-space: nowrap; }
+    .item-desc { font-size: 13px; color: #333; margin-top: 3px; }
+    .notes { margin: 8px 0 0 14px; padding: 8px 12px; background: #f6f6f4; border-left: 3px solid #d4d4d0; }
+    .notes-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #888; margin-bottom: 4px; }
+    .note { margin-bottom: 6px; font-size: 12.5px; }
+    .note:last-child { margin-bottom: 0; }
+    .note-author { font-weight: bold; }
+    .note-date { color: #999; font-size: 11px; margin-left: 6px; }
+    @media print {
+        body { padding: 0; }
+        @page { margin: 18mm 15mm; }
+    }
+</style>
+</head>
+<body>
+    <div class="doc-header">
+        <h1>${escapeHtml(clientName)} — SEO Marketing Plan</h1>
+        <div class="subtitle">Marketing Empire Group · Generated ${generatedOn}</div>
+        <div class="progress">${doneCount} of ${items.length} items complete (${progressPercent}%)</div>
+    </div>
+    ${sections}
+</body>
+</html>`;
+}
