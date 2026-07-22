@@ -137,11 +137,11 @@ export function NotificationBell() {
         )}
       </button>
 
-      {/* Dropdown — opens to the right of the sidebar */}
+      {/* Dropdown — opens below the top-bar bell */}
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="absolute left-16 bottom-0 z-[200] w-80 max-h-[480px] flex flex-col rounded-xl border border-border bg-card shadow-xl shadow-black/10"
+          className="absolute right-0 top-full mt-2 z-[200] w-80 max-h-[480px] flex flex-col rounded-xl border border-border bg-card shadow-xl shadow-black/10"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
