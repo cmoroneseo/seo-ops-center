@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   ChevronDown, Settings, Clock, CheckSquare,
-  MessageSquarePlus, HelpCircle, LogOut,
+  MessageSquarePlus, HelpCircle, LogOut, NotebookPen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
@@ -113,6 +113,10 @@ export function UserMenu() {
           <button onClick={() => fireEvent('timer:open-quick-start')} className={itemClass}>
             <Clock className="h-4 w-4 text-muted-foreground" />
             Track Time
+          </button>
+          <button onClick={() => fireEvent('notepad:open')} className={itemClass}>
+            <NotebookPen className="h-4 w-4 text-muted-foreground" />
+            Notepad
           </button>
           <Link href="/tasks" onClick={() => setIsOpen(false)} className={itemClass}>
             <CheckSquare className="h-4 w-4 text-muted-foreground" />
