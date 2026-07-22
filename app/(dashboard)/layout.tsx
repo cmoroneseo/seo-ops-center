@@ -2,6 +2,7 @@
 
 import { Sidebar } from '@/components/dashboard/Sidebar';
 import { MobileNav } from '@/components/dashboard/MobileNav';
+import { TopNav } from '@/components/dashboard/TopNav';
 import { ClientListPanel } from '@/components/workspace/ClientListPanel';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { TimerProvider } from '@/components/providers/timer-provider';
@@ -54,16 +55,21 @@ export default function DashboardLayout({
             <div className="flex h-screen overflow-hidden bg-background">
                 {!isSetupPage && <Sidebar />}
                 {!isSetupPage && <MobileNav showClientList={showProjectSidebar} />}
-                {showProjectSidebar && <ClientListPanel />}
-                <main className={cn(
-                    "flex-1 min-w-0 overflow-y-auto",
-                    isSetupPage
-                        ? "flex flex-col items-center justify-center"
-                        // Base padding, then mobile top/bottom offsets to clear the fixed bars.
-                        : "p-4 sm:p-6 lg:p-8 pt-[calc(3.5rem+1rem)] pb-20 lg:pt-8 lg:pb-8"
-                )}>
-                    {children}
-                </main>
+                <div className="flex flex-1 min-w-0 flex-col">
+                    {!isSetupPage && <TopNav />}
+                    <div className="flex flex-1 min-h-0">
+                        {showProjectSidebar && <ClientListPanel />}
+                        <main className={cn(
+                            "flex-1 min-w-0 overflow-y-auto",
+                            isSetupPage
+                                ? "flex flex-col items-center justify-center"
+                                // Base padding, then mobile top/bottom offsets to clear the fixed bars.
+                                : "p-4 sm:p-6 lg:p-8 pt-[calc(3.5rem+1rem)] pb-20 lg:pt-8 lg:pb-8"
+                        )}>
+                            {children}
+                        </main>
+                    </div>
+                </div>
                 {/* OnboardingChecklist hidden until tasks are updated for public launch */}
                 {/* {!isSetupPage && <OnboardingChecklist />} */}
             </div>

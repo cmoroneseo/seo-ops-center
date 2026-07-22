@@ -2,13 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, CheckSquare, Settings, LogOut, Briefcase, Search, HelpCircle, ClipboardList, PackageCheck } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Briefcase, ClipboardList, PackageCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { TimeLogModal } from '@/components/workspace/TimeLogModal';
-import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
-import { NotificationBell } from '@/components/notifications/NotificationBell';
-import { useClients } from '@/lib/hooks/use-clients';
-import { useState, useEffect } from 'react';
 
 export const navigation = [
   { name: 'Home', href: '/dashboard', icon: LayoutDashboard },
@@ -16,38 +11,18 @@ export const navigation = [
   { name: 'Reports', href: '/reports', icon: ClipboardList },
   { name: 'Tasks', href: '/tasks', icon: CheckSquare },
   { name: 'Deliverables', href: '/deliverables', icon: PackageCheck },
-  { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [isTimeLogOpen, setIsTimeLogOpen] = useState(false);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const { clients } = useClients({ statuses: ['Active'] });
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setIsSearchOpen((prev) => !prev);
-      }
-      // Cmd+Shift+T — open floating timer quick-start
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 't') {
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent('timer:open-quick-start'));
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   return (
     <div className="hidden lg:flex h-full w-20 flex-col bg-card border-r border-border items-center py-4">
-      <div className="flex-1 flex flex-col items-center justify-evenly w-full px-2">
-        <div className="w-12 h-12 bg-primary rounded-xl flex items-center justify-center text-primary-foreground font-bold text-xl shadow-lg shadow-primary/20">
-          A
-        </div>
+      <div className="w-12 h-12 bg-primary rounded-xl flex items-center justify-center text-primary-foreground font-bold text-xl shadow-lg shadow-primary/20">
+        A
+      </div>
 
+      <nav className="mt-8 flex flex-col items-center gap-3 w-full px-2">
         {navigation.map((item) => {
           const isActive = pathname === item.href || (item.href !== '/' && pathname?.startsWith(item.href));
           return (
@@ -68,49 +43,7 @@ export function Sidebar() {
             </Link>
           );
         })}
-
-        <button
-          onClick={() => setIsSearchOpen(true)}
-          className="h-12 w-12 flex items-center justify-center rounded-xl bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105 transition-transform"
-        >
-          <Search className="h-6 w-6" />
-        </button>
-
-        <button
-          className="h-12 w-12 flex items-center justify-center rounded-xl bg-accent/20 text-muted-foreground hover:bg-accent/30 transition-colors"
-          title="Help Guides"
-        >
-          <HelpCircle className="h-6 w-6" />
-        </button>
-
-        <NotificationBell />
-
-        <button
-          onClick={async () => {
-            const { createClient } = await import('@/lib/supabase/client');
-            const supabase = createClient();
-            if (supabase) {
-              await supabase.auth.signOut();
-              window.location.href = '/';
-            }
-          }}
-          className="h-12 w-12 flex items-center justify-center rounded-xl text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-          title="Sign Out"
-        >
-          <LogOut className="h-6 w-6" />
-        </button>
-      </div>
-
-      <GlobalSearch
-        isOpen={isSearchOpen}
-        onClose={() => setIsSearchOpen(false)}
-      />
-
-      <TimeLogModal
-        isOpen={isTimeLogOpen}
-        onClose={() => setIsTimeLogOpen(false)}
-        clients={clients}
-      />
+      </nav>
     </div>
   );
 }

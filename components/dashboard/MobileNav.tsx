@@ -4,11 +4,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
-  Menu, X, Search, LogOut, Users,
+  Menu, X, Search, LogOut, Users, Settings,
   LayoutDashboard, Briefcase, CheckSquare, PackageCheck, MoreHorizontal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { navigation } from '@/components/dashboard/Sidebar';
+import { UserMenu } from '@/components/dashboard/UserMenu';
 import { ClientListPanel } from '@/components/workspace/ClientListPanel';
 import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
@@ -19,6 +20,13 @@ const primaryTabs = [
   { name: 'Clients', href: '/workspace', icon: Briefcase },
   { name: 'Tasks', href: '/tasks', icon: CheckSquare },
   { name: 'Deliver', href: '/deliverables', icon: PackageCheck },
+];
+
+// Drawer shows all pages; Settings lives here now that the rail dropped it
+// (desktop reaches it via the user menu).
+const drawerNavigation = [
+  ...navigation,
+  { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
 function isActiveHref(pathname: string, href: string) {
@@ -87,6 +95,7 @@ export function MobileNav({ showClientList }: { showClientList: boolean }) {
           <div className="flex h-11 w-11 items-center justify-center">
             <NotificationBell />
           </div>
+          <UserMenu />
         </div>
       </header>
 
@@ -120,7 +129,7 @@ export function MobileNav({ showClientList }: { showClientList: boolean }) {
       {/* Full-menu drawer */}
       <Drawer open={menuOpen} onClose={() => setMenuOpen(false)} side="left" title="Menu">
         <div className="flex-1 overflow-y-auto p-2">
-          {navigation.map((item) => {
+          {drawerNavigation.map((item) => {
             const active = isActiveHref(pathname, item.href);
             return (
               <Link

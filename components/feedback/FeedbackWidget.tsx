@@ -38,6 +38,14 @@ export function FeedbackWidget() {
     const panelRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // Open on demand from anywhere (e.g. the user menu) — mirrors the
+    // timer:open-quick-start pattern.
+    useEffect(() => {
+        const handleOpen = () => setOpen(true);
+        window.addEventListener('feedback:open', handleOpen);
+        return () => window.removeEventListener('feedback:open', handleOpen);
+    }, []);
+
     // Close on outside click
     useEffect(() => {
         if (!open) return;
