@@ -635,3 +635,19 @@ export interface MarketingPlan {
     updatedAt: string;
     items?: MarketingPlanItem[]; // populated by getMarketingPlan
 }
+
+// ---------------------------------------------------------------------------
+// Personal Notes (Notepad personal tool)
+// ---------------------------------------------------------------------------
+
+export interface PersonalNote {
+    id: string;
+    organizationId: string;
+    userId: string;
+    title: string;
+    contentHtml: string;
+    taskId?: string;
+    archivedAt?: string;
+    createdAt: string;
+    updatedAt: string;
+}

@@ -21,7 +21,7 @@ https://seo-ops-center.vercel.app
 ## Key files
 - `lib/types.ts` — all shared TypeScript interfaces
 - `lib/seo-ops-logic.ts` — pure business logic (onTrackStatus, proratedQuantity, fulfillmentStatus)
-- `lib/seo-ops-logic.test.ts` — unit tests (run: `npx vitest`)
+- `lib/seo-ops-logic.test.ts` — unit tests (run: `node --test lib/*.test.ts` — NOT vitest; files use node:test)
 - `lib/supabase/client.ts` — Supabase client (SSR-safe)
 - `lib/supabase/deliverables.ts` — deliverables CRUD + row mapper
 - `lib/supabase/commitments.ts` — commitment CRUD + syncClientBlogCadence bridge
@@ -93,6 +93,14 @@ https://seo-ops-center.vercel.app
   - Dropdowns use the hand-rolled pattern (useState + outside-click refs), not Radix
   - Deferred polish: Escape-to-close + ARIA on UserMenu; Help button is inert until Help content exists
 
+- **Notepad personal tool** (migration 024, Jul 2026):
+  - UserMenu → Personal Tools → Notepad fires `notepad:open`; `components/notepad/NotepadPanel.tsx` mounted in `app/(dashboard)/layout.tsx` (desktop-only, fixed top-16 right-4, 420×470)
+  - `personal_notes` table — strictly personal RLS (`user_id = auth.uid()` + org check); mapper/CRUD in `lib/supabase/personal-notes.ts`, `PersonalNote` in `lib/types.ts`
+  - Tiptap v3 editor (`NoteEditor.tsx`): bold/italic/strike, H1–H3, lists, checklists, quotes, links; 800ms debounced autosave + unmount flush; toolbar buttons preventDefault on mousedown so focus stays in the editor (load-bearing)
+  - Editor styles live in `app/globals.css` under `.notepad-editor`
+  - `NoteList.tsx`: search (title + stripped HTML body), snippets, relative time, archived toggle; `ConvertToTaskModal.tsx` promotes a note to a real Task via `createTask` and stamps `task_id` (no sync back)
+  - New notes auto-title with today's date; archive via `archived_at`, delete is hard with confirm
+
 ## Key files (campaign)
 - `components/campaign/CampaignPlanTab.tsx` — 3-tab orchestrator
 - `components/campaign/sections/SectionCard.tsx` — shared helpers, types, label maps
@@ -119,6 +127,7 @@ https://seo-ops-center.vercel.app
 015: deliverable_commitments (applied Jun 2026)
 019: campaign_plans (applied Jun 2026)
 021: marketing_plans (pending manual apply in Supabase Dashboard)
+024: personal_notes (applied Jul 2026)
 
 ## Supabase Storage buckets
 - `client-logos` — public, 1MB max, image types

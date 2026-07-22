@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { OnboardingChecklist } from '@/components/dashboard/OnboardingChecklist';
 import { FeedbackWidget } from '@/components/feedback/FeedbackWidget';
+import { NotepadPanel } from '@/components/notepad/NotepadPanel';
 
 export default function DashboardLayout({
     children,
@@ -76,6 +77,7 @@ export default function DashboardLayout({
             {!isSetupPage && <FloatingTimer clients={clients} />}
             {!isSetupPage && <TimerNotifications />}
             {!isSetupPage && <FeedbackWidget />}
+            {!isSetupPage && <NotepadPanel />}
         </TimerProvider>
     );
 }
