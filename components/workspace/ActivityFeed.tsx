@@ -520,7 +520,7 @@ function clientInitials(name: string) {
     return name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
 }
 
-function buildPrintHTML(client: ClientProject, items: ActivityItem[], memberNames: Record<string, string> = {}): string {
+function buildPrintHTML(client: ClientProject, items: ActivityItem[], memberNames: Record<string, string> = {}, rangeLabel?: string): string {
     const initials = clientInitials(client.clientName);
     const now = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const totalHours = items
@@ -591,7 +591,7 @@ function buildPrintHTML(client: ClientProject, items: ActivityItem[], memberName
   <div class="logo">${client.logoUrl ? `<img src="${client.logoUrl}" alt="${client.clientName}" />` : initials}</div>
   <div>
     <p class="client-name">${client.clientName}</p>
-    <p class="meta">Activity Report &nbsp;·&nbsp; Generated ${now}</p>
+    <p class="meta">Activity Report &nbsp;·&nbsp; ${rangeLabel ? `${rangeLabel} &nbsp;·&nbsp; ` : ''}Generated ${now}</p>
   </div>
 </div>
 <div class="stats">
@@ -607,20 +607,40 @@ function buildPrintHTML(client: ClientProject, items: ActivityItem[], memberName
 </body></html>`;
 }
 
-function downloadPDF(client: ClientProject, items: ActivityItem[], memberNames: Record<string, string> = {}) {
-    const html = buildPrintHTML(client, items, memberNames);
+function renderPrintWindow(html: string, print: boolean) {
     const win = window.open('', '_blank');
     if (!win) return;
     win.document.write(html);
     win.document.close();
     win.focus();
-    setTimeout(() => { win.print(); }, 400);
+    if (print) setTimeout(() => { win.print(); }, 400);
+}
+
+/** Keep items whose date falls within [from, to] (either bound optional). */
+function itemsInRange(items: ActivityItem[], from: string, to: string): ActivityItem[] {
+    const fromDate = from ? new Date(from + 'T00:00:00') : null;
+    const toDate = to ? new Date(to + 'T23:59:59') : null;
+    return items.filter(i => {
+        if (fromDate && i.date < fromDate) return false;
+        if (toDate && i.date > toDate) return false;
+        return true;
+    });
+}
+
+function formatRangeLabel(from: string, to: string): string | undefined {
+    const fmt = (s: string) => new Date(s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    if (from && to) return `${fmt(from)} – ${fmt(to)}`;
+    if (from) return `From ${fmt(from)}`;
+    if (to) return `Through ${fmt(to)}`;
+    return undefined;
 }
 
 // ── Three-dot menu ──────────────────────────────────────────────────────────
 
 function FeedMenu({ client, items, memberNames }: { client: ClientProject; items: ActivityItem[]; memberNames: Record<string, string> }) {
     const [open, setOpen] = useState(false);
+    const [from, setFrom] = useState('');
+    const [to, setTo] = useState('');
     const ref = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -630,6 +650,15 @@ function FeedMenu({ client, items, memberNames }: { client: ClientProject; items
         document.addEventListener('mousedown', handleClick);
         return () => document.removeEventListener('mousedown', handleClick);
     }, []);
+
+    const ranged = (from || to) ? itemsInRange(items, from, to) : items;
+    const rangeLabel = formatRangeLabel(from, to);
+
+    function doExport(print: boolean) {
+        setOpen(false);
+        const html = buildPrintHTML(client, ranged, memberNames, rangeLabel);
+        renderPrintWindow(html, print);
+    }
 
     return (
         <div ref={ref} className="relative">
@@ -641,17 +670,56 @@ function FeedMenu({ client, items, memberNames }: { client: ClientProject; items
                 <MoreVertical className="h-4 w-4" />
             </button>
             {open && (
-                <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-lg border border-border bg-card shadow-lg py-1">
+                <div className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border border-border bg-card shadow-lg py-1">
+                    {/* Date range */}
+                    <div className="px-3 py-2">
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Export range</span>
+                            {(from || to) && (
+                                <button
+                                    onClick={() => { setFrom(''); setTo(''); }}
+                                    className="text-[11px] text-primary hover:opacity-80"
+                                >
+                                    Clear
+                                </button>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            <input
+                                type="date"
+                                value={from}
+                                max={to || undefined}
+                                onChange={e => setFrom(e.target.value)}
+                                className="flex-1 min-w-0 text-xs bg-background border border-border rounded-md px-2 py-1 text-foreground"
+                            />
+                            <span className="text-muted-foreground text-xs">→</span>
+                            <input
+                                type="date"
+                                value={to}
+                                min={from || undefined}
+                                onChange={e => setTo(e.target.value)}
+                                className="flex-1 min-w-0 text-xs bg-background border border-border rounded-md px-2 py-1 text-foreground"
+                            />
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-1.5">
+                            {from || to
+                                ? `${ranged.length} of ${items.length} event${items.length !== 1 ? 's' : ''} in range`
+                                : `All ${items.length} event${items.length !== 1 ? 's' : ''}`}
+                        </p>
+                    </div>
+                    <div className="border-t border-border my-1" />
                     <button
-                        onClick={() => { setOpen(false); downloadPDF(client, items, memberNames); }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+                        onClick={() => doExport(false)}
+                        disabled={ranged.length === 0}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
                     >
                         <Download className="h-3.5 w-3.5 text-muted-foreground" />
                         Download PDF
                     </button>
                     <button
-                        onClick={() => { setOpen(false); const html = buildPrintHTML(client, items, memberNames); const win = window.open('', '_blank'); if (!win) return; win.document.write(html); win.document.close(); win.focus(); setTimeout(() => win.print(), 400); }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+                        onClick={() => doExport(true)}
+                        disabled={ranged.length === 0}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
                     >
                         <Printer className="h-3.5 w-3.5 text-muted-foreground" />
                         Print
