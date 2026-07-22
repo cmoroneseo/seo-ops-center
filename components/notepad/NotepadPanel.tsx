@@ -68,7 +68,7 @@ export function NotepadPanel() {
     if (!isOpen) return null;
 
     return (
-        <div className="fixed bottom-4 right-4 z-[150] hidden h-[470px] w-[420px] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl shadow-black/20 md:flex">
+        <div className="fixed right-4 top-16 z-[150] hidden h-[470px] w-[420px] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl shadow-black/20 md:flex">
             {/* Panel header */}
             <div className="relative flex items-center gap-2 border-b border-border bg-primary/5 px-3 py-2.5">
                 <NotebookPen className="h-4 w-4 text-primary" />
