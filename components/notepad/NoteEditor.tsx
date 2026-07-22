@@ -181,8 +181,11 @@ export function NoteEditor({ note, onBack, onChanged, onDeleted, onConvertToTask
                 </div>
             </div>
 
-            {/* Toolbar */}
-            <div className="flex items-center gap-0.5 border-b border-border px-2 py-1">
+            {/* Toolbar — preventDefault on mousedown keeps focus (and typing) in the editor */}
+            <div
+                className="flex items-center gap-0.5 border-b border-border px-2 py-1"
+                onMouseDown={(e) => e.preventDefault()}
+            >
                 <button className={tbBtn(editor.isActive('bold'))} onClick={() => editor.chain().focus().toggleBold().run()} title="Bold"><Bold className="h-3.5 w-3.5" /></button>
                 <button className={tbBtn(editor.isActive('italic'))} onClick={() => editor.chain().focus().toggleItalic().run()} title="Italic"><Italic className="h-3.5 w-3.5" /></button>
                 <button className={tbBtn(editor.isActive('strike'))} onClick={() => editor.chain().focus().toggleStrike().run()} title="Strikethrough"><Strikethrough className="h-3.5 w-3.5" /></button>
