@@ -85,6 +85,14 @@ https://seo-ops-center.vercel.app
   - Export via window.print(); AI Suggest Items via `/api/marketing-plan/suggest-items`
   - Campaign Plan code (`components/campaign/*`, `campaign_*` tables) unmounted but preserved
 
+- **Sticky Top Nav + User Menu** (Jul 2026, no DB changes):
+  - `components/dashboard/TopNav.tsx` — desktop-only sticky bar in `app/(dashboard)/layout.tsx`; centered search trigger (owns the Cmd+K and Cmd+Shift+T global listeners), NotificationBell + UserMenu on the right
+  - `components/dashboard/UserMenu.tsx` — avatar dropdown: identity header (name/email/role from `useCurrentMember`), Settings, Personal Tools (Track Time → `timer:open-quick-start` event, My Tasks, Send Feedback → `feedback:open` event), Help (placeholder), Log out. Future personal tools (Notepad, Reminders, Whiteboard) go in the Personal Tools section
+  - Left rail (`Sidebar.tsx`) is pure page nav: logo + Home, Workspace, Reports, Tasks, Deliverables; Settings lives in UserMenu (desktop) and the MobileNav drawer (mobile)
+  - Layout nesting: rail | column(TopNav / row(ClientListPanel | main)) — `min-h-0` on the inner row and `min-w-0` on the column are load-bearing for scroll
+  - Dropdowns use the hand-rolled pattern (useState + outside-click refs), not Radix
+  - Deferred polish: Escape-to-close + ARIA on UserMenu; Help button is inert until Help content exists
+
 ## Key files (campaign)
 - `components/campaign/CampaignPlanTab.tsx` — 3-tab orchestrator
 - `components/campaign/sections/SectionCard.tsx` — shared helpers, types, label maps
