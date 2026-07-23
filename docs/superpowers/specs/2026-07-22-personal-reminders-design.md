@@ -78,7 +78,7 @@ Each row:
 - Relative due label ("in 2 hrs", "Tue 8:00 AM", "3 days overdue").
 - Client chip if linked — click navigates to `/workspace/[id]`.
 - Recurrence icon if recurring.
-- Hover actions: snooze (+1 hour / Tomorrow 8 AM), edit (inline expand), delete (with confirm).
+- Hover actions: snooze (+1 hour / Tomorrow 8 AM), delete (with confirm). Title renames inline (click to edit, Enter/blur saves, Escape cancels) — same pattern as deliverable titles. Date changes happen via snooze; full inline edit is deferred.
 
 ### Badge
 
