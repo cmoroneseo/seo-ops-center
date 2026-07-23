@@ -143,7 +143,14 @@ export async function completeReminder(reminder: Reminder): Promise<Reminder | n
     const supabase = createClient();
     if (!supabase) return null;
     try {
-        const next = nextDueDate(reminder.dueAt, reminder.recurrence);
+        // Advance past the current time, not just one period past the old
+        // due date — otherwise completing a reminder that's been overdue
+        // for several periods leaves it still overdue, and the cron
+        // immediately re-fires a fresh notification on the next tick.
+        let next = nextDueDate(reminder.dueAt, reminder.recurrence);
+        while (next && new Date(next).getTime() <= Date.now()) {
+            next = nextDueDate(next, reminder.recurrence);
+        }
         const row: Record<string, unknown> = next
             ? { due_at: next, notified_at: null, updated_at: new Date().toISOString() }
             : { status: 'done', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() };
