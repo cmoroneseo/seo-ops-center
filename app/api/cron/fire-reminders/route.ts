@@ -9,12 +9,14 @@ export const maxDuration = 60;
 /**
  * GET|POST /api/cron/fire-reminders
  *
- * Every 5 minutes (Vercel Cron). Finds pending personal reminders whose
- * notify time (due_at minus notify_offset_minutes) has arrived and creates
- * a 'reminder_due' bell notification for the owner. Claims each row with a
- * conditional update (still notified_at IS NULL) before notifying, so a
- * reminder never fires twice even under overlapping/retried invocations.
- * Recurrence is handled at completion time (completeReminder), not here.
+ * Daily at 6am UTC (Vercel Cron — Hobby plan caps cron frequency at once/day;
+ * bump to a Pro plan + tighter schedule for closer-to-on-time delivery).
+ * Finds pending personal reminders whose notify time (due_at minus
+ * notify_offset_minutes) has arrived and creates a 'reminder_due' bell
+ * notification for the owner. Claims each row with a conditional update
+ * (still notified_at IS NULL) before notifying, so a reminder never fires
+ * twice even under overlapping/retried invocations. Recurrence is handled
+ * at completion time (completeReminder), not here.
  */
 
 async function isAuthorized(req: NextRequest): Promise<boolean> {
