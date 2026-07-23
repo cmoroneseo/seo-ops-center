@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { addDays, addWeeks, addMonths, differenceInMinutes, isSameDay, format } from 'date-fns';
-import { Reminder, ReminderRecurrence } from './types';
+import { Reminder, ReminderRecurrence } from './types.ts';
 
 /** Next occurrence after completion; null when the reminder doesn't repeat. */
 export function nextDueDate(dueAtIso: string, recurrence: ReminderRecurrence): string | null {
