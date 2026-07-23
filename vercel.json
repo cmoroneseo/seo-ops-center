@@ -13,6 +13,10 @@
         {
             "path": "/api/cron/generate-deliverables",
             "schedule": "0 7 * * *"
+        },
+        {
+            "path": "/api/cron/fire-reminders",
+            "schedule": "*/5 * * * *"
         }
     ],
     "headers": [

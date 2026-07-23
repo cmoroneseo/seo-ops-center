@@ -11,8 +11,9 @@ export type NotificationType =
   | 'deliverable_assigned'
   | 'deliverable_overdue'
   | 'deliverable_at_risk'
-  | 'deliverable_status';
-export type EntityType = 'task' | 'task_comment' | 'client_note' | 'deliverable';
+  | 'deliverable_status'
+  | 'reminder_due';
+export type EntityType = 'task' | 'task_comment' | 'client_note' | 'deliverable' | 'reminder';
 
 export interface AppNotification {
   id: string;
