@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { OnboardingChecklist } from '@/components/dashboard/OnboardingChecklist';
 import { FeedbackWidget } from '@/components/feedback/FeedbackWidget';
 import { NotepadPanel } from '@/components/notepad/NotepadPanel';
+import { RemindersPanel } from '@/components/reminders/RemindersPanel';
 
 export default function DashboardLayout({
     children,
@@ -78,6 +79,7 @@ export default function DashboardLayout({
             {!isSetupPage && <TimerNotifications />}
             {!isSetupPage && <FeedbackWidget />}
             {!isSetupPage && <NotepadPanel />}
+            {!isSetupPage && <RemindersPanel />}
         </TimerProvider>
     );
 }

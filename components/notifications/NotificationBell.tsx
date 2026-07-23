@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Bell, CheckCheck, Briefcase, CheckSquare, MessageSquare } from 'lucide-react';
+import { Bell, CheckCheck, Briefcase, CheckSquare, MessageSquare, AlarmClock } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -14,6 +14,7 @@ import type { AppNotification, NotificationType } from '@/lib/supabase/notificat
 function NotificationIcon({ type }: { type: NotificationType }) {
   if (type === 'task_assigned') return <CheckSquare className="h-4 w-4 text-primary" />;
   if (type === 'task_mentioned') return <CheckSquare className="h-4 w-4 text-blue-400" />;
+  if (type === 'reminder_due') return <AlarmClock className="h-4 w-4 text-primary" />;
   return <MessageSquare className="h-4 w-4 text-amber-400" />;
 }
 
@@ -43,6 +44,14 @@ function NotificationRow({
 
   const handleClick = () => {
     if (!notification.isRead) onRead(notification.id);
+    if (notification.type === 'reminder_due') {
+      if (notification.clientId) {
+        router.push(`/workspace/${notification.clientId}`);
+      } else {
+        window.dispatchEvent(new CustomEvent('reminders:open'));
+      }
+      return;
+    }
     router.push(buildUrl(notification));
   };
 
