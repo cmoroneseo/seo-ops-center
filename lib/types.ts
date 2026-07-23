@@ -651,3 +651,28 @@ export interface PersonalNote {
     createdAt: string;
     updatedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Personal Reminders (migration 025)
+// ---------------------------------------------------------------------------
+
+export type ReminderRecurrence = 'none' | 'daily' | 'weekly' | 'monthly';
+export type ReminderStatus = 'pending' | 'done' | 'dismissed';
+
+export interface Reminder {
+    id: string;
+    organizationId: string;
+    userId: string;
+    title: string;
+    notes?: string;
+    dueAt: string;
+    /** 0 = on due date, N = minutes before, undefined = don't notify */
+    notifyOffsetMinutes?: number;
+    recurrence: ReminderRecurrence;
+    clientId?: string;
+    status: ReminderStatus;
+    notifiedAt?: string;
+    completedAt?: string;
+    createdAt: string;
+    updatedAt: string;
+}
