@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { nextDueDate, notifyAtMs, groupReminders, dueLabel } from './reminders-logic.ts';
-import { Reminder } from './types.ts';
+import type { Reminder } from './types.ts';
 
 function mkReminder(overrides: Partial<Reminder>): Reminder {
     return {
