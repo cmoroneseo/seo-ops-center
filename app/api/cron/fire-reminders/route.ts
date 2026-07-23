@@ -11,9 +11,10 @@ export const maxDuration = 60;
  *
  * Every 5 minutes (Vercel Cron). Finds pending personal reminders whose
  * notify time (due_at minus notify_offset_minutes) has arrived and creates
- * a 'reminder_due' bell notification for the owner. Stamps notified_at so
- * a reminder never fires twice. Recurrence is handled at completion time
- * (completeReminder), not here.
+ * a 'reminder_due' bell notification for the owner. Claims each row with a
+ * conditional update (still notified_at IS NULL) before notifying, so a
+ * reminder never fires twice even under overlapping/retried invocations.
+ * Recurrence is handled at completion time (completeReminder), not here.
  */
 
 async function isAuthorized(req: NextRequest): Promise<boolean> {
@@ -46,23 +47,43 @@ export async function POST(req: NextRequest) {
     const now = Date.now();
 
     try {
-        // Candidates: pending, never notified, notification enabled, and due
-        // within the next 24h or already past. The precise offset check
-        // happens in TS via notifyAtMs.
-        const horizon = new Date(now + 24 * 60 * 60 * 1000).toISOString();
+        // Candidates: pending, never notified, notification enabled. No
+        // due_at horizon filter — notify_offset_minutes is unbounded (e.g.
+        // "2 days before"), so a due_at-based cutoff can exclude a row whose
+        // notify time has already arrived even though due_at itself is far
+        // out. Personal reminder volume per org is small, so a full scan of
+        // eligible rows is cheap. The precise offset check happens in TS.
         const { data: reminders, error } = await admin
             .from('personal_reminders')
             .select('id, organization_id, user_id, title, notes, due_at, notify_offset_minutes, client_id')
             .eq('status', 'pending')
             .is('notified_at', null)
-            .not('notify_offset_minutes', 'is', null)
-            .lte('due_at', horizon);
+            .not('notify_offset_minutes', 'is', null);
         if (error) throw error;
 
         for (const r of reminders ?? []) {
             results.checked++;
             const fireAt = notifyAtMs(r.due_at, r.notify_offset_minutes);
             if (fireAt === null || fireAt > now) continue;
+
+            // Claim the row before notifying: an atomic conditional update
+            // (still notified_at IS NULL) means a slow/duplicate cron
+            // invocation can't double-fire. If the notification insert
+            // then fails, we accept a missed notification over a duplicate
+            // one — the constraint is "never twice," not "always exactly
+            // once."
+            const { data: claimed, error: claimErr } = await admin
+                .from('personal_reminders')
+                .update({ notified_at: new Date(now).toISOString() })
+                .eq('id', r.id)
+                .is('notified_at', null)
+                .select('id');
+            if (claimErr) {
+                console.error(`[fire-reminders] claim error for ${r.id}:`, claimErr);
+                results.errors++;
+                continue;
+            }
+            if (!claimed || claimed.length === 0) continue; // already claimed by another run
 
             const { error: notifErr } = await admin.from('notifications').insert({
                 organization_id: r.organization_id,
@@ -76,16 +97,6 @@ export async function POST(req: NextRequest) {
             });
             if (notifErr) {
                 console.error(`[fire-reminders] notify error for ${r.id}:`, notifErr);
-                results.errors++;
-                continue;
-            }
-
-            const { error: stampErr } = await admin
-                .from('personal_reminders')
-                .update({ notified_at: new Date(now).toISOString() })
-                .eq('id', r.id);
-            if (stampErr) {
-                console.error(`[fire-reminders] stamp error for ${r.id}:`, stampErr);
                 results.errors++;
             } else {
                 results.fired++;
