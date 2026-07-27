@@ -1,19 +1,28 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { addDays, startOfWeek, endOfWeek, eachDayOfInterval } from 'date-fns';
+import { addDays, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isPast } from 'date-fns';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
-import { PlannerEvent, Task, Reminder } from '@/lib/types';
+import { PlannerEvent, Task, Reminder, PlannerPriority } from '@/lib/types';
+import { getOrganizationMembers } from '@/lib/supabase/organizations';
+import {
+    listPlannerPriorities, createPlannerPriority,
+    reorderPlannerPriorities, deletePlannerPriority,
+} from '@/lib/supabase/planner-priorities';
 import { listPlannerEvents, updatePlannerEvent } from '@/lib/supabase/planner-events';
 import { getTasks, updateTask } from '@/lib/supabase/tasks';
 import { DragCommit } from '@/lib/planner/use-planner-drag';
 import { durationMinutes } from '@/lib/planner/layout';
 import { listReminders } from '@/lib/supabase/personal-reminders';
-import { PlannerItem, eventToItem, taskToItem, reminderToItem } from '@/lib/planner/items';
+import {
+    PlannerItem, eventToItem, taskToItem, reminderToItem, TASK_DEFAULT_MINUTES,
+} from '@/lib/planner/items';
 import { PlannerHeader, PlannerView } from '@/components/planner/PlannerHeader';
-import { WeekGrid } from '@/components/planner/WeekGrid';
+import { WeekGrid, PlannerDragHandles } from '@/components/planner/WeekGrid';
 import { QuickCreatePopover } from '@/components/planner/QuickCreatePopover';
+import { PlannerSidebar } from '@/components/planner/PlannerSidebar';
+import { TeamMember } from '@/components/planner/MeetWithFilter';
 
 export default function PlannerPage() {
     const { organization } = useOrganization();
@@ -30,6 +39,10 @@ export default function PlannerPage() {
         startsAt: string;
         endsAt: string;
     } | null>(null);
+    const [priorities, setPriorities] = useState<PlannerPriority[]>([]);
+    const [members, setMembers] = useState<TeamMember[]>([]);
+    const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+    const [dragHandles, setDragHandles] = useState<PlannerDragHandles | null>(null);
 
     // Visible range. Week view spans Sun-Sat; day view is a single day. Month
     // view widens the range in Task 11.
@@ -62,6 +75,17 @@ export default function PlannerPage() {
 
     useEffect(() => { void load(); }, [load]);
 
+    // Priorities and the teammate roster do not depend on the visible range.
+    useEffect(() => {
+        if (!organization?.id || !userId) return;
+        void listPlannerPriorities({ organizationId: organization.id, userId }).then(setPriorities);
+        void getOrganizationMembers(organization.id).then(rows =>
+            setMembers(rows.map(m => ({
+                userId: m.userId,
+                name: m.user?.fullName || m.user?.email || 'Team member',
+            }))));
+    }, [organization?.id, userId]);
+
     // Everything that belongs on the grid, normalized to one shape.
     const items: PlannerItem[] = useMemo(() => {
         const fromTasks = tasks
@@ -74,9 +98,29 @@ export default function PlannerPage() {
         ];
     }, [events, tasks, reminders]);
 
+    // An empty teammate selection means no filter at all.
+    const visibleItems = useMemo(() => {
+        if (selectedMemberIds.length === 0) return items;
+        return items.filter(i =>
+            (i.ownerId && selectedMemberIds.includes(i.ownerId)) ||
+            i.attendeeIds.some(id => selectedMemberIds.includes(id)));
+    }, [items, selectedMemberIds]);
+
     // Tasks with no startDate are the backlog.
     const backlog = useMemo(
         () => tasks.filter(t => !t.startDate && t.status !== 'done'),
+        [tasks],
+    );
+
+    const assignedToMe = useMemo(
+        () => tasks.filter(t => (t.assigneeIds ?? []).includes(userId) && t.status !== 'done'),
+        [tasks, userId],
+    );
+
+    const todayAndOverdue = useMemo(
+        () => tasks.filter(t =>
+            t.status !== 'done' && t.dueDate &&
+            (isToday(new Date(t.dueDate)) || isPast(new Date(t.dueDate)))),
         [tasks],
     );
 
@@ -147,8 +191,54 @@ export default function PlannerPage() {
         });
     }, [days]);
 
+    const handleAddPriority = useCallback(async (label: string) => {
+        if (!organization?.id || !userId) return;
+        const created = await createPlannerPriority({
+            organizationId: organization.id, userId, label, sortOrder: priorities.length,
+        });
+        if (created) setPriorities(prev => [...prev, created]);
+    }, [organization?.id, userId, priorities.length]);
+
+    const handleRemovePriority = useCallback(async (id: string) => {
+        setPriorities(prev => prev.filter(p => p.id !== id));
+        await deletePlannerPriority(id);
+    }, []);
+
+    const handleReorderPriorities = useCallback(async (orderedIds: string[]) => {
+        setPriorities(prev => orderedIds
+            .map((id, i) => {
+                const p = prev.find(x => x.id === id);
+                return p ? { ...p, sortOrder: i } : null;
+            })
+            .filter((p): p is PlannerPriority => p !== null));
+        await reorderPlannerPriorities(orderedIds.map((id, i) => ({ id, sortOrder: i })));
+    }, []);
+
+    const handleTaskDragStart = useCallback((task: Task, e: React.PointerEvent) => {
+        const minutes = task.estimatedHours
+            ? Math.round(task.estimatedHours * 60)
+            : TASK_DEFAULT_MINUTES;
+        dragHandles?.beginSchedule(task.id, task.title, minutes, e);
+    }, [dragHandles]);
+
     return (
         <div className="flex h-full min-h-0 w-full">
+            <PlannerSidebar
+                priorities={priorities}
+                tasks={tasks}
+                assignedToMe={assignedToMe}
+                todayAndOverdue={todayAndOverdue}
+                backlog={backlog}
+                members={members}
+                selectedMemberIds={selectedMemberIds}
+                onToggleMember={id => setSelectedMemberIds(prev =>
+                    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])}
+                onAddPriority={handleAddPriority}
+                onRemovePriority={handleRemovePriority}
+                onReorderPriorities={handleReorderPriorities}
+                onTaskDragStart={handleTaskDragStart}
+            />
+
             <div className="flex flex-1 min-w-0 flex-col">
                 <PlannerHeader
                     anchorDate={anchorDate}
@@ -158,11 +248,18 @@ export default function PlannerPage() {
                     onToday={handleToday}
                     onViewChange={setView}
                 />
+                {isLoading && (
+                    <div className="h-0.5 w-full overflow-hidden bg-primary/10">
+                        <div className="h-full w-1/3 animate-pulse bg-primary" />
+                    </div>
+                )}
+
                 <WeekGrid
                     days={days}
-                    items={items}
+                    items={visibleItems}
                     onCommit={handleCommit}
                     onCreate={handleCreate}
+                    onDragHandlesReady={setDragHandles}
                 />
             </div>
 
