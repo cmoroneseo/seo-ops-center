@@ -2,16 +2,22 @@
 
 import { isToday, isSameDay, format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { PX_PER_HOUR, DEFAULT_START_HOUR, DEFAULT_END_HOUR } from '@/lib/planner/layout';
+import {
+    PX_PER_HOUR, DEFAULT_START_HOUR, DEFAULT_END_HOUR,
+    packOverlaps, minutesSinceMidnight, durationMinutes,
+} from '@/lib/planner/layout';
 import { PlannerItem } from '@/lib/planner/items';
 import { TimeAxis } from './TimeAxis';
 import { NowLine } from './NowLine';
+import { EventCard } from './EventCard';
+import { AllDayRow } from './AllDayRow';
 
 interface WeekGridProps {
     days: Date[];
     items: PlannerItem[];
     startHour?: number;
     endHour?: number;
+    onItemClick?: (item: PlannerItem) => void;
 }
 
 export function WeekGrid({
@@ -19,6 +25,7 @@ export function WeekGrid({
     items,
     startHour = DEFAULT_START_HOUR,
     endHour = DEFAULT_END_HOUR,
+    onItemClick,
 }: WeekGridProps) {
     const bodyHeight = (endHour - startHour) * PX_PER_HOUR;
     const hourLines = Array.from({ length: endHour - startHour }, (_, i) => i);
@@ -47,6 +54,8 @@ export function WeekGrid({
                 ))}
             </div>
 
+            <AllDayRow days={days} items={items} onItemClick={onItemClick} />
+
             {/* Scrollable time body */}
             <div className="flex min-h-0 flex-1 overflow-y-auto">
                 <TimeAxis startHour={startHour} endHour={endHour} />
@@ -67,8 +76,25 @@ export function WeekGrid({
                                 />
                             ))}
                             {isToday(day) && <NowLine startHour={startHour} />}
-                            {/* Event cards render here in Task 6 */}
-                            <span className="sr-only">{dayItems.length} items</span>
+
+                            {packOverlaps(
+                                dayItems.map(i => ({
+                                    id: i.id,
+                                    startMin: minutesSinceMidnight(i.startsAt),
+                                    endMin: minutesSinceMidnight(i.startsAt)
+                                        + Math.max(15, durationMinutes(i.startsAt, i.endsAt)),
+                                    item: i,
+                                })),
+                            ).map(({ item: packed, column, columnCount }) => (
+                                <EventCard
+                                    key={packed.id}
+                                    item={packed.item}
+                                    column={column}
+                                    columnCount={columnCount}
+                                    startHour={startHour}
+                                    onClick={onItemClick}
+                                />
+                            ))}
                         </div>
                     );
                 })}
