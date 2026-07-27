@@ -53,12 +53,21 @@ export function WeekGrid({
 
     const timedItems = items.filter(i => !i.allDay);
 
-    const { preview, beginMove, beginResize, beginCreate, beginSchedule, gridRef } = usePlannerDrag({
+    const {
+        preview, beginMove, beginResize, beginCreate, beginSchedule, consumeDragClick, gridRef,
+    } = usePlannerDrag({
         days,
         startHour,
         onCommit: onCommit ?? (() => {}),
         onCreate,
     });
+
+    // pointerup after a drag is followed by a click; opening the detail panel
+    // there would make every drop pop the panel.
+    const handleCardClick = (item: PlannerItem) => {
+        if (consumeDragClick()) return;
+        onItemClick?.(item);
+    };
 
     useEffect(() => {
         onDragHandlesReady?.({ beginSchedule });
@@ -141,7 +150,7 @@ export function WeekGrid({
                                     column={column}
                                     columnCount={columnCount}
                                     startHour={startHour}
-                                    onClick={onItemClick}
+                                    onClick={handleCardClick}
                                     onMoveStart={beginMove}
                                     onResizeStart={beginResize}
                                 />

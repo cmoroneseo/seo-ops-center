@@ -1,9 +1,28 @@
-import { PlannerEvent, PlannerEventKind, Task, Reminder } from '../types';
+// Type-only so Node's TypeScript stripping erases the import entirely — this is
+// what lets `node --test lib/planner/items.test.ts` resolve without a bundler.
+import type { PlannerEvent, PlannerEventKind, Task, Reminder } from '../types';
 
 /** A task with no estimatedHours still needs a visible block. */
 export const TASK_DEFAULT_MINUTES = 60;
 
 export type PlannerItemSource = 'event' | 'task' | 'reminder';
+
+/**
+ * Parse a task's start.
+ *
+ * `new Date('2026-07-30')` is parsed as UTC midnight, which is the *previous*
+ * evening anywhere west of Greenwich — a task scheduled for Thursday would
+ * render on Wednesday. Migration 027 made `tasks.start_date` a timestamptz, but
+ * rows written before it (and any hand-entered date) are still bare dates, so
+ * those are parsed as local midnight instead.
+ */
+export function parseTaskStart(value: string): Date | null {
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.exec(value);
+    const d = dateOnly
+        ? new Date(Number(value.slice(0, 4)), Number(value.slice(5, 7)) - 1, Number(value.slice(8, 10)))
+        : new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
 
 /**
  * The single shape the grid renders. Events, scheduled tasks, and reminders
@@ -48,8 +67,8 @@ export function eventToItem(e: PlannerEvent): PlannerItem {
  */
 export function taskToItem(t: Task): PlannerItem | null {
     if (!t.startDate) return null;
-    const start = new Date(t.startDate);
-    if (Number.isNaN(start.getTime())) return null;
+    const start = parseTaskStart(t.startDate);
+    if (!start) return null;
     const minutes = t.estimatedHours ? Math.round(t.estimatedHours * 60) : TASK_DEFAULT_MINUTES;
     const end = new Date(start.getTime() + minutes * 60_000);
     return {

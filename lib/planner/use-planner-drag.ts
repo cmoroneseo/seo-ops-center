@@ -55,10 +55,18 @@ function toIso(day: Date, minutes: number): string {
 export function usePlannerDrag({ days, startHour, onCommit, onCreate }: Options) {
     const gridRef = useRef<HTMLDivElement | null>(null);
     const stateRef = useRef<DragState>({ mode: 'idle' });
-    const [preview, setPreview] = useState<DragPreview | null>(null);
-    // handleUp reads the latest preview without re-subscribing the listeners.
+    // The ref is the source of truth for where the drag currently is; the state
+    // exists only to trigger a re-render of the ghost. handleUp must never
+    // depend on React having re-rendered before pointerup arrives.
     const previewRef = useRef<DragPreview | null>(null);
-    previewRef.current = preview;
+    const [preview, setPreviewState] = useState<DragPreview | null>(null);
+    const setPreview = useCallback((next: DragPreview | null) => {
+        previewRef.current = next;
+        setPreviewState(next);
+    }, []);
+    // A real mouse drag ends with pointerup AND a click. Without this flag the
+    // detail panel would open every time a card is dropped.
+    const draggedRef = useRef(false);
 
     /** Pointer position -> { dayIndex, minutes } in grid space. */
     const resolve = useCallback((e: PointerEvent | React.PointerEvent) => {
@@ -77,6 +85,9 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate }: Options)
     }, [days.length, startHour]);
 
     const beginMove = useCallback((item: PlannerItem, e: React.PointerEvent) => {
+        // Reset before the draggable check: every card press starts here, so this
+        // is what keeps a stale flag from swallowing an unrelated later click.
+        draggedRef.current = false;
         if (!item.draggable) return;
         const at = resolve(e);
         if (!at) return;
@@ -91,6 +102,7 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate }: Options)
     }, [resolve]);
 
     const beginResize = useCallback((item: PlannerItem, edge: 'top' | 'bottom', e: React.PointerEvent) => {
+        draggedRef.current = false;
         if (!item.draggable) return;
         stateRef.current = { mode: 'resize', item, edge };
         (e.target as Element).setPointerCapture?.(e.pointerId);
@@ -101,7 +113,7 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate }: Options)
         if (!at) return;
         stateRef.current = { mode: 'create', dayIndex: at.dayIndex, anchorMin: at.minutes };
         setPreview({ itemId: '__new__', startMin: at.minutes, endMin: at.minutes, dayIndex: at.dayIndex });
-    }, [resolve]);
+    }, [resolve, setPreview]);
 
     const beginSchedule = useCallback((
         taskId: string, title: string, durationMin: number, e: React.PointerEvent,
@@ -117,6 +129,7 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate }: Options)
             if (state.mode === 'idle') return;
             const at = resolve(e);
             if (!at) return;
+            draggedRef.current = true;
 
             if (state.mode === 'move') {
                 const startMin = clampMinutes(at.minutes - state.grabOffsetMin);
@@ -204,7 +217,17 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate }: Options)
             window.removeEventListener('pointercancel', abort);
             window.removeEventListener('keydown', handleKey);
         };
-    }, [days, resolve, onCommit, onCreate]);
+    }, [days, resolve, onCommit, onCreate, setPreview]);
 
-    return { preview, beginMove, beginResize, beginCreate, beginSchedule, gridRef };
+    /**
+     * True exactly once after a gesture that actually moved, so the caller can
+     * swallow the synthetic click that follows pointerup.
+     */
+    const consumeDragClick = useCallback(() => {
+        const dragged = draggedRef.current;
+        draggedRef.current = false;
+        return dragged;
+    }, []);
+
+    return { preview, beginMove, beginResize, beginCreate, beginSchedule, consumeDragClick, gridRef };
 }

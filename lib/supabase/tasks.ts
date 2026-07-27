@@ -57,7 +57,9 @@ function rowToTask(row: any): Task {
         assigneeIds: row.assignee_ids ?? [],
         assignees: row.assignee_ids ?? [], // backward compat
         dueDate: row.due_date ? (row.due_date as string).slice(0, 10) : undefined,
-        startDate: row.start_date ? (row.start_date as string).slice(0, 10) : undefined,
+        // Full timestamp, not sliced to a date: the planner time-blocks tasks on
+        // an hour grid and needs the time of day (migration 027).
+        startDate: row.start_date ?? undefined,
         completedAt: row.completed_at ?? undefined,
         priority: (row.priority as TaskPriority) ?? 'medium',
         status: (row.status as TaskStatus) ?? 'todo',
