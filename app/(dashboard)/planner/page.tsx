@@ -23,6 +23,7 @@ import { WeekGrid, PlannerDragHandles } from '@/components/planner/WeekGrid';
 import { QuickCreatePopover } from '@/components/planner/QuickCreatePopover';
 import { PlannerSidebar } from '@/components/planner/PlannerSidebar';
 import { TeamMember } from '@/components/planner/MeetWithFilter';
+import { EventDetailPanel } from '@/components/planner/EventDetailPanel';
 
 export default function PlannerPage() {
     const { organization } = useOrganization();
@@ -43,6 +44,7 @@ export default function PlannerPage() {
     const [members, setMembers] = useState<TeamMember[]>([]);
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
     const [dragHandles, setDragHandles] = useState<PlannerDragHandles | null>(null);
+    const [selected, setSelected] = useState<PlannerItem | null>(null);
 
     // Visible range. Week view spans Sun-Sat; day view is a single day. Month
     // view widens the range in Task 11.
@@ -257,11 +259,22 @@ export default function PlannerPage() {
                 <WeekGrid
                     days={days}
                     items={visibleItems}
+                    onItemClick={setSelected}
                     onCommit={handleCommit}
                     onCreate={handleCreate}
                     onDragHandlesReady={setDragHandles}
                 />
             </div>
+
+            {selected && (
+                <EventDetailPanel
+                    item={selected}
+                    members={members}
+                    onClose={() => setSelected(null)}
+                    onChanged={() => { setSelected(null); void load(); }}
+                    onDeleted={() => { setSelected(null); void load(); }}
+                />
+            )}
 
             {quickCreate && organization?.id && userId && (
                 <QuickCreatePopover
