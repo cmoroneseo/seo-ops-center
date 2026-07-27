@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { addDays, startOfWeek, endOfWeek } from 'date-fns';
+import { addDays, startOfWeek, endOfWeek, eachDayOfInterval } from 'date-fns';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { PlannerEvent, Task, Reminder } from '@/lib/types';
@@ -9,8 +9,8 @@ import { listPlannerEvents } from '@/lib/supabase/planner-events';
 import { getTasks } from '@/lib/supabase/tasks';
 import { listReminders } from '@/lib/supabase/personal-reminders';
 import { PlannerItem, eventToItem, taskToItem, reminderToItem } from '@/lib/planner/items';
-
-export type PlannerView = 'day' | 'week' | 'month';
+import { PlannerHeader, PlannerView } from '@/components/planner/PlannerHeader';
+import { WeekGrid } from '@/components/planner/WeekGrid';
 
 export default function PlannerPage() {
     const { organization } = useOrganization();
@@ -72,14 +72,30 @@ export default function PlannerPage() {
         [tasks],
     );
 
+    const days = useMemo(
+        () => (view === 'day'
+            ? [range.start]
+            : eachDayOfInterval({ start: range.start, end: addDays(range.end, -1) })),
+        [range.start, range.end, view],
+    );
+
+    const step = view === 'day' ? 1 : 7;
+    const handlePrev = () => setAnchorDate(d => addDays(d, -step));
+    const handleNext = () => setAnchorDate(d => addDays(d, step));
+    const handleToday = () => setAnchorDate(new Date());
+
     return (
         <div className="flex h-full min-h-0 w-full">
             <div className="flex flex-1 min-w-0 flex-col">
-                <div className="p-6 text-sm text-muted-foreground">
-                    {isLoading
-                        ? 'Loading planner…'
-                        : `${items.length} items, ${backlog.length} in backlog — grid arrives in Task 5.`}
-                </div>
+                <PlannerHeader
+                    anchorDate={anchorDate}
+                    view={view}
+                    onPrev={handlePrev}
+                    onNext={handleNext}
+                    onToday={handleToday}
+                    onViewChange={setView}
+                />
+                <WeekGrid days={days} items={items} />
             </div>
         </div>
     );
