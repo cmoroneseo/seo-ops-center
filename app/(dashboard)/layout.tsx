@@ -49,6 +49,7 @@ export default function DashboardLayout({
     const isSetupPage = pathname.startsWith('/setup-organization');
     const isWorkspace = pathname.startsWith('/workspace');
     const isTasks = pathname.startsWith('/tasks');
+    const isPlanner = pathname.startsWith('/planner');
     const isDashboard = pathname === '/dashboard';
     const showProjectSidebar = !isSetupPage && (isWorkspace || isTasks || isDashboard);
 
@@ -65,8 +66,12 @@ export default function DashboardLayout({
                             "flex-1 min-w-0 overflow-y-auto",
                             isSetupPage
                                 ? "flex flex-col items-center justify-center"
-                                // Base padding, then mobile top/bottom offsets to clear the fixed bars.
-                                : "p-4 sm:p-6 lg:p-8 pt-[calc(3.5rem+1rem)] pb-20 lg:pt-8 lg:pb-8"
+                                // The planner manages its own scrolling and rails, so it opts out
+                                // of the page padding entirely.
+                                : isPlanner
+                                    ? "overflow-hidden p-0 pt-14 lg:pt-0"
+                                    // Base padding, then mobile top/bottom offsets to clear the fixed bars.
+                                    : "p-4 sm:p-6 lg:p-8 pt-[calc(3.5rem+1rem)] pb-20 lg:pt-8 lg:pb-8"
                         )}>
                             {children}
                         </main>
