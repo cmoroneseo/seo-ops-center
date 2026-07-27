@@ -676,3 +676,40 @@ export interface Reminder {
     createdAt: string;
     updatedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Weekly Planner (migration 026)
+// ---------------------------------------------------------------------------
+
+export type PlannerEventKind = 'meeting' | 'focus' | 'ooo' | 'lunch' | 'event';
+export type PlannerEventVisibility = 'default' | 'private';
+
+export interface PlannerEvent {
+    id: string;
+    organizationId: string;
+    userId: string;
+    title: string;
+    description?: string;
+    kind: PlannerEventKind;
+    startsAt: string;
+    endsAt: string;
+    allDay: boolean;
+    location?: string;
+    clientId?: string;
+    taskId?: string;
+    attendeeIds: string[];
+    busy: boolean;
+    visibility: PlannerEventVisibility;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface PlannerPriority {
+    id: string;
+    organizationId: string;
+    userId: string;
+    taskId?: string;
+    label?: string;
+    sortOrder: number;
+    createdAt: string;
+}
