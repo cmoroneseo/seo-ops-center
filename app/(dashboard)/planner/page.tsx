@@ -28,6 +28,7 @@ import { PlannerSidebar } from '@/components/planner/PlannerSidebar';
 import { TeamMember } from '@/components/planner/MeetWithFilter';
 import { EventDetailPanel } from '@/components/planner/EventDetailPanel';
 import { MonthGrid } from '@/components/planner/MonthGrid';
+import { PlannerCommandBar } from '@/components/planner/PlannerCommandBar';
 
 export default function PlannerPage() {
     const { organization } = useOrganization();
@@ -295,6 +296,16 @@ export default function PlannerPage() {
                     onDeleted={() => { setSelected(null); void load(); }}
                 />
             )}
+
+            <PlannerCommandBar
+                items={items}
+                members={members}
+                onSelectItem={item => { setAnchorDate(new Date(item.startsAt)); setSelected(item); }}
+                onSelectMember={id => setSelectedMemberIds(prev =>
+                    prev.includes(id) ? prev : [...prev, id])}
+                onGoToToday={handleToday}
+                onViewChange={setView}
+            />
 
             {quickCreate && organization?.id && userId && (
                 <QuickCreatePopover
