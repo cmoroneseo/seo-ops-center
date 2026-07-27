@@ -13,6 +13,7 @@ import { listReminders } from '@/lib/supabase/personal-reminders';
 import { PlannerItem, eventToItem, taskToItem, reminderToItem } from '@/lib/planner/items';
 import { PlannerHeader, PlannerView } from '@/components/planner/PlannerHeader';
 import { WeekGrid } from '@/components/planner/WeekGrid';
+import { QuickCreatePopover } from '@/components/planner/QuickCreatePopover';
 
 export default function PlannerPage() {
     const { organization } = useOrganization();
@@ -24,6 +25,11 @@ export default function PlannerPage() {
     const [tasks, setTasks] = useState<Task[]>([]);
     const [reminders, setReminders] = useState<Reminder[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [quickCreate, setQuickCreate] = useState<{
+        anchor: { x: number; y: number };
+        startsAt: string;
+        endsAt: string;
+    } | null>(null);
 
     // Visible range. Week view spans Sun-Sat; day view is a single day. Month
     // view widens the range in Task 11.
@@ -124,6 +130,23 @@ export default function PlannerPage() {
         }
     }, [load]);
 
+    const handleCreate = useCallback((dayIndex: number, startMin: number, endMin: number) => {
+        const day = days[dayIndex];
+        if (!day) return;
+        const at = (minutes: number) => {
+            const d = new Date(day);
+            d.setHours(0, 0, 0, 0);
+            d.setMinutes(minutes);
+            return d.toISOString();
+        };
+        setQuickCreate({
+            // The popover is 340px wide; keep it fully on screen.
+            anchor: { x: Math.min(window.innerWidth - 360, window.innerWidth / 2), y: 160 },
+            startsAt: at(startMin),
+            endsAt: at(endMin),
+        });
+    }, [days]);
+
     return (
         <div className="flex h-full min-h-0 w-full">
             <div className="flex flex-1 min-w-0 flex-col">
@@ -135,8 +158,24 @@ export default function PlannerPage() {
                     onToday={handleToday}
                     onViewChange={setView}
                 />
-                <WeekGrid days={days} items={items} onCommit={handleCommit} />
+                <WeekGrid
+                    days={days}
+                    items={items}
+                    onCommit={handleCommit}
+                    onCreate={handleCreate}
+                />
             </div>
+
+            {quickCreate && organization?.id && userId && (
+                <QuickCreatePopover
+                    organizationId={organization.id}
+                    userId={userId}
+                    anchor={quickCreate.anchor}
+                    draft={{ startsAt: quickCreate.startsAt, endsAt: quickCreate.endsAt }}
+                    onClose={() => setQuickCreate(null)}
+                    onCreated={() => void load()}
+                />
+            )}
         </div>
     );
 }
