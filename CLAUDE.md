@@ -101,6 +101,16 @@ https://seo-ops-center.vercel.app
   - `NoteList.tsx`: search (title + stripped HTML body), snippets, relative time, archived toggle; `ConvertToTaskModal.tsx` promotes a note to a real Task via `createTask` and stamps `task_id` (no sync back)
   - New notes auto-title with today's date; archive via `archived_at`, delete is hard with confirm
 
+- **Weekly Planner** (migration 026, Jul 2026):
+  - `/planner` page — ClickUp Planner-style week time-grid with its own left rail (excluded from `showProjectSidebar`, so no `ClientListPanel`); opts out of the `<main>` padding in `app/(dashboard)/layout.tsx`
+  - `planner_events` — org-readable / owner-writable (this is what makes the "Meet with" teammate filter possible), `visibility` `default`/`private`; `planner_priorities` — strictly personal
+  - The grid overlays **three sources** normalized to one `PlannerItem` shape (`lib/planner/items.ts`): `planner_events`, tasks with a `start_date` (sized by `estimated_hours`, default 1h), and pending reminders as all-day chips
+  - Dragging a backlog task writes `tasks.start_date` — no duplicate record, no sync problem
+  - `lib/planner/layout.ts` — pure geometry (interval-graph overlap packing, minute↔pixel, 15-min snap). Only planner module with tests: `node --test lib/planner/layout.test.ts` (15 tests)
+  - `lib/planner/use-planner-drag.ts` — ONE pointer-event hook, one `DragState` union for move/resize/create/schedule; optimistic commits that reload on failure. Hand-rolled, no dnd library
+  - Day/Week/Month views; `Cmd+/` command bar (`Cmd+K` and `Cmd+Shift+T` stay with `TopNav`)
+  - `components/tasks/TaskCalendarView.tsx` is deliberately untouched — the Tasks page month grid is separate code
+
 ## Key files (campaign)
 - `components/campaign/CampaignPlanTab.tsx` — 3-tab orchestrator
 - `components/campaign/sections/SectionCard.tsx` — shared helpers, types, label maps
@@ -128,6 +138,7 @@ https://seo-ops-center.vercel.app
 019: campaign_plans (applied Jun 2026)
 021: marketing_plans (pending manual apply in Supabase Dashboard)
 024: personal_notes (applied Jul 2026)
+026: planner_events + planner_priorities (pending manual apply in Supabase Dashboard)
 
 ## Supabase Storage buckets
 - `client-logos` — public, 1MB max, image types
