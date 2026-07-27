@@ -5,8 +5,10 @@ import { addDays, startOfWeek, endOfWeek, eachDayOfInterval } from 'date-fns';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { PlannerEvent, Task, Reminder } from '@/lib/types';
-import { listPlannerEvents } from '@/lib/supabase/planner-events';
-import { getTasks } from '@/lib/supabase/tasks';
+import { listPlannerEvents, updatePlannerEvent } from '@/lib/supabase/planner-events';
+import { getTasks, updateTask } from '@/lib/supabase/tasks';
+import { DragCommit } from '@/lib/planner/use-planner-drag';
+import { durationMinutes } from '@/lib/planner/layout';
 import { listReminders } from '@/lib/supabase/personal-reminders';
 import { PlannerItem, eventToItem, taskToItem, reminderToItem } from '@/lib/planner/items';
 import { PlannerHeader, PlannerView } from '@/components/planner/PlannerHeader';
@@ -84,6 +86,44 @@ export default function PlannerPage() {
     const handleNext = () => setAnchorDate(d => addDays(d, step));
     const handleToday = () => setAnchorDate(new Date());
 
+    /**
+     * Optimistic: move it locally first so the card lands under the cursor with
+     * no round-trip, then persist. A failed write reloads from the server rather
+     * than leaving the UI lying.
+     */
+    const handleCommit = useCallback(async (commit: DragCommit) => {
+        const rawId = commit.itemId.split(':')[1];
+        if (!rawId) return;
+
+        if (commit.source === 'event') {
+            setEvents(prev => prev.map(e =>
+                e.id === rawId ? { ...e, startsAt: commit.startsAt, endsAt: commit.endsAt } : e));
+            const saved = await updatePlannerEvent(rawId, {
+                startsAt: commit.startsAt,
+                endsAt: commit.endsAt,
+            });
+            if (!saved) {
+                console.error('[planner] failed to move event, reloading');
+                void load();
+            }
+            return;
+        }
+
+        if (commit.source === 'task') {
+            const hours = durationMinutes(commit.startsAt, commit.endsAt) / 60;
+            setTasks(prev => prev.map(t =>
+                t.id === rawId ? { ...t, startDate: commit.startsAt, estimatedHours: hours } : t));
+            const res = await updateTask(rawId, {
+                startDate: commit.startsAt,
+                estimatedHours: hours,
+            });
+            if (!res.success) {
+                console.error('[planner] failed to move task:', res.error);
+                void load();
+            }
+        }
+    }, [load]);
+
     return (
         <div className="flex h-full min-h-0 w-full">
             <div className="flex flex-1 min-w-0 flex-col">
@@ -95,7 +135,7 @@ export default function PlannerPage() {
                     onToday={handleToday}
                     onViewChange={setView}
                 />
-                <WeekGrid days={days} items={items} />
+                <WeekGrid days={days} items={items} onCommit={handleCommit} />
             </div>
         </div>
     );

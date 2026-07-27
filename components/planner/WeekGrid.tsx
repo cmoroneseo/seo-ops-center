@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { isToday, isSameDay, format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import {
@@ -11,6 +12,11 @@ import { TimeAxis } from './TimeAxis';
 import { NowLine } from './NowLine';
 import { EventCard } from './EventCard';
 import { AllDayRow } from './AllDayRow';
+import { usePlannerDrag, DragCommit } from '@/lib/planner/use-planner-drag';
+
+export interface PlannerDragHandles {
+    beginSchedule: (taskId: string, title: string, durationMin: number, e: React.PointerEvent) => void;
+}
 
 interface WeekGridProps {
     days: Date[];
@@ -18,6 +24,18 @@ interface WeekGridProps {
     startHour?: number;
     endHour?: number;
     onItemClick?: (item: PlannerItem) => void;
+    onCommit?: (commit: DragCommit) => void | Promise<void>;
+    onCreate?: (dayIndex: number, startMin: number, endMin: number) => void;
+    /** Hands the sidebar a way to start a backlog-task drag. */
+    onDragHandlesReady?: (handles: PlannerDragHandles) => void;
+}
+
+/** Build an ISO timestamp from a day plus a minute offset. */
+function isoAt(day: Date, minutes: number): string {
+    const d = new Date(day);
+    d.setHours(0, 0, 0, 0);
+    d.setMinutes(minutes);
+    return d.toISOString();
 }
 
 export function WeekGrid({
@@ -26,11 +44,31 @@ export function WeekGrid({
     startHour = DEFAULT_START_HOUR,
     endHour = DEFAULT_END_HOUR,
     onItemClick,
+    onCommit,
+    onCreate,
+    onDragHandlesReady,
 }: WeekGridProps) {
     const bodyHeight = (endHour - startHour) * PX_PER_HOUR;
     const hourLines = Array.from({ length: endHour - startHour }, (_, i) => i);
 
     const timedItems = items.filter(i => !i.allDay);
+
+    const { preview, beginMove, beginResize, beginCreate, beginSchedule, gridRef } = usePlannerDrag({
+        days,
+        startHour,
+        onCommit: onCommit ?? (() => {}),
+        onCreate,
+    });
+
+    useEffect(() => {
+        onDragHandlesReady?.({ beginSchedule });
+    }, [onDragHandlesReady, beginSchedule]);
+
+    // The item under the cursor is pulled out of normal flow and drawn as a
+    // ghost in whichever column the pointer is over — including a different day
+    // than the one it is persisted in.
+    const draggedItem = preview ? timedItems.find(i => i.id === preview.itemId) : undefined;
+    const previewDay = preview ? days[preview.dayIndex] : undefined;
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
@@ -57,20 +95,31 @@ export function WeekGrid({
             <AllDayRow days={days} items={items} onItemClick={onItemClick} />
 
             {/* Scrollable time body */}
-            <div className="flex min-h-0 flex-1 overflow-y-auto">
+            <div ref={gridRef} className="flex min-h-0 flex-1 overflow-y-auto">
                 <TimeAxis startHour={startHour} endHour={endHour} />
                 {days.map(day => {
-                    const dayItems = timedItems.filter(i => isSameDay(new Date(i.startsAt), day));
+                    const dayItems = timedItems.filter(i =>
+                        isSameDay(new Date(i.startsAt), day) && i.id !== draggedItem?.id);
+                    const showsGhost = Boolean(
+                        preview && draggedItem && previewDay && isSameDay(previewDay, day));
                     return (
                         <div
                             key={day.toISOString()}
                             className="relative flex-1 border-r border-border last:border-r-0"
                             style={{ height: bodyHeight }}
                             data-day={day.toISOString()}
+                            onPointerDown={e => {
+                                // Blank space only — cards stop propagation themselves.
+                                const el = e.target as HTMLElement;
+                                if (e.target === e.currentTarget || el.dataset.hourLine) {
+                                    beginCreate(e);
+                                }
+                            }}
                         >
                             {hourLines.map(i => (
                                 <div
                                     key={i}
+                                    data-hour-line="1"
                                     className="border-b border-border/50"
                                     style={{ height: PX_PER_HOUR }}
                                 />
@@ -93,8 +142,23 @@ export function WeekGrid({
                                     columnCount={columnCount}
                                     startHour={startHour}
                                     onClick={onItemClick}
+                                    onMoveStart={beginMove}
+                                    onResizeStart={beginResize}
                                 />
                             ))}
+
+                            {showsGhost && preview && draggedItem && previewDay && (
+                                <EventCard
+                                    item={{
+                                        ...draggedItem,
+                                        startsAt: isoAt(previewDay, preview.startMin),
+                                        endsAt: isoAt(previewDay, preview.endMin),
+                                    }}
+                                    column={0}
+                                    columnCount={1}
+                                    startHour={startHour}
+                                />
+                            )}
                         </div>
                     );
                 })}
