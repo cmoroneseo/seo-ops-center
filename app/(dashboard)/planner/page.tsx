@@ -1,7 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { addDays, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isPast } from 'date-fns';
+import {
+    addDays, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isPast,
+    startOfMonth, endOfMonth, addMonths,
+} from 'date-fns';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { PlannerEvent, Task, Reminder, PlannerPriority } from '@/lib/types';
@@ -24,6 +27,7 @@ import { QuickCreatePopover } from '@/components/planner/QuickCreatePopover';
 import { PlannerSidebar } from '@/components/planner/PlannerSidebar';
 import { TeamMember } from '@/components/planner/MeetWithFilter';
 import { EventDetailPanel } from '@/components/planner/EventDetailPanel';
+import { MonthGrid } from '@/components/planner/MonthGrid';
 
 export default function PlannerPage() {
     const { organization } = useOrganization();
@@ -46,13 +50,19 @@ export default function PlannerPage() {
     const [dragHandles, setDragHandles] = useState<PlannerDragHandles | null>(null);
     const [selected, setSelected] = useState<PlannerItem | null>(null);
 
-    // Visible range. Week view spans Sun-Sat; day view is a single day. Month
-    // view widens the range in Task 11.
+    // Visible range. Week spans Sun-Sat, day is a single day, month covers the
+    // whole month grid including the leading and trailing partial weeks.
     const range = useMemo(() => {
         if (view === 'day') {
             const start = new Date(anchorDate);
             start.setHours(0, 0, 0, 0);
             return { start, end: addDays(start, 1) };
+        }
+        if (view === 'month') {
+            return {
+                start: startOfWeek(startOfMonth(anchorDate)),
+                end: addDays(endOfWeek(endOfMonth(anchorDate)), 1),
+            };
         }
         return { start: startOfWeek(anchorDate), end: addDays(endOfWeek(anchorDate), 1) };
     }, [anchorDate, view]);
@@ -133,9 +143,10 @@ export default function PlannerPage() {
         [range.start, range.end, view],
     );
 
-    const step = view === 'day' ? 1 : 7;
-    const handlePrev = () => setAnchorDate(d => addDays(d, -step));
-    const handleNext = () => setAnchorDate(d => addDays(d, step));
+    const handlePrev = () => setAnchorDate(d =>
+        view === 'month' ? addMonths(d, -1) : addDays(d, view === 'day' ? -1 : -7));
+    const handleNext = () => setAnchorDate(d =>
+        view === 'month' ? addMonths(d, 1) : addDays(d, view === 'day' ? 1 : 7));
     const handleToday = () => setAnchorDate(new Date());
 
     /**
@@ -256,14 +267,23 @@ export default function PlannerPage() {
                     </div>
                 )}
 
-                <WeekGrid
-                    days={days}
-                    items={visibleItems}
-                    onItemClick={setSelected}
-                    onCommit={handleCommit}
-                    onCreate={handleCreate}
-                    onDragHandlesReady={setDragHandles}
-                />
+                {view === 'month' ? (
+                    <MonthGrid
+                        anchorDate={anchorDate}
+                        items={visibleItems}
+                        onItemClick={setSelected}
+                        onDayClick={day => { setAnchorDate(day); setView('day'); }}
+                    />
+                ) : (
+                    <WeekGrid
+                        days={days}
+                        items={visibleItems}
+                        onItemClick={setSelected}
+                        onCommit={handleCommit}
+                        onCreate={handleCreate}
+                        onDragHandlesReady={setDragHandles}
+                    />
+                )}
             </div>
 
             {selected && (
