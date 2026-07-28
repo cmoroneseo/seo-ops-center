@@ -67,6 +67,7 @@ function rowToTask(row: any): Task {
         tags: row.tags ?? [],
         subtasks: [], // loaded separately if needed
         estimatedHours: row.estimated_hours ?? undefined,
+        scheduledMinutes: row.scheduled_minutes ?? undefined,
         deliverableId: row.deliverable_id ?? undefined,
         parentTaskId: row.parent_task_id ?? undefined,
         sortOrder: row.sort_order ?? 0,
@@ -111,6 +112,7 @@ type TaskInsert = {
     category?: TaskCategory;
     tags?: string[];
     estimatedHours?: number;
+    scheduledMinutes?: number;
     deliverableId?: string;
     parentTaskId?: string;
     sortOrder?: number;
@@ -141,6 +143,7 @@ function taskToRow(t: Partial<TaskInsert>) {
         category: t.category,
         tags: t.tags ?? [],
         estimated_hours: t.estimatedHours,
+        scheduled_minutes: t.scheduledMinutes,
         deliverable_id: t.deliverableId,
         parent_task_id: t.parentTaskId,
         sort_order: t.sortOrder ?? 0,
@@ -348,12 +351,17 @@ export async function createTask(
 
 export async function updateTask(
     taskId: string,
-    patch: Partial<TaskInsert> & {
+    // startDate/scheduledMinutes are omitted from the base so they can widen to
+    // null — an intersection would collapse `string | null` back to `string`.
+    patch: Omit<Partial<TaskInsert>, 'startDate' | 'scheduledMinutes'> & {
         status?: TaskStatus;
         completedAt?: string | null;
         assigneeIds?: string[];
         tags?: string[];
         estimatedHours?: number | null;
+        /** null unschedules the task, sending it back to the planner backlog. */
+        startDate?: string | null;
+        scheduledMinutes?: number | null;
         sortOrder?: number;
         updatedBy?: string;
     },
@@ -373,6 +381,7 @@ export async function updateTask(
             ...(patch.category !== undefined && { category: patch.category }),
             ...(patch.tags !== undefined && { tags: patch.tags }),
             ...(patch.estimatedHours !== undefined && { estimated_hours: patch.estimatedHours }),
+            ...(patch.scheduledMinutes !== undefined && { scheduled_minutes: patch.scheduledMinutes }),
             ...(patch.deliverableId !== undefined && { deliverable_id: patch.deliverableId }),
             ...(patch.parentTaskId !== undefined && { parent_task_id: patch.parentTaskId }),
             ...(patch.sortOrder !== undefined && { sort_order: patch.sortOrder }),

@@ -26,6 +26,7 @@ interface WeekGridProps {
     onItemClick?: (item: PlannerItem) => void;
     onCommit?: (commit: DragCommit) => void | Promise<void>;
     onCreate?: (dayIndex: number, startMin: number, endMin: number) => void;
+    onUnschedule?: (itemId: string) => void | Promise<void>;
     /** Hands the sidebar a way to start a backlog-task drag. */
     onDragHandlesReady?: (handles: PlannerDragHandles) => void;
 }
@@ -46,6 +47,7 @@ export function WeekGrid({
     onItemClick,
     onCommit,
     onCreate,
+    onUnschedule,
     onDragHandlesReady,
 }: WeekGridProps) {
     const bodyHeight = (endHour - startHour) * PX_PER_HOUR;
@@ -60,6 +62,7 @@ export function WeekGrid({
         startHour,
         onCommit: onCommit ?? (() => {}),
         onCreate,
+        onUnschedule,
     });
 
     // pointerup after a drag is followed by a click; opening the detail panel

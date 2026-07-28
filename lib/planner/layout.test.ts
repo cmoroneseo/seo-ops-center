@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     PX_PER_HOUR,
+    AXIS_WIDTH,
     minutesToY,
     yToMinutes,
     snapMinutes,
@@ -9,6 +10,8 @@ import {
     packOverlaps,
     minutesSinceMidnight,
     durationMinutes,
+    resolvePointer,
+    isOutsideGrid,
 } from './layout.ts';
 
 // --- pixel <-> minute conversion -------------------------------------------
@@ -134,4 +137,92 @@ test('packOverlaps handles identical start and end times', () => {
 
 test('packOverlaps returns an empty array for no input', () => {
     assert.deepEqual(packOverlaps([]), []);
+});
+
+// --- pointer resolution -----------------------------------------------------
+// A 7-column grid 1164px wide: 64px axis + 7 columns of 157.14px.
+const RECT = { left: 100, top: 200, width: AXIS_WIDTH + 7 * 160 };
+const base = { rect: RECT, scrollTop: 0, dayCount: 7, startHour: 7 };
+
+test('resolvePointer maps the first column to day 0', () => {
+    const at = resolvePointer({ ...base, clientX: RECT.left + AXIS_WIDTH + 5, clientY: RECT.top });
+    assert.equal(at.dayIndex, 0);
+});
+
+test('resolvePointer maps the fifth column to day 4', () => {
+    const at = resolvePointer({ ...base, clientX: RECT.left + AXIS_WIDTH + 4 * 160 + 80, clientY: RECT.top });
+    assert.equal(at.dayIndex, 4);
+});
+
+test('resolvePointer clamps a pointer in the axis gutter to day 0', () => {
+    const at = resolvePointer({ ...base, clientX: RECT.left + 10, clientY: RECT.top });
+    assert.equal(at.dayIndex, 0);
+});
+
+test('resolvePointer clamps past the last column to the last day', () => {
+    const at = resolvePointer({ ...base, clientX: RECT.left + 99999, clientY: RECT.top });
+    assert.equal(at.dayIndex, 6);
+});
+
+test('resolvePointer converts y to the snapped wall-clock minute', () => {
+    // One hour below the top of a grid starting at 7am -> 8:00.
+    const at = resolvePointer({
+        ...base,
+        clientX: RECT.left + AXIS_WIDTH + 5,
+        clientY: RECT.top + PX_PER_HOUR,
+    });
+    assert.equal(at.minutes, 8 * 60);
+});
+
+test('resolvePointer accounts for scroll position', () => {
+    const at = resolvePointer({
+        ...base,
+        clientX: RECT.left + AXIS_WIDTH + 5,
+        clientY: RECT.top,
+        scrollTop: PX_PER_HOUR * 2,
+    });
+    assert.equal(at.minutes, 9 * 60);
+});
+
+test('resolvePointer snaps to the nearest 15 minutes', () => {
+    // 20 minutes past 7am in px -> snaps to 7:15.
+    const at = resolvePointer({
+        ...base,
+        clientX: RECT.left + AXIS_WIDTH + 5,
+        clientY: RECT.top + (20 / 60) * PX_PER_HOUR,
+    });
+    assert.equal(at.minutes, 7 * 60 + 15);
+});
+
+test('resolvePointer survives a single-day (day view) grid', () => {
+    const at = resolvePointer({
+        ...base,
+        dayCount: 1,
+        clientX: RECT.left + AXIS_WIDTH + 500,
+        clientY: RECT.top,
+    });
+    assert.equal(at.dayIndex, 0);
+});
+
+// --- drop-outside detection -------------------------------------------------
+
+test('isOutsideGrid is false inside the grid', () => {
+    assert.equal(
+        isOutsideGrid({ clientX: RECT.left + 200, clientY: RECT.top + 100, rect: RECT, height: 728 }),
+        false,
+    );
+});
+
+test('isOutsideGrid is true left of the grid (the sidebar)', () => {
+    assert.equal(
+        isOutsideGrid({ clientX: RECT.left - 50, clientY: RECT.top + 100, rect: RECT, height: 728 }),
+        true,
+    );
+});
+
+test('isOutsideGrid is true above the grid (the header)', () => {
+    assert.equal(
+        isOutsideGrid({ clientX: RECT.left + 200, clientY: RECT.top - 30, rect: RECT, height: 728 }),
+        true,
+    );
 });

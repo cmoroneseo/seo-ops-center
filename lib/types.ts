@@ -239,7 +239,10 @@ export interface Task {
     subtasks: Subtask[];
     deliverableId?: string;
     parentTaskId?: string;
+    /** How long the work takes. Never written by the planner. */
     estimatedHours?: number;
+    /** How much of a day the planner has blocked for it (migration 028). */
+    scheduledMinutes?: number;
     sortOrder?: number;
     statusHistory?: TaskStatusHistoryEntry[];
     customFields?: Record<string, unknown>;

@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PlannerItem, PlannerItemSource } from './items';
 import {
-    snapMinutes,
     clampMinutes,
-    yToMinutes,
     minutesSinceMidnight,
     durationMinutes,
+    resolvePointer,
+    isOutsideGrid,
     MIN_EVENT_MINUTES,
 } from './layout';
 
@@ -37,6 +37,8 @@ interface Options {
     startHour: number;
     onCommit: (commit: DragCommit) => void | Promise<void>;
     onCreate?: (dayIndex: number, startMin: number, endMin: number) => void;
+    /** A scheduled task dragged off the grid goes back to the backlog. */
+    onUnschedule?: (itemId: string) => void | Promise<void>;
 }
 
 /** Combine a calendar day with a minute offset into an ISO timestamp. */
@@ -52,7 +54,7 @@ function toIso(day: Date, minutes: number): string {
  * hook so they share one snapping rule and one pixel->time conversion. Pointer
  * capture keeps the drag alive when the cursor leaves the card.
  */
-export function usePlannerDrag({ days, startHour, onCommit, onCreate }: Options) {
+export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedule }: Options) {
     const gridRef = useRef<HTMLDivElement | null>(null);
     const stateRef = useRef<DragState>({ mode: 'idle' });
     // The ref is the source of truth for where the drag currently is; the state
@@ -68,21 +70,33 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate }: Options)
     // detail panel would open every time a card is dropped.
     const draggedRef = useRef(false);
 
-    /** Pointer position -> { dayIndex, minutes } in grid space. */
+    /** Pointer position -> { dayIndex, minutes } in grid space. Math lives in layout.ts. */
     const resolve = useCallback((e: PointerEvent | React.PointerEvent) => {
         const grid = gridRef.current;
         if (!grid) return null;
         const rect = grid.getBoundingClientRect();
-        // The time axis occupies a fixed gutter before the day columns.
-        const axisWidth = 64;
-        const columnWidth = (rect.width - axisWidth) / Math.max(1, days.length);
-        const dayIndex = Math.min(
-            days.length - 1,
-            Math.max(0, Math.floor((e.clientX - rect.left - axisWidth) / columnWidth)),
-        );
-        const y = e.clientY - rect.top + grid.scrollTop;
-        return { dayIndex, minutes: clampMinutes(snapMinutes(yToMinutes(y, startHour))) };
+        return resolvePointer({
+            clientX: e.clientX,
+            clientY: e.clientY,
+            rect: { left: rect.left, top: rect.top, width: rect.width },
+            scrollTop: grid.scrollTop,
+            dayCount: days.length,
+            startHour,
+        });
     }, [days.length, startHour]);
+
+    /** Was the drop outside the grid? That is the gesture for "unschedule". */
+    const droppedOutside = useCallback((e: PointerEvent) => {
+        const grid = gridRef.current;
+        if (!grid) return false;
+        const rect = grid.getBoundingClientRect();
+        return isOutsideGrid({
+            clientX: e.clientX,
+            clientY: e.clientY,
+            rect: { left: rect.left, top: rect.top, width: rect.width },
+            height: rect.height,
+        });
+    }, []);
 
     const beginMove = useCallback((item: PlannerItem, e: React.PointerEvent) => {
         // Reset before the draggable check: every card press starts here, so this
@@ -162,12 +176,19 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate }: Options)
             }
         };
 
-        const handleUp = () => {
+        const handleUp = (e: PointerEvent) => {
             const state = stateRef.current;
             const current = previewRef.current;
             stateRef.current = { mode: 'idle' };
             setPreview(null);
             if (state.mode === 'idle' || !current) return;
+
+            // Dropping a scheduled task off the grid sends it back to the backlog.
+            // Events have no backlog to return to, so they just stay put.
+            if (state.mode === 'move' && state.item.source === 'task' && droppedOutside(e)) {
+                void onUnschedule?.(state.item.id);
+                return;
+            }
 
             const day = days[current.dayIndex];
             if (!day) return;
@@ -217,7 +238,7 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate }: Options)
             window.removeEventListener('pointercancel', abort);
             window.removeEventListener('keydown', handleKey);
         };
-    }, [days, resolve, onCommit, onCreate, setPreview]);
+    }, [days, resolve, droppedOutside, onCommit, onCreate, onUnschedule, setPreview]);
 
     /**
      * True exactly once after a gesture that actually moved, so the caller can

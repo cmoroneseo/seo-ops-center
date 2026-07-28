@@ -61,15 +61,28 @@ export function eventToItem(e: PlannerEvent): PlannerItem {
 }
 
 /**
+ * How tall a task's block is.
+ *
+ * `scheduledMinutes` is what the planner sets aside for it; `estimatedHours` is
+ * how long the work takes. They are different facts, so the planner reads the
+ * estimate as a starting point but only ever writes the schedule. Falls back to
+ * an hour so a task never renders as a zero-height sliver.
+ */
+export function taskBlockMinutes(t: Task): number {
+    if (t.scheduledMinutes && t.scheduledMinutes > 0) return t.scheduledMinutes;
+    if (t.estimatedHours && t.estimatedHours > 0) return Math.round(t.estimatedHours * 60);
+    return TASK_DEFAULT_MINUTES;
+}
+
+/**
  * A task lands on the grid only when it has a startDate. Tasks without one are
- * the Backlog. Duration comes from estimatedHours, defaulting to one hour so a
- * task never renders as a zero-height sliver.
+ * the Backlog.
  */
 export function taskToItem(t: Task): PlannerItem | null {
     if (!t.startDate) return null;
     const start = parseTaskStart(t.startDate);
     if (!start) return null;
-    const minutes = t.estimatedHours ? Math.round(t.estimatedHours * 60) : TASK_DEFAULT_MINUTES;
+    const minutes = taskBlockMinutes(t);
     const end = new Date(start.getTime() + minutes * 60_000);
     return {
         id: `task:${t.id}`,

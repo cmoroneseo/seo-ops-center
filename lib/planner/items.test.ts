@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTaskStart, taskToItem, TASK_DEFAULT_MINUTES } from './items.ts';
+import { parseTaskStart, taskToItem, taskBlockMinutes, TASK_DEFAULT_MINUTES } from './items.ts';
 import type { Task } from '../types';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -63,6 +63,38 @@ test('taskToItem falls back to a one-hour block when estimatedHours is missing',
     assert.ok(item);
     const mins = (new Date(item.endsAt).getTime() - new Date(item.startsAt).getTime()) / 60_000;
     assert.equal(mins, TASK_DEFAULT_MINUTES);
+});
+
+// --- block duration: schedule vs estimate ----------------------------------
+
+test('taskBlockMinutes prefers scheduledMinutes over the estimate', () => {
+    // A 3-hour job with only 1 hour blocked on this day.
+    assert.equal(taskBlockMinutes(makeTask({ estimatedHours: 3, scheduledMinutes: 60 })), 60);
+});
+
+test('taskBlockMinutes falls back to the estimate when nothing is scheduled', () => {
+    assert.equal(taskBlockMinutes(makeTask({ estimatedHours: 2 })), 120);
+});
+
+test('taskBlockMinutes falls back to one hour when neither is set', () => {
+    assert.equal(taskBlockMinutes(makeTask()), TASK_DEFAULT_MINUTES);
+});
+
+test('taskBlockMinutes ignores a zero estimate rather than collapsing the card', () => {
+    assert.equal(taskBlockMinutes(makeTask({ estimatedHours: 0 })), TASK_DEFAULT_MINUTES);
+});
+
+test('taskToItem sizes the block from scheduledMinutes, leaving the estimate alone', () => {
+    const task = makeTask({
+        startDate: new Date(2026, 6, 30, 9, 0).toISOString(),
+        estimatedHours: 3,
+        scheduledMinutes: 45,
+    });
+    const item = taskToItem(task);
+    assert.ok(item);
+    const mins = (new Date(item.endsAt).getTime() - new Date(item.startsAt).getTime()) / 60_000;
+    assert.equal(mins, 45);
+    assert.equal(task.estimatedHours, 3); // untouched
 });
 
 test('taskToItem keeps a bare-date task on its own calendar day', () => {

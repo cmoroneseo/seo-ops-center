@@ -45,6 +45,66 @@ export function durationMinutes(startIso: string, endIso: string): number {
     return Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60_000);
 }
 
+/** Width of the hour-label gutter before the first day column. */
+export const AXIS_WIDTH = 64;
+
+export interface GridRect {
+    left: number;
+    top: number;
+    width: number;
+}
+
+export interface ResolvedPointer {
+    dayIndex: number;
+    minutes: number;
+}
+
+/**
+ * Pointer position -> which day column and which snapped minute.
+ *
+ * Extracted from the drag hook so it can be tested without a DOM: this is the
+ * conversion every gesture depends on, and getting it wrong moves events to the
+ * wrong day silently.
+ *
+ * `dayIndex` is clamped to the visible columns so a drag that wanders into the
+ * axis gutter or past the last column still resolves to a real day.
+ */
+export function resolvePointer(params: {
+    clientX: number;
+    clientY: number;
+    rect: GridRect;
+    scrollTop: number;
+    dayCount: number;
+    startHour: number;
+    axisWidth?: number;
+}): ResolvedPointer {
+    const { clientX, clientY, rect, scrollTop, dayCount, startHour } = params;
+    const axisWidth = params.axisWidth ?? AXIS_WIDTH;
+    const columns = Math.max(1, dayCount);
+    const columnWidth = (rect.width - axisWidth) / columns;
+    const dayIndex = columnWidth > 0
+        ? Math.min(columns - 1, Math.max(0, Math.floor((clientX - rect.left - axisWidth) / columnWidth)))
+        : 0;
+    const y = clientY - rect.top + scrollTop;
+    return { dayIndex, minutes: clampMinutes(snapMinutes(yToMinutes(y, startHour))) };
+}
+
+/** Is the pointer outside the grid entirely? A drop out here unschedules. */
+export function isOutsideGrid(params: {
+    clientX: number;
+    clientY: number;
+    rect: GridRect;
+    height: number;
+}): boolean {
+    const { clientX, clientY, rect, height } = params;
+    return (
+        clientX < rect.left ||
+        clientX > rect.left + rect.width ||
+        clientY < rect.top ||
+        clientY > rect.top + height
+    );
+}
+
 export interface PackableInterval {
     id: string;
     startMin: number;

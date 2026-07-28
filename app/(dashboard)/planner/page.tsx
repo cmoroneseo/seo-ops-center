@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { X } from 'lucide-react';
 import {
     addDays, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isPast,
     startOfMonth, endOfMonth, addMonths,
@@ -19,7 +20,7 @@ import { DragCommit } from '@/lib/planner/use-planner-drag';
 import { durationMinutes } from '@/lib/planner/layout';
 import { listReminders } from '@/lib/supabase/personal-reminders';
 import {
-    PlannerItem, eventToItem, taskToItem, reminderToItem, TASK_DEFAULT_MINUTES,
+    PlannerItem, eventToItem, taskToItem, reminderToItem, taskBlockMinutes,
 } from '@/lib/planner/items';
 import { PlannerHeader, PlannerView } from '@/components/planner/PlannerHeader';
 import { WeekGrid, PlannerDragHandles } from '@/components/planner/WeekGrid';
@@ -50,6 +51,14 @@ export default function PlannerPage() {
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
     const [dragHandles, setDragHandles] = useState<PlannerDragHandles | null>(null);
     const [selected, setSelected] = useState<PlannerItem | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    // Errors are transient: show, then get out of the way.
+    useEffect(() => {
+        if (!error) return;
+        const id = setTimeout(() => setError(null), 6000);
+        return () => clearTimeout(id);
+    }, [error]);
 
     // Visible range. Week spans Sun-Sat, day is a single day, month covers the
     // whole month grid including the leading and trailing partial weeks.
@@ -68,25 +77,39 @@ export default function PlannerPage() {
         return { start: startOfWeek(anchorDate), end: addDays(endOfWeek(anchorDate), 1) };
     }, [anchorDate, view]);
 
-    const load = useCallback(async () => {
-        if (!organization?.id || !userId) return;
+    /**
+     * Only events are range-scoped. Tasks and reminders are fetched whole, so
+     * refetching them on every week navigation would be pure waste — they are
+     * loaded once, by loadWork() below.
+     */
+    const loadEvents = useCallback(async () => {
+        if (!organization?.id) return;
         setIsLoading(true);
-        const [e, t, r] = await Promise.all([
-            listPlannerEvents({
-                organizationId: organization.id,
-                rangeStart: range.start.toISOString(),
-                rangeEnd: range.end.toISOString(),
-            }),
+        setEvents(await listPlannerEvents({
+            organizationId: organization.id,
+            rangeStart: range.start.toISOString(),
+            rangeEnd: range.end.toISOString(),
+        }));
+        setIsLoading(false);
+    }, [organization?.id, range.start, range.end]);
+
+    const loadWork = useCallback(async () => {
+        if (!organization?.id || !userId) return;
+        const [t, r] = await Promise.all([
             getTasks(organization.id, {}),
             listReminders({ organizationId: organization.id, userId }),
         ]);
-        setEvents(e);
         setTasks(t);
         setReminders(r);
-        setIsLoading(false);
-    }, [organization?.id, userId, range.start, range.end]);
+    }, [organization?.id, userId]);
 
-    useEffect(() => { void load(); }, [load]);
+    /** Everything — used after a write whose effect could span both. */
+    const reloadAll = useCallback(async () => {
+        await Promise.all([loadEvents(), loadWork()]);
+    }, [loadEvents, loadWork]);
+
+    useEffect(() => { void loadEvents(); }, [loadEvents]);
+    useEffect(() => { void loadWork(); }, [loadWork]);
 
     // Priorities and the teammate roster do not depend on the visible range.
     useEffect(() => {
@@ -167,26 +190,40 @@ export default function PlannerPage() {
                 endsAt: commit.endsAt,
             });
             if (!saved) {
-                console.error('[planner] failed to move event, reloading');
-                void load();
+                setError("Couldn't save that move — it's been put back.");
+                void loadEvents();
             }
             return;
         }
 
         if (commit.source === 'task') {
-            const hours = durationMinutes(commit.startsAt, commit.endsAt) / 60;
+            // scheduled_minutes, never estimated_hours: blocking an hour for a
+            // three-hour task must not rewrite the estimate (migration 028).
+            const minutes = durationMinutes(commit.startsAt, commit.endsAt);
             setTasks(prev => prev.map(t =>
-                t.id === rawId ? { ...t, startDate: commit.startsAt, estimatedHours: hours } : t));
+                t.id === rawId ? { ...t, startDate: commit.startsAt, scheduledMinutes: minutes } : t));
             const res = await updateTask(rawId, {
                 startDate: commit.startsAt,
-                estimatedHours: hours,
+                scheduledMinutes: minutes,
             });
             if (!res.success) {
-                console.error('[planner] failed to move task:', res.error);
-                void load();
+                setError("Couldn't save that move — it's been put back.");
+                void loadWork();
             }
         }
-    }, [load]);
+    }, [loadEvents, loadWork]);
+
+    const handleUnschedule = useCallback(async (itemId: string) => {
+        const rawId = itemId.split(':')[1];
+        if (!rawId) return;
+        setTasks(prev => prev.map(t =>
+            t.id === rawId ? { ...t, startDate: undefined, scheduledMinutes: undefined } : t));
+        const res = await updateTask(rawId, { startDate: null, scheduledMinutes: null });
+        if (!res.success) {
+            setError("Couldn't move that back to the backlog.");
+            void loadWork();
+        }
+    }, [loadWork]);
 
     const handleCreate = useCallback((dayIndex: number, startMin: number, endMin: number) => {
         const day = days[dayIndex];
@@ -229,10 +266,8 @@ export default function PlannerPage() {
     }, []);
 
     const handleTaskDragStart = useCallback((task: Task, e: React.PointerEvent) => {
-        const minutes = task.estimatedHours
-            ? Math.round(task.estimatedHours * 60)
-            : TASK_DEFAULT_MINUTES;
-        dragHandles?.beginSchedule(task.id, task.title, minutes, e);
+        // Same rule the grid uses to size a block — one definition, in items.ts.
+        dragHandles?.beginSchedule(task.id, task.title, taskBlockMinutes(task), e);
     }, [dragHandles]);
 
     return (
@@ -282,6 +317,7 @@ export default function PlannerPage() {
                         onItemClick={setSelected}
                         onCommit={handleCommit}
                         onCreate={handleCreate}
+                        onUnschedule={handleUnschedule}
                         onDragHandlesReady={setDragHandles}
                     />
                 )}
@@ -292,9 +328,25 @@ export default function PlannerPage() {
                     item={selected}
                     members={members}
                     onClose={() => setSelected(null)}
-                    onChanged={() => { setSelected(null); void load(); }}
-                    onDeleted={() => { setSelected(null); void load(); }}
+                    onChanged={() => { setSelected(null); void reloadAll(); }}
+                    onDeleted={() => { setSelected(null); void reloadAll(); }}
                 />
+            )}
+
+            {error && (
+                <div
+                    role="alert"
+                    className="fixed bottom-20 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-destructive/40 bg-popover px-4 py-2.5 text-xs shadow-lg"
+                >
+                    <span className="text-destructive">{error}</span>
+                    <button
+                        onClick={() => setError(null)}
+                        aria-label="Dismiss"
+                        className="text-muted-foreground hover:text-foreground"
+                    >
+                        <X className="h-3.5 w-3.5" />
+                    </button>
+                </div>
             )}
 
             <PlannerCommandBar
@@ -314,7 +366,7 @@ export default function PlannerPage() {
                     anchor={quickCreate.anchor}
                     draft={{ startsAt: quickCreate.startsAt, endsAt: quickCreate.endsAt }}
                     onClose={() => setQuickCreate(null)}
-                    onCreated={() => void load()}
+                    onCreated={() => void reloadAll()}
                 />
             )}
         </div>
