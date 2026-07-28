@@ -24,7 +24,9 @@ import {
 } from '@/lib/planner/items';
 import { PlannerHeader, PlannerView } from '@/components/planner/PlannerHeader';
 import { WeekGrid, PlannerDragHandles } from '@/components/planner/WeekGrid';
-import { QuickCreatePopover } from '@/components/planner/QuickCreatePopover';
+import { QuickCreatePopover, FullTaskDraft } from '@/components/planner/QuickCreatePopover';
+import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
+import { useClients } from '@/lib/hooks/use-clients';
 import { PlannerSidebar } from '@/components/planner/PlannerSidebar';
 import { TeamMember } from '@/components/planner/MeetWithFilter';
 import { EventDetailPanel } from '@/components/planner/EventDetailPanel';
@@ -58,6 +60,9 @@ export default function PlannerPage() {
     const [dragHandles, setDragHandles] = useState<PlannerDragHandles | null>(null);
     const [selected, setSelected] = useState<PlannerItem | null>(null);
     const [error, setError] = useState<string | null>(null);
+    // Set when the quick-create popover hands off to the full task editor.
+    const [fullTaskDraft, setFullTaskDraft] = useState<FullTaskDraft | null>(null);
+    const { clients } = useClients({ statuses: ['Active'] });
     // Read on mount rather than in useState so server and client render alike.
     const [prefs, setPrefs] = useState<PlannerPreferences>(DEFAULT_PREFERENCES);
     useEffect(() => { setPrefs(loadPreferences()); }, []);
@@ -411,9 +416,30 @@ export default function PlannerPage() {
                     userId={userId}
                     anchor={quickCreate.anchor}
                     draft={{ startsAt: quickCreate.startsAt, endsAt: quickCreate.endsAt }}
+                    clients={clients}
+                    members={members}
                     onClose={() => setQuickCreate(null)}
                     onCreated={() => void reloadAll()}
                     onBlockChange={block => setQuickCreate(qc => qc && { ...qc, ...block })}
+                    onOpenFullTask={setFullTaskDraft}
+                />
+            )}
+
+            {fullTaskDraft && organization?.id && (
+                <CreateTaskModal
+                    isOpen
+                    organizationId={organization.id}
+                    currentUserId={userId}
+                    defaultTitle={fullTaskDraft.title}
+                    defaultClientId={fullTaskDraft.clientId}
+                    defaultClientName={fullTaskDraft.clientName}
+                    defaultDueDate={fullTaskDraft.startsAt.slice(0, 10)}
+                    defaultStartDate={fullTaskDraft.startsAt}
+                    defaultScheduledMinutes={durationMinutes(
+                        fullTaskDraft.startsAt, fullTaskDraft.endsAt,
+                    )}
+                    onClose={() => setFullTaskDraft(null)}
+                    onCreated={() => { setFullTaskDraft(null); void reloadAll(); }}
                 />
             )}
         </div>
