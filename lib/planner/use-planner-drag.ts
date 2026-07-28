@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { PlannerEventKind } from '../types';
 import { PlannerItem, PlannerItemSource } from './items';
 import {
     clampMinutes,
@@ -23,6 +24,12 @@ export interface DragPreview {
     startMin: number;
     endMin: number;
     dayIndex: number;
+    /**
+     * What the ghost should say and how it should be coloured. Carried here
+     * because a create- or backlog-drag has no card on the grid to copy from.
+     */
+    label: string;
+    kind: PlannerEventKind;
 }
 
 type DragState =
@@ -126,7 +133,14 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedu
         const at = resolve(e);
         if (!at) return;
         stateRef.current = { mode: 'create', dayIndex: at.dayIndex, anchorMin: at.minutes };
-        setPreview({ itemId: '__new__', startMin: at.minutes, endMin: at.minutes, dayIndex: at.dayIndex });
+        setPreview({
+            itemId: '__new__',
+            startMin: at.minutes,
+            endMin: at.minutes,
+            dayIndex: at.dayIndex,
+            label: 'New event',
+            kind: 'event',
+        });
     }, [resolve, setPreview]);
 
     const beginSchedule = useCallback((
@@ -152,6 +166,8 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedu
                     startMin,
                     endMin: clampMinutes(startMin + state.durationMin),
                     dayIndex: at.dayIndex,
+                    label: state.item.title,
+                    kind: state.item.kind,
                 });
             } else if (state.mode === 'resize') {
                 const startMin = minutesSinceMidnight(state.item.startsAt);
@@ -161,17 +177,33 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedu
                 const next = state.edge === 'top'
                     ? { startMin: Math.min(at.minutes, endMin - MIN_EVENT_MINUTES), endMin }
                     : { startMin, endMin: Math.max(at.minutes, startMin + MIN_EVENT_MINUTES) };
-                setPreview({ itemId: state.item.id, ...next, dayIndex: Math.max(0, dayIndex) });
+                setPreview({
+                    itemId: state.item.id,
+                    ...next,
+                    dayIndex: Math.max(0, dayIndex),
+                    label: state.item.title,
+                    kind: state.item.kind,
+                });
             } else if (state.mode === 'create') {
                 const lo = Math.min(state.anchorMin, at.minutes);
                 const hi = Math.max(state.anchorMin, at.minutes);
-                setPreview({ itemId: '__new__', startMin: lo, endMin: hi, dayIndex: state.dayIndex });
+                setPreview({
+                    itemId: '__new__',
+                    startMin: lo,
+                    endMin: hi,
+                    dayIndex: state.dayIndex,
+                    label: 'New event',
+                    kind: 'event',
+                });
             } else if (state.mode === 'schedule') {
                 setPreview({
                     itemId: `task:${state.taskId}`,
                     startMin: at.minutes,
                     endMin: clampMinutes(at.minutes + state.durationMin),
                     dayIndex: at.dayIndex,
+                    label: state.title,
+                    // Scheduled tasks render as focus blocks, same as on the grid.
+                    kind: 'focus',
                 });
             }
         };

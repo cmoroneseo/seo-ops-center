@@ -76,11 +76,27 @@ export function WeekGrid({
         onDragHandlesReady?.({ beginSchedule });
     }, [onDragHandlesReady, beginSchedule]);
 
-    // The item under the cursor is pulled out of normal flow and drawn as a
-    // ghost in whichever column the pointer is over — including a different day
-    // than the one it is persisted in.
+    // The card under the cursor is pulled out of normal flow and drawn as a
+    // solid ghost in whichever column the pointer is over — including a day it
+    // is not persisted in. Built from the preview alone, because a create- or
+    // backlog-drag has no card on the grid to copy.
     const draggedItem = preview ? timedItems.find(i => i.id === preview.itemId) : undefined;
     const previewDay = preview ? days[preview.dayIndex] : undefined;
+
+    const ghostItem: PlannerItem | null = preview && previewDay
+        ? {
+            id: `${preview.itemId}:ghost`,
+            source: draggedItem?.source ?? 'event',
+            title: preview.label,
+            startsAt: isoAt(previewDay, preview.startMin),
+            endsAt: isoAt(previewDay, preview.endMin),
+            allDay: false,
+            kind: preview.kind,
+            attendeeIds: [],
+            draggable: false,
+            raw: draggedItem?.raw ?? ({} as PlannerItem['raw']),
+        }
+        : null;
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
@@ -112,8 +128,7 @@ export function WeekGrid({
                 {days.map(day => {
                     const dayItems = timedItems.filter(i =>
                         isSameDay(new Date(i.startsAt), day) && i.id !== draggedItem?.id);
-                    const showsGhost = Boolean(
-                        preview && draggedItem && previewDay && isSameDay(previewDay, day));
+                    const showsGhost = Boolean(ghostItem && previewDay && isSameDay(previewDay, day));
                     return (
                         <div
                             key={day.toISOString()}
@@ -159,16 +174,13 @@ export function WeekGrid({
                                 />
                             ))}
 
-                            {showsGhost && preview && draggedItem && previewDay && (
+                            {showsGhost && ghostItem && (
                                 <EventCard
-                                    item={{
-                                        ...draggedItem,
-                                        startsAt: isoAt(previewDay, preview.startMin),
-                                        endsAt: isoAt(previewDay, preview.endMin),
-                                    }}
+                                    item={ghostItem}
                                     column={0}
                                     columnCount={1}
                                     startHour={startHour}
+                                    ghost
                                 />
                             )}
                         </div>

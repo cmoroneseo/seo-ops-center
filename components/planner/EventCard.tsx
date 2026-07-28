@@ -15,18 +15,32 @@ export const KIND_STYLES: Record<PlannerEventKind, { card: string; accent: strin
     event:   { card: 'bg-sky-500/15 text-sky-700 dark:text-sky-300', accent: 'bg-sky-500' },
 };
 
+/**
+ * While a card is being dragged, resized, or drawn it fills solid rather than
+ * washing out — the block reads as a thing you are placing, not a hint.
+ */
+export const KIND_GHOST: Record<PlannerEventKind, string> = {
+    meeting: 'bg-blue-500 text-white',
+    focus:   'bg-violet-500 text-white',
+    ooo:     'bg-amber-500 text-white',
+    lunch:   'bg-emerald-500 text-white',
+    event:   'bg-sky-500 text-white',
+};
+
 interface EventCardProps {
     item: PlannerItem;
     column: number;
     columnCount: number;
     startHour: number;
+    /** Solid fill: this card is being dragged, resized, or drawn right now. */
+    ghost?: boolean;
     onClick?: (item: PlannerItem) => void;
     onMoveStart?: (item: PlannerItem, e: React.PointerEvent) => void;
     onResizeStart?: (item: PlannerItem, edge: 'top' | 'bottom', e: React.PointerEvent) => void;
 }
 
 export function EventCard({
-    item, column, columnCount, startHour, onClick, onMoveStart, onResizeStart,
+    item, column, columnCount, startHour, ghost = false, onClick, onMoveStart, onResizeStart,
 }: EventCardProps) {
     const startMin = minutesSinceMidnight(item.startsAt);
     const minutes = Math.max(15, durationMinutes(item.startsAt, item.endsAt));
@@ -51,13 +65,16 @@ export function EventCard({
             onPointerDown={e => onMoveStart?.(item, e)}
             onClick={() => onClick?.(item)}
             className={cn(
-                'absolute z-10 overflow-hidden rounded-md border border-black/5 px-2 py-1 text-left shadow-sm',
-                'transition-shadow hover:shadow-md',
+                'absolute overflow-hidden rounded-md border border-black/5 px-2 py-1 text-left',
                 onMoveStart && 'cursor-grab active:cursor-grabbing',
-                styles.card,
+                ghost
+                    // Lifted above the other cards and opaque, so it reads as the
+                    // block you are placing rather than one of the ones already there.
+                    ? cn('z-30 shadow-xl ring-2 ring-white/25', KIND_GHOST[item.kind])
+                    : cn('z-10 shadow-sm transition-shadow hover:shadow-md', styles.card),
             )}
         >
-            <div className={cn('absolute inset-y-0 left-0 w-0.5', styles.accent)} />
+            {!ghost && <div className={cn('absolute inset-y-0 left-0 w-0.5', styles.accent)} />}
             <div className={cn('truncate text-[11px] font-semibold leading-tight', isShort && 'text-[10px]')}>
                 {item.title}
             </div>

@@ -22,7 +22,7 @@ interface PlannerSidebarProps {
 
 export function PlannerSidebar(props: PlannerSidebarProps) {
     return (
-        <aside className="hidden h-full w-64 shrink-0 flex-col overflow-y-auto border-r border-border bg-card lg:flex">
+        <aside className="hidden h-full w-[257px] shrink-0 flex-col overflow-y-auto border-r border-border bg-card lg:flex">
             <div className="px-3 py-3 text-base font-semibold">Planner</div>
 
             <PrioritiesList
