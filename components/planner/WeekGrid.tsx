@@ -7,6 +7,7 @@ import {
     PX_PER_HOUR, DEFAULT_START_HOUR, DEFAULT_END_HOUR,
     packOverlaps, minutesSinceMidnight, durationMinutes,
 } from '@/lib/planner/layout';
+import type { PlannerEventKind } from '@/lib/types';
 import { PlannerItem } from '@/lib/planner/items';
 import { TimeAxis } from './TimeAxis';
 import { NowLine } from './NowLine';
@@ -27,6 +28,11 @@ interface WeekGridProps {
     onCommit?: (commit: DragCommit) => void | Promise<void>;
     onCreate?: (dayIndex: number, startMin: number, endMin: number) => void;
     onUnschedule?: (itemId: string) => void | Promise<void>;
+    /**
+     * A block that has been drawn but not saved yet — it stays on the grid,
+     * filled, while the quick-create popover collects the details.
+     */
+    pendingBlock?: { startsAt: string; endsAt: string; label: string; kind: PlannerEventKind } | null;
     /** Hands the sidebar a way to start a backlog-task drag. */
     onDragHandlesReady?: (handles: PlannerDragHandles) => void;
 }
@@ -48,6 +54,7 @@ export function WeekGrid({
     onCommit,
     onCreate,
     onUnschedule,
+    pendingBlock,
     onDragHandlesReady,
 }: WeekGridProps) {
     const bodyHeight = (endHour - startHour) * PX_PER_HOUR;
@@ -95,6 +102,22 @@ export function WeekGrid({
             attendeeIds: [],
             draggable: false,
             raw: draggedItem?.raw ?? ({} as PlannerItem['raw']),
+        }
+        : null;
+
+    // Same solid treatment as the drag ghost, held until the popover resolves.
+    const pendingItem: PlannerItem | null = pendingBlock
+        ? {
+            id: 'pending:block',
+            source: 'event',
+            title: pendingBlock.label,
+            startsAt: pendingBlock.startsAt,
+            endsAt: pendingBlock.endsAt,
+            allDay: false,
+            kind: pendingBlock.kind,
+            attendeeIds: [],
+            draggable: false,
+            raw: {} as PlannerItem['raw'],
         }
         : null;
 
@@ -177,6 +200,16 @@ export function WeekGrid({
                             {showsGhost && ghostItem && (
                                 <EventCard
                                     item={ghostItem}
+                                    column={0}
+                                    columnCount={1}
+                                    startHour={startHour}
+                                    ghost
+                                />
+                            )}
+
+                            {pendingItem && isSameDay(new Date(pendingItem.startsAt), day) && (
+                                <EventCard
+                                    item={pendingItem}
                                     column={0}
                                     columnCount={1}
                                     startHour={startHour}

@@ -8,7 +8,7 @@ import {
 } from 'date-fns';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
-import { PlannerEvent, Task, Reminder, PlannerPriority } from '@/lib/types';
+import { PlannerEvent, Task, Reminder, PlannerPriority, PlannerEventKind } from '@/lib/types';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import {
     listPlannerPriorities, createPlannerPriority,
@@ -45,6 +45,9 @@ export default function PlannerPage() {
         anchor: { x: number; y: number };
         startsAt: string;
         endsAt: string;
+        // Mirrors the popover's selected tab so the block on the grid recolours.
+        kind: PlannerEventKind;
+        label: string;
     } | null>(null);
     const [priorities, setPriorities] = useState<PlannerPriority[]>([]);
     const [members, setMembers] = useState<TeamMember[]>([]);
@@ -239,6 +242,8 @@ export default function PlannerPage() {
             anchor: { x: Math.min(window.innerWidth - 360, window.innerWidth / 2), y: 160 },
             startsAt: at(startMin),
             endsAt: at(endMin),
+            kind: 'event',
+            label: 'New event',
         });
     }, [days]);
 
@@ -318,6 +323,12 @@ export default function PlannerPage() {
                         onCommit={handleCommit}
                         onCreate={handleCreate}
                         onUnschedule={handleUnschedule}
+                        pendingBlock={quickCreate && {
+                            startsAt: quickCreate.startsAt,
+                            endsAt: quickCreate.endsAt,
+                            label: quickCreate.label,
+                            kind: quickCreate.kind,
+                        }}
                         onDragHandlesReady={setDragHandles}
                     />
                 )}
@@ -367,6 +378,7 @@ export default function PlannerPage() {
                     draft={{ startsAt: quickCreate.startsAt, endsAt: quickCreate.endsAt }}
                     onClose={() => setQuickCreate(null)}
                     onCreated={() => void reloadAll()}
+                    onBlockChange={block => setQuickCreate(qc => qc && { ...qc, ...block })}
                 />
             )}
         </div>

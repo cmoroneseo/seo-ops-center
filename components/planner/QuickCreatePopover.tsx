@@ -23,6 +23,14 @@ const TAB_KIND: Record<Exclude<Tab, 'task'>, PlannerEventKind> = {
     ooo: 'ooo',
 };
 
+/** How the block on the grid should look for each tab. */
+const TAB_BLOCK: Record<Tab, { kind: PlannerEventKind; label: string }> = {
+    event: { kind: 'event', label: 'New event' },
+    task: { kind: 'focus', label: 'New task' },
+    focus: { kind: 'focus', label: 'Focus time' },
+    ooo: { kind: 'ooo', label: 'Out of office' },
+};
+
 interface QuickCreatePopoverProps {
     organizationId: string;
     userId: string;
@@ -30,12 +38,19 @@ interface QuickCreatePopoverProps {
     draft: { startsAt: string; endsAt: string };
     onClose: () => void;
     onCreated: () => void;
+    /** Keeps the block drawn on the grid in sync with the selected tab. */
+    onBlockChange?: (block: { kind: PlannerEventKind; label: string }) => void;
 }
 
 export function QuickCreatePopover({
-    organizationId, userId, anchor, draft, onClose, onCreated,
+    organizationId, userId, anchor, draft, onClose, onCreated, onBlockChange,
 }: QuickCreatePopoverProps) {
     const [tab, setTab] = useState<Tab>('event');
+
+    const selectTab = (next: Tab) => {
+        setTab(next);
+        onBlockChange?.(TAB_BLOCK[next]);
+    };
     const [title, setTitle] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
@@ -107,7 +122,7 @@ export function QuickCreatePopover({
                 {TABS.map(t => (
                     <button
                         key={t.id}
-                        onClick={() => setTab(t.id)}
+                        onClick={() => selectTab(t.id)}
                         className={cn(
                             'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
                             tab === t.id
