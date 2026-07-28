@@ -3,6 +3,8 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { PlannerPreferences } from '@/lib/planner/preferences';
+import { PlannerSettings } from './PlannerSettings';
 
 export type PlannerView = 'day' | 'week' | 'month';
 
@@ -22,10 +24,12 @@ interface PlannerHeaderProps {
     onNext: () => void;
     onToday: () => void;
     onViewChange: (view: PlannerView) => void;
+    prefs: PlannerPreferences;
+    onPrefsChange: (next: PlannerPreferences) => void;
 }
 
 export function PlannerHeader({
-    anchorDate, view, onPrev, onNext, onToday, onViewChange,
+    anchorDate, view, onPrev, onNext, onToday, onViewChange, prefs, onPrefsChange,
 }: PlannerHeaderProps) {
     return (
         <div className="flex items-center gap-3 border-b border-border px-4 py-3">
@@ -71,6 +75,8 @@ export function PlannerHeader({
                         </button>
                     ))}
                 </div>
+
+                <PlannerSettings prefs={prefs} onChange={onPrefsChange} />
             </div>
         </div>
     );

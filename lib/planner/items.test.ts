@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTaskStart, taskToItem, taskBlockMinutes, TASK_DEFAULT_MINUTES } from './items.ts';
+import {
+    parseTaskStart, taskToItem, taskBlockMinutes, overdueTaskToItem, TASK_DEFAULT_MINUTES,
+} from './items.ts';
 import type { Task } from '../types';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -95,6 +97,28 @@ test('taskToItem sizes the block from scheduledMinutes, leaving the estimate alo
     const mins = (new Date(item.endsAt).getTime() - new Date(item.startsAt).getTime()) / 60_000;
     assert.equal(mins, 45);
     assert.equal(task.estimatedHours, 3); // untouched
+});
+
+// --- overdue roll-forward ---------------------------------------------------
+
+test('overdueTaskToItem anchors the chip to today, not the original due date', () => {
+    const today = new Date(2026, 6, 28);
+    const item = overdueTaskToItem(makeTask({ dueDate: '2026-07-22' }), today);
+    const at = new Date(item.startsAt);
+    assert.equal(at.getDate(), 28);
+    assert.equal(at.getMonth(), 6);
+    assert.equal(item.allDay, true);
+});
+
+test('overdueTaskToItem keeps the real due date in the label', () => {
+    const item = overdueTaskToItem(makeTask({ dueDate: '2026-07-22' }), new Date(2026, 6, 28));
+    // The chip moved, so the title has to say when it was actually due.
+    assert.match(item.title, /7\/22/);
+    assert.match(item.title, /Write blog post/);
+});
+
+test('overdueTaskToItem is not draggable — moving it would imply a new due date', () => {
+    assert.equal(overdueTaskToItem(makeTask({ dueDate: '2026-07-22' })).draggable, false);
 });
 
 test('taskToItem keeps a bare-date task on its own calendar day', () => {

@@ -99,6 +99,35 @@ export function taskToItem(t: Task): PlannerItem | null {
     };
 }
 
+/**
+ * An overdue, unscheduled task shown as an all-day chip on *today* rather than
+ * on the day it was due — otherwise it falls off the back of the grid and is
+ * only visible in the sidebar. The title carries the original due date so the
+ * moved position never reads as the real one.
+ */
+export function overdueTaskToItem(t: Task, today: Date = new Date()): PlannerItem {
+    const due = t.dueDate ? parseTaskStart(t.dueDate) : null;
+    const stamp = due
+        ? `${due.getMonth() + 1}/${due.getDate()}`
+        : '';
+    const anchor = new Date(today);
+    anchor.setHours(0, 0, 0, 0);
+    return {
+        id: `overdue:${t.id}`,
+        source: 'task',
+        title: stamp ? `Overdue ${stamp} · ${t.title}` : `Overdue · ${t.title}`,
+        startsAt: anchor.toISOString(),
+        endsAt: anchor.toISOString(),
+        allDay: true,
+        kind: 'ooo',
+        clientName: t.clientName,
+        attendeeIds: t.assigneeIds ?? [],
+        // Dragging it would imply rescheduling the due date; not this gesture.
+        draggable: false,
+        raw: t,
+    };
+}
+
 /** Reminders render as all-day chips on their due date. */
 export function reminderToItem(r: Reminder): PlannerItem {
     const due = new Date(r.dueAt);

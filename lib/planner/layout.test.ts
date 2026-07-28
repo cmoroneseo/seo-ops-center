@@ -12,6 +12,8 @@ import {
     durationMinutes,
     resolvePointer,
     isOutsideGrid,
+    staggerBounds,
+    isWorkMinute,
 } from './layout.ts';
 
 // --- pixel <-> minute conversion -------------------------------------------
@@ -137,6 +139,43 @@ test('packOverlaps handles identical start and end times', () => {
 
 test('packOverlaps returns an empty array for no input', () => {
     assert.deepEqual(packOverlaps([]), []);
+});
+
+// --- overlap stagger --------------------------------------------------------
+
+test('staggerBounds gives a lone card the full width', () => {
+    assert.deepEqual(staggerBounds(0, 1), { leftPct: 0, widthPct: 100, zIndex: 10 });
+});
+
+test('staggerBounds indents the second card and runs it to the right edge', () => {
+    // The first card keeps its title visible on the left; the second layers over it.
+    assert.deepEqual(staggerBounds(0, 2), { leftPct: 0, widthPct: 100, zIndex: 10 });
+    assert.deepEqual(staggerBounds(1, 2), { leftPct: 50, widthPct: 50, zIndex: 11 });
+});
+
+test('staggerBounds stacks a three-way overlap with rising z-index', () => {
+    const bounds = [0, 1, 2].map(c => staggerBounds(c, 3));
+    assert.deepEqual(bounds.map(b => b.zIndex), [10, 11, 12]);
+    // Each starts further right and still reaches the edge.
+    assert.equal(bounds[0].leftPct + bounds[0].widthPct, 100);
+    assert.equal(bounds[1].leftPct + bounds[1].widthPct, 100);
+    assert.equal(bounds[2].leftPct + bounds[2].widthPct, 100);
+    assert.ok(bounds[0].leftPct < bounds[1].leftPct);
+    assert.ok(bounds[1].leftPct < bounds[2].leftPct);
+});
+
+test('staggerBounds survives a zero columnCount rather than dividing by zero', () => {
+    assert.equal(staggerBounds(0, 0).widthPct, 100);
+});
+
+// --- working hours ----------------------------------------------------------
+
+test('isWorkMinute covers the working day and excludes its end boundary', () => {
+    assert.equal(isWorkMinute(9 * 60, 9, 17), true);
+    assert.equal(isWorkMinute(12 * 60, 9, 17), true);
+    assert.equal(isWorkMinute(16 * 60 + 59, 9, 17), true);
+    assert.equal(isWorkMinute(17 * 60, 9, 17), false);
+    assert.equal(isWorkMinute(8 * 60 + 59, 9, 17), false);
 });
 
 // --- pointer resolution -----------------------------------------------------

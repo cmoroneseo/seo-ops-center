@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect } from 'react';
-import { isToday, isSameDay, format } from 'date-fns';
+import { isToday, isSameDay, isWeekend, format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import {
     PX_PER_HOUR, DEFAULT_START_HOUR, DEFAULT_END_HOUR,
-    packOverlaps, minutesSinceMidnight, durationMinutes,
+    packOverlaps, minutesSinceMidnight, durationMinutes, isWorkMinute,
 } from '@/lib/planner/layout';
 import type { PlannerEventKind } from '@/lib/types';
 import { PlannerItem } from '@/lib/planner/items';
@@ -24,6 +24,9 @@ interface WeekGridProps {
     items: PlannerItem[];
     startHour?: number;
     endHour?: number;
+    /** Hours outside this range are shaded as off-hours. */
+    workStartHour?: number;
+    workEndHour?: number;
     onItemClick?: (item: PlannerItem) => void;
     onCommit?: (commit: DragCommit) => void | Promise<void>;
     onCreate?: (dayIndex: number, startMin: number, endMin: number) => void;
@@ -50,6 +53,8 @@ export function WeekGrid({
     items,
     startHour = DEFAULT_START_HOUR,
     endHour = DEFAULT_END_HOUR,
+    workStartHour = 9,
+    workEndHour = 17,
     onItemClick,
     onCommit,
     onCreate,
@@ -58,7 +63,9 @@ export function WeekGrid({
     onDragHandlesReady,
 }: WeekGridProps) {
     const bodyHeight = (endHour - startHour) * PX_PER_HOUR;
-    const hourLines = Array.from({ length: endHour - startHour }, (_, i) => i);
+    // One entry per hour row, carrying the hour it represents so the row can be
+    // shaded when it falls outside the working day.
+    const hourRows = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
 
     const timedItems = items.filter(i => !i.allDay);
 
@@ -166,14 +173,23 @@ export function WeekGrid({
                                 }
                             }}
                         >
-                            {hourLines.map(i => (
-                                <div
-                                    key={i}
-                                    data-hour-line="1"
-                                    className="border-b border-border/50"
-                                    style={{ height: PX_PER_HOUR }}
-                                />
-                            ))}
+                            {hourRows.map(hour => {
+                                const offHours =
+                                    isWeekend(day) || !isWorkMinute(hour * 60, workStartHour, workEndHour);
+                                return (
+                                    <div
+                                        key={hour}
+                                        data-hour-line="1"
+                                        className={cn(
+                                            'border-b border-border/50',
+                                            // Reads as "dimmed" against either theme; bg-muted
+                                            // is nearly invisible on the dark grid.
+                                            offHours && 'bg-black/[0.06] dark:bg-black/25',
+                                        )}
+                                        style={{ height: PX_PER_HOUR }}
+                                    />
+                                );
+                            })}
                             {isToday(day) && <NowLine startHour={startHour} />}
 
                             {packOverlaps(

@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import {
-    addDays, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isPast,
-    startOfMonth, endOfMonth, addMonths,
+    addDays, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isPast, isWeekend,
+    startOfMonth, endOfMonth, addMonths, startOfDay,
 } from 'date-fns';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
@@ -20,7 +20,7 @@ import { DragCommit } from '@/lib/planner/use-planner-drag';
 import { durationMinutes } from '@/lib/planner/layout';
 import { listReminders } from '@/lib/supabase/personal-reminders';
 import {
-    PlannerItem, eventToItem, taskToItem, reminderToItem, taskBlockMinutes,
+    PlannerItem, eventToItem, taskToItem, reminderToItem, overdueTaskToItem, taskBlockMinutes,
 } from '@/lib/planner/items';
 import { PlannerHeader, PlannerView } from '@/components/planner/PlannerHeader';
 import { WeekGrid, PlannerDragHandles } from '@/components/planner/WeekGrid';
@@ -30,6 +30,9 @@ import { TeamMember } from '@/components/planner/MeetWithFilter';
 import { EventDetailPanel } from '@/components/planner/EventDetailPanel';
 import { MonthGrid } from '@/components/planner/MonthGrid';
 import { PlannerCommandBar } from '@/components/planner/PlannerCommandBar';
+import {
+    PlannerPreferences, DEFAULT_PREFERENCES, loadPreferences, savePreferences,
+} from '@/lib/planner/preferences';
 
 export default function PlannerPage() {
     const { organization } = useOrganization();
@@ -55,6 +58,14 @@ export default function PlannerPage() {
     const [dragHandles, setDragHandles] = useState<PlannerDragHandles | null>(null);
     const [selected, setSelected] = useState<PlannerItem | null>(null);
     const [error, setError] = useState<string | null>(null);
+    // Read on mount rather than in useState so server and client render alike.
+    const [prefs, setPrefs] = useState<PlannerPreferences>(DEFAULT_PREFERENCES);
+    useEffect(() => { setPrefs(loadPreferences()); }, []);
+
+    const updatePrefs = useCallback((next: PlannerPreferences) => {
+        setPrefs(next);
+        savePreferences(next);
+    }, []);
 
     // Errors are transient: show, then get out of the way.
     useEffect(() => {
@@ -66,19 +77,22 @@ export default function PlannerPage() {
     // Visible range. Week spans Sun-Sat, day is a single day, month covers the
     // whole month grid including the leading and trailing partial weeks.
     const range = useMemo(() => {
+        const opts = { weekStartsOn: prefs.weekStartsOn } as const;
         if (view === 'day') {
-            const start = new Date(anchorDate);
-            start.setHours(0, 0, 0, 0);
+            const start = startOfDay(anchorDate);
             return { start, end: addDays(start, 1) };
         }
         if (view === 'month') {
             return {
-                start: startOfWeek(startOfMonth(anchorDate)),
-                end: addDays(endOfWeek(endOfMonth(anchorDate)), 1),
+                start: startOfWeek(startOfMonth(anchorDate), opts),
+                end: addDays(endOfWeek(endOfMonth(anchorDate), opts), 1),
             };
         }
-        return { start: startOfWeek(anchorDate), end: addDays(endOfWeek(anchorDate), 1) };
-    }, [anchorDate, view]);
+        return {
+            start: startOfWeek(anchorDate, opts),
+            end: addDays(endOfWeek(anchorDate, opts), 1),
+        };
+    }, [anchorDate, view, prefs.weekStartsOn]);
 
     /**
      * Only events are range-scoped. Tasks and reminders are fetched whole, so
@@ -130,12 +144,27 @@ export default function PlannerPage() {
         const fromTasks = tasks
             .map(taskToItem)
             .filter((i): i is PlannerItem => i !== null);
+
+        // Overdue work that isn't scheduled anywhere would otherwise be invisible
+        // on the grid. Surfaced as all-day chips on today so it stays in view.
+        const overdue = prefs.rollOverdueIntoToday
+            ? tasks
+                .filter(t =>
+                    t.status !== 'done' &&
+                    !t.startDate &&
+                    t.dueDate &&
+                    isPast(startOfDay(new Date(t.dueDate))) &&
+                    !isToday(new Date(t.dueDate)))
+                .map(t => overdueTaskToItem(t))
+            : [];
+
         return [
             ...events.map(eventToItem),
             ...fromTasks,
+            ...overdue,
             ...reminders.filter(r => r.status === 'pending').map(reminderToItem),
         ];
-    }, [events, tasks, reminders]);
+    }, [events, tasks, reminders, prefs.rollOverdueIntoToday]);
 
     // An empty teammate selection means no filter at all.
     const visibleItems = useMemo(() => {
@@ -163,12 +192,12 @@ export default function PlannerPage() {
         [tasks],
     );
 
-    const days = useMemo(
-        () => (view === 'day'
-            ? [range.start]
-            : eachDayOfInterval({ start: range.start, end: addDays(range.end, -1) })),
-        [range.start, range.end, view],
-    );
+    const days = useMemo(() => {
+        // Day view always shows the day you asked for, even a Saturday.
+        if (view === 'day') return [range.start];
+        const all = eachDayOfInterval({ start: range.start, end: addDays(range.end, -1) });
+        return prefs.showWeekends ? all : all.filter(d => !isWeekend(d));
+    }, [range.start, range.end, view, prefs.showWeekends]);
 
     const handlePrev = () => setAnchorDate(d =>
         view === 'month' ? addMonths(d, -1) : addDays(d, view === 'day' ? -1 : -7));
@@ -301,6 +330,8 @@ export default function PlannerPage() {
                     onNext={handleNext}
                     onToday={handleToday}
                     onViewChange={setView}
+                    prefs={prefs}
+                    onPrefsChange={updatePrefs}
                 />
                 {isLoading && (
                     <div className="h-0.5 w-full overflow-hidden bg-primary/10">
@@ -319,6 +350,10 @@ export default function PlannerPage() {
                     <WeekGrid
                         days={days}
                         items={visibleItems}
+                        startHour={prefs.dayStartHour}
+                        endHour={prefs.dayEndHour}
+                        workStartHour={prefs.workDayStartHour}
+                        workEndHour={prefs.workDayEndHour}
                         onItemClick={setSelected}
                         onCommit={handleCommit}
                         onCreate={handleCreate}

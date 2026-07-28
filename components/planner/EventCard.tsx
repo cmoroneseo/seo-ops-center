@@ -4,7 +4,10 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { PlannerEventKind } from '@/lib/types';
 import { PlannerItem } from '@/lib/planner/items';
-import { minutesToY, minutesSinceMidnight, durationMinutes, PX_PER_HOUR } from '@/lib/planner/layout';
+import {
+    minutesToY, minutesSinceMidnight, durationMinutes, PX_PER_HOUR,
+    staggerBounds, COMPACT_MAX_MINUTES,
+} from '@/lib/planner/layout';
 
 /** One place defines what each kind looks like. */
 export const KIND_STYLES: Record<PlannerEventKind, { card: string; accent: string }> = {
@@ -47,17 +50,21 @@ export function EventCard({
     const top = minutesToY(startMin, startHour);
     const height = (minutes / 60) * PX_PER_HOUR;
 
-    // Stacked cards inset slightly rather than tiling edge to edge.
-    const widthPct = 100 / columnCount;
+    // Overlapping cards layer rather than tile: each is indented and runs to the
+    // right edge, so the one beneath keeps its title readable on the left.
+    const { leftPct, widthPct, zIndex } = staggerBounds(column, columnCount);
     const style: React.CSSProperties = {
         top,
         height,
-        left: `${column * widthPct}%`,
+        left: `${leftPct}%`,
         width: `calc(${widthPct}% - 4px)`,
+        zIndex: ghost ? 30 : zIndex,
     };
 
     const styles = KIND_STYLES[item.kind];
-    const isShort = minutes < 45;
+    // Too short for two lines — title and time share one row instead, which is
+    // where the time is most worth showing.
+    const isCompact = minutes <= COMPACT_MAX_MINUTES;
 
     return (
         <div
@@ -65,23 +72,33 @@ export function EventCard({
             onPointerDown={e => onMoveStart?.(item, e)}
             onClick={() => onClick?.(item)}
             className={cn(
-                'absolute overflow-hidden rounded-md border border-black/5 px-2 py-1 text-left',
+                'absolute overflow-hidden rounded-md border border-black/5 text-left',
+                isCompact ? 'px-1.5 py-0.5' : 'px-2 py-1',
                 onMoveStart && 'cursor-grab active:cursor-grabbing',
                 ghost
                     // Lifted above the other cards and opaque, so it reads as the
                     // block you are placing rather than one of the ones already there.
-                    ? cn('z-30 shadow-xl ring-2 ring-white/25', KIND_GHOST[item.kind])
-                    : cn('z-10 shadow-sm transition-shadow hover:shadow-md', styles.card),
+                    ? cn('shadow-xl ring-2 ring-white/25', KIND_GHOST[item.kind])
+                    : cn('shadow-sm transition-shadow hover:shadow-md', styles.card),
             )}
         >
             {!ghost && <div className={cn('absolute inset-y-0 left-0 w-0.5', styles.accent)} />}
-            <div className={cn('truncate text-[11px] font-semibold leading-tight', isShort && 'text-[10px]')}>
-                {item.title}
-            </div>
-            {!isShort && (
-                <div className="truncate text-[10px] opacity-75">
-                    {format(new Date(item.startsAt), 'h:mm')} – {format(new Date(item.endsAt), 'h:mm a')}
+
+            {isCompact ? (
+                // One row: title, then the start time pushed alongside it.
+                <div className="flex items-baseline gap-1.5 overflow-hidden whitespace-nowrap pl-1">
+                    <span className="truncate text-[11px] font-semibold leading-tight">{item.title}</span>
+                    <span className="shrink-0 text-[10px] opacity-70">
+                        {format(new Date(item.startsAt), 'h:mma').toLowerCase()}
+                    </span>
                 </div>
+            ) : (
+                <>
+                    <div className="truncate text-[11px] font-semibold leading-tight">{item.title}</div>
+                    <div className="truncate text-[10px] opacity-75">
+                        {format(new Date(item.startsAt), 'h:mm')} – {format(new Date(item.endsAt), 'h:mm a')}
+                    </div>
+                </>
             )}
 
             {onResizeStart && (

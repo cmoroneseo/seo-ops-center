@@ -48,6 +48,34 @@ export function durationMinutes(startIso: string, endIso: string): number {
 /** Width of the hour-label gutter before the first day column. */
 export const AXIS_WIDTH = 64;
 
+/** At or below this, a block is too short for a second line of text. */
+export const COMPACT_MAX_MINUTES = 30;
+
+export interface StaggerBounds {
+    leftPct: number;
+    widthPct: number;
+    zIndex: number;
+}
+
+/**
+ * Where an overlapping card sits, ClickUp-style.
+ *
+ * Rather than tiling a cluster into equal columns, each successive card is
+ * indented and runs to the right edge, layering over the ones beneath. The
+ * earlier card keeps its title visible on the left, and the newest sits on top.
+ * A lone card takes the full width.
+ */
+export function staggerBounds(column: number, columnCount: number): StaggerBounds {
+    const slot = 100 / Math.max(1, columnCount);
+    const leftPct = column * slot;
+    return { leftPct, widthPct: 100 - leftPct, zIndex: 10 + column };
+}
+
+/** Is this minute inside the configured working day? */
+export function isWorkMinute(minutes: number, workStartHour: number, workEndHour: number): boolean {
+    return minutes >= workStartHour * 60 && minutes < workEndHour * 60;
+}
+
 export interface GridRect {
     left: number;
     top: number;
