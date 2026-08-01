@@ -583,6 +583,10 @@ export interface TimeLog {
     elapsedSeconds: number;  // accumulated seconds (survives pause/resume)
     category?: string;
     sessionNotes: SessionNote[];
+    basecampEntryId?: number;   // Basecamp Timesheet::Entry ID once synced
+    basecampProjectId?: number;
+    basecampSyncedAt?: string;
+    basecampSyncError?: string; // why the last push failed (cleared on success)
 }
 
 // ---------------------------------------------------------------------------

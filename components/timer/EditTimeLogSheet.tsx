@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
-import { X, Clock, CheckCircle2, StickyNote, ChevronDown, ChevronUp, Pencil, Check, Plus, Trash2 } from 'lucide-react';
+import { X, Clock, CheckCircle2, StickyNote, ChevronDown, ChevronUp, Pencil, Check, Plus, Trash2, AlertTriangle, Send } from 'lucide-react';
 import { TimeLog, SessionNote } from '@/lib/types';
-import { updateTimeLog } from '@/lib/supabase/time-logs';
+import { updateTimeLog, getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
 import { cn } from '@/lib/utils';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -126,6 +126,44 @@ export function EditTimeLogSheet({ log, onClose, onSaved }: EditTimeLogSheetProp
     const [newNoteText, setNewNoteText] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
+    // Basecamp sync state: 'synced' | 'error' | 'available' (can send) | 'off'
+    const [bcState, setBcState] = useState<'synced' | 'error' | 'available' | 'off'>(
+        log.basecampEntryId ? 'synced' : log.basecampSyncError ? 'error' : 'off'
+    );
+    const [bcSending, setBcSending] = useState(false);
+    const [bcError, setBcError] = useState(log.basecampSyncError ?? '');
+
+    // Unsynced entry with no error: offer "Send to Basecamp" if the client allows it
+    useEffect(() => {
+        if (log.basecampEntryId || log.basecampSyncError) return;
+        getClientTimesheetSyncEnabled(log.clientId).then(enabled => {
+            if (enabled) setBcState('available');
+        });
+    }, [log.basecampEntryId, log.basecampSyncError, log.clientId]);
+
+    const sendToBasecamp = async () => {
+        setBcSending(true);
+        try {
+            const res = await fetch('/api/integrations/basecamp/timesheet', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'sync', timeLogId: log.id, createIfMissing: true }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                setBcState('synced');
+                setBcError('');
+            } else {
+                setBcState('error');
+                setBcError(data.error || 'Basecamp sync failed');
+            }
+        } catch {
+            setBcState('error');
+            setBcError('Basecamp sync failed — check your connection and try again.');
+        } finally {
+            setBcSending(false);
+        }
+    };
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -221,6 +259,41 @@ export function EditTimeLogSheet({ log, onClose, onSaved }: EditTimeLogSheetProp
                                     <span className="text-xs text-muted-foreground">{log.category}</span>
                                 )}
                             </div>
+                        )}
+
+                        {/* Basecamp sync status */}
+                        {bcState === 'synced' && (
+                            <div className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-500">
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                Synced to Basecamp — saving here updates the timesheet too
+                            </div>
+                        )}
+                        {bcState === 'error' && (
+                            <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/20 p-2.5 space-y-1.5">
+                                <div className="flex items-start gap-1.5 text-xs text-yellow-700 dark:text-yellow-500">
+                                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                                    <span>Couldn't send to Basecamp. {bcError}</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={sendToBasecamp}
+                                    disabled={bcSending}
+                                    className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
+                                >
+                                    {bcSending ? 'Retrying…' : 'Try again'}
+                                </button>
+                            </div>
+                        )}
+                        {bcState === 'available' && (
+                            <button
+                                type="button"
+                                onClick={sendToBasecamp}
+                                disabled={bcSending}
+                                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                            >
+                                <Send className="h-3 w-3" />
+                                {bcSending ? 'Sending…' : 'Send to Basecamp timesheet'}
+                            </button>
                         )}
 
                         {/* Description */}

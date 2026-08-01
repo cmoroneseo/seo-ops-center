@@ -4,7 +4,7 @@ import { ClientProject, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { X, Clock, Calendar, FileText, CheckCircle2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { createTimeLog } from '@/lib/supabase/time-logs';
+import { createTimeLog, getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
 import { createClient } from '@/lib/supabase/client';
 
 interface TimeLogModalProps {
@@ -23,6 +23,8 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
     const [description, setDescription] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
+    const [bcAvailable, setBcAvailable] = useState(false);
+    const [sendToBasecamp, setSendToBasecamp] = useState(true);
 
     useEffect(() => {
         if (isOpen) {
@@ -31,8 +33,15 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
             setHours('');
             setDescription('');
             setShowSuccess(false);
+            setSendToBasecamp(true);
         }
     }, [isOpen, initialClientId]);
+
+    // Only offer "Send to Basecamp" when the selected client has timesheet sync enabled
+    useEffect(() => {
+        if (!selectedClientId) { setBcAvailable(false); return; }
+        getClientTimesheetSyncEnabled(selectedClientId).then(setBcAvailable);
+    }, [selectedClientId]);
 
     const selectedClient = clients.find(c => c.id === selectedClientId);
     const clientTasks = selectedClient?.tasks || [];
@@ -57,7 +66,7 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
             hours: parseFloat(hours),
             description,
             billable: true,
-        });
+        }, { syncToBasecamp: bcAvailable && sendToBasecamp });
 
         setIsSubmitting(false);
         setShowSuccess(true);
@@ -166,6 +175,28 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
                                 className="w-full p-3 rounded-md bg-background border border-border focus:ring-2 focus:ring-primary/50 outline-none transition-all resize-none"
                             />
                         </div>
+
+                        {/* Send to Basecamp toggle — only when this client syncs its timesheet */}
+                        {bcAvailable && (
+                            <label className="flex items-center gap-2 cursor-pointer select-none text-sm">
+                                <div
+                                    className={cn(
+                                        'relative w-9 h-5 rounded-full transition-colors duration-200',
+                                        sendToBasecamp ? 'bg-primary' : 'bg-muted-foreground/30'
+                                    )}
+                                    onClick={() => setSendToBasecamp(b => !b)}
+                                >
+                                    <span className={cn(
+                                        'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200',
+                                        sendToBasecamp ? 'translate-x-4' : 'translate-x-0'
+                                    )} />
+                                </div>
+                                <span className="text-muted-foreground">
+                                    Send to Basecamp
+                                    <span className="text-xs text-muted-foreground/60 ml-1.5">adds to the client's project timesheet</span>
+                                </span>
+                            </label>
+                        )}
 
                         <div className="pt-2">
                             <button

@@ -95,6 +95,24 @@ function TimeLogRow({ log, onEdit, loggerName }: { log: TimeLog; onEdit: (log: T
                         <span className="text-muted-foreground text-xs ml-1.5">
                             {new Date(log.date.includes('T') ? log.date : log.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         </span>
+                        {log.basecampEntryId && (
+                            <span
+                                className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/70 ml-1.5 align-middle"
+                                title="Synced to Basecamp timesheet"
+                            >
+                                <Send className="h-2.5 w-2.5" />
+                                Basecamp
+                            </span>
+                        )}
+                        {!log.basecampEntryId && log.basecampSyncError && (
+                            <span
+                                className="inline-flex items-center gap-1 text-[10px] text-yellow-600 dark:text-yellow-500 ml-1.5 align-middle"
+                                title={log.basecampSyncError}
+                            >
+                                <Send className="h-2.5 w-2.5" />
+                                Basecamp failed
+                            </span>
+                        )}
                     </p>
                     <div className="flex items-center gap-1 shrink-0">
                         {longDesc && (

@@ -340,6 +340,133 @@ export async function reopenBasecampTodo(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Timesheets — https://github.com/basecamp/bc-api/blob/master/sections/timesheets.md
+// Entries attach to any timesheetable recording (a todo, or the project's own
+// timesheet recording). Update/delete use flat /timesheet_entries/{id} routes.
+// ---------------------------------------------------------------------------
+
+export interface BasecampTimesheetEntry {
+    id: number;
+    date: string;
+    hours: string;
+    description: string;
+    app_url: string;
+    parent: { id: number; type: string };
+}
+
+/** Fetch a project's timesheet availability. */
+export async function getBasecampProjectTimesheetEnabled(projectId: number | string): Promise<boolean | null> {
+    try {
+        const res = await basecampFetch(`${BASE_URL()}/projects/${projectId}.json`);
+        if (!res.ok) return null;
+        const project = await res.json() as { timesheet_enabled?: boolean };
+        return project.timesheet_enabled ?? false;
+    } catch (err) {
+        console.error('[Basecamp] getProjectTimesheetEnabled error:', err);
+        return null;
+    }
+}
+
+/**
+ * Find the recording ID of a project's own timesheet, for logging time at the
+ * project level (not attached to a todo). The timesheet doesn't appear in the
+ * project's dock — the documented way to find it is via existing entries whose
+ * parent type is "Timesheet". Returns null if it can't be determined yet
+ * (e.g. the Basecamp timesheet has no project-level entries).
+ */
+export async function findProjectTimesheetRecordingId(projectId: number | string): Promise<number | null> {
+    try {
+        // Some Basecamp accounts do expose the timesheet in the dock — check first.
+        const projectRes = await basecampFetch(`${BASE_URL()}/projects/${projectId}.json`);
+        if (projectRes.ok) {
+            const project = await projectRes.json() as { dock?: Array<{ id: number; name: string; enabled: boolean }> };
+            const timesheetDock = (project.dock ?? []).find(d => d.name === 'timesheet' && d.enabled);
+            if (timesheetDock) return timesheetDock.id;
+        }
+
+        let url: string | null = `${BASE_URL()}/projects/${projectId}/timesheet.json`;
+        while (url) {
+            const res = await basecampFetch(url);
+            if (!res.ok) return null;
+            const page = await res.json() as BasecampTimesheetEntry[];
+            const projectLevel = page.find(e => e.parent?.type === 'Timesheet');
+            if (projectLevel) return projectLevel.parent.id;
+            url = parseNextLink(res.headers.get('Link'));
+        }
+        return null;
+    } catch (err) {
+        console.error('[Basecamp] findProjectTimesheetRecordingId error:', err);
+        return null;
+    }
+}
+
+/** Create a timesheet entry under a recording (todo or project timesheet). */
+export async function createBasecampTimesheetEntry(
+    recordingId: number | string,
+    params: {
+        date: string;         // YYYY-MM-DD
+        hours: number;        // decimal hours
+        description?: string;
+        personId?: number;    // defaults to the authenticated Basecamp user
+    },
+): Promise<{ id: number; appUrl: string } | null> {
+    try {
+        const body: Record<string, unknown> = { date: params.date, hours: String(params.hours) };
+        if (params.description) body.description = params.description;
+        if (params.personId) body.person_id = params.personId;
+
+        const res = await basecampFetch(
+            `${BASE_URL()}/recordings/${recordingId}/timesheet/entries.json`,
+            { method: 'POST', body: JSON.stringify(body) },
+        );
+        if (!res.ok) throw new Error(`Basecamp createTimesheetEntry failed: ${res.status} ${await res.text()}`);
+        const entry = await res.json() as BasecampTimesheetEntry;
+        return { id: entry.id, appUrl: entry.app_url };
+    } catch (err) {
+        console.error('[Basecamp] createTimesheetEntry error:', err);
+        return null;
+    }
+}
+
+/** Update a timesheet entry. Returns 'not_found' when it was deleted in Basecamp. */
+export async function updateBasecampTimesheetEntry(
+    entryId: number | string,
+    patch: { date?: string; hours?: number; description?: string; personId?: number },
+): Promise<'ok' | 'not_found' | 'error'> {
+    try {
+        const body: Record<string, unknown> = {};
+        if (patch.date !== undefined) body.date = patch.date;
+        if (patch.hours !== undefined) body.hours = String(patch.hours);
+        if (patch.description !== undefined) body.description = patch.description;
+        if (patch.personId) body.person_id = patch.personId;
+
+        const res = await basecampFetch(
+            `${BASE_URL()}/timesheet_entries/${entryId}.json`,
+            { method: 'PUT', body: JSON.stringify(body) },
+        );
+        if (res.status === 404) return 'not_found';
+        return res.ok ? 'ok' : 'error';
+    } catch (err) {
+        console.error('[Basecamp] updateTimesheetEntry error:', err);
+        return 'error';
+    }
+}
+
+/** Delete a timesheet entry. Treats an already-deleted entry as success. */
+export async function deleteBasecampTimesheetEntry(entryId: number | string): Promise<boolean> {
+    try {
+        const res = await basecampFetch(
+            `${BASE_URL()}/timesheet_entries/${entryId}.json`,
+            { method: 'DELETE' },
+        );
+        return res.ok || res.status === 404;
+    } catch (err) {
+        console.error('[Basecamp] deleteTimesheetEntry error:', err);
+        return false;
+    }
+}
+
 /** Post a comment on a Basecamp todo */
 export async function createBasecampComment(
     projectId: number | string,
