@@ -217,8 +217,10 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
                         </button>
 
                         {/* Stop & Log */}
+                        {/* Keep the card expanded — the sheet only renders inside this branch,
+                            and its full-screen backdrop covers the card anyway */}
                         <button
-                            onClick={() => { setExpanded(false); setShowStopSheet(true); }}
+                            onClick={() => setShowStopSheet(true)}
                             className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-muted text-sm font-medium text-muted-foreground hover:bg-destructive/15 hover:text-red-400 transition-all duration-150"
                         >
                             <Square className="h-4 w-4 fill-current" /> Stop
