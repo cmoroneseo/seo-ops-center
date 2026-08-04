@@ -23,6 +23,19 @@ const BASE_URL = () => {
     return `https://3.basecampapi.com/${accountId}`;
 };
 
+/**
+ * Basecamp record IDs are always positive integers. Interpolating an
+ * unvalidated caller-supplied value into a request path is a request-forgery
+ * risk, so coerce every ID through this guard before it reaches a URL — it
+ * returns the canonical digit string or throws (callers already try/catch and
+ * degrade to a null/false result).
+ */
+function safeId(value: number | string, label = 'id'): string {
+    const s = String(value).trim();
+    if (!/^\d+$/.test(s)) throw new Error(`Invalid Basecamp ${label}: ${s}`);
+    return s;
+}
+
 let cachedAccessToken: string | null = null;
 
 async function getAccessToken(): Promise<string> {
@@ -358,7 +371,8 @@ export interface BasecampTimesheetEntry {
 /** Fetch a project's timesheet availability. */
 export async function getBasecampProjectTimesheetEnabled(projectId: number | string): Promise<boolean | null> {
     try {
-        const res = await basecampFetch(`${BASE_URL()}/projects/${projectId}.json`);
+        const pid = safeId(projectId, 'projectId');
+        const res = await basecampFetch(`${BASE_URL()}/projects/${pid}.json`);
         if (!res.ok) return null;
         const project = await res.json() as { timesheet_enabled?: boolean };
         return project.timesheet_enabled ?? false;
@@ -377,15 +391,16 @@ export async function getBasecampProjectTimesheetEnabled(projectId: number | str
  */
 export async function findProjectTimesheetRecordingId(projectId: number | string): Promise<number | null> {
     try {
+        const pid = safeId(projectId, 'projectId');
         // Some Basecamp accounts do expose the timesheet in the dock — check first.
-        const projectRes = await basecampFetch(`${BASE_URL()}/projects/${projectId}.json`);
+        const projectRes = await basecampFetch(`${BASE_URL()}/projects/${pid}.json`);
         if (projectRes.ok) {
             const project = await projectRes.json() as { dock?: Array<{ id: number; name: string; enabled: boolean }> };
             const timesheetDock = (project.dock ?? []).find(d => d.name === 'timesheet' && d.enabled);
             if (timesheetDock) return timesheetDock.id;
         }
 
-        let url: string | null = `${BASE_URL()}/projects/${projectId}/timesheet.json`;
+        let url: string | null = `${BASE_URL()}/projects/${pid}/timesheet.json`;
         while (url) {
             const res = await basecampFetch(url);
             if (!res.ok) return null;
@@ -417,7 +432,7 @@ export async function createBasecampTimesheetEntry(
         if (params.personId) body.person_id = params.personId;
 
         const res = await basecampFetch(
-            `${BASE_URL()}/recordings/${recordingId}/timesheet/entries.json`,
+            `${BASE_URL()}/recordings/${safeId(recordingId, 'recordingId')}/timesheet/entries.json`,
             { method: 'POST', body: JSON.stringify(body) },
         );
         if (!res.ok) throw new Error(`Basecamp createTimesheetEntry failed: ${res.status} ${await res.text()}`);
@@ -442,7 +457,7 @@ export async function updateBasecampTimesheetEntry(
         if (patch.personId) body.person_id = patch.personId;
 
         const res = await basecampFetch(
-            `${BASE_URL()}/timesheet_entries/${entryId}.json`,
+            `${BASE_URL()}/timesheet_entries/${safeId(entryId, 'entryId')}.json`,
             { method: 'PUT', body: JSON.stringify(body) },
         );
         if (res.status === 404) return 'not_found';
@@ -457,7 +472,7 @@ export async function updateBasecampTimesheetEntry(
 export async function deleteBasecampTimesheetEntry(entryId: number | string): Promise<boolean> {
     try {
         const res = await basecampFetch(
-            `${BASE_URL()}/timesheet_entries/${entryId}.json`,
+            `${BASE_URL()}/timesheet_entries/${safeId(entryId, 'entryId')}.json`,
             { method: 'DELETE' },
         );
         return res.ok || res.status === 404;
