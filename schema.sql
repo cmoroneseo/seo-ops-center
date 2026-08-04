@@ -204,7 +204,19 @@ create table public.time_logs (
   hours numeric(5, 2) not null,
   description text,
   billable boolean default true,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  -- migration 010: timer support
+  status text not null default 'logged' check (status in ('in_progress', 'logged', 'needs_review')),
+  timer_started_at timestamp with time zone,
+  elapsed_seconds integer not null default 0,
+  category text,
+  -- migration 011: in-session notes
+  session_notes jsonb not null default '[]'::jsonb,
+  -- migration 026: Basecamp timesheet sync
+  basecamp_entry_id bigint,
+  basecamp_project_id bigint,
+  basecamp_synced_at timestamp with time zone,
+  basecamp_sync_error text
 );
 
 -- 12. Usage Logs (For Metered Features like AI Reports)

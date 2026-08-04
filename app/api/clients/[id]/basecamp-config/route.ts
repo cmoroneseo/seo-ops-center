@@ -48,6 +48,7 @@ export async function GET(
         basecamp_project_id: cf.basecamp_project_id ?? '',
         basecamp_todolist_id: cf.basecamp_todolist_id ?? '',
         basecamp_sync_enabled: cf.basecamp_sync_enabled ?? false,
+        basecamp_timesheet_enabled: cf.basecamp_timesheet_enabled ?? false,
     });
 }
 
@@ -61,7 +62,7 @@ export async function POST(
 
     const { id } = await params;
     const body = await req.json();
-    const { basecamp_project_id, basecamp_todolist_id, basecamp_sync_enabled } = body;
+    const { basecamp_project_id, basecamp_todolist_id, basecamp_sync_enabled, basecamp_timesheet_enabled } = body;
 
     const admin = createAdminClient();
 
@@ -76,12 +77,17 @@ export async function POST(
     const wasEnabled = !!(currentFields.basecamp_sync_enabled);
     const hadProject = !!(currentFields.basecamp_project_id);
 
-    const updatedFields = {
+    const updatedFields: Record<string, unknown> = {
         ...currentFields,
         basecamp_project_id: basecamp_project_id || null,
         basecamp_todolist_id: basecamp_todolist_id || null,
         basecamp_sync_enabled: !!basecamp_sync_enabled,
+        basecamp_timesheet_enabled: !!basecamp_timesheet_enabled,
     };
+    // The cached timesheet recording ID is project-specific — drop it on project change
+    if (basecamp_project_id !== currentFields.basecamp_project_id) {
+        updatedFields.basecamp_timesheet_recording_id = null;
+    }
 
     const { error } = await admin
         .from('clients')
@@ -111,6 +117,7 @@ export async function POST(
                 basecamp_project_id: basecamp_project_id || null,
                 basecamp_todolist_id: basecamp_todolist_id || null,
                 sync_enabled: !!basecamp_sync_enabled,
+                timesheet_enabled: !!basecamp_timesheet_enabled,
             },
         });
     }

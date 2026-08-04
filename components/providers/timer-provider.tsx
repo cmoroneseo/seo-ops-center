@@ -34,7 +34,7 @@ interface TimerContextType {
     start: (opts: { clientId: string; clientName: string; taskId?: string; taskTitle?: string }) => Promise<void>;
     pause: () => Promise<void>;
     resume: () => Promise<void>;
-    stop: (opts: { description: string; hours: number; billable: boolean; category?: string; date: string; clientId: string; taskId?: string }) => Promise<void>;
+    stop: (opts: { description: string; hours: number; billable: boolean; category?: string; date: string; clientId: string; taskId?: string; syncToBasecamp?: boolean }) => Promise<void>;
     discard: () => Promise<void>;
     addNote: (text: string) => Promise<void>;
     editNote: (id: string, newText: string) => Promise<void>;
@@ -196,6 +196,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         date: string;
         clientId: string;
         taskId?: string;
+        syncToBasecamp?: boolean;
     }) => {
         if (!timer) return;
         await stopTimer(timer.id, opts);

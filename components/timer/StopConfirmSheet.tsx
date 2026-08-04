@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, KeyboardEvent } from 'react';
 import { X, Clock, CheckCircle2, StickyNote, ChevronDown, ChevronUp, Pencil, Check } from 'lucide-react';
 import { useTimer, ActiveTimer } from '@/components/providers/timer-provider';
+import { getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
 import { SessionNote } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -78,9 +79,16 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
     const [showNotes, setShowNotes] = useState(notes.length > 0);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
+    const [bcAvailable, setBcAvailable] = useState(false);
+    const [sendToBasecamp, setSendToBasecamp] = useState(true);
 
     // Hours is seeded once on mount from elapsed time — not synced again,
     // so the user can freely edit it without it being overwritten by the ticking timer.
+
+    // Only offer "Send to Basecamp" when this client has timesheet sync enabled
+    useEffect(() => {
+        getClientTimesheetSyncEnabled(timer.clientId).then(setBcAvailable);
+    }, [timer.clientId]);
 
     const handleStop = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -94,6 +102,7 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
             date,
             clientId: timer.clientId,
             taskId: timer.taskId,
+            syncToBasecamp: bcAvailable && sendToBasecamp,
         });
         setShowSuccess(true);
         setTimeout(() => {
@@ -139,6 +148,9 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
                         </div>
                         <p className="font-semibold">Time logged!</p>
                         <p className="text-sm text-muted-foreground">{hours}h for {timer.clientName}</p>
+                        {bcAvailable && sendToBasecamp && (
+                            <p className="text-xs text-muted-foreground/70">Sending to Basecamp timesheet…</p>
+                        )}
                     </div>
                 ) : (
                     <form onSubmit={handleStop} className="px-5 py-4 space-y-4">
@@ -253,6 +265,28 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
                             </div>
                             <span className="text-muted-foreground">Billable</span>
                         </label>
+
+                        {/* Send to Basecamp toggle — only when this client syncs its timesheet */}
+                        {bcAvailable && (
+                            <label className="flex items-center gap-2 cursor-pointer select-none text-sm">
+                                <div
+                                    className={cn(
+                                        'relative w-9 h-5 rounded-full transition-colors duration-200',
+                                        sendToBasecamp ? 'bg-primary' : 'bg-muted-foreground/30'
+                                    )}
+                                    onClick={() => setSendToBasecamp(b => !b)}
+                                >
+                                    <span className={cn(
+                                        'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200',
+                                        sendToBasecamp ? 'translate-x-4' : 'translate-x-0'
+                                    )} />
+                                </div>
+                                <span className="text-muted-foreground">
+                                    Send to Basecamp
+                                    <span className="text-xs text-muted-foreground/60 ml-1.5">adds to the client's project timesheet</span>
+                                </span>
+                            </label>
+                        )}
 
                         {/* Actions */}
                         <div className="flex gap-3 pt-1 pb-2">

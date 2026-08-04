@@ -81,6 +81,8 @@ export function IntegrationsTab({ clientId }: Props) {
     const [bcProjectId, setBcProjectId] = useState('');
     const [bcTodolistId, setBcTodolistId] = useState('');
     const [bcSyncEnabled, setBcSyncEnabled] = useState(false);
+    const [bcTimesheetEnabled, setBcTimesheetEnabled] = useState(false);
+    const [bcTimesheetCheck, setBcTimesheetCheck] = useState<{ timesheetEnabled: boolean; recordingFound: boolean } | null>(null);
     const [bcSaving, setBcSaving] = useState(false);
     const [bcConfigured, setBcConfigured] = useState<boolean | null>(null); // null = not checked yet
     const [bcImportOpen, setBcImportOpen] = useState(false);
@@ -240,6 +242,7 @@ export function IntegrationsTab({ clientId }: Props) {
                 setBcProjectId(d.basecamp_project_id ?? '');
                 setBcTodolistId(d.basecamp_todolist_id ?? '');
                 setBcSyncEnabled(d.basecamp_sync_enabled ?? false);
+                setBcTimesheetEnabled(d.basecamp_timesheet_enabled ?? false);
             })
             .catch(() => {});
     }, [clientId, orgId]);
@@ -253,6 +256,15 @@ export function IntegrationsTab({ clientId }: Props) {
             .catch(() => {});
     }, [bcProjectId]);
 
+    // When time sync is on, check the Basecamp project can actually receive entries
+    useEffect(() => {
+        if (!bcProjectId || !bcTimesheetEnabled) { setBcTimesheetCheck(null); return; }
+        fetch(`/api/integrations/basecamp/timesheet?projectId=${bcProjectId}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (d) setBcTimesheetCheck(d); })
+            .catch(() => {});
+    }, [bcProjectId, bcTimesheetEnabled]);
+
     async function saveBasecampConfig() {
         if (!orgId || !clientId) return;
         setBcSaving(true);
@@ -264,6 +276,7 @@ export function IntegrationsTab({ clientId }: Props) {
                     basecamp_project_id: bcProjectId,
                     basecamp_todolist_id: bcTodolistId,
                     basecamp_sync_enabled: bcSyncEnabled,
+                    basecamp_timesheet_enabled: bcTimesheetEnabled,
                 }),
             });
             setToast('Basecamp settings saved');
@@ -525,7 +538,7 @@ export function IntegrationsTab({ clientId }: Props) {
                                     </span>
                                 )}
                             </div>
-                            <p className="text-xs text-muted-foreground">Push tasks to Basecamp — set a default list or choose per task</p>
+                            <p className="text-xs text-muted-foreground">Push tasks and time entries to Basecamp</p>
                         </div>
                     </div>
                     {/* Sync toggle */}
@@ -582,6 +595,42 @@ export function IntegrationsTab({ clientId }: Props) {
                                         <option key={t.id} value={String(t.id)}>{t.title || t.name}</option>
                                     ))}
                                 </select>
+                            </div>
+                        )}
+
+                        {/* Time tracking → Basecamp timesheet */}
+                        {bcProjectId && (
+                            <div className="rounded-lg border border-border/50 p-3 space-y-2">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <p className="text-sm font-medium">Time tracking</p>
+                                        <p className="text-xs text-muted-foreground">Send time entries to this project's Basecamp timesheet</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setBcTimesheetEnabled(p => !p)}
+                                        className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                                        title={bcTimesheetEnabled ? 'Disable time sync' : 'Enable time sync'}
+                                    >
+                                        {bcTimesheetEnabled
+                                            ? <ToggleRight className="h-6 w-6 text-green-500" />
+                                            : <ToggleLeft className="h-6 w-6" />
+                                        }
+                                    </button>
+                                </div>
+                                {bcTimesheetEnabled && bcTimesheetCheck && !bcTimesheetCheck.timesheetEnabled && (
+                                    <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/20 p-2.5 text-xs text-yellow-600">
+                                        The Timesheet tool is turned off on this Basecamp project. Turn it on in
+                                        Basecamp under the project's "Set up tools" before entries can sync.
+                                    </div>
+                                )}
+                                {bcTimesheetEnabled && bcTimesheetCheck?.timesheetEnabled && !bcTimesheetCheck.recordingFound && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Entries linked to a Basecamp-synced task attach to that to-do automatically.
+                                        For general time, log one entry directly in this project's Basecamp timesheet
+                                        once so the app can find it.
+                                    </p>
+                                )}
                             </div>
                         )}
 
