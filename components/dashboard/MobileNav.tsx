@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
   Menu, X, Search, LogOut, Users, Settings,
-  LayoutDashboard, Briefcase, CheckSquare, PackageCheck, MoreHorizontal,
+  LayoutDashboard, Briefcase, CheckSquare, BookOpenText, MoreHorizontal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { navigation } from '@/components/dashboard/Sidebar';
@@ -18,8 +18,8 @@ import { NotificationBell } from '@/components/notifications/NotificationBell';
 const primaryTabs = [
   { name: 'Home', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Clients', href: '/workspace', icon: Briefcase },
+  { name: 'Content', href: '/content', icon: BookOpenText },
   { name: 'Tasks', href: '/tasks', icon: CheckSquare },
-  { name: 'Deliver', href: '/deliverables', icon: PackageCheck },
 ];
 
 // Drawer shows all pages; Settings lives here now that the rail dropped it
@@ -107,6 +107,7 @@ export function MobileNav({ showClientList }: { showClientList: boolean }) {
             <Link
               key={tab.name}
               href={tab.href}
+              aria-current={active ? 'page' : undefined}
               className={cn(
                 'flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-colors',
                 active ? 'text-primary' : 'text-muted-foreground'
@@ -135,6 +136,7 @@ export function MobileNav({ showClientList }: { showClientList: boolean }) {
               <Link
                 key={item.name}
                 href={item.href}
+                aria-current={active ? 'page' : undefined}
                 onClick={() => setMenuOpen(false)}
                 className={cn(
                   'flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors',

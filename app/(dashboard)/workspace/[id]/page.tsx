@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useParams } from 'next/navigation';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck, Plug, Target } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck, Plug, Target, BookOpenText, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { ClientNotesPanel } from '@/components/workspace/ClientNotesPanel';
@@ -26,11 +26,13 @@ import { Pencil, Play, Pause, ListTodo, Plus } from 'lucide-react';
 import { TaskListView } from '@/components/tasks/TaskListView';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
-import { getTasksByClient, updateTask } from '@/lib/supabase/tasks';
+import { getTasksByClient } from '@/lib/supabase/tasks';
 import { Task } from '@/lib/types';
 import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
+import { ContentPlansLibrary } from '@/components/content/ContentPlansLibrary';
+import { ClientIntelligenceTab } from '@/components/client-intelligence/ClientIntelligenceTab';
 
-type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations';
+type Tab = 'overview' | 'campaign' | 'content' | 'intelligence' | 'tasks' | 'integrations';
 
 export default function ClientDetailPage() {
     const params = useParams();
@@ -51,6 +53,14 @@ export default function ClientDetailPage() {
 
     const isThisClientRunning = timer?.status === 'running' && timer.clientId === id;
 
+    const changeTab = (tab: Tab) => {
+        setActiveTab(tab);
+        const url = new URL(window.location.href);
+        if (tab === 'overview') url.searchParams.delete('tab');
+        else url.searchParams.set('tab', tab);
+        window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    };
+
     const handleTimerClick = async () => {
         if (!client) return;
         if (isThisClientRunning) {
@@ -66,7 +76,14 @@ export default function ClientDetailPage() {
             const found = all.find(c => c.id === id);
             setClient(found ?? null);
         });
-    }, [organization?.id, id]);
+    }, [organization, id]);
+
+    useEffect(() => {
+        const requested = new URLSearchParams(window.location.search).get('tab') as Tab | null;
+        if (requested && ['overview', 'campaign', 'content', 'intelligence', 'tasks', 'integrations'].includes(requested)) {
+            setActiveTab(requested);
+        }
+    }, []);
 
     useEffect(() => {
         if (activeTab !== 'tasks' || !id) return;
@@ -186,9 +203,9 @@ export default function ClientDetailPage() {
             )}
 
             {/* Tab bar */}
-            <div className="flex items-center gap-1 border-b border-border/50">
+            <div className="flex items-center gap-1 overflow-x-auto border-b border-border/50">
                 <button
-                    onClick={() => setActiveTab('overview')}
+                    onClick={() => changeTab('overview')}
                     className={cn(
                         'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
                         activeTab === 'overview'
@@ -199,7 +216,7 @@ export default function ClientDetailPage() {
                     Overview
                 </button>
                 <button
-                    onClick={() => setActiveTab('campaign')}
+                    onClick={() => changeTab('campaign')}
                     className={cn(
                         'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
                         activeTab === 'campaign'
@@ -211,7 +228,27 @@ export default function ClientDetailPage() {
                     SEO Marketing Plan
                 </button>
                 <button
-                    onClick={() => setActiveTab('tasks')}
+                    onClick={() => changeTab('content')}
+                    className={cn(
+                        'flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                        activeTab === 'content' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
+                    )}
+                >
+                    <BookOpenText className="h-3.5 w-3.5" />
+                    Content Plan
+                </button>
+                <button
+                    onClick={() => changeTab('intelligence')}
+                    className={cn(
+                        'flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                        activeTab === 'intelligence' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
+                    )}
+                >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Client Intelligence
+                </button>
+                <button
+                    onClick={() => changeTab('tasks')}
                     className={cn(
                         'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
                         activeTab === 'tasks'
@@ -228,7 +265,7 @@ export default function ClientDetailPage() {
                     )}
                 </button>
                 <button
-                    onClick={() => setActiveTab('integrations')}
+                    onClick={() => changeTab('integrations')}
                     className={cn(
                         'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
                         activeTab === 'integrations'
@@ -247,6 +284,19 @@ export default function ClientDetailPage() {
                     organizationId={organization?.id ?? ''}
                     clientId={client.id}
                     clientName={client.clientName}
+                />
+            )}
+
+            {activeTab === 'content' && (
+                <ContentPlansLibrary fixedClientId={client.id} fixedClientName={client.clientName} />
+            )}
+
+            {activeTab === 'intelligence' && (
+                <ClientIntelligenceTab
+                    organizationId={organization?.id ?? ''}
+                    clientId={client.id}
+                    clientName={client.clientName}
+                    website={client.domain}
                 />
             )}
 

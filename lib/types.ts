@@ -680,3 +680,112 @@ export interface Reminder {
     createdAt: string;
     updatedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Content Plans & Client Intelligence (migration 027)
+// ---------------------------------------------------------------------------
+
+export type ContentPlanStatus = 'draft' | 'active' | 'archived';
+export type ContentPriority = 'low' | 'medium' | 'high';
+export type ContentOpportunityStatus = 'suggested' | 'approved' | 'rejected' | 'promoted' | 'published';
+export type SearchIntent = 'informational' | 'commercial' | 'transactional' | 'navigational';
+export type ContentOpportunityType =
+    | 'landing_page' | 'supporting_article' | 'location_page' | 'existing_page_refresh'
+    | 'faq_addition' | 'comparison_case_study' | 'consolidate_redirect' | 'no_action';
+
+export interface ClientIntelligenceBusiness {
+    name?: string;
+    website?: string;
+    description?: string;
+    businessModel?: string;
+    primaryConversion?: string;
+    differentiators?: string;
+    proofPoints?: string;
+}
+
+export interface ClientIntelligenceOffers {
+    items: string[];
+    priorities?: string;
+    exclusions?: string;
+}
+
+export interface ClientIntelligenceAudiences {
+    segments: string[];
+    needsObjections?: string;
+    funnelStage?: string;
+}
+
+export interface ClientIntelligence {
+    id: string;
+    organizationId: string;
+    clientId: string;
+    status: 'draft' | 'ready';
+    version: number;
+    business: ClientIntelligenceBusiness;
+    offers: ClientIntelligenceOffers;
+    audiences: ClientIntelligenceAudiences;
+    markets: { locations?: string; serviceArea?: string; language?: string; scope?: string };
+    seoContext: { competitors?: string; priorityThemes?: string; existingTargetPages?: string; conversionPaths?: string };
+    brandConstraints: { preferredTerminology?: string; prohibitedClaims?: string; regulatedTopics?: string; toneSummary?: string };
+    createdBy?: string;
+    updatedBy?: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface ContentPlan {
+    id: string;
+    organizationId: string;
+    clientId: string;
+    name: string;
+    status: ContentPlanStatus;
+    periodStart?: string;
+    periodEnd?: string;
+    intelligenceVersion?: number;
+    settings: Record<string, unknown>;
+    createdBy?: string;
+    createdAt: string;
+    updatedAt: string;
+    clusters?: TopicCluster[];
+    opportunities?: ContentOpportunity[];
+}
+
+export interface TopicCluster {
+    id: string;
+    organizationId: string;
+    contentPlanId: string;
+    name: string;
+    seedKeyword?: string;
+    primaryKeyword?: string;
+    primaryTargetType?: string;
+    primaryTargetUrl?: string;
+    priority: ContentPriority;
+    businessValue?: number;
+    sortOrder: number;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface ContentOpportunity {
+    id: string;
+    organizationId: string;
+    contentPlanId: string;
+    topicClusterId?: string;
+    opportunityType: ContentOpportunityType;
+    keyword?: string;
+    workingTitle: string;
+    searchIntent?: SearchIntent;
+    status: ContentOpportunityStatus;
+    priority: ContentPriority;
+    existingUrl?: string;
+    targetUrl?: string;
+    isQuestion: boolean;
+    taskId?: string;
+    deliverableId?: string;
+    assigneeId?: string;
+    dueDate?: string;
+    notes?: string;
+    customFields: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string;
+}

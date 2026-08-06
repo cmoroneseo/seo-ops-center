@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SEO PM Tool — Content Plans &amp; Client Intelligence Developer Handoff</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0b0d12;
+      --panel: #131721;
+      --panel-2: #191e2a;
+      --text: #f4f6fb;
+      --muted: #a8b0c2;
+      --border: #2b3242;
+      --primary: #8b5cf6;
+      --primary-soft: rgba(139, 92, 246, 0.14);
+      --green: #34d399;
+      --amber: #fbbf24;
+      --red: #fb7185;
+      --blue: #38bdf8;
+      --radius: 14px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+    a { color: var(--blue); }
+    code, pre {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    code {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel-2);
+      padding: 0.12rem 0.35rem;
+      font-size: 0.9em;
+    }
+    pre {
+      margin: 0;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #080a0f;
+      padding: 16px;
+      color: #d8def0;
+      font-size: 0.86rem;
+      line-height: 1.55;
+    }
+    h1, h2, h3 { line-height: 1.18; }
+    h1 { margin: 0 0 12px; font-size: clamp(2rem, 5vw, 3.4rem); letter-spacing: -0.04em; }
+    h2 { margin: 0 0 18px; font-size: 1.6rem; letter-spacing: -0.02em; }
+    h3 { margin: 24px 0 10px; font-size: 1.05rem; }
+    p { margin: 0 0 14px; }
+    ul, ol { margin: 10px 0 0; padding-left: 1.3rem; }
+    li + li { margin-top: 6px; }
+
+    .shell { max-width: 1180px; margin: 0 auto; padding: 32px 24px 80px; }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at top right, rgba(139, 92, 246, 0.24), transparent 38%),
+        linear-gradient(145deg, #151927, #0d1017 68%);
+      padding: clamp(28px, 6vw, 64px);
+    }
+    .eyebrow {
+      margin-bottom: 14px;
+      color: #c4b5fd;
+      font-size: 0.74rem;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .hero p { max-width: 780px; color: var(--muted); font-size: 1.08rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.035);
+      padding: 7px 10px;
+      color: var(--muted);
+      font-size: 0.8rem;
+      font-weight: 650;
+    }
+    .chip::before { width: 7px; height: 7px; border-radius: 50%; background: var(--green); content: ""; }
+
+    .layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 28px; margin-top: 28px; }
+    .toc {
+      position: sticky;
+      top: 20px;
+      align-self: start;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--panel);
+      padding: 18px;
+    }
+    .toc strong { display: block; margin-bottom: 10px; font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; }
+    .toc a { display: block; border-radius: 8px; padding: 7px 9px; color: var(--muted); text-decoration: none; font-size: 0.88rem; }
+    .toc a:hover { background: var(--primary-soft); color: var(--text); }
+    main { min-width: 0; }
+    section {
+      scroll-margin-top: 24px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--panel);
+      padding: clamp(20px, 4vw, 34px);
+    }
+    section + section { margin-top: 22px; }
+
+    .decision {
+      border-left: 4px solid var(--primary);
+      border-radius: 8px;
+      background: var(--primary-soft);
+      padding: 16px 18px;
+    }
+    .decision strong { display: block; margin-bottom: 5px; }
+    .warning { border-left-color: var(--amber); background: rgba(251, 191, 36, 0.1); }
+    .success { border-left-color: var(--green); background: rgba(52, 211, 153, 0.1); }
+
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--panel-2);
+      padding: 18px;
+    }
+    .card h3 { margin-top: 0; }
+    .card p:last-child { margin-bottom: 0; }
+    .muted { color: var(--muted); }
+    .small { font-size: 0.86rem; }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.9rem; }
+    th, td { border-bottom: 1px solid var(--border); padding: 11px 10px; text-align: left; vertical-align: top; }
+    th { color: #c9d0df; font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; }
+    td { color: var(--muted); }
+    tr:last-child td { border-bottom: 0; }
+
+    .status {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 0.72rem;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+    .now { background: rgba(52,211,153,.13); color: #6ee7b7; }
+    .later { background: rgba(56,189,248,.13); color: #7dd3fc; }
+    .out { background: rgba(251,113,133,.13); color: #fda4af; }
+
+    .checklist { list-style: none; padding: 0; }
+    .checklist li { position: relative; padding-left: 28px; }
+    .checklist li::before {
+      position: absolute;
+      left: 0;
+      top: 0.13rem;
+      display: grid;
+      width: 18px;
+      height: 18px;
+      place-items: center;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--green);
+      content: "✓";
+      font-size: 0.72rem;
+      font-weight: 900;
+    }
+    .footer { margin-top: 28px; color: var(--muted); text-align: center; font-size: 0.82rem; }
+
+    @media (max-width: 880px) {
+      .layout { grid-template-columns: 1fr; }
+      .toc { position: static; }
+      .grid, .grid.three { grid-template-columns: 1fr; }
+    }
+    @media print {
+      :root { color-scheme: light; --bg: #fff; --panel: #fff; --panel-2: #f7f8fb; --text: #12141a; --muted: #4b5563; --border: #d9dde6; --primary-soft: #f1edff; }
+      body { background: #fff; }
+      .shell { max-width: none; padding: 0; }
+      .hero, section, .toc { box-shadow: none; break-inside: avoid; }
+      .layout { display: block; }
+      .toc { display: none; }
+      section { margin-top: 14px !important; }
+      pre { background: #f6f7f9; color: #111827; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="hero">
+      <div class="eyebrow">Approved Product Direction · Developer Handoff</div>
+      <h1>Content Plans &amp;<br />Client Intelligence</h1>
+      <p>
+        Add a business-aware SEO content-planning module to SEO PM Tool. The experience should help an agency plan topic clusters and content opportunities, connect approved opportunities to project-management execution, and use reusable client context without turning the MVP into a full content generator.
+      </p>
+      <div class="meta">
+        <span class="chip">Next.js 15 / React 19</span>
+        <span class="chip">Supabase / Postgres / RLS</span>
+        <span class="chip">Table-first MVP</span>
+        <span class="chip">Client-scoped intelligence</span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="toc" aria-label="Document sections">
+        <strong>Contents</strong>
+        <a href="#outcome">1. Product outcome</a>
+        <a href="#decisions">2. Approved decisions</a>
+        <a href="#ia">3. Information architecture</a>
+        <a href="#flows">4. Primary flows</a>
+        <a href="#mvp">5. MVP requirements</a>
+        <a href="#intelligence">6. Client Intelligence</a>
+        <a href="#model">7. Data model</a>
+        <a href="#implementation">8. Implementation map</a>
+        <a href="#ai">9. AI behavior</a>
+        <a href="#accessibility">10. Accessibility</a>
+        <a href="#acceptance">11. Acceptance criteria</a>
+        <a href="#phases">12. Delivery phases</a>
+      </aside>
+
+      <main>
+        <section id="outcome">
+          <h2>1. Product outcome</h2>
+          <div class="decision success">
+            <strong>North-star outcome</strong>
+            A strategist can turn client context and SEO opportunities into an approved, prioritized content roadmap, then promote individual opportunities into real tasks or deliverables without re-entering the planning data.
+          </div>
+          <div class="grid" style="margin-top: 16px;">
+            <div class="card">
+              <h3>Planning layer</h3>
+              <p class="muted">Organize work as Content Plans → Topic Clusters → Content Opportunities.</p>
+            </div>
+            <div class="card">
+              <h3>Execution bridge</h3>
+              <p class="muted">Approved opportunities can become existing SEO PM Tool tasks and deliverables.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="decisions">
+          <h2>2. Approved product decisions</h2>
+          <table>
+            <thead><tr><th>Decision</th><th>Direction</th><th>Reason</th></tr></thead>
+            <tbody>
+              <tr><td>Primary navigation</td><td>Add <strong>Content</strong></td><td>Content planning is a durable agency workflow, not a one-off client utility.</td></tr>
+              <tr><td>Initial Content destination</td><td>Open <strong>Content Plans</strong> directly</td><td>A secondary rail with only one destination wastes width and adds friction.</td></tr>
+              <tr><td>Secondary Content navigation</td><td>Defer</td><td>Add it only when durable siblings exist, such as Calendar, Inventory, or Performance.</td></tr>
+              <tr><td>Client context location</td><td><strong>Client Intelligence</strong> in the client workspace</td><td>It is shared client/team data, not a personal tool owned by the logged-in user.</td></tr>
+              <tr><td>Naming</td><td>Prefer <strong>Client Intelligence</strong> over Brand Vault</td><td>The scope includes offers, audiences, locations, priorities, constraints, and website context.</td></tr>
+              <tr><td>Planning hierarchy</td><td>Do not require pillar pages</td><td>Clusters may support service, location, product, category, comparison, or informational pages.</td></tr>
+              <tr><td>Visualization</td><td>Table-first</td><td>The operating workflow provides more value than a node diagram in the MVP.</td></tr>
+            </tbody>
+          </table>
+          <div class="decision warning" style="margin-top: 18px;">
+            <strong>Do not place Client Intelligence under Personal Tools.</strong>
+            The current UserMenu contains user-owned tools such as Track Time, Notepad, Reminders, and My Tasks. Client Intelligence has different ownership, permissions, and discoverability needs.
+          </div>
+        </section>
+
+        <section id="ia">
+          <h2>3. Information architecture</h2>
+          <pre aria-label="Recommended information architecture">Primary navigation
+└── Content
+    └── Content Plans                         /content
+
+Client workspace
+├── Overview
+├── SEO Marketing Plan
+├── Content Plan                             ?tab=content
+├── Client Intelligence                      ?tab=intelligence
+├── Tasks
+└── Integrations
+
+Content Plan
+├── Plan summary
+├── Topic clusters
+├── Content opportunities
+└── Client Intelligence context indicator</pre>
+          <h3>Global and client-scoped entry points</h3>
+          <ul>
+            <li><code>/content</code> shows the all-client Content Plans portfolio.</li>
+            <li>The client workspace Content Plan tab shows the same planning system pre-filtered to one client.</li>
+            <li>The client workspace Client Intelligence tab owns the reusable client profile.</li>
+            <li>The plan header includes a contextual profile indicator: readiness, last updated date, profile version, and a Review link.</li>
+          </ul>
+        </section>
+
+        <section id="flows">
+          <h2>4. Primary user flows</h2>
+          <div class="grid">
+            <div class="card">
+              <h3>A. Create a plan</h3>
+              <ol>
+                <li>Select client.</li>
+                <li>Name the plan and optional planning period.</li>
+                <li>Review inherited Client Intelligence.</li>
+                <li>Add seed topics, services, locations, or source keywords.</li>
+                <li>Generate or manually create clusters and opportunities.</li>
+                <li>Review before saving generated ideas.</li>
+              </ol>
+            </div>
+            <div class="card">
+              <h3>B. Review opportunities</h3>
+              <ol>
+                <li>Filter by cluster, intent, opportunity type, priority, and status.</li>
+                <li>Assign an optional primary target page to the cluster.</li>
+                <li>Approve, reject, edit, or move opportunities.</li>
+                <li>Flag duplicates, cannibalization risks, and existing-page refreshes.</li>
+              </ol>
+            </div>
+            <div class="card">
+              <h3>C. Promote to execution</h3>
+              <ol>
+                <li>Select an approved opportunity.</li>
+                <li>Create a Task or Deliverable using existing creation logic.</li>
+                <li>Carry across title, keyword, intent, target page, notes, due date, and assignment.</li>
+                <li>Retain the source link for traceability.</li>
+              </ol>
+            </div>
+            <div class="card">
+              <h3>D. Maintain client context</h3>
+              <ol>
+                <li>Edit structured Client Intelligence fields.</li>
+                <li>Validate AI-suggested values before saving.</li>
+                <li>Publish a new profile version.</li>
+                <li>Explicitly regenerate plan suggestions using the latest context.</li>
+              </ol>
+            </div>
+          </div>
+        </section>
+
+        <section id="mvp">
+          <h2>5. MVP functional requirements</h2>
+          <div class="grid three">
+            <div class="card">
+              <h3>Content Plans library</h3>
+              <ul class="small muted">
+                <li>Search and client filter</li>
+                <li>Status filter</li>
+                <li>Plan name and period</li>
+                <li>Cluster/opportunity counts</li>
+                <li>Approved/promoted/published rollups</li>
+                <li>Create and open plan actions</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3>Plan workspace</h3>
+              <ul class="small muted">
+                <li>Summary metrics</li>
+                <li>Table grouped by cluster</li>
+                <li>Search and filters</li>
+                <li>Inline opportunity editing</li>
+                <li>Bulk approve/reject</li>
+                <li>Task/deliverable promotion</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3>Client Intelligence</h3>
+              <ul class="small muted">
+                <li>Structured sections</li>
+                <li>Completion/readiness score</li>
+                <li>Last updated and editor</li>
+                <li>Profile version</li>
+                <li>Manual editing</li>
+                <li>Optional AI autofill review</li>
+              </ul>
+            </div>
+          </div>
+
+          <h3>Opportunity types</h3>
+          <p class="muted">Do not assume every recommendation is a blog post.</p>
+          <table>
+            <thead><tr><th>Type</th><th>Typical use</th></tr></thead>
+            <tbody>
+              <tr><td>New landing/service page</td><td>Commercial or transactional intent with no suitable destination.</td></tr>
+              <tr><td>Supporting article</td><td>Informational coverage strengthening a primary target page.</td></tr>
+              <tr><td>Location page</td><td>Location-specific service demand with sufficient differentiation.</td></tr>
+              <tr><td>Existing-page refresh</td><td>A relevant URL already exists but needs expanded or updated coverage.</td></tr>
+              <tr><td>FAQ addition</td><td>A narrow question best handled within an existing page.</td></tr>
+              <tr><td>Comparison/case study</td><td>Commercial evaluation, proof, or differentiated decision support.</td></tr>
+              <tr><td>Consolidate/redirect</td><td>Overlapping content creates cannibalization or maintenance risk.</td></tr>
+              <tr><td>No action</td><td>Low relevance, low value, off-brand, or outside the client’s offering.</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="intelligence">
+          <h2>6. Client Intelligence specification</h2>
+          <p>Client Intelligence should improve business relevance during planning. It is not a full visual asset manager or content-generation settings panel in the MVP.</p>
+          <table>
+            <thead><tr><th>Section</th><th>MVP fields</th><th>Used during planning</th></tr></thead>
+            <tbody>
+              <tr><td>Business</td><td>Name, website, description, business model, primary conversion, differentiators, proof points</td><td>Scores business fit and opportunity type.</td></tr>
+              <tr><td>Offers</td><td>Products/services, priority offerings, high-margin offerings, exclusions</td><td>Prevents irrelevant recommendations and prioritizes commercial value.</td></tr>
+              <tr><td>Audiences</td><td>Segments, buyer roles, needs, objections, funnel stage</td><td>Shapes cluster framing and recommended intent.</td></tr>
+              <tr><td>Markets</td><td>Locations, service areas, language, national/local scope</td><td>Determines location-page and localized-content opportunities.</td></tr>
+              <tr><td>SEO context</td><td>Competitors, priority themes, existing target pages, target conversion paths</td><td>Informs coverage gaps and primary target-page selection.</td></tr>
+              <tr><td>Brand &amp; compliance</td><td>Preferred terminology, prohibited claims, regulated topics, tone summary</td><td>Constrains suggestions and titles.</td></tr>
+            </tbody>
+          </table>
+
+          <h3>Context precedence</h3>
+          <pre>Organization defaults
+  &lt; Client Intelligence
+    &lt; Content Plan settings
+      &lt; Topic Cluster overrides
+        &lt; Content Opportunity overrides</pre>
+
+          <h3>Deferred Client Intelligence capabilities</h3>
+          <ul>
+            <li>Document uploads, vector search, and “ask the vault” chat.</li>
+            <li>Full website crawl inventory and automatic refresh scheduling.</li>
+            <li>Logo, color palette, photo library, and visual style guide.</li>
+            <li>Article word-count rules, image generation, author schema, and CMS publishing preferences.</li>
+          </ul>
+        </section>
+
+        <section id="model">
+          <h2>7. Proposed data model</h2>
+          <p class="muted">Use dedicated tables rather than expanding <code>clients.custom_fields</code>. This data will be shared by planning, AI suggestions, briefs, reporting, and future agents.</p>
+
+          <h3><code>client_intelligence</code></h3>
+          <pre>id uuid primary key
+organization_id uuid not null
+client_id uuid not null unique
+status text check ('draft', 'ready')
+version integer not null default 1
+business jsonb not null default '{}'
+offers jsonb not null default '[]'
+audiences jsonb not null default '[]'
+markets jsonb not null default '{}'
+seo_context jsonb not null default '{}'
+brand_constraints jsonb not null default '{}'
+created_by uuid
+updated_by uuid
+created_at timestamptz
+updated_at timestamptz</pre>
+
+          <h3><code>content_plans</code></h3>
+          <pre>id uuid primary key
+organization_id uuid not null
+client_id uuid not null
+name text not null
+status text check ('draft', 'active', 'archived')
+period_start date null
+period_end date null
+intelligence_version integer null
+settings jsonb not null default '{}'
+created_by uuid
+created_at timestamptz
+updated_at timestamptz</pre>
+
+          <h3><code>topic_clusters</code></h3>
+          <pre>id uuid primary key
+organization_id uuid not null
+content_plan_id uuid not null
+name text not null
+seed_keyword text null
+primary_keyword text null
+primary_target_type text null
+primary_target_url text null
+priority text check ('low', 'medium', 'high')
+business_value integer null
+sort_order integer not null default 0
+created_at timestamptz
+updated_at timestamptz</pre>
+
+          <h3><code>content_opportunities</code></h3>
+          <pre>id uuid primary key
+organization_id uuid not null
+content_plan_id uuid not null
+topic_cluster_id uuid null
+opportunity_type text not null
+keyword text null
+working_title text not null
+search_intent text null
+status text check ('suggested', 'approved', 'rejected', 'promoted', 'published')
+priority text check ('low', 'medium', 'high')
+existing_url text null
+target_url text null
+is_question boolean not null default false
+task_id uuid null
+deliverable_id uuid null
+assignee_id uuid null
+due_date date null
+notes text null
+custom_fields jsonb not null default '{}'
+created_at timestamptz
+updated_at timestamptz</pre>
+
+          <h3>Database conventions</h3>
+          <ul>
+            <li>Add a numbered migration and mirror it into <code>schema.sql</code>.</li>
+            <li>Apply tenant RLS using <code>organization_id IN (SELECT get_user_org_ids())</code>.</li>
+            <li>Index client, plan, cluster, status, task, and deliverable foreign keys used in filters.</li>
+            <li>Use snake_case database fields and <code>rowToX</code>/<code>xToRow</code> mappers in the Supabase layer.</li>
+            <li>Compute plan rollups on read; do not persist selected, approved, promoted, or published totals.</li>
+          </ul>
+        </section>
+
+        <section id="implementation">
+          <h2>8. Suggested implementation map</h2>
+          <table>
+            <thead><tr><th>Area</th><th>Suggested change</th></tr></thead>
+            <tbody>
+              <tr><td><code>components/dashboard/Sidebar.tsx</code></td><td>Add a Content icon and <code>/content</code> route. Do not add a secondary rail in the first release.</td></tr>
+              <tr><td><code>app/(dashboard)/layout.tsx</code></td><td>Keep the existing layout. Do not show ClientListPanel solely because Content is active unless the selected UX explicitly needs it.</td></tr>
+              <tr><td><code>app/(dashboard)/content/page.tsx</code></td><td>New all-client Content Plans library.</td></tr>
+              <tr><td><code>app/(dashboard)/content/[planId]/page.tsx</code></td><td>New plan workspace, table-first.</td></tr>
+              <tr><td><code>app/(dashboard)/workspace/[id]/page.tsx</code></td><td>Add <code>content</code> and <code>intelligence</code> tabs. Consider making tab state URL-backed so deep links work.</td></tr>
+              <tr><td><code>components/content/*</code></td><td>Plan library, plan header, filters, cluster sections, opportunity table, promotion modal.</td></tr>
+              <tr><td><code>components/client-intelligence/*</code></td><td>Profile readiness, section forms, version metadata, AI autofill review.</td></tr>
+              <tr><td><code>lib/supabase/content-plans.ts</code></td><td>Plan, cluster, and opportunity CRUD plus row mappers.</td></tr>
+              <tr><td><code>lib/supabase/client-intelligence.ts</code></td><td>One-per-client profile CRUD and versioning.</td></tr>
+              <tr><td><code>lib/types.ts</code></td><td>Add typed unions and interfaces for all new entities.</td></tr>
+              <tr><td><code>app/api/content-plans/generate/route.ts</code></td><td>Server-only AI generation endpoint using structured Client Intelligence.</td></tr>
+            </tbody>
+          </table>
+
+          <h3>Reuse before building new primitives</h3>
+          <ul>
+            <li>Reuse existing task creation and assignment patterns.</li>
+            <li>Reuse deliverable linkage conventions and fulfillment terminology.</li>
+            <li>Reuse the current client workspace tab styling and form components.</li>
+            <li>Reuse organization/client authorization and Supabase client patterns.</li>
+            <li>Keep the UserMenu unchanged; Client Intelligence does not belong there.</li>
+          </ul>
+        </section>
+
+        <section id="ai">
+          <h2>9. AI generation behavior</h2>
+          <ul class="checklist">
+            <li>AI output is a proposal requiring review, not an automatic write into the active plan.</li>
+            <li>Generation uses structured Client Intelligence, plan settings, supplied seeds, and known existing URLs.</li>
+            <li>Every generated opportunity includes a short rationale, suggested type, intent, cluster, and target-page relationship.</li>
+            <li>The prompt explicitly prohibits inventing services, locations, credentials, pricing, guarantees, or claims.</li>
+            <li>The saved plan records the Client Intelligence version used for generation.</li>
+            <li>Profile changes do not silently rewrite existing opportunities.</li>
+            <li>Regeneration with current context is an explicit user action.</li>
+          </ul>
+          <div class="decision" style="margin-top: 18px;">
+            <strong>MVP recommendation</strong>
+            Use structured fields in the prompt. Do not build embeddings, document retrieval, or a generalized knowledge graph until the planning workflow proves valuable.
+          </div>
+        </section>
+
+        <section id="accessibility">
+          <h2>10. UX and accessibility requirements</h2>
+          <ul class="checklist">
+            <li>Icon-only primary navigation links have accessible names and visible keyboard focus.</li>
+            <li>Active navigation state is communicated by text/semantics as well as color.</li>
+            <li>Tabs use correct tab semantics or are implemented as URL links when they navigate.</li>
+            <li>Tables remain operable at 200% zoom and provide a usable responsive alternative.</li>
+            <li>Bulk actions announce selection count and remain keyboard accessible.</li>
+            <li>Status, intent, and priority chips do not communicate meaning by color alone.</li>
+            <li>Inline edits have explicit labels, Save/Cancel behavior, validation, and error recovery.</li>
+            <li>AI loading, completion, and failure states are announced and do not trap focus.</li>
+            <li>Destructive archive, reject, unlink, or delete actions require appropriate confirmation.</li>
+            <li>Mobile navigation exposes Content and the client-scoped Content Plan/Intelligence destinations.</li>
+          </ul>
+        </section>
+
+        <section id="acceptance">
+          <h2>11. MVP acceptance criteria</h2>
+          <ul class="checklist">
+            <li>Content appears in primary desktop and mobile navigation and opens the Content Plans library.</li>
+            <li>No empty or one-item secondary Content navigation rail is introduced.</li>
+            <li>Users can create, rename, open, activate, and archive a client-scoped Content Plan.</li>
+            <li>Users can create, edit, reorder, and remove Topic Clusters.</li>
+            <li>Users can create, edit, filter, approve, reject, and bulk-update Content Opportunities.</li>
+            <li>Clusters support an optional primary target page; it is not required or always called a pillar page.</li>
+            <li>Users can classify opportunities as landing pages, articles, refreshes, FAQs, location pages, comparisons, consolidation, or no action.</li>
+            <li>Users can promote an approved opportunity to a Task or Deliverable and navigate to the linked record.</li>
+            <li>Client Intelligence is editable in the client workspace and not present under Personal Tools.</li>
+            <li>The plan shows which Client Intelligence version informed generated recommendations.</li>
+            <li>Plan metrics are computed from current opportunities and linked execution records.</li>
+            <li>All new tables have organization-scoped RLS and authorization is tested across tenants.</li>
+            <li>Typecheck, lint, relevant unit tests, and a production build pass before handoff.</li>
+          </ul>
+        </section>
+
+        <section id="phases">
+          <h2>12. Delivery phases</h2>
+          <table>
+            <thead><tr><th>Phase</th><th>Scope</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td>1. Foundation</td><td>Schema, RLS, types, CRUD, primary Content navigation, client workspace tabs</td><td><span class="status now">Build now</span></td></tr>
+              <tr><td>2. Manual planner</td><td>Plan library, cluster/opportunity table, filters, inline editing, promotion to Task/Deliverable</td><td><span class="status now">Build now</span></td></tr>
+              <tr><td>3. Structured intelligence</td><td>Client Intelligence forms, readiness, versioning, contextual plan indicator</td><td><span class="status now">Build now</span></td></tr>
+              <tr><td>4. AI assistance</td><td>Autofill client profile, generation preview, rationales, regenerate-with-latest-context</td><td><span class="status later">Next</span></td></tr>
+              <tr><td>5. Expanded Content module</td><td>Calendar, inventory, performance, and secondary navigation when justified</td><td><span class="status later">Later</span></td></tr>
+              <tr><td>6. Content production platform</td><td>Briefs, full content generation, media library, CMS publishing, retrieval over sources</td><td><span class="status out">Out of MVP</span></td></tr>
+            </tbody>
+          </table>
+          <div class="decision success" style="margin-top: 18px;">
+            <strong>Recommended build order</strong>
+            Ship a strong manual planning and PM workflow first. Add AI once the underlying objects, review flow, and execution bridge are useful without it.
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <footer class="footer">
+      SEO PM Tool · Content Plans &amp; Client Intelligence · Developer handoff prepared August 5, 2026
+    </footer>
+  </div>
+</body>
+</html>

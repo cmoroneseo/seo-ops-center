@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, CheckSquare, Briefcase, ClipboardList, PackageCheck } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Briefcase, ClipboardList, PackageCheck, BookOpenText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export const navigation = [
   { name: 'Home', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Workspace', href: '/workspace', icon: Briefcase },
+  { name: 'Content', href: '/content', icon: BookOpenText },
   { name: 'Reports', href: '/reports', icon: ClipboardList },
   { name: 'Tasks', href: '/tasks', icon: CheckSquare },
   { name: 'Deliverables', href: '/deliverables', icon: PackageCheck },
@@ -29,6 +30,8 @@ export function Sidebar() {
             <Link
               key={item.name}
               href={item.href}
+              aria-label={item.name}
+              aria-current={isActive ? 'page' : undefined}
               className={cn(
                 'relative group flex items-center justify-center h-12 w-12 rounded-xl transition-all duration-200',
                 isActive
