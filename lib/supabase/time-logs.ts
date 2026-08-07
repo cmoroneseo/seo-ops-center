@@ -1,5 +1,10 @@
 import { createClient } from './client';
 import { TimeLog, TimeLogStatus, SessionNote } from '../types';
+import {
+    sumBudgetHoursByClient,
+    sumTrackedHoursByClient,
+    sumInternalHours,
+} from '../time-budget-logic';
 
 function rowToTimeLog(row: any): TimeLog {
     return {
@@ -53,7 +58,6 @@ export async function getTimeLogs(
     }
 }
 
-/** Sum of logged hours per client for a month. Powers % used / remaining. */
 /**
  * Hours consumed against each client's SEO budget for a month.
  *
@@ -66,12 +70,7 @@ export async function getLoggedHoursByClient(
     organizationId: string,
     month: string,
 ): Promise<Record<string, number>> {
-    const logs = await getTimeLogs(organizationId, { month });
-    return logs.reduce<Record<string, number>>((acc, l) => {
-        if (!l.clientId || !l.countsTowardBudget) return acc;
-        acc[l.clientId] = (acc[l.clientId] || 0) + l.hours;
-        return acc;
-    }, {});
+    return sumBudgetHoursByClient(await getTimeLogs(organizationId, { month }));
 }
 
 /** Every tracked hour against a client, budget-consuming or not. */
@@ -79,12 +78,15 @@ export async function getTrackedHoursByClient(
     organizationId: string,
     month: string,
 ): Promise<Record<string, number>> {
-    const logs = await getTimeLogs(organizationId, { month });
-    return logs.reduce<Record<string, number>>((acc, l) => {
-        if (!l.clientId) return acc;
-        acc[l.clientId] = (acc[l.clientId] || 0) + l.hours;
-        return acc;
-    }, {});
+    return sumTrackedHoursByClient(await getTimeLogs(organizationId, { month }));
+}
+
+/** Hours with no client attached — internal meetings, admin, and the like. */
+export async function getInternalHours(
+    organizationId: string,
+    month: string,
+): Promise<number> {
+    return sumInternalHours(await getTimeLogs(organizationId, { month }));
 }
 
 export async function createTimeLog(
