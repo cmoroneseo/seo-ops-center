@@ -378,6 +378,8 @@ export default function PlannerPage() {
                 <EventDetailPanel
                     item={selected}
                     members={members}
+                    organizationId={organization?.id}
+                    userId={userId}
                     onClose={() => setSelected(null)}
                     onChanged={() => { setSelected(null); void reloadAll(); }}
                     onDeleted={() => { setSelected(null); void reloadAll(); }}

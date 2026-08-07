@@ -6,9 +6,18 @@ import { Clock, Calendar, TrendingUp, PieChart, AlertCircle } from 'lucide-react
 
 interface EngagementOverviewProps {
     client: ClientProject;
+    /**
+     * Hours actually logged against this client's budget this month.
+     *
+     * `config.hoursUsed` is a stored field that is written as 0 on client
+     * creation and never updated, so it always rendered an empty bar. The real
+     * number comes from getLoggedHoursByClient, which excludes internal work and
+     * anything flagged as not counting toward budget (migration 030).
+     */
+    loggedHours?: number;
 }
 
-export function EngagementOverview({ client }: EngagementOverviewProps) {
+export function EngagementOverview({ client, loggedHours }: EngagementOverviewProps) {
     const isCampaign = client.engagementModel === 'Campaign';
     const config = isCampaign ? client.campaignConfig : client.retainerConfig;
 
@@ -16,7 +25,7 @@ export function EngagementOverview({ client }: EngagementOverviewProps) {
 
     // Calculate percentages
     const total = isCampaign ? (config as any).totalHours : (config as any).monthlyHours;
-    const used = config.hoursUsed;
+    const used = loggedHours ?? config.hoursUsed;
     const percentage = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
 
     // Determine color based on usage

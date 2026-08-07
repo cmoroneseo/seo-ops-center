@@ -571,16 +571,26 @@ export interface SessionNote {
 export interface TimeLog {
     id: string;
     organizationId: string;
-    clientId: string;
+    /** Undefined for internal work — a 1:1 has no client (migration 030). */
+    clientId?: string;
     clientName?: string;
     projectId?: string;
     taskId?: string;
     taskTitle?: string;
+    /** The planner block this time was logged from, when it came from one. */
+    plannerEventId?: string;
     userId: string;
     date: string;
     hours: number;
     description: string;
+    /** Can we invoice it. */
     billable: boolean;
+    /**
+     * Does it consume the client's SEO hours. A client meeting is tracked and
+     * often billable but must not eat deliverable budget, so this is a separate
+     * axis from `billable`.
+     */
+    countsTowardBudget: boolean;
     status: TimeLogStatus;
     timerStartedAt?: string; // ISO — when the timer was last started/resumed
     elapsedSeconds: number;  // accumulated seconds (survives pause/resume)

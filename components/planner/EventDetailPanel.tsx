@@ -2,28 +2,75 @@
 
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import { X, Trash2, MapPin, Users, Building2 } from 'lucide-react';
+import { X, Trash2, MapPin, Users, Building2, Clock, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PlannerEvent } from '@/lib/types';
 import { PlannerItem } from '@/lib/planner/items';
 import { updatePlannerEvent, deletePlannerEvent } from '@/lib/supabase/planner-events';
+import { createTimeLog, getTimeLogForPlannerEvent } from '@/lib/supabase/time-logs';
+import { durationMinutes } from '@/lib/planner/layout';
 import { TeamMember } from './MeetWithFilter';
 import { KIND_STYLES } from './EventCard';
 
 interface EventDetailPanelProps {
     item: PlannerItem;
     members: TeamMember[];
+    organizationId?: string;
+    userId?: string;
     onClose: () => void;
     onChanged: () => void;
     onDeleted: () => void;
 }
 
-export function EventDetailPanel({ item, members, onClose, onChanged, onDeleted }: EventDetailPanelProps) {
+export function EventDetailPanel({
+    item, members, organizationId, userId, onClose, onChanged, onDeleted,
+}: EventDetailPanelProps) {
     const isEvent = item.source === 'event';
     const event = isEvent ? (item.raw as PlannerEvent) : null;
 
     const [title, setTitle] = useState(item.title);
     const [description, setDescription] = useState(event?.description ?? '');
+    const [loggedHours, setLoggedHours] = useState<number | null>(null);
+    const [isLogging, setIsLogging] = useState(false);
+
+    // Has this block already been turned into time? Keeps the action idempotent.
+    const eventId = event?.id;
+    useEffect(() => {
+        if (!eventId) { setLoggedHours(null); return; }
+        let cancelled = false;
+        void getTimeLogForPlannerEvent(eventId).then(log => {
+            if (!cancelled) setLoggedHours(log ? log.hours : null);
+        });
+        return () => { cancelled = true; };
+    }, [eventId]);
+
+    const blockMinutes = event ? Math.max(1, durationMinutes(item.startsAt, item.endsAt)) : 0;
+    const isPast = new Date(item.endsAt).getTime() <= Date.now();
+
+    /**
+     * Turn the block into a time log. A client meeting is tracked but must not
+     * eat SEO budget, so anything with a client that is not task work is flagged
+     * countsTowardBudget: false.
+     */
+    const logTime = async () => {
+        if (!event || !organizationId || isLogging) return;
+        setIsLogging(true);
+        const hours = Math.round((blockMinutes / 60) * 100) / 100;
+        const res = await createTimeLog({
+            organizationId,
+            userId,
+            clientId: event.clientId,
+            plannerEventId: event.id,
+            date: item.startsAt.slice(0, 10),
+            hours,
+            description: event.title,
+            billable: Boolean(event.clientId),
+            countsTowardBudget: false,
+        });
+        setIsLogging(false);
+        if (res.success) setLoggedHours(hours);
+        else console.error('[planner] log time failed:', res.error);
+    };
 
     useEffect(() => {
         setTitle(item.title);
@@ -99,6 +146,34 @@ export function EventDetailPanel({ item, members, onClose, onChanged, onDeleted 
                     <div className="flex items-start gap-2 text-xs">
                         <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         <span>{attendeeNames.join(', ')}</span>
+                    </div>
+                )}
+
+                {isEvent && (
+                    <div className="rounded-lg border border-border p-2.5">
+                        {loggedHours !== null ? (
+                            <div className="flex items-center gap-2 text-xs text-emerald-500">
+                                <Check className="h-3.5 w-3.5 shrink-0" />
+                                <span>{loggedHours}h logged from this block</span>
+                            </div>
+                        ) : (
+                            <>
+                                <button
+                                    onClick={() => void logTime()}
+                                    disabled={isLogging || !organizationId}
+                                    className="flex w-full items-center justify-center gap-2 rounded-md bg-muted px-3 py-1.5 text-xs font-medium hover:bg-muted/70 disabled:opacity-50"
+                                >
+                                    <Clock className="h-3.5 w-3.5" />
+                                    {isLogging ? 'Logging…' : `Log ${blockMinutes} min`}
+                                </button>
+                                <p className="mt-1.5 text-[10px] leading-snug text-muted-foreground">
+                                    {event?.clientId
+                                        ? 'Tracked against the client, but does not count toward their SEO budget.'
+                                        : 'Tracked as internal time.'}
+                                    {!isPast && ' This block has not finished yet.'}
+                                </p>
+                            </>
+                        )}
                     </div>
                 )}
 

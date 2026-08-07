@@ -5,16 +5,18 @@ function rowToTimeLog(row: any): TimeLog {
     return {
         id: row.id,
         organizationId: row.organization_id,
-        clientId: row.client_id,
+        clientId: row.client_id ?? undefined,
         clientName: row.clients?.name ?? undefined,
         projectId: row.project_id ?? undefined,
         taskId: row.task_id ?? undefined,
         taskTitle: row.tasks?.title ?? undefined,
+        plannerEventId: row.planner_event_id ?? undefined,
         userId: row.user_id,
         date: row.date,
         hours: Number(row.hours) || 0,
         description: row.description || '',
         billable: row.billable ?? true,
+        countsTowardBudget: row.counts_toward_budget ?? true,
         status: (row.status as TimeLogStatus) ?? 'logged',
         timerStartedAt: row.timer_started_at ?? undefined,
         elapsedSeconds: Number(row.elapsed_seconds) || 0,
@@ -52,19 +54,42 @@ export async function getTimeLogs(
 }
 
 /** Sum of logged hours per client for a month. Powers % used / remaining. */
+/**
+ * Hours consumed against each client's SEO budget for a month.
+ *
+ * Deliberately excludes internal work (no client) and anything flagged
+ * `countsTowardBudget: false` — a client meeting is tracked and may be billable,
+ * but it must not eat deliverable hours. Use getTrackedHoursByClient when you
+ * want everything regardless of budget treatment.
+ */
 export async function getLoggedHoursByClient(
     organizationId: string,
     month: string,
 ): Promise<Record<string, number>> {
     const logs = await getTimeLogs(organizationId, { month });
     return logs.reduce<Record<string, number>>((acc, l) => {
+        if (!l.clientId || !l.countsTowardBudget) return acc;
+        acc[l.clientId] = (acc[l.clientId] || 0) + l.hours;
+        return acc;
+    }, {});
+}
+
+/** Every tracked hour against a client, budget-consuming or not. */
+export async function getTrackedHoursByClient(
+    organizationId: string,
+    month: string,
+): Promise<Record<string, number>> {
+    const logs = await getTimeLogs(organizationId, { month });
+    return logs.reduce<Record<string, number>>((acc, l) => {
+        if (!l.clientId) return acc;
         acc[l.clientId] = (acc[l.clientId] || 0) + l.hours;
         return acc;
     }, {});
 }
 
 export async function createTimeLog(
-    log: Partial<TimeLog> & { organizationId: string; clientId: string; hours: number },
+    // clientId is no longer required: internal work has no client (migration 030).
+    log: Partial<TimeLog> & { organizationId: string; hours: number },
 ): Promise<{ success: boolean; data?: TimeLog; error?: string }> {
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
@@ -73,14 +98,16 @@ export async function createTimeLog(
             .from('time_logs')
             .insert([{
                 organization_id: log.organizationId,
-                client_id: log.clientId,
+                client_id: log.clientId ?? null,
                 project_id: log.projectId,
                 task_id: log.taskId,
+                planner_event_id: log.plannerEventId ?? null,
                 user_id: log.userId,
                 date: log.date,
                 hours: log.hours,
                 description: log.description,
                 billable: log.billable ?? true,
+                counts_toward_budget: log.countsTowardBudget ?? true,
                 status: 'logged',
                 category: log.category,
             }])
@@ -91,6 +118,25 @@ export async function createTimeLog(
     } catch (err: any) {
         console.error('Error creating time log:', err);
         return { success: false, error: err.message };
+    }
+}
+
+/** Has this planner block already been logged? Keeps the action idempotent. */
+export async function getTimeLogForPlannerEvent(eventId: string): Promise<TimeLog | null> {
+    const supabase = createClient();
+    if (!supabase) return null;
+    try {
+        const { data, error } = await supabase
+            .from('time_logs')
+            .select('*, clients(name), tasks(title)')
+            .eq('planner_event_id', eventId)
+            .limit(1)
+            .maybeSingle();
+        if (error) throw error;
+        return data ? rowToTimeLog(data) : null;
+    } catch (err) {
+        console.error('[time-logs] planner event lookup error:', err);
+        return null;
     }
 }
 
@@ -133,8 +179,11 @@ export async function deleteTimeLog(id: string): Promise<{ success: boolean; err
 export async function startTimer(opts: {
     organizationId: string;
     userId: string;
-    clientId: string;
+    /** Omitted for internal work — an internal 1:1 has no client. */
+    clientId?: string;
     taskId?: string;
+    plannerEventId?: string;
+    countsTowardBudget?: boolean;
     category?: string;
 }): Promise<{ success: boolean; id?: string; error?: string }> {
     const supabase = createClient();
@@ -146,12 +195,14 @@ export async function startTimer(opts: {
             .insert([{
                 organization_id: opts.organizationId,
                 user_id: opts.userId,
-                client_id: opts.clientId,
+                client_id: opts.clientId ?? null,
                 task_id: opts.taskId ?? null,
+                planner_event_id: opts.plannerEventId ?? null,
                 date: now.split('T')[0],
                 hours: 0,
                 description: '',
                 billable: true,
+                counts_toward_budget: opts.countsTowardBudget ?? true,
                 status: 'in_progress',
                 timer_started_at: now,
                 elapsed_seconds: 0,
@@ -207,9 +258,10 @@ export async function stopTimer(
     opts: {
         hours: number;
         description: string;
-        clientId: string;
+        clientId?: string;
         taskId?: string;
         billable: boolean;
+        countsTowardBudget?: boolean;
         category?: string;
         date: string;
     },

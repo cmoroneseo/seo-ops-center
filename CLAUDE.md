@@ -138,7 +138,10 @@ https://seo-ops-center.vercel.app
 019: campaign_plans (applied Jun 2026)
 021: marketing_plans (pending manual apply in Supabase Dashboard)
 024: personal_notes (applied Jul 2026)
-026: planner_events + planner_priorities (pending manual apply in Supabase Dashboard)
+027: planner_events + planner_priorities (applied Jul 2026 — file renumbered from 026, which main uses for basecamp timesheet sync)
+028: tasks.start_date -> timestamptz (applied Jul 2026 — renumbered from 027)
+029: tasks.scheduled_minutes (applied Jul 2026 — renumbered from 028)
+030: time_logs — nullable client_id, counts_toward_budget, planner_event_id (PENDING manual apply)
 
 ## Supabase Storage buckets
 - `client-logos` — public, 1MB max, image types

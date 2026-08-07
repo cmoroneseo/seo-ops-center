@@ -16,7 +16,8 @@ import { SessionNote } from '@/lib/types';
 
 export interface ActiveTimer {
     id: string;
-    clientId: string;
+    /** Undefined for internal work — an internal 1:1 has no client. */
+    clientId?: string;
     clientName: string;
     taskId?: string;
     taskTitle?: string;
@@ -31,10 +32,10 @@ interface TimerContextType {
     notes: SessionNote[];
     isRecovering: boolean;
     recoveryTimer: ActiveTimer | null;
-    start: (opts: { clientId: string; clientName: string; taskId?: string; taskTitle?: string }) => Promise<void>;
+    start: (opts: { clientId?: string; clientName: string; taskId?: string; taskTitle?: string; plannerEventId?: string; countsTowardBudget?: boolean }) => Promise<void>;
     pause: () => Promise<void>;
     resume: () => Promise<void>;
-    stop: (opts: { description: string; hours: number; billable: boolean; category?: string; date: string; clientId: string; taskId?: string }) => Promise<void>;
+    stop: (opts: { description: string; hours: number; billable: boolean; category?: string; date: string; clientId?: string; taskId?: string; countsTowardBudget?: boolean }) => Promise<void>;
     discard: () => Promise<void>;
     addNote: (text: string) => Promise<void>;
     editNote: (id: string, newText: string) => Promise<void>;
@@ -143,10 +144,12 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, [organization?.id]);
 
     const start = useCallback(async (opts: {
-        clientId: string;
+        clientId?: string;
         clientName: string;
         taskId?: string;
         taskTitle?: string;
+        plannerEventId?: string;
+        countsTowardBudget?: boolean;
     }) => {
         if (!organization || !userIdRef.current) return;
         if (timer?.status === 'running') {
@@ -157,6 +160,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             userId: userIdRef.current,
             clientId: opts.clientId,
             taskId: opts.taskId,
+            plannerEventId: opts.plannerEventId,
+            countsTowardBudget: opts.countsTowardBudget,
         });
         if (!result.success || !result.id) return;
 
@@ -194,8 +199,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         billable: boolean;
         category?: string;
         date: string;
-        clientId: string;
+        clientId?: string;
         taskId?: string;
+        countsTowardBudget?: boolean;
     }) => {
         if (!timer) return;
         await stopTimer(timer.id, opts);
