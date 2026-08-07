@@ -213,9 +213,13 @@ export function MonthlyPlannerCard({ client }: MonthlyPlannerCardProps) {
     const weeks: WeeklyPlan[] = plan?.weeks.length ? plan.weeks : generateDefaultWeeks(month);
     const isHistorical = timeLogs.length === 0 && (plan?.weeks ?? []).some(w => w.logged > 0);
 
-    // Group real time_logs by week number
+    // Group real time_logs by week number.
+    //
+    // Budget-excluded time (client meetings) is deliberately dropped here: this
+    // card is the client's SEO hours budget, and a meeting is tracked without
+    // consuming it. Same rule as getLoggedHoursByClient (migration 030).
     const logsByWeek: Record<number, TimeLog[]> = {};
-    for (const log of timeLogs) {
+    for (const log of timeLogs.filter(l => l.countsTowardBudget)) {
         const d = new Date(log.date.includes('T') ? log.date : log.date + 'T00:00:00');
         const wn = getWeekNumForDate(d, weeks, month);
         if (!logsByWeek[wn]) logsByWeek[wn] = [];
