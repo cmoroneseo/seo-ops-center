@@ -420,6 +420,7 @@ export default function PlannerPage() {
                     draft={{ startsAt: quickCreate.startsAt, endsAt: quickCreate.endsAt }}
                     clients={clients}
                     members={members}
+                    tasks={tasks}
                     onClose={() => setQuickCreate(null)}
                     onCreated={() => void reloadAll()}
                     onBlockChange={block => setQuickCreate(qc => qc && { ...qc, ...block })}
