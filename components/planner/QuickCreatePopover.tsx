@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { X, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { ClientProject, PlannerEventKind, TaskPriority, TaskStatus } from '@/lib/types';
+import { ClientProject, PlannerEventKind, Task, TaskPriority, TaskStatus } from '@/lib/types';
 import { createPlannerEvent } from '@/lib/supabase/planner-events';
-import { createTask } from '@/lib/supabase/tasks';
+import { createTask, getTasksByClient, updateTask } from '@/lib/supabase/tasks';
 import { TeamMember } from './MeetWithFilter';
 
 type Tab = 'event' | 'task' | 'focus' | 'ooo';
@@ -98,8 +98,56 @@ export function QuickCreatePopover({
     const [status, setStatus] = useState<TaskStatus>('todo');
     const [estimate, setEstimate] = useState('');
 
+    // "/" in the task name pulls this client's open work, so an existing task can
+    // be dropped onto the block instead of a near-duplicate being typed out.
+    const [clientTasks, setClientTasks] = useState<Task[]>([]);
+    const [isLoadingTasks, setIsLoadingTasks] = useState(false);
+    const [highlight, setHighlight] = useState(0);
+
     useEffect(() => { setAssigneeId(userId); }, [userId]);
     useEffect(() => { inputRef.current?.focus(); }, []);
+
+    // Fetch once per client, not per keystroke.
+    useEffect(() => {
+        if (!clientId) { setClientTasks([]); return; }
+        let cancelled = false;
+        setIsLoadingTasks(true);
+        void getTasksByClient(clientId).then(tasks => {
+            if (cancelled) return;
+            setClientTasks(tasks.filter(t => t.status !== 'done'));
+            setIsLoadingTasks(false);
+        });
+        return () => { cancelled = true; };
+    }, [clientId]);
+
+    // The picker is open while the field starts with "/". Anchoring to the first
+    // character keeps titles that contain a slash from triggering it.
+    const isSlashOpen = tab === 'task' && Boolean(clientId) && title.startsWith('/');
+    const slashQuery = isSlashOpen ? title.slice(1).trim().toLowerCase() : '';
+    const slashMatches = isSlashOpen
+        ? clientTasks
+            .filter(t => !slashQuery || t.title.toLowerCase().includes(slashQuery))
+            .slice(0, 6)
+        : [];
+
+    useEffect(() => { setHighlight(0); }, [slashQuery, clientId]);
+
+    /** Put an existing task on this block rather than creating another one. */
+    const scheduleExisting = async (task: Task) => {
+        if (isSaving) return;
+        setIsSaving(true);
+        const res = await updateTask(task.id, {
+            startDate: draft.startsAt,
+            scheduledMinutes: blockMinutes,
+        });
+        setIsSaving(false);
+        if (!res.success) {
+            console.error('[planner] schedule existing task failed:', res.error);
+            return;
+        }
+        onCreated();
+        onClose();
+    };
 
     useEffect(() => {
         const onDown = (e: MouseEvent) => {
@@ -127,6 +175,8 @@ export function QuickCreatePopover({
     const handleSave = async () => {
         const trimmed = title.trim();
         if (!trimmed || isSaving) return;
+        // "/…" is a search, not a title — never save it as one.
+        if (title.startsWith('/')) return;
         setIsSaving(true);
 
         if (tab === 'task') {
@@ -200,14 +250,86 @@ export function QuickCreatePopover({
                 </button>
             </div>
 
-            <input
-                ref={inputRef}
-                value={title}
-                onChange={e => setTitle(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') void handleSave(); }}
-                placeholder={isTask ? 'Task name' : 'Add title'}
-                className="w-full rounded-lg border-2 border-primary/60 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
-            />
+            <div className="relative">
+                <input
+                    ref={inputRef}
+                    value={title}
+                    onChange={e => setTitle(e.target.value)}
+                    onKeyDown={e => {
+                        // While the "/" picker is open it owns the arrow keys and Enter.
+                        if (isSlashOpen && slashMatches.length > 0) {
+                            if (e.key === 'ArrowDown') {
+                                e.preventDefault();
+                                setHighlight(h => (h + 1) % slashMatches.length);
+                                return;
+                            }
+                            if (e.key === 'ArrowUp') {
+                                e.preventDefault();
+                                setHighlight(h => (h - 1 + slashMatches.length) % slashMatches.length);
+                                return;
+                            }
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                void scheduleExisting(slashMatches[highlight]);
+                                return;
+                            }
+                        }
+                        // Escape clears the picker before it closes the popover.
+                        if (e.key === 'Escape' && isSlashOpen) {
+                            e.stopPropagation();
+                            setTitle('');
+                            return;
+                        }
+                        if (e.key === 'Enter') void handleSave();
+                    }}
+                    placeholder={
+                        isTask
+                            ? (clientId ? 'Task name — or / to find existing work' : 'Task name')
+                            : 'Add title'
+                    }
+                    className="w-full rounded-lg border-2 border-primary/60 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
+                />
+
+                {isSlashOpen && (
+                    <div className="absolute inset-x-0 top-full z-10 mt-1 overflow-hidden rounded-lg border border-border bg-popover shadow-xl">
+                        <div className="border-b border-border px-2.5 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                            {clients.find(c => c.id === clientId)?.clientName} — open work
+                        </div>
+
+                        {isLoadingTasks ? (
+                            <div className="px-2.5 py-3 text-xs text-muted-foreground">Loading…</div>
+                        ) : slashMatches.length === 0 ? (
+                            <div className="px-2.5 py-3 text-xs text-muted-foreground">
+                                {clientTasks.length === 0
+                                    ? 'No open tasks for this client.'
+                                    : 'No open task matches that.'}
+                            </div>
+                        ) : (
+                            slashMatches.map((t, i) => (
+                                <button
+                                    key={t.id}
+                                    onMouseEnter={() => setHighlight(i)}
+                                    onClick={() => void scheduleExisting(t)}
+                                    className={cn(
+                                        'block w-full px-2.5 py-1.5 text-left',
+                                        i === highlight && 'bg-muted',
+                                    )}
+                                >
+                                    <span className="block truncate text-xs">{t.title}</span>
+                                    <span className="block truncate text-[10px] text-muted-foreground">
+                                        {t.status.replace('_', ' ')}
+                                        {t.startDate && ' · already scheduled'}
+                                    </span>
+                                </button>
+                            ))
+                        )}
+
+                        <div className="border-t border-border px-2.5 py-1.5 text-[10px] text-muted-foreground">
+                            ↑↓ to choose · Enter to put it on this block
+                        </div>
+                    </div>
+                )}
+            </div>
 
             <div className="mt-2 text-xs text-muted-foreground">
                 {format(new Date(draft.startsAt), 'MMM d, yyyy')}{' · '}
@@ -318,7 +440,7 @@ export function QuickCreatePopover({
                 </button>
                 <button
                     onClick={() => void handleSave()}
-                    disabled={!title.trim() || isSaving}
+                    disabled={!title.trim() || isSaving || title.startsWith('/')}
                     className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
                 >
                     {isSaving ? 'Saving…' : 'Save'}
