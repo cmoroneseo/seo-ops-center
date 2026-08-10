@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import { X, Trash2, MapPin, Users, Building2, Clock, Check } from 'lucide-react';
+import { X, Trash2, MapPin, Users, Building2, Clock, Check, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { PlannerEvent } from '@/lib/types';
+import { PlannerEvent, TimeLog } from '@/lib/types';
 import { PlannerItem } from '@/lib/planner/items';
 import { updatePlannerEvent, deletePlannerEvent } from '@/lib/supabase/planner-events';
-import { createTimeLog, getTimeLogForPlannerEvent } from '@/lib/supabase/time-logs';
+import {
+    createTimeLog, getTimeLogForPlannerEvent, getClientTimesheetSyncEnabled,
+} from '@/lib/supabase/time-logs';
 import { durationMinutes } from '@/lib/planner/layout';
 import { TeamMember } from './MeetWithFilter';
 import { KIND_STYLES } from './EventCard';
@@ -30,19 +32,32 @@ export function EventDetailPanel({
 
     const [title, setTitle] = useState(item.title);
     const [description, setDescription] = useState(event?.description ?? '');
-    const [loggedHours, setLoggedHours] = useState<number | null>(null);
+    const [loggedLog, setLoggedLog] = useState<TimeLog | null>(null);
     const [isLogging, setIsLogging] = useState(false);
+    // Only offer "Send to Basecamp" when this client has timesheet sync on —
+    // same gate the timer and Log Hours modal use.
+    const [bcAvailable, setBcAvailable] = useState(false);
+    const [sendToBasecamp, setSendToBasecamp] = useState(true);
 
     // Has this block already been turned into time? Keeps the action idempotent.
     const eventId = event?.id;
     useEffect(() => {
-        if (!eventId) { setLoggedHours(null); return; }
+        if (!eventId) { setLoggedLog(null); return; }
         let cancelled = false;
         void getTimeLogForPlannerEvent(eventId).then(log => {
-            if (!cancelled) setLoggedHours(log ? log.hours : null);
+            if (!cancelled) setLoggedLog(log);
         });
         return () => { cancelled = true; };
     }, [eventId]);
+
+    useEffect(() => {
+        if (!event?.clientId) { setBcAvailable(false); return; }
+        let cancelled = false;
+        void getClientTimesheetSyncEnabled(event.clientId).then(on => {
+            if (!cancelled) setBcAvailable(on);
+        });
+        return () => { cancelled = true; };
+    }, [event?.clientId]);
 
     const blockMinutes = event ? Math.max(1, durationMinutes(item.startsAt, item.endsAt)) : 0;
     const isPast = new Date(item.endsAt).getTime() <= Date.now();
@@ -66,10 +81,26 @@ export function EventDetailPanel({
             description: event.title,
             billable: Boolean(event.clientId),
             countsTowardBudget: false,
+        }, {
+            // Independent of countsTowardBudget: a meeting is excluded from SEO
+            // budget but still belongs on the client's Basecamp timesheet.
+            syncToBasecamp: bcAvailable && sendToBasecamp,
         });
         setIsLogging(false);
-        if (res.success) setLoggedHours(hours);
-        else console.error('[planner] log time failed:', res.error);
+        if (!res.success) {
+            console.error('[planner] log time failed:', res.error);
+            return;
+        }
+        setLoggedLog(res.data ?? null);
+        // The Basecamp push is fire-and-forget, so re-read once to surface
+        // whether it actually landed rather than letting a failure go unseen.
+        if (bcAvailable && sendToBasecamp) {
+            setTimeout(() => {
+                void getTimeLogForPlannerEvent(event.id).then(fresh => {
+                    if (fresh) setLoggedLog(fresh);
+                });
+            }, 2500);
+        }
     };
 
     useEffect(() => {
@@ -151,13 +182,49 @@ export function EventDetailPanel({
 
                 {isEvent && (
                     <div className="rounded-lg border border-border p-2.5">
-                        {loggedHours !== null ? (
-                            <div className="flex items-center gap-2 text-xs text-emerald-500">
-                                <Check className="h-3.5 w-3.5 shrink-0" />
-                                <span>{loggedHours}h logged from this block</span>
+                        {loggedLog ? (
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2 text-xs text-emerald-500">
+                                    <Check className="h-3.5 w-3.5 shrink-0" />
+                                    <span>{loggedLog.hours}h logged from this block</span>
+                                </div>
+                                {loggedLog.basecampSyncError ? (
+                                    <div className="flex items-start gap-2 text-[10px] text-destructive">
+                                        <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                                        <span>Basecamp: {loggedLog.basecampSyncError}</span>
+                                    </div>
+                                ) : loggedLog.basecampEntryId ? (
+                                    <div className="text-[10px] text-muted-foreground">
+                                        Synced to the Basecamp timesheet.
+                                    </div>
+                                ) : null}
                             </div>
                         ) : (
                             <>
+                                {bcAvailable && (
+                                    <button
+                                        role="switch"
+                                        aria-checked={sendToBasecamp}
+                                        onClick={() => setSendToBasecamp(v => !v)}
+                                        className="mb-2 flex w-full items-center gap-2 text-left"
+                                    >
+                                        <span
+                                            className={cn(
+                                                'relative h-4 w-7 shrink-0 rounded-full transition-colors',
+                                                sendToBasecamp ? 'bg-green-500' : 'bg-muted',
+                                            )}
+                                        >
+                                            <span
+                                                className={cn(
+                                                    'absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform',
+                                                    sendToBasecamp ? 'translate-x-3.5' : 'translate-x-0.5',
+                                                )}
+                                            />
+                                        </span>
+                                        <span className="text-[11px]">Send to Basecamp timesheet</span>
+                                    </button>
+                                )}
+
                                 <button
                                     onClick={() => void logTime()}
                                     disabled={isLogging || !organizationId}
