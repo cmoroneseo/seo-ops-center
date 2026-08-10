@@ -93,6 +93,16 @@ https://seo-ops-center.vercel.app
   - Dropdowns use the hand-rolled pattern (useState + outside-click refs), not Radix
   - Deferred polish: Escape-to-close + ARIA on UserMenu; Help button is inert until Help content exists
 
+- **Basecamp timesheet sync** (migration 026, Jul 2026):
+  - Time entries push into the client's Basecamp project timesheet (bc-api Timesheets endpoints)
+  - `time_logs` gains `basecamp_entry_id`, `basecamp_project_id`, `basecamp_synced_at`, `basecamp_sync_error`
+  - Per-client opt-in: `basecamp_timesheet_enabled` in `clients.custom_fields` (toggle in IntegrationsTab Basecamp panel, alongside task sync); discovered project timesheet recording ID cached as `basecamp_timesheet_recording_id`
+  - `/api/integrations/basecamp/timesheet`: POST `sync` (create-or-update, idempotent; `createIfMissing` gates new entries) + `remove`; GET availability check (`timesheet_enabled` flag + recording discoverable)
+  - Recording resolution: time log linked to a Basecamp-synced task → attaches to that to-do; else project-level timesheet (discovered via entries with `parent.type === 'Timesheet'` — needs one manual BC entry if timesheet is empty)
+  - Person attribution via `organization_members.basecamp_person_id` (falls back to token user)
+  - UI: "Send to Basecamp" toggle (default on) in StopConfirmSheet + TimeLogModal when client eligible; EditTimeLogSheet shows synced status / retry-on-error / send-later; edits propagate, deletes remove the BC entry; ActivityFeed rows show a Basecamp badge
+  - Timesheet API fns in `lib/basecamp/api.ts`; fire-and-forget push helpers in `lib/supabase/time-logs.ts`
+
 - **Notepad personal tool** (migration 024, Jul 2026):
   - UserMenu → Personal Tools → Notepad fires `notepad:open`; `components/notepad/NotepadPanel.tsx` mounted in `app/(dashboard)/layout.tsx` (desktop-only, fixed top-16 right-4, 420×470)
   - `personal_notes` table — strictly personal RLS (`user_id = auth.uid()` + org check); mapper/CRUD in `lib/supabase/personal-notes.ts`, `PersonalNote` in `lib/types.ts`
@@ -138,10 +148,11 @@ https://seo-ops-center.vercel.app
 019: campaign_plans (applied Jun 2026)
 021: marketing_plans (pending manual apply in Supabase Dashboard)
 024: personal_notes (applied Jul 2026)
-027: planner_events + planner_priorities (applied Jul 2026 — file renumbered from 026, which main uses for basecamp timesheet sync)
+026: basecamp timesheet sync columns on time_logs (pending manual apply in Supabase Dashboard)
+027: planner_events + planner_priorities (applied Jul 2026 — renumbered from 026 to clear the collision with 026 above)
 028: tasks.start_date -> timestamptz (applied Jul 2026 — renumbered from 027)
 029: tasks.scheduled_minutes (applied Jul 2026 — renumbered from 028)
-030: time_logs — nullable client_id, counts_toward_budget, planner_event_id (PENDING manual apply)
+030: time_logs — nullable client_id, counts_toward_budget, planner_event_id (applied Aug 2026)
 
 ## Supabase Storage buckets
 - `client-logos` — public, 1MB max, image types

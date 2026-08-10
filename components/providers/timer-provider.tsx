@@ -35,7 +35,7 @@ interface TimerContextType {
     start: (opts: { clientId?: string; clientName: string; taskId?: string; taskTitle?: string; plannerEventId?: string; countsTowardBudget?: boolean }) => Promise<void>;
     pause: () => Promise<void>;
     resume: () => Promise<void>;
-    stop: (opts: { description: string; hours: number; billable: boolean; category?: string; date: string; clientId?: string; taskId?: string; countsTowardBudget?: boolean }) => Promise<void>;
+    stop: (opts: { description: string; hours: number; billable: boolean; category?: string; date: string; clientId?: string; taskId?: string; countsTowardBudget?: boolean; syncToBasecamp?: boolean }) => Promise<void>;
     discard: () => Promise<void>;
     addNote: (text: string) => Promise<void>;
     editNote: (id: string, newText: string) => Promise<void>;
@@ -201,7 +201,10 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         date: string;
         clientId?: string;
         taskId?: string;
+        // Orthogonal: budget exclusion is about SEO hours, Basecamp push is
+        // about the client's timesheet. A meeting is false for one, true for the other.
         countsTowardBudget?: boolean;
+        syncToBasecamp?: boolean;
     }) => {
         if (!timer) return;
         await stopTimer(timer.id, opts);

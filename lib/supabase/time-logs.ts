@@ -27,7 +27,46 @@ function rowToTimeLog(row: any): TimeLog {
         elapsedSeconds: Number(row.elapsed_seconds) || 0,
         category: row.category ?? undefined,
         sessionNotes: Array.isArray(row.session_notes) ? row.session_notes : [],
+        basecampEntryId: row.basecamp_entry_id ?? undefined,
+        basecampProjectId: row.basecamp_project_id ?? undefined,
+        basecampSyncedAt: row.basecamp_synced_at ?? undefined,
+        basecampSyncError: row.basecamp_sync_error ?? undefined,
     };
+}
+
+// ---------------------------------------------------------------------------
+// Basecamp timesheet sync (fire-and-forget, mirrors the task push in tasks.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Push a time log to the client's Basecamp project timesheet.
+ * Server-side no-op unless the client has timesheet sync enabled;
+ * only creates a new Basecamp entry when createIfMissing is true.
+ */
+export function pushTimeLogToBasecamp(timeLogId: string, createIfMissing = false): void {
+    fetch('/api/integrations/basecamp/timesheet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'sync', timeLogId, createIfMissing }),
+    }).catch(err => console.error('[Basecamp timesheet] push failed:', err));
+}
+
+/** True when this client's time entries should offer "Send to Basecamp". */
+export async function getClientTimesheetSyncEnabled(clientId: string | undefined): Promise<boolean> {
+    if (!clientId) return false;
+    const supabase = createClient();
+    if (!supabase) return false;
+    try {
+        const { data } = await supabase
+            .from('clients')
+            .select('custom_fields')
+            .eq('id', clientId)
+            .single();
+        const cf = (data?.custom_fields as Record<string, unknown>) ?? {};
+        return !!(cf.basecamp_sync_enabled && cf.basecamp_project_id && cf.basecamp_timesheet_enabled);
+    } catch {
+        return false;
+    }
 }
 
 /**
@@ -92,6 +131,9 @@ export async function getInternalHours(
 export async function createTimeLog(
     // clientId is no longer required: internal work has no client (migration 030).
     log: Partial<TimeLog> & { organizationId: string; hours: number },
+    // Basecamp push is independent of counts_toward_budget: a client meeting is
+    // excluded from SEO budget but still belongs on their Basecamp timesheet.
+    opts: { syncToBasecamp?: boolean } = {},
 ): Promise<{ success: boolean; data?: TimeLog; error?: string }> {
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
@@ -116,6 +158,7 @@ export async function createTimeLog(
             .select()
             .single();
         if (error) throw error;
+        if (opts.syncToBasecamp) pushTimeLogToBasecamp(data.id, true);
         return { success: true, data: rowToTimeLog(data) };
     } catch (err: any) {
         console.error('Error creating time log:', err);
@@ -155,6 +198,8 @@ export async function updateTimeLog(
         if (sessionNotes !== undefined) dbPatch.session_notes = sessionNotes;
         const { error } = await supabase.from('time_logs').update(dbPatch).eq('id', id);
         if (error) throw error;
+        // Keep an already-synced Basecamp entry in step (no-op otherwise)
+        pushTimeLogToBasecamp(id, false);
         return { success: true };
     } catch (err: any) {
         console.error('Error updating time log:', err);
@@ -166,8 +211,21 @@ export async function deleteTimeLog(id: string): Promise<{ success: boolean; err
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
+        // Grab the Basecamp entry ID before the row disappears
+        const { data: existing } = await supabase
+            .from('time_logs')
+            .select('basecamp_entry_id')
+            .eq('id', id)
+            .maybeSingle();
         const { error } = await supabase.from('time_logs').delete().eq('id', id);
         if (error) throw error;
+        if (existing?.basecamp_entry_id) {
+            fetch('/api/integrations/basecamp/timesheet', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'remove', entryId: existing.basecamp_entry_id }),
+            }).catch(err => console.error('[Basecamp timesheet] remove failed:', err));
+        }
         return { success: true };
     } catch (err: any) {
         console.error('Error deleting time log:', err);
@@ -266,6 +324,7 @@ export async function stopTimer(
         countsTowardBudget?: boolean;
         category?: string;
         date: string;
+        syncToBasecamp?: boolean;
     },
 ): Promise<{ success: boolean; error?: string }> {
     const supabase = createClient();
@@ -283,6 +342,7 @@ export async function stopTimer(
             timer_started_at: null,
         }).eq('id', id);
         if (error) throw error;
+        if (opts.syncToBasecamp) pushTimeLogToBasecamp(id, true);
         return { success: true };
     } catch (err: any) {
         return { success: false, error: err.message };
