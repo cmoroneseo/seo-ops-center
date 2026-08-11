@@ -40,10 +40,13 @@ interface EventCardProps {
     onClick?: (item: PlannerItem) => void;
     onMoveStart?: (item: PlannerItem, e: React.PointerEvent) => void;
     onResizeStart?: (item: PlannerItem, edge: 'top' | 'bottom', e: React.PointerEvent) => void;
+    /** Keyboard nudge in minutes (arrow keys); the mouse equivalent is a drag. */
+    onKeyMove?: (item: PlannerItem, deltaMinutes: number) => void;
 }
 
 export function EventCard({
-    item, column, columnCount, startHour, ghost = false, onClick, onMoveStart, onResizeStart,
+    item, column, columnCount, startHour, ghost = false,
+    onClick, onMoveStart, onResizeStart, onKeyMove,
 }: EventCardProps) {
     const startMin = minutesSinceMidnight(item.startsAt);
     const minutes = Math.max(15, durationMinutes(item.startsAt, item.endsAt));
@@ -66,13 +69,38 @@ export function EventCard({
     // where the time is most worth showing.
     const isCompact = minutes <= COMPACT_MAX_MINUTES;
 
+    // A ghost is a transient render of a card being placed — never a tab stop.
+    const interactive = !ghost && Boolean(onClick);
+
+    const timeLabel = item.allDay
+        ? 'all day'
+        : `${format(new Date(item.startsAt), 'h:mm a')} to ${format(new Date(item.endsAt), 'h:mm a')}`;
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick?.(item);
+            return;
+        }
+        // Nudge in 15-min steps — the keyboard equivalent of dragging.
+        if (onKeyMove && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+            e.preventDefault();
+            onKeyMove(item, e.key === 'ArrowUp' ? -15 : 15);
+        }
+    };
+
     return (
         <div
             style={style}
             onPointerDown={e => onMoveStart?.(item, e)}
             onClick={() => onClick?.(item)}
+            onKeyDown={interactive ? handleKeyDown : undefined}
+            role={interactive ? 'button' : undefined}
+            tabIndex={interactive ? 0 : undefined}
+            aria-label={interactive ? `${item.title}, ${timeLabel}` : undefined}
             className={cn(
                 'absolute overflow-hidden rounded-md border border-black/5 text-left',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
                 isCompact ? 'px-1.5 py-0.5' : 'px-2 py-1',
                 onMoveStart && 'cursor-grab active:cursor-grabbing',
                 ghost

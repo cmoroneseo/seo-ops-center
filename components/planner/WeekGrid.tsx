@@ -86,6 +86,26 @@ export function WeekGrid({
         onItemClick?.(item);
     };
 
+    // Arrow-key nudge: shift the block by whole minutes, clamped to the day, and
+    // commit it exactly as a drag would. The keyboard path for moving a block.
+    const handleKeyMove = (item: PlannerItem, deltaMinutes: number) => {
+        if (!item.draggable || !onCommit) return;
+        const startMs = new Date(item.startsAt).getTime() + deltaMinutes * 60_000;
+        const dayStart = new Date(item.startsAt);
+        dayStart.setHours(0, 0, 0, 0);
+        const durationMs = new Date(item.endsAt).getTime() - new Date(item.startsAt).getTime();
+        // Keep the whole block inside its day.
+        const lower = dayStart.getTime();
+        const upper = lower + 24 * 60 * 60_000 - durationMs;
+        const clamped = Math.min(upper, Math.max(lower, startMs));
+        void onCommit({
+            itemId: item.id,
+            source: item.source,
+            startsAt: new Date(clamped).toISOString(),
+            endsAt: new Date(clamped + durationMs).toISOString(),
+        });
+    };
+
     useEffect(() => {
         onDragHandlesReady?.({ beginSchedule });
     }, [onDragHandlesReady, beginSchedule]);
@@ -210,6 +230,7 @@ export function WeekGrid({
                                     onClick={handleCardClick}
                                     onMoveStart={beginMove}
                                     onResizeStart={beginResize}
+                                    onKeyMove={handleKeyMove}
                                 />
                             ))}
 

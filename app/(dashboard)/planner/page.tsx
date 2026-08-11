@@ -42,6 +42,15 @@ export default function PlannerPage() {
 
     const [anchorDate, setAnchorDate] = useState<Date>(() => new Date());
     const [view, setView] = useState<PlannerView>('week');
+
+    // A 7-column week grid is unusable on a phone. Default to Day view below the
+    // lg breakpoint (matches the sidebar/command-bar gating) on first mount only,
+    // so a deliberate switch to Week on a small screen is respected afterward.
+    useEffect(() => {
+        if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
+            setView('day');
+        }
+    }, []);
     const [events, setEvents] = useState<PlannerEvent[]>([]);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [reminders, setReminders] = useState<Reminder[]>([]);
