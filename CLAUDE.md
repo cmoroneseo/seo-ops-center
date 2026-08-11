@@ -146,9 +146,9 @@ https://seo-ops-center.vercel.app
 001–013: init, analytics, time tracking, notes, feedback, tasks V2, notifications
 015: deliverable_commitments (applied Jun 2026)
 019: campaign_plans (applied Jun 2026)
-021: marketing_plans (pending manual apply in Supabase Dashboard)
+021: marketing_plans (applied — verified against the DB Aug 2026)
 024: personal_notes (applied Jul 2026)
-026: basecamp timesheet sync columns on time_logs (pending manual apply in Supabase Dashboard)
+026: basecamp timesheet sync columns on time_logs (applied — verified against the DB Aug 2026)
 027: planner_events + planner_priorities (applied Jul 2026 — renumbered from 026 to clear the collision with 026 above)
 028: tasks.start_date -> timestamptz (applied Jul 2026 — renumbered from 027)
 029: tasks.scheduled_minutes (applied Jul 2026 — renumbered from 028)
