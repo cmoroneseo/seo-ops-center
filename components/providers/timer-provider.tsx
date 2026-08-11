@@ -13,6 +13,8 @@ import {
     updateSessionNotes,
 } from '@/lib/supabase/time-logs';
 import { SessionNote } from '@/lib/types';
+import { getTask, updateTask } from '@/lib/supabase/tasks';
+import { shouldMoveBlockToNow, trackedBlockMinutes } from '@/lib/planner/timer-sync';
 
 export interface ActiveTimer {
     id: string;
@@ -166,6 +168,22 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         if (!result.success || !result.id) return;
 
         const now = new Date().toISOString();
+
+        /*
+         * Keep the planner honest: if this task is unscheduled, or was planned
+         * for today, move its block to when work actually began. A plan for
+         * another day is left alone — see lib/planner/timer-sync.ts.
+         */
+        if (opts.taskId) {
+            void (async () => {
+                const { task } = await getTask(opts.taskId!);
+                if (!task) return;
+                if (shouldMoveBlockToNow(task.startDate, new Date(now))) {
+                    await updateTask(opts.taskId!, { startDate: now });
+                }
+            })();
+        }
+
         setNotes([]);
         setTimer({
             id: result.id,
@@ -207,7 +225,12 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         syncToBasecamp?: boolean;
     }) => {
         if (!timer) return;
+        const { taskId, elapsedSeconds } = { taskId: timer.taskId, elapsedSeconds: timer.elapsedSeconds };
         await stopTimer(timer.id, opts);
+        // The block should end when you stopped, not when you planned to.
+        if (taskId) {
+            void updateTask(taskId, { scheduledMinutes: trackedBlockMinutes(elapsedSeconds) });
+        }
         setTimer(null);
         setNotes([]);
     }, [timer]);
