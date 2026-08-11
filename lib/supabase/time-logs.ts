@@ -146,6 +146,9 @@ export async function createTimeLog(
                 project_id: log.projectId,
                 task_id: log.taskId,
                 planner_event_id: log.plannerEventId ?? null,
+                // Destination for internal time; client logs resolve theirs
+                // from the client's config at sync time.
+                basecamp_project_id: log.basecampProjectId ?? null,
                 user_id: log.userId,
                 date: log.date,
                 hours: log.hours,

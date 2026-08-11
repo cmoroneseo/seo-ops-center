@@ -12,6 +12,7 @@ import {
 } from '@/lib/supabase/time-logs';
 import { durationMinutes } from '@/lib/planner/layout';
 import { TeamMember } from './MeetWithFilter';
+import { BasecampProjectPicker, type BasecampProject } from './BasecampProjectPicker';
 import { KIND_STYLES } from './EventCard';
 
 interface EventDetailPanelProps {
@@ -19,13 +20,17 @@ interface EventDetailPanelProps {
     members: TeamMember[];
     organizationId?: string;
     userId?: string;
+    /** Most-recent-first Basecamp projects for internal time. */
+    recentProjects?: BasecampProject[];
+    onProjectUsed?: (project: BasecampProject) => void;
     onClose: () => void;
     onChanged: () => void;
     onDeleted: () => void;
 }
 
 export function EventDetailPanel({
-    item, members, organizationId, userId, onClose, onChanged, onDeleted,
+    item, members, organizationId, userId, recentProjects = [], onProjectUsed,
+    onClose, onChanged, onDeleted,
 }: EventDetailPanelProps) {
     const isEvent = item.source === 'event';
     const event = isEvent ? (item.raw as PlannerEvent) : null;
@@ -38,6 +43,9 @@ export function EventDetailPanel({
     // same gate the timer and Log Hours modal use.
     const [bcAvailable, setBcAvailable] = useState(false);
     const [sendToBasecamp, setSendToBasecamp] = useState(true);
+    // Internal time has no client, so it needs an explicit destination. Defaults
+    // to the last project used, which is right far more often than not.
+    const [internalProject, setInternalProject] = useState<BasecampProject | undefined>(recentProjects[0]);
 
     // Has this block already been turned into time? Keeps the action idempotent.
     const eventId = event?.id;
@@ -81,10 +89,16 @@ export function EventDetailPanel({
             description: event.title,
             billable: Boolean(event.clientId),
             countsTowardBudget: false,
+            // Only meaningful for internal work; client logs resolve their own.
+            basecampProjectId: !event.clientId && internalProject
+                ? Number(internalProject.id)
+                : undefined,
         }, {
             // Independent of countsTowardBudget: a meeting is excluded from SEO
             // budget but still belongs on the client's Basecamp timesheet.
-            syncToBasecamp: bcAvailable && sendToBasecamp,
+            syncToBasecamp: event.clientId
+                ? (bcAvailable && sendToBasecamp)
+                : Boolean(internalProject),
         });
         setIsLogging(false);
         if (!res.success) {
@@ -92,14 +106,23 @@ export function EventDetailPanel({
             return;
         }
         setLoggedLog(res.data ?? null);
-        // The Basecamp push is fire-and-forget, so re-read once to surface
-        // whether it actually landed rather than letting a failure go unseen.
-        if (bcAvailable && sendToBasecamp) {
-            setTimeout(() => {
-                void getTimeLogForPlannerEvent(event.id).then(fresh => {
-                    if (fresh) setLoggedLog(fresh);
-                });
-            }, 2500);
+        if (!event.clientId && internalProject) onProjectUsed?.(internalProject);
+        // The Basecamp push is fire-and-forget and takes a few round trips, so
+        // poll briefly until it resolves either way. A single delayed read was
+        // too early and left a successful sync looking like it never happened.
+        const pushed = (event.clientId && bcAvailable && sendToBasecamp)
+            || (!event.clientId && Boolean(internalProject));
+        if (pushed) void pollForSyncResult(event.id);
+    };
+
+    /** Re-read the log until Basecamp reports success or failure, then stop. */
+    const pollForSyncResult = async (evId: string) => {
+        for (const delay of [1500, 2500, 4000, 6000]) {
+            await new Promise(r => setTimeout(r, delay));
+            const fresh = await getTimeLogForPlannerEvent(evId);
+            if (!fresh) return;
+            setLoggedLog(fresh);
+            if (fresh.basecampEntryId || fresh.basecampSyncError) return;
         }
     };
 
@@ -201,6 +224,19 @@ export function EventDetailPanel({
                             </div>
                         ) : (
                             <>
+                                {!event?.clientId && (
+                                    <div className="mb-2">
+                                        <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                                            Basecamp project
+                                        </div>
+                                        <BasecampProjectPicker
+                                            value={internalProject}
+                                            recents={recentProjects}
+                                            onChange={setInternalProject}
+                                        />
+                                    </div>
+                                )}
+
                                 {bcAvailable && (
                                     <button
                                         role="switch"
@@ -231,12 +267,18 @@ export function EventDetailPanel({
                                     className="flex w-full items-center justify-center gap-2 rounded-md bg-muted px-3 py-1.5 text-xs font-medium hover:bg-muted/70 disabled:opacity-50"
                                 >
                                     <Clock className="h-3.5 w-3.5" />
-                                    {isLogging ? 'Logging…' : `Log ${blockMinutes} min`}
+                                    {isLogging
+                                        ? 'Logging…'
+                                        : !event?.clientId && internalProject
+                                            ? `Log ${blockMinutes} min → ${internalProject.name}`
+                                            : `Log ${blockMinutes} min`}
                                 </button>
                                 <p className="mt-1.5 text-[10px] leading-snug text-muted-foreground">
                                     {event?.clientId
                                         ? 'Tracked against the client, but does not count toward their SEO budget.'
-                                        : 'Tracked as internal time.'}
+                                        : internalProject
+                                            ? 'Tracked as internal time and sent to that Basecamp timesheet.'
+                                            : 'Tracked as internal time. Choose a project to also send it to Basecamp.'}
                                     {!isPast && ' This block has not finished yet.'}
                                 </p>
                             </>

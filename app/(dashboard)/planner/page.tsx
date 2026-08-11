@@ -33,7 +33,7 @@ import { EventDetailPanel } from '@/components/planner/EventDetailPanel';
 import { MonthGrid } from '@/components/planner/MonthGrid';
 import { PlannerCommandBar } from '@/components/planner/PlannerCommandBar';
 import {
-    PlannerPreferences, DEFAULT_PREFERENCES, loadPreferences, savePreferences,
+    PlannerPreferences, DEFAULT_PREFERENCES, loadPreferences, savePreferences, withRecentProject,
 } from '@/lib/planner/preferences';
 
 export default function PlannerPage() {
@@ -380,6 +380,8 @@ export default function PlannerPage() {
                     members={members}
                     organizationId={organization?.id}
                     userId={userId}
+                    recentProjects={prefs.recentBasecampProjects}
+                    onProjectUsed={p => updatePrefs(withRecentProject(prefs, p))}
                     onClose={() => setSelected(null)}
                     onChanged={() => { setSelected(null); void reloadAll(); }}
                     onDeleted={() => { setSelected(null); void reloadAll(); }}

@@ -19,6 +19,27 @@ export interface PlannerPreferences {
     workDayEndHour: number;
     /** Roll overdue tasks into today's column instead of only the sidebar. */
     rollOverdueIntoToday: boolean;
+    /**
+     * Basecamp projects for internal time. Internal work has no client, so it
+     * has no client config to resolve a destination from — you pick one of your
+     * personal/HQ projects instead.
+     *
+     * `recentBasecampProjects` is most-recent-first and pins your regulars to
+     * the top of the picker; the first entry is what gets pre-selected.
+     */
+    recentBasecampProjects: { id: string; name: string }[];
+}
+
+/** How many regulars the picker pins before falling back to search. */
+export const MAX_RECENT_PROJECTS = 5;
+
+/** Move a project to the front of the recents list, de-duplicated and capped. */
+export function withRecentProject(
+    prefs: PlannerPreferences,
+    project: { id: string; name: string },
+): PlannerPreferences {
+    const rest = prefs.recentBasecampProjects.filter(p => p.id !== project.id);
+    return { ...prefs, recentBasecampProjects: [project, ...rest].slice(0, MAX_RECENT_PROJECTS) };
 }
 
 export const DEFAULT_PREFERENCES: PlannerPreferences = {
@@ -29,6 +50,7 @@ export const DEFAULT_PREFERENCES: PlannerPreferences = {
     workDayStartHour: 9,
     workDayEndHour: 17,
     rollOverdueIntoToday: true,
+    recentBasecampProjects: [],
 };
 
 const STORAGE_KEY = 'planner:preferences';
@@ -48,6 +70,11 @@ function sanitize(raw: Partial<PlannerPreferences>): PlannerPreferences {
         workDayStartHour: workStart,
         workDayEndHour: workEnd,
         rollOverdueIntoToday: Boolean(merged.rollOverdueIntoToday),
+        recentBasecampProjects: Array.isArray(merged.recentBasecampProjects)
+            ? merged.recentBasecampProjects
+                .filter(p => p && typeof p.id === 'string' && typeof p.name === 'string')
+                .slice(0, MAX_RECENT_PROJECTS)
+            : [],
     };
 }
 
