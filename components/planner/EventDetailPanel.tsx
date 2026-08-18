@@ -43,9 +43,9 @@ export function EventDetailPanel({
     // same gate the timer and Log Hours modal use.
     const [bcAvailable, setBcAvailable] = useState(false);
     const [sendToBasecamp, setSendToBasecamp] = useState(true);
-    // Internal time has no client, so it needs an explicit destination. Defaults
-    // to the last project used, which is right far more often than not.
-    const [internalProject, setInternalProject] = useState<BasecampProject | undefined>(recentProjects[0]);
+    // Internal time stays in SEO PM unless the person explicitly chooses a
+    // Basecamp destination. Recents remain shortcuts, never an implicit sync.
+    const [internalProject, setInternalProject] = useState<BasecampProject | undefined>(undefined);
 
     // Has this block already been turned into time? Keeps the action idempotent.
     const eventId = event?.id;

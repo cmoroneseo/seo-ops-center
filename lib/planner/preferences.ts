@@ -25,7 +25,7 @@ export interface PlannerPreferences {
      * personal/HQ projects instead.
      *
      * `recentBasecampProjects` is most-recent-first and pins your regulars to
-     * the top of the picker; the first entry is what gets pre-selected.
+     * the top of the picker. It never selects a sync destination automatically.
      */
     recentBasecampProjects: { id: string; name: string }[];
 }

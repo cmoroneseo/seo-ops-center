@@ -2,6 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
     DEFAULT_PREFERENCES,
     MAX_RECENT_PROJECTS,
@@ -14,7 +15,7 @@ const base = (recents: { id: string; name: string }[] = []): PlannerPreferences 
 
 const P = (n: number) => ({ id: String(n), name: `Project ${n}` });
 
-test('a newly used project goes to the front — it becomes the pre-selection', () => {
+test('a newly used project goes to the front of the shortcuts', () => {
     const next = withRecentProject(base([P(1), P(2)]), P(3));
     assert.deepEqual(next.recentBasecampProjects.map(p => p.id), ['3', '1', '2']);
 });
@@ -43,4 +44,13 @@ test('other preferences are left alone', () => {
     const next = withRecentProject(prefs, P(1));
     assert.equal(next.dayStartHour, 6);
     assert.equal(next.showWeekends, false);
+});
+
+test('recent Basecamp projects remain shortcuts and are not auto-selected', () => {
+    const source = readFileSync(
+        new URL('../../components/planner/EventDetailPanel.tsx', import.meta.url),
+        'utf8',
+    );
+    assert.match(source, /useState<BasecampProject \| undefined>\(undefined\)/);
+    assert.doesNotMatch(source, /useState<BasecampProject \| undefined>\(recentProjects\[0\]\)/);
 });

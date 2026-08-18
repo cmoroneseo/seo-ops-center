@@ -220,15 +220,15 @@ export async function deleteTimeLog(id: string): Promise<{ success: boolean; err
             .select('basecamp_entry_id')
             .eq('id', id)
             .maybeSingle();
-        const { error } = await supabase.from('time_logs').delete().eq('id', id);
-        if (error) throw error;
         if (existing?.basecamp_entry_id) {
-            fetch('/api/integrations/basecamp/timesheet', {
+            await fetch('/api/integrations/basecamp/timesheet', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'remove', entryId: existing.basecamp_entry_id }),
+                body: JSON.stringify({ action: 'remove', entryId: existing.basecamp_entry_id, timeLogId: id }),
             }).catch(err => console.error('[Basecamp timesheet] remove failed:', err));
         }
+        const { error } = await supabase.from('time_logs').delete().eq('id', id);
+        if (error) throw error;
         return { success: true };
     } catch (err: any) {
         console.error('Error deleting time log:', err);

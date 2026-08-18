@@ -30,6 +30,20 @@ async function getUser() {
     return user;
 }
 
+async function canManageTimeLog(
+    admin: ReturnType<typeof createAdminClient>,
+    userId: string,
+    organizationId: string,
+): Promise<boolean> {
+    const { data } = await admin
+        .from('organization_members')
+        .select('user_id')
+        .eq('organization_id', organizationId)
+        .eq('user_id', userId)
+        .maybeSingle();
+    return Boolean(data);
+}
+
 const NO_TIMESHEET_HINT =
     'Couldn\'t find the project timesheet in Basecamp. Make sure the Timesheet tool is turned on for the project, '
     + 'then either log one entry directly in Basecamp\'s timesheet once, or link this time entry to a task that\'s synced to Basecamp.';
@@ -85,9 +99,24 @@ export async function POST(req: NextRequest) {
     try {
         if (action === 'remove') {
             const { entryId, timeLogId } = body;
-            if (!entryId) return NextResponse.json({ error: 'entryId required' }, { status: 400 });
+            if (!entryId || !timeLogId) {
+                return NextResponse.json({ error: 'entryId and timeLogId required' }, { status: 400 });
+            }
+            const { data: existing } = await admin
+                .from('time_logs')
+                .select('organization_id, basecamp_entry_id')
+                .eq('id', timeLogId)
+                .maybeSingle();
+            if (!existing) return NextResponse.json({ error: 'Time log not found' }, { status: 404 });
+            if (!await canManageTimeLog(admin, user.id, existing.organization_id)) {
+                return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+            }
+            if (!existing.basecamp_entry_id
+                || String(existing.basecamp_entry_id) !== String(entryId)) {
+                return NextResponse.json({ error: 'Entry does not belong to this time log' }, { status: 409 });
+            }
             const ok = await deleteBasecampTimesheetEntry(entryId);
-            if (ok && timeLogId) {
+            if (ok) {
                 await admin.from('time_logs').update({
                     basecamp_entry_id: null,
                     basecamp_synced_at: null,
@@ -110,6 +139,9 @@ export async function POST(req: NextRequest) {
             .eq('id', timeLogId)
             .maybeSingle();
         if (!log) return NextResponse.json({ error: 'Time log not found' }, { status: 404 });
+        if (!await canManageTimeLog(admin, user.id, log.organization_id)) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
         if (log.status !== 'logged' || !(Number(log.hours) > 0)) {
             return NextResponse.json({ skipped: true, reason: 'not a logged entry with hours' });
         }
