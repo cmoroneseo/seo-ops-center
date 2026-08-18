@@ -179,7 +179,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
                 const { task } = await getTask(opts.taskId!);
                 if (!task) return;
                 if (shouldMoveBlockToNow(task.startDate, new Date(now))) {
-                    await updateTask(opts.taskId!, { startDate: now });
+                    const updated = await updateTask(opts.taskId!, { startDate: now });
+                    if (updated.success) window.dispatchEvent(new Event('planner:data-changed'));
                 }
             })();
         }
@@ -229,7 +230,10 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         await stopTimer(timer.id, opts);
         // The block should end when you stopped, not when you planned to.
         if (taskId) {
-            void updateTask(taskId, { scheduledMinutes: trackedBlockMinutes(elapsedSeconds) });
+            const updated = await updateTask(taskId, {
+                scheduledMinutes: trackedBlockMinutes(elapsedSeconds),
+            });
+            if (updated.success) window.dispatchEvent(new Event('planner:data-changed'));
         }
         setTimer(null);
         setNotes([]);

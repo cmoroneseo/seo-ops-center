@@ -81,18 +81,31 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
     const [showSuccess, setShowSuccess] = useState(false);
     const [bcAvailable, setBcAvailable] = useState(false);
     const [sendToBasecamp, setSendToBasecamp] = useState(true);
+    const [isCheckingBasecamp, setIsCheckingBasecamp] = useState(!!timer.clientId);
 
     // Hours is seeded once on mount from elapsed time — not synced again,
     // so the user can freely edit it without it being overwritten by the ticking timer.
 
     // Only offer "Send to Basecamp" when this client has timesheet sync enabled
     useEffect(() => {
-        getClientTimesheetSyncEnabled(timer.clientId).then(setBcAvailable);
+        let active = true;
+        if (!timer.clientId) {
+            setBcAvailable(false);
+            setIsCheckingBasecamp(false);
+            return;
+        }
+        setIsCheckingBasecamp(true);
+        getClientTimesheetSyncEnabled(timer.clientId).then(enabled => {
+            if (!active) return;
+            setBcAvailable(enabled);
+            setIsCheckingBasecamp(false);
+        });
+        return () => { active = false; };
     }, [timer.clientId]);
 
     const handleStop = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!description.trim()) return;
+        if (!description.trim() || isCheckingBasecamp) return;
         setIsSubmitting(true);
         await stop({
             description: description.trim(),
@@ -299,10 +312,10 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
                             </button>
                             <button
                                 type="submit"
-                                disabled={isSubmitting || !description.trim()}
+                                disabled={isSubmitting || isCheckingBasecamp || !description.trim()}
                                 className="flex-[2] py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                             >
-                                {isSubmitting ? (
+                                {isSubmitting || isCheckingBasecamp ? (
                                     <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                                 ) : 'Log Time'}
                             </button>

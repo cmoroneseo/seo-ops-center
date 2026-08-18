@@ -142,6 +142,14 @@ export default function PlannerPage() {
     useEffect(() => { void loadEvents(); }, [loadEvents]);
     useEffect(() => { void loadWork(); }, [loadWork]);
 
+    // Timer start/stop writes task placement outside this page. Refresh the
+    // planner immediately so the block follows the actual work session.
+    useEffect(() => {
+        const reload = () => { void loadWork(); };
+        window.addEventListener('planner:data-changed', reload);
+        return () => window.removeEventListener('planner:data-changed', reload);
+    }, [loadWork]);
+
     // Priorities and the teammate roster do not depend on the visible range.
     useEffect(() => {
         if (!organization?.id || !userId) return;
