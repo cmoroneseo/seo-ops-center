@@ -5,6 +5,7 @@ import {
     sumTrackedHoursByClient,
     sumInternalHours,
 } from '../time-budget-logic';
+import { deleteTimeLogAcrossSystems } from '../time-log-deletion';
 
 function rowToTimeLog(row: any): TimeLog {
     return {
@@ -215,21 +216,29 @@ export async function deleteTimeLog(id: string): Promise<{ success: boolean; err
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
         // Grab the Basecamp entry ID before the row disappears
-        const { data: existing } = await supabase
+        const { data: existing, error: lookupError } = await supabase
             .from('time_logs')
             .select('basecamp_entry_id')
             .eq('id', id)
             .maybeSingle();
-        if (existing?.basecamp_entry_id) {
-            await fetch('/api/integrations/basecamp/timesheet', {
+        if (lookupError) throw lookupError;
+
+        return await deleteTimeLogAcrossSystems({
+            basecampEntryId: existing?.basecamp_entry_id,
+            removeBasecampEntry: () => fetch('/api/integrations/basecamp/timesheet', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'remove', entryId: existing.basecamp_entry_id, timeLogId: id }),
-            }).catch(err => console.error('[Basecamp timesheet] remove failed:', err));
-        }
-        const { error } = await supabase.from('time_logs').delete().eq('id', id);
-        if (error) throw error;
-        return { success: true };
+                body: JSON.stringify({
+                    action: 'remove',
+                    entryId: existing?.basecamp_entry_id,
+                    timeLogId: id,
+                }),
+            }),
+            removeLocalEntry: async () => {
+                const { error } = await supabase.from('time_logs').delete().eq('id', id);
+                if (error) throw error;
+            },
+        });
     } catch (err: any) {
         console.error('Error deleting time log:', err);
         return { success: false, error: err.message };

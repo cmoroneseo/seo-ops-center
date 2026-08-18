@@ -164,6 +164,7 @@ export function MonthlyPlannerCard({ client }: MonthlyPlannerCardProps) {
     const [plan, setPlan] = useState<MonthlyPlan | null>(null);
     const [timeLogs, setTimeLogs] = useState<TimeLog[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
     const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(new Set());
     const [editingWeek, setEditingWeek] = useState<number | null>(null);
     const [editedPlanned, setEditedPlanned] = useState('');
@@ -287,7 +288,12 @@ export function MonthlyPlannerCard({ client }: MonthlyPlannerCardProps) {
     };
 
     const handleDeleteEntry = async (id: string) => {
-        await deleteTimeLog(id);
+        setDeleteError(null);
+        const result = await deleteTimeLog(id);
+        if (!result.success) {
+            setDeleteError(result.error || 'Could not delete the time entry. Try again.');
+            return;
+        }
         await load();
     };
 
@@ -359,6 +365,20 @@ export function MonthlyPlannerCard({ client }: MonthlyPlannerCardProps) {
                     </button>
                 </div>
             </div>
+
+            {deleteError && (
+                <div role="alert" className="flex items-start justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
+                    <span>{deleteError} The SEO PM entry was kept so you can retry.</span>
+                    <button
+                        type="button"
+                        onClick={() => setDeleteError(null)}
+                        aria-label="Dismiss deletion error"
+                        className="rounded p-0.5 hover:bg-red-500/10"
+                    >
+                        <X className="h-3.5 w-3.5" />
+                    </button>
+                </div>
+            )}
 
             {/* Budget bar */}
             <div className="space-y-1.5">
