@@ -222,15 +222,27 @@ export function IntegrationsTab({ clientId }: Props) {
 
     // Load client's existing Basecamp config from custom_fields
     useEffect(() => {
-        if (!clientId) return;
-        fetch(`/api/integrations/basecamp/projects`)
-            .then(r => r.json())
+        if (!clientId || !orgId) {
+            setBcConfigured(false);
+            setBcProjects([]);
+            return;
+        }
+        let cancelled = false;
+        setBcConfigured(null);
+        setBcProjects([]);
+        fetch(`/api/integrations/basecamp/projects?organizationId=${encodeURIComponent(orgId)}`)
+            .then(async r => {
+                if (!r.ok) throw new Error('Unable to load Basecamp projects');
+                return r.json();
+            })
             .then(d => {
+                if (cancelled) return;
                 setBcConfigured(d.configured ?? false);
                 if (d.projects) setBcProjects(d.projects);
             })
-            .catch(() => setBcConfigured(false));
-    }, [clientId]);
+            .catch(() => { if (!cancelled) setBcConfigured(false); });
+        return () => { cancelled = true; };
+    }, [clientId, orgId]);
 
     // Load current Basecamp settings from client's custom_fields via API
     useEffect(() => {

@@ -10,6 +10,8 @@ export interface BasecampProject {
 }
 
 interface BasecampProjectPickerProps {
+    /** Active organization used to authorize the project catalog request. */
+    organizationId?: string;
     /** Currently chosen destination, if any. */
     value?: BasecampProject;
     /** Most-recent-first; pinned above the search results. */
@@ -24,20 +26,27 @@ interface BasecampProjectPickerProps {
  * you actually log internal time against are pinned, which is the common case.
  * Projects are fetched once, lazily, the first time the picker is opened.
  */
-export function BasecampProjectPicker({ value, recents, onChange }: BasecampProjectPickerProps) {
+export function BasecampProjectPicker({ organizationId, value, recents, onChange }: BasecampProjectPickerProps) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [projects, setProjects] = useState<BasecampProject[] | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const ref = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!open || projects || isLoading) return;
+        if (!organizationId) {
+            setError('Organization context is required to load Basecamp projects.');
+            return;
+        }
         setIsLoading(true);
-        setError(false);
-        fetch('/api/integrations/basecamp/projects')
-            .then(r => r.json())
+        setError(null);
+        fetch(`/api/integrations/basecamp/projects?organizationId=${encodeURIComponent(organizationId)}`)
+            .then(async r => {
+                if (!r.ok) throw new Error('Unable to load Basecamp projects');
+                return r.json();
+            })
             .then(j => {
                 const list = (j.projects ?? j ?? []) as { id: number | string; name: string }[];
                 setProjects(
@@ -46,9 +55,9 @@ export function BasecampProjectPicker({ value, recents, onChange }: BasecampProj
                         : [],
                 );
             })
-            .catch(() => setError(true))
+            .catch(() => setError('Couldn\'t load Basecamp projects.'))
             .finally(() => setIsLoading(false));
-    }, [open, projects, isLoading]);
+    }, [open, projects, isLoading, organizationId]);
 
     useEffect(() => {
         if (!open) return;
@@ -115,7 +124,7 @@ export function BasecampProjectPicker({ value, recents, onChange }: BasecampProj
                         )}
                         {error && (
                             <div className="px-2 py-2 text-[11px] text-destructive">
-                                Couldn&rsquo;t reach Basecamp.
+                                {error}
                             </div>
                         )}
                         {!isLoading && !error && results.length === 0 && (

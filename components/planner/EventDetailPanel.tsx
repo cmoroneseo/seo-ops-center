@@ -231,6 +231,8 @@ export function EventDetailPanel({
                                             Basecamp project
                                         </div>
                                         <BasecampProjectPicker
+                                            key={organizationId ?? 'missing-organization'}
+                                            organizationId={organizationId}
                                             value={internalProject}
                                             recents={recentProjects}
                                             onChange={setInternalProject}

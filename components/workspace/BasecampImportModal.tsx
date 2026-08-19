@@ -76,14 +76,22 @@ export function BasecampImportModal({
     // Fetch projects on open
     useEffect(() => {
         if (!isOpen) return;
+        let cancelled = false;
+        setProjects([]);
         setProjectsLoading(true);
-        fetch('/api/integrations/basecamp/projects')
-            .then(r => r.json())
-            .then((data: { projects: BasecampProject[] }) => setProjects(data.projects ?? []))
-            .catch(() => setProjects([]))
-            .finally(() => setProjectsLoading(false));
+        fetch(`/api/integrations/basecamp/projects?organizationId=${encodeURIComponent(organizationId)}`)
+            .then(async r => {
+                if (!r.ok) throw new Error('Unable to load Basecamp projects');
+                return r.json();
+            })
+            .then((data: { projects: BasecampProject[] }) => {
+                if (!cancelled) setProjects(data.projects ?? []);
+            })
+            .catch(() => { if (!cancelled) setProjects([]); })
+            .finally(() => { if (!cancelled) setProjectsLoading(false); });
         fetchAlreadyImported();
-    }, [isOpen, fetchAlreadyImported]);
+        return () => { cancelled = true; };
+    }, [isOpen, fetchAlreadyImported, organizationId]);
 
     // If a project is pre-selected, jump straight to lists
     useEffect(() => {
@@ -92,7 +100,6 @@ export function BasecampImportModal({
             setSelectedProjectId(preselectedProjectId);
             loadLists(preselectedProjectId);
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, preselectedProjectId]);
 
     async function loadLists(projectId: string) {
