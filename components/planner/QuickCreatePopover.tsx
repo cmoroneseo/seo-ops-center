@@ -11,6 +11,7 @@ import { TeamMember } from './MeetWithFilter';
 import { TaskMentionPicker, matchTasks } from './TaskMentionPicker';
 import { localDateForInstant } from '@/lib/planner/local-date';
 import { resolveQuickCreateSave } from '@/lib/planner/quick-create-save';
+import { usePlannerDialogFocus } from './usePlannerDialogFocus';
 
 type Tab = 'event' | 'task' | 'focus' | 'ooo';
 
@@ -80,7 +81,7 @@ interface QuickCreatePopoverProps {
 }
 
 const fieldCls =
-    'w-full rounded-md border border-border bg-transparent px-1.5 py-1 text-[11px] outline-none focus:border-primary';
+    'min-h-10 w-full rounded-md border border-border bg-transparent px-2 py-1 text-[11px] outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary';
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
     return (
@@ -101,6 +102,7 @@ export function QuickCreatePopover({
     const [saveError, setSaveError] = useState<string | null>(null);
     const ref = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+    usePlannerDialogFocus(ref, true, onClose);
 
     const [clientId, setClientId] = useState('');
     const [assigneeId, setAssigneeId] = useState(userId);
@@ -118,18 +120,14 @@ export function QuickCreatePopover({
     const [highlight, setHighlight] = useState(0);
 
     useEffect(() => { setAssigneeId(userId); }, [userId]);
-    useEffect(() => { inputRef.current?.focus(); }, []);
 
     useEffect(() => {
         const onDown = (e: MouseEvent) => {
             if (ref.current && !ref.current.contains(e.target as Node)) onClose();
         };
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
         document.addEventListener('mousedown', onDown);
-        document.addEventListener('keydown', onKey);
         return () => {
             document.removeEventListener('mousedown', onDown);
-            document.removeEventListener('keydown', onKey);
         };
     }, [onClose]);
 
@@ -288,18 +286,28 @@ export function QuickCreatePopover({
         : undefined;
 
     return (
+        <>
+        <div className="fixed inset-0 z-[60] bg-black/35 lg:hidden" aria-hidden="true" />
         <div
             ref={ref}
             style={{ left: anchor.x, top: anchor.y }}
-            className="fixed z-50 w-[340px] rounded-xl border border-border bg-popover p-3 shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="quick-create-heading"
+            tabIndex={-1}
+            className="fixed z-[70] w-[340px] rounded-xl border border-border bg-popover p-3 shadow-xl max-lg:!inset-x-3 max-lg:!bottom-3 max-lg:!top-auto max-lg:!max-h-[calc(100dvh-1.5rem)] max-lg:!w-auto max-lg:overflow-y-auto"
         >
-            <div className="mb-3 flex items-center gap-1">
+            <h2 id="quick-create-heading" className="sr-only">Create planner item</h2>
+            <div className="mb-3 flex items-center gap-1" role="tablist" aria-label="Item type">
                 {TABS.map(t => (
                     <button
+                        type="button"
                         key={t.id}
+                        role="tab"
+                        aria-selected={tab === t.id}
                         onClick={() => selectTab(t.id)}
                         className={cn(
-                            'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                            'min-h-11 rounded-md px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:px-2.5',
                             tab === t.id
                                 ? 'bg-muted text-foreground'
                                 : 'text-muted-foreground hover:text-foreground',
@@ -309,9 +317,10 @@ export function QuickCreatePopover({
                     </button>
                 ))}
                 <button
+                    type="button"
                     onClick={onClose}
-                    aria-label="Close"
-                    className="ml-auto rounded p-1 text-muted-foreground hover:bg-muted"
+                    aria-label="Close quick create"
+                    className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                     <X className="h-3.5 w-3.5" />
                 </button>
@@ -345,6 +354,7 @@ export function QuickCreatePopover({
                 <div className="relative">
                     <input
                         ref={inputRef}
+                        data-dialog-autofocus
                         value={title}
                         onChange={e => setTitle(e.target.value)}
                         onKeyDown={handleKeyDown}
@@ -387,6 +397,7 @@ export function QuickCreatePopover({
                     <Link2 className="h-3 w-3 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate text-[11px]">{referencedTask.title}</span>
                     <button
+                        type="button"
                         onClick={() => setReferencedTask(null)}
                         aria-label="Remove linked task"
                         className="shrink-0 text-muted-foreground hover:text-foreground"
@@ -474,8 +485,9 @@ export function QuickCreatePopover({
 
             <div className="mt-3 flex items-center gap-2">
                 {isTask && !scheduledTask && onOpenFullTask && (
-                    <button
-                        onClick={() => {
+                        <button
+                            type="button"
+                            onClick={() => {
                             onOpenFullTask({
                                 title: title.trim(),
                                 clientId: clientId || undefined,
@@ -485,26 +497,29 @@ export function QuickCreatePopover({
                             });
                             onClose();
                         }}
-                        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                            className="flex min-h-11 items-center gap-1 rounded-md px-1 text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                     >
                         <ExternalLink className="h-3 w-3" /> Open full task
                     </button>
                 )}
 
                 <button
+                    type="button"
                     onClick={onClose}
-                    className="ml-auto rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
+                    className="ml-auto min-h-11 rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                     Cancel
                 </button>
                 <button
+                    type="button"
                     onClick={() => void handleSave()}
                     disabled={isSaving || (!scheduledTask && (!title.trim() || title.startsWith(MENTION)))}
-                    className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+                    className="min-h-11 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
                 >
                     {isSaving ? 'Saving…' : scheduledTask ? 'Schedule' : 'Save'}
                 </button>
             </div>
         </div>
+        </>
     );
 }

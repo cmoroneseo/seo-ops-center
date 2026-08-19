@@ -32,40 +32,50 @@ export function PlannerHeader({
     anchorDate, view, onPrev, onNext, onToday, onViewChange, prefs, onPrefsChange,
 }: PlannerHeaderProps) {
     return (
-        <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-            <button
-                onClick={onPrev}
-                aria-label="Previous"
-                className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-                <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-                onClick={onNext}
-                aria-label="Next"
-                className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-                <ChevronRight className="h-4 w-4" />
-            </button>
+        <header className="flex shrink-0 flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center sm:gap-3 sm:px-4 sm:py-3">
+            <div className="flex min-w-0 items-center gap-1 sm:contents">
+                <button
+                    type="button"
+                    onClick={onPrev}
+                    aria-label="Previous period"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                    <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                    type="button"
+                    onClick={onNext}
+                    aria-label="Next period"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                    <ChevronRight className="h-4 w-4" />
+                </button>
 
-            <h1 className="text-lg font-semibold">{format(anchorDate, 'MMMM yyyy')}</h1>
+                <h1 className="min-w-0 flex-1 truncate px-1 text-base font-semibold sm:flex-none sm:px-0 sm:text-lg" aria-live="polite">
+                    {format(anchorDate, 'MMMM yyyy')}
+                </h1>
 
-            <button
-                onClick={onToday}
-                className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-muted"
-            >
-                Today
-            </button>
+                <button
+                    type="button"
+                    onClick={onToday}
+                    className="h-11 shrink-0 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                    Today
+                </button>
+            </div>
 
-            <div className="ml-auto flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-2 sm:ml-auto sm:gap-3">
                 <span className="text-xs text-muted-foreground">{localTimezoneLabel()}</span>
-                <div className="flex rounded-md border border-border p-0.5">
+                <div className="ml-auto flex min-w-0 rounded-md border border-border p-0.5 sm:ml-0" role="group" aria-label="Planner view">
                     {VIEWS.map(v => (
                         <button
+                            type="button"
                             key={v}
                             onClick={() => onViewChange(v)}
+                            aria-pressed={view === v}
                             className={cn(
-                                'rounded px-2.5 py-1 text-xs font-medium capitalize transition-colors',
+                                'min-h-10 min-w-0 flex-1 rounded px-2 text-xs font-medium capitalize transition-colors sm:min-h-0 sm:flex-none sm:px-2.5 sm:py-1',
+                                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                                 view === v
                                     ? 'bg-primary text-primary-foreground'
                                     : 'text-muted-foreground hover:text-foreground',
@@ -78,6 +88,6 @@ export function PlannerHeader({
 
                 <PlannerSettings prefs={prefs} onChange={onPrefsChange} />
             </div>
-        </div>
+        </header>
     );
 }

@@ -39,6 +39,7 @@ import {
 } from '@/lib/planner/preferences';
 import { localDateForInstant, parseLocalDate } from '@/lib/planner/local-date';
 import { buildMonthDays } from '@/lib/planner/month-range';
+import { clampOverlayAnchor } from '@/lib/planner/responsive';
 
 export default function PlannerPage() {
     const { organization } = useOrganization();
@@ -304,8 +305,10 @@ export default function PlannerPage() {
             return d.toISOString();
         };
         setQuickCreate({
-            // The popover is 340px wide; keep it fully on screen.
-            anchor: { x: Math.min(window.innerWidth - 360, window.innerWidth / 2), y: 160 },
+            anchor: {
+                x: clampOverlayAnchor(window.innerWidth / 2, window.innerWidth),
+                y: clampOverlayAnchor(160, window.innerHeight, 520),
+            },
             startsAt: at(startMin),
             endsAt: at(endMin),
             kind: 'event',
@@ -359,7 +362,7 @@ export default function PlannerPage() {
     }, [dragHandles]);
 
     return (
-        <div className="flex h-full min-h-0 w-full">
+        <div className="flex h-full min-h-0 w-full overflow-hidden">
             <PlannerSidebar
                 priorities={priorities}
                 tasks={tasks}
@@ -396,6 +399,7 @@ export default function PlannerPage() {
 
                 {view === 'month' ? (
                     <MonthGrid
+                        key={`${anchorDate.getFullYear()}-${anchorDate.getMonth()}`}
                         anchorDate={anchorDate}
                         days={monthDays}
                         items={visibleItems}

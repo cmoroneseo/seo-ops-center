@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import {
     X, Trash2, MapPin, Users, Building2, Clock, Check, AlertCircle, ExternalLink,
@@ -20,6 +20,7 @@ import { durationMinutes } from '@/lib/planner/layout';
 import { TeamMember } from './MeetWithFilter';
 import { BasecampProjectPicker, type BasecampProject } from './BasecampProjectPicker';
 import { KIND_STYLES } from './EventCard';
+import { usePlannerDialogFocus } from './usePlannerDialogFocus';
 
 interface EventDetailPanelProps {
     item: PlannerItem;
@@ -38,6 +39,8 @@ export function EventDetailPanel({
     item, members, organizationId, userId, recentProjects = [], onProjectUsed,
     onClose, onChanged, onDeleted,
 }: EventDetailPanelProps) {
+    const dialogRef = useRef<HTMLElement>(null);
+    usePlannerDialogFocus(dialogRef, true, onClose);
     const isEvent = item.source === 'event';
     const isTask = item.source === 'task';
     const event = isEvent ? (item.raw as PlannerEvent) : null;
@@ -143,12 +146,6 @@ export function EventDetailPanel({
         setDescription(item.source === 'event' ? (item.raw as PlannerEvent).description ?? '' : '');
     }, [item]);
 
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-        document.addEventListener('keydown', onKey);
-        return () => document.removeEventListener('keydown', onKey);
-    }, [onClose]);
-
     const save = async () => {
         if (!event) return;
         const trimmed = title.trim();
@@ -171,16 +168,32 @@ export function EventDetailPanel({
     const dueDate = task?.dueDate ? parseLocalDate(task.dueDate) : null;
 
     return (
-        <aside className="flex h-full w-80 shrink-0 flex-col overflow-y-auto border-l border-border bg-card">
+        <>
+        <div
+            className="fixed inset-0 z-[60] bg-black/35 lg:hidden"
+            onClick={onClose}
+            aria-hidden="true"
+        />
+        <aside
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="planner-detail-heading"
+            tabIndex={-1}
+            className="fixed inset-x-0 bottom-0 z-[70] flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-y-auto rounded-t-2xl border border-border bg-card shadow-2xl lg:static lg:z-auto lg:h-full lg:max-h-none lg:w-80 lg:shrink-0 lg:rounded-none lg:border-y-0 lg:border-r-0 lg:shadow-none"
+        >
             <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+                <h2 id="planner-detail-heading" className="sr-only">{plannerSourceLabel(item)} details</h2>
                 <span className={cn('h-2.5 w-2.5 rounded-full', KIND_STYLES[item.kind].accent)} />
                 <span className="text-xs font-medium text-muted-foreground">
                     {plannerSourceLabel(item)}
                 </span>
                 <button
+                    type="button"
+                    data-dialog-autofocus
                     onClick={onClose}
                     aria-label="Close details"
-                    className="ml-auto rounded p-1 text-muted-foreground hover:bg-muted"
+                    className="ml-auto flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                     <X className="h-4 w-4" />
                 </button>
@@ -188,6 +201,7 @@ export function EventDetailPanel({
 
             <div className="space-y-4 px-4 py-4">
                 <input
+                    aria-label={isEvent ? 'Title' : 'Task title'}
                     value={title}
                     onChange={e => setTitle(e.target.value)}
                     onBlur={() => void save()}
@@ -280,10 +294,11 @@ export function EventDetailPanel({
 
                                 {bcAvailable && (
                                     <button
+                                        type="button"
                                         role="switch"
                                         aria-checked={sendToBasecamp}
                                         onClick={() => setSendToBasecamp(v => !v)}
-                                        className="mb-2 flex w-full items-center gap-2 text-left"
+                                        className="mb-2 flex min-h-11 w-full items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                                     >
                                         <span
                                             className={cn(
@@ -303,9 +318,10 @@ export function EventDetailPanel({
                                 )}
 
                                 <button
+                                    type="button"
                                     onClick={() => void logTime()}
                                     disabled={isLogging || !organizationId}
-                                    className="flex w-full items-center justify-center gap-2 rounded-md bg-muted px-3 py-1.5 text-xs font-medium hover:bg-muted/70 disabled:opacity-50"
+                                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-muted px-3 py-1.5 text-xs font-medium hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
                                 >
                                     <Clock className="h-3.5 w-3.5" />
                                     {isLogging
@@ -340,7 +356,7 @@ export function EventDetailPanel({
                     item.source === 'task' ? (
                         <Link
                             href={`/tasks?task=${encodeURIComponent(item.raw.id)}`}
-                            className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                             Open task
                             <ExternalLink className="h-3.5 w-3.5" />
@@ -353,16 +369,18 @@ export function EventDetailPanel({
 
             {isEvent && event && (
                 <button
+                    type="button"
                     onClick={async () => {
                         if (!confirm('Delete this event?')) return;
                         const ok = await deletePlannerEvent(event.id);
                         if (ok) onDeleted();
                     }}
-                    className="mx-4 mb-4 mt-auto flex items-center justify-center gap-2 rounded-md border border-destructive/30 px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/10"
+                    className="mx-4 mb-4 mt-auto flex min-h-11 items-center justify-center gap-2 rounded-md border border-destructive/30 px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
                 >
                     <Trash2 className="h-3.5 w-3.5" /> Delete event
                 </button>
             )}
         </aside>
+        </>
     );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Task } from '@/lib/types';
@@ -20,12 +20,16 @@ export function TaskDrawer({
     onTaskClick, onTaskDragStart,
 }: TaskDrawerProps) {
     const [open, setOpen] = useState(defaultOpen);
+    const contentId = useId();
 
     return (
         <div className="border-b border-border/60 py-2">
             <button
+                type="button"
                 onClick={() => setOpen(o => !o)}
-                className="flex w-full items-center gap-1 px-3 py-1 text-sm font-medium text-foreground"
+                aria-expanded={open}
+                aria-controls={contentId}
+                className="flex min-h-11 w-full items-center gap-1 rounded px-3 py-1 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
             >
                 <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-90')} />
                 {title}
@@ -35,7 +39,7 @@ export function TaskDrawer({
             </button>
 
             {open && (
-                <div className="mt-1 space-y-1 px-3">
+                <div id={contentId} className="mt-1 space-y-1 px-3">
                     {tasks.length === 0 ? (
                         <div className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
                             {emptyLabel}
