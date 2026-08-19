@@ -2,8 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     parseTaskStart, taskToItem, taskBlockMinutes, overdueTaskToItem, TASK_DEFAULT_MINUTES,
+    plannerSourceLabel, plannerTimeLabel, taskToDetailItem, eventToItem, reminderToItem,
 } from './items.ts';
-import type { Task } from '../types';
+import type { PlannerEvent, Reminder, Task } from '../types';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
     return {
@@ -17,6 +18,35 @@ function makeTask(overrides: Partial<Task> = {}): Task {
         subtasks: [],
         ...overrides,
     } as Task;
+}
+
+function makeEvent(overrides: Partial<PlannerEvent> = {}): PlannerEvent {
+    return {
+        id: 'e1',
+        organizationId: 'org1',
+        userId: 'user1',
+        title: 'Weekly sync',
+        kind: 'event',
+        startsAt: '2026-08-18T16:00:00.000Z',
+        endsAt: '2026-08-18T17:00:00.000Z',
+        allDay: false,
+        attendeeIds: [],
+        busy: true,
+        visibility: 'default',
+        ...overrides,
+    } as PlannerEvent;
+}
+
+function makeReminder(overrides: Partial<Reminder> = {}): Reminder {
+    return {
+        id: 'r1',
+        organizationId: 'org1',
+        userId: 'user1',
+        title: 'Send report',
+        dueAt: '2026-08-18T16:00:00.000Z',
+        status: 'pending',
+        ...overrides,
+    } as Reminder;
 }
 
 // --- parseTaskStart ---------------------------------------------------------
@@ -125,4 +155,57 @@ test('taskToItem keeps a bare-date task on its own calendar day', () => {
     const item = taskToItem(makeTask({ startDate: '2026-07-30' }));
     assert.ok(item);
     assert.equal(new Date(item.startsAt).getDate(), 30);
+});
+
+// --- presentation semantics ------------------------------------------------
+
+test('plannerSourceLabel identifies rolled-over work as an overdue task', () => {
+    const item = overdueTaskToItem(
+        makeTask({ dueDate: '2026-08-17' }),
+        new Date(2026, 7, 18),
+    );
+    assert.equal(plannerSourceLabel(item), 'Overdue task');
+});
+
+test('plannerSourceLabel identifies reminders independently of event styling', () => {
+    const item = reminderToItem(makeReminder());
+    assert.equal(plannerSourceLabel(item), 'Reminder');
+});
+
+test('plannerSourceLabel describes task and event kinds without using card colors', () => {
+    const scheduledTask = taskToItem(makeTask({ startDate: '2026-08-18T16:00:00.000Z' }));
+    assert.ok(scheduledTask);
+    assert.equal(plannerSourceLabel(scheduledTask), 'Task');
+
+    const expected = [
+        ['meeting', 'Meeting'],
+        ['focus', 'Focus block'],
+        ['ooo', 'OOO'],
+        ['event', 'Event'],
+        ['lunch', 'Event'],
+    ] as const;
+    for (const [kind, label] of expected) {
+        assert.equal(plannerSourceLabel(eventToItem(makeEvent({ kind }))), label);
+    }
+});
+
+test('plannerTimeLabel displays all-day work as All day instead of midnight', () => {
+    const item = reminderToItem(makeReminder({ dueAt: '2026-08-18T00:00:00.000Z' }));
+    assert.equal(plannerTimeLabel(item), 'All day');
+});
+
+test('taskToDetailItem keeps an unscheduled task canonical and readable', () => {
+    const task = makeTask({ id: 'unscheduled-1', title: 'Audit redirects' });
+    const item = taskToDetailItem(task, new Date(2026, 7, 18));
+    assert.equal(item.id, 'task:unscheduled-1');
+    assert.equal(item.title, 'Audit redirects');
+    assert.equal(item.raw, task);
+});
+
+test('taskToDetailItem preserves overdue source semantics for drawer selection', () => {
+    const item = taskToDetailItem(
+        makeTask({ dueDate: '2026-08-17' }),
+        new Date(2026, 7, 18),
+    );
+    assert.equal(plannerSourceLabel(item), 'Overdue task');
 });

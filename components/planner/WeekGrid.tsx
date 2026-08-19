@@ -17,6 +17,7 @@ import { usePlannerDrag, DragCommit } from '@/lib/planner/use-planner-drag';
 
 export interface PlannerDragHandles {
     beginSchedule: (taskId: string, title: string, durationMin: number, e: React.PointerEvent) => void;
+    consumeDragClick: () => boolean;
 }
 
 interface WeekGridProps {
@@ -107,8 +108,8 @@ export function WeekGrid({
     };
 
     useEffect(() => {
-        onDragHandlesReady?.({ beginSchedule });
-    }, [onDragHandlesReady, beginSchedule]);
+        onDragHandlesReady?.({ beginSchedule, consumeDragClick });
+    }, [onDragHandlesReady, beginSchedule, consumeDragClick]);
 
     // The card under the cursor is pulled out of normal flow and drawn as a
     // solid ghost in whichever column the pointer is over — including a day it

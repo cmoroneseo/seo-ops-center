@@ -44,6 +44,28 @@ export interface PlannerItem {
     raw: PlannerEvent | Task | Reminder;
 }
 
+/** Semantic source label, intentionally independent of the item's card color. */
+export function plannerSourceLabel(item: PlannerItem): string {
+    if (item.source === 'task') {
+        return item.id.startsWith('overdue:') ? 'Overdue task' : 'Task';
+    }
+    if (item.source === 'reminder') return 'Reminder';
+    if (item.kind === 'meeting') return 'Meeting';
+    if (item.kind === 'focus') return 'Focus block';
+    if (item.kind === 'ooo') return 'OOO';
+    return 'Event';
+}
+
+/** Human-readable time range. All-day work never masquerades as midnight. */
+export function plannerTimeLabel(item: PlannerItem): string {
+    if (item.allDay) return 'All day';
+    const clock = (value: string) => new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+    }).format(new Date(value));
+    return `${clock(item.startsAt)} – ${clock(item.endsAt)}`;
+}
+
 export function eventToItem(e: PlannerEvent): PlannerItem {
     return {
         id: `event:${e.id}`,
@@ -95,6 +117,34 @@ export function taskToItem(t: Task): PlannerItem | null {
         clientName: t.clientName,
         attendeeIds: t.assigneeIds ?? [],
         draggable: true,
+        raw: t,
+    };
+}
+
+/**
+ * Normalize any canonical task for the detail panel. Unscheduled tasks need a
+ * selection item even though they correctly remain absent from the time grid.
+ */
+export function taskToDetailItem(t: Task, today: Date = new Date()): PlannerItem {
+    const scheduled = taskToItem(t);
+    if (scheduled) return scheduled;
+    const anchor = new Date(today);
+    anchor.setHours(0, 0, 0, 0);
+    const due = t.dueDate ? parseTaskStart(t.dueDate) : null;
+    if (t.status !== 'done' && due && due.getTime() < anchor.getTime()) {
+        return overdueTaskToItem(t, anchor);
+    }
+    return {
+        id: `task:${t.id}`,
+        source: 'task',
+        title: t.title,
+        startsAt: anchor.toISOString(),
+        endsAt: anchor.toISOString(),
+        allDay: true,
+        kind: 'focus',
+        clientName: t.clientName,
+        attendeeIds: t.assigneeIds ?? [],
+        draggable: false,
         raw: t,
     };
 }

@@ -17,6 +17,7 @@ interface PlannerSidebarProps {
     onAddPriority: (label: string) => void;
     onRemovePriority: (id: string) => void;
     onReorderPriorities: (orderedIds: string[]) => void;
+    onTaskClick: (task: Task) => void;
     onTaskDragStart: (task: Task, e: React.PointerEvent) => void;
 }
 
@@ -39,12 +40,23 @@ export function PlannerSidebar(props: PlannerSidebarProps) {
                 onToggle={props.onToggleMember}
             />
 
-            <TaskDrawer title="Assigned to me" tasks={props.assignedToMe} />
-            <TaskDrawer title="Today & overdue" tasks={props.todayAndOverdue} />
+            <TaskDrawer
+                title="Assigned to me"
+                tasks={props.assignedToMe}
+                onTaskClick={props.onTaskClick}
+                onTaskDragStart={props.onTaskDragStart}
+            />
+            <TaskDrawer
+                title="Today & overdue"
+                tasks={props.todayAndOverdue}
+                onTaskClick={props.onTaskClick}
+                onTaskDragStart={props.onTaskDragStart}
+            />
             <TaskDrawer
                 title="Backlog"
                 tasks={props.backlog}
                 defaultOpen
+                onTaskClick={props.onTaskClick}
                 onTaskDragStart={props.onTaskDragStart}
             />
         </aside>

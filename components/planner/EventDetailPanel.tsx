@@ -1,16 +1,21 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import { X, Trash2, MapPin, Users, Building2, Clock, Check, AlertCircle } from 'lucide-react';
+import {
+    X, Trash2, MapPin, Users, Building2, Clock, Check, AlertCircle, ExternalLink,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { PlannerEvent, TimeLog } from '@/lib/types';
-import { PlannerItem } from '@/lib/planner/items';
+import { PlannerEvent, Task, TimeLog } from '@/lib/types';
+import {
+    PlannerItem, plannerSourceLabel, plannerTimeLabel,
+} from '@/lib/planner/items';
 import { updatePlannerEvent, deletePlannerEvent } from '@/lib/supabase/planner-events';
 import {
     createTimeLog, getTimeLogForPlannerEvent, getClientTimesheetSyncEnabled,
 } from '@/lib/supabase/time-logs';
-import { localDateForInstant } from '@/lib/planner/local-date';
+import { localDateForInstant, parseLocalDate } from '@/lib/planner/local-date';
 import { durationMinutes } from '@/lib/planner/layout';
 import { TeamMember } from './MeetWithFilter';
 import { BasecampProjectPicker, type BasecampProject } from './BasecampProjectPicker';
@@ -34,9 +39,11 @@ export function EventDetailPanel({
     onClose, onChanged, onDeleted,
 }: EventDetailPanelProps) {
     const isEvent = item.source === 'event';
+    const isTask = item.source === 'task';
     const event = isEvent ? (item.raw as PlannerEvent) : null;
+    const task = isTask ? (item.raw as Task) : null;
 
-    const [title, setTitle] = useState(item.title);
+    const [title, setTitle] = useState(task?.title ?? item.title);
     const [description, setDescription] = useState(event?.description ?? '');
     const [loggedLog, setLoggedLog] = useState<TimeLog | null>(null);
     const [isLogging, setIsLogging] = useState(false);
@@ -132,7 +139,7 @@ export function EventDetailPanel({
     };
 
     useEffect(() => {
-        setTitle(item.title);
+        setTitle(item.source === 'task' ? (item.raw as Task).title : item.title);
         setDescription(item.source === 'event' ? (item.raw as PlannerEvent).description ?? '' : '');
     }, [item]);
 
@@ -154,12 +161,22 @@ export function EventDetailPanel({
     const attendeeNames = (event?.attendeeIds ?? [])
         .map(id => members.find(m => m.userId === id)?.name)
         .filter(Boolean);
+    const taskAssigneeNames = (task?.assigneeIds ?? [])
+        .map(id => members.find(m => m.userId === id)?.name ?? 'Team member');
+    const assigneeLabel = taskAssigneeNames.length > 0
+        ? taskAssigneeNames.join(', ')
+        : task?.assignees?.length
+            ? task.assignees.join(', ')
+            : 'Unassigned';
+    const dueDate = task?.dueDate ? parseLocalDate(task.dueDate) : null;
 
     return (
         <aside className="flex h-full w-80 shrink-0 flex-col overflow-y-auto border-l border-border bg-card">
             <div className="flex items-center gap-2 border-b border-border px-4 py-3">
                 <span className={cn('h-2.5 w-2.5 rounded-full', KIND_STYLES[item.kind].accent)} />
-                <span className="text-xs font-medium capitalize text-muted-foreground">{item.kind}</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                    {plannerSourceLabel(item)}
+                </span>
                 <button
                     onClick={onClose}
                     aria-label="Close details"
@@ -179,13 +196,30 @@ export function EventDetailPanel({
                     className="w-full rounded-md bg-transparent text-base font-semibold outline-none focus:bg-muted focus:px-2 focus:py-1"
                 />
 
-                <div className="text-xs text-muted-foreground">
-                    {format(new Date(item.startsAt), 'EEEE, MMMM d')}
-                    <br />
-                    {item.allDay
-                        ? 'All day'
-                        : `${format(new Date(item.startsAt), 'h:mm a')} – ${format(new Date(item.endsAt), 'h:mm a')}`}
-                </div>
+                {task && !task.startDate ? (
+                    <div className="text-xs text-muted-foreground">Unscheduled</div>
+                ) : (
+                    <div className="text-xs text-muted-foreground">
+                        {format(new Date(item.startsAt), 'EEEE, MMMM d')}
+                        <br />
+                        {plannerTimeLabel(item)}
+                    </div>
+                )}
+
+                {task && (
+                    <dl className="grid grid-cols-[5rem_1fr] gap-x-3 gap-y-2 rounded-lg border border-border p-3 text-xs">
+                        <dt className="text-muted-foreground">Source</dt>
+                        <dd>{plannerSourceLabel(item)}</dd>
+                        <dt className="text-muted-foreground">Status</dt>
+                        <dd className="capitalize">{task.status.replaceAll('_', ' ')}</dd>
+                        <dt className="text-muted-foreground">Priority</dt>
+                        <dd className="capitalize">{task.priority}</dd>
+                        <dt className="text-muted-foreground">Assignee</dt>
+                        <dd>{assigneeLabel}</dd>
+                        <dt className="text-muted-foreground">Due</dt>
+                        <dd>{dueDate ? format(dueDate, 'MMM d, yyyy') : 'No due date'}</dd>
+                    </dl>
+                )}
 
                 {event?.location && (
                     <div className="flex items-center gap-2 text-xs">
@@ -303,11 +337,17 @@ export function EventDetailPanel({
                         className="w-full resize-none rounded-md border border-border bg-transparent px-2 py-1.5 text-xs outline-none focus:border-primary"
                     />
                 ) : (
-                    <p className="text-xs text-muted-foreground">
-                        {item.source === 'task'
-                            ? 'This block is a task. Edit it from the Tasks page.'
-                            : 'This is a reminder.'}
-                    </p>
+                    item.source === 'task' ? (
+                        <Link
+                            href={`/tasks?task=${encodeURIComponent(item.raw.id)}`}
+                            className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                        >
+                            Open task
+                            <ExternalLink className="h-3.5 w-3.5" />
+                        </Link>
+                    ) : (
+                        <p className="text-xs text-muted-foreground">This is a reminder.</p>
+                    )
                 )}
             </div>
 

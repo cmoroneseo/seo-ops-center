@@ -21,6 +21,7 @@ import { durationMinutes } from '@/lib/planner/layout';
 import { listReminders } from '@/lib/supabase/personal-reminders';
 import {
     PlannerItem, eventToItem, taskToItem, reminderToItem, overdueTaskToItem, taskBlockMinutes,
+    taskToDetailItem,
 } from '@/lib/planner/items';
 import { PlannerHeader, PlannerView } from '@/components/planner/PlannerHeader';
 import { WeekGrid, PlannerDragHandles } from '@/components/planner/WeekGrid';
@@ -350,6 +351,13 @@ export default function PlannerPage() {
         dragHandles?.beginSchedule(task.id, task.title, taskBlockMinutes(task), e);
     }, [dragHandles]);
 
+    const handleTaskClick = useCallback((task: Task) => {
+        // A completed pointer drag emits a synthetic click; only a true click
+        // should open details after every drawer gains scheduling affordances.
+        if (dragHandles?.consumeDragClick()) return;
+        setSelected(taskToDetailItem(task));
+    }, [dragHandles]);
+
     return (
         <div className="flex h-full min-h-0 w-full">
             <PlannerSidebar
@@ -365,6 +373,7 @@ export default function PlannerPage() {
                 onAddPriority={handleAddPriority}
                 onRemovePriority={handleRemovePriority}
                 onReorderPriorities={handleReorderPriorities}
+                onTaskClick={handleTaskClick}
                 onTaskDragStart={handleTaskDragStart}
             />
 

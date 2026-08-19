@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import { Command } from 'cmdk';
 import { Search } from 'lucide-react';
 import { format } from 'date-fns';
-import { PlannerItem } from '@/lib/planner/items';
+import {
+    PlannerItem, plannerSourceLabel, plannerTimeLabel,
+} from '@/lib/planner/items';
 import { TeamMember } from './MeetWithFilter';
 import { PlannerView } from './PlannerHeader';
 
@@ -36,6 +38,9 @@ export function PlannerCommandBar({
     }, []);
 
     const run = (fn: () => void) => { fn(); setOpen(false); };
+    const taskItems = items.filter(item => item.source === 'task');
+    const eventItems = items.filter(item => item.source === 'event');
+    const reminderItems = items.filter(item => item.source === 'reminder');
 
     if (!open) {
         return (
@@ -44,7 +49,7 @@ export function PlannerCommandBar({
                 className="fixed bottom-6 left-1/2 z-40 hidden w-[420px] -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-popover px-4 py-2.5 text-xs text-muted-foreground shadow-lg hover:border-primary/40 lg:flex"
             >
                 <Search className="h-3.5 w-3.5" />
-                Search events, teammates, commands...
+                Search tasks, events, reminders, teammates, commands...
                 <kbd className="ml-auto rounded border border-border px-1.5 py-0.5 text-[10px]">⌘/</kbd>
             </button>
         );
@@ -60,7 +65,7 @@ export function PlannerCommandBar({
                     <Search className="h-4 w-4 text-muted-foreground" />
                     <Command.Input
                         autoFocus
-                        placeholder="Search events, teammates, commands..."
+                        placeholder="Search tasks, events, reminders, teammates, commands..."
                         className="flex-1 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
                     />
                 </div>
@@ -70,42 +75,63 @@ export function PlannerCommandBar({
                         No results.
                     </Command.Empty>
 
-                    <Command.Group
-                        heading="Commands"
-                        className="text-[10px] uppercase tracking-wide text-muted-foreground"
-                    >
-                        <Command.Item
-                            onSelect={() => run(onGoToToday)}
-                            className="cursor-pointer rounded px-2 py-1.5 text-sm data-[selected=true]:bg-muted"
-                        >
-                            Go to today
-                        </Command.Item>
-                        {(['day', 'week', 'month'] as PlannerView[]).map(v => (
-                            <Command.Item
-                                key={v}
-                                onSelect={() => run(() => onViewChange(v))}
-                                className="cursor-pointer rounded px-2 py-1.5 text-sm capitalize data-[selected=true]:bg-muted"
-                            >
-                                Switch to {v} view
-                            </Command.Item>
-                        ))}
-                    </Command.Group>
-
-                    {items.length > 0 && (
+                    {taskItems.length > 0 && (
                         <Command.Group
-                            heading="Events"
-                            className="mt-2 text-[10px] uppercase tracking-wide text-muted-foreground"
+                            heading="Tasks"
+                            className="text-[10px] uppercase tracking-wide text-muted-foreground"
                         >
-                            {items.slice(0, 30).map(item => (
+                            {taskItems.slice(0, 30).map(item => (
                                 <Command.Item
                                     key={item.id}
-                                    value={`${item.title} ${item.kind}`}
+                                    value={`${item.title} ${plannerSourceLabel(item)}`}
                                     onSelect={() => run(() => onSelectItem(item))}
                                     className="cursor-pointer rounded px-2 py-1.5 text-sm data-[selected=true]:bg-muted"
                                 >
                                     <span className="truncate">{item.title}</span>
                                     <span className="ml-2 text-[10px] text-muted-foreground">
-                                        {format(new Date(item.startsAt), 'EEE h:mm a')}
+                                        {format(new Date(item.startsAt), 'EEE')} · {plannerTimeLabel(item)}
+                                    </span>
+                                </Command.Item>
+                            ))}
+                        </Command.Group>
+                    )}
+
+                    {eventItems.length > 0 && (
+                        <Command.Group
+                            heading="Events"
+                            className="mt-2 text-[10px] uppercase tracking-wide text-muted-foreground"
+                        >
+                            {eventItems.slice(0, 30).map(item => (
+                                <Command.Item
+                                    key={item.id}
+                                    value={`${item.title} ${plannerSourceLabel(item)}`}
+                                    onSelect={() => run(() => onSelectItem(item))}
+                                    className="cursor-pointer rounded px-2 py-1.5 text-sm data-[selected=true]:bg-muted"
+                                >
+                                    <span className="truncate">{item.title}</span>
+                                    <span className="ml-2 text-[10px] text-muted-foreground">
+                                        {format(new Date(item.startsAt), 'EEE')} · {plannerTimeLabel(item)}
+                                    </span>
+                                </Command.Item>
+                            ))}
+                        </Command.Group>
+                    )}
+
+                    {reminderItems.length > 0 && (
+                        <Command.Group
+                            heading="Reminders"
+                            className="mt-2 text-[10px] uppercase tracking-wide text-muted-foreground"
+                        >
+                            {reminderItems.slice(0, 30).map(item => (
+                                <Command.Item
+                                    key={item.id}
+                                    value={`${item.title} ${plannerSourceLabel(item)}`}
+                                    onSelect={() => run(() => onSelectItem(item))}
+                                    className="cursor-pointer rounded px-2 py-1.5 text-sm data-[selected=true]:bg-muted"
+                                >
+                                    <span className="truncate">{item.title}</span>
+                                    <span className="ml-2 text-[10px] text-muted-foreground">
+                                        {format(new Date(item.startsAt), 'EEE')} · {plannerTimeLabel(item)}
                                     </span>
                                 </Command.Item>
                             ))}
@@ -129,6 +155,27 @@ export function PlannerCommandBar({
                             ))}
                         </Command.Group>
                     )}
+
+                    <Command.Group
+                        heading="Commands"
+                        className="mt-2 text-[10px] uppercase tracking-wide text-muted-foreground"
+                    >
+                        <Command.Item
+                            onSelect={() => run(onGoToToday)}
+                            className="cursor-pointer rounded px-2 py-1.5 text-sm data-[selected=true]:bg-muted"
+                        >
+                            Go to today
+                        </Command.Item>
+                        {(['day', 'week', 'month'] as PlannerView[]).map(v => (
+                            <Command.Item
+                                key={v}
+                                onSelect={() => run(() => onViewChange(v))}
+                                className="cursor-pointer rounded px-2 py-1.5 text-sm capitalize data-[selected=true]:bg-muted"
+                            >
+                                Switch to {v} view
+                            </Command.Item>
+                        ))}
+                    </Command.Group>
                 </Command.List>
             </Command>
         </div>

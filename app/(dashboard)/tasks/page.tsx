@@ -14,6 +14,7 @@ import { useSearchParams } from 'next/navigation';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { getTasks, updateTask } from '@/lib/supabase/tasks';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
+import { taskForQuery } from '@/lib/planner/task-selection';
 
 const columns = [
     { id: 'todo', title: 'To Do' },
@@ -26,6 +27,7 @@ const columns = [
 export default function TasksPage() {
     const searchParams = useSearchParams();
     const clientFilter = searchParams.get('client');
+    const taskQuery = searchParams.get('task');
     const { organization, memberships } = useOrganization();
     const member = memberships.find(m => m.organizationId === organization?.id);
     const [view, setView] = useState<'kanban' | 'list' | 'calendar'>('list');
@@ -58,6 +60,13 @@ export default function TasksPage() {
     }, [organization?.id]);
 
     useEffect(() => { loadTasks(); }, [loadTasks]);
+
+    useEffect(() => {
+        const task = taskForQuery(tasks, taskQuery);
+        if (!task) return;
+        setSelectedTask(task);
+        setIsDetailOpen(true);
+    }, [taskQuery, tasks]);
 
     const today = new Date().toISOString().slice(0, 10);
 
