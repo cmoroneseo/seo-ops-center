@@ -11,6 +11,8 @@ import {
     minutesSinceMidnight,
     durationMinutes,
     resolvePointer,
+    resolveSchedulePointer,
+    shouldCommitSchedule,
     isOutsideGrid,
     staggerBounds,
     isWorkMinute,
@@ -264,4 +266,63 @@ test('isOutsideGrid is true above the grid (the header)', () => {
         isOutsideGrid({ clientX: RECT.left + 200, clientY: RECT.top - 30, rect: RECT, height: 728 }),
         true,
     );
+});
+
+// --- drawer-to-grid scheduling intent -------------------------------------
+
+test('resolveSchedulePointer ignores tiny pointer jitter', () => {
+    assert.equal(resolveSchedulePointer({
+        ...base,
+        height: 728,
+        originX: RECT.left + AXIS_WIDTH + 5,
+        originY: RECT.top + 50,
+        clientX: RECT.left + AXIS_WIDTH + 9,
+        clientY: RECT.top + 52,
+    }), null);
+});
+
+test('resolveSchedulePointer ignores movement that never enters the grid', () => {
+    assert.equal(resolveSchedulePointer({
+        ...base,
+        height: 728,
+        originX: 20,
+        originY: RECT.top + 50,
+        clientX: RECT.left - 20,
+        clientY: RECT.top + 100,
+    }), null);
+});
+
+test('resolveSchedulePointer resolves a real drawer-to-grid drag', () => {
+    assert.deepEqual(resolveSchedulePointer({
+        ...base,
+        height: 728,
+        originX: 20,
+        originY: RECT.top + 50,
+        clientX: RECT.left + AXIS_WIDTH + 20,
+        clientY: RECT.top + 50,
+    }), { dayIndex: 0, minutes: 480 });
+});
+
+test('shouldCommitSchedule requires a preview and a drop inside the grid', () => {
+    assert.equal(shouldCommitSchedule({
+        hasPreview: true,
+        clientX: RECT.left + 200,
+        clientY: RECT.top + 100,
+        rect: RECT,
+        height: 728,
+    }), true);
+    assert.equal(shouldCommitSchedule({
+        hasPreview: false,
+        clientX: RECT.left + 200,
+        clientY: RECT.top + 100,
+        rect: RECT,
+        height: 728,
+    }), false);
+    assert.equal(shouldCommitSchedule({
+        hasPreview: true,
+        clientX: RECT.left - 20,
+        clientY: RECT.top + 100,
+        rect: RECT,
+        height: 728,
+    }), false);
 });

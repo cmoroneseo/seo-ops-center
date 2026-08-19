@@ -42,23 +42,24 @@ export function TaskDrawer({
                         </div>
                     ) : (
                         tasks.map(task => (
-                            <div
+                            <button
+                                type="button"
                                 key={task.id}
                                 onPointerDown={e => onTaskDragStart?.(task, e)}
                                 onClick={() => onTaskClick?.(task)}
                                 className={cn(
-                                    'rounded-md border border-border bg-card px-2.5 py-1.5 text-xs',
+                                    'w-full rounded-md border border-border bg-card px-2.5 py-1.5 text-left text-xs',
                                     onTaskDragStart && 'cursor-grab active:cursor-grabbing',
-                                    'hover:border-primary/40',
+                                    'hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                                 )}
                             >
-                                <div className="truncate font-medium">{task.title}</div>
+                                <span className="block truncate font-medium">{task.title}</span>
                                 {task.clientName && (
-                                    <div className="truncate text-[10px] text-muted-foreground">
+                                    <span className="block truncate text-[10px] text-muted-foreground">
                                         {task.clientName}
-                                    </div>
+                                    </span>
                                 )}
-                            </div>
+                            </button>
                         ))
                     )}
                 </div>

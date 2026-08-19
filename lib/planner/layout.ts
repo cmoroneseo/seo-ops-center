@@ -11,6 +11,7 @@ export const SNAP_MINUTES = 15;
 export const MIN_EVENT_MINUTES = 15;
 export const DEFAULT_START_HOUR = 7;
 export const DEFAULT_END_HOUR = 20;
+export const SCHEDULE_DRAG_THRESHOLD_PX = 6;
 
 const MINUTES_PER_DAY = 24 * 60;
 
@@ -131,6 +132,39 @@ export function isOutsideGrid(params: {
         clientY < rect.top ||
         clientY > rect.top + height
     );
+}
+
+/**
+ * Resolve a drawer task only after the pointer has moved deliberately and is
+ * actually over the planner grid. Sidebar jitter must remain an ordinary click.
+ */
+export function resolveSchedulePointer(params: {
+    clientX: number;
+    clientY: number;
+    originX: number;
+    originY: number;
+    rect: GridRect;
+    height: number;
+    scrollTop: number;
+    dayCount: number;
+    startHour: number;
+    thresholdPx?: number;
+}): ResolvedPointer | null {
+    const threshold = params.thresholdPx ?? SCHEDULE_DRAG_THRESHOLD_PX;
+    const distance = Math.hypot(params.clientX - params.originX, params.clientY - params.originY);
+    if (distance < threshold || isOutsideGrid(params)) return null;
+    return resolvePointer(params);
+}
+
+/** A drawer task commits only when it produced a preview and is dropped in-grid. */
+export function shouldCommitSchedule(params: {
+    hasPreview: boolean;
+    clientX: number;
+    clientY: number;
+    rect: GridRect;
+    height: number;
+}): boolean {
+    return params.hasPreview && !isOutsideGrid(params);
 }
 
 export interface PackableInterval {

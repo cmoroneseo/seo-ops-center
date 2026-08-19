@@ -8,6 +8,8 @@ import {
     minutesSinceMidnight,
     durationMinutes,
     resolvePointer,
+    resolveSchedulePointer,
+    shouldCommitSchedule,
     isOutsideGrid,
     MIN_EVENT_MINUTES,
 } from './layout';
@@ -37,7 +39,14 @@ type DragState =
     | { mode: 'move'; item: PlannerItem; grabOffsetMin: number; durationMin: number }
     | { mode: 'resize'; item: PlannerItem; edge: 'top' | 'bottom' }
     | { mode: 'create'; dayIndex: number; anchorMin: number }
-    | { mode: 'schedule'; taskId: string; title: string; durationMin: number };
+    | {
+        mode: 'schedule';
+        taskId: string;
+        title: string;
+        durationMin: number;
+        originX: number;
+        originY: number;
+    };
 
 interface Options {
     days: Date[];
@@ -105,6 +114,39 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedu
         });
     }, []);
 
+    const resolveSchedule = useCallback((
+        e: PointerEvent,
+        state: Extract<DragState, { mode: 'schedule' }>,
+    ) => {
+        const grid = gridRef.current;
+        if (!grid) return null;
+        const rect = grid.getBoundingClientRect();
+        return resolveSchedulePointer({
+            clientX: e.clientX,
+            clientY: e.clientY,
+            originX: state.originX,
+            originY: state.originY,
+            rect: { left: rect.left, top: rect.top, width: rect.width },
+            height: rect.height,
+            scrollTop: grid.scrollTop,
+            dayCount: days.length,
+            startHour,
+        });
+    }, [days.length, startHour]);
+
+    const canCommitSchedule = useCallback((e: PointerEvent, hasPreview: boolean) => {
+        const grid = gridRef.current;
+        if (!grid) return false;
+        const rect = grid.getBoundingClientRect();
+        return shouldCommitSchedule({
+            hasPreview,
+            clientX: e.clientX,
+            clientY: e.clientY,
+            rect: { left: rect.left, top: rect.top, width: rect.width },
+            height: rect.height,
+        });
+    }, []);
+
     const beginMove = useCallback((item: PlannerItem, e: React.PointerEvent) => {
         // Reset before the draggable check: every card press starts here, so this
         // is what keeps a stale flag from swallowing an unrelated later click.
@@ -146,16 +188,25 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedu
     const beginSchedule = useCallback((
         taskId: string, title: string, durationMin: number, e: React.PointerEvent,
     ) => {
-        stateRef.current = { mode: 'schedule', taskId, title, durationMin };
-        (e.target as Element).setPointerCapture?.(e.pointerId);
-    }, []);
+        draggedRef.current = false;
+        setPreview(null);
+        stateRef.current = {
+            mode: 'schedule',
+            taskId,
+            title,
+            durationMin,
+            originX: e.clientX,
+            originY: e.clientY,
+        };
+        (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    }, [setPreview]);
 
     // Global listeners: the pointer routinely leaves the element it started on.
     useEffect(() => {
         const handleMove = (e: PointerEvent) => {
             const state = stateRef.current;
             if (state.mode === 'idle') return;
-            const at = resolve(e);
+            const at = state.mode === 'schedule' ? resolveSchedule(e, state) : resolve(e);
             if (!at) return;
             draggedRef.current = true;
 
@@ -213,7 +264,9 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedu
             const current = previewRef.current;
             stateRef.current = { mode: 'idle' };
             setPreview(null);
-            if (state.mode === 'idle' || !current) return;
+            if (state.mode === 'idle') return;
+            if (state.mode === 'schedule' && !canCommitSchedule(e, Boolean(current))) return;
+            if (!current) return;
 
             // Dropping a scheduled task off the grid sends it back to the backlog.
             // Events have no backlog to return to, so they just stay put.
@@ -253,6 +306,7 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedu
 
         const abort = () => {
             stateRef.current = { mode: 'idle' };
+            draggedRef.current = false;
             setPreview(null);
         };
 
@@ -270,7 +324,10 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedu
             window.removeEventListener('pointercancel', abort);
             window.removeEventListener('keydown', handleKey);
         };
-    }, [days, resolve, droppedOutside, onCommit, onCreate, onUnschedule, setPreview]);
+    }, [
+        days, resolve, resolveSchedule, canCommitSchedule, droppedOutside,
+        onCommit, onCreate, onUnschedule, setPreview,
+    ]);
 
     /**
      * True exactly once after a gesture that actually moved, so the caller can

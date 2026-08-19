@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, LayoutGrid, List, Calendar, User, Filter, X, LayoutTemplate } from 'lucide-react';
 import { TaskCard } from '@/components/tasks/TaskCard';
 import { TaskListView } from '@/components/tasks/TaskListView';
@@ -12,9 +12,9 @@ import { Task, TaskTemplate } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useSearchParams } from 'next/navigation';
 import { useOrganization } from '@/components/providers/organization-provider';
-import { getTasks, updateTask } from '@/lib/supabase/tasks';
+import { getTasks } from '@/lib/supabase/tasks';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
-import { taskForQuery } from '@/lib/planner/task-selection';
+import { reconcileTaskQuerySelection } from '@/lib/planner/task-selection';
 
 const columns = [
     { id: 'todo', title: 'To Do' },
@@ -39,6 +39,7 @@ export default function TasksPage() {
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadedTasksOrganizationId, setLoadedTasksOrganizationId] = useState<string | null>(null);
     const [filterMode, setFilterMode] = useState<'all' | 'unassigned' | 'overdue'>('all');
     const [memberMap, setMemberMap] = useState<Record<string, string>>({});
 
@@ -51,22 +52,44 @@ export default function TasksPage() {
         }).catch(() => {});
     }, [organization?.id]);
 
-    const loadTasks = useCallback(async () => {
-        if (!organization) return;
+    useEffect(() => {
+        const organizationId = organization?.id;
+        let cancelled = false;
+        if (!organizationId) {
+            setTasks([]);
+            setLoadedTasksOrganizationId(null);
+            setLoading(false);
+            return;
+        }
         setLoading(true);
-        const data = await getTasks(organization.id);
-        setTasks(data);
-        setLoading(false);
+        void getTasks(organizationId).then(data => {
+            if (cancelled) return;
+            setTasks(data);
+            setLoadedTasksOrganizationId(organizationId);
+            setLoading(false);
+        });
+        return () => { cancelled = true; };
     }, [organization?.id]);
 
-    useEffect(() => { loadTasks(); }, [loadTasks]);
-
     useEffect(() => {
-        const task = taskForQuery(tasks, taskQuery);
-        if (!task) return;
-        setSelectedTask(task);
-        setIsDetailOpen(true);
-    }, [taskQuery, tasks]);
+        const context = {
+            tasks,
+            taskId: taskQuery,
+            organizationId: organization?.id ?? null,
+            loadedOrganizationId: loadedTasksOrganizationId,
+            loading,
+        };
+        setSelectedTask(current => reconcileTaskQuerySelection({
+            ...context,
+            selectedTask: current,
+            isDetailOpen: false,
+        }).selectedTask);
+        setIsDetailOpen(current => reconcileTaskQuerySelection({
+            ...context,
+            selectedTask: null,
+            isDetailOpen: current,
+        }).isDetailOpen);
+    }, [taskQuery, tasks, organization?.id, loadedTasksOrganizationId, loading]);
 
     const today = new Date().toISOString().slice(0, 10);
 
@@ -94,11 +117,6 @@ export default function TasksPage() {
 
     const handleTaskCreated = (created: Task) => {
         setTasks(prev => [created, ...prev]);
-    };
-
-    const handleStatusChange = async (taskId: string, status: Task['status']) => {
-        const result = await updateTask(taskId, { status, updatedBy: member?.userId });
-        if (result.success && result.data) handleTaskUpdated(result.data);
     };
 
     return (
