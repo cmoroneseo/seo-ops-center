@@ -5,6 +5,7 @@ import { Settings, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PlannerPreferences } from '@/lib/planner/preferences';
 import { usePlannerDialogFocus } from './usePlannerDialogFocus';
+import { usePlannerSurfaceBehavior } from './usePlannerSurfaceBehavior';
 
 interface PlannerSettingsProps {
     prefs: PlannerPreferences;
@@ -72,8 +73,13 @@ const selectCls =
 export function PlannerSettings({ prefs, onChange }: PlannerSettingsProps) {
     const [open, setOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
+    const triggerRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useRef<HTMLDivElement>(null);
-    usePlannerDialogFocus(dialogRef, open, () => setOpen(false));
+    const surface = usePlannerSurfaceBehavior('settings');
+    usePlannerDialogFocus(dialogRef, open, () => setOpen(false), {
+        trapFocus: surface.trapFocus,
+        restoreFocusRef: triggerRef,
+    });
 
     useEffect(() => {
         if (!open) return;
@@ -92,6 +98,7 @@ export function PlannerSettings({ prefs, onChange }: PlannerSettingsProps) {
     return (
         <div className="relative" ref={rootRef}>
             <button
+                ref={triggerRef}
                 type="button"
                 onClick={() => setOpen(o => !o)}
                 aria-label="Planner settings"
@@ -104,11 +111,19 @@ export function PlannerSettings({ prefs, onChange }: PlannerSettingsProps) {
             </button>
 
             {open && (
+                <>
+                {surface.backdrop && (
+                    <div
+                        className="fixed inset-0 z-[60] bg-black/35"
+                        onClick={() => setOpen(false)}
+                        aria-hidden="true"
+                    />
+                )}
                 <div
                     ref={dialogRef}
                     id="planner-settings-dialog"
-                    role="dialog"
-                    aria-modal="true"
+                    role={surface.role}
+                    aria-modal={surface.modal || undefined}
                     aria-labelledby="planner-settings-title"
                     tabIndex={-1}
                     className="fixed inset-x-3 top-32 z-[70] max-h-[calc(100dvh-8.75rem)] w-auto overflow-y-auto rounded-xl border border-border bg-popover p-3 shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-12 sm:max-h-[calc(100dvh-5rem)] sm:w-[300px]"
@@ -212,6 +227,7 @@ export function PlannerSettings({ prefs, onChange }: PlannerSettingsProps) {
                         </Row>
                     </div>
                 </div>
+                </>
             )}
         </div>
     );

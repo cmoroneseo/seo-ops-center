@@ -4,9 +4,14 @@ import type { PlannerItem } from './items.ts';
 import {
     agendaItemsForDay,
     clampOverlayAnchor,
+    createPlannerSurfaceStack,
     cycleFocusIndex,
     movePriorityId,
+    plannerSurfaceBehavior,
+    quickCreateTypeButtonProps,
+    resolveFocusRestoreTarget,
     resolveMonthAgendaDay,
+    weekGridMinWidth,
 } from './responsive.ts';
 
 function item(
@@ -75,4 +80,67 @@ test('dialog focus cycling wraps in both directions', () => {
     assert.equal(cycleFocusIndex(2, 3, false), 0);
     assert.equal(cycleFocusIndex(0, 3, true), 2);
     assert.equal(cycleFocusIndex(1, 3, false), 2);
+});
+
+test('week grid keeps all seven days reachable in a narrow horizontal scroll region', () => {
+    assert.equal(weekGridMinWidth(7), '848px');
+    assert.equal(weekGridMinWidth(1), '100%');
+});
+
+test('planner surfaces are modal only at the breakpoints where they have backdrops', () => {
+    assert.deepEqual(plannerSurfaceBehavior('detail', 390), {
+        modal: true,
+        role: 'dialog',
+        trapFocus: true,
+        backdrop: true,
+    });
+    assert.deepEqual(plannerSurfaceBehavior('detail', 1024), {
+        modal: false,
+        role: 'complementary',
+        trapFocus: false,
+        backdrop: false,
+    });
+    assert.deepEqual(plannerSurfaceBehavior('quick-create', 1024), {
+        modal: false,
+        role: 'dialog',
+        trapFocus: false,
+        backdrop: false,
+    });
+    assert.equal(plannerSurfaceBehavior('settings', 639).modal, true);
+    assert.equal(plannerSurfaceBehavior('settings', 640).modal, false);
+});
+
+test('only the top planner surface owns Escape before the previous surface resumes', () => {
+    const stack = createPlannerSurfaceStack<string>();
+    const unregisterDetail = stack.register('detail');
+    const unregisterSettings = stack.register('settings');
+
+    assert.equal(stack.isTop('detail'), false);
+    assert.equal(stack.isTop('settings'), true);
+
+    unregisterSettings();
+    assert.equal(stack.isTop('detail'), true);
+    unregisterDetail();
+    assert.equal(stack.top(), null);
+});
+
+test('focus restoration prefers a connected opener and falls back when it unmounts', () => {
+    const opener = { isConnected: true, id: 'opener' };
+    const disconnectedOpener = { isConnected: false, id: 'gone' };
+    const planner = { isConnected: true, id: 'planner' };
+
+    assert.equal(resolveFocusRestoreTarget(opener, planner), opener);
+    assert.equal(resolveFocusRestoreTarget(disconnectedOpener, planner), planner);
+    assert.equal(resolveFocusRestoreTarget(disconnectedOpener, null), null);
+});
+
+test('quick-create type controls expose native pressed-button state', () => {
+    assert.deepEqual(quickCreateTypeButtonProps('event', 'event'), {
+        type: 'button',
+        'aria-pressed': true,
+    });
+    assert.deepEqual(quickCreateTypeButtonProps('task', 'event'), {
+        type: 'button',
+        'aria-pressed': false,
+    });
 });

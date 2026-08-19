@@ -1,7 +1,11 @@
 'use client';
 
 import { useEffect, useRef, type RefObject } from 'react';
-import { cycleFocusIndex } from '@/lib/planner/responsive';
+import {
+    createPlannerSurfaceStack,
+    cycleFocusIndex,
+    resolveFocusRestoreTarget,
+} from '@/lib/planner/responsive';
 
 const FOCUSABLE = [
     'button:not([disabled])',
@@ -12,37 +16,55 @@ const FOCUSABLE = [
     '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
-/** Trap modal focus, close on Escape, and return focus to the opening control. */
+const plannerSurfaceStack = createPlannerSurfaceStack<HTMLElement>();
+
+interface PlannerDialogFocusOptions {
+    trapFocus: boolean;
+    focusOnOpen?: boolean;
+    restoreFocusRef?: RefObject<HTMLElement | null>;
+}
+
+/** Coordinate focus and Escape for modal and modeless planner surfaces. */
 export function usePlannerDialogFocus(
     dialogRef: RefObject<HTMLElement | null>,
     open: boolean,
     onClose: () => void,
+    {
+        trapFocus,
+        focusOnOpen = trapFocus,
+        restoreFocusRef,
+    }: PlannerDialogFocusOptions,
 ): void {
     const closeRef = useRef(onClose);
     closeRef.current = onClose;
 
     useEffect(() => {
         if (!open) return;
-        const returnFocusTo = document.activeElement instanceof HTMLElement
-            ? document.activeElement
+        const activeElement = document.activeElement;
+        const returnFocusTo = activeElement instanceof HTMLElement
+            && activeElement !== document.body
+            && activeElement !== document.documentElement
+            ? activeElement
             : null;
+        const fallbackFocusTarget = restoreFocusRef?.current;
+        const dialog = dialogRef.current;
+        if (!dialog) return;
+        const unregister = plannerSurfaceStack.register(dialog);
         const focusFrame = window.requestAnimationFrame(() => {
-            const dialog = dialogRef.current;
-            if (!dialog) return;
+            if (!focusOnOpen) return;
             const preferred = dialog.querySelector<HTMLElement>('[data-dialog-autofocus]');
             const first = dialog.querySelector<HTMLElement>(FOCUSABLE);
             (preferred ?? first ?? dialog).focus();
         });
 
         const handleKeyDown = (event: KeyboardEvent) => {
+            if (!plannerSurfaceStack.isTop(dialog)) return;
             if (event.key === 'Escape') {
                 event.preventDefault();
                 closeRef.current();
                 return;
             }
-            if (event.key !== 'Tab') return;
-            const dialog = dialogRef.current;
-            if (!dialog) return;
+            if (event.key !== 'Tab' || !trapFocus) return;
             const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE))
                 .filter(element => !element.hasAttribute('disabled'));
             if (focusable.length === 0) {
@@ -62,9 +84,15 @@ export function usePlannerDialogFocus(
         return () => {
             window.cancelAnimationFrame(focusFrame);
             document.removeEventListener('keydown', handleKeyDown);
-            if (returnFocusTo?.isConnected) {
-                window.requestAnimationFrame(() => returnFocusTo.focus());
+            unregister();
+            const underlyingSurface = plannerSurfaceStack.top();
+            const restoreTarget = resolveFocusRestoreTarget(
+                returnFocusTo,
+                resolveFocusRestoreTarget(underlyingSurface, fallbackFocusTarget),
+            );
+            if (restoreTarget) {
+                window.requestAnimationFrame(() => restoreTarget.focus());
             }
         };
-    }, [dialogRef, open]);
+    }, [dialogRef, focusOnOpen, open, restoreFocusRef, trapFocus]);
 }

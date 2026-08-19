@@ -14,6 +14,7 @@ import { NowLine } from './NowLine';
 import { EventCard } from './EventCard';
 import { AllDayRow } from './AllDayRow';
 import { usePlannerDrag, DragCommit } from '@/lib/planner/use-planner-drag';
+import { weekGridMinWidth } from '@/lib/planner/responsive';
 
 export interface PlannerDragHandles {
     beginSchedule: (taskId: string, title: string, durationMin: number, e: React.PointerEvent) => void;
@@ -150,7 +151,28 @@ export function WeekGrid({
         : null;
 
     return (
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div
+            role="region"
+            aria-label="Weekly calendar"
+            aria-describedby="planner-week-scroll-help"
+            tabIndex={0}
+            className="flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden overscroll-x-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+        >
+            <span id="planner-week-scroll-help" className="sr-only">
+                Scroll horizontally to reach every day of the week.
+            </span>
+            <div
+                className="flex min-h-0 flex-1 flex-col"
+                style={{ minWidth: weekGridMinWidth(days.length), width: '100%' }}
+            >
+            {days.length > 1 && (
+                <div
+                    aria-hidden="true"
+                    className="sticky left-0 w-screen border-b border-border bg-card px-3 py-1 text-[10px] text-muted-foreground sm:hidden"
+                >
+                    Swipe horizontally for all {days.length} days
+                </div>
+            )}
             {/* Day headers */}
             <div className="flex border-b border-border">
                 <div className="w-16 shrink-0 border-r border-border" />
@@ -257,6 +279,7 @@ export function WeekGrid({
                         </div>
                     );
                 })}
+            </div>
             </div>
         </div>
     );

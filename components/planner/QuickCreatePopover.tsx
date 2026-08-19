@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { format } from 'date-fns';
 import { X, ExternalLink, Link2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -12,6 +12,8 @@ import { TaskMentionPicker, matchTasks } from './TaskMentionPicker';
 import { localDateForInstant } from '@/lib/planner/local-date';
 import { resolveQuickCreateSave } from '@/lib/planner/quick-create-save';
 import { usePlannerDialogFocus } from './usePlannerDialogFocus';
+import { usePlannerSurfaceBehavior } from './usePlannerSurfaceBehavior';
+import { quickCreateTypeButtonProps } from '@/lib/planner/responsive';
 
 type Tab = 'event' | 'task' | 'focus' | 'ooo';
 
@@ -78,6 +80,7 @@ interface QuickCreatePopoverProps {
     onCreated: () => void;
     onBlockChange?: (block: { kind: PlannerEventKind; label: string }) => void;
     onOpenFullTask?: (draft: FullTaskDraft) => void;
+    restoreFocusRef?: RefObject<HTMLElement | null>;
 }
 
 const fieldCls =
@@ -94,7 +97,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export function QuickCreatePopover({
     organizationId, userId, anchor, draft, clients, members, tasks,
-    onClose, onCreated, onBlockChange, onOpenFullTask,
+    onClose, onCreated, onBlockChange, onOpenFullTask, restoreFocusRef,
 }: QuickCreatePopoverProps) {
     const [tab, setTab] = useState<Tab>('event');
     const [title, setTitle] = useState('');
@@ -102,7 +105,11 @@ export function QuickCreatePopover({
     const [saveError, setSaveError] = useState<string | null>(null);
     const ref = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
-    usePlannerDialogFocus(ref, true, onClose);
+    const surface = usePlannerSurfaceBehavior('quick-create');
+    usePlannerDialogFocus(ref, true, onClose, {
+        trapFocus: surface.trapFocus,
+        restoreFocusRef,
+    });
 
     const [clientId, setClientId] = useState('');
     const [assigneeId, setAssigneeId] = useState(userId);
@@ -287,24 +294,28 @@ export function QuickCreatePopover({
 
     return (
         <>
-        <div className="fixed inset-0 z-[60] bg-black/35 lg:hidden" aria-hidden="true" />
+        {surface.backdrop && (
+            <div
+                className="fixed inset-0 z-[60] bg-black/35"
+                onClick={onClose}
+                aria-hidden="true"
+            />
+        )}
         <div
             ref={ref}
             style={{ left: anchor.x, top: anchor.y }}
-            role="dialog"
-            aria-modal="true"
+            role={surface.role}
+            aria-modal={surface.modal || undefined}
             aria-labelledby="quick-create-heading"
             tabIndex={-1}
             className="fixed z-[70] w-[340px] rounded-xl border border-border bg-popover p-3 shadow-xl max-lg:!inset-x-3 max-lg:!bottom-3 max-lg:!top-auto max-lg:!max-h-[calc(100dvh-1.5rem)] max-lg:!w-auto max-lg:overflow-y-auto"
         >
             <h2 id="quick-create-heading" className="sr-only">Create planner item</h2>
-            <div className="mb-3 flex items-center gap-1" role="tablist" aria-label="Item type">
+            <div className="mb-3 flex items-center gap-1" role="group" aria-label="Item type">
                 {TABS.map(t => (
                     <button
-                        type="button"
                         key={t.id}
-                        role="tab"
-                        aria-selected={tab === t.id}
+                        {...quickCreateTypeButtonProps(t.id, tab)}
                         onClick={() => selectTab(t.id)}
                         className={cn(
                             'min-h-11 rounded-md px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:px-2.5',

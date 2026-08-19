@@ -51,3 +51,87 @@ export function cycleFocusIndex(current: number, count: number, backwards: boole
     if (count <= 0) return -1;
     return (current + (backwards ? -1 : 1) + count) % count;
 }
+
+const WEEK_TIME_AXIS_WIDTH = 64;
+const WEEK_DAY_MIN_WIDTH = 112;
+
+/** A seven-day week stays legible and becomes horizontally scrollable on narrow screens. */
+export function weekGridMinWidth(dayCount: number): string {
+    if (dayCount <= 1) return '100%';
+    return `${WEEK_TIME_AXIS_WIDTH + dayCount * WEEK_DAY_MIN_WIDTH}px`;
+}
+
+export type PlannerSurfaceKind = 'detail' | 'quick-create' | 'settings';
+
+export interface PlannerSurfaceBehavior {
+    modal: boolean;
+    role: 'dialog' | 'complementary';
+    trapFocus: boolean;
+    backdrop: boolean;
+}
+
+/** Keep semantics and focus behavior aligned with each surface's responsive layout. */
+export function plannerSurfaceBehavior(
+    kind: PlannerSurfaceKind,
+    viewportWidth: number,
+): PlannerSurfaceBehavior {
+    const modal = viewportWidth < (kind === 'settings' ? 640 : 1024);
+    if (modal) {
+        return { modal: true, role: 'dialog', trapFocus: true, backdrop: true };
+    }
+    return {
+        modal: false,
+        role: kind === 'detail' ? 'complementary' : 'dialog',
+        trapFocus: false,
+        backdrop: false,
+    };
+}
+
+export interface PlannerSurfaceStack<T> {
+    register: (surface: T) => () => void;
+    isTop: (surface: T) => boolean;
+    top: () => T | null;
+}
+
+/** Coordinates Escape/focus ownership when planner surfaces overlap. */
+export function createPlannerSurfaceStack<T>(): PlannerSurfaceStack<T> {
+    let surfaces: T[] = [];
+    return {
+        register(surface) {
+            surfaces = [...surfaces.filter(candidate => candidate !== surface), surface];
+            let registered = true;
+            return () => {
+                if (!registered) return;
+                registered = false;
+                surfaces = surfaces.filter(candidate => candidate !== surface);
+            };
+        },
+        isTop(surface) {
+            return surfaces.at(-1) === surface;
+        },
+        top() {
+            return surfaces.at(-1) ?? null;
+        },
+    };
+}
+
+interface ConnectedCandidate {
+    isConnected: boolean;
+}
+
+/** Restore to the opener when possible, otherwise a stable planner landmark. */
+export function resolveFocusRestoreTarget<T extends ConnectedCandidate>(
+    opener: T | null | undefined,
+    fallback: T | null | undefined,
+): T | null {
+    if (opener?.isConnected) return opener;
+    return fallback?.isConnected ? fallback : null;
+}
+
+/** Native toggle-button attributes for the quick-create type chooser. */
+export function quickCreateTypeButtonProps<T extends string>(type: T, active: T) {
+    return {
+        type: 'button' as const,
+        'aria-pressed': type === active,
+    };
+}

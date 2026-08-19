@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Command } from 'cmdk';
 import { Search } from 'lucide-react';
 import { format } from 'date-fns';
@@ -9,6 +9,7 @@ import {
 } from '@/lib/planner/items';
 import { TeamMember } from './MeetWithFilter';
 import { PlannerView } from './PlannerHeader';
+import { usePlannerDialogFocus } from './usePlannerDialogFocus';
 
 interface PlannerCommandBarProps {
     items: PlannerItem[];
@@ -23,6 +24,13 @@ export function PlannerCommandBar({
     items, members, onSelectItem, onSelectMember, onGoToToday, onViewChange,
 }: PlannerCommandBarProps) {
     const [open, setOpen] = useState(false);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useRef<HTMLDivElement>(null);
+    usePlannerDialogFocus(dialogRef, open, () => setOpen(false), {
+        trapFocus: true,
+        focusOnOpen: false,
+        restoreFocusRef: triggerRef,
+    });
 
     // Cmd+/ — Cmd+K and Cmd+Shift+T belong to TopNav.
     useEffect(() => {
@@ -31,7 +39,6 @@ export function PlannerCommandBar({
                 e.preventDefault();
                 setOpen(o => !o);
             }
-            if (e.key === 'Escape') setOpen(false);
         };
         document.addEventListener('keydown', onKey);
         return () => document.removeEventListener('keydown', onKey);
@@ -42,23 +49,37 @@ export function PlannerCommandBar({
     const eventItems = items.filter(item => item.source === 'event');
     const reminderItems = items.filter(item => item.source === 'reminder');
 
-    if (!open) {
-        return (
+    return (
+        <>
             <button
+                ref={triggerRef}
                 onClick={() => setOpen(true)}
-                className="fixed bottom-6 left-1/2 z-40 hidden w-[420px] -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-popover px-4 py-2.5 text-xs text-muted-foreground shadow-lg hover:border-primary/40 lg:flex"
+                aria-expanded={open}
+                aria-controls="planner-command-dialog"
+                className={`${open ? 'lg:hidden' : 'lg:flex'} fixed bottom-6 left-1/2 z-40 hidden w-[420px] -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-popover px-4 py-2.5 text-xs text-muted-foreground shadow-lg hover:border-primary/40`}
             >
                 <Search className="h-3.5 w-3.5" />
                 Search tasks, events, reminders, teammates, commands...
                 <kbd className="ml-auto rounded border border-border px-1.5 py-0.5 text-[10px]">⌘/</kbd>
             </button>
-        );
-    }
-
-    return (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-32">
+        {open && (
+        <div
+            className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-32"
+            onMouseDown={event => {
+                if (event.target === event.currentTarget) setOpen(false);
+            }}
+        >
+            <div
+                ref={dialogRef}
+                id="planner-command-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Planner search and commands"
+                tabIndex={-1}
+                className="w-[520px]"
+            >
             <Command
-                className="w-[520px] overflow-hidden rounded-xl border border-border bg-popover shadow-2xl"
+                className="overflow-hidden rounded-xl border border-border bg-popover shadow-2xl"
                 loop
             >
                 <div className="flex items-center gap-2 border-b border-border px-3">
@@ -178,6 +199,9 @@ export function PlannerCommandBar({
                     </Command.Group>
                 </Command.List>
             </Command>
+            </div>
         </div>
+        )}
+        </>
     );
 }

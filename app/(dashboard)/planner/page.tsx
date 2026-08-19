@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import {
     addDays, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isPast, isWeekend,
@@ -44,6 +44,7 @@ import { clampOverlayAnchor } from '@/lib/planner/responsive';
 export default function PlannerPage() {
     const { organization } = useOrganization();
     const { userId } = useCurrentMember();
+    const plannerSurfaceRef = useRef<HTMLDivElement>(null);
 
     const [anchorDate, setAnchorDate] = useState<Date>(() => new Date());
     const [view, setView] = useState<PlannerView>('week');
@@ -380,7 +381,13 @@ export default function PlannerPage() {
                 onTaskDragStart={handleTaskDragStart}
             />
 
-            <div className="flex flex-1 min-w-0 flex-col">
+            <div
+                ref={plannerSurfaceRef}
+                role="region"
+                aria-label="Planner calendar"
+                tabIndex={-1}
+                className="flex flex-1 min-w-0 flex-col"
+            >
                 <PlannerHeader
                     anchorDate={anchorDate}
                     view={view}
@@ -445,6 +452,7 @@ export default function PlannerPage() {
                     onClose={() => setSelected(null)}
                     onChanged={() => { setSelected(null); void reloadAll(); }}
                     onDeleted={() => { setSelected(null); void reloadAll(); }}
+                    restoreFocusRef={plannerSurfaceRef}
                 />
             )}
 
@@ -487,6 +495,7 @@ export default function PlannerPage() {
                     onCreated={() => void reloadAll()}
                     onBlockChange={block => setQuickCreate(qc => qc && { ...qc, ...block })}
                     onOpenFullTask={setFullTaskDraft}
+                    restoreFocusRef={plannerSurfaceRef}
                 />
             )}
 

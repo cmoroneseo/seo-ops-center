@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { format } from 'date-fns';
 import {
     X, Trash2, MapPin, Users, Building2, Clock, Check, AlertCircle, ExternalLink,
@@ -21,6 +21,7 @@ import { TeamMember } from './MeetWithFilter';
 import { BasecampProjectPicker, type BasecampProject } from './BasecampProjectPicker';
 import { KIND_STYLES } from './EventCard';
 import { usePlannerDialogFocus } from './usePlannerDialogFocus';
+import { usePlannerSurfaceBehavior } from './usePlannerSurfaceBehavior';
 
 interface EventDetailPanelProps {
     item: PlannerItem;
@@ -33,14 +34,19 @@ interface EventDetailPanelProps {
     onClose: () => void;
     onChanged: () => void;
     onDeleted: () => void;
+    restoreFocusRef?: RefObject<HTMLElement | null>;
 }
 
 export function EventDetailPanel({
     item, members, organizationId, userId, recentProjects = [], onProjectUsed,
-    onClose, onChanged, onDeleted,
+    onClose, onChanged, onDeleted, restoreFocusRef,
 }: EventDetailPanelProps) {
     const dialogRef = useRef<HTMLElement>(null);
-    usePlannerDialogFocus(dialogRef, true, onClose);
+    const surface = usePlannerSurfaceBehavior('detail');
+    usePlannerDialogFocus(dialogRef, true, onClose, {
+        trapFocus: surface.trapFocus,
+        restoreFocusRef,
+    });
     const isEvent = item.source === 'event';
     const isTask = item.source === 'task';
     const event = isEvent ? (item.raw as PlannerEvent) : null;
@@ -169,15 +175,17 @@ export function EventDetailPanel({
 
     return (
         <>
-        <div
-            className="fixed inset-0 z-[60] bg-black/35 lg:hidden"
-            onClick={onClose}
-            aria-hidden="true"
-        />
+        {surface.backdrop && (
+            <div
+                className="fixed inset-0 z-[60] bg-black/35"
+                onClick={onClose}
+                aria-hidden="true"
+            />
+        )}
         <aside
             ref={dialogRef}
-            role="dialog"
-            aria-modal="true"
+            role={surface.role}
+            aria-modal={surface.modal || undefined}
             aria-labelledby="planner-detail-heading"
             tabIndex={-1}
             className="fixed inset-x-0 bottom-0 z-[70] flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-y-auto rounded-t-2xl border border-border bg-card shadow-2xl lg:static lg:z-auto lg:h-full lg:max-h-none lg:w-80 lg:shrink-0 lg:rounded-none lg:border-y-0 lg:border-r-0 lg:shadow-none"
