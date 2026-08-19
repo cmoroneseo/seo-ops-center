@@ -106,7 +106,7 @@ export function QuickCreatePopover({
     const ref = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const surface = usePlannerSurfaceBehavior('quick-create');
-    usePlannerDialogFocus(ref, true, onClose, {
+    const requestClose = usePlannerDialogFocus(ref, true, onClose, {
         trapFocus: surface.trapFocus,
         restoreFocusRef,
     });
@@ -130,13 +130,15 @@ export function QuickCreatePopover({
 
     useEffect(() => {
         const onDown = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+            if (ref.current && !ref.current.contains(e.target as Node)) {
+                requestClose(surface.modal ? 'dismiss' : 'outside');
+            }
         };
         document.addEventListener('mousedown', onDown);
         return () => {
             document.removeEventListener('mousedown', onDown);
         };
-    }, [onClose]);
+    }, [requestClose, surface.modal]);
 
     const isTask = tab === 'task';
     // Focus time protects an hour; it is not "work on X", so it has no mention.
@@ -297,7 +299,7 @@ export function QuickCreatePopover({
         {surface.backdrop && (
             <div
                 className="fixed inset-0 z-[60] bg-black/35"
-                onClick={onClose}
+                onClick={() => requestClose('dismiss')}
                 aria-hidden="true"
             />
         )}
@@ -329,7 +331,7 @@ export function QuickCreatePopover({
                 ))}
                 <button
                     type="button"
-                    onClick={onClose}
+                    onClick={() => requestClose('dismiss')}
                     aria-label="Close quick create"
                     className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
@@ -516,7 +518,7 @@ export function QuickCreatePopover({
 
                 <button
                     type="button"
-                    onClick={onClose}
+                    onClick={() => requestClose('dismiss')}
                     className="ml-auto min-h-11 rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                     Cancel

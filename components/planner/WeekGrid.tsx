@@ -14,7 +14,7 @@ import { NowLine } from './NowLine';
 import { EventCard } from './EventCard';
 import { AllDayRow } from './AllDayRow';
 import { usePlannerDrag, DragCommit } from '@/lib/planner/use-planner-drag';
-import { weekGridMinWidth } from '@/lib/planner/responsive';
+import { plannerGridAccessibility, weekGridMinWidth } from '@/lib/planner/responsive';
 
 export interface PlannerDragHandles {
     beginSchedule: (taskId: string, title: string, durationMin: number, e: React.PointerEvent) => void;
@@ -65,6 +65,7 @@ export function WeekGrid({
     onDragHandlesReady,
 }: WeekGridProps) {
     const bodyHeight = (endHour - startHour) * PX_PER_HOUR;
+    const gridAccessibility = plannerGridAccessibility(days.length);
     // One entry per hour row, carrying the hour it represents so the row can be
     // shaded when it falls outside the working day.
     const hourRows = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
@@ -153,14 +154,16 @@ export function WeekGrid({
     return (
         <div
             role="region"
-            aria-label="Weekly calendar"
-            aria-describedby="planner-week-scroll-help"
+            aria-label={gridAccessibility.label}
+            aria-describedby={gridAccessibility.description ? 'planner-week-scroll-help' : undefined}
             tabIndex={0}
             className="flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden overscroll-x-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
         >
-            <span id="planner-week-scroll-help" className="sr-only">
-                Scroll horizontally to reach every day of the week.
-            </span>
+            {gridAccessibility.description && (
+                <span id="planner-week-scroll-help" className="sr-only">
+                    {gridAccessibility.description}
+                </span>
+            )}
             <div
                 className="flex min-h-0 flex-1 flex-col"
                 style={{ minWidth: weekGridMinWidth(days.length), width: '100%' }}

@@ -43,7 +43,7 @@ export function EventDetailPanel({
 }: EventDetailPanelProps) {
     const dialogRef = useRef<HTMLElement>(null);
     const surface = usePlannerSurfaceBehavior('detail');
-    usePlannerDialogFocus(dialogRef, true, onClose, {
+    const requestClose = usePlannerDialogFocus(dialogRef, true, onClose, {
         trapFocus: surface.trapFocus,
         restoreFocusRef,
     });
@@ -178,7 +178,7 @@ export function EventDetailPanel({
         {surface.backdrop && (
             <div
                 className="fixed inset-0 z-[60] bg-black/35"
-                onClick={onClose}
+                onClick={() => requestClose('dismiss')}
                 aria-hidden="true"
             />
         )}
@@ -199,7 +199,7 @@ export function EventDetailPanel({
                 <button
                     type="button"
                     data-dialog-autofocus
-                    onClick={onClose}
+                    onClick={() => requestClose('dismiss')}
                     aria-label="Close details"
                     className="ml-auto flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >

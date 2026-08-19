@@ -7,10 +7,12 @@ import {
     createPlannerSurfaceStack,
     cycleFocusIndex,
     movePriorityId,
+    plannerGridAccessibility,
     plannerSurfaceBehavior,
     quickCreateTypeButtonProps,
     resolveFocusRestoreTarget,
     resolveMonthAgendaDay,
+    shouldRestorePlannerFocus,
     weekGridMinWidth,
 } from './responsive.ts';
 
@@ -125,13 +127,68 @@ test('only the top planner surface owns Escape before the previous surface resum
 });
 
 test('focus restoration prefers a connected opener and falls back when it unmounts', () => {
-    const opener = { isConnected: true, id: 'opener' };
-    const disconnectedOpener = { isConnected: false, id: 'gone' };
-    const planner = { isConnected: true, id: 'planner' };
+    const opener = {
+        isConnected: true,
+        id: 'opener',
+        focus() {},
+        getClientRects: () => ({ length: 1 }),
+    };
+    const disconnectedOpener = {
+        isConnected: false,
+        id: 'gone',
+        focus() {},
+        getClientRects: () => ({ length: 1 }),
+    };
+    const planner = {
+        isConnected: true,
+        id: 'planner',
+        focus() {},
+        getClientRects: () => ({ length: 1 }),
+    };
 
     assert.equal(resolveFocusRestoreTarget(opener, planner), opener);
     assert.equal(resolveFocusRestoreTarget(disconnectedOpener, planner), planner);
     assert.equal(resolveFocusRestoreTarget(disconnectedOpener, null), null);
+});
+
+test('focus restoration rejects connected targets that are hidden or not focusable', () => {
+    const hiddenCommandTrigger = {
+        isConnected: true,
+        focus() {},
+        getClientRects: () => ({ length: 0 }),
+    };
+    const disabledButton = {
+        isConnected: true,
+        disabled: true,
+        focus() {},
+        getClientRects: () => ({ length: 1 }),
+    };
+    const planner = {
+        isConnected: true,
+        focus() {},
+        getClientRects: () => ({ length: 1 }),
+    };
+
+    assert.equal(resolveFocusRestoreTarget(hiddenCommandTrigger, planner), planner);
+    assert.equal(resolveFocusRestoreTarget(disabledButton, planner), planner);
+});
+
+test('outside pointer closes preserve the newly targeted control while deliberate closes restore', () => {
+    assert.equal(shouldRestorePlannerFocus('outside'), false);
+    assert.equal(shouldRestorePlannerFocus('escape'), true);
+    assert.equal(shouldRestorePlannerFocus('dismiss'), true);
+    assert.equal(shouldRestorePlannerFocus('programmatic'), true);
+});
+
+test('Day mode omits Week horizontal-scroll instructions', () => {
+    assert.deepEqual(plannerGridAccessibility(1), {
+        label: 'Daily calendar',
+        description: null,
+    });
+    assert.deepEqual(plannerGridAccessibility(7), {
+        label: 'Weekly calendar',
+        description: 'Scroll horizontally to reach every day of the week.',
+    });
 });
 
 test('quick-create type controls expose native pressed-button state', () => {

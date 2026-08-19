@@ -480,6 +480,7 @@ export default function PlannerPage() {
                     prev.includes(id) ? prev : [...prev, id])}
                 onGoToToday={handleToday}
                 onViewChange={setView}
+                restoreFocusRef={plannerSurfaceRef}
             />
 
             {quickCreate && organization?.id && userId && (

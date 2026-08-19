@@ -61,6 +61,20 @@ export function weekGridMinWidth(dayCount: number): string {
     return `${WEEK_TIME_AXIS_WIDTH + dayCount * WEEK_DAY_MIN_WIDTH}px`;
 }
 
+export interface PlannerGridAccessibility {
+    label: 'Daily calendar' | 'Weekly calendar';
+    description: string | null;
+}
+
+/** Describe only multi-day grids as horizontally scrollable weeks. */
+export function plannerGridAccessibility(dayCount: number): PlannerGridAccessibility {
+    if (dayCount <= 1) return { label: 'Daily calendar', description: null };
+    return {
+        label: 'Weekly calendar',
+        description: 'Scroll horizontally to reach every day of the week.',
+    };
+}
+
 export type PlannerSurfaceKind = 'detail' | 'quick-create' | 'settings';
 
 export interface PlannerSurfaceBehavior {
@@ -115,17 +129,42 @@ export function createPlannerSurfaceStack<T>(): PlannerSurfaceStack<T> {
     };
 }
 
-interface ConnectedCandidate {
+interface PlannerFocusCandidate {
     isConnected: boolean;
+    focus?: () => void;
+    hidden?: boolean;
+    inert?: boolean;
+    disabled?: boolean;
+    getAttribute?: (name: string) => string | null;
+    closest?: (selector: string) => unknown;
+    getClientRects?: () => { length: number };
+    checkVisibility?: () => boolean;
 }
 
-/** Restore to the opener when possible, otherwise a stable planner landmark. */
-export function resolveFocusRestoreTarget<T extends ConnectedCandidate>(
+function isUsableFocusTarget(candidate: PlannerFocusCandidate | null | undefined): boolean {
+    if (!candidate?.isConnected || typeof candidate.focus !== 'function') return false;
+    if (candidate.hidden || candidate.inert || candidate.disabled) return false;
+    if (candidate.getAttribute?.('aria-disabled') === 'true') return false;
+    if (candidate.closest?.('[hidden], [aria-hidden="true"], [inert]')) return false;
+    if (candidate.checkVisibility && !candidate.checkVisibility()) return false;
+    if (candidate.getClientRects && candidate.getClientRects().length === 0) return false;
+    return true;
+}
+
+/** Restore to a visible focusable opener, otherwise a stable planner landmark. */
+export function resolveFocusRestoreTarget<T extends PlannerFocusCandidate>(
     opener: T | null | undefined,
     fallback: T | null | undefined,
 ): T | null {
-    if (opener?.isConnected) return opener;
-    return fallback?.isConnected ? fallback : null;
+    if (isUsableFocusTarget(opener)) return opener ?? null;
+    return isUsableFocusTarget(fallback) ? fallback ?? null : null;
+}
+
+export type PlannerCloseReason = 'escape' | 'dismiss' | 'outside' | 'programmatic';
+
+/** Pointer outside-dismissal must not steal focus back from the newly clicked target. */
+export function shouldRestorePlannerFocus(reason: PlannerCloseReason): boolean {
+    return reason !== 'outside';
 }
 
 /** Native toggle-button attributes for the quick-create type chooser. */

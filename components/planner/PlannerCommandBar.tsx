@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Command } from 'cmdk';
 import { Search } from 'lucide-react';
 import { format } from 'date-fns';
@@ -18,18 +18,19 @@ interface PlannerCommandBarProps {
     onSelectMember: (userId: string) => void;
     onGoToToday: () => void;
     onViewChange: (view: PlannerView) => void;
+    restoreFocusRef: RefObject<HTMLElement | null>;
 }
 
 export function PlannerCommandBar({
-    items, members, onSelectItem, onSelectMember, onGoToToday, onViewChange,
+    items, members, onSelectItem, onSelectMember, onGoToToday, onViewChange, restoreFocusRef,
 }: PlannerCommandBarProps) {
     const [open, setOpen] = useState(false);
     const triggerRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useRef<HTMLDivElement>(null);
-    usePlannerDialogFocus(dialogRef, open, () => setOpen(false), {
+    const requestClose = usePlannerDialogFocus(dialogRef, open, () => setOpen(false), {
         trapFocus: true,
         focusOnOpen: false,
-        restoreFocusRef: triggerRef,
+        restoreFocusRef,
     });
 
     // Cmd+/ — Cmd+K and Cmd+Shift+T belong to TopNav.
@@ -66,7 +67,7 @@ export function PlannerCommandBar({
         <div
             className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-32"
             onMouseDown={event => {
-                if (event.target === event.currentTarget) setOpen(false);
+                if (event.target === event.currentTarget) requestClose('dismiss');
             }}
         >
             <div

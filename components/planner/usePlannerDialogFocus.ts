@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import {
     createPlannerSurfaceStack,
     cycleFocusIndex,
     resolveFocusRestoreTarget,
+    shouldRestorePlannerFocus,
+    type PlannerCloseReason,
 } from '@/lib/planner/responsive';
 
 const FOCUSABLE = [
@@ -24,6 +26,8 @@ interface PlannerDialogFocusOptions {
     restoreFocusRef?: RefObject<HTMLElement | null>;
 }
 
+export type RequestPlannerClose = (reason?: PlannerCloseReason) => void;
+
 /** Coordinate focus and Escape for modal and modeless planner surfaces. */
 export function usePlannerDialogFocus(
     dialogRef: RefObject<HTMLElement | null>,
@@ -34,24 +38,38 @@ export function usePlannerDialogFocus(
         focusOnOpen = trapFocus,
         restoreFocusRef,
     }: PlannerDialogFocusOptions,
-): void {
+): RequestPlannerClose {
     const closeRef = useRef(onClose);
     closeRef.current = onClose;
+    const trapFocusRef = useRef(trapFocus);
+    trapFocusRef.current = trapFocus;
+    const focusOnOpenRef = useRef(focusOnOpen);
+    focusOnOpenRef.current = focusOnOpen;
+    const dialogRefRef = useRef(dialogRef);
+    dialogRefRef.current = dialogRef;
+    const restoreFocusRefRef = useRef(restoreFocusRef);
+    restoreFocusRefRef.current = restoreFocusRef;
+    const closeReasonRef = useRef<PlannerCloseReason>('programmatic');
+    const requestClose = useCallback<RequestPlannerClose>((reason = 'programmatic') => {
+        closeReasonRef.current = reason;
+        closeRef.current();
+    }, []);
 
     useEffect(() => {
         if (!open) return;
+        closeReasonRef.current = 'programmatic';
         const activeElement = document.activeElement;
         const returnFocusTo = activeElement instanceof HTMLElement
             && activeElement !== document.body
             && activeElement !== document.documentElement
             ? activeElement
             : null;
-        const fallbackFocusTarget = restoreFocusRef?.current;
-        const dialog = dialogRef.current;
+        const fallbackFocusTarget = restoreFocusRefRef.current?.current;
+        const dialog = dialogRefRef.current.current;
         if (!dialog) return;
         const unregister = plannerSurfaceStack.register(dialog);
         const focusFrame = window.requestAnimationFrame(() => {
-            if (!focusOnOpen) return;
+            if (!focusOnOpenRef.current) return;
             const preferred = dialog.querySelector<HTMLElement>('[data-dialog-autofocus]');
             const first = dialog.querySelector<HTMLElement>(FOCUSABLE);
             (preferred ?? first ?? dialog).focus();
@@ -61,10 +79,10 @@ export function usePlannerDialogFocus(
             if (!plannerSurfaceStack.isTop(dialog)) return;
             if (event.key === 'Escape') {
                 event.preventDefault();
-                closeRef.current();
+                requestClose('escape');
                 return;
             }
-            if (event.key !== 'Tab' || !trapFocus) return;
+            if (event.key !== 'Tab' || !trapFocusRef.current) return;
             const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE))
                 .filter(element => !element.hasAttribute('disabled'));
             if (focusable.length === 0) {
@@ -85,6 +103,7 @@ export function usePlannerDialogFocus(
             window.cancelAnimationFrame(focusFrame);
             document.removeEventListener('keydown', handleKeyDown);
             unregister();
+            if (!shouldRestorePlannerFocus(closeReasonRef.current)) return;
             const underlyingSurface = plannerSurfaceStack.top();
             const restoreTarget = resolveFocusRestoreTarget(
                 returnFocusTo,
@@ -94,5 +113,7 @@ export function usePlannerDialogFocus(
                 window.requestAnimationFrame(() => restoreTarget.focus());
             }
         };
-    }, [dialogRef, focusOnOpen, open, restoreFocusRef, trapFocus]);
+    }, [open, requestClose]);
+
+    return requestClose;
 }

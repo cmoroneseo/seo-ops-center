@@ -76,7 +76,7 @@ export function PlannerSettings({ prefs, onChange }: PlannerSettingsProps) {
     const triggerRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useRef<HTMLDivElement>(null);
     const surface = usePlannerSurfaceBehavior('settings');
-    usePlannerDialogFocus(dialogRef, open, () => setOpen(false), {
+    const requestClose = usePlannerDialogFocus(dialogRef, open, () => setOpen(false), {
         trapFocus: surface.trapFocus,
         restoreFocusRef: triggerRef,
     });
@@ -84,13 +84,15 @@ export function PlannerSettings({ prefs, onChange }: PlannerSettingsProps) {
     useEffect(() => {
         if (!open) return;
         const onDown = (e: MouseEvent) => {
-            if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+            if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+                requestClose(surface.modal ? 'dismiss' : 'outside');
+            }
         };
         document.addEventListener('mousedown', onDown);
         return () => {
             document.removeEventListener('mousedown', onDown);
         };
-    }, [open]);
+    }, [open, requestClose, surface.modal]);
 
     const set = <K extends keyof PlannerPreferences>(key: K, value: PlannerPreferences[K]) =>
         onChange({ ...prefs, [key]: value });
@@ -115,7 +117,7 @@ export function PlannerSettings({ prefs, onChange }: PlannerSettingsProps) {
                 {surface.backdrop && (
                     <div
                         className="fixed inset-0 z-[60] bg-black/35"
-                        onClick={() => setOpen(false)}
+                        onClick={() => requestClose('dismiss')}
                         aria-hidden="true"
                     />
                 )}
@@ -132,7 +134,7 @@ export function PlannerSettings({ prefs, onChange }: PlannerSettingsProps) {
                         <span id="planner-settings-title" className="text-sm font-semibold">Planner settings</span>
                         <button
                             type="button"
-                            onClick={() => setOpen(false)}
+                            onClick={() => requestClose('dismiss')}
                             aria-label="Close settings"
                             className="ml-auto flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
