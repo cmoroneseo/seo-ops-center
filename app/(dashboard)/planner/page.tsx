@@ -35,7 +35,7 @@ import { PlannerCommandBar } from '@/components/planner/PlannerCommandBar';
 import {
     PlannerPreferences, DEFAULT_PREFERENCES, loadPreferences, savePreferences, withRecentProject,
 } from '@/lib/planner/preferences';
-import { parseLocalDate } from '@/lib/planner/local-date';
+import { localDateForInstant, parseLocalDate } from '@/lib/planner/local-date';
 
 export default function PlannerPage() {
     const { organization } = useOrganization();
@@ -457,7 +457,7 @@ export default function PlannerPage() {
                     defaultTitle={fullTaskDraft.title}
                     defaultClientId={fullTaskDraft.clientId}
                     defaultClientName={fullTaskDraft.clientName}
-                    defaultDueDate={fullTaskDraft.startsAt.slice(0, 10)}
+                    defaultDueDate={localDateForInstant(fullTaskDraft.startsAt)}
                     defaultStartDate={fullTaskDraft.startsAt}
                     defaultScheduledMinutes={durationMinutes(
                         fullTaskDraft.startsAt, fullTaskDraft.endsAt,
