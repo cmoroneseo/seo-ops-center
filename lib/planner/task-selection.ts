@@ -14,7 +14,7 @@ export interface TaskQuerySelectionState {
 
 /**
  * Reconcile an explicit task deep link only against a fully loaded org scope.
- * With no query, manual selection belongs to the page and remains untouched.
+ * With no query, manual selection remains open only inside its owning org.
  */
 export function reconcileTaskQuerySelection(params: {
     tasks: Task[];
@@ -29,7 +29,15 @@ export function reconcileTaskQuerySelection(params: {
         selectedTask: params.selectedTask,
         isDetailOpen: params.isDetailOpen,
     };
-    if (params.taskId === null) return current;
+    if (params.taskId === null) {
+        if (
+            params.selectedTask &&
+            (!params.organizationId || params.selectedTask.organizationId !== params.organizationId)
+        ) {
+            return { selectedTask: null, isDetailOpen: false };
+        }
+        return current;
+    }
     if (!params.organizationId || params.loadedOrganizationId !== params.organizationId) {
         return { selectedTask: null, isDetailOpen: false };
     }

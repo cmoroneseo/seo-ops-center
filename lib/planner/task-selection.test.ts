@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { reconcileTaskQuerySelection, taskForQuery } from './task-selection.ts';
 import type { Task } from '../types';
 
-function makeTask(id: string): Task {
+function makeTask(id: string, organizationId = 'org1'): Task {
     return {
         id,
-        organizationId: 'org1',
+        organizationId,
         title: `Task ${id}`,
         assignees: [],
         priority: 'medium',
@@ -90,15 +90,27 @@ test('reconcileTaskQuerySelection waits for an in-scope refresh before rejecting
     }), { selectedTask: selected, isDetailOpen: true });
 });
 
-test('reconcileTaskQuerySelection leaves manual selection open when there is no task query', () => {
+test('reconcileTaskQuerySelection preserves a same-org manual selection without a task query', () => {
     const selected = makeTask('manual');
     assert.deepEqual(reconcileTaskQuerySelection({
         tasks: [],
         taskId: null,
-        organizationId: 'org2',
+        organizationId: 'org1',
         loadedOrganizationId: 'org1',
-        loading: true,
+        loading: false,
         selectedTask: selected,
         isDetailOpen: true,
     }), { selectedTask: selected, isDetailOpen: true });
+});
+
+test('reconcileTaskQuerySelection clears a cross-org manual selection without a task query', () => {
+    assert.deepEqual(reconcileTaskQuerySelection({
+        tasks: [],
+        taskId: null,
+        organizationId: 'org2',
+        loadedOrganizationId: 'org2',
+        loading: false,
+        selectedTask: makeTask('manual', 'org1'),
+        isDetailOpen: true,
+    }), { selectedTask: null, isDetailOpen: false });
 });

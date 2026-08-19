@@ -86,10 +86,10 @@ export default function TasksPage() {
         }).selectedTask);
         setIsDetailOpen(current => reconcileTaskQuerySelection({
             ...context,
-            selectedTask: null,
+            selectedTask,
             isDetailOpen: current,
         }).isDetailOpen);
-    }, [taskQuery, tasks, organization?.id, loadedTasksOrganizationId, loading]);
+    }, [taskQuery, tasks, organization?.id, loadedTasksOrganizationId, loading, selectedTask]);
 
     const today = new Date().toISOString().slice(0, 10);
 
