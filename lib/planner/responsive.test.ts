@@ -6,13 +6,15 @@ import {
     clampOverlayAnchor,
     createPlannerSurfaceStack,
     cycleFocusIndex,
+    isPlannerFocusEligible,
     movePriorityId,
     plannerGridAccessibility,
     plannerSurfaceBehavior,
     quickCreateTypeButtonProps,
-    resolveFocusRestoreTarget,
     resolveMonthAgendaDay,
+    selectPlannerFocusTarget,
     shouldRestorePlannerFocus,
+    type PlannerFocusObservation,
     weekGridMinWidth,
 } from './responsive.ts';
 
@@ -126,51 +128,84 @@ test('only the top planner surface owns Escape before the previous surface resum
     assert.equal(stack.top(), null);
 });
 
-test('focus restoration prefers a connected opener and falls back when it unmounts', () => {
-    const opener = {
-        isConnected: true,
-        id: 'opener',
-        focus() {},
-        getClientRects: () => ({ length: 1 }),
-    };
-    const disconnectedOpener = {
-        isConnected: false,
-        id: 'gone',
-        focus() {},
-        getClientRects: () => ({ length: 1 }),
-    };
-    const planner = {
-        isConnected: true,
-        id: 'planner',
-        focus() {},
-        getClientRects: () => ({ length: 1 }),
-    };
+const VISIBLE_FOCUS_TARGET: PlannerFocusObservation = {
+    connected: true,
+    hasClientRect: true,
+    disabled: false,
+    hidden: false,
+    inert: false,
+    ariaHidden: false,
+    display: 'block',
+    visibility: 'visible',
+    opacity: 1,
+    nativeFocusable: false,
+    contentEditable: false,
+    tabIndexAttribute: null,
+};
 
-    assert.equal(resolveFocusRestoreTarget(opener, planner), opener);
-    assert.equal(resolveFocusRestoreTarget(disconnectedOpener, planner), planner);
-    assert.equal(resolveFocusRestoreTarget(disconnectedOpener, null), null);
+test('focus eligibility rejects a plain div but accepts real programmatic focus targets', () => {
+    assert.equal(isPlannerFocusEligible(VISIBLE_FOCUS_TARGET), false);
+    assert.equal(isPlannerFocusEligible({
+        ...VISIBLE_FOCUS_TARGET,
+        tabIndexAttribute: '-1',
+    }), true);
+    assert.equal(isPlannerFocusEligible({
+        ...VISIBLE_FOCUS_TARGET,
+        nativeFocusable: true,
+    }), true);
+    assert.equal(isPlannerFocusEligible({
+        ...VISIBLE_FOCUS_TARGET,
+        contentEditable: true,
+    }), true);
 });
 
-test('focus restoration rejects connected targets that are hidden or not focusable', () => {
-    const hiddenCommandTrigger = {
-        isConnected: true,
-        focus() {},
-        getClientRects: () => ({ length: 0 }),
-    };
-    const disabledButton = {
-        isConnected: true,
-        disabled: true,
-        focus() {},
-        getClientRects: () => ({ length: 1 }),
-    };
-    const planner = {
-        isConnected: true,
-        focus() {},
-        getClientRects: () => ({ length: 1 }),
-    };
+test('focus eligibility rejects disabled, inert, aria-hidden, disconnected, and zero-rect targets', () => {
+    const nativeControl = { ...VISIBLE_FOCUS_TARGET, nativeFocusable: true };
+    assert.equal(isPlannerFocusEligible({ ...nativeControl, disabled: true }), false);
+    assert.equal(isPlannerFocusEligible({ ...nativeControl, hidden: true }), false);
+    assert.equal(isPlannerFocusEligible({ ...nativeControl, inert: true }), false);
+    assert.equal(isPlannerFocusEligible({ ...nativeControl, ariaHidden: true }), false);
+    assert.equal(isPlannerFocusEligible({ ...nativeControl, connected: false }), false);
+    assert.equal(isPlannerFocusEligible({ ...nativeControl, hasClientRect: false }), false);
+});
 
-    assert.equal(resolveFocusRestoreTarget(hiddenCommandTrigger, planner), planner);
-    assert.equal(resolveFocusRestoreTarget(disabledButton, planner), planner);
+test('focus eligibility rejects CSS-hidden and fully transparent targets', () => {
+    assert.equal(isPlannerFocusEligible({
+        ...VISIBLE_FOCUS_TARGET,
+        tabIndexAttribute: '-1',
+        display: 'none',
+    }), false);
+    for (const visibility of ['hidden', 'collapse']) {
+        assert.equal(isPlannerFocusEligible({
+            ...VISIBLE_FOCUS_TARGET,
+            tabIndexAttribute: '-1',
+            visibility,
+        }), false);
+    }
+    assert.equal(isPlannerFocusEligible({
+        ...VISIBLE_FOCUS_TARGET,
+        tabIndexAttribute: '-1',
+        opacity: 0,
+    }), false);
+});
+
+test('focus selection falls back and can revalidate a target that becomes hidden', () => {
+    const opener = { id: 'opener' };
+    const planner = { id: 'planner' };
+    let openerOpacity = 1;
+    const observe = (target: typeof opener): PlannerFocusObservation => ({
+        ...VISIBLE_FOCUS_TARGET,
+        nativeFocusable: target === opener,
+        tabIndexAttribute: target === planner ? '-1' : null,
+        opacity: target === opener ? openerOpacity : 1,
+    });
+
+    const initiallySelected = selectPlannerFocusTarget([opener, planner], observe);
+    assert.equal(initiallySelected, opener);
+
+    openerOpacity = 0;
+    assert.equal(selectPlannerFocusTarget([initiallySelected, planner], observe), planner);
+    assert.equal(selectPlannerFocusTarget([opener], observe), null);
 });
 
 test('outside pointer closes preserve the newly targeted control while deliberate closes restore', () => {

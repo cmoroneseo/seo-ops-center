@@ -129,35 +129,41 @@ export function createPlannerSurfaceStack<T>(): PlannerSurfaceStack<T> {
     };
 }
 
-interface PlannerFocusCandidate {
-    isConnected: boolean;
-    focus?: () => void;
-    hidden?: boolean;
-    inert?: boolean;
+export interface PlannerFocusObservation {
+    connected: boolean;
+    hasClientRect: boolean;
     disabled?: boolean;
-    getAttribute?: (name: string) => string | null;
-    closest?: (selector: string) => unknown;
-    getClientRects?: () => { length: number };
-    checkVisibility?: () => boolean;
+    hidden: boolean;
+    inert: boolean;
+    ariaHidden: boolean;
+    display: string;
+    visibility: string;
+    opacity: number;
+    nativeFocusable: boolean;
+    contentEditable: boolean;
+    tabIndexAttribute: string | null;
 }
 
-function isUsableFocusTarget(candidate: PlannerFocusCandidate | null | undefined): boolean {
-    if (!candidate?.isConnected || typeof candidate.focus !== 'function') return false;
-    if (candidate.hidden || candidate.inert || candidate.disabled) return false;
-    if (candidate.getAttribute?.('aria-disabled') === 'true') return false;
-    if (candidate.closest?.('[hidden], [aria-hidden="true"], [inert]')) return false;
-    if (candidate.checkVisibility && !candidate.checkVisibility()) return false;
-    if (candidate.getClientRects && candidate.getClientRects().length === 0) return false;
-    return true;
+export function isPlannerFocusEligible(observation: PlannerFocusObservation): boolean {
+    if (!observation.connected || !observation.hasClientRect || observation.disabled) return false;
+    if (observation.hidden || observation.inert || observation.ariaHidden) return false;
+    if (observation.display === 'none') return false;
+    if (observation.visibility === 'hidden' || observation.visibility === 'collapse') return false;
+    if (observation.opacity <= 0) return false;
+    return observation.nativeFocusable
+        || observation.contentEditable
+        || observation.tabIndexAttribute !== null;
 }
 
-/** Restore to a visible focusable opener, otherwise a stable planner landmark. */
-export function resolveFocusRestoreTarget<T extends PlannerFocusCandidate>(
-    opener: T | null | undefined,
-    fallback: T | null | undefined,
+/** Pick the first currently visible, programmatically focusable candidate. */
+export function selectPlannerFocusTarget<T>(
+    candidates: Array<T | null | undefined>,
+    observe: (candidate: T) => PlannerFocusObservation,
 ): T | null {
-    if (isUsableFocusTarget(opener)) return opener ?? null;
-    return isUsableFocusTarget(fallback) ? fallback ?? null : null;
+    for (const candidate of candidates) {
+        if (candidate != null && isPlannerFocusEligible(observe(candidate))) return candidate;
+    }
+    return null;
 }
 
 export type PlannerCloseReason = 'escape' | 'dismiss' | 'outside' | 'programmatic';

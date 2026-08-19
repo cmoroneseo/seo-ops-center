@@ -4,9 +4,10 @@ import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import {
     createPlannerSurfaceStack,
     cycleFocusIndex,
-    resolveFocusRestoreTarget,
+    selectPlannerFocusTarget,
     shouldRestorePlannerFocus,
     type PlannerCloseReason,
+    type PlannerFocusObservation,
 } from '@/lib/planner/responsive';
 
 const FOCUSABLE = [
@@ -19,6 +20,52 @@ const FOCUSABLE = [
 ].join(',');
 
 const plannerSurfaceStack = createPlannerSurfaceStack<HTMLElement>();
+
+function isNativeFocusTarget(element: HTMLElement): boolean {
+    const tag = element.tagName.toLowerCase();
+    if (['button', 'input', 'select', 'textarea', 'iframe', 'object', 'embed', 'summary'].includes(tag)) {
+        return true;
+    }
+    if ((tag === 'a' || tag === 'area') && element.hasAttribute('href')) return true;
+    if ((tag === 'audio' || tag === 'video') && element.hasAttribute('controls')) return true;
+    return false;
+}
+
+/** Read current DOM eligibility; pure selection logic lives in responsive.ts. */
+function observeFocusTarget(element: HTMLElement): PlannerFocusObservation {
+    const view = element.ownerDocument.defaultView;
+    let display = view ? 'block' : 'none';
+    let visibility = 'visible';
+    let opacity = 1;
+
+    if (view) {
+        for (let current: HTMLElement | null = element; current; current = current.parentElement) {
+            const style = view.getComputedStyle(current);
+            if (style.display === 'none') display = 'none';
+            if (style.visibility === 'hidden' || style.visibility === 'collapse') {
+                visibility = style.visibility;
+            }
+            const currentOpacity = Number(style.opacity);
+            if (Number.isFinite(currentOpacity)) opacity *= currentOpacity;
+        }
+    }
+
+    return {
+        connected: element.isConnected,
+        hasClientRect: element.getClientRects().length > 0,
+        disabled: element.matches(':disabled')
+            || element.getAttribute('aria-disabled') === 'true',
+        hidden: Boolean(element.closest('[hidden]')),
+        inert: Boolean(element.closest('[inert]')),
+        ariaHidden: Boolean(element.closest('[aria-hidden="true"]')),
+        display,
+        visibility,
+        opacity,
+        nativeFocusable: isNativeFocusTarget(element),
+        contentEditable: element.isContentEditable,
+        tabIndexAttribute: element.getAttribute('tabindex'),
+    };
+}
 
 interface PlannerDialogFocusOptions {
     trapFocus: boolean;
@@ -105,13 +152,20 @@ export function usePlannerDialogFocus(
             unregister();
             if (!shouldRestorePlannerFocus(closeReasonRef.current)) return;
             const underlyingSurface = plannerSurfaceStack.top();
-            const restoreTarget = resolveFocusRestoreTarget(
+            const candidates = [
                 returnFocusTo,
-                resolveFocusRestoreTarget(underlyingSurface, fallbackFocusTarget),
-            );
-            if (restoreTarget) {
-                window.requestAnimationFrame(() => restoreTarget.focus());
-            }
+                underlyingSurface,
+                fallbackFocusTarget,
+            ];
+            const restoreTarget = selectPlannerFocusTarget(candidates, observeFocusTarget);
+            if (!restoreTarget) return;
+            window.requestAnimationFrame(() => {
+                const revalidatedTarget = selectPlannerFocusTarget(
+                    [restoreTarget, ...candidates],
+                    observeFocusTarget,
+                );
+                revalidatedTarget?.focus();
+            });
         };
     }, [open, requestClose]);
 
