@@ -1,7 +1,7 @@
 import { createClient } from './client';
 import { PlannerPriority } from '../types';
+import { priorityUpdatesSucceeded } from '../planner/priority-updates';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function rowToPlannerPriority(row: any): PlannerPriority {
     return {
         id: row.id,
@@ -71,11 +71,18 @@ export async function reorderPlannerPriorities(
     const supabase = createClient();
     if (!supabase) return false;
     try {
-        await Promise.all(
+        const responses = await Promise.all(
             ordered.map(({ id, sortOrder }) =>
                 supabase.from('planner_priorities').update({ sort_order: sortOrder }).eq('id', id),
             ),
         );
+        if (!priorityUpdatesSucceeded(responses)) {
+            console.error(
+                '[planner-priorities] reorder error:',
+                responses.flatMap(response => response.error ? [response.error] : []),
+            );
+            return false;
+        }
         return true;
     } catch (err) {
         console.error('[planner-priorities] reorder error:', err);

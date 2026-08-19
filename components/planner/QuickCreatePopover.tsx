@@ -10,6 +10,7 @@ import { createTask, updateTask } from '@/lib/supabase/tasks';
 import { TeamMember } from './MeetWithFilter';
 import { TaskMentionPicker, matchTasks } from './TaskMentionPicker';
 import { localDateForInstant } from '@/lib/planner/local-date';
+import { resolveQuickCreateSave } from '@/lib/planner/quick-create-save';
 
 type Tab = 'event' | 'task' | 'focus' | 'ooo';
 
@@ -97,6 +98,7 @@ export function QuickCreatePopover({
     const [tab, setTab] = useState<Tab>('event');
     const [title, setTitle] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
     const ref = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -147,6 +149,7 @@ export function QuickCreatePopover({
         setScheduledTask(null);
         setReferencedTask(null);
         setTitle('');
+        setSaveError(null);
         onBlockChange?.(TAB_BLOCK[next]);
     };
 
@@ -178,6 +181,7 @@ export function QuickCreatePopover({
 
     const handleSave = async () => {
         if (isSaving) return;
+        setSaveError(null);
 
         // Scheduling an existing task — no new record.
         if (isTask && scheduledTask) {
@@ -187,8 +191,10 @@ export function QuickCreatePopover({
                 scheduledMinutes: blockMinutes,
             });
             setIsSaving(false);
-            if (!res.success) {
+            const outcome = resolveQuickCreateSave({ title, clientId }, res.success);
+            if (!outcome.shouldComplete) {
                 console.error('[planner] schedule existing task failed:', res.error);
+                setSaveError(outcome.error);
                 return;
             }
             onCreated();
@@ -200,6 +206,7 @@ export function QuickCreatePopover({
         if (!trimmed || title.startsWith(MENTION)) return;
         setIsSaving(true);
 
+        let saved = false;
         if (isTask) {
             const parsedEstimate = estimate.trim() ? Number(estimate) : NaN;
             const res = await createTask({
@@ -217,7 +224,8 @@ export function QuickCreatePopover({
                 assigneeIds: assigneeId ? [assigneeId] : undefined,
                 createdBy: userId,
             });
-            if (!res.success) console.error('[planner] create task failed:', res.error);
+            saved = res.success;
+            if (!saved) console.error('[planner] create task failed:', res.error);
         } else {
             const created = await createPlannerEvent({
                 organizationId,
@@ -232,10 +240,16 @@ export function QuickCreatePopover({
                 visibility: tab === 'focus' ? 'private' : 'default',
                 busy: tab !== 'ooo',
             });
-            if (!created) console.error('[planner] create event failed');
+            saved = Boolean(created);
+            if (!saved) console.error('[planner] create event failed');
         }
 
         setIsSaving(false);
+        const outcome = resolveQuickCreateSave({ title, clientId }, saved);
+        if (!outcome.shouldComplete) {
+            setSaveError(outcome.error);
+            return;
+        }
         onCreated();
         onClose();
     };
@@ -448,6 +462,15 @@ export function QuickCreatePopover({
                             ? 'Linked for context — this does not schedule the task.'
                             : ''}
             </p>
+
+            {saveError && (
+                <div
+                    role="alert"
+                    className="mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-[11px] text-destructive"
+                >
+                    {saveError}
+                </div>
+            )}
 
             <div className="mt-3 flex items-center gap-2">
                 {isTask && !scheduledTask && onOpenFullTask && (

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import {
     addDays, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isPast, isWeekend,
-    startOfMonth, endOfMonth, addMonths, startOfDay,
+    addMonths, startOfDay,
 } from 'date-fns';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
@@ -36,6 +36,7 @@ import {
     PlannerPreferences, DEFAULT_PREFERENCES, loadPreferences, savePreferences, withRecentProject,
 } from '@/lib/planner/preferences';
 import { localDateForInstant, parseLocalDate } from '@/lib/planner/local-date';
+import { buildMonthDays } from '@/lib/planner/month-range';
 
 export default function PlannerPage() {
     const { organization } = useOrganization();
@@ -82,6 +83,11 @@ export default function PlannerPage() {
         savePreferences(next);
     }, []);
 
+    const monthDays = useMemo(
+        () => buildMonthDays(anchorDate, prefs.weekStartsOn),
+        [anchorDate, prefs.weekStartsOn],
+    );
+
     // Errors are transient: show, then get out of the way.
     useEffect(() => {
         if (!error) return;
@@ -99,15 +105,15 @@ export default function PlannerPage() {
         }
         if (view === 'month') {
             return {
-                start: startOfWeek(startOfMonth(anchorDate), opts),
-                end: addDays(endOfWeek(endOfMonth(anchorDate), opts), 1),
+                start: monthDays[0],
+                end: addDays(monthDays[monthDays.length - 1], 1),
             };
         }
         return {
             start: startOfWeek(anchorDate, opts),
             end: addDays(endOfWeek(anchorDate, opts), 1),
         };
-    }, [anchorDate, view, prefs.weekStartsOn]);
+    }, [anchorDate, view, prefs.weekStartsOn, monthDays]);
 
     /**
      * Only events are range-scoped. Tasks and reminders are fetched whole, so
@@ -151,16 +157,21 @@ export default function PlannerPage() {
         return () => window.removeEventListener('planner:data-changed', reload);
     }, [loadWork]);
 
+    const loadPriorities = useCallback(async () => {
+        if (!organization?.id || !userId) return;
+        setPriorities(await listPlannerPriorities({ organizationId: organization.id, userId }));
+    }, [organization?.id, userId]);
+
     // Priorities and the teammate roster do not depend on the visible range.
     useEffect(() => {
         if (!organization?.id || !userId) return;
-        void listPlannerPriorities({ organizationId: organization.id, userId }).then(setPriorities);
+        void loadPriorities();
         void getOrganizationMembers(organization.id).then(rows =>
             setMembers(rows.map(m => ({
                 userId: m.userId,
                 name: m.user?.fullName || m.user?.email || 'Team member',
             }))));
-    }, [organization?.id, userId]);
+    }, [organization?.id, userId, loadPriorities]);
 
     // Everything that belongs on the grid, normalized to one shape.
     const items: PlannerItem[] = useMemo(() => {
@@ -310,8 +321,12 @@ export default function PlannerPage() {
 
     const handleRemovePriority = useCallback(async (id: string) => {
         setPriorities(prev => prev.filter(p => p.id !== id));
-        await deletePlannerPriority(id);
-    }, []);
+        const deleted = await deletePlannerPriority(id);
+        if (!deleted) {
+            setError("Couldn't remove that priority — it's been restored.");
+            void loadPriorities();
+        }
+    }, [loadPriorities]);
 
     const handleReorderPriorities = useCallback(async (orderedIds: string[]) => {
         setPriorities(prev => orderedIds
@@ -320,8 +335,14 @@ export default function PlannerPage() {
                 return p ? { ...p, sortOrder: i } : null;
             })
             .filter((p): p is PlannerPriority => p !== null));
-        await reorderPlannerPriorities(orderedIds.map((id, i) => ({ id, sortOrder: i })));
-    }, []);
+        const reordered = await reorderPlannerPriorities(
+            orderedIds.map((id, i) => ({ id, sortOrder: i })),
+        );
+        if (!reordered) {
+            setError("Couldn't save that priority order — it's been restored.");
+            void loadPriorities();
+        }
+    }, [loadPriorities]);
 
     const handleTaskDragStart = useCallback((task: Task, e: React.PointerEvent) => {
         // Same rule the grid uses to size a block — one definition, in items.ts.
@@ -366,6 +387,7 @@ export default function PlannerPage() {
                 {view === 'month' ? (
                     <MonthGrid
                         anchorDate={anchorDate}
+                        days={monthDays}
                         items={visibleItems}
                         onItemClick={setSelected}
                         onDayClick={day => { setAnchorDate(day); setView('day'); }}
