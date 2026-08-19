@@ -24,10 +24,10 @@ export interface PlannerPreferences {
      * has no client config to resolve a destination from — you pick one of your
      * personal/HQ projects instead.
      *
-     * `recentBasecampProjects` is most-recent-first and pins your regulars to
-     * the top of the picker. It never selects a sync destination automatically.
+     * Recents are keyed by organization so switching tenants cannot carry a
+     * project ID from one organization's authorized catalog into another.
      */
-    recentBasecampProjects: { id: string; name: string }[];
+    recentBasecampProjectsByOrganization: Record<string, { id: string; name: string }[]>;
 }
 
 /** How many regulars the picker pins before falling back to search. */
@@ -36,10 +36,26 @@ export const MAX_RECENT_PROJECTS = 5;
 /** Move a project to the front of the recents list, de-duplicated and capped. */
 export function withRecentProject(
     prefs: PlannerPreferences,
+    organizationId: string,
     project: { id: string; name: string },
 ): PlannerPreferences {
-    const rest = prefs.recentBasecampProjects.filter(p => p.id !== project.id);
-    return { ...prefs, recentBasecampProjects: [project, ...rest].slice(0, MAX_RECENT_PROJECTS) };
+    const recents = prefs.recentBasecampProjectsByOrganization[organizationId] ?? [];
+    const rest = recents.filter(p => p.id !== project.id);
+    return {
+        ...prefs,
+        recentBasecampProjectsByOrganization: {
+            ...prefs.recentBasecampProjectsByOrganization,
+            [organizationId]: [project, ...rest].slice(0, MAX_RECENT_PROJECTS),
+        },
+    };
+}
+
+export function recentProjectsForOrganization(
+    prefs: PlannerPreferences,
+    organizationId: string | null | undefined,
+): { id: string; name: string }[] {
+    if (!organizationId) return [];
+    return prefs.recentBasecampProjectsByOrganization[organizationId] ?? [];
 }
 
 export const DEFAULT_PREFERENCES: PlannerPreferences = {
@@ -50,13 +66,13 @@ export const DEFAULT_PREFERENCES: PlannerPreferences = {
     workDayStartHour: 9,
     workDayEndHour: 17,
     rollOverdueIntoToday: true,
-    recentBasecampProjects: [],
+    recentBasecampProjectsByOrganization: {},
 };
 
 const STORAGE_KEY = 'planner:preferences';
 
 /** Clamp anything a hand-edited localStorage value could get wrong. */
-function sanitize(raw: Partial<PlannerPreferences>): PlannerPreferences {
+export function sanitizePreferences(raw: Partial<PlannerPreferences>): PlannerPreferences {
     const merged = { ...DEFAULT_PREFERENCES, ...raw };
     const dayStart = Math.min(23, Math.max(0, Math.round(merged.dayStartHour)));
     const dayEnd = Math.min(24, Math.max(dayStart + 1, Math.round(merged.dayEndHour)));
@@ -70,11 +86,18 @@ function sanitize(raw: Partial<PlannerPreferences>): PlannerPreferences {
         workDayStartHour: workStart,
         workDayEndHour: workEnd,
         rollOverdueIntoToday: Boolean(merged.rollOverdueIntoToday),
-        recentBasecampProjects: Array.isArray(merged.recentBasecampProjects)
-            ? merged.recentBasecampProjects
-                .filter(p => p && typeof p.id === 'string' && typeof p.name === 'string')
-                .slice(0, MAX_RECENT_PROJECTS)
-            : [],
+        recentBasecampProjectsByOrganization: Object.fromEntries(
+            Object.entries(merged.recentBasecampProjectsByOrganization ?? {})
+                .filter(([organizationId, projects]) => organizationId.length > 0 && Array.isArray(projects))
+                .map(([organizationId, projects]) => [
+                    organizationId,
+                    projects
+                        .filter(project => project
+                            && typeof project.id === 'string'
+                            && typeof project.name === 'string')
+                        .slice(0, MAX_RECENT_PROJECTS),
+                ]),
+        ),
     };
 }
 
@@ -83,7 +106,7 @@ export function loadPreferences(): PlannerPreferences {
     try {
         const raw = window.localStorage.getItem(STORAGE_KEY);
         if (!raw) return DEFAULT_PREFERENCES;
-        return sanitize(JSON.parse(raw));
+        return sanitizePreferences(JSON.parse(raw));
     } catch {
         // A corrupt value must not take the page down with it.
         return DEFAULT_PREFERENCES;
@@ -93,7 +116,7 @@ export function loadPreferences(): PlannerPreferences {
 export function savePreferences(prefs: PlannerPreferences): void {
     if (typeof window === 'undefined') return;
     try {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitize(prefs)));
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitizePreferences(prefs)));
     } catch {
         // Private browsing / quota — the in-memory value still applies this session.
     }

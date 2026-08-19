@@ -8,7 +8,7 @@ import { PlanningTable } from '@/components/workspace/PlanningTable';
 import { ClientProject, ProjectStatus, MonthlyPlan } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Search, Filter, Plus, X, LayoutList, CalendarRange, User } from 'lucide-react';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { getClients } from '@/lib/supabase/clients';
 import { getMonthlyPlans } from '@/lib/supabase/monthly-plans';
 import { useOrganization } from '@/components/providers/organization-provider';
@@ -35,22 +35,23 @@ export default function WorkspacePage() {
     const [bcImportTarget, setBcImportTarget] = useState<{ clientId: string; orgId: string } | null>(null);
     const [viewMode, setViewMode] = useState<'list' | 'planning'>('list');
     const [myClientsOnly, setMyClientsOnly] = useState(!isOwner); // members default to their own clients
+    const organizationId = organization?.id;
 
-    const fetchClients = async () => {
-        if (!organization) return;
+    const fetchClients = useCallback(async () => {
+        if (!organizationId) return;
         setIsLoading(true);
         const [data, planData] = await Promise.all([
-            getClients(organization.id),
-            getMonthlyPlans(organization.id),
+            getClients(organizationId),
+            getMonthlyPlans(organizationId),
         ]);
         setClients(data);
         setPlans(planData);
         setIsLoading(false);
-    };
+    }, [organizationId]);
 
     useEffect(() => {
-        fetchClients();
-    }, [organization]);
+        void fetchClients();
+    }, [fetchClients]);
 
     // Extract unique managers, preferring stable user IDs over display names.
     const managers = useMemo(() => {
@@ -272,8 +273,9 @@ export default function WorkspacePage() {
                 onImportFromBasecamp={(clientId, orgId) => setBcImportTarget({ clientId, orgId })}
             />
 
-            {bcImportTarget && organization && (
+            {bcImportTarget && organization && bcImportTarget.orgId === organization.id && (
                 <BasecampImportModal
+                    key={`${organization.id}:${bcImportTarget.clientId}`}
                     isOpen={true}
                     onClose={() => setBcImportTarget(null)}
                     onSuccess={() => { setBcImportTarget(null); }}

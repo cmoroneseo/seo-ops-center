@@ -48,6 +48,10 @@ export function EventDetailPanel({
     // Basecamp destination. Recents remain shortcuts, never an implicit sync.
     const [internalProject, setInternalProject] = useState<BasecampProject | undefined>(undefined);
 
+    useEffect(() => {
+        setInternalProject(undefined);
+    }, [organizationId]);
+
     // Has this block already been turned into time? Keeps the action idempotent.
     const eventId = event?.id;
     useEffect(() => {

@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { X, ChevronDown, ChevronRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { authorizedProjectId } from '@/lib/basecamp/project-selection';
+import { emptyBasecampImportScope } from '@/lib/basecamp/scope-state';
 
 interface BasecampProject { id: number; name: string; }
 interface BasecampTodolist { id: number; title: string; name: string; todos_count: number; }
@@ -51,7 +53,7 @@ export function BasecampImportModal({
     const [step, setStep] = useState<Step>('project');
     const [projects, setProjects] = useState<BasecampProject[]>([]);
     const [projectsLoading, setProjectsLoading] = useState(false);
-    const [selectedProjectId, setSelectedProjectId] = useState(preselectedProjectId ?? '');
+    const [selectedProjectId, setSelectedProjectId] = useState('');
 
     const [listsLoading, setListsLoading] = useState(false);
     const [listStates, setListStates] = useState<ListState[]>([]);
@@ -62,22 +64,37 @@ export function BasecampImportModal({
     const [importing, setImporting] = useState(false);
     const [importedCount, setImportedCount] = useState(0);
     const [importError, setImportError] = useState('');
+    const scopeVersionRef = useRef(0);
 
     // Fetch already-imported basecamp_todo_ids for this client (for dedup display)
-    const fetchAlreadyImported = useCallback(async () => {
+    const fetchAlreadyImported = useCallback(async (scopeVersion: number) => {
         try {
             const res = await fetch(`/api/integrations/basecamp/imported-ids?clientId=${clientId}`);
             if (!res.ok) return;
             const data = await res.json() as { ids: number[] };
-            setAlreadyImported(new Set(data.ids));
+            if (scopeVersion === scopeVersionRef.current) {
+                setAlreadyImported(new Set(data.ids));
+            }
         } catch { /* non-critical */ }
     }, [clientId]);
 
     // Fetch projects on open
     useEffect(() => {
+        const scopeVersion = ++scopeVersionRef.current;
+        const emptyScope = emptyBasecampImportScope<BasecampProject, ListState>();
+        setStep(emptyScope.step);
+        setProjects(emptyScope.projects);
+        setProjectsLoading(emptyScope.projectsLoading);
+        setSelectedProjectId(emptyScope.selectedProjectId);
+        setListsLoading(emptyScope.listsLoading);
+        setListStates(emptyScope.listStates);
+        setAlreadyImported(new Set(emptyScope.alreadyImportedIds));
+        setPriority(emptyScope.priority);
+        setImporting(emptyScope.importing);
+        setImportedCount(emptyScope.importedCount);
+        setImportError(emptyScope.importError);
         if (!isOpen) return;
         let cancelled = false;
-        setProjects([]);
         setProjectsLoading(true);
         fetch(`/api/integrations/basecamp/projects?organizationId=${encodeURIComponent(organizationId)}`)
             .then(async r => {
@@ -85,29 +102,56 @@ export function BasecampImportModal({
                 return r.json();
             })
             .then((data: { projects: BasecampProject[] }) => {
-                if (!cancelled) setProjects(data.projects ?? []);
+                if (cancelled || scopeVersion !== scopeVersionRef.current) return;
+                const authorizedProjects = data.projects ?? [];
+                setProjects(authorizedProjects);
+                const authorizedPreselection = authorizedProjectId(
+                    authorizedProjects,
+                    preselectedProjectId,
+                );
+                if (authorizedPreselection) {
+                    setSelectedProjectId(authorizedPreselection);
+                    void loadLists(authorizedPreselection, authorizedProjects, scopeVersion);
+                }
             })
-            .catch(() => { if (!cancelled) setProjects([]); })
+            .catch(() => {
+                if (cancelled || scopeVersion !== scopeVersionRef.current) return;
+                setProjects([]);
+                setSelectedProjectId('');
+                setListStates([]);
+                setStep('project');
+                setImportError('Unable to load authorized Basecamp projects.');
+            })
             .finally(() => { if (!cancelled) setProjectsLoading(false); });
-        fetchAlreadyImported();
+        void fetchAlreadyImported(scopeVersion);
         return () => { cancelled = true; };
-    }, [isOpen, fetchAlreadyImported, organizationId]);
+    // loadLists receives the fetched catalog and scope token explicitly; adding
+    // its render-local identity would restart this scope-loading effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, fetchAlreadyImported, organizationId, preselectedProjectId]);
 
-    // If a project is pre-selected, jump straight to lists
-    useEffect(() => {
-        if (!isOpen) return;
-        if (preselectedProjectId) {
-            setSelectedProjectId(preselectedProjectId);
-            loadLists(preselectedProjectId);
+    async function loadLists(
+        projectId: string,
+        catalog: BasecampProject[] = projects,
+        scopeVersion = scopeVersionRef.current,
+    ) {
+        const allowedProjectId = authorizedProjectId(catalog, projectId);
+        if (!allowedProjectId || scopeVersion !== scopeVersionRef.current) {
+            setSelectedProjectId('');
+            setListStates([]);
+            setStep('project');
+            setImportError('Select a project from the authorized catalog.');
+            return;
         }
-    }, [isOpen, preselectedProjectId]);
-
-    async function loadLists(projectId: string) {
         setListsLoading(true);
         setStep('lists');
+        setListStates([]);
+        setImportError('');
         try {
-            const res = await fetch(`/api/integrations/basecamp/todolists?projectId=${projectId}`);
+            const res = await fetch(`/api/integrations/basecamp/todolists?projectId=${allowedProjectId}`);
+            if (!res.ok) throw new Error('Unable to load Basecamp to-do lists');
             const data = await res.json() as { todolists: BasecampTodolist[] };
+            if (scopeVersion !== scopeVersionRef.current) return;
             setListStates((data.todolists ?? []).map(tl => ({
                 todolist: tl,
                 expanded: false,
@@ -117,31 +161,47 @@ export function BasecampImportModal({
                 listChecked: false,
             })));
         } catch {
+            if (scopeVersion !== scopeVersionRef.current) return;
             setListStates([]);
+            setStep('project');
+            setSelectedProjectId('');
+            setImportError('Unable to load to-do lists for the authorized project.');
         } finally {
-            setListsLoading(false);
+            if (scopeVersion === scopeVersionRef.current) setListsLoading(false);
         }
     }
 
     function handleProjectContinue() {
-        if (!selectedProjectId) return;
-        loadLists(selectedProjectId);
+        const projectId = authorizedProjectId(projects, selectedProjectId);
+        if (!projectId) return;
+        void loadLists(projectId);
     }
 
     async function toggleExpand(idx: number) {
         const ls = listStates[idx];
+        const projectId = authorizedProjectId(projects, selectedProjectId);
+        if (!projectId) {
+            setSelectedProjectId('');
+            setListStates([]);
+            setStep('project');
+            setImportError('Select a project from the authorized catalog.');
+            return;
+        }
         if (!ls.expanded && ls.todos.length === 0) {
+            const scopeVersion = scopeVersionRef.current;
             // Lazy-load todos
             setListStates(prev => prev.map((s, i) => i === idx ? { ...s, loading: true } : s));
             try {
                 const res = await fetch(
-                    `/api/integrations/basecamp/todos?projectId=${selectedProjectId}&todolistId=${ls.todolist.id}&includeCompleted=true`,
+                    `/api/integrations/basecamp/todos?projectId=${projectId}&todolistId=${ls.todolist.id}&includeCompleted=true`,
                 );
                 const data = await res.json() as { todos: BasecampTodoFull[] };
+                if (scopeVersion !== scopeVersionRef.current) return;
                 setListStates(prev => prev.map((s, i) =>
                     i === idx ? { ...s, todos: data.todos ?? [], loading: false, expanded: true } : s,
                 ));
             } catch {
+                if (scopeVersion !== scopeVersionRef.current) return;
                 setListStates(prev => prev.map((s, i) => i === idx ? { ...s, loading: false, expanded: true } : s));
             }
         } else {
@@ -178,6 +238,15 @@ export function BasecampImportModal({
 
     async function handleImport() {
         if (totalSelected === 0) return;
+        const projectId = authorizedProjectId(projects, selectedProjectId);
+        if (!projectId) {
+            setSelectedProjectId('');
+            setListStates([]);
+            setStep('project');
+            setImportError('Select a project from the authorized catalog.');
+            return;
+        }
+        const scopeVersion = scopeVersionRef.current;
         setImporting(true);
         setImportError('');
 
@@ -200,7 +269,7 @@ export function BasecampImportModal({
                     description: todo.description || undefined,
                     dueOn: todo.due_on || undefined,
                     basecampTodoId: todo.id,
-                    basecampProjectId: Number(selectedProjectId),
+                    basecampProjectId: Number(projectId),
                     category: ls.todolist.title || ls.todolist.name,
                     priority,
                 });
@@ -215,22 +284,30 @@ export function BasecampImportModal({
             });
             const data = await res.json() as { imported: number; errors: string[] };
             if (!res.ok) throw new Error(data.errors?.[0] ?? 'Import failed');
+            if (scopeVersion !== scopeVersionRef.current) return;
             setImportedCount(data.imported);
             setStep('done');
             onSuccess(data.imported);
         } catch (err) {
+            if (scopeVersion !== scopeVersionRef.current) return;
             setImportError(err instanceof Error ? err.message : 'Import failed');
         } finally {
-            setImporting(false);
+            if (scopeVersion === scopeVersionRef.current) setImporting(false);
         }
     }
 
     function handleReset() {
-        setStep(preselectedProjectId ? 'lists' : 'project');
+        setStep('project');
         setListStates([]);
         setImportedCount(0);
         setImportError('');
-        if (preselectedProjectId) loadLists(preselectedProjectId);
+        const projectId = authorizedProjectId(projects, preselectedProjectId);
+        if (projectId) {
+            setSelectedProjectId(projectId);
+            void loadLists(projectId);
+        } else {
+            setSelectedProjectId('');
+        }
     }
 
     if (!isOpen) return null;

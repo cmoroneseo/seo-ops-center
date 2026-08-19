@@ -8,6 +8,11 @@ import { GooglePropertyPicker } from './GooglePropertyPicker';
 import { BasecampImportModal } from './BasecampImportModal';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
+import { authorizedProjectId } from '@/lib/basecamp/project-selection';
+import {
+    emptyBasecampIntegrationScope,
+    integrationScopeFromCatalog,
+} from '@/lib/basecamp/scope-state';
 
 interface Props {
     clientId: string;
@@ -220,72 +225,115 @@ export function IntegrationsTab({ clientId }: Props) {
         }
     }
 
-    // Load client's existing Basecamp config from custom_fields
+    // Load the authorized catalog and client config as one scope-bound unit.
+    // Config IDs never become actionable until the new organization's catalog
+    // proves that project is allowed.
     useEffect(() => {
-        if (!clientId || !orgId) {
-            setBcConfigured(false);
-            setBcProjects([]);
-            return;
-        }
         let cancelled = false;
+        const emptyScope = emptyBasecampIntegrationScope();
         setBcConfigured(null);
         setBcProjects([]);
-        fetch(`/api/integrations/basecamp/projects?organizationId=${encodeURIComponent(orgId)}`)
-            .then(async r => {
-                if (!r.ok) throw new Error('Unable to load Basecamp projects');
-                return r.json();
-            })
-            .then(d => {
-                if (cancelled) return;
-                setBcConfigured(d.configured ?? false);
-                if (d.projects) setBcProjects(d.projects);
-            })
-            .catch(() => { if (!cancelled) setBcConfigured(false); });
-        return () => { cancelled = true; };
-    }, [clientId, orgId]);
+        setBcProjectId(emptyScope.projectId);
+        setBcTodolists([]);
+        setBcTodolistId(emptyScope.todolistId);
+        setBcSyncEnabled(emptyScope.syncEnabled);
+        setBcTimesheetEnabled(emptyScope.timesheetEnabled);
+        setBcTimesheetCheck(null);
+        setBcImportOpen(emptyScope.importOpen);
 
-    // Load current Basecamp settings from client's custom_fields via API
-    useEffect(() => {
-        if (!clientId || !orgId) return;
-        fetch(`/api/clients/${clientId}/basecamp-config`)
-            .then(r => r.ok ? r.json() : null)
-            .then(d => {
-                if (!d) return;
-                setBcProjectId(d.basecamp_project_id ?? '');
-                setBcTodolistId(d.basecamp_todolist_id ?? '');
-                setBcSyncEnabled(d.basecamp_sync_enabled ?? false);
-                setBcTimesheetEnabled(d.basecamp_timesheet_enabled ?? false);
+        if (!clientId || !orgId) {
+            setBcConfigured(false);
+            return;
+        }
+
+        Promise.all([
+            fetch(`/api/integrations/basecamp/projects?organizationId=${encodeURIComponent(orgId)}`)
+                .then(async response => {
+                    if (!response.ok) throw new Error('Unable to load Basecamp projects');
+                    return response.json() as Promise<{
+                        configured: boolean;
+                        projects: { id: number; name: string }[];
+                    }>;
+                }),
+            fetch(`/api/clients/${clientId}/basecamp-config`)
+                .then(async response => {
+                    if (!response.ok) throw new Error('Unable to load Basecamp config');
+                    return response.json() as Promise<{
+                        basecamp_project_id?: string | number;
+                        basecamp_todolist_id?: string | number;
+                        basecamp_sync_enabled?: boolean;
+                        basecamp_timesheet_enabled?: boolean;
+                    }>;
+                }),
+        ])
+            .then(([catalog, config]) => {
+                if (cancelled) return;
+                const projects = catalog.projects ?? [];
+                setBcConfigured(catalog.configured ?? false);
+                setBcProjects(projects);
+                const nextScope = integrationScopeFromCatalog(projects, config);
+                setBcProjectId(nextScope.projectId);
+                setBcTodolistId(nextScope.todolistId);
+                setBcSyncEnabled(nextScope.syncEnabled);
+                setBcTimesheetEnabled(nextScope.timesheetEnabled);
+                setBcImportOpen(nextScope.importOpen);
             })
-            .catch(() => {});
+            .catch(() => {
+                if (cancelled) return;
+                const failedScope = emptyBasecampIntegrationScope();
+                setBcConfigured(false);
+                setBcProjects([]);
+                setBcProjectId(failedScope.projectId);
+                setBcTodolists([]);
+                setBcTodolistId(failedScope.todolistId);
+                setBcSyncEnabled(failedScope.syncEnabled);
+                setBcTimesheetEnabled(failedScope.timesheetEnabled);
+                setBcTimesheetCheck(null);
+                setBcImportOpen(failedScope.importOpen);
+            });
+        return () => { cancelled = true; };
     }, [clientId, orgId]);
 
     // When project is selected, fetch its todolists
     useEffect(() => {
-        if (!bcProjectId) { setBcTodolists([]); return; }
-        fetch(`/api/integrations/basecamp/todolists?projectId=${bcProjectId}`)
+        const projectId = authorizedProjectId(bcProjects, bcProjectId);
+        if (!projectId) {
+            setBcProjectId('');
+            setBcTodolists([]);
+            setBcTodolistId('');
+            return;
+        }
+        let cancelled = false;
+        setBcTodolists([]);
+        fetch(`/api/integrations/basecamp/todolists?projectId=${projectId}`)
             .then(r => r.json())
-            .then(d => { if (d.todolists) setBcTodolists(d.todolists); })
-            .catch(() => {});
-    }, [bcProjectId]);
+            .then(d => { if (!cancelled && d.todolists) setBcTodolists(d.todolists); })
+            .catch(() => { if (!cancelled) setBcTodolistId(''); });
+        return () => { cancelled = true; };
+    }, [bcProjectId, bcProjects]);
 
     // When time sync is on, check the Basecamp project can actually receive entries
     useEffect(() => {
-        if (!bcProjectId || !bcTimesheetEnabled) { setBcTimesheetCheck(null); return; }
-        fetch(`/api/integrations/basecamp/timesheet?projectId=${bcProjectId}`)
+        const projectId = authorizedProjectId(bcProjects, bcProjectId);
+        if (!projectId || !bcTimesheetEnabled) { setBcTimesheetCheck(null); return; }
+        let cancelled = false;
+        fetch(`/api/integrations/basecamp/timesheet?projectId=${projectId}`)
             .then(r => r.ok ? r.json() : null)
-            .then(d => { if (d) setBcTimesheetCheck(d); })
+            .then(d => { if (!cancelled && d) setBcTimesheetCheck(d); })
             .catch(() => {});
-    }, [bcProjectId, bcTimesheetEnabled]);
+        return () => { cancelled = true; };
+    }, [bcProjectId, bcProjects, bcTimesheetEnabled]);
 
     async function saveBasecampConfig() {
-        if (!orgId || !clientId) return;
+        const projectId = bcProjectId ? authorizedProjectId(bcProjects, bcProjectId) : '';
+        if (!orgId || !clientId || (bcProjectId && !projectId)) return;
         setBcSaving(true);
         try {
             await fetch(`/api/clients/${clientId}/basecamp-config`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    basecamp_project_id: bcProjectId,
+                    basecamp_project_id: projectId,
                     basecamp_todolist_id: bcTodolistId,
                     basecamp_sync_enabled: bcSyncEnabled,
                     basecamp_timesheet_enabled: bcTimesheetEnabled,
@@ -678,6 +726,7 @@ export function IntegrationsTab({ clientId }: Props) {
 
             {bcImportOpen && orgId && (
                 <BasecampImportModal
+                    key={`${orgId}:${clientId}`}
                     isOpen={true}
                     onClose={() => setBcImportOpen(false)}
                     onSuccess={() => setBcImportOpen(false)}

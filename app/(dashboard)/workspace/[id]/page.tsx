@@ -26,7 +26,7 @@ import { Pencil, Play, Pause, ListTodo, Plus } from 'lucide-react';
 import { TaskListView } from '@/components/tasks/TaskListView';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
-import { getTasksByClient, updateTask } from '@/lib/supabase/tasks';
+import { getTasksByClient } from '@/lib/supabase/tasks';
 import { getLoggedHoursByClient } from '@/lib/supabase/time-logs';
 import { Task } from '@/lib/types';
 import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
@@ -63,11 +63,16 @@ export default function ClientDetailPage() {
     };
 
     useEffect(() => {
-        if (!organization) return;
-        getClients(organization.id).then((all) => {
+        const organizationId = organization?.id;
+        if (!organizationId) return;
+        let cancelled = false;
+        setClient(undefined);
+        getClients(organizationId).then((all) => {
+            if (cancelled) return;
             const found = all.find(c => c.id === id);
             setClient(found ?? null);
         });
+        return () => { cancelled = true; };
     }, [organization?.id, id]);
 
     useEffect(() => {
@@ -315,9 +320,12 @@ export default function ClientDetailPage() {
             )}
 
             {/* Integrations tab */}
-            {activeTab === 'integrations' && (
+            {activeTab === 'integrations' && client.organizationId === organization?.id && (
                 <Suspense fallback={null}>
-                    <IntegrationsTab clientId={client.id} />
+                    <IntegrationsTab
+                        key={`${organization.id}:${client.id}`}
+                        clientId={client.id}
+                    />
                 </Suspense>
             )}
 

@@ -33,7 +33,8 @@ import { EventDetailPanel } from '@/components/planner/EventDetailPanel';
 import { MonthGrid } from '@/components/planner/MonthGrid';
 import { PlannerCommandBar } from '@/components/planner/PlannerCommandBar';
 import {
-    PlannerPreferences, DEFAULT_PREFERENCES, loadPreferences, savePreferences, withRecentProject,
+    PlannerPreferences, DEFAULT_PREFERENCES, loadPreferences, recentProjectsForOrganization,
+    savePreferences, withRecentProject,
 } from '@/lib/planner/preferences';
 import { localDateForInstant, parseLocalDate } from '@/lib/planner/local-date';
 import { buildMonthDays } from '@/lib/planner/month-range';
@@ -417,12 +418,17 @@ export default function PlannerPage() {
 
             {selected && (
                 <EventDetailPanel
+                    key={`${organization?.id ?? 'missing-organization'}:${selected.id}`}
                     item={selected}
                     members={members}
                     organizationId={organization?.id}
                     userId={userId}
-                    recentProjects={prefs.recentBasecampProjects}
-                    onProjectUsed={p => updatePrefs(withRecentProject(prefs, p))}
+                    recentProjects={recentProjectsForOrganization(prefs, organization?.id)}
+                    onProjectUsed={p => {
+                        if (organization?.id) {
+                            updatePrefs(withRecentProject(prefs, organization.id, p));
+                        }
+                    }}
                     onClose={() => setSelected(null)}
                     onChanged={() => { setSelected(null); void reloadAll(); }}
                     onDeleted={() => { setSelected(null); void reloadAll(); }}

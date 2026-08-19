@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Check, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { authorizedProjectId, authorizedRecentProjects } from '@/lib/basecamp/project-selection';
 
 export interface BasecampProject {
     id: string;
@@ -77,15 +78,21 @@ export function BasecampProjectPicker({ organizationId, value, recents, onChange
 
     const results = useMemo(() => {
         const q = query.trim().toLowerCase();
-        if (!q) return recents;
+        if (!q) return authorizedRecentProjects(projects, recents);
         return (projects ?? []).filter(p => p.name.toLowerCase().includes(q)).slice(0, 8);
     }, [query, projects, recents]);
 
     const pick = (p: BasecampProject) => {
-        onChange(p);
+        const projectId = authorizedProjectId(projects, p.id);
+        const authorizedProject = projects?.find(project => project.id === projectId);
+        if (!authorizedProject) return;
+        onChange(authorizedProject);
         setQuery('');
         setOpen(false);
     };
+
+    const authorizedValue = projects?.find(project => project.id === value?.id);
+    const authorizedRecents = authorizedRecentProjects(projects, recents);
 
     return (
         <div className="relative" ref={ref}>
@@ -93,8 +100,8 @@ export function BasecampProjectPicker({ organizationId, value, recents, onChange
                 onClick={() => setOpen(o => !o)}
                 className="flex w-full items-center gap-1.5 rounded-md border border-border px-2 py-1 text-left text-[11px] hover:border-primary/40"
             >
-                <span className={cn('min-w-0 flex-1 truncate', !value && 'text-muted-foreground')}>
-                    {value ? value.name : 'Choose a Basecamp project'}
+                <span className={cn('min-w-0 flex-1 truncate', !authorizedValue && 'text-muted-foreground')}>
+                    {authorizedValue ? authorizedValue.name : 'Choose a Basecamp project'}
                 </span>
                 <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
             </button>
@@ -112,7 +119,7 @@ export function BasecampProjectPicker({ organizationId, value, recents, onChange
                         />
                     </div>
 
-                    {!query && recents.length > 0 && (
+                    {!query && authorizedRecents.length > 0 && (
                         <div className="px-2 pt-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
                             Recent
                         </div>
