@@ -9,6 +9,7 @@ import { createPlannerEvent } from '@/lib/supabase/planner-events';
 import { createTask, updateTask } from '@/lib/supabase/tasks';
 import { TeamMember } from './MeetWithFilter';
 import { TaskMentionPicker, matchTasks } from './TaskMentionPicker';
+import { localDateForInstant } from '@/lib/planner/local-date';
 
 type Tab = 'event' | 'task' | 'focus' | 'ooo';
 
@@ -206,7 +207,7 @@ export function QuickCreatePopover({
                 title: trimmed,
                 clientId: clientId || undefined,
                 startDate: draft.startsAt,
-                dueDate: draft.startsAt,
+                dueDate: localDateForInstant(draft.startsAt),
                 scheduledMinutes: blockMinutes,
                 estimatedHours: Number.isFinite(parsedEstimate) && parsedEstimate > 0
                     ? parsedEstimate

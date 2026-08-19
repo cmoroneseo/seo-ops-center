@@ -10,6 +10,7 @@ import { updatePlannerEvent, deletePlannerEvent } from '@/lib/supabase/planner-e
 import {
     createTimeLog, getTimeLogForPlannerEvent, getClientTimesheetSyncEnabled,
 } from '@/lib/supabase/time-logs';
+import { localDateForInstant } from '@/lib/planner/local-date';
 import { durationMinutes } from '@/lib/planner/layout';
 import { TeamMember } from './MeetWithFilter';
 import { BasecampProjectPicker, type BasecampProject } from './BasecampProjectPicker';
@@ -84,7 +85,7 @@ export function EventDetailPanel({
             userId,
             clientId: event.clientId,
             plannerEventId: event.id,
-            date: item.startsAt.slice(0, 10),
+            date: localDateForInstant(item.startsAt),
             hours,
             description: event.title,
             billable: Boolean(event.clientId),

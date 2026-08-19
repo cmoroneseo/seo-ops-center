@@ -35,6 +35,7 @@ import { PlannerCommandBar } from '@/components/planner/PlannerCommandBar';
 import {
     PlannerPreferences, DEFAULT_PREFERENCES, loadPreferences, savePreferences, withRecentProject,
 } from '@/lib/planner/preferences';
+import { parseLocalDate } from '@/lib/planner/local-date';
 
 export default function PlannerPage() {
     const { organization } = useOrganization();
@@ -171,12 +172,11 @@ export default function PlannerPage() {
         // on the grid. Surfaced as all-day chips on today so it stays in view.
         const overdue = prefs.rollOverdueIntoToday
             ? tasks
-                .filter(t =>
-                    t.status !== 'done' &&
-                    !t.startDate &&
-                    t.dueDate &&
-                    isPast(startOfDay(new Date(t.dueDate))) &&
-                    !isToday(new Date(t.dueDate)))
+                .filter(t => {
+                    if (t.status === 'done' || t.startDate || !t.dueDate) return false;
+                    const due = parseLocalDate(t.dueDate) ?? new Date(t.dueDate);
+                    return isPast(startOfDay(due)) && !isToday(due);
+                })
                 .map(t => overdueTaskToItem(t))
             : [];
 
@@ -208,9 +208,11 @@ export default function PlannerPage() {
     );
 
     const todayAndOverdue = useMemo(
-        () => tasks.filter(t =>
-            t.status !== 'done' && t.dueDate &&
-            (isToday(new Date(t.dueDate)) || isPast(new Date(t.dueDate)))),
+        () => tasks.filter(t => {
+            if (t.status === 'done' || !t.dueDate) return false;
+            const due = parseLocalDate(t.dueDate) ?? new Date(t.dueDate);
+            return isToday(due) || isPast(due);
+        }),
         [tasks],
     );
 
