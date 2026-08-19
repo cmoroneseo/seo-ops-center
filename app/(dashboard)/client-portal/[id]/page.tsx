@@ -37,7 +37,9 @@ export default function ClientPortalPage() {
         return <div className="p-8">Client not found.</div>;
     }
 
-    const totalLogged = logs.reduce((s, l) => s + l.hours, 0);
+    // Budget-excluded time (client meetings) must not show as consumed hours —
+    // this is the number the client themselves sees (migration 030).
+    const totalLogged = logs.reduce((s, l) => (l.countsTowardBudget ? s + l.hours : s), 0);
     const totalPlanned = client.seoHours || 0;
     const percentUsed = totalPlanned > 0 ? Math.min((totalLogged / totalPlanned) * 100, 100) : 0;
 

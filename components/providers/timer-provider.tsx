@@ -13,10 +13,13 @@ import {
     updateSessionNotes,
 } from '@/lib/supabase/time-logs';
 import { SessionNote } from '@/lib/types';
+import { getTask, updateTask } from '@/lib/supabase/tasks';
+import { shouldMoveBlockToNow, trackedBlockMinutes } from '@/lib/planner/timer-sync';
 
 export interface ActiveTimer {
     id: string;
-    clientId: string;
+    /** Undefined for internal work — an internal 1:1 has no client. */
+    clientId?: string;
     clientName: string;
     taskId?: string;
     taskTitle?: string;
@@ -31,10 +34,10 @@ interface TimerContextType {
     notes: SessionNote[];
     isRecovering: boolean;
     recoveryTimer: ActiveTimer | null;
-    start: (opts: { clientId: string; clientName: string; taskId?: string; taskTitle?: string }) => Promise<void>;
+    start: (opts: { clientId?: string; clientName: string; taskId?: string; taskTitle?: string; plannerEventId?: string; countsTowardBudget?: boolean }) => Promise<void>;
     pause: () => Promise<void>;
     resume: () => Promise<void>;
-    stop: (opts: { description: string; hours: number; billable: boolean; category?: string; date: string; clientId: string; taskId?: string; syncToBasecamp?: boolean }) => Promise<void>;
+    stop: (opts: { description: string; hours: number; billable: boolean; category?: string; date: string; clientId?: string; taskId?: string; countsTowardBudget?: boolean; syncToBasecamp?: boolean }) => Promise<void>;
     discard: () => Promise<void>;
     addNote: (text: string) => Promise<void>;
     editNote: (id: string, newText: string) => Promise<void>;
@@ -143,10 +146,12 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, [organization?.id]);
 
     const start = useCallback(async (opts: {
-        clientId: string;
+        clientId?: string;
         clientName: string;
         taskId?: string;
         taskTitle?: string;
+        plannerEventId?: string;
+        countsTowardBudget?: boolean;
     }) => {
         if (!organization || !userIdRef.current) return;
         if (timer?.status === 'running') {
@@ -157,10 +162,29 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             userId: userIdRef.current,
             clientId: opts.clientId,
             taskId: opts.taskId,
+            plannerEventId: opts.plannerEventId,
+            countsTowardBudget: opts.countsTowardBudget,
         });
         if (!result.success || !result.id) return;
 
         const now = new Date().toISOString();
+
+        /*
+         * Keep the planner honest: if this task is unscheduled, or was planned
+         * for today, move its block to when work actually began. A plan for
+         * another day is left alone — see lib/planner/timer-sync.ts.
+         */
+        if (opts.taskId) {
+            void (async () => {
+                const { task } = await getTask(opts.taskId!);
+                if (!task) return;
+                if (shouldMoveBlockToNow(task.startDate, new Date(now))) {
+                    const updated = await updateTask(opts.taskId!, { startDate: now });
+                    if (updated.success) window.dispatchEvent(new Event('planner:data-changed'));
+                }
+            })();
+        }
+
         setNotes([]);
         setTimer({
             id: result.id,
@@ -194,12 +218,23 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         billable: boolean;
         category?: string;
         date: string;
-        clientId: string;
+        clientId?: string;
         taskId?: string;
+        // Orthogonal: budget exclusion is about SEO hours, Basecamp push is
+        // about the client's timesheet. A meeting is false for one, true for the other.
+        countsTowardBudget?: boolean;
         syncToBasecamp?: boolean;
     }) => {
         if (!timer) return;
+        const { taskId, elapsedSeconds } = { taskId: timer.taskId, elapsedSeconds: timer.elapsedSeconds };
         await stopTimer(timer.id, opts);
+        // The block should end when you stopped, not when you planned to.
+        if (taskId) {
+            const updated = await updateTask(taskId, {
+                scheduledMinutes: trackedBlockMinutes(elapsedSeconds),
+            });
+            if (updated.success) window.dispatchEvent(new Event('planner:data-changed'));
+        }
         setTimer(null);
         setNotes([]);
     }, [timer]);

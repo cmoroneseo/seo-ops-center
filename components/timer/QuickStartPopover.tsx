@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from 'react';
 import { Play, X } from 'lucide-react';
 import { useTimer } from '@/components/providers/timer-provider';
 import { ClientProject } from '@/lib/types';
+import type { Task } from '@/lib/types';
+import { getTasksByClient } from '@/lib/supabase/tasks';
 
 interface QuickStartPopoverProps {
     clients: ClientProject[];
@@ -14,11 +16,28 @@ export function QuickStartPopover({ clients, onClose }: QuickStartPopoverProps) 
     const { start } = useTimer();
     const [clientId, setClientId] = useState('');
     const [taskId, setTaskId] = useState('');
+    const [tasks, setTasks] = useState<Task[]>([]);
+    const [tasksLoading, setTasksLoading] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
     const selectRef = useRef<HTMLSelectElement>(null);
 
-    const selectedClient = clients.find(c => c.id === clientId);
-    const tasks = selectedClient?.tasks || [];
+    useEffect(() => {
+        setTaskId('');
+        if (!clientId) {
+            setTasks([]);
+            setTasksLoading(false);
+            return;
+        }
+        let cancelled = false;
+        setTasksLoading(true);
+        void getTasksByClient(clientId).then(loaded => {
+            if (!cancelled) {
+                setTasks(loaded);
+                setTasksLoading(false);
+            }
+        });
+        return () => { cancelled = true; };
+    }, [clientId]);
 
     useEffect(() => {
         selectRef.current?.focus();
@@ -78,7 +97,11 @@ export function QuickStartPopover({ clients, onClose }: QuickStartPopoverProps) 
                 ))}
             </select>
 
-            {clientId && tasks.length > 0 && (
+            {clientId && tasksLoading && (
+                <p className="text-xs text-muted-foreground">Loading tasks…</p>
+            )}
+
+            {clientId && !tasksLoading && tasks.length > 0 && (
                 <select
                     value={taskId}
                     onChange={e => setTaskId(e.target.value)}

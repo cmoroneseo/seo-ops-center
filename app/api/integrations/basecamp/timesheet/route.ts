@@ -30,6 +30,20 @@ async function getUser() {
     return user;
 }
 
+async function canManageTimeLog(
+    admin: ReturnType<typeof createAdminClient>,
+    userId: string,
+    organizationId: string,
+): Promise<boolean> {
+    const { data } = await admin
+        .from('organization_members')
+        .select('user_id')
+        .eq('organization_id', organizationId)
+        .eq('user_id', userId)
+        .maybeSingle();
+    return Boolean(data);
+}
+
 const NO_TIMESHEET_HINT =
     'Couldn\'t find the project timesheet in Basecamp. Make sure the Timesheet tool is turned on for the project, '
     + 'then either log one entry directly in Basecamp\'s timesheet once, or link this time entry to a task that\'s synced to Basecamp.';
@@ -85,9 +99,24 @@ export async function POST(req: NextRequest) {
     try {
         if (action === 'remove') {
             const { entryId, timeLogId } = body;
-            if (!entryId) return NextResponse.json({ error: 'entryId required' }, { status: 400 });
+            if (!entryId || !timeLogId) {
+                return NextResponse.json({ error: 'entryId and timeLogId required' }, { status: 400 });
+            }
+            const { data: existing } = await admin
+                .from('time_logs')
+                .select('organization_id, basecamp_entry_id')
+                .eq('id', timeLogId)
+                .maybeSingle();
+            if (!existing) return NextResponse.json({ error: 'Time log not found' }, { status: 404 });
+            if (!await canManageTimeLog(admin, user.id, existing.organization_id)) {
+                return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+            }
+            if (!existing.basecamp_entry_id
+                || String(existing.basecamp_entry_id) !== String(entryId)) {
+                return NextResponse.json({ error: 'Entry does not belong to this time log' }, { status: 409 });
+            }
             const ok = await deleteBasecampTimesheetEntry(entryId);
-            if (ok && timeLogId) {
+            if (ok) {
                 await admin.from('time_logs').update({
                     basecamp_entry_id: null,
                     basecamp_synced_at: null,
@@ -106,10 +135,13 @@ export async function POST(req: NextRequest) {
 
         const { data: log } = await admin
             .from('time_logs')
-            .select('id, organization_id, client_id, user_id, task_id, date, hours, description, status, basecamp_entry_id')
+            .select('id, organization_id, client_id, user_id, task_id, date, hours, description, status, basecamp_entry_id, basecamp_project_id')
             .eq('id', timeLogId)
             .maybeSingle();
         if (!log) return NextResponse.json({ error: 'Time log not found' }, { status: 404 });
+        if (!await canManageTimeLog(admin, user.id, log.organization_id)) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
         if (log.status !== 'logged' || !(Number(log.hours) > 0)) {
             return NextResponse.json({ skipped: true, reason: 'not a logged entry with hours' });
         }
@@ -119,16 +151,44 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ success: false, error: message });
         };
 
-        // Per-client config lives in clients.custom_fields (same as task sync)
-        const { data: client } = await admin
-            .from('clients')
-            .select('custom_fields')
-            .eq('id', log.client_id)
-            .single();
-        const cf = (client?.custom_fields as Record<string, unknown>) ?? {};
-        const projectId = cf.basecamp_project_id as string | undefined;
-        if (!cf.basecamp_sync_enabled || !projectId || !cf.basecamp_timesheet_enabled) {
-            return NextResponse.json({ skipped: true, reason: 'timesheet sync not enabled for this client' });
+        /*
+         * Where does this entry go?
+         *
+         *   client work    → the client's configured Basecamp project
+         *   internal work  → the project chosen on the log itself
+         *
+         * Internal time (a 1:1, admin) has no client, so there is no client
+         * config to read. Those entries carry their own destination — one of
+         * the personal/HQ projects — in time_logs.basecamp_project_id.
+         */
+        let projectId: string | undefined;
+        // Only client projects cache their timesheet recording id (in
+        // clients.custom_fields); internal picks have nowhere to cache it.
+        let cf: Record<string, unknown> = {};
+
+        if (log.client_id) {
+            // Per-client config lives in clients.custom_fields (same as task sync)
+            const { data: client } = await admin
+                .from('clients')
+                .select('custom_fields')
+                .eq('id', log.client_id)
+                .single();
+            cf = (client?.custom_fields as Record<string, unknown>) ?? {};
+            projectId = cf.basecamp_project_id as string | undefined;
+            if (!cf.basecamp_sync_enabled || !projectId || !cf.basecamp_timesheet_enabled) {
+                return NextResponse.json({ skipped: true, reason: 'timesheet sync not enabled for this client' });
+            }
+        } else {
+            projectId = log.basecamp_project_id ? String(log.basecamp_project_id) : undefined;
+            if (!projectId) {
+                return NextResponse.json({ skipped: true, reason: 'no Basecamp project chosen for this internal entry' });
+            }
+            // The client path trusts its stored config; internal picks are made
+            // ad hoc, so confirm the Timesheet tool is actually on first.
+            const enabled = await getBasecampProjectTimesheetEnabled(projectId);
+            if (!enabled) {
+                return failSync('The Timesheet tool is not enabled for that Basecamp project.');
+            }
         }
 
         // Attribute the entry to the right Basecamp person when mapped;
@@ -184,8 +244,9 @@ export async function POST(req: NextRequest) {
         }
         if (!recordingId) {
             recordingId = await findProjectTimesheetRecordingId(projectId);
-            if (recordingId) {
-                // Cache so future syncs skip the discovery round trip
+            // Cache so future syncs skip the discovery round trip. Client-only:
+            // an internal entry has no client row to cache against.
+            if (recordingId && log.client_id) {
                 await admin.from('clients').update({
                     custom_fields: { ...cf, basecamp_timesheet_recording_id: recordingId },
                 }).eq('id', log.client_id);

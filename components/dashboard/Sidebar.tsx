@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, CheckSquare, Briefcase, ClipboardList, PackageCheck } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Briefcase, ClipboardList, PackageCheck, CalendarRange } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export const navigation = [
@@ -10,6 +10,7 @@ export const navigation = [
   { name: 'Workspace', href: '/workspace', icon: Briefcase },
   { name: 'Reports', href: '/reports', icon: ClipboardList },
   { name: 'Tasks', href: '/tasks', icon: CheckSquare },
+  { name: 'Planner', href: '/planner', icon: CalendarRange },
   { name: 'Deliverables', href: '/deliverables', icon: PackageCheck },
 ];
 

@@ -291,10 +291,14 @@ export function MyTimeWidget() {
                 monthTotal += l.hours;
                 const logDate = new Date(l.date + 'T00:00:00');
                 if (logDate >= weekStart) week += l.hours;
-                if (!clientMap[l.clientId]) {
-                    clientMap[l.clientId] = { clientId: l.clientId, clientName: l.clientName || l.clientId, hours: 0 };
+                // Internal work counts toward the totals but has no client to
+                // break down by (migration 030).
+                const clientId = l.clientId;
+                if (!clientId) continue;
+                if (!clientMap[clientId]) {
+                    clientMap[clientId] = { clientId, clientName: l.clientName || clientId, hours: 0 };
                 }
-                clientMap[l.clientId].hours += l.hours;
+                clientMap[clientId].hours += l.hours;
             }
 
             setHoursThisWeek(Math.round(week * 10) / 10);

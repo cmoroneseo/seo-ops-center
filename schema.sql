@@ -994,3 +994,170 @@ create policy "Users can manage their own personal reminders"
   on public.personal_reminders for all
   using      ( user_id = auth.uid() and organization_id in (select get_user_org_ids()) )
   with check ( user_id = auth.uid() and organization_id in (select get_user_org_ids()) );
+-- =============================================================================
+-- 026: Weekly Planner — calendar events + the sidebar Priorities list
+-- =============================================================================
+-- planner_events is NOT strictly personal, unlike personal_notes and
+-- personal_reminders: org members can read each other's non-private events so
+-- the "Meet with <teammate>" filter can show their calendar. Writes stay
+-- owner-only.
+--
+-- Scheduled tasks are NOT duplicated here. A task lands on the grid by having
+-- tasks.start_date set; dragging it writes that column directly.
+-- =============================================================================
+
+create table public.planner_events (
+  id uuid default uuid_generate_v4() primary key,
+  organization_id uuid references public.organizations(id) on delete cascade not null,
+  user_id uuid references public.users(id) on delete cascade not null,
+  title text not null,
+  description text,
+  kind text not null default 'event' check (kind in ('meeting', 'focus', 'ooo', 'lunch', 'event')),
+  starts_at timestamp with time zone not null,
+  ends_at timestamp with time zone not null,
+  all_day boolean not null default false,
+  location text,
+  client_id uuid references public.clients(id) on delete set null,
+  task_id uuid references public.tasks(id) on delete set null,
+  attendee_ids uuid[] not null default '{}',
+  busy boolean not null default true,
+  visibility text not null default 'default' check (visibility in ('default', 'private')),
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  constraint planner_events_ends_after_starts check (ends_at > starts_at)
+);
+
+-- The week-range query: every visible event in an org between two timestamps
+create index planner_events_org_range_idx
+  on public.planner_events (organization_id, starts_at);
+
+-- "My events"
+create index planner_events_user_idx
+  on public.planner_events (user_id, starts_at);
+
+-- "Meet with" teammate filter
+create index planner_events_attendees_idx
+  on public.planner_events using gin (attendee_ids);
+
+alter table public.planner_events enable row level security;
+
+create policy "Org members can read visible planner events"
+  on public.planner_events for select
+  using (
+    organization_id in (select get_user_org_ids())
+    and (visibility = 'default' or user_id = auth.uid())
+  );
+
+create policy "Users can insert their own planner events"
+  on public.planner_events for insert
+  with check ( user_id = auth.uid() and organization_id in (select get_user_org_ids()) );
+
+create policy "Users can update their own planner events"
+  on public.planner_events for update
+  using      ( user_id = auth.uid() and organization_id in (select get_user_org_ids()) )
+  with check ( user_id = auth.uid() and organization_id in (select get_user_org_ids()) );
+
+create policy "Users can delete their own planner events"
+  on public.planner_events for delete
+  using ( user_id = auth.uid() and organization_id in (select get_user_org_ids()) );
+
+-- =============================================================================
+-- planner_priorities — the reorderable Priorities list in the planner rail
+-- =============================================================================
+-- A priority is either a pinned real task (task_id) or free text (label).
+
+create table public.planner_priorities (
+  id uuid default uuid_generate_v4() primary key,
+  organization_id uuid references public.organizations(id) on delete cascade not null,
+  user_id uuid references public.users(id) on delete cascade not null,
+  task_id uuid references public.tasks(id) on delete cascade,
+  label text,
+  sort_order integer not null default 0,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  constraint planner_priorities_needs_target check (task_id is not null or label is not null)
+);
+
+create index planner_priorities_user_idx
+  on public.planner_priorities (user_id, sort_order);
+
+alter table public.planner_priorities enable row level security;
+
+create policy "Users can manage their own planner priorities"
+  on public.planner_priorities for all
+  using      ( user_id = auth.uid() and organization_id in (select get_user_org_ids()) )
+  with check ( user_id = auth.uid() and organization_id in (select get_user_org_ids()) );
+
+-- =============================================================================
+-- 027: tasks.start_date -> timestamptz
+-- =============================================================================
+-- The planner time-blocks tasks on an hour grid, so a task's start needs a time
+-- of day. As a `date` column it silently truncated 9:15 AM to a bare date, and
+-- reading "2026-07-30" back through `new Date(...)` parsed it as UTC midnight —
+-- which renders as the previous evening in any negative-UTC-offset zone (PDT),
+-- so a task dropped on Thursday reappeared on Wednesday.
+--
+-- Existing date values convert to midnight UTC. `tasks.start_date` is read only
+-- by the planner (`lib/planner/items.ts`), so nothing else is affected.
+-- `due_date` stays a date — it is a deadline, not a scheduled block.
+-- =============================================================================
+
+alter table public.tasks
+  alter column start_date type timestamp with time zone
+  using start_date::timestamp with time zone;
+
+-- =============================================================================
+-- 028: tasks.scheduled_minutes — separate "time blocked" from "time estimated"
+-- =============================================================================
+-- The planner sized task blocks from estimated_hours and wrote back to it on
+-- every drag and resize. Those are two different facts: estimated_hours is how
+-- long the work takes, scheduled_minutes is how much of a given day you set
+-- aside for it. Blocking one hour on Tuesday for a three-hour task must not
+-- rewrite the estimate.
+--
+-- Null means "fall back to estimated_hours, then to one hour" — see
+-- lib/planner/items.ts.
+-- =============================================================================
+
+alter table public.tasks
+  add column if not exists scheduled_minutes integer;
+
+-- =============================================================================
+-- 030: time_logs — internal work, budget exclusion, and planner linkage
+-- =============================================================================
+-- Three changes, all driven by how the planner is actually used:
+--
+-- 1. client_id becomes nullable. An internal 1:1 has no client, so it could not
+--    be logged at all before this — the column was NOT NULL.
+--
+-- 2. counts_toward_budget separates "we tracked this" from "this eats the
+--    client's SEO hours". A client meeting is tracked and may well be billable,
+--    but it must not consume deliverable budget. `billable` is a different
+--    question (can we invoice it) and is left alone.
+--
+-- 3. planner_event_id links a log back to the calendar block that produced it,
+--    so an event can show whether its time has been recorded.
+-- =============================================================================
+
+alter table public.time_logs
+  alter column client_id drop not null;
+
+alter table public.time_logs
+  add column if not exists counts_toward_budget boolean not null default true;
+
+alter table public.time_logs
+  add column if not exists planner_event_id uuid
+    references public.planner_events(id) on delete set null;
+
+-- "Has this event been logged yet?" — one row per event in practice.
+create index if not exists time_logs_planner_event_idx
+  on public.time_logs (planner_event_id)
+  where planner_event_id is not null;
+
+-- The budget rollup filters on this, so it pairs with the existing client/date
+-- access pattern.
+create index if not exists time_logs_budget_idx
+  on public.time_logs (client_id, date)
+  where counts_toward_budget = true;
+
+-- Existing rows are all client work logged before meetings were trackable, so
+-- the `true` default is already correct for them.

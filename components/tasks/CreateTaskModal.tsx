@@ -22,6 +22,11 @@ interface CreateTaskModalProps {
     defaultProjectId?: string;
     /** Pre-fill due date (e.g., when clicking a calendar cell) */
     defaultDueDate?: string;
+    /** Pre-fill the title (e.g., handed over from the planner's quick-create) */
+    defaultTitle?: string;
+    /** Pre-fill the scheduled block when opened from the planner grid */
+    defaultStartDate?: string;
+    defaultScheduledMinutes?: number;
     /** Pre-fill all fields from a template */
     templatePrefill?: TaskTemplate;
 }
@@ -52,6 +57,9 @@ export function CreateTaskModal({
     defaultClientName,
     defaultProjectId,
     defaultDueDate,
+    defaultTitle,
+    defaultStartDate,
+    defaultScheduledMinutes,
     templatePrefill,
 }: CreateTaskModalProps) {
     const { organization } = useOrganization();
@@ -97,14 +105,14 @@ export function CreateTaskModal({
                 setCategory(templatePrefill.category ?? '');
                 setRecurrence(templatePrefill.recurrence);
             } else {
-                setTitle('');
+                setTitle(defaultTitle ?? '');
                 setDescription('');
                 setPriority('medium');
                 setCategory('');
                 setRecurrence(undefined);
             }
         }
-    }, [isOpen, defaultDueDate, templatePrefill]);
+    }, [isOpen, defaultDueDate, defaultTitle, templatePrefill]);
 
     // Check if the selected client has Basecamp sync enabled (project required, todolist optional)
     useEffect(() => {
@@ -181,6 +189,9 @@ export function CreateTaskModal({
             status,
             category: category as TaskCategory || undefined,
             dueDate: dueDate || undefined,
+            // Carried over when the planner hands a drafted time block to this modal.
+            startDate: defaultStartDate || undefined,
+            scheduledMinutes: defaultScheduledMinutes,
             createdBy: currentUserId,
             actorName: orgMembers.find(m => m.id === currentUserId)?.name,
             assigneeIds: assigneeIds.length > 0 ? assigneeIds : undefined,

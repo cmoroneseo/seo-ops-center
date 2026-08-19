@@ -111,6 +111,16 @@ https://seo-ops-center.vercel.app
   - `NoteList.tsx`: search (title + stripped HTML body), snippets, relative time, archived toggle; `ConvertToTaskModal.tsx` promotes a note to a real Task via `createTask` and stamps `task_id` (no sync back)
   - New notes auto-title with today's date; archive via `archived_at`, delete is hard with confirm
 
+- **Weekly Planner** (migration 026, Jul 2026):
+  - `/planner` page — ClickUp Planner-style week time-grid with its own left rail (excluded from `showProjectSidebar`, so no `ClientListPanel`); opts out of the `<main>` padding in `app/(dashboard)/layout.tsx`
+  - `planner_events` — org-readable / owner-writable (this is what makes the "Meet with" teammate filter possible), `visibility` `default`/`private`; `planner_priorities` — strictly personal
+  - The grid overlays **three sources** normalized to one `PlannerItem` shape (`lib/planner/items.ts`): `planner_events`, tasks with a `start_date` (sized by `estimated_hours`, default 1h), and pending reminders as all-day chips
+  - Dragging a backlog task writes `tasks.start_date` — no duplicate record, no sync problem
+  - `lib/planner/layout.ts` — pure geometry (interval-graph overlap packing, minute↔pixel, 15-min snap). Only planner module with tests: `node --test lib/planner/layout.test.ts` (15 tests)
+  - `lib/planner/use-planner-drag.ts` — ONE pointer-event hook, one `DragState` union for move/resize/create/schedule; optimistic commits that reload on failure. Hand-rolled, no dnd library
+  - Day/Week/Month views; `Cmd+/` command bar (`Cmd+K` and `Cmd+Shift+T` stay with `TopNav`)
+  - `components/tasks/TaskCalendarView.tsx` is deliberately untouched — the Tasks page month grid is separate code
+
 ## Key files (campaign)
 - `components/campaign/CampaignPlanTab.tsx` — 3-tab orchestrator
 - `components/campaign/sections/SectionCard.tsx` — shared helpers, types, label maps
@@ -136,9 +146,13 @@ https://seo-ops-center.vercel.app
 001–013: init, analytics, time tracking, notes, feedback, tasks V2, notifications
 015: deliverable_commitments (applied Jun 2026)
 019: campaign_plans (applied Jun 2026)
-021: marketing_plans (pending manual apply in Supabase Dashboard)
+021: marketing_plans (applied — verified against the DB Aug 2026)
 024: personal_notes (applied Jul 2026)
-026: basecamp timesheet sync columns on time_logs (pending manual apply in Supabase Dashboard)
+026: basecamp timesheet sync columns on time_logs (applied — verified against the DB Aug 2026)
+027: planner_events + planner_priorities (applied Jul 2026 — renumbered from 026 to clear the collision with 026 above)
+028: tasks.start_date -> timestamptz (applied Jul 2026 — renumbered from 027)
+029: tasks.scheduled_minutes (applied Jul 2026 — renumbered from 028)
+030: time_logs — nullable client_id, counts_toward_budget, planner_event_id (applied Aug 2026)
 
 ## Supabase Storage buckets
 - `client-logos` — public, 1MB max, image types

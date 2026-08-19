@@ -27,6 +27,7 @@ import { TaskListView } from '@/components/tasks/TaskListView';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
 import { getTasksByClient, updateTask } from '@/lib/supabase/tasks';
+import { getLoggedHoursByClient } from '@/lib/supabase/time-logs';
 import { Task } from '@/lib/types';
 import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
 
@@ -43,6 +44,7 @@ export default function ClientDetailPage() {
     const [activityRefreshKey, setActivityRefreshKey] = useState(0);
     const [activeTab, setActiveTab] = useState<Tab>('overview');
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
+    const [loggedHours, setLoggedHours] = useState<number | undefined>(undefined);
     const [tasksLoading, setTasksLoading] = useState(false);
     const [selectedTask, setSelectedTask] = useState<Task | null>(null);
     const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
@@ -76,6 +78,16 @@ export default function ClientDetailPage() {
             setTasksLoading(false);
         });
     }, [activeTab, id]);
+
+    // Budget-consuming hours for this month — excludes internal work and client
+    // meetings flagged as not counting toward budget.
+    useEffect(() => {
+        if (!organization?.id || !id) return;
+        const month = new Date().toISOString().slice(0, 7);
+        getLoggedHoursByClient(organization.id, month).then(byClient => {
+            setLoggedHours(byClient[id] ?? 0);
+        });
+    }, [organization?.id, id]);
 
     if (client === undefined) {
         return <div className="p-8 text-muted-foreground">Loading client...</div>;
@@ -317,7 +329,7 @@ export default function ClientDetailPage() {
             {/* Engagement & Stats */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
-                    <EngagementOverview client={client} />
+                    <EngagementOverview client={client} loggedHours={loggedHours} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                     <div className="p-4 rounded-xl border border-border/50 bg-card flex flex-col justify-center">
