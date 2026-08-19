@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Check, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { authorizedProjectId, authorizedRecentProjects } from '@/lib/basecamp/project-selection';
+import { shouldLoadBasecampProjectCatalog } from '@/lib/basecamp/project-catalog-load';
 
 export interface BasecampProject {
     id: string;
@@ -36,7 +37,12 @@ export function BasecampProjectPicker({ organizationId, value, recents, onChange
     const ref = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        if (!open || projects || isLoading) return;
+        if (!shouldLoadBasecampProjectCatalog({
+            open,
+            hasCatalog: projects !== null,
+            isLoading,
+            error,
+        })) return;
         if (!organizationId) {
             setError('Organization context is required to load Basecamp projects.');
             return;
@@ -58,7 +64,7 @@ export function BasecampProjectPicker({ organizationId, value, recents, onChange
             })
             .catch(() => setError('Couldn\'t load Basecamp projects.'))
             .finally(() => setIsLoading(false));
-    }, [open, projects, isLoading, organizationId]);
+    }, [open, projects, isLoading, error, organizationId]);
 
     useEffect(() => {
         if (!open) return;
@@ -94,10 +100,24 @@ export function BasecampProjectPicker({ organizationId, value, recents, onChange
     const authorizedValue = projects?.find(project => project.id === value?.id);
     const authorizedRecents = authorizedRecentProjects(projects, recents);
 
+    const toggleOpen = () => {
+        if (!open && error) {
+            // Reopening is an explicit retry boundary for a settled failure.
+            setProjects(null);
+            setError(null);
+        }
+        setOpen(current => !current);
+    };
+
+    const retry = () => {
+        setProjects(null);
+        setError(null);
+    };
+
     return (
         <div className="relative" ref={ref}>
             <button
-                onClick={() => setOpen(o => !o)}
+                onClick={toggleOpen}
                 className="flex w-full items-center gap-1.5 rounded-md border border-border px-2 py-1 text-left text-[11px] hover:border-primary/40"
             >
                 <span className={cn('min-w-0 flex-1 truncate', !authorizedValue && 'text-muted-foreground')}>
@@ -130,8 +150,17 @@ export function BasecampProjectPicker({ organizationId, value, recents, onChange
                             <div className="px-2 py-2 text-[11px] text-muted-foreground">Loading projects…</div>
                         )}
                         {error && (
-                            <div className="px-2 py-2 text-[11px] text-destructive">
-                                {error}
+                            <div className="flex items-center justify-between gap-2 px-2 py-2 text-[11px] text-destructive">
+                                <span>{error}</span>
+                                {organizationId && (
+                                    <button
+                                        type="button"
+                                        onClick={retry}
+                                        className="shrink-0 font-medium underline underline-offset-2"
+                                    >
+                                        Retry
+                                    </button>
+                                )}
                             </div>
                         )}
                         {!isLoading && !error && results.length === 0 && (
