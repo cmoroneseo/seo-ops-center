@@ -43,9 +43,10 @@ Migrations 031 and 032 preserve existing bindings and do not rewrite tenant data
   legitimate catalog enumeration; external organizations remain restricted to
   protected existing bindings.
 - Timesheet update/delete first find the protected entry in the authorized project's
-  timesheet collection and verify its parent recording. Create uses only a todo or
-  project-timesheet recording verified under that project. Verified legacy links may
-  be backfilled; unverifiable legacy links are refused.
+  timesheet collection and require its parent to match the already-protected recording
+  tuple. Create uses only a todo or project-timesheet recording verified under that
+  project. Legacy entry links without a protected recording are refused pending an
+  operator provenance audit; provider lookup never auto-adopts their parent.
 - Push create ignores caller provider IDs and uses only the protected configured
   todolist after confirming it exists under the authorized configured project.
 - Import fetches the todo through the authorized project and writes provider title,

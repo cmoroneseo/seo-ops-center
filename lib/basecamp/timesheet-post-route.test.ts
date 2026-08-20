@@ -241,6 +241,38 @@ test('timesheet refuses an entry absent from the authorized project before flat 
     assert.equal(response.status, 409);
 });
 
+test('timesheet refuses provider-found legacy entries without a protected recording tuple', async () => {
+    const { createBasecampTimesheetPost } = await loadRouteModule();
+    for (const action of ['sync', 'remove'] as const) {
+        let mutationCalls = 0;
+        const post = createBasecampTimesheetPost({
+            authorizeTimeLog: async () => clientAuthorization,
+            createStore: () => ({
+                getTimeLog: async () => ({
+                    ...baseLog,
+                    basecampEntryId: '66',
+                    basecampRecordingId: null,
+                }),
+            }),
+            createAccessSource: () => externalSource(),
+            verifyEntry: async () => ({ entryId: '66', recordingId: '77' }),
+            resolveRecording: async () => { throw new Error('recording lookup must not run'); },
+            performAuthorized: async () => {
+                mutationCalls += 1;
+                return Response.json({ success: true });
+            },
+        });
+
+        const response = await post(request({ action, timeLogId: 'log-a', entryId: '66' }));
+
+        assert.equal(response.status, 409);
+        assert.deepEqual(await response.json(), {
+            error: 'Legacy Basecamp entry requires operator provenance audit',
+        });
+        assert.equal(mutationCalls, 0);
+    }
+});
+
 test('timesheet refuses a provider entry whose recording differs from the protected tuple', async () => {
     const { createBasecampTimesheetPost } = await loadRouteModule();
     const post = createBasecampTimesheetPost({

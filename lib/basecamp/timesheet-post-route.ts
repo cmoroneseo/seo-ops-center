@@ -157,10 +157,15 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
                     return json({ error: 'Basecamp entry could not be verified in the authorized project' }, 409);
                 }
                 const protectedRecordingId = numericId(log.basecampRecordingId);
-                if (protectedRecordingId && protectedRecordingId !== verifiedEntry.recordingId) {
+                if (!protectedRecordingId) {
+                    return json({
+                        error: 'Legacy Basecamp entry requires operator provenance audit',
+                    }, 409);
+                }
+                if (protectedRecordingId !== verifiedEntry.recordingId) {
                     return json({ error: 'Basecamp entry recording does not match the protected link' }, 409);
                 }
-                recordingId = verifiedEntry.recordingId;
+                recordingId = protectedRecordingId;
             } else if (action === 'remove') {
                 return json({ error: 'Entry does not belong to this time log' }, 409);
             } else {
