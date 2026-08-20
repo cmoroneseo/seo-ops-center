@@ -438,6 +438,139 @@ create policy "Org members can manage clients"
   using      ( organization_id in (select get_user_org_ids()) )
   with check ( organization_id in (select get_user_org_ids()) );
 
+-- Trust-sensitive provider authorization state remains service-role controlled
+-- even though owners/members may update other organization/client fields. These
+-- guards preserve all existing values and reject only future browser changes.
+create or replace function public.protect_organization_internal_status()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+begin
+  if auth.role() = 'service_role' or session_user in ('postgres', 'supabase_admin') then
+    return new;
+  end if;
+
+  if tg_op = 'INSERT' and new.is_internal is distinct from false then
+    raise exception 'organizations.is_internal is server-controlled'
+      using errcode = '42501';
+  end if;
+
+  if tg_op = 'UPDATE' and new.is_internal is distinct from old.is_internal then
+    raise exception 'organizations.is_internal is server-controlled'
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger protect_organization_internal_status
+  before insert or update on public.organizations
+  for each row execute function public.protect_organization_internal_status();
+
+create or replace function public.protect_client_basecamp_fields()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  old_basecamp_fields jsonb := '{}'::jsonb;
+  new_basecamp_fields jsonb := '{}'::jsonb;
+begin
+  if auth.role() = 'service_role' or session_user in ('postgres', 'supabase_admin') then
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE' then
+    select coalesce(jsonb_object_agg(entry.key, entry.value), '{}'::jsonb)
+      into old_basecamp_fields
+      from jsonb_each(coalesce(old.custom_fields, '{}'::jsonb)) as entry
+      where entry.key like 'basecamp\_%' escape '\';
+  end if;
+
+  select coalesce(jsonb_object_agg(entry.key, entry.value), '{}'::jsonb)
+    into new_basecamp_fields
+    from jsonb_each(coalesce(new.custom_fields, '{}'::jsonb)) as entry
+    where entry.key like 'basecamp\_%' escape '\';
+
+  if new_basecamp_fields is distinct from old_basecamp_fields then
+    raise exception 'clients.custom_fields Basecamp keys are server-controlled'
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger protect_client_basecamp_fields
+  before insert or update of custom_fields on public.clients
+  for each row execute function public.protect_client_basecamp_fields();
+
+create or replace function public.protect_task_basecamp_linkage()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+begin
+  if auth.role() = 'service_role' or session_user in ('postgres', 'supabase_admin') then
+    return new;
+  end if;
+
+  if tg_op = 'INSERT'
+     and (new.basecamp_todo_id is not null or new.basecamp_project_id is not null) then
+    raise exception 'task Basecamp linkage is server-controlled'
+      using errcode = '42501';
+  end if;
+
+  if tg_op = 'UPDATE'
+     and (new.basecamp_todo_id is distinct from old.basecamp_todo_id
+          or new.basecamp_project_id is distinct from old.basecamp_project_id) then
+    raise exception 'task Basecamp linkage is server-controlled'
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger protect_task_basecamp_linkage
+  before insert or update of basecamp_todo_id, basecamp_project_id on public.tasks
+  for each row execute function public.protect_task_basecamp_linkage();
+
+create or replace function public.protect_time_log_basecamp_entry()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+begin
+  if auth.role() = 'service_role' or session_user in ('postgres', 'supabase_admin') then
+    return new;
+  end if;
+
+  if tg_op = 'INSERT' and new.basecamp_entry_id is not null then
+    raise exception 'time log Basecamp entry linkage is server-controlled'
+      using errcode = '42501';
+  end if;
+
+  if tg_op = 'UPDATE'
+     and new.basecamp_entry_id is distinct from old.basecamp_entry_id then
+    raise exception 'time log Basecamp entry linkage is server-controlled'
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger protect_time_log_basecamp_entry
+  before insert or update of basecamp_entry_id on public.time_logs
+  for each row execute function public.protect_time_log_basecamp_entry();
+
 create policy "Org members can manage projects"
   on public.projects for all
   using      ( organization_id in (select get_user_org_ids()) )

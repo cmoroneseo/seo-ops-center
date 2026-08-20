@@ -161,7 +161,7 @@ export function CreateTaskModal({
         setSyncToBasecamp(next);
         if (next && bcProjectId && bcTodolists.length === 0 && !bcLoadingLists) {
             setBcLoadingLists(true);
-            fetch(`/api/integrations/basecamp/todolists?projectId=${bcProjectId}`)
+            fetch(`/api/integrations/basecamp/todolists?organizationId=${encodeURIComponent(organizationId)}&projectId=${bcProjectId}`)
                 .then(r => r.json())
                 .then(d => { if (d.todolists) setBcTodolists(d.todolists); })
                 .catch(() => {})

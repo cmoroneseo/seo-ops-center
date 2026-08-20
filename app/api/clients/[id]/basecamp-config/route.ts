@@ -1,126 +1,78 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import {
+    isBasecampConfigured,
+    listBasecampProjects,
+    listBasecampTodolists,
+} from '@/lib/basecamp/api';
+import { createBasecampConfigHandlers } from '@/lib/basecamp/config-route';
+import { createSupabaseBasecampProjectAccessSource } from '@/lib/basecamp/supabase-project-access-source';
+import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
 import { logClientActivity } from '@/lib/supabase/client-activity';
-import { cookies } from 'next/headers';
 
-async function resolveActor() {
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                get(name: string) { return cookieStore.get(name)?.value; },
-                set(name: string, value: string, options: CookieOptions) { cookieStore.set({ name, value, ...options }); },
-                remove(name: string, options: CookieOptions) { cookieStore.set({ name, value: '', ...options }); },
-            },
+function handlers() {
+    return createBasecampConfigHandlers({
+        authorizeClient: clientId => requireClientIntegrationManager(clientId),
+        createStore() {
+            const admin = createAdminClient();
+            return {
+                async getClient(clientId, organizationId) {
+                    const { data, error } = await admin
+                        .from('clients')
+                        .select('id, name, organization_id, custom_fields')
+                        .eq('id', clientId)
+                        .eq('organization_id', organizationId)
+                        .maybeSingle();
+                    if (error) throw error;
+                    if (!data) return null;
+                    return {
+                        id: data.id,
+                        name: data.name,
+                        organizationId: data.organization_id,
+                        customFields: (data.custom_fields as Record<string, unknown> | null) ?? {},
+                    };
+                },
+                async updateClientCustomFields(clientId, organizationId, customFields) {
+                    const { error } = await admin
+                        .from('clients')
+                        .update({ custom_fields: customFields })
+                        .eq('id', clientId)
+                        .eq('organization_id', organizationId);
+                    return error?.message ?? null;
+                },
+                async logActivity(payload) {
+                    await logClientActivity({
+                        organizationId: payload.organizationId,
+                        clientId: payload.clientId,
+                        eventType: payload.eventType,
+                        actorId: payload.actorId,
+                        actorName: payload.actorName,
+                        metadata: payload.metadata,
+                    });
+                },
+            };
         },
-    );
-    const { data: { user } } = await supabase.auth.getUser();
-    return {
-        user,
-        actorId: user?.id,
-        actorName: user?.user_metadata?.full_name || user?.email || undefined,
-    };
-}
-
-/** GET /api/clients/[id]/basecamp-config — returns current Basecamp config */
-export async function GET(
-    _req: NextRequest,
-    { params }: { params: Promise<{ id: string }> },
-) {
-    const { user } = await resolveActor();
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    const { id } = await params;
-    const admin = createAdminClient();
-    const { data, error } = await admin
-        .from('clients')
-        .select('custom_fields')
-        .eq('id', id)
-        .single();
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 404 });
-
-    const cf = (data?.custom_fields as Record<string, unknown>) ?? {};
-    return NextResponse.json({
-        basecamp_project_id: cf.basecamp_project_id ?? '',
-        basecamp_todolist_id: cf.basecamp_todolist_id ?? '',
-        basecamp_sync_enabled: cf.basecamp_sync_enabled ?? false,
-        basecamp_timesheet_enabled: cf.basecamp_timesheet_enabled ?? false,
+        createAccessSource: () => createSupabaseBasecampProjectAccessSource(createAdminClient()),
+        isConfigured: isBasecampConfigured,
+        listProjects: listBasecampProjects,
+        listTodolists: projectId => listBasecampTodolists(projectId),
     });
 }
 
-/** POST /api/clients/[id]/basecamp-config — saves Basecamp config to custom_fields */
+/** GET /api/clients/[id]/basecamp-config */
+export async function GET(
+    req: NextRequest,
+    { params }: { params: Promise<{ id: string }> },
+) {
+    const { id } = await params;
+    return handlers().get(req, id);
+}
+
+/** POST /api/clients/[id]/basecamp-config */
 export async function POST(
     req: NextRequest,
     { params }: { params: Promise<{ id: string }> },
 ) {
-    const { user, actorId, actorName } = await resolveActor();
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
     const { id } = await params;
-    const body = await req.json();
-    const { basecamp_project_id, basecamp_todolist_id, basecamp_sync_enabled, basecamp_timesheet_enabled } = body;
-
-    const admin = createAdminClient();
-
-    // Read existing custom_fields + client info for activity log
-    const { data: existing } = await admin
-        .from('clients')
-        .select('custom_fields, name, organization_id')
-        .eq('id', id)
-        .single();
-
-    const currentFields = (existing?.custom_fields as Record<string, unknown>) ?? {};
-    const wasEnabled = !!(currentFields.basecamp_sync_enabled);
-    const hadProject = !!(currentFields.basecamp_project_id);
-
-    const updatedFields: Record<string, unknown> = {
-        ...currentFields,
-        basecamp_project_id: basecamp_project_id || null,
-        basecamp_todolist_id: basecamp_todolist_id || null,
-        basecamp_sync_enabled: !!basecamp_sync_enabled,
-        basecamp_timesheet_enabled: !!basecamp_timesheet_enabled,
-    };
-    // The cached timesheet recording ID is project-specific — drop it on project change
-    if (basecamp_project_id !== currentFields.basecamp_project_id) {
-        updatedFields.basecamp_timesheet_recording_id = null;
-    }
-
-    const { error } = await admin
-        .from('clients')
-        .update({ custom_fields: updatedFields })
-        .eq('id', id);
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    // Log activity
-    if (existing?.organization_id) {
-        const isDisabling = wasEnabled && !basecamp_sync_enabled;
-        const isFirstConnect = !hadProject && basecamp_project_id;
-        const eventType = isDisabling
-            ? 'integration.disconnected'
-            : isFirstConnect
-            ? 'integration.connected'
-            : 'integration.reconfigured';
-
-        await logClientActivity({
-            organizationId: existing.organization_id,
-            clientId: id,
-            eventType,
-            actorId,
-            actorName,
-            metadata: {
-                service: 'basecamp',
-                basecamp_project_id: basecamp_project_id || null,
-                basecamp_todolist_id: basecamp_todolist_id || null,
-                sync_enabled: !!basecamp_sync_enabled,
-                timesheet_enabled: !!basecamp_timesheet_enabled,
-            },
-        });
-    }
-
-    return NextResponse.json({ success: true });
+    return handlers().post(req, id);
 }

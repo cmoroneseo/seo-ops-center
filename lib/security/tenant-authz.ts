@@ -18,6 +18,24 @@ type ManageClientAuthorization =
         error: string;
     };
 
+type ManageTaskAuthorization =
+    | (Extract<ManageClientAuthorization, { ok: true }> & { taskId: string })
+    | Extract<ManageClientAuthorization, { ok: false }>;
+
+type ManageTimeLogAuthorization =
+    | {
+        ok: true;
+        userId: string;
+        actorName: string;
+        organizationId: string;
+        clientId: string | null;
+        timeLogId: string;
+        organizationIsInternal: boolean;
+        role: 'owner' | 'admin' | 'member' | 'viewer';
+        canManageIntegrations: boolean;
+    }
+    | Extract<ManageClientAuthorization, { ok: false }>;
+
 type ClientMemberAuthorization =
     | {
         ok: true;
@@ -62,7 +80,8 @@ async function getAuthenticatedActor() {
     };
 }
 
-async function requireClientMember(
+async function requireClientMemberForActor(
+    actor: { id: string; name: string },
     clientIdInput: unknown,
     assertedOrganizationIdInput?: unknown,
 ): Promise<ClientMemberAuthorization> {
@@ -71,11 +90,6 @@ async function requireClientMember(
 
     if (!clientId) {
         return { ok: false, status: 400, error: 'Missing clientId' };
-    }
-
-    const actor = await getAuthenticatedActor();
-    if (!actor) {
-        return { ok: false, status: 401, error: 'Unauthorized' };
     }
 
     const admin = createAdminClient();
@@ -123,6 +137,43 @@ async function requireClientMember(
     };
 }
 
+async function requireClientMember(
+    clientIdInput: unknown,
+    assertedOrganizationIdInput?: unknown,
+): Promise<ClientMemberAuthorization> {
+    const actor = await getAuthenticatedActor();
+    if (!actor) return { ok: false, status: 401, error: 'Unauthorized' };
+    return requireClientMemberForActor(actor, clientIdInput, assertedOrganizationIdInput);
+}
+
+async function requireIntegrationManager(
+    member: Extract<ClientMemberAuthorization, { ok: true }>,
+): Promise<ManageClientAuthorization> {
+    const roleCanManageIntegrations = member.role === 'owner' || member.role === 'admin';
+
+    if (roleCanManageIntegrations) {
+        return { ...member, canManageIntegrations: true };
+    }
+
+    const admin = createAdminClient();
+    const { data: permission, error: permissionError } = await admin
+        .from('organization_member_permissions')
+        .select('can_manage_integrations')
+        .eq('organization_id', member.organizationId)
+        .eq('user_id', member.userId)
+        .maybeSingle();
+
+    if (permissionError) {
+        return { ok: false, status: 500, error: 'Unable to verify integration permission' };
+    }
+
+    if (permission?.can_manage_integrations !== true) {
+        return { ok: false, status: 403, error: 'Forbidden' };
+    }
+
+    return { ...member, canManageIntegrations: true };
+}
+
 /**
  * Verifies that the current Supabase user belongs to the client's organization.
  * The caller may pass an asserted organization id, but authorization is based on
@@ -149,33 +200,116 @@ export async function requireClientIntegrationManager(
         return member;
     }
 
-    const roleCanManageIntegrations = member.role === 'owner' || member.role === 'admin';
+    return requireIntegrationManager(member);
+}
 
-    if (roleCanManageIntegrations) {
+/** Resolves a task to its canonical client and requires integration-manager authority. */
+export async function requireTaskIntegrationManager(
+    taskIdInput: unknown,
+): Promise<ManageTaskAuthorization> {
+    const taskId = normalizeString(taskIdInput);
+    if (!taskId) return { ok: false, status: 400, error: 'Missing taskId' };
+
+    const actor = await getAuthenticatedActor();
+    if (!actor) return { ok: false, status: 401, error: 'Unauthorized' };
+
+    const admin = createAdminClient();
+    const { data: task, error } = await admin
+        .from('tasks')
+        .select('id, organization_id, client_id')
+        .eq('id', taskId)
+        .maybeSingle();
+    if (error) return { ok: false, status: 500, error: 'Unable to verify task access' };
+    if (!task) return { ok: false, status: 404, error: 'Task not found' };
+    if (!task.client_id) return { ok: false, status: 400, error: 'Task has no client' };
+
+    const member = await requireClientMemberForActor(actor, task.client_id, task.organization_id);
+    if (!member.ok) return member;
+    const manager = await requireIntegrationManager(member);
+    return manager.ok ? { ...manager, taskId } : manager;
+}
+
+/** Resolves a time log and requires integration-manager authority in its canonical org. */
+export async function requireTimeLogIntegrationManager(
+    timeLogIdInput: unknown,
+): Promise<ManageTimeLogAuthorization> {
+    const timeLogId = normalizeString(timeLogIdInput);
+    if (!timeLogId) return { ok: false, status: 400, error: 'Missing timeLogId' };
+
+    const actor = await getAuthenticatedActor();
+    if (!actor) return { ok: false, status: 401, error: 'Unauthorized' };
+
+    const admin = createAdminClient();
+    const { data: timeLog, error } = await admin
+        .from('time_logs')
+        .select('id, organization_id, client_id')
+        .eq('id', timeLogId)
+        .maybeSingle();
+    if (error) return { ok: false, status: 500, error: 'Unable to verify time log access' };
+    if (!timeLog) return { ok: false, status: 404, error: 'Time log not found' };
+
+    if (timeLog.client_id) {
+        const member = await requireClientMemberForActor(
+            actor,
+            timeLog.client_id,
+            timeLog.organization_id,
+        );
+        if (!member.ok) return member;
+        const manager = await requireIntegrationManager(member);
+        if (!manager.ok) return manager;
         return {
-            ...member,
-            canManageIntegrations: true,
+            ...manager,
+            timeLogId,
+            organizationIsInternal: false,
         };
     }
 
-    const admin = createAdminClient();
-    const { data: permission, error: permissionError } = await admin
-        .from('organization_member_permissions')
-        .select('can_manage_integrations')
-        .eq('organization_id', member.organizationId)
-        .eq('user_id', member.userId)
+    const { data: membership, error: membershipError } = await admin
+        .from('organization_members')
+        .select('role')
+        .eq('organization_id', timeLog.organization_id)
+        .eq('user_id', actor.id)
         .maybeSingle();
+    if (membershipError) {
+        return { ok: false, status: 500, error: 'Unable to verify organization access' };
+    }
+    if (!membership) return { ok: false, status: 403, error: 'Forbidden' };
 
-    if (permissionError) {
-        return { ok: false, status: 500, error: 'Unable to verify integration permission' };
+    const { data: organization, error: organizationError } = await admin
+        .from('organizations')
+        .select('is_internal')
+        .eq('id', timeLog.organization_id)
+        .maybeSingle();
+    if (organizationError || !organization) {
+        return { ok: false, status: 500, error: 'Unable to verify internal organization' };
+    }
+    if (organization.is_internal !== true) {
+        return {
+            ok: false,
+            status: 403,
+            error: 'Internal Basecamp time requires a trusted internal organization manager',
+        };
     }
 
-    if (permission?.can_manage_integrations !== true) {
-        return { ok: false, status: 403, error: 'Forbidden' };
-    }
-
+    const role = membership.role as 'owner' | 'admin' | 'member' | 'viewer';
+    const manager = await requireIntegrationManager({
+        ok: true,
+        userId: actor.id,
+        actorName: actor.name,
+        organizationId: timeLog.organization_id,
+        clientId: '',
+        role,
+    });
+    if (!manager.ok) return manager;
     return {
-        ...member,
+        ok: true,
+        userId: manager.userId,
+        actorName: manager.actorName,
+        organizationId: manager.organizationId,
+        clientId: null,
+        timeLogId,
+        organizationIsInternal: true,
+        role: manager.role,
         canManageIntegrations: true,
     };
 }

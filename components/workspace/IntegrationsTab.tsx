@@ -297,7 +297,7 @@ export function IntegrationsTab({ clientId }: Props) {
     // When project is selected, fetch its todolists
     useEffect(() => {
         const projectId = authorizedProjectId(bcProjects, bcProjectId);
-        if (!projectId) {
+        if (!projectId || !orgId) {
             setBcProjectId('');
             setBcTodolists([]);
             setBcTodolistId('');
@@ -305,24 +305,24 @@ export function IntegrationsTab({ clientId }: Props) {
         }
         let cancelled = false;
         setBcTodolists([]);
-        fetch(`/api/integrations/basecamp/todolists?projectId=${projectId}`)
+        fetch(`/api/integrations/basecamp/todolists?organizationId=${encodeURIComponent(orgId)}&projectId=${projectId}`)
             .then(r => r.json())
             .then(d => { if (!cancelled && d.todolists) setBcTodolists(d.todolists); })
             .catch(() => { if (!cancelled) setBcTodolistId(''); });
         return () => { cancelled = true; };
-    }, [bcProjectId, bcProjects]);
+    }, [bcProjectId, bcProjects, orgId]);
 
     // When time sync is on, check the Basecamp project can actually receive entries
     useEffect(() => {
         const projectId = authorizedProjectId(bcProjects, bcProjectId);
-        if (!projectId || !bcTimesheetEnabled) { setBcTimesheetCheck(null); return; }
+        if (!projectId || !bcTimesheetEnabled || !orgId) { setBcTimesheetCheck(null); return; }
         let cancelled = false;
-        fetch(`/api/integrations/basecamp/timesheet?projectId=${projectId}`)
+        fetch(`/api/integrations/basecamp/timesheet?organizationId=${encodeURIComponent(orgId)}&projectId=${projectId}`)
             .then(r => r.ok ? r.json() : null)
             .then(d => { if (!cancelled && d) setBcTimesheetCheck(d); })
             .catch(() => {});
         return () => { cancelled = true; };
-    }, [bcProjectId, bcProjects, bcTimesheetEnabled]);
+    }, [bcProjectId, bcProjects, bcTimesheetEnabled, orgId]);
 
     async function saveBasecampConfig() {
         const projectId = bcProjectId ? authorizedProjectId(bcProjects, bcProjectId) : '';

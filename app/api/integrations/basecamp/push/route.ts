@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { cookies } from 'next/headers';
 import {
     isBasecampConfigured,
+    listBasecampTodolists,
+    getBasecampTodo,
     createBasecampTodo,
     completeBasecampTodo,
     reopenBasecampTodo,
@@ -11,121 +11,112 @@ import {
     updateBasecampTodoAssignees,
     updateBasecampTodoDueDate,
 } from '@/lib/basecamp/api';
+import { createBasecampPushPost } from '@/lib/basecamp/push-route';
+import { createSupabaseBasecampProjectAccessSource } from '@/lib/basecamp/supabase-project-access-source';
+import { requireTaskIntegrationManager } from '@/lib/security/tenant-authz';
 
 export const dynamic = 'force-dynamic';
 
-async function getUser() {
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                get(name: string) { return cookieStore.get(name)?.value; },
-                set(name: string, value: string, options: CookieOptions) { cookieStore.set({ name, value, ...options }); },
-                remove(name: string, options: CookieOptions) { cookieStore.set({ name, value: '', ...options }); },
-            },
-        },
-    );
-    const { data: { user } } = await supabase.auth.getUser();
-    return user;
-}
-
-/**
- * POST /api/integrations/basecamp/push
- * Server-side Basecamp push handler. Called from the browser after task operations.
- *
- * Body variants:
- *   { action: 'create_todo', taskId, projectId, todolistId, content, dueOn?, description? }
- *   { action: 'complete_todo', taskId, projectId, todoId }
- *   { action: 'reopen_todo', taskId, projectId, todoId }
- *   { action: 'create_comment', taskId, projectId, todoId, content }
- */
+/** POST /api/integrations/basecamp/push */
 export async function POST(req: NextRequest) {
-    const user = await getUser();
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const post = createBasecampPushPost({
+        authorizeTask: taskId => requireTaskIntegrationManager(taskId),
+        createStore() {
+            const admin = createAdminClient();
+            return {
+                async getTask(taskId, organizationId, clientId) {
+                    const { data, error } = await admin
+                        .from('tasks')
+                        .select('id, organization_id, client_id, title, description, due_date, status, assignee_ids, basecamp_todo_id, basecamp_project_id, clients(custom_fields)')
+                        .eq('id', taskId)
+                        .eq('organization_id', organizationId)
+                        .eq('client_id', clientId)
+                        .maybeSingle();
+                    if (error) throw error;
+                    if (!data) return null;
 
-    if (!isBasecampConfigured()) {
-        return NextResponse.json({ error: 'Basecamp not configured', configured: false }, { status: 503 });
-    }
+                    const clientRelation = Array.isArray(data.clients) ? data.clients[0] : data.clients;
+                    const customFields = (
+                        clientRelation?.custom_fields as Record<string, unknown> | null
+                    ) ?? {};
+                    const assigneeIds = Array.isArray(data.assignee_ids)
+                        ? data.assignee_ids.filter((id): id is string => typeof id === 'string')
+                        : [];
+                    let assigneePersonIds: number[] = [];
+                    if (assigneeIds.length > 0) {
+                        const { data: members, error: memberError } = await admin
+                            .from('organization_members')
+                            .select('user_id, basecamp_person_id')
+                            .eq('organization_id', organizationId)
+                            .in('user_id', assigneeIds);
+                        if (memberError) throw memberError;
+                        assigneePersonIds = (members ?? [])
+                            .map(member => Number(member.basecamp_person_id))
+                            .filter(id => Number.isSafeInteger(id) && id > 0);
+                    }
 
-    const body = await req.json();
-    const { action, taskId } = body;
-    const admin = createAdminClient();
-
-    try {
-        switch (action) {
-            case 'create_todo': {
-                const { projectId, todolistId, content, dueOn, description, assigneePersonIds } = body;
-                const result = await createBasecampTodo(projectId, todolistId, { content, dueOn, description, assigneePersonIds });
-                if (result) {
-                    // Store basecamp_todo_id and basecamp_project_id on the task row
-                    await admin
+                    return {
+                        id: data.id,
+                        organizationId: data.organization_id,
+                        clientId: data.client_id,
+                        title: data.title,
+                        description: data.description,
+                        dueDate: data.due_date,
+                        status: data.status,
+                        basecampTodoId: data.basecamp_todo_id,
+                        basecampProjectId: data.basecamp_project_id,
+                        configuredProjectId: customFields.basecamp_project_id as string | number | null | undefined,
+                        configuredTodolistId: customFields.basecamp_todolist_id as string | number | null | undefined,
+                        syncEnabled: customFields.basecamp_sync_enabled === true,
+                        assigneePersonIds,
+                    };
+                },
+                async updateTaskLink(taskId, organizationId, clientId, projectId, todoId, syncedAt) {
+                    const { error } = await admin
                         .from('tasks')
                         .update({
-                            basecamp_todo_id: result.id,
-                            basecamp_project_id: projectId,
-                            last_synced_at: new Date().toISOString(),
+                            basecamp_todo_id: Number(todoId),
+                            basecamp_project_id: Number(projectId),
+                            last_synced_at: syncedAt,
                         })
-                        .eq('id', taskId);
-                }
-                return NextResponse.json({ success: !!result, todoId: result?.id });
-            }
-
-            case 'complete_todo': {
-                const { projectId, todoId } = body;
-                const ok = await completeBasecampTodo(projectId, todoId);
-                if (ok) {
-                    await admin
+                        .eq('id', taskId)
+                        .eq('organization_id', organizationId)
+                        .eq('client_id', clientId);
+                    return error?.message ?? null;
+                },
+                async markTaskSynced(taskId, organizationId, clientId, syncedAt) {
+                    const { error } = await admin
                         .from('tasks')
-                        .update({ last_synced_at: new Date().toISOString() })
-                        .eq('id', taskId);
-                }
-                return NextResponse.json({ success: ok });
-            }
+                        .update({ last_synced_at: syncedAt })
+                        .eq('id', taskId)
+                        .eq('organization_id', organizationId)
+                        .eq('client_id', clientId);
+                    return error?.message ?? null;
+                },
+            };
+        },
+        createAccessSource: () => createSupabaseBasecampProjectAccessSource(createAdminClient()),
+        provider: {
+            isConfigured: isBasecampConfigured,
+            getTodo: (projectId, todoId) => getBasecampTodo(projectId, todoId),
+            listTodolists: projectId => listBasecampTodolists(projectId),
+            createTodo: (projectId, todolistId, params) => (
+                createBasecampTodo(projectId, todolistId, params)
+            ),
+            completeTodo: (projectId, todoId) => completeBasecampTodo(projectId, todoId),
+            reopenTodo: (projectId, todoId) => reopenBasecampTodo(projectId, todoId),
+            createComment: (projectId, todoId, content) => (
+                createBasecampComment(projectId, todoId, content)
+            ),
+            updateTodoDueDate: (projectId, todoId, dueOn) => (
+                updateBasecampTodoDueDate(projectId, todoId, dueOn)
+            ),
+            updateTodoAssignees: (projectId, todoId, personIds) => (
+                updateBasecampTodoAssignees(projectId, todoId, personIds)
+            ),
+        },
+        now: () => new Date().toISOString(),
+    });
 
-            case 'reopen_todo': {
-                const { projectId, todoId } = body;
-                const ok = await reopenBasecampTodo(projectId, todoId);
-                return NextResponse.json({ success: ok });
-            }
-
-            case 'create_comment': {
-                const { projectId, todoId, content } = body;
-                const commentId = await createBasecampComment(projectId, todoId, content);
-                return NextResponse.json({ success: !!commentId, commentId });
-            }
-
-            case 'update_todo_due_date': {
-                const { projectId, todoId, dueOn } = body;
-                const ok = await updateBasecampTodoDueDate(projectId, todoId, dueOn ?? null);
-                if (ok) {
-                    await admin
-                        .from('tasks')
-                        .update({ last_synced_at: new Date().toISOString() })
-                        .eq('id', taskId);
-                }
-                return NextResponse.json({ success: ok });
-            }
-
-            case 'update_todo_assignees': {
-                const { projectId, todoId, assigneePersonIds } = body;
-                const ok = await updateBasecampTodoAssignees(projectId, todoId, assigneePersonIds ?? []);
-                if (ok) {
-                    await admin
-                        .from('tasks')
-                        .update({ last_synced_at: new Date().toISOString() })
-                        .eq('id', taskId);
-                }
-                return NextResponse.json({ success: ok });
-            }
-
-            default:
-                return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
-        }
-    } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        console.error('[Basecamp push] error:', message);
-        return NextResponse.json({ error: message }, { status: 500 });
-    }
+    return post(req);
 }

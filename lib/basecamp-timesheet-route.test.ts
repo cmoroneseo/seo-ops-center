@@ -7,14 +7,13 @@ const route = readFileSync(
     'utf8',
 );
 
-test('Basecamp time-log mutations require membership in the owning organization', () => {
-    assert.match(route, /async function canManageTimeLog/);
-    assert.match(route, /\.eq\('user_id', userId\)/);
-    assert.match(route, /if \(!await canManageTimeLog\(admin, user\.id, log\.organization_id\)\)/);
+test('Basecamp time-log mutations resolve the canonical log authorization before admin/provider work', () => {
+    assert.match(route, /authorizeTimeLog: timeLogId => requireTimeLogIntegrationManager\(timeLogId\)/);
+    assert.match(route, /createBasecampTimesheetPost/);
+    assert.match(route, /performAuthorized\(body, context\)/);
 });
 
-test('Basecamp entry removal requires a matching owned time log', () => {
-    assert.match(route, /if \(!entryId \|\| !timeLogId\)/);
-    assert.match(route, /existing\.basecamp_entry_id/);
-    assert.match(route, /String\(existing\.basecamp_entry_id\) !== String\(entryId\)/);
+test('Basecamp entry removal delegates only the authorized canonical entry ID', () => {
+    assert.match(route, /deleteBasecampTimesheetEntry\(context\.recordingId!\)/);
+    assert.doesNotMatch(route, /deleteBasecampTimesheetEntry\(body\./);
 });

@@ -107,3 +107,50 @@ test('limits a non-internal organization member to project IDs configured on tha
         { id: 303, name: 'Configured numeric client' },
     ]);
 });
+
+test('shared project guard rejects a cross-organization project before provider access', async () => {
+    const { authorizeBasecampProject } = await loadAccessModule();
+    const result = await authorizeBasecampProject(
+        { userId: 'user-1', organizationId: 'org-customer', projectId: '999' },
+        {
+            findMembership: async () => ({ organizationIsInternal: false }),
+            listConfiguredProjectIds: async () => ['202'],
+        },
+    );
+
+    assert.deepEqual(result, { ok: false, status: 403, error: 'Project is not authorized' });
+});
+
+test('shared project guard authorizes configured external projects and internal catalog projects', async () => {
+    const { authorizeBasecampProject } = await loadAccessModule();
+
+    const external = await authorizeBasecampProject(
+        { userId: 'user-1', organizationId: 'org-customer', projectId: 202 },
+        {
+            findMembership: async () => ({ organizationIsInternal: false }),
+            listConfiguredProjectIds: async () => ['202'],
+        },
+    );
+    const internal = await authorizeBasecampProject(
+        { userId: 'user-1', organizationId: 'org-internal', projectId: '303' },
+        {
+            findMembership: async () => ({ organizationIsInternal: true }),
+            listConfiguredProjectIds: async () => { throw new Error('allowlist must not run'); },
+        },
+    );
+
+    assert.deepEqual(external, {
+        ok: true,
+        organizationId: 'org-customer',
+        projectId: '202',
+        canEnumerateCatalog: false,
+        allowedProjectIds: ['202'],
+    });
+    assert.deepEqual(internal, {
+        ok: true,
+        organizationId: 'org-internal',
+        projectId: '303',
+        canEnumerateCatalog: true,
+        allowedProjectIds: [],
+    });
+});

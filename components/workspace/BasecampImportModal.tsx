@@ -69,14 +69,16 @@ export function BasecampImportModal({
     // Fetch already-imported basecamp_todo_ids for this client (for dedup display)
     const fetchAlreadyImported = useCallback(async (scopeVersion: number) => {
         try {
-            const res = await fetch(`/api/integrations/basecamp/imported-ids?clientId=${clientId}`);
+            const res = await fetch(
+                `/api/integrations/basecamp/imported-ids?clientId=${clientId}&organizationId=${encodeURIComponent(organizationId)}`,
+            );
             if (!res.ok) return;
             const data = await res.json() as { ids: number[] };
             if (scopeVersion === scopeVersionRef.current) {
                 setAlreadyImported(new Set(data.ids));
             }
         } catch { /* non-critical */ }
-    }, [clientId]);
+    }, [clientId, organizationId]);
 
     // Fetch projects on open
     useEffect(() => {
@@ -148,7 +150,9 @@ export function BasecampImportModal({
         setListStates([]);
         setImportError('');
         try {
-            const res = await fetch(`/api/integrations/basecamp/todolists?projectId=${allowedProjectId}`);
+            const res = await fetch(
+                `/api/integrations/basecamp/todolists?organizationId=${encodeURIComponent(organizationId)}&projectId=${allowedProjectId}`,
+            );
             if (!res.ok) throw new Error('Unable to load Basecamp to-do lists');
             const data = await res.json() as { todolists: BasecampTodolist[] };
             if (scopeVersion !== scopeVersionRef.current) return;
@@ -193,7 +197,7 @@ export function BasecampImportModal({
             setListStates(prev => prev.map((s, i) => i === idx ? { ...s, loading: true } : s));
             try {
                 const res = await fetch(
-                    `/api/integrations/basecamp/todos?projectId=${projectId}&todolistId=${ls.todolist.id}&includeCompleted=true`,
+                    `/api/integrations/basecamp/todos?organizationId=${encodeURIComponent(organizationId)}&projectId=${projectId}&todolistId=${ls.todolist.id}`,
                 );
                 const data = await res.json() as { todos: BasecampTodoFull[] };
                 if (scopeVersion !== scopeVersionRef.current) return;

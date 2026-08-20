@@ -3,7 +3,7 @@
  *
  * Authentication: OAuth 2.0 Access Token
  * Requires environment variables:
- *   BASECAMP_ACCESS_TOKEN  — from /api/integrations/basecamp/connect flow
+ *   BASECAMP_ACCESS_TOKEN  — provisioned through the controlled operator secret path
  *   BASECAMP_ACCOUNT_ID    — e.g. 5338018 (from https://3.basecampapi.com/5338018)
  *
  * All calls are server-side only (API routes / Server Actions).
