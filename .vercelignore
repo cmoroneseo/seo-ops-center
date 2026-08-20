@@ -1,0 +1,4 @@
+# Local audit evidence and downloaded production environment data must never be uploaded.
+artifacts/
+.env.local
+.env.*.local
