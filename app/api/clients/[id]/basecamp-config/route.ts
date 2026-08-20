@@ -7,6 +7,7 @@ import {
 } from '@/lib/basecamp/api';
 import { createBasecampConfigHandlers } from '@/lib/basecamp/config-route';
 import { createSupabaseBasecampProjectAccessSource } from '@/lib/basecamp/supabase-project-access-source';
+import { normalizeJsonObject } from '@/lib/basecamp/project-access';
 import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
 import { logClientActivity } from '@/lib/supabase/client-activity';
 
@@ -29,7 +30,7 @@ function handlers() {
                         id: data.id,
                         name: data.name,
                         organizationId: data.organization_id,
-                        customFields: (data.custom_fields as Record<string, unknown> | null) ?? {},
+                        customFields: normalizeJsonObject(data.custom_fields),
                     };
                 },
                 async updateClientCustomFields(clientId, organizationId, customFields) {

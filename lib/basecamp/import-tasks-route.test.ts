@@ -148,10 +148,10 @@ test('authorized import writes the canonical client organization after provider 
         isConfigured: () => true,
         getTodo: async () => ({
             id: 77,
-            title: 'Imported task',
-            due_on: null,
+            title: 'Canonical provider title',
+            due_on: '2026-08-29',
             completed: false,
-            description: '',
+            description: 'Canonical provider description',
             assignees: [],
             app_url: 'https://3.basecamp.test/task/77',
         }),
@@ -171,4 +171,8 @@ test('authorized import writes the canonical client organization after provider 
     assert.equal(insertedRows[0].client_id, 'client-a');
     assert.equal(insertedRows[0].basecamp_project_id, 202);
     assert.equal(insertedRows[0].basecamp_todo_id, 77);
+    assert.equal(insertedRows[0].title, 'Canonical provider title');
+    assert.equal(insertedRows[0].description, 'Canonical provider description');
+    assert.equal(insertedRows[0].due_date, '2026-08-29');
+    assert.equal(insertedRows[0].priority, 'medium');
 });

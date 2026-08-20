@@ -14,6 +14,6 @@ test('Basecamp time-log mutations resolve the canonical log authorization before
 });
 
 test('Basecamp entry removal delegates only the authorized canonical entry ID', () => {
-    assert.match(route, /deleteBasecampTimesheetEntry\(context\.recordingId!\)/);
+    assert.match(route, /deleteBasecampTimesheetEntry\(context\.entryId!\)/);
     assert.doesNotMatch(route, /deleteBasecampTimesheetEntry\(body\./);
 });

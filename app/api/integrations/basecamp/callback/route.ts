@@ -2,8 +2,10 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import {
     createBasecampOAuthHandlers,
+    hashBasecampOAuthState,
     verifyBasecampOAuthState,
 } from '@/lib/basecamp/oauth-route';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 const STATE_COOKIE = 'basecamp_oauth_state';
 
@@ -42,6 +44,7 @@ export async function GET(req: Request) {
     const handlers = createBasecampOAuthHandlers({
         getUserId,
         issueState: () => { throw new Error('not used by callback'); },
+        persistState: async () => false,
         setStateCookie: async () => {},
         async consumeStateCookie() {
             const cookieStore = await cookies();
@@ -60,6 +63,19 @@ export async function GET(req: Request) {
             return secret
                 ? verifyBasecampOAuthState(state, secret, Math.floor(Date.now() / 1000))
                 : null;
+        },
+        async consumePersistedState(state, userId) {
+            const now = new Date().toISOString();
+            const { data, error } = await createAdminClient()
+                .from('basecamp_oauth_states')
+                .update({ consumed_at: now })
+                .eq('state_hash', hashBasecampOAuthState(state))
+                .eq('user_id', userId)
+                .is('consumed_at', null)
+                .gt('expires_at', now)
+                .select('state_hash')
+                .maybeSingle();
+            return !error && Boolean(data);
         },
         getConfiguration,
         async exchangeCode(code, configuration) {

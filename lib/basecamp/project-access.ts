@@ -8,6 +8,12 @@ export interface BasecampProjectAccessSource {
     ): Promise<Array<string | number | null | undefined>>;
 }
 
+export function normalizeJsonObject(value: unknown): Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : {};
+}
+
 export type BasecampProjectAccess =
     | { ok: false; status: 400 | 401 | 403; error: string }
     | {

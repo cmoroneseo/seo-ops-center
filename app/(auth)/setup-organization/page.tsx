@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Building2 } from 'lucide-react';
+import { createOrganizationWithOwner } from '@/lib/security/organization-bootstrap';
 
 export default function SetupOrganizationPage() {
     const [name, setName] = useState('');
@@ -33,37 +34,34 @@ export default function SetupOrganizationPage() {
         setError(null);
 
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) throw new Error('User not found');
-
             const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+            const org = await createOrganizationWithOwner({ name, slug }, {
+                async createOrganization(input) {
+                    const { data, error: orgError } = await supabase
+                        .from('organizations')
+                        .insert([input])
+                        .select()
+                        .single();
+                    if (orgError || !data) {
+                        throw orgError ?? new Error('Organization creation failed');
+                    }
+                    return data;
+                },
+                async bootstrapCurrentUserAsOwner(organizationId) {
+                    const { error: membershipError } = await supabase.rpc(
+                        'bootstrap_organization_owner',
+                        { p_organization_id: organizationId },
+                    );
+                    if (membershipError) throw membershipError;
+                },
+            });
 
-            // 1. Create Organization
-            const { data: org, error: orgError } = await supabase
-                .from('organizations')
-                .insert([{ name, slug }])
-                .select()
-                .single();
-
-            if (orgError) throw orgError;
-
-            // 2. Create Membership (Owner)
-            const { error: memError } = await supabase
-                .from('organization_members')
-                .insert([{
-                    organization_id: org.id,
-                    user_id: user.id,
-                    role: 'owner'
-                }]);
-
-            if (memError) throw memError;
-
-            // 3. Seed Demo Data if requested
+            // Seed Demo Data if requested
             if (shouldSeedDemo) {
                 await seedOrganization(org.id);
             }
 
-            // 4. Update local state and redirect
+            // Update local state and redirect
             setOrganization({
                 id: org.id,
                 name: org.name,

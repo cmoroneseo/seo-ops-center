@@ -42,6 +42,7 @@ const baseLog = {
     description: 'Client work',
     status: 'logged',
     basecampEntryId: null,
+    basecampRecordingId: null,
     selectedBasecampProjectId: null,
     configuredProjectId: '202',
     syncEnabled: true,
@@ -57,6 +58,12 @@ const externalSource = () => ({
     listConfiguredProjectIds: async () => ['202'],
 });
 
+const verifyEntry = async (_projectId: string, entryId: string) => ({
+    entryId,
+    recordingId: '77',
+});
+const resolveRecording = async (_projectId: string, candidate: string | null) => candidate ?? '66';
+
 test('timesheet POST rejects unauthenticated and untrusted internal direct calls before store or provider work', async () => {
     const { createBasecampTimesheetPost } = await loadRouteModule();
     for (const denial of [
@@ -67,6 +74,8 @@ test('timesheet POST rejects unauthenticated and untrusted internal direct calls
             authorizeTimeLog: async () => denial,
             createStore: () => { throw new Error('store must not be created'); },
             createAccessSource: () => { throw new Error('access source must not be created'); },
+            verifyEntry: async () => { throw new Error('provider must not run'); },
+            resolveRecording: async () => { throw new Error('provider must not run'); },
             performAuthorized: async () => { throw new Error('provider work must not run'); },
         });
 
@@ -83,6 +92,8 @@ test('timesheet POST derives client project and task recording from canonical se
         authorizeTimeLog: async () => clientAuthorization,
         createStore: () => ({ getTimeLog: async () => baseLog }),
         createAccessSource: () => externalSource(),
+        verifyEntry,
+        resolveRecording,
         performAuthorized: async (_body, context) => {
             authorizedContext = context as unknown as Record<string, unknown>;
             return Response.json({ success: true });
@@ -109,6 +120,8 @@ test('timesheet POST rejects a client task whose provider link does not match cl
             getTimeLog: async () => ({ ...baseLog, taskBasecampProjectId: '303' }),
         }),
         createAccessSource: () => { throw new Error('access source must not run'); },
+        verifyEntry: async () => { throw new Error('provider must not run'); },
+        resolveRecording: async () => { throw new Error('provider must not run'); },
         performAuthorized: async () => { throw new Error('provider work must not run'); },
     });
 
@@ -144,6 +157,8 @@ test('trusted internal timesheet POST authorizes the selected project through th
             findMembership: async () => ({ organizationIsInternal: true }),
             listConfiguredProjectIds: async () => { throw new Error('allowlist must not run'); },
         }),
+        verifyEntry,
+        resolveRecording,
         performAuthorized: async (_body, context) => {
             projectId = context.projectId;
             return Response.json({ success: true });
@@ -164,6 +179,8 @@ test('timesheet removal requires the caller entry ID to match the canonical time
             getTimeLog: async () => ({ ...baseLog, basecampEntryId: '66' }),
         }),
         createAccessSource: () => externalSource(),
+        verifyEntry: async () => { throw new Error('entry lookup must not run'); },
+        resolveRecording: async () => { throw new Error('recording lookup must not run'); },
         performAuthorized: async () => { throw new Error('provider work must not run'); },
     });
 
@@ -178,9 +195,18 @@ test('timesheet removal re-authorizes the canonical project before provider dele
     const post = createBasecampTimesheetPost({
         authorizeTimeLog: async () => clientAuthorization,
         createStore: () => ({
-            getTimeLog: async () => ({ ...baseLog, basecampEntryId: '66' }),
+            getTimeLog: async () => ({
+                ...baseLog,
+                basecampEntryId: '66',
+                basecampRecordingId: '77',
+            }),
         }),
         createAccessSource: () => externalSource(),
+        verifyEntry: async (projectId, entryId) => {
+            assert.deepEqual([projectId, entryId], ['202', '66']);
+            return { entryId: '66', recordingId: '77' };
+        },
+        resolveRecording: async () => { throw new Error('recording lookup must not run'); },
         performAuthorized: async (_body, context) => {
             projectId = context.projectId;
             return Response.json({ success: true });
@@ -191,4 +217,75 @@ test('timesheet removal re-authorizes the canonical project before provider dele
 
     assert.equal(response.status, 200);
     assert.equal(projectId, '202');
+});
+
+test('timesheet refuses an entry absent from the authorized project before flat account mutation', async () => {
+    const { createBasecampTimesheetPost } = await loadRouteModule();
+    const post = createBasecampTimesheetPost({
+        authorizeTimeLog: async () => clientAuthorization,
+        createStore: () => ({
+            getTimeLog: async () => ({
+                ...baseLog,
+                basecampEntryId: '66',
+                basecampRecordingId: '77',
+            }),
+        }),
+        createAccessSource: () => externalSource(),
+        verifyEntry: async () => null,
+        resolveRecording: async () => { throw new Error('recording lookup must not run'); },
+        performAuthorized: async () => { throw new Error('flat mutation must not run'); },
+    });
+
+    const response = await post(request({ action: 'sync', timeLogId: 'log-a' }));
+
+    assert.equal(response.status, 409);
+});
+
+test('timesheet refuses a provider entry whose recording differs from the protected tuple', async () => {
+    const { createBasecampTimesheetPost } = await loadRouteModule();
+    const post = createBasecampTimesheetPost({
+        authorizeTimeLog: async () => clientAuthorization,
+        createStore: () => ({
+            getTimeLog: async () => ({
+                ...baseLog,
+                basecampEntryId: '66',
+                basecampRecordingId: '77',
+            }),
+        }),
+        createAccessSource: () => externalSource(),
+        verifyEntry: async () => ({ entryId: '66', recordingId: '88' }),
+        resolveRecording: async () => { throw new Error('recording lookup must not run'); },
+        performAuthorized: async () => { throw new Error('flat mutation must not run'); },
+    });
+
+    const response = await post(request({ action: 'sync', timeLogId: 'log-a' }));
+
+    assert.equal(response.status, 409);
+});
+
+test('timesheet verifies a recording under the authorized project before create', async () => {
+    const { createBasecampTimesheetPost } = await loadRouteModule();
+    let recordingId: string | null = null;
+    let resolved = false;
+    const post = createBasecampTimesheetPost({
+        authorizeTimeLog: async () => clientAuthorization,
+        createStore: () => ({ getTimeLog: async () => baseLog }),
+        createAccessSource: () => externalSource(),
+        verifyEntry: async () => { throw new Error('entry lookup must not run'); },
+        resolveRecording: async (projectId, candidate) => {
+            resolved = true;
+            assert.deepEqual([projectId, candidate], ['202', '77']);
+            return '77';
+        },
+        performAuthorized: async (_body, context) => {
+            recordingId = context.recordingId;
+            return Response.json({ success: true });
+        },
+    });
+
+    const response = await post(request({ action: 'sync', timeLogId: 'log-a' }));
+
+    assert.equal(response.status, 200);
+    assert.equal(resolved, true);
+    assert.equal(recordingId, '77');
 });

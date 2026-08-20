@@ -1,5 +1,5 @@
 import type { createAdminClient } from '../supabase/admin';
-import type { BasecampProjectAccessSource } from './project-access.ts';
+import { normalizeJsonObject, type BasecampProjectAccessSource } from './project-access.ts';
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -37,8 +37,8 @@ export function createSupabaseBasecampProjectAccessSource(
 
             if (error) throw error;
             return (clients ?? []).map(client => {
-                const customFields = client.custom_fields as Record<string, unknown> | null;
-                const projectId = customFields?.basecamp_project_id;
+                const customFields = normalizeJsonObject(client.custom_fields);
+                const projectId = customFields.basecamp_project_id;
                 return typeof projectId === 'string' || typeof projectId === 'number'
                     ? projectId
                     : null;

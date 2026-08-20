@@ -51,6 +51,21 @@ type ClientMemberAuthorization =
         error: string;
     };
 
+type OrganizationAdminAuthorization =
+    | {
+        ok: true;
+        userId: string;
+        actorName: string;
+        organizationId: string;
+        organizationName: string;
+        role: 'owner' | 'admin';
+    }
+    | {
+        ok: false;
+        status: 400 | 401 | 403 | 404 | 500;
+        error: string;
+    };
+
 function normalizeString(value: unknown) {
     return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
@@ -184,6 +199,50 @@ export async function requireClientOrgMember(
     assertedOrganizationIdInput?: unknown,
 ): Promise<ClientMemberAuthorization> {
     return requireClientMember(clientIdInput, assertedOrganizationIdInput);
+}
+
+/** Requires an authenticated owner/admin for the canonical organization row. */
+export async function requireOrganizationAdmin(
+    organizationIdInput: unknown,
+): Promise<OrganizationAdminAuthorization> {
+    const organizationId = normalizeString(organizationIdInput);
+    if (!organizationId) return { ok: false, status: 400, error: 'Missing organizationId' };
+
+    const actor = await getAuthenticatedActor();
+    if (!actor) return { ok: false, status: 401, error: 'Unauthorized' };
+
+    const admin = createAdminClient();
+    const { data: membership, error: membershipError } = await admin
+        .from('organization_members')
+        .select('role')
+        .eq('organization_id', organizationId)
+        .eq('user_id', actor.id)
+        .maybeSingle();
+    if (membershipError) {
+        return { ok: false, status: 500, error: 'Unable to verify organization access' };
+    }
+    if (!membership || !['owner', 'admin'].includes(membership.role)) {
+        return { ok: false, status: 403, error: 'Forbidden' };
+    }
+
+    const { data: organization, error: organizationError } = await admin
+        .from('organizations')
+        .select('id, name')
+        .eq('id', organizationId)
+        .maybeSingle();
+    if (organizationError) {
+        return { ok: false, status: 500, error: 'Unable to verify organization' };
+    }
+    if (!organization) return { ok: false, status: 404, error: 'Organization not found' };
+
+    return {
+        ok: true,
+        userId: actor.id,
+        actorName: actor.name,
+        organizationId: organization.id,
+        organizationName: organization.name,
+        role: membership.role as 'owner' | 'admin',
+    };
 }
 
 /**

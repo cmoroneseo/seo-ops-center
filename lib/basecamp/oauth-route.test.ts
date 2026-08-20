@@ -43,8 +43,10 @@ test('Basecamp connect rejects unauthenticated callers before issuing state', as
     const handlers = createBasecampOAuthHandlers({
         getUserId: async () => null,
         issueState: () => { throw new Error('state must not be issued'); },
+        persistState: async () => { throw new Error('state must not be persisted'); },
         setStateCookie: async () => { throw new Error('cookie must not be set'); },
         consumeStateCookie: async () => null,
+        consumePersistedState: async () => { throw new Error('ledger must not be reached'); },
         verifyState: () => null,
         getConfiguration: () => { throw new Error('configuration must not be read'); },
         exchangeCode: async () => { throw new Error('provider must not be called'); },
@@ -63,6 +65,7 @@ test('Basecamp callback rejects missing, mismatched, replayed, and wrong-user st
     const handlers = createBasecampOAuthHandlers({
         getUserId: async () => 'user-1',
         issueState: () => validState,
+        persistState: async () => true,
         setStateCookie: async () => {},
         consumeStateCookie: async () => {
             const value = cookie;
@@ -75,6 +78,7 @@ test('Basecamp callback rejects missing, mismatched, replayed, and wrong-user st
             nonce: 'nonce-1',
             exp: 1_600,
         } : null,
+        consumePersistedState: async () => true,
         getConfiguration: () => ({ clientId: 'client', clientSecret: 'secret', redirectUri: 'https://seo-ops.test/callback' }),
         exchangeCode: async () => { exchanges += 1; return { accessToken: 'access', refreshToken: 'refresh' }; },
     });
@@ -102,9 +106,11 @@ test('Basecamp callback rejects missing, mismatched, replayed, and wrong-user st
     const wrongUserHandlers = createBasecampOAuthHandlers({
         getUserId: async () => 'user-2',
         issueState: () => validState,
+        persistState: async () => true,
         setStateCookie: async () => {},
         consumeStateCookie: async () => { const value = cookie; cookie = null; return value; },
         verifyState: () => ({ userId: 'user-1', returnTo: '/settings', nonce: 'nonce-1', exp: 1_600 }),
+        consumePersistedState: async () => true,
         getConfiguration: () => ({ clientId: 'client', clientSecret: 'secret', redirectUri: 'https://seo-ops.test/callback' }),
         exchangeCode: async () => { exchanges += 1; return { accessToken: 'access', refreshToken: 'refresh' }; },
     });
@@ -120,9 +126,11 @@ test('successful callback never returns provider credentials in its response', a
     const handlers = createBasecampOAuthHandlers({
         getUserId: async () => 'user-1',
         issueState: () => 'signed-state',
+        persistState: async () => true,
         setStateCookie: async () => {},
         consumeStateCookie: async () => 'signed-state',
         verifyState: () => ({ userId: 'user-1', returnTo: '/settings', nonce: 'nonce-1', exp: 1_600 }),
+        consumePersistedState: async () => true,
         getConfiguration: () => ({ clientId: 'client', clientSecret: 'secret', redirectUri: 'https://seo-ops.test/callback' }),
         exchangeCode: async () => ({ accessToken: 'access-secret', refreshToken: 'refresh-secret' }),
     });
@@ -135,4 +143,44 @@ test('successful callback never returns provider credentials in its response', a
     assert.equal(response.status, 503);
     assert.doesNotMatch(text, /access-secret|refresh-secret/);
     assert.match(text, /secure operator provisioning/i);
+});
+
+test('Basecamp OAuth durable ledger rejects replay across independent callback instances', async () => {
+    const { createBasecampOAuthHandlers } = await loadOAuthModule();
+    const state = 'signed-state';
+    const ledger = new Set<string>();
+    let exchanges = 0;
+    const dependencies = () => ({
+        getUserId: async () => 'user-1',
+        issueState: () => state,
+        persistState: async (value: string) => {
+            ledger.add(value);
+            return true;
+        },
+        setStateCookie: async () => {},
+        consumeStateCookie: async () => state,
+        verifyState: () => ({ userId: 'user-1', returnTo: '/settings', nonce: 'nonce-1', exp: 1_600 }),
+        consumePersistedState: async (value: string) => ledger.delete(value),
+        getConfiguration: () => ({
+            clientId: 'client',
+            clientSecret: 'secret',
+            redirectUri: 'https://seo-ops.test/callback',
+        }),
+        exchangeCode: async () => {
+            exchanges += 1;
+            return { accessToken: 'access', refreshToken: 'refresh' };
+        },
+    });
+
+    const connect = createBasecampOAuthHandlers(dependencies());
+    assert.equal((await connect.connect(new Request(
+        'https://seo-ops.test/api/integrations/basecamp/connect',
+    ))).status, 302);
+
+    const callbackUrl = `https://seo-ops.test/api/integrations/basecamp/callback?code=code&state=${state}`;
+    const firstInstance = createBasecampOAuthHandlers(dependencies());
+    const secondInstance = createBasecampOAuthHandlers(dependencies());
+    assert.equal((await firstInstance.callback(new Request(callbackUrl))).status, 503);
+    assert.equal((await secondInstance.callback(new Request(callbackUrl))).status, 400);
+    assert.equal(exchanges, 1);
 });

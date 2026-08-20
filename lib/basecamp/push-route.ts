@@ -137,8 +137,8 @@ export function createBasecampPushPost(dependencies: Dependencies) {
             }
 
             if (isCreate) {
-                const todolistId = numericId(body.todolistId ?? task.configuredTodolistId);
-                if (!todolistId) return json({ error: 'Valid todolistId required' }, 400);
+                const todolistId = numericId(task.configuredTodolistId);
+                if (!todolistId) return json({ error: 'Task has no authorized Basecamp todolist' }, 409);
                 const todolists = await dependencies.provider.listTodolists(projectId);
                 if (!todolists.some(list => String(list.id) === todolistId)) {
                     return json({ error: 'Todolist is not authorized' }, 403);

@@ -6,6 +6,8 @@ import {
     isBasecampConfigured,
     getBasecampProjectTimesheetEnabled,
     findProjectTimesheetRecordingId,
+    getBasecampProjectTimesheetEntry,
+    getBasecampTodo,
     createBasecampTimesheetEntry,
     updateBasecampTimesheetEntry,
     deleteBasecampTimesheetEntry,
@@ -13,6 +15,7 @@ import {
 import { createBasecampTimesheetGet } from '@/lib/basecamp/resource-routes';
 import { createBasecampTimesheetPost } from '@/lib/basecamp/timesheet-post-route';
 import { createSupabaseBasecampProjectAccessSource } from '@/lib/basecamp/supabase-project-access-source';
+import { normalizeJsonObject } from '@/lib/basecamp/project-access';
 import { requireTimeLogIntegrationManager } from '@/lib/security/tenant-authz';
 
 export const dynamic = 'force-dynamic';
@@ -33,10 +36,6 @@ async function getUser() {
     const { data: { user } } = await supabase.auth.getUser();
     return user;
 }
-
-const NO_TIMESHEET_HINT =
-    'Couldn\'t find the project timesheet in Basecamp. Make sure the Timesheet tool is turned on for the project, '
-    + 'then either log one entry directly in Basecamp\'s timesheet once, or link this time entry to a task that\'s synced to Basecamp.';
 
 /** GET /api/integrations/basecamp/timesheet?organizationId=&projectId= */
 export async function GET(req: NextRequest) {
@@ -61,7 +60,7 @@ export async function POST(req: NextRequest) {
                 async getTimeLog(timeLogId, organizationId, clientId) {
                     let query = admin
                         .from('time_logs')
-                        .select('id, organization_id, client_id, user_id, task_id, date, hours, description, status, basecamp_entry_id, basecamp_project_id')
+                        .select('id, organization_id, client_id, user_id, task_id, date, hours, description, status, basecamp_entry_id, basecamp_project_id, basecamp_recording_id')
                         .eq('id', timeLogId)
                         .eq('organization_id', organizationId);
                     query = clientId ? query.eq('client_id', clientId) : query.is('client_id', null);
@@ -79,9 +78,7 @@ export async function POST(req: NextRequest) {
                             .maybeSingle();
                         if (clientError) throw clientError;
                         if (!client) return null;
-                        clientCustomFields = (
-                            client.custom_fields as Record<string, unknown> | null
-                        ) ?? {};
+                        clientCustomFields = normalizeJsonObject(client.custom_fields);
                     }
 
                     let taskBasecampTodoId: string | number | null = null;
@@ -123,6 +120,7 @@ export async function POST(req: NextRequest) {
                         description: log.description,
                         status: log.status,
                         basecampEntryId: log.basecamp_entry_id,
+                        basecampRecordingId: log.basecamp_recording_id,
                         selectedBasecampProjectId: log.basecamp_project_id,
                         configuredProjectId: (
                             clientCustomFields.basecamp_project_id as string | number | null | undefined
@@ -141,6 +139,25 @@ export async function POST(req: NextRequest) {
             };
         },
         createAccessSource: () => createSupabaseBasecampProjectAccessSource(createAdminClient()),
+        async verifyEntry(projectId, entryId) {
+            const entry = await getBasecampProjectTimesheetEntry(projectId, entryId);
+            const recordingId = Number(entry?.parent?.id);
+            return entry && Number.isSafeInteger(recordingId) && recordingId > 0
+                ? { entryId: String(entry.id), recordingId: String(recordingId) }
+                : null;
+        },
+        async resolveRecording(projectId, candidateRecordingId) {
+            if (candidateRecordingId) {
+                const todo = await getBasecampTodo(projectId, candidateRecordingId);
+                if (todo && String(todo.id) === candidateRecordingId) return candidateRecordingId;
+            }
+            const projectRecordingId = await findProjectTimesheetRecordingId(projectId);
+            if (!projectRecordingId) return null;
+            const normalizedProjectRecordingId = String(projectRecordingId);
+            return !candidateRecordingId || candidateRecordingId === normalizedProjectRecordingId
+                ? normalizedProjectRecordingId
+                : null;
+        },
         async performAuthorized(body, context) {
             if (!isBasecampConfigured()) {
                 return NextResponse.json({ error: 'Basecamp not configured', configured: false }, { status: 503 });
@@ -149,10 +166,11 @@ export async function POST(req: NextRequest) {
             const admin = createAdminClient();
             const { log } = context;
             if (body.action === 'remove') {
-                const ok = await deleteBasecampTimesheetEntry(context.recordingId!);
+                const ok = await deleteBasecampTimesheetEntry(context.entryId!);
                 if (ok) {
                     await admin.from('time_logs').update({
                         basecamp_entry_id: null,
+                        basecamp_recording_id: null,
                         basecamp_synced_at: null,
                         basecamp_sync_error: null,
                     }).eq('id', log.id).eq('organization_id', log.organizationId);
@@ -182,6 +200,7 @@ export async function POST(req: NextRequest) {
                 const result = await updateBasecampTimesheetEntry(log.basecampEntryId, entryFields);
                 if (result === 'ok') {
                     await admin.from('time_logs').update({
+                        basecamp_recording_id: Number(context.recordingId),
                         basecamp_synced_at: new Date().toISOString(),
                         basecamp_sync_error: null,
                     }).eq('id', log.id).eq('organization_id', log.organizationId);
@@ -194,23 +213,15 @@ export async function POST(req: NextRequest) {
                 return NextResponse.json({ skipped: true, reason: 'not synced yet' });
             }
 
-            let recordingId = context.recordingId ? Number(context.recordingId) : null;
-            if (!recordingId && !log.clientId) {
-                const enabled = await getBasecampProjectTimesheetEnabled(projectId);
-                if (!enabled) return failSync('The Timesheet tool is not enabled for that Basecamp project.');
+            const recordingId = Number(context.recordingId);
+            if (log.clientId) {
+                await admin.from('clients').update({
+                    custom_fields: {
+                        ...(log.clientCustomFields ?? {}),
+                        basecamp_timesheet_recording_id: recordingId,
+                    },
+                }).eq('id', log.clientId).eq('organization_id', log.organizationId);
             }
-            if (!recordingId) {
-                recordingId = await findProjectTimesheetRecordingId(projectId);
-                if (recordingId && log.clientId) {
-                    await admin.from('clients').update({
-                        custom_fields: {
-                            ...(log.clientCustomFields ?? {}),
-                            basecamp_timesheet_recording_id: recordingId,
-                        },
-                    }).eq('id', log.clientId).eq('organization_id', log.organizationId);
-                }
-            }
-            if (!recordingId) return failSync(NO_TIMESHEET_HINT);
 
             const created = await createBasecampTimesheetEntry(recordingId, entryFields);
             if (!created) {
@@ -220,6 +231,7 @@ export async function POST(req: NextRequest) {
             await admin.from('time_logs').update({
                 basecamp_entry_id: created.id,
                 basecamp_project_id: Number(projectId),
+                basecamp_recording_id: recordingId,
                 basecamp_synced_at: new Date().toISOString(),
                 basecamp_sync_error: null,
             }).eq('id', log.id).eq('organization_id', log.organizationId);

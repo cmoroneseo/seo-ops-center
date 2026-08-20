@@ -1,56 +1,58 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { createHash, randomBytes } from 'node:crypto';
+import { NextRequest } from 'next/server';
 import { Resend } from 'resend';
+import { createInvitePost } from '@/lib/security/invite-route';
+import { requireOrganizationAdmin } from '@/lib/security/tenant-authz';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { teamInviteEmail } from '@/lib/email/templates';
 
 export async function POST(req: NextRequest) {
-    const resend = new Resend(process.env.RESEND_API_KEY);
-    try {
-        const { email, organizationId, organizationName, invitedByName } = await req.json();
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://seo-ops-center.vercel.app';
 
-        if (!email || !organizationName || !organizationId) {
-            return NextResponse.json({ error: 'Email, organizationId and organizationName are required' }, { status: 400 });
-        }
-
-        const supabase = createAdminClient();
-        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://seo-ops-center.vercel.app';
-
-        // Embed organizationId in the redirectTo so the callback can auto-assign org membership
-        const { data, error } = await supabase.auth.admin.generateLink({
-            type: 'invite',
-            email,
-            options: {
-                redirectTo: `${siteUrl}/auth/callback?org=${organizationId}`,
-            },
-        });
-
-        if (error) {
-            console.error('Supabase generateLink error:', error);
-            return NextResponse.json({ error: error.message }, { status: 400 });
-        }
-
-        const inviteUrl = data?.properties?.action_link;
-
-        if (!inviteUrl) {
-            return NextResponse.json({ error: 'Failed to generate invite link' }, { status: 500 });
-        }
-
-        // Send branded email via Resend
-        const { error: emailError } = await resend.emails.send({
-            from: 'SEO Ops Command Center <onboarding@resend.dev>',
-            to: email,
-            subject: `You're invited to join ${organizationName} on SEO Ops`,
-            html: teamInviteEmail({ inviteUrl, organizationName, invitedByName }),
-        });
-
-        if (emailError) {
-            console.error('Resend error:', emailError);
-            return NextResponse.json({ error: 'Failed to send invitation email' }, { status: 500 });
-        }
-
-        return NextResponse.json({ success: true });
-    } catch (err: any) {
-        console.error('Invite API error:', err);
-        return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
-    }
+    return createInvitePost({
+        authorizeInviter: requireOrganizationAdmin,
+        randomToken: () => randomBytes(32).toString('base64url'),
+        hashToken: (token) => createHash('sha256').update(token).digest('hex'),
+        async createInvite(input) {
+            const { error } = await createAdminClient().from('organization_invites').insert({
+                token_hash: input.tokenHash,
+                organization_id: input.organizationId,
+                email: input.email,
+                role: input.role,
+                invited_by: input.invitedBy,
+                expires_at: input.expiresAt,
+            });
+            if (error) throw error;
+        },
+        async revokeInvite(tokenHash) {
+            await createAdminClient()
+                .from('organization_invites')
+                .delete()
+                .eq('token_hash', tokenHash);
+        },
+        async generateAuthLink(email, redirectTo) {
+            const { data, error } = await createAdminClient().auth.admin.generateLink({
+                type: 'invite',
+                email,
+                options: { redirectTo },
+            });
+            if (error) throw error;
+            return data?.properties?.action_link ?? null;
+        },
+        async sendInviteEmail(input) {
+            const { error } = await new Resend(process.env.RESEND_API_KEY).emails.send({
+                from: 'SEO Ops Command Center <onboarding@resend.dev>',
+                to: input.to,
+                subject: `You're invited to join ${input.organizationName} on SEO Ops`,
+                html: teamInviteEmail({
+                    inviteUrl: input.inviteUrl,
+                    organizationName: input.organizationName,
+                    invitedByName: input.invitedByName,
+                }),
+            });
+            if (error) throw error;
+        },
+        siteUrl,
+        now: () => new Date(),
+    })(req);
 }

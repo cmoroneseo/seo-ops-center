@@ -56,6 +56,35 @@ create table public.organization_members (
   unique(organization_id, user_id)
 );
 
+-- Durable, one-time organization onboarding grants. No browser policies are
+-- defined; creation and consumption happen only through authorized server paths.
+create table public.organization_invites (
+  id uuid default uuid_generate_v4() primary key,
+  token_hash text not null unique check (length(token_hash) = 64),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  email text not null check (email = lower(btrim(email))),
+  role text not null default 'member' check (role in ('member', 'viewer')),
+  invited_by uuid not null references public.users(id) on delete cascade,
+  expires_at timestamp with time zone not null,
+  consumed_at timestamp with time zone,
+  consumed_by uuid references public.users(id) on delete set null,
+  created_at timestamp with time zone not null default timezone('utc'::text, now())
+);
+create index organization_invites_expiry_idx
+  on public.organization_invites (expires_at) where consumed_at is null;
+
+-- OAuth state is persisted so callback replay is rejected across instances.
+create table public.basecamp_oauth_states (
+  state_hash text primary key check (length(state_hash) = 64),
+  user_id uuid not null references public.users(id) on delete cascade,
+  return_to text not null,
+  expires_at timestamp with time zone not null,
+  consumed_at timestamp with time zone,
+  created_at timestamp with time zone not null default timezone('utc'::text, now())
+);
+create index basecamp_oauth_states_expiry_idx
+  on public.basecamp_oauth_states (expires_at) where consumed_at is null;
+
 -- 4. Clients/Companies (Belong to an Organization)
 -- The master "Client Overview" record (also absorbs Client Campaigns + Analytics
 -- Map fields). Derived values (actual blogs due, delivered, on-track status) are
@@ -215,6 +244,8 @@ create table public.time_logs (
   -- migration 026: Basecamp timesheet sync
   basecamp_entry_id bigint,
   basecamp_project_id bigint,
+  -- migration 032: protected provider recording provenance
+  basecamp_recording_id bigint,
   basecamp_synced_at timestamp with time zone,
   basecamp_sync_error text
 );
@@ -353,6 +384,8 @@ create index commitment_change_log_client_idx on public.commitment_change_log (c
 -- =============================================================================
 alter table public.organizations        enable row level security;
 alter table public.organization_members enable row level security;
+alter table public.organization_invites enable row level security;
+alter table public.basecamp_oauth_states enable row level security;
 alter table public.users                enable row level security;
 alter table public.clients              enable row level security;
 alter table public.projects             enable row level security;
@@ -398,7 +431,7 @@ create policy "Creators can view their organizations"
 create policy "Authenticated users can create organizations"
   on public.organizations for insert
   to authenticated
-  with check ( true );
+  with check ( created_by = auth.uid() and is_internal = false );
 
 create policy "Owners can update their own organizations"
   on public.organizations for update
@@ -414,11 +447,87 @@ create policy "Users can view members in their organizations"
   on public.organization_members for select
   using ( organization_id in (select get_user_org_ids()) );
 
--- Bootstrap: a brand-new user can insert their own (owner) membership during setup.
-create policy "Authenticated users can join organizations during setup"
-  on public.organization_members for insert
-  to authenticated
-  with check ( auth.uid() = user_id );
+-- Owner bootstrap is deliberately narrower than an INSERT policy: the function
+-- fixes user and role and accepts only an organization created by that user.
+create or replace function public.bootstrap_organization_owner(p_organization_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  organization public.organizations%rowtype;
+begin
+  if auth.uid() is null then
+    raise exception 'authentication required' using errcode = '42501';
+  end if;
+
+  select * into organization
+  from public.organizations
+  where id = p_organization_id
+  for update;
+  if not found or organization.created_by is distinct from auth.uid() then
+    raise exception 'organization owner bootstrap denied' using errcode = '42501';
+  end if;
+
+  if exists (
+    select 1 from public.organization_members
+    where organization_id = p_organization_id
+  ) then
+    raise exception 'organization owner already bootstrapped' using errcode = '42501';
+  end if;
+
+  insert into public.organization_members (organization_id, user_id, role)
+  values (p_organization_id, auth.uid(), 'owner');
+end;
+$$;
+revoke all on function public.bootstrap_organization_owner(uuid) from public, anon;
+grant execute on function public.bootstrap_organization_owner(uuid) to authenticated;
+
+create or replace function public.consume_organization_invite(
+  p_token_hash text,
+  p_user_id uuid,
+  p_email text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  invitation public.organization_invites%rowtype;
+begin
+  if auth.role() is distinct from 'service_role'
+     and session_user not in ('postgres', 'supabase_admin') then
+    raise exception 'service role required' using errcode = '42501';
+  end if;
+
+  select * into invitation
+  from public.organization_invites
+  where token_hash = p_token_hash
+  for update;
+
+  if not found
+     or invitation.consumed_at is not null
+     or invitation.expires_at <= now()
+     or p_email is null
+     or invitation.email <> lower(btrim(p_email)) then
+    return false;
+  end if;
+
+  insert into public.organization_members (organization_id, user_id, role)
+  values (invitation.organization_id, p_user_id, invitation.role)
+  on conflict (organization_id, user_id) do nothing;
+
+  update public.organization_invites
+  set consumed_at = now(), consumed_by = p_user_id
+  where id = invitation.id and consumed_at is null;
+  return found;
+end;
+$$;
+revoke all on function public.consume_organization_invite(text, uuid, text)
+  from public, anon, authenticated;
+grant execute on function public.consume_organization_invite(text, uuid, text) to service_role;
 
 -- Uses the SECURITY DEFINER helper to avoid infinite recursion (the previous
 -- version queried organization_members from within a policy on the same table).
@@ -484,7 +593,13 @@ begin
     return new;
   end if;
 
-  if tg_op = 'UPDATE' then
+  if jsonb_typeof(coalesce(new.custom_fields, '{}'::jsonb)) <> 'object' then
+    raise exception 'clients.custom_fields must be a JSON object'
+      using errcode = '22023';
+  end if;
+
+  if tg_op = 'UPDATE'
+     and jsonb_typeof(coalesce(old.custom_fields, '{}'::jsonb)) = 'object' then
     select coalesce(jsonb_object_agg(entry.key, entry.value), '{}'::jsonb)
       into old_basecamp_fields
       from jsonb_each(coalesce(old.custom_fields, '{}'::jsonb)) as entry
@@ -541,7 +656,7 @@ create trigger protect_task_basecamp_linkage
   before insert or update of basecamp_todo_id, basecamp_project_id on public.tasks
   for each row execute function public.protect_task_basecamp_linkage();
 
-create or replace function public.protect_time_log_basecamp_entry()
+create or replace function public.protect_time_log_basecamp_tuple()
 returns trigger
 language plpgsql
 security definer
@@ -552,14 +667,20 @@ begin
     return new;
   end if;
 
-  if tg_op = 'INSERT' and new.basecamp_entry_id is not null then
-    raise exception 'time log Basecamp entry linkage is server-controlled'
+  if tg_op = 'INSERT'
+     and (new.basecamp_entry_id is not null or new.basecamp_recording_id is not null) then
+    raise exception 'time log Basecamp linkage is server-controlled'
       using errcode = '42501';
   end if;
 
   if tg_op = 'UPDATE'
-     and new.basecamp_entry_id is distinct from old.basecamp_entry_id then
-    raise exception 'time log Basecamp entry linkage is server-controlled'
+     and (
+       new.basecamp_entry_id is distinct from old.basecamp_entry_id
+       or new.basecamp_recording_id is distinct from old.basecamp_recording_id
+       or ((old.basecamp_entry_id is not null or old.basecamp_recording_id is not null)
+           and new.basecamp_project_id is distinct from old.basecamp_project_id)
+     ) then
+    raise exception 'time log Basecamp linkage is server-controlled'
       using errcode = '42501';
   end if;
 
@@ -567,9 +688,10 @@ begin
 end;
 $$;
 
-create trigger protect_time_log_basecamp_entry
-  before insert or update of basecamp_entry_id on public.time_logs
-  for each row execute function public.protect_time_log_basecamp_entry();
+create trigger protect_time_log_basecamp_tuple
+  before insert or update of basecamp_entry_id, basecamp_project_id, basecamp_recording_id
+  on public.time_logs
+  for each row execute function public.protect_time_log_basecamp_tuple();
 
 create policy "Org members can manage projects"
   on public.projects for all

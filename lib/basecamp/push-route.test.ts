@@ -189,14 +189,14 @@ test('push verifies the canonical todo belongs to the canonical project before m
     assert.deepEqual(await responseBody(response), { error: 'Basecamp todo is not authorized' });
 });
 
-test('create push rejects a todolist outside the canonical configured project before mutation', async () => {
+test('create push ignores a caller todolist override and uses only the protected configured list', async () => {
     const { createBasecampPushPost } = await loadRouteModule();
     const task = { ...canonicalTask, basecampTodoId: null, basecampProjectId: null, status: 'todo' };
     const post = createBasecampPushPost({
         authorizeTask: async () => authorized,
         createStore: () => ({
             getTask: async () => task,
-            updateTaskLink: async () => { throw new Error('task link must not update'); },
+            updateTaskLink: async () => null,
             markTaskSynced: async () => null,
         }),
         createAccessSource: () => externalSource(),
@@ -207,7 +207,10 @@ test('create push rejects a todolist outside the canonical configured project be
                 assert.equal(projectId, '202');
                 return [{ id: 44 }];
             },
-            createTodo: async () => { throw new Error('create must not run'); },
+            createTodo: async (projectId, todolistId) => {
+                assert.deepEqual([projectId, todolistId], ['202', '44']);
+                return { id: 77, appUrl: 'https://3.basecamp.test/task/77' };
+            },
             completeTodo: async () => false,
             reopenTodo: async () => false,
             createComment: async () => null,
@@ -225,8 +228,7 @@ test('create push rejects a todolist outside the canonical configured project be
         content: 'Attacker title',
     }));
 
-    assert.equal(response.status, 403);
-    assert.deepEqual(await responseBody(response), { error: 'Todolist is not authorized' });
+    assert.equal(response.status, 200);
 });
 
 test('create push uses canonical project and task content after verified list selection', async () => {

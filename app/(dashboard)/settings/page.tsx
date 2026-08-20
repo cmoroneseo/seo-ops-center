@@ -131,8 +131,6 @@ export default function SettingsPage() {
                 body: JSON.stringify({
                     email: inviteEmail.trim(),
                     organizationId: organization.id,
-                    organizationName: organization.name,
-                    invitedByName: displayName,
                 }),
             });
             const data = await res.json();

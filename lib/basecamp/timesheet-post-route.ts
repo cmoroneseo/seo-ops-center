@@ -28,6 +28,7 @@ export interface CanonicalTimeLog {
     description: string | null;
     status: string;
     basecampEntryId: string | number | null;
+    basecampRecordingId: string | number | null;
     selectedBasecampProjectId: string | number | null;
     configuredProjectId: string | number | null;
     syncEnabled: boolean;
@@ -44,6 +45,7 @@ export interface AuthorizedTimeLogContext {
     log: CanonicalTimeLog;
     projectId: string | null;
     recordingId: string | null;
+    entryId: string | null;
 }
 
 interface Dependencies {
@@ -56,6 +58,11 @@ interface Dependencies {
         ): Promise<CanonicalTimeLog | null>;
     };
     createAccessSource(): BasecampProjectAccessSource;
+    verifyEntry(
+        projectId: string,
+        entryId: string,
+    ): Promise<{ entryId: string; recordingId: string } | null>;
+    resolveRecording(projectId: string, candidateRecordingId: string | null): Promise<string | null>;
     performAuthorized(
         body: Record<string, unknown>,
         context: AuthorizedTimeLogContext,
@@ -133,13 +140,37 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
                 return json({ error: projectAccess.error }, projectAccess.status);
             }
 
+            const canonicalEntryId = numericId(log.basecampEntryId);
             if (action === 'remove') {
                 const entryId = numericId(body.entryId);
-                const canonicalEntryId = numericId(log.basecampEntryId);
                 if (!entryId || !canonicalEntryId || entryId !== canonicalEntryId) {
                     return json({ error: 'Entry does not belong to this time log' }, 409);
                 }
-                recordingId = canonicalEntryId;
+            }
+
+            if (canonicalEntryId) {
+                const verifiedEntry = await dependencies.verifyEntry(
+                    projectAccess.projectId,
+                    canonicalEntryId,
+                );
+                if (!verifiedEntry || verifiedEntry.entryId !== canonicalEntryId) {
+                    return json({ error: 'Basecamp entry could not be verified in the authorized project' }, 409);
+                }
+                const protectedRecordingId = numericId(log.basecampRecordingId);
+                if (protectedRecordingId && protectedRecordingId !== verifiedEntry.recordingId) {
+                    return json({ error: 'Basecamp entry recording does not match the protected link' }, 409);
+                }
+                recordingId = verifiedEntry.recordingId;
+            } else if (action === 'remove') {
+                return json({ error: 'Entry does not belong to this time log' }, 409);
+            } else {
+                recordingId = await dependencies.resolveRecording(
+                    projectAccess.projectId,
+                    recordingId,
+                );
+                if (!recordingId) {
+                    return json({ error: 'No verified Basecamp timesheet recording is available' }, 409);
+                }
             }
 
             return dependencies.performAuthorized(body, {
@@ -147,6 +178,7 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
                 log,
                 projectId: projectAccess.projectId,
                 recordingId,
+                entryId: canonicalEntryId,
             });
         } catch {
             return json({ error: 'Unable to authorize Basecamp timesheet operation' }, 500);

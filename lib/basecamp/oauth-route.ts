@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 export interface BasecampOAuthState {
     userId: string;
@@ -16,9 +16,11 @@ interface OAuthConfiguration {
 interface Dependencies {
     getUserId(): Promise<string | null>;
     issueState(userId: string, returnTo: string): string;
+    persistState(state: string): Promise<boolean>;
     setStateCookie(state: string): Promise<void>;
     consumeStateCookie(): Promise<string | null>;
     verifyState(state: string): BasecampOAuthState | null;
+    consumePersistedState(state: string, userId: string): Promise<boolean>;
     getConfiguration(): OAuthConfiguration | null;
     exchangeCode(
         code: string,
@@ -41,6 +43,10 @@ function encode(value: string) {
 
 function sign(payload: string, secret: string) {
     return createHmac('sha256', secret).update(payload).digest('base64url');
+}
+
+export function hashBasecampOAuthState(state: string) {
+    return createHash('sha256').update(state, 'utf8').digest('hex');
 }
 
 export function createBasecampOAuthState(input: {
@@ -112,6 +118,9 @@ export function createBasecampOAuthHandlers(dependencies: Dependencies) {
             } catch {
                 return json({ error: 'Invalid return destination' }, 400);
             }
+            if (!await dependencies.persistState(state)) {
+                return json({ error: 'Unable to persist OAuth state' }, 500);
+            }
             await dependencies.setStateCookie(state);
 
             const authUrl = new URL('https://launchpad.37signals.com/authorization/new');
@@ -137,6 +146,9 @@ export function createBasecampOAuthHandlers(dependencies: Dependencies) {
                 return json({ error: 'Invalid or replayed OAuth state' }, 400);
             }
             if (state.userId !== userId) return json({ error: 'Forbidden' }, 403);
+            if (!await dependencies.consumePersistedState(stateParam, userId)) {
+                return json({ error: 'Invalid or replayed OAuth state' }, 400);
+            }
 
             const configuration = dependencies.getConfiguration();
             if (!configuration) return json({ error: 'Basecamp OAuth not configured' }, 500);

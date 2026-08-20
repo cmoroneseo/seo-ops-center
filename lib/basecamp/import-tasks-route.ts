@@ -4,9 +4,6 @@ import {
 } from './project-access.ts';
 
 interface ImportTaskPayload {
-    title: string;
-    description?: string;
-    dueOn?: string;
     basecampTodoId: number;
     basecampProjectId: number;
     category?: string;
@@ -40,7 +37,12 @@ interface Dependencies {
     authorizeClient(clientId: unknown, organizationId: unknown): Promise<ClientAuthorization>;
     createAccessSource(): BasecampProjectAccessSource;
     isConfigured(): boolean;
-    getTodo(projectId: string, todoId: string): Promise<{ id: string | number } | null>;
+    getTodo(projectId: string, todoId: string): Promise<{
+        id: string | number;
+        title: string;
+        description: string;
+        due_on: string | null;
+    } | null>;
     createWriter(): ImportWriter;
     now(): string;
 }
@@ -60,9 +62,7 @@ function numericId(value: unknown): string | null {
 function validTask(value: unknown): value is ImportTaskPayload {
     if (!value || typeof value !== 'object') return false;
     const task = value as Record<string, unknown>;
-    return typeof task.title === 'string'
-        && task.title.trim().length > 0
-        && numericId(task.basecampProjectId) !== null
+    return numericId(task.basecampProjectId) !== null
         && numericId(task.basecampTodoId) !== null;
 }
 
@@ -83,7 +83,7 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
                 return json({ error: 'clientId, organizationId, and tasks[] are required' }, 400);
             }
             if (!tasks.every(validTask)) {
-                return json({ error: 'Every task requires a title and valid Basecamp IDs' }, 400);
+                return json({ error: 'Every task requires valid Basecamp IDs' }, 400);
             }
 
             const authorization = await dependencies.authorizeClient(body.clientId, body.organizationId);
@@ -109,36 +109,43 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
                 return json({ error: 'Basecamp not configured', configured: false }, 503);
             }
 
+            const providerTodos = new Map<string, Awaited<ReturnType<Dependencies['getTodo']>>>();
             for (const task of tasks) {
                 const projectId = numericId(task.basecampProjectId)!;
                 const todoId = numericId(task.basecampTodoId)!;
                 const providerTodo = await dependencies.getTodo(projectId, todoId);
-                if (!providerTodo || String(providerTodo.id) !== todoId) {
+                if (!providerTodo || String(providerTodo.id) !== todoId || !providerTodo.title?.trim()) {
                     return json({ error: 'Basecamp todo is not authorized' }, 403);
                 }
+                providerTodos.set(`${projectId}:${todoId}`, providerTodo);
             }
 
             const now = dependencies.now();
-            const rows = tasks.map(task => ({
-                organization_id: authorization.organizationId,
-                client_id: authorization.clientId,
-                title: task.title.trim(),
-                description: task.description || null,
-                due_date: task.dueOn || null,
-                priority: task.priority ?? 'medium',
-                status: 'todo',
-                category: task.category || null,
-                tags: [],
-                assignee_ids: [],
-                sort_order: 0,
-                basecamp_todo_id: Number(numericId(task.basecampTodoId)),
-                basecamp_project_id: Number(numericId(task.basecampProjectId)),
-                last_synced_at: now,
-                status_history: [{ status: 'todo', at: now, by: authorization.userId }],
-                custom_fields: {},
-                watcher_ids: [],
-                created_by: authorization.userId,
-            }));
+            const rows = tasks.map(task => {
+                const projectId = numericId(task.basecampProjectId)!;
+                const todoId = numericId(task.basecampTodoId)!;
+                const providerTodo = providerTodos.get(`${projectId}:${todoId}`)!;
+                return {
+                    organization_id: authorization.organizationId,
+                    client_id: authorization.clientId,
+                    title: providerTodo.title.trim(),
+                    description: providerTodo.description || null,
+                    due_date: providerTodo.due_on || null,
+                    priority: task.priority ?? 'medium',
+                    status: 'todo',
+                    category: task.category || null,
+                    tags: [],
+                    assignee_ids: [],
+                    sort_order: 0,
+                    basecamp_todo_id: Number(todoId),
+                    basecamp_project_id: Number(projectId),
+                    last_synced_at: now,
+                    status_history: [{ status: 'todo', at: now, by: authorization.userId }],
+                    custom_fields: {},
+                    watcher_ids: [],
+                    created_by: authorization.userId,
+                };
+            });
 
             const writer = dependencies.createWriter();
             const errors: string[] = [];

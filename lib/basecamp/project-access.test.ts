@@ -154,3 +154,12 @@ test('shared project guard authorizes configured external projects and internal 
         allowedProjectIds: [],
     });
 });
+
+test('JSON object normalization fails closed for malformed custom_fields values', async () => {
+    const { normalizeJsonObject } = await import('./project-access.ts');
+
+    assert.deepEqual(normalizeJsonObject(null), {});
+    assert.deepEqual(normalizeJsonObject('malformed'), {});
+    assert.deepEqual(normalizeJsonObject(['basecamp_project_id', 202]), {});
+    assert.deepEqual(normalizeJsonObject({ basecamp_project_id: 202 }), { basecamp_project_id: 202 });
+});

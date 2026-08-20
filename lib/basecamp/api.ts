@@ -416,6 +416,30 @@ export async function findProjectTimesheetRecordingId(projectId: number | string
     }
 }
 
+/** Find an entry through the project-scoped timesheet collection. */
+export async function getBasecampProjectTimesheetEntry(
+    projectId: number | string,
+    entryId: number | string,
+): Promise<BasecampTimesheetEntry | null> {
+    try {
+        const pid = safeId(projectId, 'projectId');
+        const eid = safeId(entryId, 'entryId');
+        let url: string | null = `${BASE_URL()}/projects/${pid}/timesheet.json`;
+        while (url) {
+            const response = await basecampFetch(url);
+            if (!response.ok) return null;
+            const page = await response.json() as BasecampTimesheetEntry[];
+            const entry = page.find(candidate => String(candidate.id) === eid);
+            if (entry) return entry;
+            url = parseNextLink(response.headers.get('Link'));
+        }
+        return null;
+    } catch (error) {
+        console.error('[Basecamp] getProjectTimesheetEntry error:', error);
+        return null;
+    }
+}
+
 /** Create a timesheet entry under a recording (todo or project timesheet). */
 export async function createBasecampTimesheetEntry(
     recordingId: number | string,

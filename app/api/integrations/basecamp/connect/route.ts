@@ -4,7 +4,10 @@ import { cookies } from 'next/headers';
 import {
     createBasecampOAuthHandlers,
     createBasecampOAuthState,
+    hashBasecampOAuthState,
+    verifyBasecampOAuthState,
 } from '@/lib/basecamp/oauth-route';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 const STATE_COOKIE = 'basecamp_oauth_state';
 
@@ -49,6 +52,20 @@ export async function GET(req: Request) {
                 secret,
             });
         },
+        async persistState(state) {
+            const secret = process.env.BASECAMP_OAUTH_STATE_SECRET || process.env.BASECAMP_CLIENT_SECRET;
+            const parsed = secret
+                ? verifyBasecampOAuthState(state, secret, Math.floor(Date.now() / 1000))
+                : null;
+            if (!parsed) return false;
+            const { error } = await createAdminClient().from('basecamp_oauth_states').insert({
+                state_hash: hashBasecampOAuthState(state),
+                user_id: parsed.userId,
+                return_to: parsed.returnTo,
+                expires_at: new Date(parsed.exp * 1000).toISOString(),
+            });
+            return !error;
+        },
         async setStateCookie(state) {
             const cookieStore = await cookies();
             cookieStore.set(STATE_COOKIE, state, {
@@ -60,6 +77,7 @@ export async function GET(req: Request) {
             });
         },
         consumeStateCookie: async () => null,
+        consumePersistedState: async () => false,
         verifyState: () => null,
         getConfiguration,
         exchangeCode: async () => { throw new Error('not used by connect'); },

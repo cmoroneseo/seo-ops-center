@@ -13,6 +13,7 @@ import {
 } from '@/lib/basecamp/api';
 import { createBasecampPushPost } from '@/lib/basecamp/push-route';
 import { createSupabaseBasecampProjectAccessSource } from '@/lib/basecamp/supabase-project-access-source';
+import { normalizeJsonObject } from '@/lib/basecamp/project-access';
 import { requireTaskIntegrationManager } from '@/lib/security/tenant-authz';
 
 export const dynamic = 'force-dynamic';
@@ -36,9 +37,7 @@ export async function POST(req: NextRequest) {
                     if (!data) return null;
 
                     const clientRelation = Array.isArray(data.clients) ? data.clients[0] : data.clients;
-                    const customFields = (
-                        clientRelation?.custom_fields as Record<string, unknown> | null
-                    ) ?? {};
+                    const customFields = normalizeJsonObject(clientRelation?.custom_fields);
                     const assigneeIds = Array.isArray(data.assignee_ids)
                         ? data.assignee_ids.filter((id): id is string => typeof id === 'string')
                         : [];

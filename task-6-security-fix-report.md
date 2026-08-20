@@ -2,90 +2,121 @@
 
 ## Outcome
 
-The six scan findings and the related Basecamp sibling routes identified during remediation are fixed in code. Provider calls and service-role reads/writes now sit behind authenticated, canonical organization/client/task/time-log authorization. Browser-writable state no longer grants internal catalog access or changes Basecamp client/task/entry trust links after migration 031 is applied.
-
-This change does not delete, rewrite, or auto-rebind existing client configuration. Existing Basecamp bindings remain usable under the controller-approved rules.
+The six original scan findings, the related Basecamp sibling routes, and the six
+follow-up reviewer repros are closed in code and database contracts. Provider and
+service-role operations now follow authenticated, canonical tenant authorization;
+identity/bootstrap and replay-sensitive state have durable database controls.
+Migrations 031 and 032 preserve existing bindings and do not rewrite tenant data.
 
 ## Vulnerable paths closed
 
-1. `organizations.is_internal` could be set through tenant RLS and then unlock the global Basecamp project catalog.
-2. `clients.custom_fields.basecamp_*` values could be changed through tenant RLS and then act as a provider-project allowlist.
-3. `GET /api/integrations/basecamp/todolists` trusted a browser-scoped project selection.
-4. `GET /api/integrations/basecamp/todos` trusted browser scope and did not server-verify that the list belonged to the project.
-5. `POST /api/integrations/basecamp/import-tasks` trusted caller organization/client/project/todo values before service-role inserts.
-6. `GET|POST /api/clients/[id]/basecamp-config` used service-role access after authentication only.
-
-Sibling inventory also closed:
-
-- `GET /api/integrations/basecamp/imported-ids`
-- `POST /api/integrations/basecamp/push`
-- `GET|POST /api/integrations/basecamp/timesheet`
-- `GET /api/integrations/basecamp/connect`
-- `GET /api/integrations/basecamp/callback`
+- Browser-writable `organizations.is_internal` and client `basecamp_*` custom fields
+  could grant provider catalog/project authority.
+- Todolist/todo, config, import, imported-ID, push, and timesheet routes trusted
+  caller scope or reached global provider/service-role access too early.
+- Organization members could self-insert as owner for any organization.
+- Invite creation was unauthenticated and callback membership trusted `?org=`.
+- Timesheet flat account entry operations did not prove project/recording provenance.
+- Push create accepted a caller-selected todolist.
+- OAuth replay protection was local to one cookie/server instance.
+- Imported title, description, and due date came from the caller instead of Basecamp.
+- The webhook accepted a query-string secret using ordinary string comparison.
 
 ## Enforced invariants
 
-- Every browser-triggered Basecamp project operation requires an authenticated user, an explicit organization, current membership in that organization, and server-derived project entitlement before provider access.
-- Trusted internal organizations retain full catalog enumeration. Migration 031 makes `organizations.is_internal` service-role/database-operator controlled.
-- External organizations can enumerate only project IDs already present in their organization’s protected client bindings.
-- An external client integration manager may preserve or clear that client’s existing project binding, but cannot nominate a different project. An internal integration manager may select only a project present in the live provider catalog.
-- Selected todolists are verified under the authorized project before todos are returned or created.
-- Imports derive the canonical organization from the authorized client, reject asserted-organization mismatch, authorize every project, and fetch each todo through its authorized project before the service-role writer is constructed.
-- Imported-ID reads derive and constrain both canonical client and organization before the service-role reader is constructed.
-- Push operations resolve the canonical task/client/organization, require integration-management permission, ignore caller provider IDs and task content, authorize the configured project, and verify the provider todolist/todo relationship before mutation.
-- Timesheet GET authorizes organization membership and project before provider discovery.
-- Timesheet POST resolves the canonical time log/client/organization and requires integration-management permission. Client work derives provider scope from protected client/task state. No-client work additionally requires a protected internal organization plus an owner/admin/delegated integration manager, then authorizes the selected project through the shared catalog guard. Removal also re-authorizes the canonical project and accepts only the canonical protected entry link.
-- OAuth connect requires application authentication. Callback state is HMAC-signed, random, ten-minute limited, safe-return constrained, stored in an HTTP-only SameSite cookie, bound to the initiating authenticated user, and consumed once. Missing, mismatched, replayed, expired, tampered, or wrong-user state is rejected before exchange. Token values are neither logged nor rendered.
+- Internal status and every client/task/time-log Basecamp trust field are protected
+  from browser writes by fixed-search-path triggers. Existing values are preserved.
+- Owner bootstrap is an authenticated RPC that fixes the user to `auth.uid()`, fixes
+  the role to `owner`, locks the organization, requires `created_by = auth.uid()`,
+  and works only before any membership exists. The self-owner INSERT policy is gone.
+- Only an authenticated organization owner/admin can invite. A random token is
+  stored only as a SHA-256 hash, bound to canonical org/inviter/email/member role and
+  expiry, and consumed atomically by a service-role-only RPC. Callback `org` input is
+  ignored; wrong-email, expired, missing, or replayed invites fail closed.
+- OAuth state is random, signed, user-bound, ten-minute limited, safe-return checked,
+  cookie-bound, and atomically consumed from `basecamp_oauth_states` before exchange.
+  Replays fail across independent serverless instances. Tokens are not rendered or
+  logged; without an encrypted repository-native store, callback fails closed after
+  exchange and directs operators to controlled provisioning.
+- All browser-triggered project operations require current membership and server-
+  derived project entitlement before provider access. Trusted internal members keep
+  legitimate catalog enumeration; external organizations remain restricted to
+  protected existing bindings.
+- Timesheet update/delete first find the protected entry in the authorized project's
+  timesheet collection and verify its parent recording. Create uses only a todo or
+  project-timesheet recording verified under that project. Verified legacy links may
+  be backfilled; unverifiable legacy links are refused.
+- Push create ignores caller provider IDs and uses only the protected configured
+  todolist after confirming it exists under the authorized configured project.
+- Import fetches the todo through the authorized project and writes provider title,
+  description, and due date. Only priority/category remain intentional local input.
+- Webhook authentication uses only `x-basecamp-webhook-secret`, hashes both values,
+  and compares fixed-length digests with `timingSafeEqual` before admin access.
+- Malformed/non-object `custom_fields` normalize to `{}` and grant no project access.
 
-## Database control and operator path
+## Database and operator controls
 
-`migrations/031_protect_basecamp_authorization_state.sql` adds narrow `BEFORE` triggers. Normal browser roles cannot:
+- `migrations/031_protect_basecamp_authorization_state.sql` protects internal status
+  and Basecamp client/task/entry fields.
+- `migrations/032_close_identity_and_provider_provenance.sql` removes self-owner
+  insertion, adds constrained owner bootstrap, durable email-bound invites, durable
+  OAuth state, `basecamp_recording_id`, and the protected project/entry/recording
+  tuple. Both migrations use service-role/operator exceptions, fixed search paths,
+  and contain no legacy binding rewrite.
+- `docs/basecamp-oauth-provisioning.md` documents the executable Vercel secret path
+  and the deliberate credential-storage limitation. `.env.example` lists the OAuth
+  state and webhook secrets.
 
-- set or change `organizations.is_internal`;
-- add, remove, or change any `clients.custom_fields` key matching `basecamp_%`;
-- add or change `tasks.basecamp_todo_id` / `tasks.basecamp_project_id`;
-- add or change `time_logs.basecamp_entry_id`.
+## Main files
 
-The guards permit Supabase `service_role` and explicit `postgres` / `supabase_admin` sessions. This is the documented, operator-auditable provisioning path. Trigger functions are `SECURITY DEFINER` with a fixed `pg_catalog, public` search path. The migration contains no data rewrite, delete, or truncate, and its definitions are mirrored in `schema.sql`.
+- Database: `migrations/031_protect_basecamp_authorization_state.sql`,
+  `migrations/032_close_identity_and_provider_provenance.sql`, `schema.sql`.
+- Identity/invites: `app/(auth)/setup-organization/page.tsx`, `app/api/invite/route.ts`,
+  `app/auth/callback/route.ts`, and `lib/security/{organization-bootstrap,invite-route,auth-callback,tenant-authz}.ts`.
+- Basecamp: affected routes under `app/api/integrations/basecamp/`, client
+  `basecamp-config`, and the matching authorization/request helpers under
+  `lib/basecamp/`.
+- Operations: `.env.example`, `docs/basecamp-oauth-provisioning.md`.
+- Regression tests: matching `lib/basecamp/*.test.ts`,
+  `lib/basecamp-timesheet-route.test.ts`, and `lib/security/*.test.ts` additions.
 
-## OAuth credential handling
+## Reproduction proof and legitimate controls
 
-The repository’s established runtime convention is operator-managed `BASECAMP_ACCESS_TOKEN`, `BASECAMP_REFRESH_TOKEN`, and `BASECAMP_ACCOUNT_ID` environment variables; there is no repository-native encrypted credential store. The callback therefore exchanges a valid one-time code, discards the returned credentials, and responds with a generic `503` operator-provisioning instruction. Operators must obtain/provision runtime credentials through a controlled administrative process outside this browser response. The application never displays the access or refresh token.
+Request-level dependency seams assert that unauthenticated, nonmember, non-manager,
+cross-org, cross-client, cross-project, mismatched-entry, mismatched-recording, replay,
+and caller-override cases return before provider/admin dependencies run. Positive
+controls cover new-org owner bootstrap, authorized member onboarding, internal and
+external project flows, configured-list push, canonical provider import, verified
+client/internal timesheet operations, and first-use OAuth callback. Migration/schema
+contract tests assert the removed policy, narrow RPCs, durable ledgers, tuple trigger,
+and absence of time-log/client data rewrites.
 
-## Files changed
-
-- Route adapters: `app/api/clients/[id]/basecamp-config/route.ts` and all affected routes under `app/api/integrations/basecamp/` (`callback`, `connect`, `import-tasks`, `imported-ids`, `push`, `timesheet`, `todolists`, `todos`).
-- Authorization and request handlers: `lib/security/tenant-authz.ts`, `lib/basecamp/api.ts`, `lib/basecamp/project-access.ts`, `lib/basecamp/config-route.ts`, `lib/basecamp/import-tasks-route.ts`, `lib/basecamp/imported-ids-route.ts`, `lib/basecamp/oauth-route.ts`, `lib/basecamp/push-route.ts`, `lib/basecamp/resource-routes.ts`, `lib/basecamp/timesheet-post-route.ts`.
-- Browser callers: `components/tasks/CreateTaskModal.tsx`, `components/workspace/BasecampImportModal.tsx`, `components/workspace/IntegrationsTab.tsx`.
-- Database: `migrations/031_protect_basecamp_authorization_state.sql`, `schema.sql`.
-- Regression tests: the matching `lib/basecamp/*.test.ts` files plus `lib/basecamp-timesheet-route.test.ts`.
-
-## TDD and reproduction proof
-
-The request handlers were introduced behind dependency seams so negative direct-call tests can throw if an admin store/access source/provider is reached too early. The initial RED runs failed because the handlers or required checks did not exist. The final focused tests prove:
-
-- unauthenticated, nonmember, non-manager, foreign-client, mismatched-organization, and cross-project calls return `400/401/403/409` before protected dependencies;
-- a todo list must be returned by the authorized project before its todos are exposed;
-- imported todos must be returned by the authorized project before admin insert;
-- external configuration cannot switch to another organization project, but can preserve or clear its own binding;
-- push ignores attacker-supplied project/todo/content fields and verifies canonical provider provenance;
-- client and trusted-internal timesheet paths derive/authorize their distinct canonical scopes, including deletion;
-- OAuth rejects tampering, expiry, replay, missing state, wrong user, and unsafe return destinations before exchange, and successful exchange responses contain no token values;
-- the migration contains all four guards, is mirrored in the schema snapshot, and contains no legacy-data rewrite.
+Fresh route inventory covered all ten routes under
+`app/api/integrations/basecamp`. The webhook is the only secret-gated provider
+callback and now authenticates before constructing its admin client; no additional
+Basecamp sibling route remains outside the shared boundaries.
 
 ## Verification
 
-- `node --test lib/planner/*.test.ts` — 105 passed.
-- `node --test lib/basecamp/*.test.ts lib/basecamp-timesheet-route.test.ts` — 71 passed after the final additions.
-- `npm run typecheck` — passed.
-- Targeted `npx eslint` over every changed TypeScript/TSX file — 0 errors; two pre-existing warnings remain in untouched lines of `CreateTaskModal.tsx`.
-- `npm run security:static` — exited 0 in advisory mode. Its Basecamp admin-client notices are syntactic review prompts; the listed route adapters now delay admin/provider construction until the tested authorization handlers allow it. The migration `SECURITY DEFINER` notice was manually checked for fixed `search_path` and narrow trigger-only behavior.
-- `git diff --check` — passed.
-- Fresh route inventory covered all ten routes under `app/api/integrations/basecamp` plus client `basecamp-config`.
+- Focused correction regressions: 46 passed.
+- `node --test lib/basecamp/*.test.ts lib/basecamp-timesheet-route.test.ts`: 79 passed.
+- `node --test lib/planner/*.test.ts`: 105 passed.
+- `npm run typecheck`: passed.
+- Targeted ESLint: 0 errors; 4 pre-existing warnings in Settings plus the expected
+  ignored `.env.example` notice.
+- `npm run security:static`: exited 0 in advisory mode. Basecamp admin-client notices
+  are syntactic prompts covered by the authorization-order tests; migration 032
+  functions were manually checked for fixed search paths and minimal grants.
+- `git diff --check`: passed.
 
-## Remaining operational uncertainty
+## Residual operational requirements
 
-- Migration 031 was not applied to a live Supabase instance in this workspace. It must be applied before the DB column protections are effective in deployed environments.
-- Existing client Basecamp bindings are intentionally preserved. An operator must audit those legacy bindings for correctness because the migration cannot prove their historical provenance.
-- No live two-tenant Supabase/Basecamp credentialed test was available; request-level dependency tests prove ordering and canonical scoping, but deployment configuration and provider behavior still require a post-deploy smoke test.
-- `POST /api/integrations/basecamp/webhook` remains in the inventory. It is not browser-authorized because it is an inbound provider callback; it fails closed unless `BASECAMP_WEBHOOK_SECRET` exists and exactly matches the request secret before the admin client is created. No OAuth access/refresh tokens are logged there. Rotation and secure delivery of that webhook secret remain operational responsibilities.
+- Apply migrations 031 and 032 before deployment; no live Supabase instance was
+  available here for execution, so database behavior is covered by migration/schema
+  contract tests rather than a deployed RLS test.
+- Audit preserved legacy Basecamp client and time-log bindings. The application now
+  refuses unverifiable entry links, but intentionally does not rewrite history.
+- Provision OAuth credentials through the documented secret-manager path and perform
+  a post-deploy two-tenant/Basecamp smoke test. The app deliberately has no browser
+  credential hand-off until an encrypted credential store is introduced.
+- Rotate and deliver the webhook header secret through the provider/operator channel.
