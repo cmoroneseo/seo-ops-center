@@ -65,6 +65,13 @@ export interface CompletionInput {
 export interface CompletionDeps {
     completeOwnedTask(taskId: string, finalizedAt: string): Promise<CompletedTask | null>;
     emitTaskCompleted(task: CompletedTask, input: CompletionInput): Promise<void>;
+    /**
+     * Check off the task's linked Basecamp to-do. Best-effort — matches the
+     * fire-and-forget completion push in updateTask (lib/supabase/tasks.ts). A
+     * failure here must not undo the completed task or produce a warning; the
+     * task is already done locally.
+     */
+    syncBasecampTodoCompletion?(task: CompletedTask): Promise<void>;
 }
 
 const COMPLETION_WARNING = 'Time was saved, but task completion could not be fully recorded.';
@@ -79,6 +86,16 @@ export async function completeFinalizedTask(
         if (!completedTask) return COMPLETION_WARNING;
         if (completedTask.clientId) {
             await deps.emitTaskCompleted(completedTask, input);
+            // The Basecamp to-do checkbox is best-effort: never let a provider
+            // failure roll back the completed task or surface a warning. Only a
+            // client task can carry a Basecamp to-do, so skip internal work.
+            if (deps.syncBasecampTodoCompletion) {
+                try {
+                    await deps.syncBasecampTodoCompletion(completedTask);
+                } catch {
+                    // Task is done locally; the to-do can be reconciled later.
+                }
+            }
         }
         return undefined;
     } catch {

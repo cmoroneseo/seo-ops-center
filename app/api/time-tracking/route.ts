@@ -2,6 +2,7 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { POST as postBasecampTimesheet } from '@/app/api/integrations/basecamp/timesheet/route';
+import { POST as postBasecampPush } from '@/app/api/integrations/basecamp/push/route';
 import { createAdminClient } from '@/lib/supabase/admin';
 import {
     completeFinalizedTask,
@@ -117,6 +118,24 @@ export async function POST(request: NextRequest): Promise<Response> {
                     },
                 });
                 if (activityError) throw activityError;
+            },
+            async syncBasecampTodoCompletion(task) {
+                // Mirror updateTask's status->done push: check off the linked
+                // Basecamp to-do through the protected push route, which
+                // re-derives the project/todo from the task server-side. A task
+                // with no to-do link answers 409 (nothing to sync).
+                const protectedRequest = new NextRequest(
+                    new URL('/api/integrations/basecamp/push', request.url),
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'complete_todo', taskId: task.id }),
+                    },
+                );
+                const response = await postBasecampPush(protectedRequest);
+                if (!response.ok && response.status !== 409) {
+                    console.error('[Basecamp] to-do completion push failed:', response.status);
+                }
             },
         });
         return {
