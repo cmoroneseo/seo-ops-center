@@ -399,6 +399,61 @@ test('zero-row task completion produces completionWarning and performs no privil
     assert.equal(privilegedInsert, false);
 });
 
+const completedClientTask = {
+    id: 'task-1',
+    organizationId: 'org-1',
+    clientId: 'client-1',
+    title: 'Competitor Keyword Research',
+    priority: 'medium' as string | null,
+    category: 'content' as string | null,
+};
+
+const completionInput = {
+    taskId: 'task-1',
+    userId: 'user-1',
+    actorName: 'Carlos',
+    operationId: 'operation-1',
+    finalizedAt: '2026-08-21T22:00:00.000Z',
+};
+
+test('completing a client task checks off its Basecamp to-do', async () => {
+    const calls: string[] = [];
+    const warning = await completeFinalizedTask(completionInput, {
+        completeOwnedTask: async () => completedClientTask,
+        emitTaskCompleted: async () => { calls.push('activity'); },
+        syncBasecampTodoCompletion: async task => { calls.push(`basecamp:${task.id}`); },
+    });
+
+    assert.equal(warning, undefined);
+    // The to-do completion fires after the task update, alongside the activity emit.
+    assert.ok(calls.includes('basecamp:task-1'), 'Basecamp to-do completion must be pushed');
+});
+
+test('a failed Basecamp to-do sync neither warns nor undoes the completed task', async () => {
+    let activityEmitted = false;
+    const warning = await completeFinalizedTask(completionInput, {
+        completeOwnedTask: async () => completedClientTask,
+        emitTaskCompleted: async () => { activityEmitted = true; },
+        syncBasecampTodoCompletion: async () => { throw new Error('Basecamp unavailable'); },
+    });
+
+    // Task is done locally; the to-do checkbox is best-effort, so no warning.
+    assert.equal(warning, undefined);
+    assert.equal(activityEmitted, true);
+});
+
+test('an internal task with no client never attempts a Basecamp to-do sync', async () => {
+    let basecampAttempted = false;
+    const warning = await completeFinalizedTask(completionInput, {
+        completeOwnedTask: async () => ({ ...completedClientTask, clientId: null }),
+        emitTaskCompleted: async () => {},
+        syncBasecampTodoCompletion: async () => { basecampAttempted = true; },
+    });
+
+    assert.equal(warning, undefined);
+    assert.equal(basecampAttempted, false);
+});
+
 test('strict discriminated validation rejects unknown actions, fields, and invalid values', async () => {
     const invalidBodies = [
         { action: 'wat', timeLogId: 'log-1' },
