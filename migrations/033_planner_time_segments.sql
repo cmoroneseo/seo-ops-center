@@ -37,6 +37,19 @@ create table if not exists public.time_log_segments (
   constraint time_log_segments_positive check (ended_at is null or ended_at > started_at)
 );
 
+-- This composite identity is the concurrency-safe parent/child authority. The
+-- foreign key's PostgreSQL RI locks serialize a segment insert against a
+-- concurrent parent tenant/owner update in either statement order.
+alter table public.time_logs
+  add constraint time_logs_segment_parent_key
+  unique (id, organization_id, user_id);
+
+alter table public.time_log_segments
+  add constraint time_log_segments_parent_identity_fkey
+  foreign key (time_log_id, organization_id, user_id)
+  references public.time_logs (id, organization_id, user_id)
+  on delete cascade;
+
 create unique index if not exists one_open_time_segment_per_user
   on public.time_log_segments (organization_id, user_id)
   where ended_at is null;
@@ -545,6 +558,8 @@ declare
   actor_id uuid := auth.uid();
   paused_attempt public.time_logs%rowtype;
   active_attempt public.time_logs%rowtype;
+  target_task public.tasks%rowtype;
+  target_segment public.time_log_segments%rowtype;
 begin
   if actor_id is null then
     raise exception 'authentication required' using errcode = '42501';
@@ -579,34 +594,63 @@ begin
         and time_logs.user_id = actor_id
         and exists (
           select 1
-          from public.tasks
-          where tasks.id = p_to_task_id
-            and tasks.organization_id = time_logs.organization_id
-            and (
-              tasks.assignee_id = actor_id
-              or actor_id = any(tasks.assignee_ids)
-            )
-        )
-        and exists (
-          select 1
           from public.time_log_segments
           where time_log_segments.time_log_id = time_logs.id
             and time_log_segments.started_at = p_switched_at
         )
       order by time_logs.created_at desc, time_logs.id
-      limit 1;
+      limit 1
+      for update of time_logs;
 
     if found then
+      perform pg_advisory_xact_lock(
+        hashtextextended(active_attempt.organization_id::text || ':' || actor_id::text, 0)
+      );
+
+      perform 1
+        from public.organization_members
+        where organization_members.organization_id = active_attempt.organization_id
+          and organization_members.user_id = actor_id
+        for key share;
+
+      if not found then
+        raise exception 'actor is no longer a member of the switch target organization'
+          using errcode = '42501';
+      end if;
+
+      select tasks.*
+        into target_task
+        from public.tasks
+        where tasks.id = p_to_task_id
+          and tasks.organization_id = active_attempt.organization_id
+        for key share;
+
+      if not found or not (
+        target_task.assignee_id = actor_id
+        or actor_id = any(target_task.assignee_ids)
+      ) then
+        raise exception 'actor no longer owns the switch target task'
+          using errcode = '42501';
+      end if;
+
+      select time_log_segments.*
+        into target_segment
+        from public.time_log_segments
+        where time_log_segments.time_log_id = active_attempt.id
+          and time_log_segments.started_at = p_switched_at
+        order by time_log_segments.id
+        limit 1
+        for update;
+
+      if not found then
+        raise exception 'switch retry target segment no longer exists'
+          using errcode = '55000';
+      end if;
+
       if active_attempt.status = 'in_progress'
          and active_attempt.reviewing_at is null
          and active_attempt.timer_started_at is not distinct from p_switched_at
-         and exists (
-           select 1
-           from public.time_log_segments
-           where time_log_segments.time_log_id = active_attempt.id
-             and time_log_segments.started_at = p_switched_at
-             and time_log_segments.ended_at is null
-         )
+         and target_segment.ended_at is null
          and not exists (
            select 1
            from public.time_log_segments

@@ -90,3 +90,42 @@ test('pause resume and task switch return canonical state only for exact retries
     assert.match(switchAttempt, /not exists\s*\([\s\S]+ended_at\s*>\s*p_switched_at/i);
   }
 });
+
+test('segment parent identity uses a composite foreign key to serialize both mutation directions', () => {
+  for (const sql of [migration, schema]) {
+    assert.match(
+      sql,
+      /alter table public\.time_logs\s+add constraint time_logs_segment_parent_key\s+unique\s*\(id, organization_id, user_id\)/i,
+    );
+    assert.match(
+      sql,
+      /alter table public\.time_log_segments\s+add constraint time_log_segments_parent_identity_fkey\s+foreign key\s*\(time_log_id, organization_id, user_id\)\s+references public\.time_logs\s*\(id, organization_id, user_id\)/i,
+    );
+  }
+});
+
+test('task-target switch retry locks target owner and segment before canonical validation', () => {
+  for (const sql of [migration, schema]) {
+    const switchAttempt = functionBody(sql, 'switch_time_attempt');
+    const attemptLockAt = switchAttempt.search(/for update of time_logs/i);
+    const ownerLockAt = switchAttempt.search(/hashtextextended\(active_attempt\.organization_id::text[\s\S]+actor_id::text/i);
+    const segmentLockAt = switchAttempt.search(/into target_segment[\s\S]+for update/i);
+    const canonicalAt = switchAttempt.search(/Exact switch retry/i);
+
+    assert.notEqual(attemptLockAt, -1);
+    assert.ok(attemptLockAt < ownerLockAt, 'target row lock must precede target owner lock');
+    assert.ok(ownerLockAt < segmentLockAt, 'target owner lock must precede target segment lock');
+    assert.ok(segmentLockAt < canonicalAt, 'all target locks must precede canonical validation');
+  }
+});
+
+test('task-target switch retry locks and revalidates current target membership', () => {
+  for (const sql of [migration, schema]) {
+    const switchAttempt = functionBody(sql, 'switch_time_attempt');
+    assert.match(
+      switchAttempt,
+      /from public\.organization_members[\s\S]+organization_members\.organization_id\s*=\s*active_attempt\.organization_id[\s\S]+organization_members\.user_id\s*=\s*actor_id[\s\S]+for key share/i,
+    );
+    assert.match(switchAttempt, /actor is no longer a member of the switch target organization/i);
+  }
+});
