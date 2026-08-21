@@ -2047,7 +2047,7 @@ begin
         from public.tasks
         where tasks.id = p_to_task_id
           and tasks.organization_id = active_attempt.organization_id
-        for key share;
+        for share;
 
       if not found or not (
         target_task.assignee_id = actor_id

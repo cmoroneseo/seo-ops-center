@@ -129,3 +129,13 @@ test('task-target switch retry locks and revalidates current target membership',
     assert.match(switchAttempt, /actor is no longer a member of the switch target organization/i);
   }
 });
+
+test('task-target switch retry locks assignment row against concurrent revocation', () => {
+  for (const sql of [migration, schema]) {
+    const switchAttempt = functionBody(sql, 'switch_time_attempt');
+    assert.match(
+      switchAttempt,
+      /select tasks\.\*[\s\S]+into target_task[\s\S]+from public\.tasks[\s\S]+tasks\.id\s*=\s*p_to_task_id[\s\S]+tasks\.organization_id\s*=\s*active_attempt\.organization_id[\s\S]+for share;/i,
+    );
+  }
+});
