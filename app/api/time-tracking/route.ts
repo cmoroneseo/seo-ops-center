@@ -4,8 +4,10 @@ import { cookies } from 'next/headers';
 import { POST as postBasecampTimesheet } from '@/app/api/integrations/basecamp/timesheet/route';
 import { createAdminClient } from '@/lib/supabase/admin';
 import {
+    completeFinalizedTask,
     handleTimerMutation,
     type AttemptRouteDeps,
+    type CompletedTask,
     type FinalizeAttemptInput,
     type FinalizeResult,
 } from '@/lib/timer/attempt-route';
@@ -72,31 +74,40 @@ export async function POST(request: NextRequest): Promise<Response> {
             };
         }
 
-        try {
-            const { data: task, error: taskError } = await supabase
-                .from('tasks')
-                .select('id, organization_id, client_id, title, priority, category')
-                .eq('id', taskId)
-                .maybeSingle();
-            if (taskError) throw taskError;
-            if (!task) throw new Error('Owned task not found');
-
-            const { error: updateError } = await supabase
-                .from('tasks')
-                .update({ status: 'done', completed_at: input.finalizedAt })
-                .eq('id', task.id)
-                .eq('organization_id', task.organization_id);
-            if (updateError) throw updateError;
-
-            if (task.client_id) {
+        const completionWarning = await completeFinalizedTask({
+            taskId,
+            userId: input.userId,
+            actorName: authenticatedActorName,
+            operationId: input.operationId,
+            finalizedAt: input.finalizedAt,
+        }, {
+            async completeOwnedTask(ownedTaskId, finalizedAt): Promise<CompletedTask | null> {
+                const { data: task, error: updateError } = await supabase
+                    .from('tasks')
+                    .update({ status: 'done', completed_at: finalizedAt })
+                    .eq('id', ownedTaskId)
+                    .select('id, organization_id, client_id, title, priority, category')
+                    .maybeSingle();
+                if (updateError) throw updateError;
+                if (!task) return null;
+                return {
+                    id: task.id,
+                    organizationId: task.organization_id,
+                    clientId: task.client_id,
+                    title: task.title,
+                    priority: task.priority,
+                    category: task.category,
+                };
+            },
+            async emitTaskCompleted(task, completionInput) {
                 const admin = createAdminClient();
                 const { error: activityError } = await admin.from('client_activity_log').insert({
-                    organization_id: task.organization_id,
-                    client_id: task.client_id,
+                    organization_id: task.organizationId,
+                    client_id: task.clientId,
                     event_type: 'task.completed',
-                    actor_id: input.userId,
-                    actor_name: authenticatedActorName,
-                    operation_id: input.operationId,
+                    actor_id: completionInput.userId,
+                    actor_name: completionInput.actorName,
+                    operation_id: completionInput.operationId,
                     metadata: {
                         taskId: task.id,
                         title: task.title,
@@ -106,14 +117,12 @@ export async function POST(request: NextRequest): Promise<Response> {
                     },
                 });
                 if (activityError) throw activityError;
-            }
-            return { finalizedTimeLogIds };
-        } catch {
-            return {
-                finalizedTimeLogIds,
-                completionWarning: 'Time was saved, but task completion could not be fully recorded.',
-            };
-        }
+            },
+        });
+        return {
+            finalizedTimeLogIds,
+            ...(completionWarning ? { completionWarning } : {}),
+        };
     };
 
     const deps: AttemptRouteDeps = {

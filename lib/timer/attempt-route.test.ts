@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    completeFinalizedTask,
     handleTimerMutation,
     type AttemptRouteDeps,
     type FinalizeAttemptInput,
@@ -270,6 +271,27 @@ test('an unexpected Basecamp exception cannot erase already-finalized local IDs'
     });
 });
 
+test('finalized IDs survive loadAttempts failure with durable completion and Basecamp status', async () => {
+    const response = await handleTimerMutation(request(finalizeRequest), dependencies({
+        finalizeOwnedAttempt: async () => ({
+            finalizedTimeLogIds: ['day-1', 'day-2'],
+            completionWarning: 'Time saved, but completion failed',
+        }),
+        syncBasecamp: async () => ({ ok: true }),
+        loadAttempts: async () => { throw new Error('recovery query unavailable'); },
+    }));
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+        running: null,
+        paused: [],
+        finalizedTimeLogIds: ['day-1', 'day-2'],
+        completionWarning: 'Time saved, but completion failed',
+        basecampStatus: 'synced',
+        recoveryWarning: 'Time was saved, but current timer state could not be reloaded.',
+    });
+});
+
 test('retry delegates provenance checks and creation policy to the protected sync dependency', async () => {
     const calls: Array<[string, boolean]> = [];
     const response = await handleTimerMutation(request({ action: 'retry_basecamp', timeLogId: 'logged-owned' }), dependencies({
@@ -293,6 +315,43 @@ test('retry delegates provenance checks and creation policy to the protected syn
         syncBasecamp: async () => { throw forbidden; },
     }));
     assert.equal(rejected.status, 403);
+});
+
+test('retry provider exception returns failed status without false ownership mapping', async () => {
+    const response = await handleTimerMutation(request({
+        action: 'retry_basecamp',
+        timeLogId: 'logged-owned',
+    }), dependencies({
+        syncBasecamp: async () => { throw new Error('provider runtime failed'); },
+    }));
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+        running: null,
+        paused: [],
+        finalizedTimeLogIds: ['logged-owned'],
+        basecampStatus: 'failed',
+    });
+});
+
+test('zero-row task completion produces completionWarning and performs no privileged activity insert', async () => {
+    let privilegedInsert = false;
+    const warning = await completeFinalizedTask(
+        {
+            taskId: 'task-1',
+            userId: 'user-1',
+            actorName: 'Ada',
+            operationId: 'operation-1',
+            finalizedAt: '2026-08-20T22:00:00.000Z',
+        },
+        {
+            completeOwnedTask: async () => null,
+            emitTaskCompleted: async () => { privilegedInsert = true; },
+        },
+    );
+
+    assert.equal(warning, 'Time was saved, but task completion could not be fully recorded.');
+    assert.equal(privilegedInsert, false);
 });
 
 test('strict discriminated validation rejects unknown actions, fields, and invalid values', async () => {

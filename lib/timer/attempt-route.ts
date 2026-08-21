@@ -29,6 +29,47 @@ export interface AttemptRouteDeps {
     ): Promise<{ ok: boolean; error?: string }>;
 }
 
+export interface CompletedTask {
+    id: string;
+    organizationId: string;
+    clientId: string | null;
+    title: string;
+    priority: string | null;
+    category: string | null;
+}
+
+export interface CompletionInput {
+    taskId: string;
+    userId: string;
+    actorName: string;
+    operationId: string;
+    finalizedAt: string;
+}
+
+export interface CompletionDeps {
+    completeOwnedTask(taskId: string, finalizedAt: string): Promise<CompletedTask | null>;
+    emitTaskCompleted(task: CompletedTask, input: CompletionInput): Promise<void>;
+}
+
+const COMPLETION_WARNING = 'Time was saved, but task completion could not be fully recorded.';
+
+/** Privileged activity is allowed only after the authenticated update returns a row. */
+export async function completeFinalizedTask(
+    input: CompletionInput,
+    deps: CompletionDeps,
+): Promise<string | undefined> {
+    try {
+        const completedTask = await deps.completeOwnedTask(input.taskId, input.finalizedAt);
+        if (!completedTask) return COMPLETION_WARNING;
+        if (completedTask.clientId) {
+            await deps.emitTaskCompleted(completedTask, input);
+        }
+        return undefined;
+    } catch {
+        return COMPLETION_WARNING;
+    }
+}
+
 type JsonObject = Record<string, unknown>;
 
 const actionFields: Record<TimerMutationRequest['action'], readonly string[]> = {
@@ -154,6 +195,23 @@ function errorResponse(error: unknown): Response {
     return json({ error: 'Unable to update timer' }, 500);
 }
 
+function isOwnershipError(error: unknown): boolean {
+    const code = errorCode(error);
+    return code === '42501' || code === 'P0002' || code === 'PGRST116';
+}
+
+async function loadAttemptsAfterDurableMutation(
+    deps: AttemptRouteDeps,
+    userId: string,
+    recoveryWarning: string,
+): Promise<TimerStateResponse> {
+    try {
+        return await deps.loadAttempts(userId);
+    } catch {
+        return { running: null, paused: [], recoveryWarning };
+    }
+}
+
 function mutationInstant(now?: string): string {
     return now ?? new Date().toISOString();
 }
@@ -246,8 +304,13 @@ export async function handleTimerMutation(
                 basecampStatus = results.every(result => result.ok) ? 'synced' : 'failed';
             }
 
+            const attempts = await loadAttemptsAfterDurableMutation(
+                deps,
+                user.id,
+                'Time was saved, but current timer state could not be reloaded.',
+            );
             return json({
-                ...await deps.loadAttempts(user.id),
+                ...attempts,
                 finalizedTimeLogIds: finalized.finalizedTimeLogIds,
                 ...(finalized.completionWarning
                     ? { completionWarning: finalized.completionWarning }
@@ -257,9 +320,20 @@ export async function handleTimerMutation(
         }
 
         if (input.action === 'retry_basecamp') {
-            const result = await deps.syncBasecamp(input.timeLogId, true);
+            let result: { ok: boolean; error?: string };
+            try {
+                result = await deps.syncBasecamp(input.timeLogId, true);
+            } catch (error) {
+                if (isOwnershipError(error)) throw error;
+                result = { ok: false };
+            }
+            const attempts = await loadAttemptsAfterDurableMutation(
+                deps,
+                user.id,
+                'Basecamp retry finished, but current timer state could not be reloaded.',
+            );
             return json({
-                ...await deps.loadAttempts(user.id),
+                ...attempts,
                 finalizedTimeLogIds: [input.timeLogId],
                 basecampStatus: result.ok ? 'synced' : 'failed',
             } satisfies TimerStateResponse);

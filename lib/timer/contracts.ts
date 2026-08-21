@@ -35,6 +35,7 @@ export interface TimerStateResponse {
     paused: TimerAttempt[];
     finalizedTimeLogIds?: string[];
     completionWarning?: string;
+    recoveryWarning?: string;
     basecampStatus?: 'not_requested' | 'syncing' | 'synced' | 'failed';
 }
 
