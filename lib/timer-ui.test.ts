@@ -155,3 +155,12 @@ test('a review sheet resolves its attempt by identity from the latest canonical 
 
     assert.equal(timerUi.findTimerAttempt(state, 'reviewing')?.sessionNotes[0]?.text, 'Saved note');
 });
+
+test('sub-second segment drift never leaks into the reviewed duration', () => {
+    const drifting = timerUi.stopReviewSummary(attempt({
+        segments: [segment('a', '2026-08-20T17:00:00.250Z', '2026-08-20T17:30:00.750Z')],
+    }), 'UTC');
+
+    assert.equal(drifting.totalActiveSeconds, 1_801);
+    assert.deepEqual(drifting.dates, [{ localDate: '2026-08-20', activeSeconds: 1_801, segmentCount: 1 }]);
+});

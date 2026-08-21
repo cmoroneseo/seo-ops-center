@@ -231,8 +231,11 @@ export async function POST(req: NextRequest) {
             // A previous sync failed, so its create may have succeeded with a lost
             // response. Adopt that entry from provider provenance before creating.
             let adoptedEntryId: string | null = null;
-            if (log.basecampSyncError) {
-                const candidates = await listBasecampProjectTimesheetEntries(projectId);
+            const priorCandidates = log.basecampSyncError
+                ? await listBasecampProjectTimesheetEntries(projectId)
+                : [];
+            if (priorCandidates.length > 0) {
+                const candidates = priorCandidates;
                 const { data: claimedRows } = await admin
                     .from('time_logs')
                     .select('basecamp_entry_id')

@@ -132,7 +132,9 @@ export function stopReviewSummary(
         total.segmentCount += 1;
     }
 
-    const dates = [...totals.values()].sort((left, right) => left.localDate.localeCompare(right.localDate));
+    const dates = [...totals.values()]
+        .map(date => ({ ...date, activeSeconds: Math.round(date.activeSeconds) }))
+        .sort((left, right) => left.localDate.localeCompare(right.localDate));
     return {
         totalActiveSeconds: dates.reduce((sum, date) => sum + date.activeSeconds, 0),
         dates,
