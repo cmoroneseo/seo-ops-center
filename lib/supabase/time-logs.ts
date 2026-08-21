@@ -80,6 +80,33 @@ export async function getTimeLogs(
     }
 }
 
+/**
+ * Finalized time for one task, with its recorded segments, for the task
+ * detail panel's Time Logged section. Ordered newest first.
+ */
+export async function getTaskTimeLogs(taskId: string): Promise<TimerAttempt[]> {
+    const supabase = createClient();
+    if (!supabase) return [];
+    try {
+        const { data, error } = await supabase
+            .from('time_logs')
+            .select('*, clients(name), tasks(title), time_log_segments(*)')
+            .eq('task_id', taskId)
+            .eq('status', 'logged')
+            .order('date', { ascending: false });
+        if (error) throw error;
+        return (data || []).map(timerAttemptFromRow);
+    } catch (err) {
+        console.error('Error fetching task time logs:', err);
+        return [];
+    }
+}
+
+/** Retry a failed Basecamp push for one finalized, owned time log. */
+export async function retryTimeLogBasecampSync(timeLogId: string): Promise<TimerStateResponse> {
+    return mutateTimer({ action: 'retry_basecamp', timeLogId });
+}
+
 function localDateKey(value: Date): string {
     const year = value.getFullYear();
     const month = String(value.getMonth() + 1).padStart(2, '0');

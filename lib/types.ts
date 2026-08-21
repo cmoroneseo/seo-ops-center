@@ -408,6 +408,12 @@ export interface ClientActivityEvent {
     eventType: ActivityEventType;
     actorId?: string;
     actorName?: string;
+    /**
+     * Correlates effects created by one trusted server operation (a Stop
+     * confirmation that logged time and completed a task). Presentation groups
+     * on it; the underlying audit rows stay separate.
+     */
+    operationId?: string;
     metadata: Record<string, unknown>;
     occurredAt: string;
 }

@@ -1,14 +1,19 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Clock, Calendar, Tag, CheckSquare, MessageSquare, ChevronDown, Trash2, Plus, UserCircle2, PenLine } from 'lucide-react';
-import { createTimeLog } from '@/lib/supabase/time-logs';
+import { X, Clock, Calendar, Tag, CheckSquare, MessageSquare, ChevronDown, Trash2, Plus, UserCircle2, PenLine, RefreshCw } from 'lucide-react';
+import {
+    createTimeLog,
+    getTaskTimeLogs,
+    retryTimeLogBasecampSync,
+} from '@/lib/supabase/time-logs';
 import { cn } from '@/lib/utils';
-import { Task, TaskComment, TaskStatus, TaskPriority, TaskCategory } from '@/lib/types';
+import { Task, TaskComment, TaskStatus, TaskPriority, TaskCategory, TimerAttempt } from '@/lib/types';
 import { getTask, updateTask, createTask, deleteTask, getTaskComments, createTaskComment } from '@/lib/supabase/tasks';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useTimer } from '@/components/providers/timer-provider';
+import { groupSegmentsForDisplay, sumActiveSeconds } from '@/lib/timer/segments';
 
 interface TaskDetailModalProps {
     task: Task | null;
@@ -44,6 +49,81 @@ const CATEGORY_OPTIONS: { value: TaskCategory; label: string }[] = [
     { value: 'admin', label: 'Admin' },
 ];
 
+function formatClockRange(startedAt: string, endedAt?: string): string {
+    const time = (value: string) => new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return endedAt ? `${time(startedAt)} \u2013 ${time(endedAt)}` : time(startedAt);
+}
+
+function formatActiveDuration(seconds: number): string {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.round((seconds % 3600) / 60);
+    if (hours === 0) return `${minutes}m`;
+    return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+}
+
+/** One finalized entry: who, how long, which sessions, and its Basecamp state. */
+function TaskTimeLogRow({
+    log,
+    loggerName,
+    retrying,
+    onRetryBasecamp,
+}: {
+    log: TimerAttempt;
+    loggerName?: string;
+    retrying: boolean;
+    onRetryBasecamp: (log: TimerAttempt) => void;
+}) {
+    const groups = groupSegmentsForDisplay(log.segments);
+    const activeSeconds = sumActiveSeconds(log.segments);
+
+    return (
+        <div className="rounded-xl border border-border bg-muted/20 px-3 py-2 space-y-1">
+            <div className="flex items-baseline justify-between gap-2">
+                <p className="text-sm font-semibold">
+                    {log.hours.toFixed(2)}h
+                    {activeSeconds > 0 && (
+                        <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">
+                            {formatActiveDuration(activeSeconds)} active
+                        </span>
+                    )}
+                </p>
+                <span className="text-[11px] text-muted-foreground">{log.date.slice(0, 10)}</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+                {loggerName ?? 'Team member'}
+                {groups.length > 0 && (
+                    <span className="ml-1.5">
+                        {'\u00b7'} {groups.length} {groups.length === 1 ? 'session' : 'sessions'}
+                    </span>
+                )}
+            </p>
+            {groups.length > 0 && (
+                <ul className="text-[11px] text-muted-foreground/70 space-y-0.5">
+                    {groups.map(group => (
+                        <li key={group.startsAt}>{formatClockRange(group.startsAt, group.endsAt)}</li>
+                    ))}
+                </ul>
+            )}
+            {log.basecampSyncError ? (
+                <div className="flex items-center gap-2 pt-0.5">
+                    <span className="text-[11px] text-destructive">Basecamp sync failed</span>
+                    <button
+                        type="button"
+                        onClick={() => onRetryBasecamp(log)}
+                        disabled={retrying}
+                        className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-50"
+                    >
+                        <RefreshCw className={cn('h-3 w-3', retrying && 'animate-spin')} />
+                        {retrying ? 'Retrying' : 'Retry'}
+                    </button>
+                </div>
+            ) : log.basecampSyncedAt ? (
+                <p className="text-[11px] text-muted-foreground/70">Synced to Basecamp</p>
+            ) : null}
+        </div>
+    );
+}
+
 export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId }: TaskDetailModalProps) {
     const { organization, memberships } = useOrganization();
     const { runningTimer, startTask, pause } = useTimer();
@@ -53,6 +133,8 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const [newComment, setNewComment] = useState('');
     const [postingComment, setPostingComment] = useState(false);
     const [loggedHours, setLoggedHours] = useState(0);
+    const [timeLogs, setTimeLogs] = useState<TimerAttempt[]>([]);
+    const [retryingLogId, setRetryingLogId] = useState<string | null>(null);
     const [subtasks, setSubtasks] = useState<Task[]>([]);
     const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
     const [addingSubtask, setAddingSubtask] = useState(false);
@@ -104,18 +186,38 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     // Load comments + hours when task opens
     const loadTaskData = useCallback(async () => {
         if (!task) return;
-        const [commentsData, taskData] = await Promise.all([
+        const [commentsData, taskData, logs] = await Promise.all([
             getTaskComments(task.id),
             getTask(task.id),
+            getTaskTimeLogs(task.id),
         ]);
         setComments(commentsData);
         setLoggedHours(taskData.loggedHours);
         setSubtasks(taskData.subtasks);
+        setTimeLogs(logs);
     }, [task?.id]);
+
+    const handleRetryBasecamp = useCallback(async (log: TimerAttempt) => {
+        setRetryingLogId(log.id);
+        try {
+            await retryTimeLogBasecampSync(log.id);
+        } finally {
+            setRetryingLogId(null);
+            await loadTaskData();
+        }
+    }, [loadTaskData]);
 
     useEffect(() => {
         if (isOpen && task) loadTaskData();
     }, [isOpen, task?.id]);
+
+    // Confirmed time must appear here as soon as a Stop confirmation lands.
+    useEffect(() => {
+        if (!isOpen || !task) return;
+        const refresh = () => { void loadTaskData(); };
+        window.addEventListener('timer:data-changed', refresh);
+        return () => window.removeEventListener('timer:data-changed', refresh);
+    }, [isOpen, task?.id, loadTaskData]);
 
     const save = useCallback(async (patch: Parameters<typeof updateTask>[1]) => {
         if (!task) return;
@@ -565,9 +667,25 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
 
                             {/* Summary */}
                             {loggedHours > 0 ? (
-                                <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/30 border border-border">
-                                    <Clock className="h-5 w-5 text-muted-foreground" />
-                                    <p className="text-sm font-semibold">{loggedHours.toFixed(1)}h logged</p>
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/30 border border-border">
+                                        <Clock className="h-5 w-5 text-muted-foreground" />
+                                        <p className="text-sm font-semibold">{loggedHours.toFixed(1)}h logged</p>
+                                    </div>
+                                    {timeLogs.slice(0, 5).map(log => (
+                                        <TaskTimeLogRow
+                                            key={log.id}
+                                            log={log}
+                                            loggerName={orgMembers.find(m => m.id === log.userId)?.name}
+                                            retrying={retryingLogId === log.id}
+                                            onRetryBasecamp={handleRetryBasecamp}
+                                        />
+                                    ))}
+                                    {timeLogs.length > 5 && (
+                                        <p className="text-[11px] text-muted-foreground">
+                                            Showing the 5 most recent of {timeLogs.length} entries.
+                                        </p>
+                                    )}
                                 </div>
                             ) : !showLogForm ? (
                                 <div className="border border-dashed border-border rounded-xl py-6 flex flex-col items-center justify-center text-muted-foreground gap-2">
@@ -636,7 +754,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                                     billable: true,
                                                 });
                                                 if (result.success) {
-                                                    setLoggedHours(prev => prev + parseFloat(logHours));
+                                                    void loadTaskData();
                                                     setShowLogForm(false);
                                                     setLogHours('');
                                                     setLogNote('');

@@ -87,14 +87,21 @@ export default function ClientDetailPage() {
     }, [activeTab, id]);
 
     // Budget-consuming hours for this month — excludes internal work and client
-    // meetings flagged as not counting toward budget.
+    // meetings flagged as not counting toward budget. Re-read whenever confirmed
+    // time lands so SEO hours and the feed refresh together.
     useEffect(() => {
         if (!organization?.id || !id) return;
         const month = new Date().toISOString().slice(0, 7);
         getLoggedHoursByClient(organization.id, month).then(byClient => {
             setLoggedHours(byClient[id] ?? 0);
         });
-    }, [organization?.id, id]);
+    }, [organization?.id, id, activityRefreshKey]);
+
+    useEffect(() => {
+        const refresh = () => setActivityRefreshKey(key => key + 1);
+        window.addEventListener('client-activity:data-changed', refresh);
+        return () => window.removeEventListener('client-activity:data-changed', refresh);
+    }, []);
 
     if (client === undefined) {
         return <div className="p-8 text-muted-foreground">Loading client...</div>;

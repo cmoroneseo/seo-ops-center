@@ -35,6 +35,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
+    // operationId is deliberately not read from the body: correlation IDs are
+    // only ever stamped by trusted server paths (Stop finalization).
     const { clientId, eventType, metadata } = body;
     if (!clientId || !eventType) {
         return NextResponse.json({ error: 'clientId and eventType are required' }, { status: 400 });

@@ -52,6 +52,7 @@ function rowToEvent(row: any): ClientActivityEvent {
         eventType: row.event_type,
         actorId: row.actor_id ?? undefined,
         actorName: row.actor_name ?? undefined,
+        operationId: row.operation_id ?? undefined,
         metadata: row.metadata ?? {},
         occurredAt: row.occurred_at,
     };
@@ -64,6 +65,12 @@ export async function logClientActivity(payload: {
     eventType: string;
     actorId?: string;
     actorName?: string;
+    /**
+     * Server-generated correlation ID. Only trusted server paths (Stop
+     * finalization) supply one; the browser /api/activity route never
+     * forwards a caller-supplied value.
+     */
+    operationId?: string;
     metadata?: Record<string, unknown>;
 }): Promise<void> {
     const admin = createAdminClient();
@@ -74,6 +81,7 @@ export async function logClientActivity(payload: {
         event_type: payload.eventType,
         actor_id: payload.actorId ?? null,
         actor_name: payload.actorName ?? null,
+        operation_id: payload.operationId ?? null,
         metadata: payload.metadata ?? {},
     });
     if (error) console.error('logClientActivity error:', error);

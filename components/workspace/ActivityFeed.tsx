@@ -9,6 +9,7 @@ import { EditTimeLogSheet } from '@/components/timer/EditTimeLogSheet';
 import { getClientNotes } from '@/lib/supabase/client-notes';
 import { getClientAssignments } from '@/lib/supabase/client-assignments';
 import { getClientActivity } from '@/lib/supabase/client-activity';
+import { groupClientActivity, type ActivityCorrelationInput } from '@/lib/workspace/activity-grouping';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
@@ -19,19 +20,77 @@ type ActivityItem =
     | { type: 'time_log'; data: TimeLog; date: Date }
     | { type: 'note'; data: ClientNote; date: Date }
     | { type: 'assignment'; data: ClientAssignment; date: Date }
-    | { type: 'integration_event'; data: ClientActivityEvent; date: Date };
+    | { type: 'integration_event'; data: ClientActivityEvent; date: Date }
+    /** One Stop confirmation that logged time and completed its task. */
+    | { type: 'time_and_completion'; data: TimeLog; event: ClientActivityEvent; date: Date };
 
-/** Bucket an activity item into a filter domain based on its event type. */
-function domainOf(item: ActivityItem): Exclude<ActivityType, 'all'> {
-    if (item.type === 'time_log') return 'hours';
-    if (item.type === 'note') return 'notes';
-    if (item.type === 'assignment') return 'assignments';
-    const t = item.data.eventType;
-    if (t.startsWith('task.')) return 'tasks';
-    if (t.startsWith('deliverable.')) return 'deliverables';
-    if (t.startsWith('client.') || t === 'retainer.amended') return 'updates';
-    if (t.startsWith('campaign.')) return 'updates';
+function eventDomain(eventType: string): Exclude<ActivityType, 'all'> {
+    if (eventType.startsWith('task.')) return 'tasks';
+    if (eventType.startsWith('deliverable.')) return 'deliverables';
+    if (eventType.startsWith('client.') || eventType === 'retainer.amended') return 'updates';
+    if (eventType.startsWith('campaign.')) return 'updates';
     return 'integrations';
+}
+
+/**
+ * Filter domains an item belongs to. A grouped time-and-completion item shows
+ * under both Hours and Tasks while still counting once in All.
+ */
+function domainsOf(item: ActivityItem): Exclude<ActivityType, 'all'>[] {
+    if (item.type === 'time_log') return ['hours'];
+    if (item.type === 'note') return ['notes'];
+    if (item.type === 'assignment') return ['assignments'];
+    if (item.type === 'time_and_completion') return ['hours', 'tasks'];
+    return [eventDomain(item.data.eventType)];
+}
+
+/** Hours contributed by an item, counted exactly once per underlying log. */
+function itemHours(item: ActivityItem): number {
+    return item.type === 'time_log' || item.type === 'time_and_completion' ? item.data.hours : 0;
+}
+
+/** Fold correlated Stop-confirmation effects into one presentation item. */
+function correlateActivityItems(items: ActivityItem[]): ActivityItem[] {
+    const inputs: ActivityCorrelationInput<ActivityItem>[] = items.map(item => {
+        if (item.type === 'time_log') {
+            return {
+                item,
+                kind: 'time_log' as const,
+                id: item.data.id,
+                occurredAt: item.date.toISOString(),
+                operationId: item.data.operationId,
+                taskId: item.data.taskId,
+                clientId: item.data.clientId,
+                actorId: item.data.userId,
+                hours: item.data.hours,
+            };
+        }
+        if (item.type === 'integration_event') {
+            return {
+                item,
+                kind: item.data.eventType === 'task.completed' ? 'task_completed' as const : 'other' as const,
+                id: item.data.id,
+                occurredAt: item.date.toISOString(),
+                operationId: item.data.operationId,
+                taskId: item.data.metadata.taskId as string | undefined,
+                clientId: item.data.clientId,
+                actorId: item.data.actorId,
+            };
+        }
+        return { item, kind: 'other' as const, id: item.data.id, occurredAt: item.date.toISOString() };
+    });
+
+    return groupClientActivity(inputs).map(grouped => {
+        if (grouped.kind !== 'time_and_completion') return grouped.timeLog ?? grouped.event!;
+        const timeItem = grouped.timeLog as Extract<ActivityItem, { type: 'time_log' }>;
+        const eventItem = grouped.event as Extract<ActivityItem, { type: 'integration_event' }>;
+        return {
+            type: 'time_and_completion' as const,
+            data: timeItem.data,
+            event: eventItem.data,
+            date: new Date(grouped.occurredAt),
+        };
+    });
 }
 
 interface ActivityFeedProps {
@@ -534,6 +593,60 @@ function EventRow({ event }: { event: ClientActivityEvent }) {
 
 // ── PDF Export ─────────────────────────────────────────────────────────────
 
+/**
+ * One Stop confirmation, rendered once. The time log and the completion event
+ * remain separate audit rows; only their presentation is merged, and the hours
+ * are stated a single time.
+ */
+function TimeAndCompletionRow({
+    log,
+    event,
+    onEdit,
+    loggerName,
+}: {
+    log: TimeLog;
+    event: ClientActivityEvent;
+    onEdit: (log: TimeLog) => void;
+    loggerName?: string;
+}) {
+    const title = (event.metadata.title as string | undefined) ?? log.taskTitle;
+    const actor = event.actorName ?? loggerName;
+
+    return (
+        <div className="group flex items-start gap-3 py-3">
+            <div className="w-7 h-7 rounded-full bg-green-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                <CheckSquare className="h-3.5 w-3.5 text-green-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm leading-snug">
+                        {actor && <span className="font-semibold">{actor} </span>}
+                        <span className="text-foreground/80">completed </span>
+                        {title && <span className="font-medium text-green-500">&quot;{title}&quot;</span>}
+                        <span className="text-foreground/80"> and logged </span>
+                        <span className="font-semibold text-blue-500">{log.hours}h</span>
+                    </p>
+                    <button
+                        onClick={() => onEdit(log)}
+                        className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                        aria-label="Edit time entry"
+                    >
+                        <Pencil className="h-3 w-3" />
+                    </button>
+                </div>
+                {log.description && (
+                    <p className="text-xs text-muted-foreground mt-0.5">{log.description}</p>
+                )}
+                {log.basecampSyncError ? (
+                    <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-0.5">Basecamp sync failed</p>
+                ) : log.basecampSyncedAt ? (
+                    <p className="text-xs text-muted-foreground/70 mt-0.5">Synced to Basecamp</p>
+                ) : null}
+            </div>
+        </div>
+    );
+}
+
 function clientInitials(name: string) {
     return name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
 }
@@ -541,15 +654,19 @@ function clientInitials(name: string) {
 function buildPrintHTML(client: ClientProject, items: ActivityItem[], memberNames: Record<string, string> = {}, rangeLabel?: string): string {
     const initials = clientInitials(client.clientName);
     const now = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-    const totalHours = items
-        .filter((i): i is { type: 'time_log'; data: TimeLog; date: Date } => i.type === 'time_log')
-        .reduce((s, i) => s + i.data.hours, 0);
+    const totalHours = items.reduce((s, i) => s + itemHours(i), 0);
 
     function fmtDate(d: Date) {
         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     }
 
     const rows = items.map(item => {
+        if (item.type === 'time_and_completion') {
+            const log = item.data as TimeLog;
+            const who = memberNames[log.userId];
+            const title = (item.event.metadata.title as string | undefined) ?? log.taskTitle ?? 'task';
+            return `<tr><td>${fmtDate(item.date)}</td><td><strong>${log.hours}h logged</strong>${who ? ` by ${who}` : ''}</td><td>Completed "${title}"</td></tr>`;
+        }
         if (item.type === 'time_log') {
             const log = item.data as TimeLog;
             const who = memberNames[log.userId];
@@ -614,7 +731,7 @@ function buildPrintHTML(client: ClientProject, items: ActivityItem[], memberName
 </div>
 <div class="stats">
   <div class="stat"><div class="stat-value">${totalHours.toFixed(1)}h</div><div class="stat-label">Total Hours Logged</div></div>
-  <div class="stat"><div class="stat-value">${items.filter(i => i.type === 'time_log').length}</div><div class="stat-label">Work Sessions</div></div>
+  <div class="stat"><div class="stat-value">${items.filter(i => itemHours(i) > 0).length}</div><div class="stat-label">Work Sessions</div></div>
   <div class="stat"><div class="stat-value">${items.filter(i => i.type === 'note').length}</div><div class="stat-label">Notes</div></div>
   <div class="stat"><div class="stat-value">${items.length}</div><div class="stat-label">Total Events</div></div>
 </div>
@@ -794,28 +911,25 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                 })),
             ];
             items.sort((a, b) => b.date.getTime() - a.date.getTime());
-            setAllItems(items);
+            setAllItems(correlateActivityItems(items));
             setLoading(false);
         });
     }, [organization?.id, client.id, refreshKey]);
 
     const filtered = filter === 'all'
         ? allItems
-        : allItems.filter(i => domainOf(i) === filter);
+        : allItems.filter(i => domainsOf(i).includes(filter));
 
     const grouped = groupByDate(filtered);
 
     const counts = allItems.reduce((acc, i) => {
-        const d = domainOf(i);
-        acc[d] = (acc[d] ?? 0) + 1;
+        for (const domain of domainsOf(i)) acc[domain] = (acc[domain] ?? 0) + 1;
         return acc;
     }, {} as Record<string, number>);
     const hourCount = counts.hours ?? 0;
     const noteCount = counts.notes ?? 0;
     const assignmentCount = counts.assignments ?? 0;
-    const totalHours = allItems
-        .filter((i): i is { type: 'time_log'; data: TimeLog; date: Date } => i.type === 'time_log')
-        .reduce((sum, i) => sum + i.data.hours, 0);
+    const totalHours = allItems.reduce((sum, i) => sum + itemHours(i), 0);
 
     return (
         <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
@@ -909,7 +1023,14 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                             <div className="divide-y divide-border/30">
                                 {group.items.map(item => (
                                     <div key={`${item.type}-${item.data.id}`}>
-                                        {item.type === 'time_log' ? (
+                                        {item.type === 'time_and_completion' ? (
+                                            <TimeAndCompletionRow
+                                                log={item.data}
+                                                event={item.event}
+                                                onEdit={setEditingLog}
+                                                loggerName={memberNames[item.data.userId]}
+                                            />
+                                        ) : item.type === 'time_log' ? (
                                             <TimeLogRow log={item.data} onEdit={setEditingLog} loggerName={memberNames[item.data.userId]} />
                                         ) : item.type === 'note' ? (
                                             <NoteRow note={item.data} />
