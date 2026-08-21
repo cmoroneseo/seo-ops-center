@@ -27,8 +27,45 @@ test('segment migration is additive, tenant-scoped, and mirrored', () => {
 });
 
 test('timer RPC execution is not granted to anon', () => {
-  assert.match(migration, /revoke execute on function public\.start_task_timer[^;]+ from public, anon/i);
-  assert.match(migration, /grant execute on function public\.start_task_timer[^;]+ to authenticated/i);
+  for (const name of [
+    'start_task_timer',
+    'pause_time_attempt',
+    'resume_time_attempt',
+    'switch_time_attempt',
+    'begin_stop_review',
+    'finalize_time_attempt',
+  ]) {
+    assert.match(
+      migration,
+      new RegExp(`revoke execute on function public\\.${name}[^;]+ from public, anon`, 'i'),
+      `${name} must be revoked from anon`,
+    );
+    assert.match(
+      migration,
+      new RegExp(`grant execute on function public\\.${name}[^;]+ to authenticated`, 'i'),
+      `${name} must be granted to authenticated`,
+    );
+    assert.match(functionBody(migration, name), /auth\.uid\(\)/i, `${name} must derive its actor`);
+  }
+  // The segment tenant guard is trigger-only; nobody may call it directly.
+  assert.doesNotMatch(migration, /grant execute on function public\.protect_/i);
+});
+
+test('one open segment per organization member is a database invariant, not a UI rule', () => {
+  for (const sql of [migration, schema]) {
+    assert.match(
+      sql,
+      /create unique index(?: if not exists)? one_open_time_segment_per_user\s+on public\.time_log_segments \(organization_id, user_id\)\s+where ended_at is null/i,
+    );
+    // Paused attempts are segmentless or fully closed, so nothing caps their number.
+    assert.doesNotMatch(sql, /unique index[^;]+time_log_segments \(organization_id, user_id\);/i);
+  }
+});
+
+test('legacy rows are migrated without inventing history', () => {
+  assert.match(migration, /status = 'in_progress'[\s\S]{0,400}timer_started_at is not null/i);
+  assert.match(migration, /not exists[\s\S]{0,300}time_log_segments/i);
+  assert.doesNotMatch(migration, /insert into public\.time_log_segments[\s\S]{0,600}ended_at\s*\)?\s*values[\s\S]{0,200}now\(\)/i);
 });
 
 test('start requires task assignment ownership and atomically claims unassigned tasks', () => {
