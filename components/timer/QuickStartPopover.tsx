@@ -13,7 +13,7 @@ interface QuickStartPopoverProps {
 }
 
 export function QuickStartPopover({ clients, onClose }: QuickStartPopoverProps) {
-    const { start } = useTimer();
+    const { startTask } = useTimer();
     const [clientId, setClientId] = useState('');
     const [taskId, setTaskId] = useState('');
     const [tasks, setTasks] = useState<Task[]>([]);
@@ -64,13 +64,13 @@ export function QuickStartPopover({ clients, onClose }: QuickStartPopoverProps) 
         if (!clientId) return;
         const client = clients.find(c => c.id === clientId);
         const task = tasks.find(t => t.id === taskId);
-        await start({
+        const started = await startTask({
             clientId,
             clientName: client?.clientName ?? '',
             taskId: task?.id,
             taskTitle: task?.title,
         });
-        onClose();
+        if (started) onClose();
     };
 
     return (

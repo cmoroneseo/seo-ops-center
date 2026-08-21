@@ -46,7 +46,7 @@ const CATEGORY_OPTIONS: { value: TaskCategory; label: string }[] = [
 
 export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId }: TaskDetailModalProps) {
     const { organization, memberships } = useOrganization();
-    const { timer, start, pause } = useTimer();
+    const { runningTimer, startTask, pause } = useTimer();
     const [mounted, setMounted] = useState(false);
     const [saving, setSaving] = useState(false);
     const [comments, setComments] = useState<TaskComment[]>([]);
@@ -225,14 +225,14 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         await save({ assigneeIds: next });
     };
 
-    const isThisTaskRunning = timer?.status === 'running' && timer.taskId === task?.id;
+    const isThisTaskRunning = runningTimer?.taskId === task?.id;
 
     const handleTimerClick = async () => {
         if (!task) return;
-        if (isThisTaskRunning) {
-            await pause();
+        if (isThisTaskRunning && runningTimer) {
+            await pause(runningTimer);
         } else if (task.clientId || task.projectId) {
-            await start({
+            await startTask({
                 clientId: task.clientId ?? task.projectId ?? '',
                 clientName: task.clientName ?? 'Unknown',
                 taskId: task.id,

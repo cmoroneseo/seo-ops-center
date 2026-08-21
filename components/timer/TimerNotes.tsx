@@ -5,7 +5,6 @@ import { X, StickyNote, Link2, Pencil, Check } from 'lucide-react';
 import { useTimer } from '@/components/providers/timer-provider';
 import { SessionNote } from '@/lib/types';
 import { ClientProject } from '@/lib/types';
-import { cn } from '@/lib/utils';
 
 // ── Link rendering ────────────────────────────────────────────────────────────
 // Parses [Label](/path) markdown-style links and renders them as <a> tags.
@@ -38,10 +37,9 @@ interface MentionDropdownProps {
     query: string;
     clients: ClientProject[];
     onSelect: (client: ClientProject) => void;
-    anchorRef: React.RefObject<HTMLTextAreaElement | null>;
 }
 
-function MentionDropdown({ query, clients, onSelect, anchorRef }: MentionDropdownProps) {
+function MentionDropdown({ query, clients, onSelect }: MentionDropdownProps) {
     const filtered = clients
         .filter(c => c.clientName.toLowerCase().includes(query.toLowerCase()))
         .slice(0, 6);
@@ -83,7 +81,7 @@ function NoteRow({ note, onDelete, onEdit }: {
             const len = draft.length;
             editRef.current?.setSelectionRange(len, len);
         }
-    }, [editing]);
+    }, [draft.length, editing]);
 
     const confirm = () => {
         const trimmed = draft.trim();
@@ -150,10 +148,11 @@ function NoteRow({ note, onDelete, onEdit }: {
 // ── Main component ────────────────────────────────────────────────────────────
 interface TimerNotesProps {
     clients: ClientProject[];
+    attemptId: string;
     notes: SessionNote[];
 }
 
-export function TimerNotes({ clients, notes }: TimerNotesProps) {
+export function TimerNotes({ clients, attemptId, notes }: TimerNotesProps) {
     const { addNote, editNote, deleteNote } = useTimer();
     const [input, setInput] = useState('');
     const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -191,7 +190,7 @@ export function TimerNotes({ clients, notes }: TimerNotesProps) {
 
     const submitNote = async () => {
         if (!input.trim()) return;
-        await addNote(input);
+        await addNote(attemptId, input);
         setInput('');
         setMentionQuery(null);
     };
@@ -213,8 +212,8 @@ export function TimerNotes({ clients, notes }: TimerNotesProps) {
                         <NoteRow
                             key={note.id}
                             note={note}
-                            onEdit={newText => editNote(note.id, newText)}
-                            onDelete={() => deleteNote(note.id)}
+                            onEdit={newText => editNote(attemptId, note.id, newText)}
+                            onDelete={() => deleteNote(attemptId, note.id)}
                         />
                     ))}
                     <div ref={listEndRef} />
@@ -233,7 +232,6 @@ export function TimerNotes({ clients, notes }: TimerNotesProps) {
                         query={mentionQuery}
                         clients={clients}
                         onSelect={handleSelectMention}
-                        anchorRef={textareaRef}
                     />
                 )}
                 <div className="flex items-end gap-1.5 rounded-xl border border-border bg-background focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all">

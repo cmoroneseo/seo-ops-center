@@ -1,324 +1,289 @@
 'use client';
 
-import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useOrganization } from './organization-provider';
-import { createClient } from '@/lib/supabase/client';
-import {
-    startTimer,
-    pauseTimer,
-    resumeTimer,
-    stopTimer,
-    discardTimer,
-    getInProgressTimer,
-    updateSessionNotes,
-} from '@/lib/supabase/time-logs';
-import { SessionNote } from '@/lib/types';
+import { getOpenTimerAttempts, mutateTimer, updateSessionNotes } from '@/lib/supabase/time-logs';
+import type { SessionNote, TimerAttempt } from '@/lib/types';
+import type { TimerMutationRequest, TimerStateResponse } from '@/lib/timer/contracts';
 import { getTask, updateTask } from '@/lib/supabase/tasks';
 import { shouldMoveBlockToNow, trackedBlockMinutes } from '@/lib/planner/timer-sync';
+import { timerSwitchPrompt } from '@/lib/timer-ui';
 
-export interface ActiveTimer {
-    id: string;
-    /** Undefined for internal work — an internal 1:1 has no client. */
+export { timerSwitchPrompt } from '@/lib/timer-ui';
+
+export interface StartTaskOptions {
     clientId?: string;
     clientName: string;
     taskId?: string;
     taskTitle?: string;
-    elapsedSeconds: number;
-    savedSeconds: number;
-    status: 'running' | 'paused';
-    startedAt: string;
+    plannerEventId?: string;
+    countsTowardBudget?: boolean;
+}
+
+export interface FinalizeTimerOptions {
+    description: string;
+    billable: boolean;
+    countsTowardBudget?: boolean;
+    syncToBasecamp?: boolean;
+    markTaskComplete?: boolean;
+}
+
+export type TimerSwitchConfirmation = (prompt: string) => boolean | Promise<boolean>;
+
+function elapsedSeconds(attempt: TimerAttempt, now: number): number {
+    if (!attempt.timerStartedAt || attempt.reviewingAt) return attempt.elapsedSeconds;
+    return attempt.elapsedSeconds + Math.max(0, Math.floor((now - new Date(attempt.timerStartedAt).getTime()) / 1000));
+}
+
+function mostRecentlyClosedFirst(left: TimerAttempt, right: TimerAttempt): number {
+    const closedAt = (attempt: TimerAttempt) => attempt.segments
+        .filter(segment => segment.endedAt)
+        .reduce((latest, segment) => segment.endedAt! > latest ? segment.endedAt! : latest, attempt.reviewingAt ?? '');
+    return closedAt(right).localeCompare(closedAt(left));
+}
+
+function confirmInBrowser(prompt: string): boolean {
+    return window.confirm(prompt);
 }
 
 interface TimerContextType {
-    timer: ActiveTimer | null;
-    notes: SessionNote[];
-    isRecovering: boolean;
-    recoveryTimer: ActiveTimer | null;
-    start: (opts: { clientId?: string; clientName: string; taskId?: string; taskTitle?: string; plannerEventId?: string; countsTowardBudget?: boolean }) => Promise<void>;
-    pause: () => Promise<void>;
-    resume: () => Promise<void>;
-    stop: (opts: { description: string; hours: number; billable: boolean; category?: string; date: string; clientId?: string; taskId?: string; countsTowardBudget?: boolean; syncToBasecamp?: boolean }) => Promise<void>;
-    discard: () => Promise<void>;
-    addNote: (text: string) => Promise<void>;
-    editNote: (id: string, newText: string) => Promise<void>;
-    deleteNote: (id: string) => Promise<void>;
-    acceptRecovery: () => void;
-    dismissRecovery: () => Promise<void>;
+    runningTimer: TimerAttempt | null;
+    pausedTimers: TimerAttempt[];
+    getElapsedSeconds: (attempt: TimerAttempt) => number;
+    startTask: (options: StartTaskOptions, confirmSwitch?: TimerSwitchConfirmation) => Promise<boolean>;
+    pause: (attempt: TimerAttempt) => Promise<void>;
+    resume: (attempt: TimerAttempt, confirmSwitch?: TimerSwitchConfirmation) => Promise<boolean>;
+    switchToTask: (target: { taskId?: string; timeLogId?: string; title: string }, confirmSwitch?: TimerSwitchConfirmation) => Promise<boolean>;
+    beginStop: (attempt: TimerAttempt) => Promise<TimerStateResponse | null>;
+    finalize: (attempt: TimerAttempt, options: FinalizeTimerOptions) => Promise<void>;
+    discard: (attempt: TimerAttempt) => Promise<void>;
+    addNote: (attemptId: string, text: string) => Promise<void>;
+    editNote: (attemptId: string, noteId: string, text: string) => Promise<void>;
+    deleteNote: (attemptId: string, noteId: string) => Promise<void>;
 }
 
 const TimerContext = createContext<TimerContextType | undefined>(undefined);
 
 export function TimerProvider({ children }: { children: React.ReactNode }) {
     const { organization } = useOrganization();
-    const [timer, setTimer] = useState<ActiveTimer | null>(null);
-    const [notes, setNotes] = useState<SessionNote[]>([]);
-    const [recoveryTimer, setRecoveryTimer] = useState<ActiveTimer | null>(null);
-    const [isRecovering, setIsRecovering] = useState(false);
-    const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-    const userIdRef = useRef<string | null>(null);
-    const timerIdRef = useRef<string | null>(null);
+    const [runningTimer, setRunningTimer] = useState<TimerAttempt | null>(null);
+    const [pausedTimers, setPausedTimers] = useState<TimerAttempt[]>([]);
+    const [clockNow, setClockNow] = useState(() => Date.now());
+    const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
 
-    // Keep timerIdRef in sync so note callbacks always have the current ID
-    useEffect(() => {
-        timerIdRef.current = timer?.id ?? null;
-    }, [timer?.id]);
-
-    // Resolve current user ID
-    useEffect(() => {
-        const supabase = createClient();
-        if (!supabase) {
-            userIdRef.current = 'mock-user-1';
-            return;
-        }
-        supabase.auth.getSession().then(({ data }: { data: { session: { user?: { id: string } } | null } }) => {
-            userIdRef.current = data.session?.user?.id ?? null;
-        });
+    const applyTimerState = useCallback((state: TimerStateResponse) => {
+        setRunningTimer(state.running);
+        setPausedTimers([...state.paused].sort(mostRecentlyClosedFirst));
+        setClockNow(Date.now());
     }, []);
 
-    // Tick interval
-    useEffect(() => {
-        if (timer?.status === 'running') {
-            intervalRef.current = setInterval(() => {
-                setTimer(prev => {
-                    if (!prev || prev.status !== 'running') return prev;
-                    const secondsSinceResume = Math.floor(
-                        (Date.now() - new Date(prev.startedAt).getTime()) / 1000
-                    );
-                    return { ...prev, elapsedSeconds: prev.savedSeconds + secondsSinceResume };
-                });
-            }, 1000);
-        } else {
-            if (intervalRef.current) clearInterval(intervalRef.current);
-        }
-        return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-    }, [timer?.status]);
+    const refreshAttempts = useCallback(async () => {
+        if (!organization) return;
+        applyTimerState(await getOpenTimerAttempts(organization.id));
+    }, [applyTimerState, organization]);
 
-    // Browser tab title
+    const notifyTimerChange = useCallback(() => {
+        window.dispatchEvent(new Event('planner:data-changed'));
+        window.dispatchEvent(new Event('timer:data-changed'));
+        window.dispatchEvent(new Event('client-activity:data-changed'));
+        try {
+            localStorage.setItem('timer:data-changed', String(Date.now()));
+        } catch {
+            // Local storage is only a cross-tab notification fallback.
+        }
+        broadcastChannelRef.current?.postMessage({ type: 'timer:data-changed' });
+    }, []);
+
+    const mutate = useCallback(async (request: TimerMutationRequest) => {
+        const state = await mutateTimer(request);
+        applyTimerState(state);
+        notifyTimerChange();
+        return state;
+    }, [applyTimerState, notifyTimerChange]);
+
     useEffect(() => {
-        if (!timer) {
+        if (!runningTimer) return;
+        const interval = window.setInterval(() => setClockNow(Date.now()), 1000);
+        return () => window.clearInterval(interval);
+    }, [runningTimer]);
+
+    useEffect(() => {
+        if (!runningTimer) {
             document.title = 'SEO Ops Center';
             return;
         }
-        const h = Math.floor(timer.elapsedSeconds / 3600);
-        const m = Math.floor((timer.elapsedSeconds % 3600) / 60);
-        const s = timer.elapsedSeconds % 60;
-        const elapsed = h > 0
-            ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-            : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-        const icon = timer.status === 'running' ? '⏱' : '⏸';
-        document.title = `${icon} ${elapsed} — ${timer.clientName || 'Timer'} | SEO Ops`;
-    }, [timer?.elapsedSeconds, timer?.status, timer?.clientName]);
+        const duration = elapsedSeconds(runningTimer, clockNow);
+        const hours = Math.floor(duration / 3600);
+        const minutes = Math.floor((duration % 3600) / 60);
+        const seconds = duration % 60;
+        const display = hours > 0
+            ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+            : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        document.title = `⏱ ${display} — ${runningTimer.clientName || 'Timer'} | SEO Ops`;
+    }, [clockNow, runningTimer]);
 
-    // Session recovery
     useEffect(() => {
-        if (!organization) return;
-        const tryRecover = async () => {
-            await new Promise(r => setTimeout(r, 500));
-            const userId = userIdRef.current;
-            if (!userId) return;
+        void refreshAttempts();
+    }, [refreshAttempts]);
 
-            const existing = await getInProgressTimer(organization.id, userId);
-            if (!existing) return;
-
-            const savedSeconds = existing.elapsedSeconds;
-            const startedAt = existing.timerStartedAt;
-            const liveSecs = startedAt
-                ? savedSeconds + Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)
-                : savedSeconds;
-
-            const recovered: ActiveTimer = {
-                id: existing.id,
-                clientId: existing.clientId,
-                clientName: '',
-                taskId: existing.taskId ?? undefined,
-                taskTitle: existing.description ?? undefined,
-                elapsedSeconds: liveSecs,
-                savedSeconds,
-                status: startedAt ? 'running' : 'paused',
-                startedAt: startedAt ?? new Date().toISOString(),
-            };
-            setRecoveryTimer(recovered);
-            setNotes(existing.sessionNotes ?? []);
-            setIsRecovering(true);
+    useEffect(() => {
+        const refresh = () => void refreshAttempts();
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'visible') refresh();
         };
-        tryRecover();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [organization?.id]);
-
-    const start = useCallback(async (opts: {
-        clientId?: string;
-        clientName: string;
-        taskId?: string;
-        taskTitle?: string;
-        plannerEventId?: string;
-        countsTowardBudget?: boolean;
-    }) => {
-        if (!organization || !userIdRef.current) return;
-        if (timer?.status === 'running') {
-            await pauseTimer(timer.id, timer.elapsedSeconds);
-        }
-        const result = await startTimer({
-            organizationId: organization.id,
-            userId: userIdRef.current,
-            clientId: opts.clientId,
-            taskId: opts.taskId,
-            plannerEventId: opts.plannerEventId,
-            countsTowardBudget: opts.countsTowardBudget,
-        });
-        if (!result.success || !result.id) return;
-
-        const now = new Date().toISOString();
-
-        /*
-         * Keep the planner honest: if this task is unscheduled, or was planned
-         * for today, move its block to when work actually began. A plan for
-         * another day is left alone — see lib/planner/timer-sync.ts.
-         */
-        if (opts.taskId) {
-            void (async () => {
-                const { task } = await getTask(opts.taskId!);
-                if (!task) return;
-                if (shouldMoveBlockToNow(task.startDate, new Date(now))) {
-                    const updated = await updateTask(opts.taskId!, { startDate: now });
-                    if (updated.success) window.dispatchEvent(new Event('planner:data-changed'));
-                }
-            })();
-        }
-
-        setNotes([]);
-        setTimer({
-            id: result.id,
-            clientId: opts.clientId,
-            clientName: opts.clientName,
-            taskId: opts.taskId,
-            taskTitle: opts.taskTitle,
-            elapsedSeconds: 0,
-            savedSeconds: 0,
-            status: 'running',
-            startedAt: now,
-        });
-    }, [organization, timer]);
-
-    const pause = useCallback(async () => {
-        if (!timer || timer.status !== 'running') return;
-        await pauseTimer(timer.id, timer.elapsedSeconds);
-        setTimer(prev => prev ? { ...prev, status: 'paused', savedSeconds: prev.elapsedSeconds } : null);
-    }, [timer]);
-
-    const resume = useCallback(async () => {
-        if (!timer || timer.status !== 'paused') return;
-        const now = new Date().toISOString();
-        await resumeTimer(timer.id);
-        setTimer(prev => prev ? { ...prev, status: 'running', startedAt: now, savedSeconds: prev.elapsedSeconds } : null);
-    }, [timer]);
-
-    const stop = useCallback(async (opts: {
-        description: string;
-        hours: number;
-        billable: boolean;
-        category?: string;
-        date: string;
-        clientId?: string;
-        taskId?: string;
-        // Orthogonal: budget exclusion is about SEO hours, Basecamp push is
-        // about the client's timesheet. A meeting is false for one, true for the other.
-        countsTowardBudget?: boolean;
-        syncToBasecamp?: boolean;
-    }) => {
-        if (!timer) return;
-        const { taskId, elapsedSeconds } = { taskId: timer.taskId, elapsedSeconds: timer.elapsedSeconds };
-        await stopTimer(timer.id, opts);
-        // The block should end when you stopped, not when you planned to.
-        if (taskId) {
-            const updated = await updateTask(taskId, {
-                scheduledMinutes: trackedBlockMinutes(elapsedSeconds),
-            });
-            if (updated.success) window.dispatchEvent(new Event('planner:data-changed'));
-        }
-        setTimer(null);
-        setNotes([]);
-    }, [timer]);
-
-    const discard = useCallback(async () => {
-        if (!timer) return;
-        await discardTimer(timer.id);
-        setTimer(null);
-        setNotes([]);
-    }, [timer]);
-
-    const addNote = useCallback(async (text: string) => {
-        const id = timerIdRef.current;
-        if (!id || !text.trim()) return;
-        const note: SessionNote = {
-            id: crypto.randomUUID(),
-            text: text.trim(),
-            createdAt: new Date().toISOString(),
+        const onStorage = (event: StorageEvent) => {
+            if (event.key === 'timer:data-changed') refresh();
         };
-        setNotes(prev => {
-            const updated = [...prev, note];
-            updateSessionNotes(id, updated);
-            return updated;
+        const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('timer:data-changed');
+        broadcastChannelRef.current = channel;
+        channel?.addEventListener('message', refresh);
+        window.addEventListener('timer:data-changed', refresh);
+        window.addEventListener('focus', refresh);
+        window.addEventListener('storage', onStorage);
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        return () => {
+            channel?.removeEventListener('message', refresh);
+            channel?.close();
+            if (broadcastChannelRef.current === channel) broadcastChannelRef.current = null;
+            window.removeEventListener('timer:data-changed', refresh);
+            window.removeEventListener('focus', refresh);
+            window.removeEventListener('storage', onStorage);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+        };
+    }, [refreshAttempts]);
+
+    const switchToTask = useCallback(async (
+        target: { taskId?: string; timeLogId?: string; title: string },
+        confirmSwitch: TimerSwitchConfirmation = confirmInBrowser,
+    ) => {
+        if (!runningTimer || (!target.taskId && !target.timeLogId)) return false;
+        if (!await confirmSwitch(timerSwitchPrompt(runningTimer, target.title))) return false;
+        await mutate({
+            action: 'switch',
+            fromTimeLogId: runningTimer.id,
+            ...(target.timeLogId ? { toTimeLogId: target.timeLogId } : { toTaskId: target.taskId! }),
         });
+        return true;
+    }, [mutate, runningTimer]);
+
+    const movePlannerBlockToStart = useCallback(async (taskId: string) => {
+        const now = new Date();
+        const { task } = await getTask(taskId);
+        if (!task || !shouldMoveBlockToNow(task.startDate, now)) return;
+        const updated = await updateTask(taskId, { startDate: now.toISOString() });
+        if (updated.success) window.dispatchEvent(new Event('planner:data-changed'));
     }, []);
 
-    const editNote = useCallback(async (noteId: string, newText: string) => {
-        const id = timerIdRef.current;
-        if (!id || !newText.trim()) return;
-        setNotes(prev => {
-            const updated = prev.map(n => n.id === noteId ? { ...n, text: newText.trim() } : n);
-            updateSessionNotes(id, updated);
-            return updated;
+    const startTask = useCallback(async (options: StartTaskOptions, confirmSwitch?: TimerSwitchConfirmation) => {
+        if (!options.taskId) return false;
+        if (runningTimer) {
+            const switched = await switchToTask({ taskId: options.taskId, title: options.taskTitle ?? options.clientName }, confirmSwitch);
+            if (switched) void movePlannerBlockToStart(options.taskId);
+            return switched;
+        }
+        await mutate({ action: 'start', taskId: options.taskId });
+        void movePlannerBlockToStart(options.taskId);
+        return true;
+    }, [movePlannerBlockToStart, mutate, runningTimer, switchToTask]);
+
+    const pause = useCallback(async (attempt: TimerAttempt) => {
+        if (attempt.id !== runningTimer?.id) return;
+        await mutate({ action: 'pause', timeLogId: attempt.id });
+    }, [mutate, runningTimer?.id]);
+
+    const resume = useCallback(async (attempt: TimerAttempt, confirmSwitch?: TimerSwitchConfirmation) => {
+        if (attempt.reviewingAt) return false;
+        if (runningTimer && runningTimer.id !== attempt.id) {
+            return switchToTask({ timeLogId: attempt.id, title: attempt.taskTitle ?? attempt.clientName ?? 'this work' }, confirmSwitch);
+        }
+        if (runningTimer?.id === attempt.id) return true;
+        await mutate({ action: 'resume', timeLogId: attempt.id });
+        return true;
+    }, [mutate, runningTimer, switchToTask]);
+
+    const beginStop = useCallback(async (attempt: TimerAttempt) => {
+        return mutate({ action: 'begin_stop', timeLogId: attempt.id });
+    }, [mutate]);
+
+    const finalize = useCallback(async (attempt: TimerAttempt, options: FinalizeTimerOptions) => {
+        await mutate({
+            action: 'finalize',
+            timeLogId: attempt.id,
+            description: options.description,
+            billable: options.billable,
+            countsTowardBudget: options.countsTowardBudget ?? true,
+            syncToBasecamp: options.syncToBasecamp ?? false,
+            markTaskComplete: options.markTaskComplete ?? false,
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
         });
+        if (!attempt.taskId) return;
+        const updated = await updateTask(attempt.taskId, {
+            scheduledMinutes: trackedBlockMinutes(elapsedSeconds(attempt, Date.now())),
+        });
+        if (updated.success) window.dispatchEvent(new Event('planner:data-changed'));
+    }, [mutate]);
+
+    const discard = useCallback(async (attempt: TimerAttempt) => {
+        await mutate({ action: 'discard', timeLogId: attempt.id });
+    }, [mutate]);
+
+    const replaceAttemptNotes = useCallback((attemptId: string, update: (notes: SessionNote[]) => SessionNote[]) => {
+        const replace = (attempt: TimerAttempt) => attempt.id === attemptId ? { ...attempt, sessionNotes: update(attempt.sessionNotes) } : attempt;
+        setRunningTimer(current => current ? replace(current) : null);
+        setPausedTimers(current => current.map(replace));
     }, []);
 
-    const deleteNote = useCallback(async (noteId: string) => {
-        const id = timerIdRef.current;
-        if (!id) return;
-        setNotes(prev => {
-            const updated = prev.filter(n => n.id !== noteId);
-            updateSessionNotes(id, updated);
-            return updated;
-        });
-    }, []);
+    const attemptById = useCallback((attemptId: string) => runningTimer?.id === attemptId
+        ? runningTimer
+        : pausedTimers.find(item => item.id === attemptId), [pausedTimers, runningTimer]);
 
-    const acceptRecovery = useCallback(() => {
-        if (!recoveryTimer) return;
-        setTimer({ ...recoveryTimer });
-        setRecoveryTimer(null);
-        setIsRecovering(false);
-    }, [recoveryTimer]);
+    const addNote = useCallback(async (attemptId: string, text: string) => {
+        if (!text.trim()) return;
+        const attempt = attemptById(attemptId);
+        if (!attempt) return;
+        const notes = [...attempt.sessionNotes, { id: crypto.randomUUID(), text: text.trim(), createdAt: new Date().toISOString() }];
+        replaceAttemptNotes(attemptId, () => notes);
+        await updateSessionNotes(attemptId, notes);
+    }, [attemptById, replaceAttemptNotes]);
 
-    const dismissRecovery = useCallback(async () => {
-        if (recoveryTimer) await discardTimer(recoveryTimer.id);
-        setRecoveryTimer(null);
-        setNotes([]);
-        setIsRecovering(false);
-    }, [recoveryTimer]);
+    const editNote = useCallback(async (attemptId: string, noteId: string, text: string) => {
+        if (!text.trim()) return;
+        const attempt = attemptById(attemptId);
+        if (!attempt) return;
+        const notes = attempt.sessionNotes.map(note => note.id === noteId ? { ...note, text: text.trim() } : note);
+        replaceAttemptNotes(attemptId, () => notes);
+        await updateSessionNotes(attemptId, notes);
+    }, [attemptById, replaceAttemptNotes]);
 
-    return (
-        <TimerContext.Provider value={{
-            timer,
-            notes,
-            isRecovering,
-            recoveryTimer,
-            start,
-            pause,
-            resume,
-            stop,
-            discard,
-            addNote,
-            editNote,
-            deleteNote,
-            acceptRecovery,
-            dismissRecovery,
-        }}>
-            {children}
-        </TimerContext.Provider>
-    );
+    const deleteNote = useCallback(async (attemptId: string, noteId: string) => {
+        const attempt = attemptById(attemptId);
+        if (!attempt) return;
+        const notes = attempt.sessionNotes.filter(note => note.id !== noteId);
+        replaceAttemptNotes(attemptId, () => notes);
+        await updateSessionNotes(attemptId, notes);
+    }, [attemptById, replaceAttemptNotes]);
+
+    const value = useMemo(() => ({
+        runningTimer,
+        pausedTimers,
+        getElapsedSeconds: (attempt: TimerAttempt) => elapsedSeconds(attempt, clockNow),
+        startTask,
+        pause,
+        resume,
+        switchToTask,
+        beginStop,
+        finalize,
+        discard,
+        addNote,
+        editNote,
+        deleteNote,
+    }), [addNote, beginStop, clockNow, deleteNote, discard, editNote, finalize, pause, pausedTimers, resume, runningTimer, startTask, switchToTask]);
+
+    return <TimerContext.Provider value={value}>{children}</TimerContext.Provider>;
 }
 
 export function useTimer() {
-    const ctx = useContext(TimerContext);
-    if (!ctx) throw new Error('useTimer must be used within TimerProvider');
-    return ctx;
+    const context = useContext(TimerContext);
+    if (!context) throw new Error('useTimer must be used within TimerProvider');
+    return context;
 }

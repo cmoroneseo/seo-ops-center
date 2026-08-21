@@ -49,16 +49,16 @@ export default function ClientDetailPage() {
     const [selectedTask, setSelectedTask] = useState<Task | null>(null);
     const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
     const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
-    const { timer, start, pause } = useTimer();
+    const { runningTimer, startTask, pause } = useTimer();
 
-    const isThisClientRunning = timer?.status === 'running' && timer.clientId === id;
+    const isThisClientRunning = runningTimer?.clientId === id;
 
     const handleTimerClick = async () => {
         if (!client) return;
-        if (isThisClientRunning) {
-            await pause();
+        if (isThisClientRunning && runningTimer) {
+            await pause(runningTimer);
         } else {
-            await start({ clientId: client.id, clientName: client.clientName });
+            await startTask({ clientId: client.id, clientName: client.clientName });
         }
     };
 

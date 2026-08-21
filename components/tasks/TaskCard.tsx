@@ -13,17 +13,17 @@ interface TaskCardProps {
 }
 
 export function TaskCard({ task, clientId, clientName, memberMap = {} }: TaskCardProps) {
-    const { timer, start, pause } = useTimer();
+    const { runningTimer, startTask, pause } = useTimer();
 
     const isThisTaskRunning =
-        timer?.status === 'running' && timer.taskId === task.id;
+        runningTimer?.taskId === task.id;
 
     const handleTimerClick = async (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (isThisTaskRunning) {
-            await pause();
+        if (isThisTaskRunning && runningTimer) {
+            await pause(runningTimer);
         } else {
-            await start({
+            await startTask({
                 clientId: clientId ?? task.clientId ?? task.projectId ?? '',
                 clientName: clientName ?? task.clientName ?? 'Unknown',
                 taskId: task.id,

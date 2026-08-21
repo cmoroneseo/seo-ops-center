@@ -1,20 +1,21 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Square, Plus, RotateCcw, Clock, ChevronDown, StickyNote } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Clock, ChevronDown, Pause, Play, Plus, Square, StickyNote } from 'lucide-react';
 import { useTimer } from '@/components/providers/timer-provider';
 import { StopConfirmSheet } from './StopConfirmSheet';
 import { QuickStartPopover } from './QuickStartPopover';
 import { TimerNotes } from './TimerNotes';
-import { ClientProject } from '@/lib/types';
+import type { ClientProject, TimerAttempt } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
-function formatElapsed(s: number) {
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-    return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+function formatElapsed(seconds: number) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainder = seconds % 60;
+    return hours > 0
+        ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+        : `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
 }
 
 interface FloatingTimerProps {
@@ -22,96 +23,52 @@ interface FloatingTimerProps {
 }
 
 export function FloatingTimer({ clients }: FloatingTimerProps) {
-    const { timer, notes, pause, resume, isRecovering, recoveryTimer, acceptRecovery, dismissRecovery } = useTimer();
+    const { runningTimer, pausedTimers, getElapsedSeconds, pause, resume, beginStop } = useTimer();
     const [expanded, setExpanded] = useState(false);
     const [showNotes, setShowNotes] = useState(false);
-    const [showStopSheet, setShowStopSheet] = useState(false);
     const [showQuickStart, setShowQuickStart] = useState(false);
+    const [reviewTimer, setReviewTimer] = useState<TimerAttempt | null>(null);
     const widgetRef = useRef<HTMLDivElement>(null);
+    const primaryTimer = runningTimer ?? pausedTimers[0] ?? null;
 
-    // Open quick-start via keyboard shortcut
     useEffect(() => {
         const handler = () => setShowQuickStart(true);
         window.addEventListener('timer:open-quick-start', handler);
         return () => window.removeEventListener('timer:open-quick-start', handler);
     }, []);
 
-    // Auto-expand when a timer starts
     useEffect(() => {
-        if (timer) setExpanded(true);
-    }, [!!timer]);
+        if (primaryTimer) setExpanded(true);
+    }, [primaryTimer]);
 
-    // Close expanded card on outside click
     useEffect(() => {
         if (!expanded) return;
-        const handleClick = (e: MouseEvent) => {
-            if (widgetRef.current && !widgetRef.current.contains(e.target as Node)) {
-                setExpanded(false);
-            }
+        const handleClick = (event: MouseEvent) => {
+            if (widgetRef.current && !widgetRef.current.contains(event.target as Node)) setExpanded(false);
         };
         document.addEventListener('mousedown', handleClick);
         return () => document.removeEventListener('mousedown', handleClick);
     }, [expanded]);
 
-    const isRunning = timer?.status === 'running';
+    const openStopReview = async (attempt: TimerAttempt) => {
+        const state = attempt.reviewingAt ? null : await beginStop(attempt);
+        setReviewTimer(state?.paused.find(item => item.id === attempt.id) ?? attempt);
+    };
 
-    // ── Session recovery card ───────────────────────────────────────────────
-    if (isRecovering && recoveryTimer) {
-        const h = Math.floor(recoveryTimer.elapsedSeconds / 3600);
-        const m = Math.floor((recoveryTimer.elapsedSeconds % 3600) / 60);
-        const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
-
-        return (
-            <div className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50 w-72 animate-in slide-in-from-bottom-4 fade-in duration-300">
-                <div className="bg-card border border-amber-500/40 rounded-2xl shadow-2xl overflow-hidden">
-                    <div className="h-1 w-full bg-amber-500/60" />
-                    <div className="p-4 space-y-3">
-                        <div className="flex items-center gap-2">
-                            <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                            <span className="text-sm font-semibold text-foreground">Timer still open</span>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                            You had a timer running for <span className="font-medium text-foreground">{timeStr}</span>. What would you like to do?
-                        </p>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={acceptRecovery}
-                                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-amber-500 text-white text-xs font-semibold hover:bg-amber-600 transition-colors"
-                            >
-                                <RotateCcw className="h-3 w-3" /> Resume
-                            </button>
-                            <button
-                                onClick={dismissRecovery}
-                                className="flex-1 py-2 rounded-xl border border-border text-xs text-muted-foreground hover:bg-muted transition-colors"
-                            >
-                                Discard
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    // ── Idle state: subtle clock button ────────────────────────────────────
-    if (!timer) {
+    if (!primaryTimer) {
         return (
             <div ref={widgetRef} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50">
                 <div className="relative">
                     <button
-                        onClick={() => setShowQuickStart(prev => !prev)}
+                        onClick={() => setShowQuickStart(current => !current)}
                         title="Start Timer  ⌘⇧T"
                         className="group h-14 w-14 flex items-center justify-center rounded-full bg-card border border-border shadow-lg hover:border-green-500/50 hover:bg-green-500/10 hover:shadow-green-500/10 transition-all duration-200"
                     >
                         <Clock className="h-5 w-5 text-muted-foreground group-hover:text-green-500 transition-colors" />
                     </button>
-
                     {showQuickStart && (
                         <div className="absolute bottom-16 right-0">
-                            <QuickStartPopover
-                                clients={clients}
-                                onClose={() => setShowQuickStart(false)}
-                            />
+                            <QuickStartPopover clients={clients} onClose={() => setShowQuickStart(false)} />
                         </div>
                     )}
                 </div>
@@ -119,7 +76,9 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
         );
     }
 
-    // ── Active: minimized pill ──────────────────────────────────────────────
+    const runningElapsed = runningTimer ? getElapsedSeconds(runningTimer) : null;
+    const primaryIsRunning = primaryTimer.id === runningTimer?.id;
+
     if (!expanded) {
         return (
             <div className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50">
@@ -127,159 +86,96 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
                     onClick={() => setExpanded(true)}
                     className={cn(
                         'group flex items-center gap-2.5 pl-3 pr-4 h-12 rounded-full shadow-lg border transition-all duration-200 hover:scale-105',
-                        isRunning
-                            ? 'bg-card border-green-500/40 shadow-green-500/10 hover:border-green-500/70'
-                            : 'bg-card border-amber-500/30 shadow-amber-500/10 hover:border-amber-500/60'
+                        primaryIsRunning ? 'bg-card border-green-500/40 shadow-green-500/10 hover:border-green-500/70' : 'bg-card border-amber-500/30 shadow-amber-500/10 hover:border-amber-500/60',
                     )}
                 >
-                    <span className={cn(
-                        'h-2 w-2 rounded-full shrink-0',
-                        isRunning ? 'bg-green-500 animate-pulse' : 'bg-amber-500'
-                    )} />
-                    <span className={cn(
-                        'font-mono font-semibold text-sm tabular-nums',
-                        isRunning ? 'text-green-400' : 'text-amber-400'
-                    )}>
-                        {formatElapsed(timer.elapsedSeconds)}
+                    <span className={cn('h-2 w-2 rounded-full shrink-0', primaryIsRunning ? 'bg-green-500 animate-pulse' : 'bg-amber-500')} />
+                    <span className={cn('font-mono font-semibold text-sm tabular-nums', primaryIsRunning ? 'text-green-400' : 'text-amber-400')}>
+                        {formatElapsed(runningElapsed ?? getElapsedSeconds(primaryTimer))}
                     </span>
                 </button>
             </div>
         );
     }
 
-    // ── Active: expanded card ───────────────────────────────────────────────
     return (
         <div ref={widgetRef} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50 w-72 animate-in slide-in-from-bottom-3 fade-in duration-200">
-            <div className={cn(
-                'bg-card border rounded-2xl shadow-2xl overflow-hidden',
-                isRunning ? 'border-green-500/30 shadow-green-500/5' : 'border-amber-500/30'
-            )}>
-                {/* Animated top accent bar */}
-                <div className={cn(
-                    'h-0.5 w-full',
-                    isRunning
-                        ? 'bg-gradient-to-r from-green-500/0 via-green-500 to-green-500/0 animate-pulse'
-                        : 'bg-amber-500/60'
-                )} />
+            <div className={cn('bg-card border rounded-2xl shadow-2xl overflow-hidden', runningTimer ? 'border-green-500/30 shadow-green-500/5' : 'border-amber-500/30')}>
+                <div className={cn('h-0.5 w-full', runningTimer ? 'bg-gradient-to-r from-green-500/0 via-green-500 to-green-500/0 animate-pulse' : 'bg-amber-500/60')} />
 
                 <div className="px-4 pt-4 pb-2 space-y-3">
-                    {/* Header row: status + collapse */}
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                            <span className={cn(
-                                'h-2 w-2 rounded-full shrink-0',
-                                isRunning ? 'bg-green-500 animate-pulse' : 'bg-amber-500'
-                            )} />
-                            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                                {isRunning ? 'Tracking' : 'Paused'}
-                            </span>
+                            <span className={cn('h-2 w-2 rounded-full shrink-0', runningTimer ? 'bg-green-500 animate-pulse' : 'bg-amber-500')} />
+                            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{runningTimer ? 'Tracking' : 'Paused'}</span>
                         </div>
-                        <button
-                            onClick={() => setExpanded(false)}
-                            className="h-6 w-6 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                        >
+                        <button onClick={() => setExpanded(false)} aria-label="Collapse timer" className="h-6 w-6 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                             <ChevronDown className="h-3.5 w-3.5" />
                         </button>
                     </div>
 
-                    {/* Client name */}
-                    <div>
-                        <p className="font-semibold text-foreground truncate">{timer.clientName || 'Unassigned'}</p>
-                        {timer.taskTitle && (
-                            <p className="text-xs text-muted-foreground truncate mt-0.5">{timer.taskTitle}</p>
-                        )}
-                    </div>
+                    {runningTimer && (
+                        <>
+                            <div>
+                                <p className="font-semibold text-foreground truncate">{runningTimer.clientName || 'Unassigned'}</p>
+                                {runningTimer.taskTitle && <p className="text-xs text-muted-foreground truncate mt-0.5">{runningTimer.taskTitle}</p>}
+                            </div>
+                            <div className="text-4xl font-mono font-bold tabular-nums tracking-tight text-green-400">{formatElapsed(runningElapsed!)}</div>
+                            <div className="flex items-center gap-2 pt-1">
+                                <button onClick={() => void pause(runningTimer)} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-all duration-150">
+                                    <Pause className="h-4 w-4 fill-current" /> Pause
+                                </button>
+                                <button onClick={() => void openStopReview(runningTimer)} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-muted text-sm font-medium text-muted-foreground hover:bg-destructive/15 hover:text-red-400 transition-all duration-150">
+                                    <Square className="h-4 w-4 fill-current" /> Stop
+                                </button>
+                            </div>
+                            <button onClick={() => setShowNotes(current => !current)} className={cn('w-full flex items-center justify-center gap-1.5 py-1.5 rounded-xl text-xs transition-colors', showNotes ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted')}>
+                                <StickyNote className="h-3 w-3" /> Session Notes
+                                {runningTimer.sessionNotes.length > 0 && <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary/20 text-primary text-[10px] font-bold leading-none">{runningTimer.sessionNotes.length}</span>}
+                            </button>
+                        </>
+                    )}
 
-                    {/* Big elapsed time */}
-                    <div className={cn(
-                        'text-4xl font-mono font-bold tabular-nums tracking-tight',
-                        isRunning ? 'text-green-400' : 'text-amber-400'
-                    )}>
-                        {formatElapsed(timer.elapsedSeconds)}
-                    </div>
-
-                    {/* Controls */}
-                    <div className="flex items-center gap-2 pt-1">
-                        {/* Pause / Resume */}
-                        <button
-                            onClick={isRunning ? pause : resume}
-                            className={cn(
-                                'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
-                                isRunning
-                                    ? 'bg-green-500/15 text-green-400 hover:bg-green-500/25'
-                                    : 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25'
-                            )}
-                        >
-                            {isRunning
-                                ? <><Pause className="h-4 w-4 fill-current" /> Pause</>
-                                : <><Play className="h-4 w-4 fill-current" /> Resume</>
-                            }
-                        </button>
-
-                        {/* Stop & Log */}
-                        {/* Keep the card expanded — the sheet only renders inside this branch,
-                            and its full-screen backdrop covers the card anyway */}
-                        <button
-                            onClick={() => setShowStopSheet(true)}
-                            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-muted text-sm font-medium text-muted-foreground hover:bg-destructive/15 hover:text-red-400 transition-all duration-150"
-                        >
-                            <Square className="h-4 w-4 fill-current" /> Stop
-                        </button>
-                    </div>
-
-                    {/* Notes toggle */}
-                    <button
-                        onClick={() => setShowNotes(prev => !prev)}
-                        className={cn(
-                            'w-full flex items-center justify-center gap-1.5 py-1.5 rounded-xl text-xs transition-colors',
-                            showNotes
-                                ? 'bg-primary/10 text-primary'
-                                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                        )}
-                    >
-                        <StickyNote className="h-3 w-3" />
-                        Session Notes
-                        {notes.length > 0 && (
-                            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary/20 text-primary text-[10px] font-bold leading-none">
-                                {notes.length}
-                            </span>
-                        )}
-                    </button>
+                    {pausedTimers.length > 0 && (
+                        <div className={cn('space-y-2', runningTimer && 'border-t border-border/50 pt-3')}>
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Paused Work</p>
+                            {pausedTimers.map(attempt => (
+                                <div key={attempt.id} className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5 space-y-2">
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-medium text-foreground truncate">{attempt.clientName || 'Unassigned'}</p>
+                                        <p className="text-xs text-muted-foreground truncate">{attempt.taskTitle || 'General work'} · {formatElapsed(getElapsedSeconds(attempt))}</p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        {!attempt.reviewingAt && (
+                                            <button onClick={() => void resume(attempt)} className="flex-1 flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 transition-colors">
+                                                <Play className="h-3 w-3 fill-current" /> Resume
+                                            </button>
+                                        )}
+                                        <button onClick={() => void openStopReview(attempt)} className="flex-1 flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium text-muted-foreground hover:bg-destructive/15 hover:text-red-400 transition-colors">
+                                            <Square className="h-3 w-3 fill-current" /> {attempt.reviewingAt ? 'Review' : 'Stop'}
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
-                {/* Expandable notes panel */}
-                {showNotes && (
+                {showNotes && runningTimer && (
                     <div className="border-t border-border/50 animate-in slide-in-from-top-1 fade-in duration-150">
-                        <TimerNotes clients={clients} notes={notes} />
+                        <TimerNotes clients={clients} attemptId={runningTimer.id} notes={runningTimer.sessionNotes} />
                     </div>
                 )}
 
-                {/* Switch client */}
                 <div className="px-4 pb-3">
-                    <button
-                        onClick={() => setShowQuickStart(prev => !prev)}
-                        className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                    >
+                    <button onClick={() => setShowQuickStart(current => !current)} className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                         <Plus className="h-3 w-3" /> Switch client
                     </button>
                 </div>
             </div>
 
-            {showQuickStart && (
-                <div className="absolute bottom-full right-0 mb-2">
-                    <QuickStartPopover
-                        clients={clients}
-                        onClose={() => setShowQuickStart(false)}
-                    />
-                </div>
-            )}
-
-            {showStopSheet && (
-                <StopConfirmSheet
-                    timer={timer}
-                    onClose={() => setShowStopSheet(false)}
-                />
-            )}
+            {showQuickStart && <div className="absolute bottom-full right-0 mb-2"><QuickStartPopover clients={clients} onClose={() => setShowQuickStart(false)} /></div>}
+            {reviewTimer && <StopConfirmSheet timer={reviewTimer} onClose={() => setReviewTimer(null)} />}
         </div>
     );
 }

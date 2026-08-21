@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef, KeyboardEvent } from 'react';
 import { X, Clock, CheckCircle2, StickyNote, ChevronDown, ChevronUp, Pencil, Check } from 'lucide-react';
-import { useTimer, ActiveTimer } from '@/components/providers/timer-provider';
+import { useTimer } from '@/components/providers/timer-provider';
 import { getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
-import { SessionNote } from '@/lib/types';
+import { SessionNote, TimerAttempt } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 function renderNoteText(text: string) {
@@ -27,7 +27,7 @@ function EditableNoteRow({ note, onEdit }: { note: SessionNote; onEdit: (text: s
     const [draft, setDraft] = useState(note.text);
     const ref = useRef<HTMLTextAreaElement>(null);
 
-    useEffect(() => { if (editing) { ref.current?.focus(); const l = draft.length; ref.current?.setSelectionRange(l, l); } }, [editing]);
+    useEffect(() => { if (editing) { ref.current?.focus(); const l = draft.length; ref.current?.setSelectionRange(l, l); } }, [draft.length, editing]);
 
     const confirm = () => { const t = draft.trim(); if (t && t !== note.text) onEdit(t); else setDraft(note.text); setEditing(false); };
     const cancel = () => { setDraft(note.text); setEditing(false); };
@@ -65,18 +65,18 @@ function formatHHMM(s: number) {
 }
 
 interface StopConfirmSheetProps {
-    timer: ActiveTimer;
+    timer: TimerAttempt;
     onClose: () => void;
 }
 
 export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
-    const { stop, discard, notes, editNote } = useTimer();
+    const { finalize, discard, editNote } = useTimer();
     const [description, setDescription] = useState('');
     const [hours, setHours] = useState(() => String(secondsToHours(timer.elapsedSeconds)));
     const [billable, setBillable] = useState(true);
     const [category, setCategory] = useState('');
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-    const [showNotes, setShowNotes] = useState(notes.length > 0);
+    const [showNotes, setShowNotes] = useState(timer.sessionNotes.length > 0);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
     const [bcAvailable, setBcAvailable] = useState(false);
@@ -107,14 +107,9 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
         e.preventDefault();
         if (!description.trim() || isCheckingBasecamp) return;
         setIsSubmitting(true);
-        await stop({
+        await finalize(timer, {
             description: description.trim(),
-            hours: parseFloat(hours) || secondsToHours(timer.elapsedSeconds),
             billable,
-            category: category || undefined,
-            date,
-            clientId: timer.clientId,
-            taskId: timer.taskId,
             syncToBasecamp: bcAvailable && sendToBasecamp,
         });
         setShowSuccess(true);
@@ -126,7 +121,7 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
     };
 
     const handleDiscard = async () => {
-        await discard();
+        await discard(timer);
         onClose();
     };
 
@@ -178,7 +173,7 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
                         </div>
 
                         {/* Session notes (read-only context) */}
-                        {notes.length > 0 && (
+                        {timer.sessionNotes.length > 0 && (
                             <div className="rounded-xl border border-border/60 overflow-hidden">
                                 <button
                                     type="button"
@@ -187,17 +182,17 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
                                 >
                                     <span className="flex items-center gap-1.5">
                                         <StickyNote className="h-3 w-3" />
-                                        Session Notes ({notes.length})
+                                        Session Notes ({timer.sessionNotes.length})
                                     </span>
                                     {showNotes ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                                 </button>
                                 {showNotes && (
                                     <div className="px-3 pb-2 space-y-1.5 max-h-32 overflow-y-auto border-t border-border/40">
-                                        {notes.map(n => (
+                                        {timer.sessionNotes.map(n => (
                                             <EditableNoteRow
                                                 key={n.id}
                                                 note={n}
-                                                onEdit={text => editNote(n.id, text)}
+                                                onEdit={text => editNote(timer.id, n.id, text)}
                                             />
                                         ))}
                                     </div>

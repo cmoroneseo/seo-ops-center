@@ -16,7 +16,7 @@ interface TaskListViewProps {
 }
 
 export function TaskListView({ tasks, onTaskClick }: TaskListViewProps) {
-    const { timer, start, pause } = useTimer();
+    const { runningTimer, startTask, pause } = useTimer();
     const { organization } = useOrganization();
     const [memberMap, setMemberMap] = useState<Record<string, string>>({});
 
@@ -47,18 +47,19 @@ export function TaskListView({ tasks, onTaskClick }: TaskListViewProps) {
     const toggleClient = (clientName: string) => {
         setExpandedClients(prev => {
             const next = new Set(prev);
-            next.has(clientName) ? next.delete(clientName) : next.add(clientName);
+            if (next.has(clientName)) next.delete(clientName);
+            else next.add(clientName);
             return next;
         });
     };
 
     const handleTimerClick = async (e: React.MouseEvent, task: Task) => {
         e.stopPropagation();
-        const isRunning = timer?.status === 'running' && timer.taskId === task.id;
-        if (isRunning) {
-            await pause();
+        const isRunning = runningTimer?.taskId === task.id;
+        if (isRunning && runningTimer) {
+            await pause(runningTimer);
         } else if (task.clientId || task.projectId) {
-            await start({
+            await startTask({
                 clientId: task.clientId ?? task.projectId ?? '',
                 clientName: task.clientName ?? 'Unknown',
                 taskId: task.id,
@@ -102,7 +103,7 @@ export function TaskListView({ tasks, onTaskClick }: TaskListViewProps) {
                                     </td>
                                 </tr>
                                 {expandedClients.has(clientName) && clientTasks.map((task) => {
-                                    const isRunning = timer?.status === 'running' && timer.taskId === task.id;
+                                    const isRunning = runningTimer?.taskId === task.id;
                                     const isOverdue = task.dueDate && task.dueDate < today && task.status !== 'done';
                                     const assignees = task.assigneeIds ?? task.assignees ?? [];
                                     const canTimer = !!(task.clientId || task.projectId);
