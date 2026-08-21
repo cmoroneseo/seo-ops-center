@@ -56,8 +56,11 @@ export function TimerChip({ clients }: { clients: ClientProject[] }) {
     };
 
     if (!primaryTimer) {
+        // Keep the review sheet mounted after the last attempt finalizes so its
+        // outcome panel can still surface a warning.
         return (
             <div className="relative flex items-center justify-center mb-1">
+                {showStopSheet && reviewAttemptId && <StopConfirmSheet attemptId={reviewAttemptId} onClose={() => { setShowStopSheet(false); setReviewAttemptId(null); }} />}
                 <button onClick={() => setShowQuickStart(current => !current)} title="Start Timer  ⌘⇧T" className="group h-12 w-12 flex items-center justify-center rounded-xl text-muted-foreground hover:text-green-500 hover:bg-green-500/10 transition-all duration-200">
                     <Clock className="h-5 w-5 group-hover:scale-110 transition-transform" />
                 </button>

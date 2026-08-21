@@ -66,8 +66,12 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
     };
 
     if (!primaryTimer) {
+        // The sheet must survive here: finalizing the last attempt clears
+        // primaryTimer, and its outcome panel still has to report a failed
+        // completion or Basecamp push.
         return (
             <div ref={widgetRef} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50">
+                {reviewAttemptId && <StopConfirmSheet attemptId={reviewAttemptId} onClose={() => setReviewAttemptId(null)} />}
                 <div className="relative">
                     <button
                         onClick={() => setShowQuickStart(current => !current)}
