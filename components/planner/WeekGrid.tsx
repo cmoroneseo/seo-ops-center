@@ -5,7 +5,7 @@ import { isToday, isSameDay, isWeekend, format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import {
     PX_PER_HOUR, DEFAULT_START_HOUR, DEFAULT_END_HOUR,
-    packOverlaps, minutesSinceMidnight, durationMinutes, isWorkMinute,
+    packOverlaps, plannerItemLayoutInterval, isWorkMinute,
 } from '@/lib/planner/layout';
 import type { PlannerEventKind } from '@/lib/types';
 import { PlannerItem } from '@/lib/planner/items';
@@ -246,12 +246,7 @@ export function WeekGrid({
                             {packOverlaps(
                                 dayItems.map(i => ({
                                     id: i.id,
-                                    startMin: minutesSinceMidnight(i.startsAt),
-                                    endMin: minutesSinceMidnight(i.startsAt)
-                                        + Math.max(
-                                            i.source === 'task' || i.source === 'actual_time' ? 30 : 15,
-                                            durationMinutes(i.startsAt, i.endsAt),
-                                        ),
+                                    ...plannerItemLayoutInterval(i),
                                     item: i,
                                 })),
                             ).map(({ item: packed, column, columnCount }) => (

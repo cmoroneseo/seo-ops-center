@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import ts from 'typescript';
 import type { PlannerItem } from './items.ts';
 import {
     agendaItemsForDay,
@@ -247,4 +249,23 @@ test('timer actions move into details on narrow screens without disappearing', (
         card: true,
         detail: true,
     });
+});
+
+test('MonthGrid consumes the executable month-item presentation and timer action contract', () => {
+    const source = readFileSync(
+        new URL('../../components/planner/MonthGrid.tsx', import.meta.url),
+        'utf8',
+    );
+    const tree = ts.createSourceFile('MonthGrid.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const counts = new Map<string, number>();
+    const visit = (node: ts.Node) => {
+        if (ts.isIdentifier(node)) counts.set(node.text, (counts.get(node.text) ?? 0) + 1);
+        ts.forEachChild(node, visit);
+    };
+    visit(tree);
+
+    assert.ok((counts.get('monthItemPresentation') ?? 0) >= 2, 'MonthGrid must call the presentation helper');
+    assert.ok((counts.get('onTimerAction') ?? 0) >= 3, 'MonthGrid must accept and invoke timer actions');
+    assert.ok((counts.get('accessibleName') ?? 0) >= 1, 'MonthGrid must apply the accessible actual-time name');
+    assert.ok((counts.get('actions') ?? 0) >= 1, 'MonthGrid must render presentation actions');
 });

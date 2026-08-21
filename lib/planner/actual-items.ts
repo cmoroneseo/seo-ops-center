@@ -1,7 +1,7 @@
 import type { Task, TimerAttempt } from '../types';
 import { groupSegmentsForDisplay } from '../timer/segments.ts';
 import type { PlannerItem, PlannerTimerState } from './items';
-import { taskBlockMinutes } from './items.ts';
+import { plannerTimeLabel, taskBlockMinutes } from './items.ts';
 
 export type PlannerTimerAction = 'start' | 'pause' | 'resume' | 'stop';
 
@@ -28,6 +28,7 @@ export function shouldRenderForecast(task: Task, attempts: TimerAttempt[]): bool
 
 function timerState(attempt: TimerAttempt): PlannerTimerState {
     if (attempt.status === 'logged') return 'logged';
+    if (attempt.reviewingAt) return 'reviewing';
     return attempt.segments.some(segment => segment.endedAt === undefined)
         ? 'running'
         : 'paused';
@@ -61,5 +62,57 @@ export function timerActionsForItem(item: PlannerItem): PlannerTimerAction[] {
     if (item.source !== 'actual_time') return [];
     if (item.timerState === 'running') return ['pause', 'stop'];
     if (item.timerState === 'paused') return ['resume', 'stop'];
+    if (item.timerState === 'reviewing') return ['stop'];
     return [];
+}
+
+export interface MonthItemPresentation {
+    accessibleName: string;
+    stateLabel: string | null;
+    actions: PlannerTimerAction[];
+}
+
+function timerStateLabel(state: PlannerTimerState | undefined): string | null {
+    if (!state || state === 'logged') return null;
+    return `${state[0].toUpperCase()}${state.slice(1)}`;
+}
+
+/** Shared desktop-month presentation contract, also useful to card/details. */
+export function monthItemPresentation(
+    item: PlannerItem,
+    canControlTimer: boolean,
+): MonthItemPresentation {
+    const stateLabel = timerStateLabel(item.timerState);
+    const details = item.source === 'actual_time'
+        ? `${item.title}, ${plannerTimeLabel(item)}${stateLabel ? `, ${stateLabel}` : ''}`
+        : item.title;
+    return {
+        accessibleName: details,
+        stateLabel,
+        actions: canControlTimer ? timerActionsForItem(item) : [],
+    };
+}
+
+export function plannerTimerActionLabel(
+    action: PlannerTimerAction,
+    item: PlannerItem,
+): string {
+    if (action === 'start') return 'Start Timer';
+    if (action === 'stop' && item.timerState === 'reviewing') return 'Review time';
+    return `${action[0].toUpperCase()}${action.slice(1)} timer`;
+}
+
+/** Preserve a display-group selection; use attempt identity only if it vanished. */
+export function resolvePlannerSelection(
+    selected: PlannerItem,
+    items: PlannerItem[],
+): PlannerItem {
+    const exact = items.find(item => item.id === selected.id);
+    if (exact) return exact;
+    if (selected.source === 'actual_time' && selected.attemptId) {
+        return items.find(item => (
+            item.source === 'actual_time' && item.attemptId === selected.attemptId
+        )) ?? selected;
+    }
+    return selected;
 }

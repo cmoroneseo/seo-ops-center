@@ -13,7 +13,7 @@ import {
     PlannerItem, plannerSourceLabel, plannerTimeLabel,
 } from '@/lib/planner/items';
 import {
-    timerActionsForItem, type PlannerTimerAction,
+    plannerTimerActionLabel, timerActionsForItem, type PlannerTimerAction,
 } from '@/lib/planner/actual-items';
 import { updatePlannerEvent, deletePlannerEvent } from '@/lib/supabase/planner-events';
 import {
@@ -273,9 +273,8 @@ export function EventDetailPanel({
                     <div className="flex flex-wrap gap-2" aria-label="Timer controls">
                         {timerActions.map(action => {
                             const Icon = action === 'pause' ? Pause : action === 'stop' ? Square : Play;
-                            const label = action === 'start'
-                                ? 'Start Timer'
-                                : `${action[0].toUpperCase()}${action.slice(1)}`;
+                            const label = plannerTimerActionLabel(action, item)
+                                .replace(/ timer$/, '');
                             return (
                                 <button
                                     type="button"

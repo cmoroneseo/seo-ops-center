@@ -6,10 +6,10 @@ import { cn } from '@/lib/utils';
 import { PlannerEventKind } from '@/lib/types';
 import { PlannerItem, plannerTimeLabel } from '@/lib/planner/items';
 import {
-    timerActionsForItem, type PlannerTimerAction,
+    monthItemPresentation, plannerTimerActionLabel, type PlannerTimerAction,
 } from '@/lib/planner/actual-items';
 import {
-    minutesToY, minutesSinceMidnight, durationMinutes, PX_PER_HOUR,
+    minutesToY, plannerItemLayoutInterval, PX_PER_HOUR,
     staggerBounds, COMPACT_MAX_MINUTES,
 } from '@/lib/planner/layout';
 
@@ -60,13 +60,12 @@ export function EventCard({
     onClick, onMoveStart, onResizeStart, onKeyMove, onTimerAction,
     canControlTimer = false,
 }: EventCardProps) {
-    const startMin = minutesSinceMidnight(item.startsAt);
-    // Task timer controls need enough physical room to remain operable even
-    // immediately after Start; timestamps and reported duration stay exact.
-    const minimumMinutes = item.source === 'task' || item.source === 'actual_time' ? 30 : 15;
-    const minutes = Math.max(minimumMinutes, durationMinutes(item.startsAt, item.endsAt));
+    const { startMin, endMin } = plannerItemLayoutInterval(item);
+    const minutes = endMin - startMin;
     const top = minutesToY(startMin, startHour);
-    const height = (minutes / 60) * PX_PER_HOUR;
+    const canonicalHeight = (minutes / 60) * PX_PER_HOUR;
+    const height = item.source === 'actual_time' ? Math.max(4, canonicalHeight) : canonicalHeight;
+    const isShortActual = item.source === 'actual_time' && canonicalHeight < 28;
 
     // Overlapping cards layer rather than tile: each is indented and runs to the
     // right edge, so the one beneath keeps its title readable on the left.
@@ -88,12 +87,9 @@ export function EventCard({
     const interactive = !ghost && Boolean(onClick);
 
     const timeLabel = plannerTimeLabel(item);
-    const stateLabel = item.timerState === 'running'
-        ? 'Running'
-        : item.timerState === 'paused'
-            ? 'Paused'
-            : null;
-    const timerActions = canControlTimer ? timerActionsForItem(item) : [];
+    const presentation = monthItemPresentation(item, canControlTimer);
+    const { stateLabel } = presentation;
+    const timerActions = presentation.actions;
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -113,7 +109,8 @@ export function EventCard({
             style={style}
             onPointerDown={e => onMoveStart?.(item, e)}
             className={cn(
-                'group absolute overflow-hidden rounded-md border border-black/5 text-left',
+                'group absolute rounded-md border border-black/5 text-left',
+                isShortActual ? 'overflow-visible' : 'overflow-hidden',
                 'focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-1',
                 onMoveStart && 'cursor-grab active:cursor-grabbing',
                 ghost
@@ -130,9 +127,11 @@ export function EventCard({
                     type="button"
                     onClick={() => onClick?.(item)}
                     onKeyDown={handleKeyDown}
-                    aria-label={`${item.title}, ${timeLabel}${stateLabel ? `, ${stateLabel}` : ''}`}
+                    aria-label={item.source === 'actual_time'
+                        ? presentation.accessibleName
+                        : `${item.title}, ${timeLabel}`}
                     className={cn(
-                        'absolute inset-0 w-full text-left focus:outline-none',
+                        'absolute inset-0 w-full overflow-hidden text-left focus:outline-none',
                         isCompact ? 'px-1.5 py-0.5' : 'px-2 py-1',
                     )}
                 >
@@ -166,12 +165,13 @@ export function EventCard({
             )}
 
             {timerActions.length > 0 && (
-                <div className="absolute bottom-1 right-1 z-10 hidden items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 lg:flex">
+                <div className={cn(
+                    'absolute right-1 z-10 hidden items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 lg:flex',
+                    isShortActual ? 'bottom-full mb-1' : 'bottom-1',
+                )}>
                     {timerActions.map(action => {
                         const Icon = action === 'pause' ? Pause : action === 'stop' ? Square : Play;
-                        const label = action === 'start'
-                            ? 'Start Timer'
-                            : `${action[0].toUpperCase()}${action.slice(1)} timer`;
+                        const label = plannerTimerActionLabel(action, item);
                         return (
                             <button
                                 type="button"

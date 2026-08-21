@@ -6,7 +6,7 @@ import type { PlannerEvent, PlannerEventKind, Task, Reminder, TimerAttempt } fro
 export const TASK_DEFAULT_MINUTES = 60;
 
 export type PlannerItemSource = 'event' | 'task' | 'reminder' | 'actual_time';
-export type PlannerTimerState = 'running' | 'paused' | 'logged';
+export type PlannerTimerState = 'running' | 'paused' | 'reviewing' | 'logged';
 
 /**
  * Parse a task's start.

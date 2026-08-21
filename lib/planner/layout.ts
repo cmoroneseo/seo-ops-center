@@ -46,6 +46,39 @@ export function durationMinutes(startIso: string, endIso: string): number {
     return Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60_000);
 }
 
+export interface PlannerLayoutItem {
+    source: 'event' | 'task' | 'reminder' | 'actual_time';
+    startsAt: string;
+    endsAt: string;
+}
+
+/**
+ * Timeline interval used by both card geometry and overlap packing. Actual work
+ * always keeps its canonical segment duration; forecast/event minimums remain
+ * presentation behavior and continue to match their existing drag layout.
+ */
+export function plannerItemLayoutInterval(item: PlannerLayoutItem): {
+    startMin: number;
+    endMin: number;
+} {
+    const start = new Date(item.startsAt);
+    const end = new Date(item.endsAt);
+    const startMin = start.getHours() * 60
+        + start.getMinutes()
+        + start.getSeconds() / 60
+        + start.getMilliseconds() / 60_000;
+    const canonicalMinutes = Math.max(0, (end.getTime() - start.getTime()) / 60_000);
+    const minimumMinutes = item.source === 'actual_time'
+        ? 0
+        : item.source === 'task'
+            ? 30
+            : 15;
+    return {
+        startMin,
+        endMin: startMin + Math.max(minimumMinutes, canonicalMinutes),
+    };
+}
+
 /** Width of the hour-label gutter before the first day column. */
 export const AXIS_WIDTH = 64;
 

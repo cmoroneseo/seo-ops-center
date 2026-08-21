@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import type { PlannerItem } from './items.ts';
 import {
     PX_PER_HOUR,
     AXIS_WIDTH,
@@ -16,6 +17,7 @@ import {
     isOutsideGrid,
     staggerBounds,
     isWorkMinute,
+    plannerItemLayoutInterval,
 } from './layout.ts';
 
 // --- pixel <-> minute conversion -------------------------------------------
@@ -77,6 +79,37 @@ test('packOverlaps gives disjoint events the full width', () => {
     assert.deepEqual(
         packed.map(p => [p.item.id, p.column, p.columnCount]),
         [['a', 0, 1], ['b', 0, 1]],
+    );
+});
+
+test('a short actual item does not claim later timeline space in overlap packing', () => {
+    const item = (id: string, source: PlannerItem['source'], start: string, end: string) => ({
+        id,
+        source,
+        startsAt: start,
+        endsAt: end,
+    });
+    const actual = item(
+        'actual',
+        'actual_time',
+        '2026-08-20T09:00:00.000',
+        '2026-08-20T09:02:00.000',
+    );
+    const following = item(
+        'following',
+        'event',
+        '2026-08-20T09:05:00.000',
+        '2026-08-20T10:00:00.000',
+    );
+    const packed = packOverlaps([actual, following].map(entry => ({
+        ...entry,
+        ...plannerItemLayoutInterval(entry),
+    })));
+
+    assert.deepEqual(plannerItemLayoutInterval(actual), { startMin: 540, endMin: 542 });
+    assert.deepEqual(
+        packed.map(result => [result.item.id, result.column, result.columnCount]),
+        [['actual', 0, 1], ['following', 0, 1]],
     );
 });
 

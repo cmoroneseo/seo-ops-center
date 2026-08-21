@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import type { Task, TimeLogSegment, TimerAttempt } from '../types.ts';
 import {
     actualAttemptToItems,
+    monthItemPresentation,
+    resolvePlannerSelection,
     shouldRenderForecast,
     timerActionsForItem,
 } from './actual-items.ts';
@@ -146,4 +148,53 @@ test('timer actions follow forecast, running, paused, and logged states', () => 
     assert.deepEqual(timerActionsForItem(actual('running')), ['pause', 'stop']);
     assert.deepEqual(timerActionsForItem(actual('paused')), ['resume', 'stop']);
     assert.deepEqual(timerActionsForItem(actual('logged')), []);
+});
+
+test('selection preserves the exact later display group before attempt fallback', () => {
+    const groups = actualAttemptToItems(makeAttempt({
+        segments: [
+            segment('segment-1', '2026-08-20T17:00:00.000Z', '2026-08-20T18:00:00.000Z'),
+            segment('segment-2', '2026-08-20T18:45:00.000Z', '2026-08-20T19:45:00.000Z'),
+        ],
+    }), new Date('2026-08-20T20:00:00.000Z'));
+    const refreshed = groups.map(item => ({ ...item }));
+
+    assert.equal(resolvePlannerSelection(groups[1], refreshed).id, 'actual:attempt-1:1');
+    assert.equal(
+        resolvePlannerSelection({ ...groups[1], id: 'actual:attempt-1:missing' }, refreshed).id,
+        'actual:attempt-1:0',
+    );
+});
+
+test('reviewing attempts are textual Reviewing and expose only Stop/Review', () => {
+    const [item] = actualAttemptToItems(makeAttempt({
+        reviewingAt: '2026-08-20T18:00:00.000Z',
+        segments: [segment(
+            'segment-1',
+            '2026-08-20T17:00:00.000Z',
+            '2026-08-20T18:00:00.000Z',
+        )],
+    }), new Date('2026-08-20T20:00:00.000Z'));
+
+    assert.equal(item.timerState, 'reviewing');
+    assert.deepEqual(timerActionsForItem(item), ['stop']);
+    assert.equal(monthItemPresentation(item, true).stateLabel, 'Reviewing');
+});
+
+test('month presentation gives actual work state, range, duration, and controls', () => {
+    const [item] = actualAttemptToItems(makeAttempt({
+        segments: [segment(
+            'segment-1',
+            '2026-08-20T17:00:00.000',
+            '2026-08-20T18:00:00.000',
+        )],
+    }), new Date('2026-08-21T12:00:00.000Z'));
+    const presentation = monthItemPresentation(item, true);
+
+    assert.equal(presentation.stateLabel, 'Paused');
+    assert.deepEqual(presentation.actions, ['resume', 'stop']);
+    assert.match(presentation.accessibleName, /Write launch brief/);
+    assert.match(presentation.accessibleName, /5:00 PM – 6:00 PM/);
+    assert.match(presentation.accessibleName, /1 hr active/);
+    assert.match(presentation.accessibleName, /Paused/);
 });

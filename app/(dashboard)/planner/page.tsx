@@ -28,7 +28,8 @@ import {
     taskToDetailItem,
 } from '@/lib/planner/items';
 import {
-    actualAttemptToItems, shouldRenderForecast, type PlannerTimerAction,
+    actualAttemptToItems, resolvePlannerSelection, shouldRenderForecast,
+    type PlannerTimerAction,
 } from '@/lib/planner/actual-items';
 import { PlannerHeader, PlannerView } from '@/components/planner/PlannerHeader';
 import { WeekGrid, PlannerDragHandles } from '@/components/planner/WeekGrid';
@@ -483,12 +484,7 @@ export default function PlannerPage() {
                 return actualAttemptToItems(activeAttempt, new Date(clockNow))[0] ?? selected;
             }
         }
-        if (selected.source === 'actual_time' && selected.attemptId) {
-            return items.find(item => (
-                item.source === 'actual_time' && item.attemptId === selected.attemptId
-            )) ?? selected;
-        }
-        return items.find(item => item.id === selected.id) ?? selected;
+        return resolvePlannerSelection(selected, items);
     }, [attempts, clockNow, items, selected]);
 
     return (
@@ -540,6 +536,8 @@ export default function PlannerPage() {
                         days={monthDays}
                         items={visibleItems}
                         onItemClick={setSelected}
+                        onTimerAction={handleTimerAction}
+                        canControlTimer={canControlTimer}
                         onDayClick={day => { setAnchorDate(day); setView('day'); }}
                     />
                 ) : (
