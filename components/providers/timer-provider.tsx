@@ -51,7 +51,7 @@ interface TimerContextType {
     resume: (attempt: TimerAttempt, confirmSwitch?: TimerSwitchConfirmation) => Promise<boolean>;
     switchToTask: (target: TimerSwitchTarget, confirmSwitch?: TimerSwitchConfirmation) => Promise<boolean>;
     beginStop: (attempt: TimerAttempt) => Promise<TimerStateResponse | null>;
-    finalize: (attempt: TimerAttempt, options: FinalizeTimerOptions) => Promise<void>;
+    finalize: (attempt: TimerAttempt, options: FinalizeTimerOptions) => Promise<TimerStateResponse>;
     discard: (attempt: TimerAttempt) => Promise<void>;
     addNote: (attemptId: string, text: string) => Promise<void>;
     editNote: (attemptId: string, noteId: string, text: string) => Promise<void>;
@@ -83,6 +83,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     const notifyTimerChange = useCallback(() => {
         window.dispatchEvent(new Event('planner:data-changed'));
         window.dispatchEvent(new Event('timer:data-changed'));
+        window.dispatchEvent(new Event('task:data-changed'));
         window.dispatchEvent(new Event('client-activity:data-changed'));
         try {
             localStorage.setItem('timer:data-changed', String(Date.now()));
@@ -183,7 +184,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, [mutate]);
 
     const finalize = useCallback(async (attempt: TimerAttempt, options: FinalizeTimerOptions) => {
-        await mutate(finalizeTimerAttempt(attempt, {
+        const state = await mutate(finalizeTimerAttempt(attempt, {
             description: options.description,
             billable: options.billable,
             syncToBasecamp: options.syncToBasecamp ?? false,
@@ -191,11 +192,15 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
             ...(options.countsTowardBudget === undefined ? {} : { countsTowardBudget: options.countsTowardBudget }),
         }));
-        if (!attempt.taskId) return;
+        if (!attempt.taskId) return state;
         const updated = await updateTask(attempt.taskId, {
             scheduledMinutes: trackedBlockMinutes(totalAttemptActiveSeconds(attempt)),
         });
-        if (updated.success) window.dispatchEvent(new Event('planner:data-changed'));
+        if (updated.success) {
+            window.dispatchEvent(new Event('planner:data-changed'));
+            window.dispatchEvent(new Event('task:data-changed'));
+        }
+        return state;
     }, [mutate]);
 
     const discard = useCallback(async (attempt: TimerAttempt) => {

@@ -74,6 +74,77 @@ test('quick start requires both a selected client and a selected task', () => {
     assert.equal(timerUi.canStartTaskTimer('client-1', 'task-1'), true);
 });
 
+function segment(id: string, startedAt: string, endedAt?: string) {
+    return { id, timeLogId: 'attempt-1', organizationId: 'org-1', userId: 'user-1', startedAt, endedAt };
+}
+
+test('client task review defaults to SEO-hour budget without preselecting completion', () => {
+    const defaults = timerUi.stopReviewDefaults(attempt({ clientId: 'client-1', taskId: 'task-1' }));
+
+    assert.deepEqual(defaults, {
+        billable: true,
+        countsTowardBudget: true,
+        markTaskComplete: false,
+        canMarkTaskComplete: true,
+    });
+});
+
+test('an explicit non-budget attempt keeps its override and internal work never claims SEO hours', () => {
+    assert.equal(
+        timerUi.stopReviewDefaults(attempt({ clientId: 'client-1', taskId: 'task-1', countsTowardBudget: false })).countsTowardBudget,
+        false,
+    );
+
+    const internal = timerUi.stopReviewDefaults(attempt({ billable: false }));
+    assert.equal(internal.countsTowardBudget, false);
+    assert.equal(internal.billable, false);
+    assert.equal(internal.canMarkTaskComplete, false);
+});
+
+test('review aggregates same-date segments into one total and reports each local date once', () => {
+    const sameDay = timerUi.stopReviewSummary(attempt({
+        segments: [
+            segment('a', '2026-08-20T17:15:00.000Z', '2026-08-20T19:15:00.000Z'),
+            segment('b', '2026-08-20T20:00:00.000Z', '2026-08-20T22:00:00.000Z'),
+        ],
+    }), 'America/Los_Angeles');
+
+    assert.equal(sameDay.totalActiveSeconds, 14_400);
+    assert.deepEqual(sameDay.dates, [{ localDate: '2026-08-20', activeSeconds: 14_400, segmentCount: 2 }]);
+});
+
+test('review splits midnight-crossing work into one row per local date', () => {
+    const overnight = timerUi.stopReviewSummary(attempt({
+        segments: [segment('a', '2026-08-21T06:30:00.000Z', '2026-08-21T07:30:00.000Z')],
+    }), 'America/Los_Angeles');
+
+    assert.equal(overnight.totalActiveSeconds, 3_600);
+    assert.deepEqual(overnight.dates, [
+        { localDate: '2026-08-20', activeSeconds: 1_800, segmentCount: 1 },
+        { localDate: '2026-08-21', activeSeconds: 1_800, segmentCount: 1 },
+    ]);
+});
+
+test('review keeps the pre-segment elapsed baseline on the attempt date', () => {
+    const migrated = timerUi.stopReviewSummary(attempt({ date: '2026-08-19', elapsedSeconds: 600 }), 'UTC');
+
+    assert.equal(migrated.totalActiveSeconds, 600);
+    assert.deepEqual(migrated.dates, [{ localDate: '2026-08-19', activeSeconds: 600, segmentCount: 0 }]);
+});
+
+test('Basecamp sync eligibility explains why it is unavailable instead of hiding it', () => {
+    assert.deepEqual(timerUi.basecampSyncEligibility(attempt({ clientId: 'client-1' }), true), { eligible: true });
+    assert.equal(timerUi.basecampSyncEligibility(attempt({ clientId: 'client-1' }), false).eligible, false);
+    assert.match(
+        timerUi.basecampSyncEligibility(attempt({ clientId: 'client-1' }), false).reason ?? '',
+        /not enabled for this client/i,
+    );
+    assert.match(
+        timerUi.basecampSyncEligibility(attempt(), true).reason ?? '',
+        /not linked to a client/i,
+    );
+});
+
 test('a review sheet resolves its attempt by identity from the latest canonical state', () => {
     const reviewed = attempt({
         id: 'reviewing',

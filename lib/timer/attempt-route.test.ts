@@ -221,6 +221,51 @@ test('finalize makes local time safe before completion and starts Basecamp last'
     });
 });
 
+test('an unselected Basecamp toggle reaches no provider dependency at all', async () => {
+    let providerCalls = 0;
+    const response = await handleTimerMutation(request({ ...finalizeRequest, syncToBasecamp: false }), dependencies({
+        syncBasecamp: async () => {
+            providerCalls += 1;
+            return { ok: true };
+        },
+    }));
+
+    assert.equal(response.status, 200);
+    assert.equal(providerCalls, 0);
+    assert.equal((await body(response)).basecampStatus, 'not_requested');
+});
+
+test('a skipped provider sync is never reported as a synced timesheet entry', async () => {
+    const response = await handleTimerMutation(request(finalizeRequest), dependencies({
+        finalizeOwnedAttempt: async () => ({ finalizedTimeLogIds: ['day-1'] }),
+        syncBasecamp: async () => ({ ok: true, skipped: true }),
+    }));
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+        running: null,
+        paused: [],
+        finalizedTimeLogIds: ['day-1'],
+        basecampStatus: 'not_requested',
+    });
+
+    const retried = await handleTimerMutation(request({ action: 'retry_basecamp', timeLogId: 'day-1' }), dependencies({
+        syncBasecamp: async () => ({ ok: true, skipped: true }),
+    }));
+    assert.equal((await body(retried)).basecampStatus, 'not_requested');
+});
+
+test('a partially skipped multi-date sync still reports the dates that reached Basecamp', async () => {
+    const response = await handleTimerMutation(request(finalizeRequest), dependencies({
+        finalizeOwnedAttempt: async () => ({ finalizedTimeLogIds: ['day-1', 'day-2'] }),
+        syncBasecamp: async timeLogId => timeLogId === 'day-2'
+            ? { ok: true, skipped: true }
+            : { ok: true },
+    }));
+
+    assert.equal((await body(response)).basecampStatus, 'synced');
+});
+
 test('completion failure is a warning and retains finalized local IDs', async () => {
     const response = await handleTimerMutation(request({ ...finalizeRequest, syncToBasecamp: false }), dependencies({
         finalizeOwnedAttempt: async () => ({

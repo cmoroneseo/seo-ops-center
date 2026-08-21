@@ -26,7 +26,23 @@ export interface AttemptRouteDeps {
     syncBasecamp(
         timeLogId: string,
         createIfMissing: boolean,
-    ): Promise<{ ok: boolean; error?: string }>;
+    ): Promise<BasecampSyncOutcome>;
+}
+
+export interface BasecampSyncOutcome {
+    ok: boolean;
+    /** The destination declined the entry (not configured, nothing to send). */
+    skipped?: boolean;
+    error?: string;
+}
+
+/** A skipped destination never claims a timesheet entry that does not exist. */
+export function basecampStatusFromOutcomes(
+    outcomes: BasecampSyncOutcome[],
+): NonNullable<TimerStateResponse['basecampStatus']> {
+    if (outcomes.length === 0) return 'not_requested';
+    if (outcomes.some(outcome => !outcome.ok)) return 'failed';
+    return outcomes.every(outcome => outcome.skipped === true) ? 'not_requested' : 'synced';
 }
 
 export interface CompletedTask {
@@ -291,9 +307,8 @@ export async function handleTimerMutation(
                 finalizedAt: new Date().toISOString(),
             });
 
-            let basecampStatus: TimerStateResponse['basecampStatus'] = 'not_requested';
+            const results: BasecampSyncOutcome[] = [];
             if (input.syncToBasecamp) {
-                const results = [];
                 for (const timeLogId of finalized.finalizedTimeLogIds) {
                     try {
                         results.push(await deps.syncBasecamp(timeLogId, true));
@@ -301,8 +316,8 @@ export async function handleTimerMutation(
                         results.push({ ok: false });
                     }
                 }
-                basecampStatus = results.every(result => result.ok) ? 'synced' : 'failed';
             }
+            const basecampStatus = basecampStatusFromOutcomes(results);
 
             const attempts = await loadAttemptsAfterDurableMutation(
                 deps,
@@ -320,7 +335,7 @@ export async function handleTimerMutation(
         }
 
         if (input.action === 'retry_basecamp') {
-            let result: { ok: boolean; error?: string };
+            let result: BasecampSyncOutcome;
             try {
                 result = await deps.syncBasecamp(input.timeLogId, true);
             } catch (error) {
@@ -335,7 +350,7 @@ export async function handleTimerMutation(
             return json({
                 ...attempts,
                 finalizedTimeLogIds: [input.timeLogId],
-                basecampStatus: result.ok ? 'synced' : 'failed',
+                basecampStatus: basecampStatusFromOutcomes([result]),
             } satisfies TimerStateResponse);
         }
 

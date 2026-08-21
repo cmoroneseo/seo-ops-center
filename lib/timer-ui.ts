@@ -1,4 +1,4 @@
-import { sumActiveSeconds } from './timer/segments.ts';
+import { splitSegmentsByLocalDate, sumActiveSeconds } from './timer/segments.ts';
 import type { TimerAttempt } from './types';
 import type { TimerMutationRequest, TimerStateResponse } from './timer/contracts';
 
@@ -75,6 +75,93 @@ export function finalizeTimerAttempt(
         ...options,
         countsTowardBudget: options.countsTowardBudget ?? attempt.countsTowardBudget,
     };
+}
+
+export interface StopReviewDefaults {
+    billable: boolean;
+    countsTowardBudget: boolean;
+    markTaskComplete: boolean;
+    canMarkTaskComplete: boolean;
+}
+
+/** SEO hours are claimed only by client work; completion always stays opt-in. */
+export function stopReviewDefaults(attempt: TimerAttempt): StopReviewDefaults {
+    return {
+        billable: attempt.billable,
+        countsTowardBudget: Boolean(attempt.clientId) && attempt.countsTowardBudget,
+        markTaskComplete: false,
+        canMarkTaskComplete: Boolean(attempt.taskId),
+    };
+}
+
+export interface StopReviewDateTotal {
+    localDate: string;
+    activeSeconds: number;
+    segmentCount: number;
+}
+
+export interface StopReviewSummary {
+    totalActiveSeconds: number;
+    dates: StopReviewDateTotal[];
+}
+
+/**
+ * Mirrors `finalize_time_attempt`: segments are split at local midnight, totalled
+ * per local date, and the pre-segment `elapsedSeconds` baseline stays on the
+ * attempt's own date so the sheet previews exactly what finalization will write.
+ */
+export function stopReviewSummary(
+    attempt: TimerAttempt,
+    timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
+    now = new Date(),
+): StopReviewSummary {
+    const totals = new Map<string, StopReviewDateTotal>();
+    const addTo = (localDate: string): StopReviewDateTotal => {
+        const existing = totals.get(localDate);
+        if (existing) return existing;
+        const created = { localDate, activeSeconds: 0, segmentCount: 0 };
+        totals.set(localDate, created);
+        return created;
+    };
+
+    if (attempt.elapsedSeconds > 0) addTo(attempt.date).activeSeconds += attempt.elapsedSeconds;
+
+    for (const slice of splitSegmentsByLocalDate(attempt.segments, timeZone, now)) {
+        const total = addTo(slice.localDate);
+        total.activeSeconds += slice.activeSeconds;
+        total.segmentCount += 1;
+    }
+
+    const dates = [...totals.values()].sort((left, right) => left.localDate.localeCompare(right.localDate));
+    return {
+        totalActiveSeconds: dates.reduce((sum, date) => sum + date.activeSeconds, 0),
+        dates,
+    };
+}
+
+export interface BasecampSyncEligibility {
+    eligible: boolean;
+    reason?: string;
+}
+
+/** An unavailable destination is explained rather than hidden. */
+export function basecampSyncEligibility(
+    attempt: TimerAttempt,
+    clientTimesheetEnabled: boolean,
+): BasecampSyncEligibility {
+    if (!attempt.clientId) {
+        return {
+            eligible: false,
+            reason: 'This work is not linked to a client, so there is no client timesheet to send it to.',
+        };
+    }
+    if (!clientTimesheetEnabled) {
+        return {
+            eligible: false,
+            reason: 'Basecamp timesheet sync is not enabled for this client.',
+        };
+    }
+    return { eligible: true };
 }
 
 export function canStartTaskTimer(clientId: string, taskId: string): boolean {

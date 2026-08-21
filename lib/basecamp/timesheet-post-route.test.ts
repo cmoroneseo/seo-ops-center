@@ -321,3 +321,72 @@ test('timesheet verifies a recording under the authorized project before create'
     assert.equal(resolved, true);
     assert.equal(recordingId, '77');
 });
+
+test('a lost create response is adopted on retry instead of duplicating the provider entry', async () => {
+    const { selectAdoptableTimesheetEntry } = await loadRouteModule();
+
+    const adopted = selectAdoptableTimesheetEntry(
+        [
+            { id: 41, date: '2026-08-20', hours: '1.0', description: 'Client work', parent: { id: 77, type: 'Todo' } },
+            { id: 42, date: '2026-08-20', hours: '2.0', description: 'Client work', parent: { id: 77, type: 'Todo' } },
+        ],
+        { recordingId: '77', date: '2026-08-20', hours: 1, description: 'Client work' },
+        [],
+    );
+
+    assert.equal(adopted, '41');
+});
+
+test('adoption never steals a provider entry that another local time log already claims', async () => {
+    const { selectAdoptableTimesheetEntry } = await loadRouteModule();
+
+    const adopted = selectAdoptableTimesheetEntry(
+        [{ id: 41, date: '2026-08-20', hours: '1.0', description: 'Client work', parent: { id: 77, type: 'Todo' } }],
+        { recordingId: '77', date: '2026-08-20', hours: 1, description: 'Client work' },
+        ['41'],
+    );
+
+    assert.equal(adopted, null);
+});
+
+test('adoption refuses entries outside the authorized recording or with different tracked work', async () => {
+    const { selectAdoptableTimesheetEntry } = await loadRouteModule();
+    const target = { recordingId: '77', date: '2026-08-20', hours: 1, description: 'Client work' };
+
+    for (const candidate of [
+        { id: 41, date: '2026-08-20', hours: '1.0', description: 'Client work', parent: { id: 88, type: 'Todo' } },
+        { id: 42, date: '2026-08-21', hours: '1.0', description: 'Client work', parent: { id: 77, type: 'Todo' } },
+        { id: 43, date: '2026-08-20', hours: '1.5', description: 'Client work', parent: { id: 77, type: 'Todo' } },
+        { id: 44, date: '2026-08-20', hours: '1.0', description: 'Different work', parent: { id: 77, type: 'Todo' } },
+        { id: 45, date: '2026-08-20', hours: '1.0', description: 'Client work', parent: null },
+    ]) {
+        assert.equal(selectAdoptableTimesheetEntry([candidate], target, []), null);
+    }
+});
+
+test('adoption matches an empty provider description against an empty local description', async () => {
+    const { selectAdoptableTimesheetEntry } = await loadRouteModule();
+
+    const adopted = selectAdoptableTimesheetEntry(
+        [{ id: 41, date: '2026-08-20', hours: '0.25', description: '', parent: { id: 66, type: 'Timesheet' } }],
+        { recordingId: '66', date: '2026-08-20', hours: 0.25, description: null },
+        [],
+    );
+
+    assert.equal(adopted, '41');
+});
+
+test('repeated lost responses adopt the oldest unclaimed duplicate rather than creating another', async () => {
+    const { selectAdoptableTimesheetEntry } = await loadRouteModule();
+
+    const adopted = selectAdoptableTimesheetEntry(
+        [
+            { id: 52, date: '2026-08-20', hours: '1.0', description: 'Client work', parent: { id: 77, type: 'Todo' } },
+            { id: 41, date: '2026-08-20', hours: '1.0', description: 'Client work', parent: { id: 77, type: 'Todo' } },
+        ],
+        { recordingId: '77', date: '2026-08-20', hours: 1, description: 'Client work' },
+        ['52'],
+    );
+
+    assert.equal(adopted, '41');
+});

@@ -440,6 +440,32 @@ export async function getBasecampProjectTimesheetEntry(
     }
 }
 
+/**
+ * List a project's timesheet entries so a lost create response can be recovered
+ * from provider provenance instead of writing a duplicate entry. Paging is
+ * capped because this only ever runs on a retry after a failed sync.
+ */
+export async function listBasecampProjectTimesheetEntries(
+    projectId: number | string,
+    maxPages = 10,
+): Promise<BasecampTimesheetEntry[]> {
+    try {
+        const pid = safeId(projectId, 'projectId');
+        const entries: BasecampTimesheetEntry[] = [];
+        let url: string | null = `${BASE_URL()}/projects/${pid}/timesheet.json`;
+        for (let page = 0; url && page < maxPages; page += 1) {
+            const res: Response = await basecampFetch(url);
+            if (!res.ok) return entries;
+            entries.push(...await res.json() as BasecampTimesheetEntry[]);
+            url = parseNextLink(res.headers.get('Link'));
+        }
+        return entries;
+    } catch (err) {
+        console.error('[Basecamp] listProjectTimesheetEntries error:', err);
+        return [];
+    }
+}
+
 /** Create a timesheet entry under a recording (todo or project timesheet). */
 export async function createBasecampTimesheetEntry(
     recordingId: number | string,

@@ -37,7 +37,71 @@ export interface CanonicalTimeLog {
     taskBasecampTodoId: string | number | null;
     taskBasecampProjectId: string | number | null;
     personId: number | null;
+    basecampSyncError?: string | null;
     clientCustomFields?: Record<string, unknown>;
+}
+
+export interface AdoptableTimesheetEntry {
+    id: string | number;
+    date?: string | null;
+    hours?: string | number | null;
+    description?: string | null;
+    parent?: { id: string | number; type?: string } | null;
+}
+
+export interface AdoptableTimesheetTarget {
+    recordingId: string;
+    date: string;
+    hours: number;
+    description: string | null;
+}
+
+function normalizedDescription(value: string | null | undefined): string {
+    return (value ?? '').trim();
+}
+
+function decimalHours(value: string | number | null | undefined): number | null {
+    if (typeof value !== 'string' && typeof value !== 'number') return null;
+    const hours = Number(value);
+    return Number.isFinite(hours) ? Math.round(hours * 100) / 100 : null;
+}
+
+/**
+ * Recovers from a create whose response was lost: an entry already sitting under
+ * the authorized recording with this log's exact date, hours, and description,
+ * claimed by no other local time log, is adopted instead of duplicated. Provider
+ * IDs are only ever read from server-resolved provenance, never from the caller.
+ */
+export function selectAdoptableTimesheetEntry(
+    candidates: AdoptableTimesheetEntry[],
+    target: AdoptableTimesheetTarget,
+    claimedEntryIds: Iterable<string | number | null | undefined>,
+): string | null {
+    const recordingId = numericId(target.recordingId);
+    const targetHours = decimalHours(target.hours);
+    if (!recordingId || targetHours === null) return null;
+
+    const claimed = new Set(
+        [...claimedEntryIds]
+            .map(entryId => numericId(entryId))
+            .filter((entryId): entryId is string => entryId !== null),
+    );
+    const targetDescription = normalizedDescription(target.description);
+
+    const matches = candidates.filter(candidate => (
+        numericId(candidate.parent?.id ?? null) === recordingId
+        && String(candidate.date ?? '').slice(0, 10) === target.date.slice(0, 10)
+        && decimalHours(candidate.hours) === targetHours
+        && normalizedDescription(candidate.description) === targetDescription
+        && numericId(candidate.id) !== null
+        && !claimed.has(numericId(candidate.id)!)
+    ));
+
+    // Several unclaimed identical entries mean earlier lost responses already
+    // duplicated this log. Adopting the oldest stops the duplication growing.
+    return matches
+        .map(candidate => numericId(candidate.id)!)
+        .sort((left, right) => Number(left) - Number(right))[0] ?? null;
 }
 
 export interface AuthorizedTimeLogContext {

@@ -7,13 +7,17 @@ import {
     getBasecampProjectTimesheetEnabled,
     findProjectTimesheetRecordingId,
     getBasecampProjectTimesheetEntry,
+    listBasecampProjectTimesheetEntries,
     getBasecampTodo,
     createBasecampTimesheetEntry,
     updateBasecampTimesheetEntry,
     deleteBasecampTimesheetEntry,
 } from '@/lib/basecamp/api';
 import { createBasecampTimesheetGet } from '@/lib/basecamp/resource-routes';
-import { createBasecampTimesheetPost } from '@/lib/basecamp/timesheet-post-route';
+import {
+    createBasecampTimesheetPost,
+    selectAdoptableTimesheetEntry,
+} from '@/lib/basecamp/timesheet-post-route';
 import { createSupabaseBasecampProjectAccessSource } from '@/lib/basecamp/supabase-project-access-source';
 import { normalizeJsonObject } from '@/lib/basecamp/project-access';
 import { requireTimeLogIntegrationManager } from '@/lib/security/tenant-authz';
@@ -60,7 +64,7 @@ export async function POST(req: NextRequest) {
                 async getTimeLog(timeLogId, organizationId, clientId) {
                     let query = admin
                         .from('time_logs')
-                        .select('id, organization_id, client_id, user_id, task_id, date, hours, description, status, basecamp_entry_id, basecamp_project_id, basecamp_recording_id')
+                        .select('id, organization_id, client_id, user_id, task_id, date, hours, description, status, basecamp_entry_id, basecamp_project_id, basecamp_recording_id, basecamp_sync_error')
                         .eq('id', timeLogId)
                         .eq('organization_id', organizationId);
                     query = clientId ? query.eq('client_id', clientId) : query.is('client_id', null);
@@ -120,6 +124,7 @@ export async function POST(req: NextRequest) {
                         description: log.description,
                         status: log.status,
                         basecampEntryId: log.basecamp_entry_id,
+                        basecampSyncError: log.basecamp_sync_error ?? null,
                         basecampRecordingId: log.basecamp_recording_id,
                         selectedBasecampProjectId: log.basecamp_project_id,
                         configuredProjectId: (
@@ -223,7 +228,29 @@ export async function POST(req: NextRequest) {
                 }).eq('id', log.clientId).eq('organization_id', log.organizationId);
             }
 
-            const created = await createBasecampTimesheetEntry(recordingId, entryFields);
+            // A previous sync failed, so its create may have succeeded with a lost
+            // response. Adopt that entry from provider provenance before creating.
+            let adoptedEntryId: string | null = null;
+            if (log.basecampSyncError) {
+                const candidates = await listBasecampProjectTimesheetEntries(projectId);
+                const { data: claimedRows } = await admin
+                    .from('time_logs')
+                    .select('basecamp_entry_id')
+                    .eq('organization_id', log.organizationId)
+                    .not('basecamp_entry_id', 'is', null)
+                    .in('basecamp_entry_id', candidates.map(entry => entry.id));
+                const claimedEntryIds = (claimedRows ?? []).map(row => row.basecamp_entry_id);
+                adoptedEntryId = selectAdoptableTimesheetEntry(candidates, {
+                    recordingId: String(recordingId),
+                    date: entryFields.date,
+                    hours: entryFields.hours,
+                    description: log.description,
+                }, claimedEntryIds);
+            }
+
+            const created = adoptedEntryId
+                ? { id: Number(adoptedEntryId), appUrl: undefined as string | undefined }
+                : await createBasecampTimesheetEntry(recordingId, entryFields);
             if (!created) {
                 return failSync('Basecamp rejected the entry — check that the Timesheet tool is enabled on the project.');
             }

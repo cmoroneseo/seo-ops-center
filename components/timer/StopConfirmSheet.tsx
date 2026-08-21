@@ -3,6 +3,12 @@
 import { useState, useEffect, useRef, KeyboardEvent } from 'react';
 import { X, Clock, CheckCircle2, StickyNote, ChevronDown, ChevronUp, Pencil, Check } from 'lucide-react';
 import { useTimer } from '@/components/providers/timer-provider';
+import {
+    basecampSyncEligibility,
+    stopReviewDefaults,
+    stopReviewSummary,
+    type BasecampSyncEligibility,
+} from '@/lib/timer-ui';
 import { getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
 import { SessionNote } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -64,25 +70,79 @@ function formatHHMM(s: number) {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
 
+function ReviewToggle({
+    checked,
+    disabled = false,
+    label,
+    hint,
+    onChange,
+}: {
+    checked: boolean;
+    disabled?: boolean;
+    label: string;
+    hint?: string;
+    onChange: (next: boolean) => void;
+}) {
+    return (
+        <label className={cn('flex items-start gap-2 select-none text-sm', disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer')}>
+            <input
+                type="checkbox"
+                role="switch"
+                checked={checked}
+                disabled={disabled}
+                onChange={event => onChange(event.target.checked)}
+                className="sr-only peer"
+            />
+            <span
+                aria-hidden="true"
+                className={cn(
+                    'relative mt-0.5 w-9 h-5 shrink-0 rounded-full transition-colors duration-200 peer-focus-visible:ring-2 peer-focus-visible:ring-primary/50',
+                    checked ? 'bg-primary' : 'bg-muted-foreground/30',
+                )}
+            >
+                <span className={cn(
+                    'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200',
+                    checked ? 'translate-x-4' : 'translate-x-0',
+                )} />
+            </span>
+            <span className="text-muted-foreground">
+                {label}
+                {hint && <span className="block text-xs text-muted-foreground/60">{hint}</span>}
+            </span>
+        </label>
+    );
+}
+
 interface StopConfirmSheetProps {
     attemptId: string;
     onClose: () => void;
 }
 
 export function StopConfirmSheet({ attemptId, onClose }: StopConfirmSheetProps) {
-    const { finalize, discard, editNote, getAttemptById, getElapsedSeconds } = useTimer();
+    const { finalize, discard, editNote, getAttemptById } = useTimer();
     const timer = getAttemptById(attemptId);
     const [description, setDescription] = useState('');
     const [billable, setBillable] = useState(true);
+    const [countsTowardBudget, setCountsTowardBudget] = useState(false);
+    const [markTaskComplete, setMarkTaskComplete] = useState(false);
     const [showNotes, setShowNotes] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
     const [bcAvailable, setBcAvailable] = useState(false);
     const [sendToBasecamp, setSendToBasecamp] = useState(true);
     const [isCheckingBasecamp, setIsCheckingBasecamp] = useState(false);
+    const [warning, setWarning] = useState<string | null>(null);
     const timerId = timer?.id;
-    const timerBillable = timer?.billable;
     const timerNoteCount = timer?.sessionNotes.length ?? 0;
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const review = timer ? stopReviewSummary(timer, timeZone) : null;
+    const trackedSeconds = review?.totalActiveSeconds ?? 0;
+    const canMarkTaskComplete = Boolean(timer?.taskId);
+    const isClientWork = Boolean(timer?.clientId);
+    const basecamp: BasecampSyncEligibility = timer
+        ? basecampSyncEligibility(timer, bcAvailable)
+        : { eligible: false };
+    const willSyncToBasecamp = basecamp.eligible && sendToBasecamp;
 
     // Only offer "Send to Basecamp" when this client has timesheet sync enabled
     useEffect(() => {
@@ -101,21 +161,40 @@ export function StopConfirmSheet({ attemptId, onClose }: StopConfirmSheetProps) 
         return () => { active = false; };
     }, [timer?.clientId]);
 
+    // Review defaults come from the canonical attempt, not from prior sheet state.
     useEffect(() => {
-        if (timerBillable === undefined) return;
-        setBillable(timerBillable);
+        const reviewed = timerId ? getAttemptById(timerId) : null;
+        if (!reviewed) return;
+        const defaults = stopReviewDefaults(reviewed);
+        setBillable(defaults.billable);
+        setCountsTowardBudget(defaults.countsTowardBudget);
+        setMarkTaskComplete(defaults.markTaskComplete);
         setShowNotes(timerNoteCount > 0);
-    }, [timerBillable, timerId, timerNoteCount]);
+        // Defaults are seeded once per reviewed attempt.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [timerId]);
 
     const handleStop = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!timer || !description.trim() || isCheckingBasecamp) return;
+        if (!timer || !description.trim() || isCheckingBasecamp || isSubmitting) return;
         setIsSubmitting(true);
-        await finalize(timer, {
+        setWarning(null);
+        const state = await finalize(timer, {
             description: description.trim(),
             billable,
-            syncToBasecamp: bcAvailable && sendToBasecamp,
+            countsTowardBudget,
+            markTaskComplete,
+            syncToBasecamp: willSyncToBasecamp,
         });
+        const problem = state.completionWarning
+            ?? (state.basecampStatus === 'failed'
+                ? 'Time was saved, but the Basecamp timesheet entry failed. Retry it from the task.'
+                : null);
+        if (problem) {
+            setWarning(problem);
+            setIsSubmitting(false);
+            return;
+        }
         setShowSuccess(true);
         setTimeout(() => {
             setShowSuccess(false);
@@ -125,13 +204,16 @@ export function StopConfirmSheet({ attemptId, onClose }: StopConfirmSheetProps) 
     };
 
     const handleDiscard = async () => {
-        if (!timer) return;
+        if (!timer || isSubmitting) return;
+        const confirmed = window.confirm(
+            `Discard ${formatHHMM(trackedSeconds)} of tracked work? This cannot be undone and nothing is sent to Basecamp.`,
+        );
+        if (!confirmed) return;
         await discard(timer);
         onClose();
     };
 
-    if (!timer) return null;
-    const trackedSeconds = getElapsedSeconds(timer);
+    if (!timer || !review) return null;
 
     return (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
@@ -164,7 +246,7 @@ export function StopConfirmSheet({ attemptId, onClose }: StopConfirmSheetProps) 
                         </div>
                         <p className="font-semibold">Time logged!</p>
                         <p className="text-sm text-muted-foreground">{formatHHMM(trackedSeconds)} for {timer.clientName}</p>
-                        {bcAvailable && sendToBasecamp && (
+                        {willSyncToBasecamp && (
                             <p className="text-xs text-muted-foreground/70">Sending to Basecamp timesheet…</p>
                         )}
                     </div>
@@ -225,46 +307,73 @@ export function StopConfirmSheet({ attemptId, onClose }: StopConfirmSheetProps) 
                         <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
                             <p className="text-xs font-medium text-muted-foreground">Tracked time</p>
                             <p className="mt-0.5 font-mono text-sm text-foreground">{formatHHMM(trackedSeconds)} ({secondsToHours(trackedSeconds)}h)</p>
-                            <p className="mt-0.5 text-[11px] text-muted-foreground">Derived from recorded timer segments.</p>
+                            <p className="mt-0.5 text-[11px] text-muted-foreground">Active time only — pauses are excluded.</p>
+                            {review.dates.length > 0 && (
+                                <ul className="mt-2 space-y-0.5 border-t border-border/50 pt-1.5">
+                                    {review.dates.map(day => (
+                                        <li key={day.localDate} className="flex items-center justify-between text-[11px] text-muted-foreground">
+                                            <span>
+                                                {day.localDate}
+                                                {day.segmentCount > 0 && (
+                                                    <span className="ml-1.5 text-muted-foreground/60">
+                                                        {day.segmentCount} {day.segmentCount === 1 ? 'session' : 'sessions'}
+                                                    </span>
+                                                )}
+                                            </span>
+                                            <span className="font-mono">{secondsToHours(day.activeSeconds)}h</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                            {review.dates.length > 1 && (
+                                <p className="mt-1.5 text-[11px] text-muted-foreground/70">
+                                    This work crosses midnight, so one time entry is saved per date.
+                                </p>
+                            )}
                         </div>
 
-                        {/* Billable toggle */}
-                        <label className="flex items-center gap-2 cursor-pointer select-none text-sm">
-                            <div
-                                className={cn(
-                                    'relative w-9 h-5 rounded-full transition-colors duration-200',
-                                    billable ? 'bg-primary' : 'bg-muted-foreground/30'
-                                )}
-                                onClick={() => setBillable(b => !b)}
-                            >
-                                <span className={cn(
-                                    'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200',
-                                    billable ? 'translate-x-4' : 'translate-x-0'
-                                )} />
-                            </div>
-                            <span className="text-muted-foreground">Billable</span>
-                        </label>
+                        <div className="space-y-3">
+                            <ReviewToggle
+                                checked={billable}
+                                label="Billable"
+                                onChange={setBillable}
+                            />
 
-                        {/* Send to Basecamp toggle — only when this client syncs its timesheet */}
-                        {bcAvailable && (
-                            <label className="flex items-center gap-2 cursor-pointer select-none text-sm">
-                                <div
-                                    className={cn(
-                                        'relative w-9 h-5 rounded-full transition-colors duration-200',
-                                        sendToBasecamp ? 'bg-primary' : 'bg-muted-foreground/30'
-                                    )}
-                                    onClick={() => setSendToBasecamp(b => !b)}
-                                >
-                                    <span className={cn(
-                                        'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200',
-                                        sendToBasecamp ? 'translate-x-4' : 'translate-x-0'
-                                    )} />
-                                </div>
-                                <span className="text-muted-foreground">
-                                    Send to Basecamp
-                                    <span className="text-xs text-muted-foreground/60 ml-1.5">adds to the client's project timesheet</span>
-                                </span>
-                            </label>
+                            <ReviewToggle
+                                checked={countsTowardBudget}
+                                disabled={!isClientWork}
+                                label="Counts toward SEO hours"
+                                hint={isClientWork
+                                    ? "Adds this time to the client's monthly SEO-hour usage."
+                                    : 'Internal work never consumes a client\u2019s SEO hours.'}
+                                onChange={setCountsTowardBudget}
+                            />
+
+                            <ReviewToggle
+                                checked={willSyncToBasecamp}
+                                disabled={!basecamp.eligible || isCheckingBasecamp}
+                                label={isCheckingBasecamp ? 'Checking Basecamp\u2026' : 'Send to Basecamp'}
+                                hint={basecamp.eligible
+                                    ? "Adds this time to the client's project timesheet."
+                                    : basecamp.reason}
+                                onChange={setSendToBasecamp}
+                            />
+
+                            <ReviewToggle
+                                checked={markTaskComplete}
+                                disabled={!canMarkTaskComplete}
+                                label="Mark task complete"
+                                hint={canMarkTaskComplete
+                                    ? 'Stopping the timer alone leaves the task open.'
+                                    : 'This time is not linked to a task.'}
+                                onChange={setMarkTaskComplete}
+                            />
+                        </div>
+
+                        {warning && (
+                            <p role="alert" className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+                                {warning}
+                            </p>
                         )}
 
                         {/* Actions */}
@@ -272,6 +381,7 @@ export function StopConfirmSheet({ attemptId, onClose }: StopConfirmSheetProps) 
                             <button
                                 type="button"
                                 onClick={handleDiscard}
+                                disabled={isSubmitting}
                                 className="flex-1 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 transition-colors"
                             >
                                 Discard
@@ -283,7 +393,7 @@ export function StopConfirmSheet({ attemptId, onClose }: StopConfirmSheetProps) 
                             >
                                 {isSubmitting || isCheckingBasecamp ? (
                                     <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                                ) : 'Log Time'}
+                                ) : `Confirm ${secondsToHours(trackedSeconds)}h time entry`}
                             </button>
                         </div>
                     </form>
