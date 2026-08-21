@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-20  
 **Branch:** `feat/planner`  
-**Status:** Awaiting written-spec approval
+**Status:** Approved
 
 ## Purpose
 
@@ -40,6 +40,10 @@ The approved behavior is:
     action and the retry is idempotent.
 11. Planned-versus-actual variance is not shown in the task UI. The captured plan
     remains available for future reporting.
+12. Confirmed client-task time counts toward the client's SEO-hour usage by
+    default. Completion never adds hours a second time.
+13. Time logging and task completion remain separate domain effects but are
+    grouped into one client-activity presentation item when confirmed together.
 
 ## Approaches considered
 
@@ -134,6 +138,11 @@ Confirming Stop finalizes local time first. If selected and eligible, Basecamp s
 runs second. Completing the task, when explicitly selected, is a separate update
 after the time entry is safe. A completion failure does not undo time.
 
+Confirmed client-task time uses `counts_toward_budget = true` by default and updates
+the client's monthly SEO-hour usage through the existing time-log aggregation. The
+Stop sheet permits an explicit non-budget/internal override. Task completion does
+not increment hours; it changes task status and produces completion activity only.
+
 ## Calendar behavior
 
 ### Forecast and actual rendering
@@ -203,6 +212,29 @@ The section shows a task-level total but does not show planned-versus-actual
 variance. Manual time entries continue to appear but do not invent start/end
 segments and therefore do not create actual-time calendar cards.
 
+## Client activity and SEO hours
+
+Time confirmation and task completion remain separate persisted effects so each
+can succeed, fail, and be audited correctly:
+
+- confirmed time creates time-log activity and contributes to the client's SEO
+  hours when `counts_toward_budget = true`;
+- task completion creates task-completion activity and contributes no hours; and
+- Basecamp status is metadata on the time activity, not another feed event.
+
+The client activity feed groups correlated effects created by the same Stop
+confirmation. When a user confirms time and selects Mark task complete, one feed
+item reads like:
+
+> Carlos completed “Set up event tracking” and logged 4h
+>
+> Synced to Basecamp
+
+If completion happens later, the feed shows separate entries at their actual
+times. Feed grouping is presentation logic backed by a shared operation/correlation
+identifier; it does not merge the underlying audit records. The task detail and
+client activity feed refresh immediately after successful local confirmation.
+
 ## Basecamp behavior
 
 Basecamp is never called during Start, Pause, Resume, or the initial Stop click.
@@ -244,6 +276,7 @@ Add two immutable forecast snapshot fields and one mutable review-state field:
 | `planned_starts_at` | timestamptz null | task forecast when this attempt began |
 | `planned_minutes` | integer null | forecast duration; positive when present |
 | `reviewing_at` | timestamptz null | Stop clicked; attempt is paused for review |
+| `operation_id` | uuid null | correlates time and completion activity from one confirmation |
 
 `status = 'in_progress'` continues to represent both running and paused attempts.
 An open segment distinguishes Running. An in-progress attempt with no open segment
@@ -299,7 +332,8 @@ letting UI components coordinate several writes:
 - `resumeAttempt(timeLogId)` opens a segment subject to the one-running constraint;
 - `beginStopReview(timeLogId)` closes the segment and marks Reviewing;
 - `finalizeAttempt(timeLogId, reviewInput)` totals segments, creates per-date logs
-  when necessary, optionally completes the task, and requests Basecamp sync;
+  when necessary, applies the budget flag, stamps one operation ID, optionally
+  completes the task, emits activity, and requests Basecamp sync;
 - `retryBasecamp(timeLogId)` retries only the protected finalized entry.
 
 UI components consume these operations through the timer provider. Calendar cards,
@@ -376,6 +410,10 @@ directly.
 - Stop and Complete remain independent;
 - cancelling Stop leaves the attempt paused;
 - confirmed time appears immediately in the task's Time Logged section;
+- budget-eligible time appears once in the client's monthly SEO hours;
+- a later completion cannot add or duplicate hours;
+- same-operation time and completion render as one client activity item;
+- completion at a later time renders as its own activity item;
 - Basecamp states render Syncing, Synced, Failed, and Retry;
 - keyboard, focus restoration, touch detail-sheet, and narrow viewport flows work.
 
@@ -409,6 +447,7 @@ for forecast → start → pause → client switch → resume → stop → task-
 - automatic task completion;
 - simultaneous running timers;
 - planned-versus-actual variance in the task UI;
+- completion-driven hour accounting;
 - editing actual calendar segments by drag/resize;
 - retroactively constructing segments for historical time logs;
 - deleting legacy timer fields during this rollout;
