@@ -19,9 +19,13 @@ export function timerSwitchPrompt(from: TimerAttempt, toTitle: string): string {
     return `Pause “${from.taskTitle ?? from.clientName}” and start “${toTitle}”?`;
 }
 
-/** `elapsedSeconds` is the pre-segment migration baseline; segments own new work. */
+/**
+ * `elapsedSeconds` is the pre-segment migration baseline; segments own new work.
+ * Segment timestamps carry milliseconds, so the raw sum is a float. Every
+ * consumer displays or stores whole seconds, so round once here.
+ */
 export function totalAttemptActiveSeconds(attempt: TimerAttempt, now = new Date()): number {
-    return attempt.elapsedSeconds + sumActiveSeconds(attempt.segments, now);
+    return Math.round(attempt.elapsedSeconds + sumActiveSeconds(attempt.segments, now));
 }
 
 function mostRecentlyClosedAt(attempt: TimerAttempt): string {

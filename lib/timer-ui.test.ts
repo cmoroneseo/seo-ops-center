@@ -214,3 +214,24 @@ test('only finalization refreshes client activity and task state', () => {
         'client-activity:data-changed',
     ]);
 });
+
+test('displayed attempt duration is always whole seconds', () => {
+    // Segment timestamps carry milliseconds, so the raw difference is a float.
+    // Any consumer that formats it (the tab title, the floating timer) would
+    // otherwise render "02:23.944999999999993".
+    const drifting = attempt({
+        segments: [segment('a', '2026-08-20T17:00:00.250Z', '2026-08-20T17:02:23.195Z')],
+    });
+
+    const seconds = timerUi.totalAttemptActiveSeconds(drifting, new Date('2026-08-20T17:02:23.195Z'));
+    assert.equal(Number.isInteger(seconds), true, `expected whole seconds, got ${seconds}`);
+    assert.equal(seconds, 143);
+});
+
+test('a running attempt duration is whole seconds at any observation instant', () => {
+    const running = attempt({ segments: [segment('open', '2026-08-20T17:00:00.123Z')] });
+    const seconds = timerUi.totalAttemptActiveSeconds(running, new Date('2026-08-20T17:00:07.891Z'));
+
+    assert.equal(Number.isInteger(seconds), true, `expected whole seconds, got ${seconds}`);
+    assert.equal(seconds, 8);
+});
