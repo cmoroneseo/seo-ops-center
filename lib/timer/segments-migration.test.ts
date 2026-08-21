@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 
 const migration = readFileSync(new URL('../../migrations/033_planner_time_segments.sql', import.meta.url), 'utf8');
 const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
+// 033 is applied in production; 034 replaces start_task_timer in place.
+const startTimerFix = readFileSync(new URL('../../migrations/034_start_timer_without_project.sql', import.meta.url), 'utf8');
 
 function functionBody(sql: string, name: string): string {
   const match = sql.match(new RegExp(
@@ -175,4 +177,38 @@ test('task-target switch retry locks assignment row against concurrent revocatio
       /select tasks\.\*[\s\S]+into target_task[\s\S]+from public\.tasks[\s\S]+tasks\.id\s*=\s*p_to_task_id[\s\S]+tasks\.organization_id\s*=\s*active_attempt\.organization_id[\s\S]+for share;/i,
     );
   }
+});
+
+test('a task with no project can still start a timer', () => {
+  // tasks.project_id was made nullable by migration 014 because tasks are
+  // created from the client page without a project. Requiring a project row
+  // unconditionally made Start fail for every such task.
+  for (const sql of [startTimerFix, schema]) {
+    const start = functionBody(sql, 'start_task_timer');
+    const projectLookup = start.indexOf('from public.projects');
+    assert.ok(projectLookup > -1, 'start must still validate a present project');
+    const guard = start.lastIndexOf('project_id is not null', projectLookup);
+    assert.ok(
+      guard > -1,
+      'start_task_timer must only resolve a project when the task has one',
+    );
+    assert.match(
+      start.slice(guard),
+      /task project is outside the task organization/i,
+      'the project-tenant guard must live inside the not-null branch',
+    );
+  }
+});
+
+test('the applied 033 start function is superseded, never edited in place', () => {
+  assert.match(startTimerFix, /create or replace function public\.start_task_timer/i);
+  assert.match(
+    startTimerFix,
+    /revoke execute on function public\.start_task_timer[^;]+ from public, anon/i,
+  );
+  assert.match(
+    startTimerFix,
+    /grant execute on function public\.start_task_timer[^;]+ to authenticated/i,
+  );
+  assert.doesNotMatch(startTimerFix, /drop table|drop column|drop function/i);
 });

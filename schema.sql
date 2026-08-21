@@ -1680,23 +1680,30 @@ begin
       using errcode = '42501';
   end if;
 
-  select projects.*
-    into trusted_project
-    from public.projects
-    where projects.id = owned_task.project_id
-      and projects.organization_id = owned_task.organization_id;
+  -- tasks.project_id is nullable (migration 014): tasks are created from the
+  -- client page with no project. Only validate a project the task actually has,
+  -- matching how finalize_time_attempt resolves its trusted client.
+  if owned_task.project_id is not null then
+    select projects.*
+      into trusted_project
+      from public.projects
+      where projects.id = owned_task.project_id
+        and projects.organization_id = owned_task.organization_id;
 
-  if not found then
-    raise exception 'task project is outside the task organization'
-      using errcode = '23514';
-  end if;
-  if owned_task.client_id is not null
-     and owned_task.client_id is distinct from trusted_project.client_id then
-    raise exception 'task client differs from its project client'
-      using errcode = '23514';
-  end if;
+    if not found then
+      raise exception 'task project is outside the task organization'
+        using errcode = '23514';
+    end if;
+    if owned_task.client_id is not null
+       and owned_task.client_id is distinct from trusted_project.client_id then
+      raise exception 'task client differs from its project client'
+        using errcode = '23514';
+    end if;
 
-  trusted_client_id := coalesce(owned_task.client_id, trusted_project.client_id);
+    trusted_client_id := coalesce(owned_task.client_id, trusted_project.client_id);
+  else
+    trusted_client_id := owned_task.client_id;
+  end if;
   if trusted_client_id is not null and not exists (
     select 1
     from public.clients
