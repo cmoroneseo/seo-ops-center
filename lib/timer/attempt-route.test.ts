@@ -486,3 +486,39 @@ test('canonical recovery maps attempt and segment rows without leaking snake_cas
     assert.equal('organization_id' in (state.running ?? {}), false);
     assert.equal('time_log_segments' in (state.running ?? {}), false);
 });
+
+test('a committed transition is never reported as a failed mutation', async () => {
+    // The RPC already committed. If only the canonical reload fails, telling the
+    // user the timer did not start leaves a running timer behind an unchanged
+    // forecast, and their retry hits the one-open-segment conflict.
+    for (const input of [
+        { action: 'start', taskId: 'task-1' },
+        { action: 'pause', timeLogId: 'log-1' },
+        { action: 'resume', timeLogId: 'log-1' },
+        { action: 'begin_stop', timeLogId: 'log-1' },
+    ] as TimerMutationRequest[]) {
+        let committed = false;
+        const response = await handleTimerMutation(request(input), dependencies({
+            mutateRpc: async () => { committed = true; },
+            loadAttempts: async () => { throw new Error('PGRST201 ambiguous embed'); },
+        }));
+
+        assert.equal(committed, true);
+        assert.equal(response.status, 200, `${input.action} committed but reported failure`);
+        const payload = await body(response);
+        assert.match(
+            String(payload.recoveryWarning ?? ''),
+            /could not be reloaded/i,
+            `${input.action} must warn about the reload, not deny the mutation`,
+        );
+    }
+});
+
+test('a mutation that never committed still reports failure', async () => {
+    const response = await handleTimerMutation(request({ action: 'pause', timeLogId: 'log-1' }), dependencies({
+        mutateRpc: async () => { throw Object.assign(new Error('nope'), { code: '42501' }); },
+        loadAttempts: async () => { throw new Error('must not be reached'); },
+    }));
+
+    assert.equal(response.status, 403);
+});

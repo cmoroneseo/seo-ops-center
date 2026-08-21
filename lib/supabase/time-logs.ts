@@ -90,7 +90,7 @@ export async function getTaskTimeLogs(taskId: string): Promise<TimerAttempt[]> {
     try {
         const { data, error } = await supabase
             .from('time_logs')
-            .select('*, clients(name), tasks(title), time_log_segments(*)')
+            .select('*, clients(name), tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(*)')
             .eq('task_id', taskId)
             .eq('status', 'logged')
             .order('date', { ascending: false });
@@ -127,7 +127,7 @@ export async function getTimerAttemptsForRange(
     const supabase = createClient();
     if (!supabase) return [];
     try {
-        const selection = '*, clients(name), tasks(title), time_log_segments(*)';
+        const selection = '*, clients(name), tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(*)';
         const lastVisibleInstant = new Date(rangeEnd.getTime() - 1);
         const [logged, open] = await Promise.all([
             supabase
@@ -327,7 +327,7 @@ export async function getOpenTimerAttempts(organizationId: string): Promise<Time
 
         const { data, error } = await supabase
             .from('time_logs')
-            .select('*, clients(name), tasks(title), time_log_segments(*)')
+            .select('*, clients(name), tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(*)')
             .eq('organization_id', organizationId)
             .eq('user_id', user.id)
             .eq('status', 'in_progress')

@@ -156,7 +156,7 @@ export async function POST(request: NextRequest): Promise<Response> {
         async loadAttempts(userId) {
             const { data, error } = await supabase
                 .from('time_logs')
-                .select('*, clients(name), tasks(title), time_log_segments(*)')
+                .select('*, clients(name), tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(*)')
                 .eq('user_id', userId)
                 .eq('status', 'in_progress')
                 .order('created_at', { ascending: false });

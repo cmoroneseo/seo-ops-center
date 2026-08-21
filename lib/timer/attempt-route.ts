@@ -355,7 +355,14 @@ export async function handleTimerMutation(
         }
 
         await mutateSimple(input, deps);
-        return json(await deps.loadAttempts(user.id));
+        // The transition is committed. A failed canonical reload must not be
+        // reported as a failed mutation, or the user retries an action that
+        // already succeeded and hits the one-open-segment conflict.
+        return json(await loadAttemptsAfterDurableMutation(
+            deps,
+            user.id,
+            'The timer was updated, but current timer state could not be reloaded.',
+        ));
     } catch (error) {
         return errorResponse(error);
     }
