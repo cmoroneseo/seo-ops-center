@@ -592,6 +592,10 @@ export interface TimeLog {
      */
     countsTowardBudget: boolean;
     status: TimeLogStatus;
+    operationId?: string;
+    plannedStartsAt?: string;
+    plannedMinutes?: number;
+    reviewingAt?: string;
     timerStartedAt?: string; // ISO — when the timer was last started/resumed
     elapsedSeconds: number;  // accumulated seconds (survives pause/resume)
     category?: string;
@@ -600,6 +604,23 @@ export interface TimeLog {
     basecampProjectId?: number;
     basecampSyncedAt?: string;
     basecampSyncError?: string; // why the last push failed (cleared on success)
+}
+
+export interface TimeLogSegment {
+    id: string;
+    timeLogId: string;
+    organizationId: string;
+    userId: string;
+    startedAt: string;
+    endedAt?: string;
+}
+
+export interface TimerAttempt extends TimeLog {
+    plannedStartsAt?: string;
+    plannedMinutes?: number;
+    reviewingAt?: string;
+    operationId?: string;
+    segments: TimeLogSegment[];
 }
 
 // ---------------------------------------------------------------------------
