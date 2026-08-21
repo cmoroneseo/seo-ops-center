@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, KeyboardEvent } from 'react';
 import { X, Clock, CheckCircle2, StickyNote, ChevronDown, ChevronUp, Pencil, Check } from 'lucide-react';
 import { useTimer } from '@/components/providers/timer-provider';
 import { getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
-import { SessionNote, TimerAttempt } from '@/lib/types';
+import { SessionNote } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 function renderNoteText(text: string) {
@@ -65,31 +65,29 @@ function formatHHMM(s: number) {
 }
 
 interface StopConfirmSheetProps {
-    timer: TimerAttempt;
+    attemptId: string;
     onClose: () => void;
 }
 
-export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
-    const { finalize, discard, editNote } = useTimer();
+export function StopConfirmSheet({ attemptId, onClose }: StopConfirmSheetProps) {
+    const { finalize, discard, editNote, getAttemptById, getElapsedSeconds } = useTimer();
+    const timer = getAttemptById(attemptId);
     const [description, setDescription] = useState('');
-    const [hours, setHours] = useState(() => String(secondsToHours(timer.elapsedSeconds)));
     const [billable, setBillable] = useState(true);
-    const [category, setCategory] = useState('');
-    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-    const [showNotes, setShowNotes] = useState(timer.sessionNotes.length > 0);
+    const [showNotes, setShowNotes] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
     const [bcAvailable, setBcAvailable] = useState(false);
     const [sendToBasecamp, setSendToBasecamp] = useState(true);
-    const [isCheckingBasecamp, setIsCheckingBasecamp] = useState(!!timer.clientId);
-
-    // Hours is seeded once on mount from elapsed time — not synced again,
-    // so the user can freely edit it without it being overwritten by the ticking timer.
+    const [isCheckingBasecamp, setIsCheckingBasecamp] = useState(false);
+    const timerId = timer?.id;
+    const timerBillable = timer?.billable;
+    const timerNoteCount = timer?.sessionNotes.length ?? 0;
 
     // Only offer "Send to Basecamp" when this client has timesheet sync enabled
     useEffect(() => {
         let active = true;
-        if (!timer.clientId) {
+        if (!timer?.clientId) {
             setBcAvailable(false);
             setIsCheckingBasecamp(false);
             return;
@@ -101,11 +99,17 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
             setIsCheckingBasecamp(false);
         });
         return () => { active = false; };
-    }, [timer.clientId]);
+    }, [timer?.clientId]);
+
+    useEffect(() => {
+        if (timerBillable === undefined) return;
+        setBillable(timerBillable);
+        setShowNotes(timerNoteCount > 0);
+    }, [timerBillable, timerId, timerNoteCount]);
 
     const handleStop = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!description.trim() || isCheckingBasecamp) return;
+        if (!timer || !description.trim() || isCheckingBasecamp) return;
         setIsSubmitting(true);
         await finalize(timer, {
             description: description.trim(),
@@ -121,9 +125,13 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
     };
 
     const handleDiscard = async () => {
+        if (!timer) return;
         await discard(timer);
         onClose();
     };
+
+    if (!timer) return null;
+    const trackedSeconds = getElapsedSeconds(timer);
 
     return (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
@@ -141,7 +149,7 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
                         <Clock className="h-4 w-4 text-primary" />
                         <span className="font-semibold text-sm">Log Time</span>
                         <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                            {formatHHMM(timer.elapsedSeconds)}
+                            {formatHHMM(trackedSeconds)}
                         </span>
                     </div>
                     <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
@@ -155,7 +163,7 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
                             <CheckCircle2 className="h-6 w-6" />
                         </div>
                         <p className="font-semibold">Time logged!</p>
-                        <p className="text-sm text-muted-foreground">{hours}h for {timer.clientName}</p>
+                        <p className="text-sm text-muted-foreground">{formatHHMM(trackedSeconds)} for {timer.clientName}</p>
                         {bcAvailable && sendToBasecamp && (
                             <p className="text-xs text-muted-foreground/70">Sending to Basecamp timesheet…</p>
                         )}
@@ -214,47 +222,10 @@ export function StopConfirmSheet({ timer, onClose }: StopConfirmSheetProps) {
                             />
                         </div>
 
-                        <div className="grid grid-cols-3 gap-3">
-                            {/* Hours */}
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-medium text-muted-foreground">Hours</label>
-                                <input
-                                    type="number"
-                                    step="any"
-                                    min="0"
-                                    value={hours}
-                                    onChange={e => setHours(e.target.value)}
-                                    className="w-full p-2 rounded-lg bg-background border border-border text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all"
-                                />
-                            </div>
-
-                            {/* Date */}
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-medium text-muted-foreground">Date</label>
-                                <input
-                                    type="date"
-                                    value={date}
-                                    onChange={e => setDate(e.target.value)}
-                                    className="w-full p-2 rounded-lg bg-background border border-border text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all"
-                                />
-                            </div>
-
-                            {/* Category */}
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-medium text-muted-foreground">Category</label>
-                                <select
-                                    value={category}
-                                    onChange={e => setCategory(e.target.value)}
-                                    className="w-full p-2 rounded-lg bg-background border border-border text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all"
-                                >
-                                    <option value="">General</option>
-                                    <option value="Content">Content</option>
-                                    <option value="Technical">Technical</option>
-                                    <option value="Strategy">Strategy</option>
-                                    <option value="Reporting">Reporting</option>
-                                    <option value="Calls">Calls</option>
-                                </select>
-                            </div>
+                        <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                            <p className="text-xs font-medium text-muted-foreground">Tracked time</p>
+                            <p className="mt-0.5 font-mono text-sm text-foreground">{formatHHMM(trackedSeconds)} ({secondsToHours(trackedSeconds)}h)</p>
+                            <p className="mt-0.5 text-[11px] text-muted-foreground">Derived from recorded timer segments.</p>
                         </div>
 
                         {/* Billable toggle */}

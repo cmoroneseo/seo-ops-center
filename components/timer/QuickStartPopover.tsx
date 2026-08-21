@@ -6,6 +6,7 @@ import { useTimer } from '@/components/providers/timer-provider';
 import { ClientProject } from '@/lib/types';
 import type { Task } from '@/lib/types';
 import { getTasksByClient } from '@/lib/supabase/tasks';
+import { canStartTaskTimer } from '@/lib/timer-ui';
 
 interface QuickStartPopoverProps {
     clients: ClientProject[];
@@ -61,7 +62,7 @@ export function QuickStartPopover({ clients, onClose }: QuickStartPopoverProps) 
     }, [onClose]);
 
     const handleStart = async () => {
-        if (!clientId) return;
+        if (!canStartTaskTimer(clientId, taskId)) return;
         const client = clients.find(c => c.id === clientId);
         const task = tasks.find(t => t.id === taskId);
         const started = await startTask({
@@ -107,16 +108,20 @@ export function QuickStartPopover({ clients, onClose }: QuickStartPopoverProps) 
                     onChange={e => setTaskId(e.target.value)}
                     className="w-full p-2 rounded-lg bg-background border border-border text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all animate-in fade-in slide-in-from-top-1"
                 >
-                    <option value="">No specific task</option>
+                    <option value="" disabled>Select task...</option>
                     {tasks.map(t => (
                         <option key={t.id} value={t.id}>{t.title}</option>
                     ))}
                 </select>
             )}
 
+            {clientId && !tasksLoading && tasks.length === 0 && (
+                <p className="text-xs text-muted-foreground">Create or select a task before starting time.</p>
+            )}
+
             <button
                 onClick={handleStart}
-                disabled={!clientId}
+                disabled={!canStartTaskTimer(clientId, taskId)}
                 className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-green-500 text-white text-sm font-medium hover:bg-green-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
                 <Play className="h-3.5 w-3.5 fill-current" />

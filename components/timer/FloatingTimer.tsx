@@ -27,7 +27,7 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
     const [expanded, setExpanded] = useState(false);
     const [showNotes, setShowNotes] = useState(false);
     const [showQuickStart, setShowQuickStart] = useState(false);
-    const [reviewTimer, setReviewTimer] = useState<TimerAttempt | null>(null);
+    const [reviewAttemptId, setReviewAttemptId] = useState<string | null>(null);
     const widgetRef = useRef<HTMLDivElement>(null);
     const primaryTimer = runningTimer ?? pausedTimers[0] ?? null;
 
@@ -51,8 +51,8 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
     }, [expanded]);
 
     const openStopReview = async (attempt: TimerAttempt) => {
-        const state = attempt.reviewingAt ? null : await beginStop(attempt);
-        setReviewTimer(state?.paused.find(item => item.id === attempt.id) ?? attempt);
+        if (!attempt.reviewingAt) await beginStop(attempt);
+        setReviewAttemptId(attempt.id);
     };
 
     if (!primaryTimer) {
@@ -175,7 +175,7 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
             </div>
 
             {showQuickStart && <div className="absolute bottom-full right-0 mb-2"><QuickStartPopover clients={clients} onClose={() => setShowQuickStart(false)} /></div>}
-            {reviewTimer && <StopConfirmSheet timer={reviewTimer} onClose={() => setReviewTimer(null)} />}
+            {reviewAttemptId && <StopConfirmSheet attemptId={reviewAttemptId} onClose={() => setReviewAttemptId(null)} />}
         </div>
     );
 }

@@ -49,7 +49,8 @@ export default function ClientDetailPage() {
     const [selectedTask, setSelectedTask] = useState<Task | null>(null);
     const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
     const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
-    const { runningTimer, startTask, pause } = useTimer();
+    const [timerTaskRequired, setTimerTaskRequired] = useState(false);
+    const { runningTimer, pause } = useTimer();
 
     const isThisClientRunning = runningTimer?.clientId === id;
 
@@ -58,7 +59,8 @@ export default function ClientDetailPage() {
         if (isThisClientRunning && runningTimer) {
             await pause(runningTimer);
         } else {
-            await startTask({ clientId: client.id, clientName: client.clientName });
+            setActiveTab('tasks');
+            setTimerTaskRequired(true);
         }
     };
 
@@ -170,7 +172,7 @@ export default function ClientDetailPage() {
                         </div>
                         <button
                             onClick={handleTimerClick}
-                            title={isThisClientRunning ? 'Pause timer' : 'Start timer for this client'}
+                            title={isThisClientRunning ? 'Pause timer' : 'Choose a task to start timer'}
                             className={cn(
                                 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150',
                                 isThisClientRunning
@@ -180,7 +182,7 @@ export default function ClientDetailPage() {
                         >
                             {isThisClientRunning
                                 ? <><Pause className="h-3.5 w-3.5 fill-current" /> Pause</>
-                                : <><Play className="h-3.5 w-3.5 fill-current" /> Start Timer</>
+                                : <><Play className="h-3.5 w-3.5 fill-current" /> Choose Task</>
                             }
                         </button>
                         <button className="p-2 hover:bg-muted rounded-md transition-colors">
@@ -189,6 +191,12 @@ export default function ClientDetailPage() {
                     </div>
                 </div>
             </div>
+
+            {timerTaskRequired && (
+                <p className="-mt-3 text-sm text-muted-foreground">
+                    Choose a task below to start time tracking for this client.
+                </p>
+            )}
 
             {/* Edit client slide-over */}
             {showEditPanel && (

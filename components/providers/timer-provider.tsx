@@ -7,7 +7,15 @@ import type { SessionNote, TimerAttempt } from '@/lib/types';
 import type { TimerMutationRequest, TimerStateResponse } from '@/lib/timer/contracts';
 import { getTask, updateTask } from '@/lib/supabase/tasks';
 import { shouldMoveBlockToNow, trackedBlockMinutes } from '@/lib/planner/timer-sync';
-import { timerSwitchPrompt } from '@/lib/timer-ui';
+import {
+    confirmAndSwitchTimer,
+    finalizeTimerAttempt,
+    findTimerAttempt,
+    timerUiStateFromResponse,
+    totalAttemptActiveSeconds,
+    type TimerSwitchConfirmation,
+    type TimerSwitchTarget,
+} from '@/lib/timer-ui';
 
 export { timerSwitchPrompt } from '@/lib/timer-ui';
 
@@ -28,19 +36,7 @@ export interface FinalizeTimerOptions {
     markTaskComplete?: boolean;
 }
 
-export type TimerSwitchConfirmation = (prompt: string) => boolean | Promise<boolean>;
-
-function elapsedSeconds(attempt: TimerAttempt, now: number): number {
-    if (!attempt.timerStartedAt || attempt.reviewingAt) return attempt.elapsedSeconds;
-    return attempt.elapsedSeconds + Math.max(0, Math.floor((now - new Date(attempt.timerStartedAt).getTime()) / 1000));
-}
-
-function mostRecentlyClosedFirst(left: TimerAttempt, right: TimerAttempt): number {
-    const closedAt = (attempt: TimerAttempt) => attempt.segments
-        .filter(segment => segment.endedAt)
-        .reduce((latest, segment) => segment.endedAt! > latest ? segment.endedAt! : latest, attempt.reviewingAt ?? '');
-    return closedAt(right).localeCompare(closedAt(left));
-}
+export type { TimerSwitchConfirmation } from '@/lib/timer-ui';
 
 function confirmInBrowser(prompt: string): boolean {
     return window.confirm(prompt);
@@ -53,13 +49,14 @@ interface TimerContextType {
     startTask: (options: StartTaskOptions, confirmSwitch?: TimerSwitchConfirmation) => Promise<boolean>;
     pause: (attempt: TimerAttempt) => Promise<void>;
     resume: (attempt: TimerAttempt, confirmSwitch?: TimerSwitchConfirmation) => Promise<boolean>;
-    switchToTask: (target: { taskId?: string; timeLogId?: string; title: string }, confirmSwitch?: TimerSwitchConfirmation) => Promise<boolean>;
+    switchToTask: (target: TimerSwitchTarget, confirmSwitch?: TimerSwitchConfirmation) => Promise<boolean>;
     beginStop: (attempt: TimerAttempt) => Promise<TimerStateResponse | null>;
     finalize: (attempt: TimerAttempt, options: FinalizeTimerOptions) => Promise<void>;
     discard: (attempt: TimerAttempt) => Promise<void>;
     addNote: (attemptId: string, text: string) => Promise<void>;
     editNote: (attemptId: string, noteId: string, text: string) => Promise<void>;
     deleteNote: (attemptId: string, noteId: string) => Promise<void>;
+    getAttemptById: (attemptId: string) => TimerAttempt | null;
 }
 
 const TimerContext = createContext<TimerContextType | undefined>(undefined);
@@ -72,8 +69,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
 
     const applyTimerState = useCallback((state: TimerStateResponse) => {
-        setRunningTimer(state.running);
-        setPausedTimers([...state.paused].sort(mostRecentlyClosedFirst));
+        const next = timerUiStateFromResponse(state);
+        setRunningTimer(next.runningTimer);
+        setPausedTimers(next.pausedTimers);
         setClockNow(Date.now());
     }, []);
 
@@ -112,7 +110,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             document.title = 'SEO Ops Center';
             return;
         }
-        const duration = elapsedSeconds(runningTimer, clockNow);
+        const duration = totalAttemptActiveSeconds(runningTimer, new Date(clockNow));
         const hours = Math.floor(duration / 3600);
         const minutes = Math.floor((duration % 3600) / 60);
         const seconds = duration % 60;
@@ -152,19 +150,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         };
     }, [refreshAttempts]);
 
-    const switchToTask = useCallback(async (
-        target: { taskId?: string; timeLogId?: string; title: string },
-        confirmSwitch: TimerSwitchConfirmation = confirmInBrowser,
-    ) => {
-        if (!runningTimer || (!target.taskId && !target.timeLogId)) return false;
-        if (!await confirmSwitch(timerSwitchPrompt(runningTimer, target.title))) return false;
-        await mutate({
-            action: 'switch',
-            fromTimeLogId: runningTimer.id,
-            ...(target.timeLogId ? { toTimeLogId: target.timeLogId } : { toTaskId: target.taskId! }),
-        });
-        return true;
-    }, [mutate, runningTimer]);
+    const switchToTask = useCallback((target: TimerSwitchTarget, confirmSwitch: TimerSwitchConfirmation = confirmInBrowser) => (
+        confirmAndSwitchTimer({ running: runningTimer, target, confirm: confirmSwitch, mutate })
+    ), [mutate, runningTimer]);
 
     const movePlannerBlockToStart = useCallback(async (taskId: string) => {
         const now = new Date();
@@ -206,19 +194,17 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, [mutate]);
 
     const finalize = useCallback(async (attempt: TimerAttempt, options: FinalizeTimerOptions) => {
-        await mutate({
-            action: 'finalize',
-            timeLogId: attempt.id,
+        await mutate(finalizeTimerAttempt(attempt, {
             description: options.description,
             billable: options.billable,
-            countsTowardBudget: options.countsTowardBudget ?? true,
             syncToBasecamp: options.syncToBasecamp ?? false,
             markTaskComplete: options.markTaskComplete ?? false,
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-        });
+            ...(options.countsTowardBudget === undefined ? {} : { countsTowardBudget: options.countsTowardBudget }),
+        }));
         if (!attempt.taskId) return;
         const updated = await updateTask(attempt.taskId, {
-            scheduledMinutes: trackedBlockMinutes(elapsedSeconds(attempt, Date.now())),
+            scheduledMinutes: trackedBlockMinutes(totalAttemptActiveSeconds(attempt)),
         });
         if (updated.success) window.dispatchEvent(new Event('planner:data-changed'));
     }, [mutate]);
@@ -233,9 +219,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         setPausedTimers(current => current.map(replace));
     }, []);
 
-    const attemptById = useCallback((attemptId: string) => runningTimer?.id === attemptId
-        ? runningTimer
-        : pausedTimers.find(item => item.id === attemptId), [pausedTimers, runningTimer]);
+    const attemptById = useCallback((attemptId: string) => findTimerAttempt({ runningTimer, pausedTimers }, attemptId), [pausedTimers, runningTimer]);
+
+    const getAttemptById = useCallback((attemptId: string) => attemptById(attemptId) ?? null, [attemptById]);
 
     const addNote = useCallback(async (attemptId: string, text: string) => {
         if (!text.trim()) return;
@@ -266,7 +252,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     const value = useMemo(() => ({
         runningTimer,
         pausedTimers,
-        getElapsedSeconds: (attempt: TimerAttempt) => elapsedSeconds(attempt, clockNow),
+        getElapsedSeconds: (attempt: TimerAttempt) => totalAttemptActiveSeconds(attempt, new Date(clockNow)),
         startTask,
         pause,
         resume,
@@ -277,7 +263,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         addNote,
         editNote,
         deleteNote,
-    }), [addNote, beginStop, clockNow, deleteNote, discard, editNote, finalize, pause, pausedTimers, resume, runningTimer, startTask, switchToTask]);
+        getAttemptById,
+    }), [addNote, beginStop, clockNow, deleteNote, discard, editNote, finalize, getAttemptById, pause, pausedTimers, resume, runningTimer, startTask, switchToTask]);
 
     return <TimerContext.Provider value={value}>{children}</TimerContext.Provider>;
 }

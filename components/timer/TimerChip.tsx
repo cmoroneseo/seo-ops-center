@@ -18,7 +18,7 @@ function formatElapsed(seconds: number) {
 export function TimerChip({ clients }: { clients: ClientProject[] }) {
     const { runningTimer, pausedTimers, getElapsedSeconds, pause, resume, beginStop } = useTimer();
     const [showStopSheet, setShowStopSheet] = useState(false);
-    const [reviewTimer, setReviewTimer] = useState<TimerAttempt | null>(null);
+    const [reviewAttemptId, setReviewAttemptId] = useState<string | null>(null);
     const [showQuickStart, setShowQuickStart] = useState(false);
     const [showControls, setShowControls] = useState(false);
     const controlsRef = useRef<HTMLDivElement>(null);
@@ -40,8 +40,8 @@ export function TimerChip({ clients }: { clients: ClientProject[] }) {
     }, [showControls]);
 
     const openStopReview = async (attempt: TimerAttempt) => {
-        const state = attempt.reviewingAt ? null : await beginStop(attempt);
-        setReviewTimer(state?.paused.find(item => item.id === attempt.id) ?? attempt);
+        if (!attempt.reviewingAt) await beginStop(attempt);
+        setReviewAttemptId(attempt.id);
         setShowStopSheet(true);
     };
 
@@ -76,7 +76,7 @@ export function TimerChip({ clients }: { clients: ClientProject[] }) {
                 </div>
             )}
             {showQuickStart && <QuickStartPopover clients={clients} onClose={() => setShowQuickStart(false)} />}
-            {showStopSheet && reviewTimer && <StopConfirmSheet timer={reviewTimer} onClose={() => { setShowStopSheet(false); setReviewTimer(null); }} />}
+            {showStopSheet && reviewAttemptId && <StopConfirmSheet attemptId={reviewAttemptId} onClose={() => { setShowStopSheet(false); setReviewAttemptId(null); }} />}
         </div>
     );
 }
