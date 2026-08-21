@@ -201,6 +201,10 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         setRetryingLogId(log.id);
         try {
             await retryTimeLogBasecampSync(log.id);
+        } catch (error) {
+            // A failed retry leaves the logged time and its stored error intact.
+            console.error('Basecamp retry failed');
+            void error;
         } finally {
             setRetryingLogId(null);
             await loadTaskData();
