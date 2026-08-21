@@ -1052,11 +1052,12 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                     log={editingLog}
                     onClose={() => setEditingLog(null)}
                     onSaved={updated => {
-                        setAllItems(prev => prev.map(item =>
-                            item.type === 'time_log' && item.data.id === updated.id
+                        setAllItems(prev => prev.map(item => (
+                            (item.type === 'time_log' || item.type === 'time_and_completion')
+                                && item.data.id === updated.id
                                 ? { ...item, data: updated }
                                 : item
-                        ));
+                        )));
                         setEditingLog(null);
                     }}
                 />

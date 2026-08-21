@@ -166,6 +166,44 @@ export function basecampSyncEligibility(
     return { eligible: true };
 }
 
+export interface StopSubmitOutcome {
+    status: 'saved' | 'warned' | 'failed';
+    message?: string;
+}
+
+/**
+ * Local time is durable once the route returns, so a failed completion or
+ * Basecamp push is a warning about the confirmed entry, never a failed save.
+ */
+export function stopSubmitOutcome(state: TimerStateResponse): StopSubmitOutcome {
+    if (state.completionWarning) return { status: 'warned', message: state.completionWarning };
+    if (state.basecampStatus === 'failed') {
+        return {
+            status: 'warned',
+            message: 'Time was saved, but the Basecamp timesheet entry failed. Retry it from the task.',
+        };
+    }
+    return { status: 'saved' };
+}
+
+/** A rejected mutation leaves the attempt in review so it can be retried. */
+export function stopSubmitFailure(error: unknown): StopSubmitOutcome {
+    const message = error instanceof Error && error.message.trim().length > 0
+        ? error.message
+        : 'This time entry could not be saved. It is still in review, so you can try again.';
+    return { status: 'failed', message };
+}
+
+/**
+ * Only finalization changes task state, client activity, or SEO hours; start,
+ * pause, resume, and switch must not force those consumers to re-query.
+ */
+export function timerRefreshEvents(action: TimerMutationRequest['action']): string[] {
+    const events = ['planner:data-changed', 'timer:data-changed'];
+    if (action !== 'finalize' && action !== 'retry_basecamp') return events;
+    return [...events, 'task:data-changed', 'client-activity:data-changed'];
+}
+
 export function canStartTaskTimer(clientId: string, taskId: string): boolean {
     return Boolean(clientId && taskId);
 }

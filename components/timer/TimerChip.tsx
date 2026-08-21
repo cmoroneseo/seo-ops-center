@@ -39,8 +39,18 @@ export function TimerChip({ clients }: { clients: ClientProject[] }) {
         return () => document.removeEventListener('mousedown', handleClick);
     }, [showControls]);
 
+    const [stopError, setStopError] = useState<string | null>(null);
+
     const openStopReview = async (attempt: TimerAttempt) => {
-        if (!attempt.reviewingAt) await beginStop(attempt);
+        try {
+            if (!attempt.reviewingAt) await beginStop(attempt);
+        } catch (error) {
+            // Another tab may have already closed this segment. Surface it
+            // instead of leaving a Stop click with no visible effect.
+            setStopError(error instanceof Error ? error.message : 'Unable to stop this timer.');
+            return;
+        }
+        setStopError(null);
         setReviewAttemptId(attempt.id);
         setShowStopSheet(true);
     };
@@ -74,6 +84,9 @@ export function TimerChip({ clients }: { clients: ClientProject[] }) {
                     <button onClick={() => { setShowControls(false); void openStopReview(primaryTimer); }} title="Stop & Log" className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-red-500/15 text-muted-foreground hover:text-red-500 transition-colors"><Square className="h-3.5 w-3.5 fill-current" /></button>
                     <button onClick={() => { setShowControls(false); setShowQuickStart(true); }} title="Switch client" className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-primary/15 text-muted-foreground hover:text-primary transition-colors"><Plus className="h-3.5 w-3.5" /></button>
                 </div>
+            )}
+            {stopError && (
+                <p role="alert" className="absolute top-full left-0 right-0 mt-1 text-[10px] text-destructive text-center">{stopError}</p>
             )}
             {showQuickStart && <QuickStartPopover clients={clients} onClose={() => setShowQuickStart(false)} />}
             {showStopSheet && reviewAttemptId && <StopConfirmSheet attemptId={reviewAttemptId} onClose={() => { setShowStopSheet(false); setReviewAttemptId(null); }} />}

@@ -164,3 +164,53 @@ test('sub-second segment drift never leaks into the reviewed duration', () => {
     assert.equal(drifting.totalActiveSeconds, 1_801);
     assert.deepEqual(drifting.dates, [{ localDate: '2026-08-20', activeSeconds: 1_801, segmentCount: 1 }]);
 });
+
+test('a clean finalization reports saved so the sheet can close', () => {
+    assert.deepEqual(
+        timerUi.stopSubmitOutcome({ running: null, paused: [], finalizedTimeLogIds: ['day-1'], basecampStatus: 'synced' }),
+        { status: 'saved' },
+    );
+    assert.deepEqual(
+        timerUi.stopSubmitOutcome({ running: null, paused: [], finalizedTimeLogIds: ['day-1'], basecampStatus: 'not_requested' }),
+        { status: 'saved' },
+    );
+});
+
+test('a durable finalization with a failed side effect warns without claiming failure', () => {
+    const completion = timerUi.stopSubmitOutcome({
+        running: null, paused: [], finalizedTimeLogIds: ['day-1'],
+        completionWarning: 'Time was saved, but task completion could not be fully recorded.',
+    });
+    assert.equal(completion.status, 'warned');
+    assert.match(completion.message ?? '', /task completion/i);
+
+    const basecamp = timerUi.stopSubmitOutcome({
+        running: null, paused: [], finalizedTimeLogIds: ['day-1'], basecampStatus: 'failed',
+    });
+    assert.equal(basecamp.status, 'warned');
+    assert.match(basecamp.message ?? '', /Basecamp/i);
+});
+
+test('a rejected finalization reports failure so the attempt stays retryable', () => {
+    const failure = timerUi.stopSubmitFailure(new Error('Timer state conflict'));
+    assert.equal(failure.status, 'failed');
+    assert.match(failure.message ?? '', /Timer state conflict/);
+    assert.match(timerUi.stopSubmitFailure('boom').message ?? '', /not be saved/i);
+});
+
+test('only finalization refreshes client activity and task state', () => {
+    assert.deepEqual(timerUi.timerRefreshEvents('pause'), ['planner:data-changed', 'timer:data-changed']);
+    assert.deepEqual(timerUi.timerRefreshEvents('start'), ['planner:data-changed', 'timer:data-changed']);
+    assert.deepEqual(timerUi.timerRefreshEvents('finalize'), [
+        'planner:data-changed',
+        'timer:data-changed',
+        'task:data-changed',
+        'client-activity:data-changed',
+    ]);
+    assert.deepEqual(timerUi.timerRefreshEvents('retry_basecamp'), [
+        'planner:data-changed',
+        'timer:data-changed',
+        'task:data-changed',
+        'client-activity:data-changed',
+    ]);
+});

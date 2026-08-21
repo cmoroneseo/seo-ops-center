@@ -50,8 +50,18 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
         return () => document.removeEventListener('mousedown', handleClick);
     }, [expanded]);
 
+    const [stopError, setStopError] = useState<string | null>(null);
+
     const openStopReview = async (attempt: TimerAttempt) => {
-        if (!attempt.reviewingAt) await beginStop(attempt);
+        try {
+            if (!attempt.reviewingAt) await beginStop(attempt);
+        } catch (error) {
+            // Another tab may have already closed this segment. Surface it
+            // instead of leaving a Stop click with no visible effect.
+            setStopError(error instanceof Error ? error.message : 'Unable to stop this timer.');
+            return;
+        }
+        setStopError(null);
         setReviewAttemptId(attempt.id);
     };
 
@@ -165,6 +175,10 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
                     <div className="border-t border-border/50 animate-in slide-in-from-top-1 fade-in duration-150">
                         <TimerNotes clients={clients} attemptId={runningTimer.id} notes={runningTimer.sessionNotes} />
                     </div>
+                )}
+
+                {stopError && (
+                    <p role="alert" className="px-4 pb-2 text-xs text-destructive">{stopError}</p>
                 )}
 
                 <div className="px-4 pb-3">

@@ -7,7 +7,10 @@ import {
     basecampSyncEligibility,
     stopReviewDefaults,
     stopReviewSummary,
+    stopSubmitFailure,
+    stopSubmitOutcome,
     type BasecampSyncEligibility,
+    type StopSubmitOutcome,
 } from '@/lib/timer-ui';
 import { getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
 import { SessionNote } from '@/lib/types';
@@ -131,7 +134,7 @@ export function StopConfirmSheet({ attemptId, onClose }: StopConfirmSheetProps) 
     const [bcAvailable, setBcAvailable] = useState(false);
     const [sendToBasecamp, setSendToBasecamp] = useState(true);
     const [isCheckingBasecamp, setIsCheckingBasecamp] = useState(false);
-    const [warning, setWarning] = useState<string | null>(null);
+    const [outcome, setOutcome] = useState<StopSubmitOutcome | null>(null);
     const timerId = timer?.id;
     const timerNoteCount = timer?.sessionNotes.length ?? 0;
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -178,21 +181,27 @@ export function StopConfirmSheet({ attemptId, onClose }: StopConfirmSheetProps) 
         e.preventDefault();
         if (!timer || !description.trim() || isCheckingBasecamp || isSubmitting) return;
         setIsSubmitting(true);
-        setWarning(null);
-        const state = await finalize(timer, {
-            description: description.trim(),
-            billable,
-            countsTowardBudget,
-            markTaskComplete,
-            syncToBasecamp: willSyncToBasecamp,
-        });
-        const problem = state.completionWarning
-            ?? (state.basecampStatus === 'failed'
-                ? 'Time was saved, but the Basecamp timesheet entry failed. Retry it from the task.'
-                : null);
-        if (problem) {
-            setWarning(problem);
+        setOutcome(null);
+        let result: StopSubmitOutcome;
+        try {
+            result = stopSubmitOutcome(await finalize(timer, {
+                description: description.trim(),
+                billable,
+                countsTowardBudget,
+                markTaskComplete,
+                syncToBasecamp: willSyncToBasecamp,
+            }));
+        } catch (error) {
+            // The attempt stays in review on the server, so submission can retry.
+            setOutcome(stopSubmitFailure(error));
             setIsSubmitting(false);
+            return;
+        }
+        setIsSubmitting(false);
+        if (result.status === 'warned') {
+            // The attempt has left canonical state, so this terminal panel must
+            // not depend on it still being resolvable.
+            setOutcome(result);
             return;
         }
         setShowSuccess(true);
@@ -200,7 +209,6 @@ export function StopConfirmSheet({ attemptId, onClose }: StopConfirmSheetProps) 
             setShowSuccess(false);
             onClose();
         }, 1200);
-        setIsSubmitting(false);
     };
 
     const handleDiscard = async () => {
@@ -212,6 +220,30 @@ export function StopConfirmSheet({ attemptId, onClose }: StopConfirmSheetProps) 
         await discard(timer);
         onClose();
     };
+
+    if (outcome?.status === 'warned') {
+        return (
+            <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+                <div
+                    className="w-full max-w-lg bg-card border border-border border-b-0 rounded-t-2xl shadow-2xl px-5 py-6 space-y-3"
+                    onClick={event => event.stopPropagation()}
+                    role="alertdialog"
+                    aria-label="Time entry saved with a warning"
+                >
+                    <p className="font-semibold text-sm">Time entry saved</p>
+                    <p className="text-sm text-muted-foreground">{outcome.message}</p>
+                    <button
+                        type="button"
+                        autoFocus
+                        onClick={onClose}
+                        className="w-full py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                    >
+                        Done
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     if (!timer || !review) return null;
 
@@ -370,9 +402,9 @@ export function StopConfirmSheet({ attemptId, onClose }: StopConfirmSheetProps) 
                             />
                         </div>
 
-                        {warning && (
-                            <p role="alert" className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
-                                {warning}
+                        {outcome?.status === 'failed' && (
+                            <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                                {outcome.message}
                             </p>
                         )}
 

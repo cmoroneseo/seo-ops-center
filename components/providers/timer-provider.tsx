@@ -11,6 +11,7 @@ import {
     confirmAndSwitchTimer,
     finalizeTimerAttempt,
     findTimerAttempt,
+    timerRefreshEvents,
     timerUiStateFromResponse,
     totalAttemptActiveSeconds,
     type TimerSwitchConfirmation,
@@ -80,11 +81,10 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         applyTimerState(await getOpenTimerAttempts(organization.id));
     }, [applyTimerState, organization]);
 
-    const notifyTimerChange = useCallback(() => {
-        window.dispatchEvent(new Event('planner:data-changed'));
-        window.dispatchEvent(new Event('timer:data-changed'));
-        window.dispatchEvent(new Event('task:data-changed'));
-        window.dispatchEvent(new Event('client-activity:data-changed'));
+    const notifyTimerChange = useCallback((action: TimerMutationRequest['action']) => {
+        for (const name of timerRefreshEvents(action)) {
+            window.dispatchEvent(new Event(name));
+        }
         try {
             localStorage.setItem('timer:data-changed', String(Date.now()));
         } catch {
@@ -96,7 +96,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     const mutate = useCallback(async (request: TimerMutationRequest) => {
         const state = await mutateTimer(request);
         applyTimerState(state);
-        notifyTimerChange();
+        notifyTimerChange(request.action);
         return state;
     }, [applyTimerState, notifyTimerChange]);
 
