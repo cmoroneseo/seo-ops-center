@@ -176,6 +176,42 @@ order by tgname;
 - `client-logos` — public, 1MB max, image types
 - `campaign-screenshots` — public, 50MB max, image types (needs INSERT/SELECT/DELETE policies on storage.objects)
 
+## Test / sandbox environment (Aug 2026)
+A self-contained tenant for testing features against production **without touching real client data**. Everything below already exists — don't recreate it.
+
+**Multi-org switcher:** `components/organization-switcher.tsx` is mounted in `components/dashboard/TopNav.tsx` (top-left). It lists your org memberships and persists the choice to `localStorage.selectedOrgId`. Creating an org from it calls the `bootstrap_organization_owner` RPC (migration 032 removed the browser-writable `organization_members` insert — a direct insert now fails).
+
+**The sandbox tenant:**
+- Org: **Sandbox (testing)** — `06e536b9-beac-49bc-8c96-1df021102590`
+- Client: **Sandbox Client A** — `cbba5b14-7e24-4913-b396-0fff7fb2df17`, 10 SEO hrs/mo, Active
+- Basecamp project: **SEO Ops Sandbox (testing)** — `48599958` (disposable; not real work)
+- Basecamp todolist: **SEO Tasks** — `10228443365` (for the task-push / to-do path)
+
+RLS scopes everything by `organization_id`, so the sandbox org is invisible to your real 46-client workspace, KPIs, and reports. Switch into it via the top-nav org switcher.
+
+**Binding a sandbox client to Basecamp needs service-role SQL** — migration 031's `protect_client_basecamp_fields` trigger rejects browser-level writes to `clients.custom_fields` Basecamp keys (`42501 clients.custom_fields Basecamp keys are server-controlled`). The escape hatch is the Supabase SQL editor (runs as `postgres`). To (re)bind:
+```sql
+update public.clients
+set custom_fields =
+      (coalesce(custom_fields, '{}'::jsonb) - 'basecamp_timesheet_recording_id')
+      || jsonb_build_object('basecamp_sync_enabled', true,
+                            'basecamp_project_id', 48599958,
+                            'basecamp_timesheet_enabled', true)
+where id = 'cbba5b14-7e24-4913-b396-0fff7fb2df17'
+returning name, custom_fields;
+```
+Always strip `basecamp_timesheet_recording_id` when changing project — a stale cached recording makes sync fail with "No verified Basecamp timesheet recording is available". (The IntegrationsTab clears it automatically on project change; raw SQL must do it by hand.) Once bound, the IntegrationsTab shows the project in its now-scoped dropdown and can set the default todolist normally.
+
+**Basecamp sandbox gotchas (all verified):**
+- A **project-level timesheet entry is load-bearing.** Recording discovery scans existing entries for `parent.type === 'Timesheet'` (the timesheet never appears in the project dock, even when enabled). The sandbox project keeps one seed entry — `10228422582` ("testing", 2.0h). **Do not delete it**, or project-timesheet sync breaks.
+- **A fresh Basecamp project has no todolists.** Task push creates to-dos *inside* a list, it doesn't create the list — a todolist must exist first (the "SEO Tasks" list above).
+- `timesheet_enabled` is **read-only via the API** — enable the Timesheet tool by hand in Basecamp (project → ••• → Configure tools).
+- In IntegrationsTab the **master Basecamp toggle** (`basecamp_sync_enabled`) is separate from the **Time tracking toggle** (`basecamp_timesheet_enabled`). Saving with the master toggle off silently disables sync; both must be on.
+
+**Time-entry routing** (same client, same project, different Basecamp recording): a time log on a task with a `basecamp_todo_id` matching the client's project attaches to that **to-do**; otherwise it attaches to the **project-level timesheet**. Both paths verified live.
+
+**Caveat:** the sandbox shares the production database, so it does **not** rehearse migrations. Only a separate Supabase project catches a bad migration before prod (e.g. the 033 project-less-timer bug). Staging DB is still unbuilt.
+
 ## Known bugs (workspace module)
 - Manager filter dropdown shows duplicates ("Abel" + "Abel Miranda") — `account_manager_name` is denormalized text, not normalized via `account_manager_id`
 - "My Clients" toggle shows empty — string comparison of `accountManager` vs `displayName` fails when names don't match exactly; should use `accountManagerId`
