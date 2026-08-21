@@ -1,38 +1,20 @@
 import { createClient } from './client';
-import { TimeLog, TimeLogStatus, SessionNote } from '../types';
+import { TimeLog, SessionNote } from '../types';
 import {
     sumBudgetHoursByClient,
     sumTrackedHoursByClient,
     sumInternalHours,
 } from '../time-budget-logic';
 import { deleteTimeLogAcrossSystems } from '../time-log-deletion';
+import {
+    timerAttemptFromRow,
+    timerStateFromRows,
+    type TimerMutationRequest,
+    type TimerStateResponse,
+} from '../timer/contracts';
 
 function rowToTimeLog(row: any): TimeLog {
-    return {
-        id: row.id,
-        organizationId: row.organization_id,
-        clientId: row.client_id ?? undefined,
-        clientName: row.clients?.name ?? undefined,
-        projectId: row.project_id ?? undefined,
-        taskId: row.task_id ?? undefined,
-        taskTitle: row.tasks?.title ?? undefined,
-        plannerEventId: row.planner_event_id ?? undefined,
-        userId: row.user_id,
-        date: row.date,
-        hours: Number(row.hours) || 0,
-        description: row.description || '',
-        billable: row.billable ?? true,
-        countsTowardBudget: row.counts_toward_budget ?? true,
-        status: (row.status as TimeLogStatus) ?? 'logged',
-        timerStartedAt: row.timer_started_at ?? undefined,
-        elapsedSeconds: Number(row.elapsed_seconds) || 0,
-        category: row.category ?? undefined,
-        sessionNotes: Array.isArray(row.session_notes) ? row.session_notes : [],
-        basecampEntryId: row.basecamp_entry_id ?? undefined,
-        basecampProjectId: row.basecamp_project_id ?? undefined,
-        basecampSyncedAt: row.basecamp_synced_at ?? undefined,
-        basecampSyncError: row.basecamp_sync_error ?? undefined,
-    };
+    return timerAttemptFromRow(row);
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +229,44 @@ export async function deleteTimeLog(id: string): Promise<{ success: boolean; err
 
 // ─── Timer-specific functions ────────────────────────────────────────────────
 
-/** Create an in-progress timer entry. Returns the new row ID. */
+const emptyTimerState = (): TimerStateResponse => ({ running: null, paused: [] });
+
+/** Browser timer mutations contain intent only; authority is derived by the API. */
+export async function mutateTimer(request: TimerMutationRequest): Promise<TimerStateResponse> {
+    const response = await fetch('/api/time-tracking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+    });
+    const payload = await response.json().catch(() => ({})) as TimerStateResponse & { error?: string };
+    if (!response.ok) throw new Error(payload.error || 'Unable to update timer');
+    return payload;
+}
+
+/** Recover every open attempt owned by the authenticated user in this org. */
+export async function getOpenTimerAttempts(organizationId: string): Promise<TimerStateResponse> {
+    const supabase = createClient();
+    if (!supabase) return emptyTimerState();
+    try {
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        if (userError || !user) return emptyTimerState();
+
+        const { data, error } = await supabase
+            .from('time_logs')
+            .select('*, clients(name), tasks(title), time_log_segments(*)')
+            .eq('organization_id', organizationId)
+            .eq('user_id', user.id)
+            .eq('status', 'in_progress')
+            .order('created_at', { ascending: false });
+        if (error) throw error;
+        return timerStateFromRows(data ?? []);
+    } catch (error) {
+        console.error('Error fetching open timer attempts:', error);
+        return emptyTimerState();
+    }
+}
+
+/** @deprecated Use mutateTimer({ action: 'start', taskId }) instead. */
 export async function startTimer(opts: {
     organizationId: string;
     userId: string;
@@ -258,73 +277,43 @@ export async function startTimer(opts: {
     countsTowardBudget?: boolean;
     category?: string;
 }): Promise<{ success: boolean; id?: string; error?: string }> {
-    const supabase = createClient();
-    if (!supabase) return { success: false, error: 'Supabase not initialized' };
+    if (!opts.taskId) return { success: false, error: 'A task is required to start a timer' };
     try {
-        const now = new Date().toISOString();
-        const { data, error } = await supabase
-            .from('time_logs')
-            .insert([{
-                organization_id: opts.organizationId,
-                user_id: opts.userId,
-                client_id: opts.clientId ?? null,
-                task_id: opts.taskId ?? null,
-                planner_event_id: opts.plannerEventId ?? null,
-                date: now.split('T')[0],
-                hours: 0,
-                description: '',
-                billable: true,
-                counts_toward_budget: opts.countsTowardBudget ?? true,
-                status: 'in_progress',
-                timer_started_at: now,
-                elapsed_seconds: 0,
-                category: opts.category ?? null,
-            }])
-            .select('id')
-            .single();
-        if (error) throw error;
-        return { success: true, id: data.id };
+        const state = await mutateTimer({ action: 'start', taskId: opts.taskId });
+        return state.running
+            ? { success: true, id: state.running.id }
+            : { success: false, error: 'Timer did not start' };
     } catch (err: any) {
         console.error('Error starting timer:', err);
         return { success: false, error: err.message };
     }
 }
 
-/** Pause: snapshot elapsed_seconds, clear timer_started_at. */
+/** @deprecated Use mutateTimer({ action: 'pause', timeLogId }) instead. */
 export async function pauseTimer(
     id: string,
     elapsedSeconds: number,
 ): Promise<{ success: boolean; error?: string }> {
-    const supabase = createClient();
-    if (!supabase) return { success: false, error: 'Supabase not initialized' };
+    void elapsedSeconds;
     try {
-        const { error } = await supabase.from('time_logs').update({
-            timer_started_at: null,
-            elapsed_seconds: elapsedSeconds,
-        }).eq('id', id);
-        if (error) throw error;
+        await mutateTimer({ action: 'pause', timeLogId: id });
         return { success: true };
     } catch (err: any) {
         return { success: false, error: err.message };
     }
 }
 
-/** Resume: set a new timer_started_at (elapsed_seconds already saved from pause). */
+/** @deprecated Use mutateTimer({ action: 'resume', timeLogId }) instead. */
 export async function resumeTimer(id: string): Promise<{ success: boolean; error?: string }> {
-    const supabase = createClient();
-    if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
-        const { error } = await supabase.from('time_logs').update({
-            timer_started_at: new Date().toISOString(),
-        }).eq('id', id);
-        if (error) throw error;
+        await mutateTimer({ action: 'resume', timeLogId: id });
         return { success: true };
     } catch (err: any) {
         return { success: false, error: err.message };
     }
 }
 
-/** Stop: mark as logged, write final hours + description. */
+/** @deprecated Use begin_stop followed by finalize through mutateTimer. */
 export async function stopTimer(
     id: string,
     opts: {
@@ -339,22 +328,18 @@ export async function stopTimer(
         syncToBasecamp?: boolean;
     },
 ): Promise<{ success: boolean; error?: string }> {
-    const supabase = createClient();
-    if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
-        const { error } = await supabase.from('time_logs').update({
-            status: 'logged',
-            hours: opts.hours,
+        await mutateTimer({ action: 'begin_stop', timeLogId: id });
+        await mutateTimer({
+            action: 'finalize',
+            timeLogId: id,
             description: opts.description,
-            client_id: opts.clientId,
-            task_id: opts.taskId ?? null,
             billable: opts.billable,
-            category: opts.category ?? null,
-            date: opts.date,
-            timer_started_at: null,
-        }).eq('id', id);
-        if (error) throw error;
-        if (opts.syncToBasecamp) pushTimeLogToBasecamp(id, true);
+            countsTowardBudget: opts.countsTowardBudget ?? true,
+            syncToBasecamp: opts.syncToBasecamp ?? false,
+            markTaskComplete: false,
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        });
         return { success: true };
     } catch (err: any) {
         return { success: false, error: err.message };
@@ -363,7 +348,12 @@ export async function stopTimer(
 
 /** Discard an in-progress timer without logging it. */
 export async function discardTimer(id: string): Promise<{ success: boolean; error?: string }> {
-    return deleteTimeLog(id);
+    try {
+        await mutateTimer({ action: 'discard', timeLogId: id });
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
 }
 
 /** Persist the full session_notes array for an in-progress entry. */
@@ -385,27 +375,12 @@ export async function updateSessionNotes(
     }
 }
 
-/** Find any in-progress timer for this user. Used for session recovery. */
+/** @deprecated Use getOpenTimerAttempts to preserve all paused attempts. */
 export async function getInProgressTimer(
     organizationId: string,
     userId: string,
 ): Promise<TimeLog | null> {
-    const supabase = createClient();
-    if (!supabase) return null;
-    try {
-        const { data, error } = await supabase
-            .from('time_logs')
-            .select('*')
-            .eq('organization_id', organizationId)
-            .eq('user_id', userId)
-            .eq('status', 'in_progress')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-        if (error) throw error;
-        return data ? rowToTimeLog(data) : null;
-    } catch (err) {
-        console.error('Error fetching in-progress timer:', err);
-        return null;
-    }
+    void userId;
+    const state = await getOpenTimerAttempts(organizationId);
+    return state.running ?? state.paused[0] ?? null;
 }
