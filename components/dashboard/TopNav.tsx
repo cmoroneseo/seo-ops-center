@@ -5,6 +5,7 @@ import { Search } from 'lucide-react';
 import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { UserMenu } from '@/components/dashboard/UserMenu';
+import { OrganizationSwitcher } from '@/components/organization-switcher';
 
 export function TopNav() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -28,7 +29,10 @@ export function TopNav() {
 
   return (
     <header className="hidden lg:flex h-14 shrink-0 items-center gap-4 border-b border-border bg-card px-4">
-      <div className="flex-1" />
+      {/* Which tenant am I looking at? Load-bearing once a sandbox org exists. */}
+      <div className="flex flex-1 items-center">
+        <OrganizationSwitcher className="w-[190px]" />
+      </div>
 
       <button
         onClick={() => setIsSearchOpen(true)}

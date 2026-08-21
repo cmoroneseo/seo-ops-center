@@ -30,45 +30,50 @@ export function OrganizationSwitcher({ className }: { className?: string }) {
     const [showNewOrgDialog, setShowNewOrgDialog] = React.useState(false)
     const [newOrgName, setNewOrgName] = React.useState('')
     const [isLoading, setIsLoading] = React.useState(false)
+    const [error, setError] = React.useState<string | null>(null)
     const supabase = createClient()
 
     const createOrganization = async () => {
         if (!newOrgName.trim()) return
         if (!supabase) return
         setIsLoading(true)
+        setError(null)
         try {
             const { data: { user } } = await supabase.auth.getUser()
-            if (!user) return
+            if (!user) throw new Error('You must be signed in to create an organization.')
 
-            // 1. Create Org
-            const slug = newOrgName.toLowerCase().replace(/[^a-z0-9]/g, '-')
+            const slug = newOrgName
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '')
             const { data: org, error: orgError } = await supabase
                 .from('organizations')
-                .insert({ name: newOrgName, slug })
+                .insert({ name: newOrgName.trim(), slug })
                 .select()
                 .single()
 
             if (orgError) throw orgError
 
-            // 2. Create Membership
-            const { error: memberError } = await supabase
-                .from('organization_members')
-                .insert({
-                    organization_id: org.id,
-                    user_id: user.id,
-                    role: 'owner'
-                })
-
+            // Migration 032 removed the browser-writable membership policy:
+            // ownership is claimed through this SECURITY DEFINER RPC, which
+            // refuses a second bootstrap for an organization that already has
+            // members. Inserting into organization_members directly now fails.
+            const { error: memberError } = await supabase.rpc(
+                'bootstrap_organization_owner',
+                { p_organization_id: org.id },
+            )
             if (memberError) throw memberError
 
-            // Reload page to refresh context (simple way)
+            // Land in the organization that was just created.
+            localStorage.setItem('selectedOrgId', org.id)
             window.location.reload()
-        } catch (error) {
-            console.error('Error creating org:', error)
-        } finally {
+        } catch (cause) {
+            setError(cause instanceof Error ? cause.message : 'Could not create that organization.')
             setIsLoading(false)
-            setShowNewOrgDialog(false)
+            return
         }
+        setIsLoading(false)
+        setShowNewOrgDialog(false)
     }
 
     return (
@@ -155,6 +160,9 @@ export function OrganizationSwitcher({ className }: { className?: string }) {
                             onChange={(e) => setNewOrgName(e.target.value)}
                         />
                     </div>
+                    {error && (
+                        <p role="alert" className="text-xs text-destructive">{error}</p>
+                    )}
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => setShowNewOrgDialog(false)}>Cancel</Button>
