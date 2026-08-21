@@ -1539,6 +1539,36 @@ create trigger enforce_time_log_segment_parent
   on public.time_log_segments
   for each row execute function public.enforce_time_log_segment_parent();
 
+create or replace function public.protect_segmented_time_log_parent()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if (
+    new.organization_id is distinct from old.organization_id
+    or new.user_id is distinct from old.user_id
+  ) and exists (
+    select 1
+    from public.time_log_segments
+    where time_log_segments.time_log_id = old.id
+  ) then
+    raise exception 'segmented time log tenant and owner are immutable'
+      using errcode = '23514';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.protect_segmented_time_log_parent() from public, anon, authenticated;
+
+create trigger protect_segmented_time_log_parent
+  before update of organization_id, user_id
+  on public.time_logs
+  for each row execute function public.protect_segmented_time_log_parent();
+
 -- Only a legacy row that was actively running has a trustworthy segment start.
 -- row_number handles invalid legacy duplicates conservatively while the partial
 -- unique index preserves the one-running-timer invariant.
@@ -1616,6 +1646,24 @@ begin
       and organization_members.user_id = actor_id
   ) then
     raise exception 'task is outside the authenticated organization'
+      using errcode = '42501';
+  end if;
+
+  -- Assignment is the task-level ownership boundary. A row lock makes claiming
+  -- an entirely unassigned task atomic; otherwise the actor must already be one
+  -- of its legacy or multi-assignees.
+  if owned_task.assignee_id is null
+     and cardinality(owned_task.assignee_ids) = 0 then
+    update public.tasks
+      set assignee_id = actor_id,
+          assignee_ids = array[actor_id]
+      where tasks.id = owned_task.id
+      returning * into owned_task;
+  elsif not (
+    owned_task.assignee_id = actor_id
+    or actor_id = any(owned_task.assignee_ids)
+  ) then
+    raise exception 'task is assigned to another user'
       using errcode = '42501';
   end if;
 
@@ -1724,6 +1772,7 @@ declare
   actor_id uuid := auth.uid();
   attempt public.time_logs%rowtype;
   open_segment public.time_log_segments%rowtype;
+  latest_ended_at timestamptz;
 begin
   if actor_id is null then
     raise exception 'authentication required' using errcode = '42501';
@@ -1763,7 +1812,21 @@ begin
     for update;
 
   if not found then
-    raise exception 'time attempt is not running' using errcode = '55000';
+    select max(time_log_segments.ended_at)
+      into latest_ended_at
+      from public.time_log_segments
+      where time_log_segments.time_log_id = attempt.id;
+
+    if attempt.reviewing_at is null
+       and attempt.timer_started_at is null
+       and latest_ended_at is not null
+       and latest_ended_at is not distinct from p_paused_at then
+      return next attempt;
+      return;
+    end if;
+
+    raise exception 'time attempt is not running or pause retry conflicts'
+      using errcode = '55000';
   end if;
   if p_paused_at <= open_segment.started_at then
     raise exception 'pause timestamp must be after segment start'
@@ -1799,6 +1862,7 @@ declare
   actor_id uuid := auth.uid();
   attempt public.time_logs%rowtype;
   latest_ended_at timestamptz;
+  open_segment public.time_log_segments%rowtype;
 begin
   if actor_id is null then
     raise exception 'authentication required' using errcode = '42501';
@@ -1830,13 +1894,29 @@ begin
     hashtextextended(attempt.organization_id::text || ':' || actor_id::text, 0)
   );
 
-  if exists (
-    select 1
+  select time_log_segments.*
+    into open_segment
     from public.time_log_segments
     where time_log_segments.time_log_id = attempt.id
       and time_log_segments.ended_at is null
-  ) then
-    raise exception 'time attempt is already running' using errcode = '55000';
+    for update;
+
+  if found then
+    if open_segment.started_at is not distinct from p_resumed_at
+       and attempt.timer_started_at is not distinct from p_resumed_at
+       and attempt.reviewing_at is null
+       and not exists (
+         select 1
+         from public.time_log_segments
+         where time_log_segments.time_log_id = attempt.id
+           and time_log_segments.ended_at > p_resumed_at
+       ) then
+      return next attempt;
+      return;
+    end if;
+
+    raise exception 'time attempt is already running with conflicting state'
+      using errcode = '55000';
   end if;
 
   select max(time_log_segments.ended_at)
@@ -1916,10 +1996,58 @@ begin
       from public.resume_time_attempt(p_to_time_log_id, p_switched_at) as resumed
       limit 1;
   else
-    select started.*
+    select time_logs.*
       into active_attempt
-      from public.start_task_timer(p_to_task_id, p_switched_at) as started
+      from public.time_logs
+      where time_logs.task_id = p_to_task_id
+        and time_logs.user_id = actor_id
+        and exists (
+          select 1
+          from public.tasks
+          where tasks.id = p_to_task_id
+            and tasks.organization_id = time_logs.organization_id
+            and (
+              tasks.assignee_id = actor_id
+              or actor_id = any(tasks.assignee_ids)
+            )
+        )
+        and exists (
+          select 1
+          from public.time_log_segments
+          where time_log_segments.time_log_id = time_logs.id
+            and time_log_segments.started_at = p_switched_at
+        )
+      order by time_logs.created_at desc, time_logs.id
       limit 1;
+
+    if found then
+      if active_attempt.status = 'in_progress'
+         and active_attempt.reviewing_at is null
+         and active_attempt.timer_started_at is not distinct from p_switched_at
+         and exists (
+           select 1
+           from public.time_log_segments
+           where time_log_segments.time_log_id = active_attempt.id
+             and time_log_segments.started_at = p_switched_at
+             and time_log_segments.ended_at is null
+         )
+         and not exists (
+           select 1
+           from public.time_log_segments
+           where time_log_segments.time_log_id = active_attempt.id
+             and time_log_segments.ended_at > p_switched_at
+         ) then
+        null; -- Exact switch retry: return the already-active canonical row.
+      else
+        raise exception 'switch retry conflicts with advanced target state'
+          using errcode = '55000';
+      end if;
+    else
+      select started.*
+        into active_attempt
+        from public.start_task_timer(p_to_task_id, p_switched_at) as started
+        limit 1;
+    end if;
   end if;
 
   return next paused_attempt;
@@ -1943,6 +2071,7 @@ declare
   actor_id uuid := auth.uid();
   attempt public.time_logs%rowtype;
   open_segment public.time_log_segments%rowtype;
+  latest_ended_at timestamptz;
 begin
   if actor_id is null then
     raise exception 'authentication required' using errcode = '42501';
@@ -1989,6 +2118,16 @@ begin
     update public.time_log_segments
       set ended_at = p_reviewing_at
       where time_log_segments.id = open_segment.id;
+  end if;
+
+  select max(time_log_segments.ended_at)
+    into latest_ended_at
+    from public.time_log_segments
+    where time_log_segments.time_log_id = attempt.id;
+
+  if latest_ended_at is not null and p_reviewing_at < latest_ended_at then
+    raise exception 'review timestamp precedes the latest segment end'
+      using errcode = '22007';
   end if;
 
   update public.time_logs
@@ -2039,6 +2178,7 @@ declare
   log_ids_by_date jsonb := '{}'::jsonb;
   daily_log_id uuid;
   first_piece boolean;
+  latest_ended_at timestamptz;
 begin
   if actor_id is null then
     raise exception 'authentication required' using errcode = '42501';
@@ -2148,21 +2288,39 @@ begin
   end if;
   if exists (
     select 1
-    from public.time_logs
-    where time_logs.operation_id = p_operation_id
-      and time_logs.id <> attempt.id
-  ) then
-    raise exception 'operation identifier is already in use'
-      using errcode = '23505';
-  end if;
-  if exists (
-    select 1
     from public.time_log_segments
     where time_log_segments.time_log_id = attempt.id
       and time_log_segments.ended_at is null
   ) then
     raise exception 'time attempt must enter review before finalization'
       using errcode = '55000';
+  end if;
+
+  select max(time_log_segments.ended_at)
+    into latest_ended_at
+    from public.time_log_segments
+    where time_log_segments.time_log_id = attempt.id;
+
+  if latest_ended_at is not null and (
+    attempt.reviewing_at < latest_ended_at
+    or p_finalized_at < latest_ended_at
+  ) then
+    raise exception 'review or finalization timestamp precedes tracked work'
+      using errcode = '22007';
+  end if;
+
+  perform pg_advisory_xact_lock(
+    hashtextextended('timer-operation:' || p_operation_id::text, 0)
+  );
+
+  if exists (
+    select 1
+    from public.time_logs
+    where time_logs.operation_id = p_operation_id
+      and time_logs.id <> attempt.id
+  ) then
+    raise exception 'operation identifier is already in use'
+      using errcode = '23505';
   end if;
 
   for segment in
