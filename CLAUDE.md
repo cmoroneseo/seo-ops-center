@@ -153,6 +153,24 @@ https://seo-ops-center.vercel.app
 028: tasks.start_date -> timestamptz (applied Jul 2026 — renumbered from 027)
 029: tasks.scheduled_minutes (applied Jul 2026 — renumbered from 028)
 030: time_logs — nullable client_id, counts_toward_budget, planner_event_id (applied Aug 2026)
+031: basecamp authorization-state triggers (applied Aug 2026 — trigger/function only, so it cannot be confirmed through the REST API; see the verification SQL below)
+032: identity bootstrap, invites, OAuth replay, basecamp recording provenance (applied — verified against the DB Aug 2026: `organization_invites`, `basecamp_oauth_states`, `time_logs.basecamp_recording_id` all present)
+033: time_log_segments + timer RPCs (applied Aug 2026 — verified against the DB: all six RPCs resolve and reject `anon` with 42501)
+034: start_task_timer project-less fix (applied Aug 2026 — verified live). Supersedes 033's `start_task_timer`; **never edit 033 in place**, supersede it with a new migration
+
+To confirm 031/032 triggers are live, run in the Supabase SQL editor:
+
+```sql
+select tgname, tgrelid::regclass as table_name
+from pg_trigger
+where not tgisinternal
+  and tgname in (
+    'protect_organization_internal_status', 'protect_client_basecamp_fields',
+    'protect_task_basecamp_linkage', 'protect_time_log_basecamp_entry',
+    'protect_time_log_basecamp_tuple'
+  )
+order by tgname;
+```
 
 ## Supabase Storage buckets
 - `client-logos` — public, 1MB max, image types
