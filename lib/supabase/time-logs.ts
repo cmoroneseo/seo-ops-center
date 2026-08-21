@@ -1,5 +1,5 @@
 import { createClient } from './client';
-import { TimeLog, SessionNote } from '../types';
+import { TimeLog, SessionNote, TimerAttempt } from '../types';
 import {
     sumBudgetHoursByClient,
     sumTrackedHoursByClient,
@@ -76,6 +76,53 @@ export async function getTimeLogs(
         return (data || []).map(rowToTimeLog);
     } catch (err) {
         console.error('Error fetching time logs:', err);
+        return [];
+    }
+}
+
+function localDateKey(value: Date): string {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+/**
+ * Segment-backed attempts that can produce actual-time cards in a visible
+ * planner range. Open attempts are included regardless of their original date
+ * so a session that crosses midnight remains visible until it is finalized.
+ */
+export async function getTimerAttemptsForRange(
+    organizationId: string,
+    rangeStart: Date,
+    rangeEnd: Date,
+): Promise<TimerAttempt[]> {
+    const supabase = createClient();
+    if (!supabase) return [];
+    try {
+        const selection = '*, clients(name), tasks(title), time_log_segments(*)';
+        const lastVisibleInstant = new Date(rangeEnd.getTime() - 1);
+        const [logged, open] = await Promise.all([
+            supabase
+                .from('time_logs')
+                .select(selection)
+                .eq('organization_id', organizationId)
+                .eq('status', 'logged')
+                .gte('date', localDateKey(rangeStart))
+                .lte('date', localDateKey(lastVisibleInstant)),
+            supabase
+                .from('time_logs')
+                .select(selection)
+                .eq('organization_id', organizationId)
+                .eq('status', 'in_progress'),
+        ]);
+        if (logged.error) throw logged.error;
+        if (open.error) throw open.error;
+
+        const rows = [...(logged.data ?? []), ...(open.data ?? [])];
+        return rows.map(timerAttemptFromRow);
+    } catch (error) {
+        console.error('Error fetching timer attempts for planner:', error);
         return [];
     }
 }

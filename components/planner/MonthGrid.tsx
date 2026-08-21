@@ -9,7 +9,7 @@ import {
     PlannerItem, plannerSourceLabel, plannerTimeLabel,
 } from '@/lib/planner/items';
 import { agendaItemsForDay, resolveMonthAgendaDay } from '@/lib/planner/responsive';
-import { KIND_STYLES } from './EventCard';
+import { ACTUAL_STYLE, KIND_STYLES } from './EventCard';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MAX_VISIBLE = 3;
@@ -86,7 +86,12 @@ export function MonthGrid({ anchorDate, days, items, onItemClick, onDayClick }: 
                                         {dayItems.slice(0, MAX_VISIBLE).map(item => (
                                             <span
                                                 key={item.id}
-                                                className={cn('h-1.5 w-1.5 rounded-full', KIND_STYLES[item.kind].accent)}
+                                                className={cn(
+                                                    'h-1.5 w-1.5 rounded-full',
+                                                    item.source === 'actual_time'
+                                                        ? ACTUAL_STYLE.accent
+                                                        : KIND_STYLES[item.kind].accent,
+                                                )}
                                             />
                                         ))}
                                         {overflow > 0 && <span className="ml-0.5 text-[9px] leading-none">+{overflow}</span>}
@@ -103,10 +108,14 @@ export function MonthGrid({ anchorDate, days, items, onItemClick, onDayClick }: 
                                         className={cn(
                                             'block w-full truncate rounded px-1 py-0.5 text-left text-[10px] font-medium',
                                             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                                            KIND_STYLES[item.kind].card,
+                                            item.source === 'actual_time'
+                                                ? ACTUAL_STYLE.card
+                                                : KIND_STYLES[item.kind].card,
                                         )}
                                     >
                                         {item.title}
+                                        {item.timerState === 'running' && ' · Running'}
+                                        {item.timerState === 'paused' && ' · Paused'}
                                     </button>
                                 ))}
                                 {overflow > 0 && (
@@ -147,11 +156,18 @@ export function MonthGrid({ anchorDate, days, items, onItemClick, onDayClick }: 
                                 onClick={() => onItemClick?.(item)}
                                 className="flex min-h-11 w-full items-start gap-3 rounded-lg border border-border bg-background px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                             >
-                                <span className={cn('mt-1 h-2.5 w-2.5 shrink-0 rounded-full', KIND_STYLES[item.kind].accent)} />
+                                <span className={cn(
+                                    'mt-1 h-2.5 w-2.5 shrink-0 rounded-full',
+                                    item.source === 'actual_time'
+                                        ? ACTUAL_STYLE.accent
+                                        : KIND_STYLES[item.kind].accent,
+                                )} />
                                 <span className="min-w-0 flex-1">
                                     <span className="block text-xs font-medium leading-snug">{item.title}</span>
                                     <span className="mt-0.5 block text-[11px] text-muted-foreground">
                                         {plannerSourceLabel(item)} · {plannerTimeLabel(item)}
+                                        {item.timerState === 'running' && ' · Running'}
+                                        {item.timerState === 'paused' && ' · Paused'}
                                     </span>
                                 </span>
                             </button>

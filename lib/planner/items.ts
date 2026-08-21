@@ -1,11 +1,12 @@
 // Type-only so Node's TypeScript stripping erases the import entirely — this is
 // what lets `node --test lib/planner/items.test.ts` resolve without a bundler.
-import type { PlannerEvent, PlannerEventKind, Task, Reminder } from '../types';
+import type { PlannerEvent, PlannerEventKind, Task, Reminder, TimerAttempt } from '../types';
 
 /** A task with no estimatedHours still needs a visible block. */
 export const TASK_DEFAULT_MINUTES = 60;
 
-export type PlannerItemSource = 'event' | 'task' | 'reminder';
+export type PlannerItemSource = 'event' | 'task' | 'reminder' | 'actual_time';
+export type PlannerTimerState = 'running' | 'paused' | 'logged';
 
 /**
  * Parse a task's start.
@@ -41,11 +42,17 @@ export interface PlannerItem {
     attendeeIds: string[];
     /** Reminders are read-only on the grid; events and tasks can be dragged. */
     draggable: boolean;
-    raw: PlannerEvent | Task | Reminder;
+    raw: PlannerEvent | Task | Reminder | TimerAttempt;
+    /** Shared by every display group belonging to one timer attempt. */
+    attemptId?: string;
+    /** Tracked duration only; a visually merged pause is excluded. */
+    activeSeconds?: number;
+    timerState?: PlannerTimerState;
 }
 
 /** Semantic source label, intentionally independent of the item's card color. */
 export function plannerSourceLabel(item: PlannerItem): string {
+    if (item.source === 'actual_time') return 'Actual work';
     if (item.source === 'task') {
         return item.id.startsWith('overdue:') ? 'Overdue task' : 'Task';
     }
@@ -63,7 +70,16 @@ export function plannerTimeLabel(item: PlannerItem): string {
         hour: 'numeric',
         minute: '2-digit',
     }).format(new Date(value));
-    return `${clock(item.startsAt)} – ${clock(item.endsAt)}`;
+    const range = `${clock(item.startsAt)} – ${clock(item.endsAt)}`;
+    if (item.source !== 'actual_time' || item.activeSeconds === undefined) return range;
+
+    const seconds = Math.max(0, Math.round(item.activeSeconds));
+    const hours = Math.floor(seconds / 3_600);
+    const minutes = Math.floor((seconds % 3_600) / 60);
+    const duration = hours > 0
+        ? `${hours} ${hours === 1 ? 'hr' : 'hrs'}${minutes > 0 ? ` ${minutes} min` : ''}`
+        : `${minutes} min`;
+    return `${range} · ${duration} active`;
 }
 
 export function eventToItem(e: PlannerEvent): PlannerItem {

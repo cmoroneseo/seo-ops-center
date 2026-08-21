@@ -5,12 +5,16 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import { format } from 'date-fns';
 import {
     X, Trash2, MapPin, Users, Building2, Clock, Check, AlertCircle, ExternalLink,
+    Pause, Play, Square,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { PlannerEvent, Task, TimeLog } from '@/lib/types';
+import { PlannerEvent, Task, TimeLog, TimerAttempt } from '@/lib/types';
 import {
     PlannerItem, plannerSourceLabel, plannerTimeLabel,
 } from '@/lib/planner/items';
+import {
+    timerActionsForItem, type PlannerTimerAction,
+} from '@/lib/planner/actual-items';
 import { updatePlannerEvent, deletePlannerEvent } from '@/lib/supabase/planner-events';
 import {
     createTimeLog, getTimeLogForPlannerEvent, getClientTimesheetSyncEnabled,
@@ -19,7 +23,7 @@ import { localDateForInstant, parseLocalDate } from '@/lib/planner/local-date';
 import { durationMinutes } from '@/lib/planner/layout';
 import { TeamMember } from './MeetWithFilter';
 import { BasecampProjectPicker, type BasecampProject } from './BasecampProjectPicker';
-import { KIND_STYLES } from './EventCard';
+import { ACTUAL_STYLE, KIND_STYLES } from './EventCard';
 import { usePlannerDialogFocus } from './usePlannerDialogFocus';
 import { usePlannerSurfaceBehavior } from './usePlannerSurfaceBehavior';
 
@@ -35,11 +39,14 @@ interface EventDetailPanelProps {
     onChanged: () => void;
     onDeleted: () => void;
     restoreFocusRef?: RefObject<HTMLElement | null>;
+    onTimerAction?: (action: PlannerTimerAction, item: PlannerItem) => void;
+    canControlTimer?: boolean;
 }
 
 export function EventDetailPanel({
     item, members, organizationId, userId, recentProjects = [], onProjectUsed,
-    onClose, onChanged, onDeleted, restoreFocusRef,
+    onClose, onChanged, onDeleted, restoreFocusRef, onTimerAction,
+    canControlTimer = false,
 }: EventDetailPanelProps) {
     const dialogRef = useRef<HTMLElement>(null);
     const surface = usePlannerSurfaceBehavior('detail');
@@ -49,8 +56,11 @@ export function EventDetailPanel({
     });
     const isEvent = item.source === 'event';
     const isTask = item.source === 'task';
+    const isActual = item.source === 'actual_time';
     const event = isEvent ? (item.raw as PlannerEvent) : null;
     const task = isTask ? (item.raw as Task) : null;
+    const attempt = isActual ? (item.raw as TimerAttempt) : null;
+    const timerActions = canControlTimer ? timerActionsForItem(item) : [];
 
     const [title, setTitle] = useState(task?.title ?? item.title);
     const [description, setDescription] = useState(event?.description ?? '');
@@ -192,7 +202,12 @@ export function EventDetailPanel({
         >
             <div className="flex items-center gap-2 border-b border-border px-4 py-3">
                 <h2 id="planner-detail-heading" className="sr-only">{plannerSourceLabel(item)} details</h2>
-                <span className={cn('h-2.5 w-2.5 rounded-full', KIND_STYLES[item.kind].accent)} />
+                <span className={cn(
+                    'h-2.5 w-2.5 rounded-full',
+                    item.source === 'actual_time'
+                        ? ACTUAL_STYLE.accent
+                        : KIND_STYLES[item.kind].accent,
+                )} />
                 <span className="text-xs font-medium text-muted-foreground">
                     {plannerSourceLabel(item)}
                 </span>
@@ -241,6 +256,48 @@ export function EventDetailPanel({
                         <dt className="text-muted-foreground">Due</dt>
                         <dd>{dueDate ? format(dueDate, 'MMM d, yyyy') : 'No due date'}</dd>
                     </dl>
+                )}
+
+                {attempt && (
+                    <dl className="grid grid-cols-[5rem_1fr] gap-x-3 gap-y-2 rounded-lg border border-border p-3 text-xs">
+                        <dt className="text-muted-foreground">Source</dt>
+                        <dd>{plannerSourceLabel(item)}</dd>
+                        <dt className="text-muted-foreground">Timer</dt>
+                        <dd className="capitalize">{item.timerState ?? 'logged'}</dd>
+                        <dt className="text-muted-foreground">Active</dt>
+                        <dd>{plannerTimeLabel(item).split(' · ')[1] ?? 'Tracked work'}</dd>
+                    </dl>
+                )}
+
+                {timerActions.length > 0 && (
+                    <div className="flex flex-wrap gap-2" aria-label="Timer controls">
+                        {timerActions.map(action => {
+                            const Icon = action === 'pause' ? Pause : action === 'stop' ? Square : Play;
+                            const label = action === 'start'
+                                ? 'Start Timer'
+                                : `${action[0].toUpperCase()}${action.slice(1)}`;
+                            return (
+                                <button
+                                    type="button"
+                                    key={action}
+                                    onPointerDown={e => e.stopPropagation()}
+                                    onClick={e => {
+                                        e.stopPropagation();
+                                        onTimerAction?.(action, item);
+                                    }}
+                                    className={cn(
+                                        'flex min-h-11 flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                                        action === 'start' || action === 'resume'
+                                            ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                                            : 'border border-border bg-background hover:bg-muted',
+                                    )}
+                                >
+                                    <Icon className="h-3.5 w-3.5" />
+                                    {label}
+                                </button>
+                            );
+                        })}
+                    </div>
                 )}
 
                 {event?.location && (
@@ -364,6 +421,14 @@ export function EventDetailPanel({
                     item.source === 'task' ? (
                         <Link
                             href={`/tasks?task=${encodeURIComponent(item.raw.id)}`}
+                            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                            Open task
+                            <ExternalLink className="h-3.5 w-3.5" />
+                        </Link>
+                    ) : item.source === 'actual_time' && attempt?.taskId ? (
+                        <Link
+                            href={`/tasks?task=${encodeURIComponent(attempt.taskId)}`}
                             className="flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                             Open task

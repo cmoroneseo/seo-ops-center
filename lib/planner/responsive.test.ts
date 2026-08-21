@@ -9,6 +9,7 @@ import {
     isPlannerFocusEligible,
     movePriorityId,
     plannerGridAccessibility,
+    plannerTimerActionPlacement,
     plannerSurfaceBehavior,
     quickCreateTypeButtonProps,
     resolveMonthAgendaDay,
@@ -234,5 +235,16 @@ test('quick-create type controls expose native pressed-button state', () => {
     assert.deepEqual(quickCreateTypeButtonProps('task', 'event'), {
         type: 'button',
         'aria-pressed': false,
+    });
+});
+
+test('timer actions move into details on narrow screens without disappearing', () => {
+    assert.deepEqual(plannerTimerActionPlacement(390), {
+        card: false,
+        detail: true,
+    });
+    assert.deepEqual(plannerTimerActionPlacement(1024), {
+        card: true,
+        detail: true,
     });
 });

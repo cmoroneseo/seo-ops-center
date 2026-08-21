@@ -75,6 +75,14 @@ export function plannerGridAccessibility(dayCount: number): PlannerGridAccessibi
     };
 }
 
+/** Hover controls are additive on wide screens; details always retain actions. */
+export function plannerTimerActionPlacement(viewportWidth: number) {
+    return {
+        card: viewportWidth >= 1024,
+        detail: true,
+    };
+}
+
 export type PlannerSurfaceKind = 'detail' | 'quick-create' | 'settings';
 
 export interface PlannerSurfaceBehavior {

@@ -7,8 +7,11 @@ import {
     addMonths, startOfDay,
 } from 'date-fns';
 import { useOrganization } from '@/components/providers/organization-provider';
+import { useTimer } from '@/components/providers/timer-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
-import { PlannerEvent, Task, Reminder, PlannerPriority, PlannerEventKind } from '@/lib/types';
+import {
+    PlannerEvent, Task, Reminder, PlannerPriority, PlannerEventKind, TimerAttempt,
+} from '@/lib/types';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import {
     listPlannerPriorities, createPlannerPriority,
@@ -19,10 +22,14 @@ import { getTasks, updateTask } from '@/lib/supabase/tasks';
 import { DragCommit } from '@/lib/planner/use-planner-drag';
 import { durationMinutes } from '@/lib/planner/layout';
 import { listReminders } from '@/lib/supabase/personal-reminders';
+import { getTimerAttemptsForRange } from '@/lib/supabase/time-logs';
 import {
     PlannerItem, eventToItem, taskToItem, reminderToItem, overdueTaskToItem, taskBlockMinutes,
     taskToDetailItem,
 } from '@/lib/planner/items';
+import {
+    actualAttemptToItems, shouldRenderForecast, type PlannerTimerAction,
+} from '@/lib/planner/actual-items';
 import { PlannerHeader, PlannerView } from '@/components/planner/PlannerHeader';
 import { WeekGrid, PlannerDragHandles } from '@/components/planner/WeekGrid';
 import { QuickCreatePopover, FullTaskDraft } from '@/components/planner/QuickCreatePopover';
@@ -40,10 +47,14 @@ import {
 import { localDateForInstant, parseLocalDate } from '@/lib/planner/local-date';
 import { buildMonthDays } from '@/lib/planner/month-range';
 import { clampOverlayAnchor } from '@/lib/planner/responsive';
+import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
 
 export default function PlannerPage() {
     const { organization } = useOrganization();
     const { userId } = useCurrentMember();
+    const {
+        runningTimer, pausedTimers, startTask, pause, resume, beginStop, getAttemptById,
+    } = useTimer();
     const plannerSurfaceRef = useRef<HTMLDivElement>(null);
 
     const [anchorDate, setAnchorDate] = useState<Date>(() => new Date());
@@ -60,6 +71,8 @@ export default function PlannerPage() {
     const [events, setEvents] = useState<PlannerEvent[]>([]);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [reminders, setReminders] = useState<Reminder[]>([]);
+    const [attempts, setAttempts] = useState<TimerAttempt[]>([]);
+    const [clockNow, setClockNow] = useState(() => Date.now());
     const [isLoading, setIsLoading] = useState(true);
     const [quickCreate, setQuickCreate] = useState<{
         anchor: { x: number; y: number };
@@ -75,6 +88,8 @@ export default function PlannerPage() {
     const [dragHandles, setDragHandles] = useState<PlannerDragHandles | null>(null);
     const [selected, setSelected] = useState<PlannerItem | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [announcement, setAnnouncement] = useState('');
+    const [reviewAttemptId, setReviewAttemptId] = useState<string | null>(null);
     // Set when the quick-create popover hands off to the full task editor.
     const [fullTaskDraft, setFullTaskDraft] = useState<FullTaskDraft | null>(null);
     const { clients } = useClients({ statuses: ['Active'] });
@@ -119,11 +134,7 @@ export default function PlannerPage() {
         };
     }, [anchorDate, view, prefs.weekStartsOn, monthDays]);
 
-    /**
-     * Only events are range-scoped. Tasks and reminders are fetched whole, so
-     * refetching them on every week navigation would be pure waste — they are
-     * loaded once, by loadWork() below.
-     */
+    /** Events are range-scoped independently from task/timer work. */
     const loadEvents = useCallback(async () => {
         if (!organization?.id) return;
         setIsLoading(true);
@@ -137,13 +148,16 @@ export default function PlannerPage() {
 
     const loadWork = useCallback(async () => {
         if (!organization?.id || !userId) return;
-        const [t, r] = await Promise.all([
+        const [t, r, a] = await Promise.all([
             getTasks(organization.id, {}),
             listReminders({ organizationId: organization.id, userId }),
+            getTimerAttemptsForRange(organization.id, range.start, range.end),
         ]);
         setTasks(t);
         setReminders(r);
-    }, [organization?.id, userId]);
+        setAttempts(a);
+        setClockNow(Date.now());
+    }, [organization?.id, range.end, range.start, userId]);
 
     /** Everything — used after a write whose effect could span both. */
     const reloadAll = useCallback(async () => {
@@ -153,13 +167,33 @@ export default function PlannerPage() {
     useEffect(() => { void loadEvents(); }, [loadEvents]);
     useEffect(() => { void loadWork(); }, [loadWork]);
 
-    // Timer start/stop writes task placement outside this page. Refresh the
-    // planner immediately so the block follows the actual work session.
+    // Timer transitions update the attempt and consume a task forecast in
+    // one workflow. Coalesce the provider's paired events and reload both facts
+    // together so the planner never briefly duplicates or loses the card.
     useEffect(() => {
-        const reload = () => { void loadWork(); };
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const reload = () => {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => { void loadWork(); }, 0);
+        };
         window.addEventListener('planner:data-changed', reload);
-        return () => window.removeEventListener('planner:data-changed', reload);
+        window.addEventListener('timer:data-changed', reload);
+        return () => {
+            if (timer) clearTimeout(timer);
+            window.removeEventListener('planner:data-changed', reload);
+            window.removeEventListener('timer:data-changed', reload);
+        };
     }, [loadWork]);
+
+    const hasRunningActual = attempts.some(attempt => (
+        attempt.status === 'in_progress'
+        && attempt.segments.some(segment => segment.endedAt === undefined)
+    ));
+    useEffect(() => {
+        if (!hasRunningActual) return;
+        const interval = window.setInterval(() => setClockNow(Date.now()), 1_000);
+        return () => window.clearInterval(interval);
+    }, [hasRunningActual]);
 
     const loadPriorities = useCallback(async () => {
         if (!organization?.id || !userId) return;
@@ -180,8 +214,12 @@ export default function PlannerPage() {
     // Everything that belongs on the grid, normalized to one shape.
     const items: PlannerItem[] = useMemo(() => {
         const fromTasks = tasks
+            .filter(task => shouldRenderForecast(task, attempts))
             .map(taskToItem)
             .filter((i): i is PlannerItem => i !== null);
+        const actual = attempts.flatMap(attempt => (
+            actualAttemptToItems(attempt, new Date(clockNow))
+        ));
 
         // Overdue work that isn't scheduled anywhere would otherwise be invisible
         // on the grid. Surfaced as all-day chips on today so it stays in view.
@@ -198,10 +236,11 @@ export default function PlannerPage() {
         return [
             ...events.map(eventToItem),
             ...fromTasks,
+            ...actual,
             ...overdue,
             ...reminders.filter(r => r.status === 'pending').map(reminderToItem),
         ];
-    }, [events, tasks, reminders, prefs.rollOverdueIntoToday]);
+    }, [attempts, clockNow, events, tasks, reminders, prefs.rollOverdueIntoToday]);
 
     // An empty teammate selection means no filter at all.
     const visibleItems = useMemo(() => {
@@ -362,6 +401,96 @@ export default function PlannerPage() {
         setSelected(taskToDetailItem(task));
     }, [dragHandles]);
 
+    const announceTimer = useCallback((message: string) => {
+        setAnnouncement('');
+        window.requestAnimationFrame(() => setAnnouncement(message));
+    }, []);
+
+    const canControlTimer = useCallback((item: PlannerItem) => {
+        if (item.source === 'actual_time') {
+            return Boolean(item.attemptId && getAttemptById(item.attemptId));
+        }
+        if (item.source !== 'task') return false;
+        const task = item.raw as Task;
+        const assigned = task.assigneeIds ?? [];
+        const alreadyTracking = [runningTimer, ...pausedTimers].some(attempt => (
+            attempt?.taskId === task.id
+        ));
+        return !alreadyTracking
+            && task.status !== 'done'
+            && (assigned.length === 0 || assigned.includes(userId));
+    }, [getAttemptById, pausedTimers, runningTimer, userId]);
+
+    const handleTimerAction = useCallback(async (
+        action: PlannerTimerAction,
+        item: PlannerItem,
+    ) => {
+        try {
+            if (action === 'start') {
+                if (item.source !== 'task') return;
+                const task = item.raw as Task;
+                if ([runningTimer, ...pausedTimers].some(attempt => attempt?.taskId === task.id)) return;
+                const changed = await startTask({
+                    taskId: task.id,
+                    taskTitle: task.title,
+                    clientId: task.clientId,
+                    clientName: task.clientName ?? 'Internal work',
+                });
+                if (changed) announceTimer(`Timer started for ${task.title}.`);
+                return;
+            }
+
+            const attempt = item.attemptId ? getAttemptById(item.attemptId) : null;
+            if (!attempt) throw new Error('Timer state changed. Refresh and try again.');
+            const title = attempt.taskTitle ?? item.title;
+            if (action === 'pause') {
+                if (!attempt.segments.some(segment => segment.endedAt === undefined)) return;
+                await pause(attempt);
+                announceTimer(`Timer paused for ${title}.`);
+                return;
+            }
+            if (action === 'resume') {
+                if (attempt.segments.some(segment => segment.endedAt === undefined)) return;
+                const changed = await resume(attempt);
+                if (changed) announceTimer(`Timer resumed for ${title}.`);
+                return;
+            }
+            if (attempt.reviewingAt) {
+                setReviewAttemptId(attempt.id);
+                return;
+            }
+            await beginStop(attempt);
+            setReviewAttemptId(attempt.id);
+            announceTimer(`Timer stopped for ${title}. Review the time entry.`);
+        } catch (cause) {
+            const message = cause instanceof Error ? cause.message : 'Unable to update the timer.';
+            setError(message);
+            announceTimer(`Timer update failed. ${message}`);
+        }
+    }, [
+        announceTimer, beginStop, getAttemptById, pause, pausedTimers, resume,
+        runningTimer, startTask,
+    ]);
+
+    const selectedItem = useMemo(() => {
+        if (!selected) return null;
+        if (selected.source === 'task') {
+            const task = selected.raw as Task;
+            const activeAttempt = attempts.find(attempt => (
+                attempt.taskId === task.id && attempt.status === 'in_progress'
+            ));
+            if (activeAttempt) {
+                return actualAttemptToItems(activeAttempt, new Date(clockNow))[0] ?? selected;
+            }
+        }
+        if (selected.source === 'actual_time' && selected.attemptId) {
+            return items.find(item => (
+                item.source === 'actual_time' && item.attemptId === selected.attemptId
+            )) ?? selected;
+        }
+        return items.find(item => item.id === selected.id) ?? selected;
+    }, [attempts, clockNow, items, selected]);
+
     return (
         <div className="flex h-full min-h-0 w-full overflow-hidden">
             <PlannerSidebar
@@ -422,6 +551,8 @@ export default function PlannerPage() {
                         workStartHour={prefs.workDayStartHour}
                         workEndHour={prefs.workDayEndHour}
                         onItemClick={setSelected}
+                        onTimerAction={handleTimerAction}
+                        canControlTimer={canControlTimer}
                         onCommit={handleCommit}
                         onCreate={handleCreate}
                         onUnschedule={handleUnschedule}
@@ -436,10 +567,10 @@ export default function PlannerPage() {
                 )}
             </div>
 
-            {selected && (
+            {selectedItem && (
                 <EventDetailPanel
-                    key={`${organization?.id ?? 'missing-organization'}:${selected.id}`}
-                    item={selected}
+                    key={`${organization?.id ?? 'missing-organization'}:${selectedItem.id}`}
+                    item={selectedItem}
                     members={members}
                     organizationId={organization?.id}
                     userId={userId}
@@ -453,6 +584,19 @@ export default function PlannerPage() {
                     onChanged={() => { setSelected(null); void reloadAll(); }}
                     onDeleted={() => { setSelected(null); void reloadAll(); }}
                     restoreFocusRef={plannerSurfaceRef}
+                    onTimerAction={handleTimerAction}
+                    canControlTimer={canControlTimer(selectedItem)}
+                />
+            )}
+
+            <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+                {announcement}
+            </div>
+
+            {reviewAttemptId && (
+                <StopConfirmSheet
+                    attemptId={reviewAttemptId}
+                    onClose={() => setReviewAttemptId(null)}
                 />
             )}
 

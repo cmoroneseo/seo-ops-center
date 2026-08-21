@@ -15,6 +15,7 @@ import { EventCard } from './EventCard';
 import { AllDayRow } from './AllDayRow';
 import { usePlannerDrag, DragCommit } from '@/lib/planner/use-planner-drag';
 import { plannerGridAccessibility, weekGridMinWidth } from '@/lib/planner/responsive';
+import type { PlannerTimerAction } from '@/lib/planner/actual-items';
 
 export interface PlannerDragHandles {
     beginSchedule: (taskId: string, title: string, durationMin: number, e: React.PointerEvent) => void;
@@ -30,6 +31,8 @@ interface WeekGridProps {
     workStartHour?: number;
     workEndHour?: number;
     onItemClick?: (item: PlannerItem) => void;
+    onTimerAction?: (action: PlannerTimerAction, item: PlannerItem) => void;
+    canControlTimer?: (item: PlannerItem) => boolean;
     onCommit?: (commit: DragCommit) => void | Promise<void>;
     onCreate?: (dayIndex: number, startMin: number, endMin: number) => void;
     onUnschedule?: (itemId: string) => void | Promise<void>;
@@ -58,6 +61,8 @@ export function WeekGrid({
     workStartHour = 9,
     workEndHour = 17,
     onItemClick,
+    onTimerAction,
+    canControlTimer,
     onCommit,
     onCreate,
     onUnschedule,
@@ -243,7 +248,10 @@ export function WeekGrid({
                                     id: i.id,
                                     startMin: minutesSinceMidnight(i.startsAt),
                                     endMin: minutesSinceMidnight(i.startsAt)
-                                        + Math.max(15, durationMinutes(i.startsAt, i.endsAt)),
+                                        + Math.max(
+                                            i.source === 'task' || i.source === 'actual_time' ? 30 : 15,
+                                            durationMinutes(i.startsAt, i.endsAt),
+                                        ),
                                     item: i,
                                 })),
                             ).map(({ item: packed, column, columnCount }) => (
@@ -254,9 +262,11 @@ export function WeekGrid({
                                     columnCount={columnCount}
                                     startHour={startHour}
                                     onClick={handleCardClick}
-                                    onMoveStart={beginMove}
-                                    onResizeStart={beginResize}
-                                    onKeyMove={handleKeyMove}
+                                    onMoveStart={packed.item.draggable ? beginMove : undefined}
+                                    onResizeStart={packed.item.draggable ? beginResize : undefined}
+                                    onKeyMove={packed.item.draggable ? handleKeyMove : undefined}
+                                    onTimerAction={onTimerAction}
+                                    canControlTimer={canControlTimer?.(packed.item)}
                                 />
                             ))}
 

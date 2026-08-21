@@ -5,8 +5,8 @@ import { useOrganization } from './organization-provider';
 import { getOpenTimerAttempts, mutateTimer, updateSessionNotes } from '@/lib/supabase/time-logs';
 import type { SessionNote, TimerAttempt } from '@/lib/types';
 import type { TimerMutationRequest, TimerStateResponse } from '@/lib/timer/contracts';
-import { getTask, updateTask } from '@/lib/supabase/tasks';
-import { shouldMoveBlockToNow, trackedBlockMinutes } from '@/lib/planner/timer-sync';
+import { updateTask } from '@/lib/supabase/tasks';
+import { trackedBlockMinutes } from '@/lib/planner/timer-sync';
 import {
     confirmAndSwitchTimer,
     finalizeTimerAttempt,
@@ -154,25 +154,14 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         confirmAndSwitchTimer({ running: runningTimer, target, confirm: confirmSwitch, mutate })
     ), [mutate, runningTimer]);
 
-    const movePlannerBlockToStart = useCallback(async (taskId: string) => {
-        const now = new Date();
-        const { task } = await getTask(taskId);
-        if (!task || !shouldMoveBlockToNow(task.startDate, now)) return;
-        const updated = await updateTask(taskId, { startDate: now.toISOString() });
-        if (updated.success) window.dispatchEvent(new Event('planner:data-changed'));
-    }, []);
-
     const startTask = useCallback(async (options: StartTaskOptions, confirmSwitch?: TimerSwitchConfirmation) => {
         if (!options.taskId) return false;
         if (runningTimer) {
-            const switched = await switchToTask({ taskId: options.taskId, title: options.taskTitle ?? options.clientName }, confirmSwitch);
-            if (switched) void movePlannerBlockToStart(options.taskId);
-            return switched;
+            return switchToTask({ taskId: options.taskId, title: options.taskTitle ?? options.clientName }, confirmSwitch);
         }
         await mutate({ action: 'start', taskId: options.taskId });
-        void movePlannerBlockToStart(options.taskId);
         return true;
-    }, [movePlannerBlockToStart, mutate, runningTimer, switchToTask]);
+    }, [mutate, runningTimer, switchToTask]);
 
     const pause = useCallback(async (attempt: TimerAttempt) => {
         if (attempt.id !== runningTimer?.id) return;

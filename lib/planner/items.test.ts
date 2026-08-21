@@ -4,7 +4,8 @@ import {
     parseTaskStart, taskToItem, taskBlockMinutes, overdueTaskToItem, TASK_DEFAULT_MINUTES,
     plannerSourceLabel, plannerTimeLabel, taskToDetailItem, eventToItem, reminderToItem,
 } from './items.ts';
-import type { PlannerEvent, Reminder, Task } from '../types';
+import type { PlannerEvent, Reminder, Task, TimerAttempt } from '../types';
+import type { PlannerItem } from './items.ts';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
     return {
@@ -187,6 +188,27 @@ test('plannerSourceLabel describes task and event kinds without using card color
     for (const [kind, label] of expected) {
         assert.equal(plannerSourceLabel(eventToItem(makeEvent({ kind }))), label);
     }
+});
+
+test('actual work labels its source, actual range, and active duration', () => {
+    const item = {
+        id: 'actual:attempt-1:0',
+        source: 'actual_time',
+        title: 'Write launch brief',
+        startsAt: '2026-08-18T16:00:00.000Z',
+        endsAt: '2026-08-18T17:04:00.000Z',
+        allDay: false,
+        kind: 'focus',
+        attendeeIds: [],
+        draggable: false,
+        raw: {} as TimerAttempt,
+        attemptId: 'attempt-1',
+        activeSeconds: 3_600,
+        timerState: 'paused',
+    } as PlannerItem;
+
+    assert.equal(plannerSourceLabel(item), 'Actual work');
+    assert.match(plannerTimeLabel(item), /1 hr active$/);
 });
 
 test('plannerTimeLabel displays all-day work as All day instead of midnight', () => {
