@@ -185,7 +185,7 @@ A self-contained tenant for testing features against production **without touchi
 - Org: **Sandbox (testing)** — `06e536b9-beac-49bc-8c96-1df021102590`
 - Client: **Sandbox Client A** — `cbba5b14-7e24-4913-b396-0fff7fb2df17`, 10 SEO hrs/mo, Active
 - Basecamp project: **SEO Ops Sandbox (testing)** — `48599958` (disposable; not real work)
-- Basecamp todolist: none currently. The to-do path needs a todolist; create one in the project and set it as the client's Default Todolist in IntegrationsTab. (The old `SEO Tasks` list was deleted after testing; the client's `basecamp_todolist_id` may still point at it until reconfigured — a task push into a trashed list fails silently.)
+- Basecamp todolist: none. The to-do path needs a todolist — create one in the project and set it as the client's Default Todolist in IntegrationsTab. (The `SEO Tasks` test list was deleted and the client's `basecamp_todolist_id` cleared.)
 
 RLS scopes everything by `organization_id`, so the sandbox org is invisible to your real 46-client workspace, KPIs, and reports. Switch into it via the top-nav org switcher.
 
