@@ -157,6 +157,7 @@ https://seo-ops-center.vercel.app
 032: identity bootstrap, invites, OAuth replay, basecamp recording provenance (applied — verified against the DB Aug 2026: `organization_invites`, `basecamp_oauth_states`, `time_logs.basecamp_recording_id` all present)
 033: time_log_segments + timer RPCs (applied Aug 2026 — verified against the DB: all six RPCs resolve and reject `anon` with 42501)
 034: start_task_timer project-less fix (applied Aug 2026 — verified live). Supersedes 033's `start_task_timer`; **never edit 033 in place**, supersede it with a new migration
+036: task completion time reconciliation (applied Aug 24, 2026 — verified live: authenticated RPC available, anon execution denied, idempotency index present)
 
 To re-check the 031/032 triggers directly, run in the Supabase SQL editor:
 

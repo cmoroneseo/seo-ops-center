@@ -119,9 +119,15 @@ function ReviewToggle({
 interface StopConfirmSheetProps {
     attemptId: string;
     onClose: () => void;
+    /** Completion initiated from a Done transition keeps that intent selected. */
+    defaultMarkTaskComplete?: boolean;
 }
 
-export function StopConfirmSheet({ attemptId, onClose }: StopConfirmSheetProps) {
+export function StopConfirmSheet({
+    attemptId,
+    onClose,
+    defaultMarkTaskComplete = false,
+}: StopConfirmSheetProps) {
     const { finalize, discard, editNote, getAttemptById } = useTimer();
     const timer = getAttemptById(attemptId);
     const [description, setDescription] = useState('');
@@ -171,11 +177,11 @@ export function StopConfirmSheet({ attemptId, onClose }: StopConfirmSheetProps) 
         const defaults = stopReviewDefaults(reviewed);
         setBillable(defaults.billable);
         setCountsTowardBudget(defaults.countsTowardBudget);
-        setMarkTaskComplete(defaults.markTaskComplete);
+        setMarkTaskComplete(defaultMarkTaskComplete || defaults.markTaskComplete);
         setShowNotes(timerNoteCount > 0);
         // Defaults are seeded once per reviewed attempt.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [timerId]);
+    }, [defaultMarkTaskComplete, timerId]);
 
     const handleStop = async (e: React.FormEvent) => {
         e.preventDefault();

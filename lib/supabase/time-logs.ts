@@ -226,6 +226,40 @@ export async function createTimeLog(
     }
 }
 
+/**
+ * Log a task's reconciled completion time with an exact planner segment.
+ * The database operation ID makes retries return the original entry instead of
+ * duplicating it when the subsequent task-status update needs to be retried.
+ */
+export async function logTaskCompletionTime(input: {
+    taskId: string;
+    additionalMinutes: number;
+    operationId: string;
+    timeZone: string;
+    syncToBasecamp?: boolean;
+}): Promise<{ success: boolean; timeLogId?: string; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
+    try {
+        const { data, error } = await supabase.rpc('log_task_completion_time', {
+            p_task_id: input.taskId,
+            p_minutes: input.additionalMinutes,
+            p_operation_id: input.operationId,
+            p_time_zone: input.timeZone,
+            p_logged_at: new Date().toISOString(),
+        });
+        if (error) throw error;
+        const row = Array.isArray(data) ? data[0] : data;
+        const timeLogId = row?.time_log_id as string | undefined;
+        if (!timeLogId) return { success: false, error: 'Time entry was not returned' };
+        if (input.syncToBasecamp) pushTimeLogToBasecamp(timeLogId, true);
+        return { success: true, timeLogId };
+    } catch (error: any) {
+        console.error('Error logging task completion time:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 /** Has this planner block already been logged? Keeps the action idempotent. */
 export async function getTimeLogForPlannerEvent(eventId: string): Promise<TimeLog | null> {
     const supabase = createClient();

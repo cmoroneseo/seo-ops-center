@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { X, Clock, Calendar, Tag, CheckSquare, MessageSquare, ChevronDown, Trash2, Plus, UserCircle2, PenLine, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { X, Clock, Calendar, Tag, CheckSquare, MessageSquare, ChevronDown, Trash2, Plus, UserCircle2, PenLine, RefreshCw, Building2 } from 'lucide-react';
 import {
     createTimeLog,
+    getClientTimesheetSyncEnabled,
     getTaskTimeLogs,
+    logTaskCompletionTime,
     retryTimeLogBasecampSync,
 } from '@/lib/supabase/time-logs';
 import { cn } from '@/lib/utils';
@@ -14,6 +16,9 @@ import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useTimer } from '@/components/providers/timer-provider';
 import { groupSegmentsForDisplay, sumActiveSeconds } from '@/lib/timer/segments';
+import { completeTaskWithReconciliation } from '@/lib/tasks/task-completion';
+import { TaskCompletionDrawer } from './TaskCompletionDrawer';
+import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
 
 interface TaskDetailModalProps {
     task: Task | null;
@@ -126,13 +131,14 @@ function TaskTimeLogRow({
 
 export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId }: TaskDetailModalProps) {
     const { organization, memberships } = useOrganization();
-    const { runningTimer, startTask, pause } = useTimer();
+    const { runningTimer, pausedTimers, startTask, pause, beginStop } = useTimer();
     const [mounted, setMounted] = useState(false);
     const [saving, setSaving] = useState(false);
     const [comments, setComments] = useState<TaskComment[]>([]);
     const [newComment, setNewComment] = useState('');
     const [postingComment, setPostingComment] = useState(false);
     const [loggedHours, setLoggedHours] = useState(0);
+    const [loadingTaskTime, setLoadingTaskTime] = useState(false);
     const [timeLogs, setTimeLogs] = useState<TimerAttempt[]>([]);
     const [retryingLogId, setRetryingLogId] = useState<string | null>(null);
     const [subtasks, setSubtasks] = useState<Task[]>([]);
@@ -156,6 +162,11 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const [logDate, setLogDate] = useState(new Date().toISOString().slice(0, 10));
     const [logNote, setLogNote] = useState('');
     const [submittingLog, setSubmittingLog] = useState(false);
+    const [showCompletion, setShowCompletion] = useState(false);
+    const [completing, setCompleting] = useState(false);
+    const [completionError, setCompletionError] = useState<string | null>(null);
+    const [completionReviewAttemptId, setCompletionReviewAttemptId] = useState<string | null>(null);
+    const completionOperationId = useRef<string | null>(null);
 
     useEffect(() => { setMounted(true); }, []);
 
@@ -170,6 +181,12 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         setDueDate(task.dueDate ? task.dueDate.slice(0, 10) : '');
         setTags(task.tags ?? []);
         setAssigneeIds(task.assigneeIds ?? []);
+        setLoggedHours(0);
+        setTimeLogs([]);
+        setLoadingTaskTime(true);
+        setShowCompletion(false);
+        setCompletionError(null);
+        completionOperationId.current = null;
     }, [task?.id]);
 
     // Fetch org members once per organization
@@ -186,15 +203,20 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     // Load comments + hours when task opens
     const loadTaskData = useCallback(async () => {
         if (!task) return;
-        const [commentsData, taskData, logs] = await Promise.all([
-            getTaskComments(task.id),
-            getTask(task.id),
-            getTaskTimeLogs(task.id),
-        ]);
-        setComments(commentsData);
-        setLoggedHours(taskData.loggedHours);
-        setSubtasks(taskData.subtasks);
-        setTimeLogs(logs);
+        setLoadingTaskTime(true);
+        try {
+            const [commentsData, taskData, logs] = await Promise.all([
+                getTaskComments(task.id),
+                getTask(task.id),
+                getTaskTimeLogs(task.id),
+            ]);
+            setComments(commentsData);
+            setLoggedHours(taskData.loggedHours);
+            setSubtasks(taskData.subtasks);
+            setTimeLogs(logs);
+        } finally {
+            setLoadingTaskTime(false);
+        }
     }, [task?.id]);
 
     const handleRetryBasecamp = useCallback(async (log: TimerAttempt) => {
@@ -234,8 +256,90 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     }, [task?.id, currentUserId, onUpdate]);
 
     const handleStatusChange = async (newStatus: TaskStatus) => {
+        if (newStatus === 'done' && status !== 'done') {
+            setCompletionError(null);
+            setShowCompletion(true);
+            return;
+        }
         setStatus(newStatus);
         await save({ status: newStatus });
+    };
+
+    const openAttempt = task
+        ? [runningTimer, ...pausedTimers].find(attempt => attempt?.taskId === task.id) ?? null
+        : null;
+
+    const completeTask = async (additionalMinutes: number) => {
+        if (!task || completing) return;
+        setCompleting(true);
+        setCompletionError(null);
+        completionOperationId.current ??= crypto.randomUUID();
+        const operationId = completionOperationId.current;
+        const syncToBasecamp = additionalMinutes > 0
+            ? await getClientTimesheetSyncEnabled(task.clientId)
+            : false;
+        const result = await completeTaskWithReconciliation({
+            taskId: task.id,
+            additionalMinutes,
+            operationId,
+        }, {
+            logTime: input => logTaskCompletionTime({
+                ...input,
+                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+                syncToBasecamp,
+            }),
+            markDone: async taskId => {
+                const current = await getTask(taskId);
+                if (current.task?.status === 'done') {
+                    return { success: true, task: current.task };
+                }
+                const updated = await updateTask(taskId, {
+                    status: 'done',
+                    updatedBy: currentUserId,
+                });
+                return {
+                    success: updated.success,
+                    task: updated.data,
+                    error: updated.error,
+                };
+            },
+        });
+        setCompleting(false);
+        if (!result.success) {
+            setCompletionError(result.timeLogId
+                ? 'Time was saved, but the task could not be completed. Retry to finish it.'
+                : result.error);
+            return;
+        }
+        setStatus('done');
+        setShowCompletion(false);
+        completionOperationId.current = null;
+        onUpdate?.(result.task);
+        await loadTaskData();
+        window.dispatchEvent(new Event('planner:data-changed'));
+        window.dispatchEvent(new Event('task:data-changed'));
+    };
+
+    const stopAndComplete = async () => {
+        if (!openAttempt) return;
+        try {
+            if (!openAttempt.reviewingAt) await beginStop(openAttempt);
+            setShowCompletion(false);
+            setCompletionReviewAttemptId(openAttempt.id);
+        } catch (error) {
+            setCompletionError(error instanceof Error ? error.message : 'Unable to stop the timer.');
+        }
+    };
+
+    const finishStopReview = async () => {
+        setCompletionReviewAttemptId(null);
+        if (!task) return;
+        const refreshed = await getTask(task.id);
+        if (refreshed.task) {
+            setStatus(refreshed.task.status);
+            onUpdate?.(refreshed.task);
+        }
+        await loadTaskData();
     };
 
     const handlePriorityChange = async (newPriority: TaskPriority) => {
@@ -448,6 +552,12 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                 className="w-full bg-transparent border-none text-xl font-bold p-0 focus:ring-0 placeholder:text-muted-foreground"
                                 placeholder="Task title…"
                             />
+                            {task.clientName && (
+                                <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                                    <Building2 className="h-3.5 w-3.5" />
+                                    <span>{task.clientName}</span>
+                                </div>
+                            )}
                         </div>
 
                         {/* Description */}
@@ -565,14 +675,6 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                         );
                                     })}
                                 </div>
-                            </div>
-                        )}
-
-                        {/* Client Context */}
-                        {task.clientName && (
-                            <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/10">
-                                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Client</label>
-                                <p className="font-semibold text-foreground mt-1">{task.clientName}</p>
                             </div>
                         )}
 
@@ -827,8 +929,33 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                             </div>
                         </div>
                     </div>
+
+                    {showCompletion && (
+                        <TaskCompletionDrawer
+                            task={task}
+                            trackedHours={loggedHours}
+                            hasOpenAttempt={Boolean(openAttempt)}
+                            isLoadingTime={loadingTaskTime}
+                            isSubmitting={completing}
+                            error={completionError}
+                            onClose={() => {
+                                setShowCompletion(false);
+                                setCompletionError(null);
+                            }}
+                            onComplete={minutes => void completeTask(minutes)}
+                            onStopAndReview={() => void stopAndComplete()}
+                        />
+                    )}
                 </div>
             </div>
+
+            {completionReviewAttemptId && (
+                <StopConfirmSheet
+                    attemptId={completionReviewAttemptId}
+                    defaultMarkTaskComplete
+                    onClose={() => void finishStopReview()}
+                />
+            )}
         </>
     );
 }
