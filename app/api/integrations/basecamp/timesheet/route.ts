@@ -16,6 +16,8 @@ import {
 import { createBasecampTimesheetGet } from '@/lib/basecamp/resource-routes';
 import {
     createBasecampTimesheetPost,
+    persistTimesheetRecordingCache,
+    resolveBasecampTimesheetRecording,
     selectAdoptableTimesheetEntry,
 } from '@/lib/basecamp/timesheet-post-route';
 import { createSupabaseBasecampProjectAccessSource } from '@/lib/basecamp/supabase-project-access-source';
@@ -151,17 +153,20 @@ export async function POST(req: NextRequest) {
                 ? { entryId: String(entry.id), recordingId: String(recordingId) }
                 : null;
         },
-        async resolveRecording(projectId, candidateRecordingId) {
-            if (candidateRecordingId) {
-                const todo = await getBasecampTodo(projectId, candidateRecordingId);
-                if (todo && String(todo.id) === candidateRecordingId) return candidateRecordingId;
-            }
-            const projectRecordingId = await findProjectTimesheetRecordingId(projectId);
-            if (!projectRecordingId) return null;
-            const normalizedProjectRecordingId = String(projectRecordingId);
-            return !candidateRecordingId || candidateRecordingId === normalizedProjectRecordingId
-                ? normalizedProjectRecordingId
-                : null;
+        async resolveRecording(projectId, candidateRecordingId, candidateKind) {
+            return resolveBasecampTimesheetRecording(
+                projectId,
+                candidateRecordingId,
+                candidateKind,
+                {
+                    getTodo: (candidateProjectId, todoId) => (
+                        getBasecampTodo(candidateProjectId, todoId)
+                    ),
+                    findProjectTimesheetRecordingId: candidateProjectId => (
+                        findProjectTimesheetRecordingId(candidateProjectId)
+                    ),
+                },
+            );
         },
         async performAuthorized(body, context) {
             if (!isBasecampConfigured()) {
@@ -219,14 +224,14 @@ export async function POST(req: NextRequest) {
             }
 
             const recordingId = Number(context.recordingId);
-            if (log.clientId) {
-                await admin.from('clients').update({
-                    custom_fields: {
-                        ...(log.clientCustomFields ?? {}),
-                        basecamp_timesheet_recording_id: recordingId,
-                    },
-                }).eq('id', log.clientId).eq('organization_id', log.organizationId);
-            }
+            // Cache only the genuine project-level timesheet recording (never a
+            // task's to-do), and merge it in so concurrent custom_fields keys
+            // survive instead of being clobbered by a stale snapshot spread.
+            await persistTimesheetRecordingCache(
+                log,
+                context.recordingId,
+                args => admin.rpc('merge_client_custom_fields', args),
+            );
 
             // A previous sync failed, so its create may have succeeded with a lost
             // response. Adopt that entry from provider provenance before creating.
