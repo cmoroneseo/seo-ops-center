@@ -64,6 +64,48 @@ const verifyEntry = async (_projectId: string, entryId: string) => ({
 });
 const resolveRecording = async (_projectId: string, candidate: string | null) => candidate ?? '66';
 
+test('a cached project-timesheet candidate that resolves to a to-do is discarded and rediscovered', async () => {
+    const { resolveBasecampTimesheetRecording } = await loadRouteModule();
+    const lookedUp: string[] = [];
+
+    const recordingId = await resolveBasecampTimesheetRecording(
+        '202',
+        '10228452358',
+        'project-timesheet',
+        {
+            getTodo: async (_projectId, candidateId) => {
+                lookedUp.push(`todo:${candidateId}`);
+                return { id: 10228452358 };
+            },
+            findProjectTimesheetRecordingId: async projectId => {
+                lookedUp.push(`timesheet:${projectId}`);
+                return 10228411459;
+            },
+        },
+    );
+
+    assert.equal(recordingId, '10228411459');
+    assert.deepEqual(lookedUp, ['todo:10228452358', 'timesheet:202']);
+});
+
+test('a task to-do candidate is accepted without substituting the project timesheet recording', async () => {
+    const { resolveBasecampTimesheetRecording } = await loadRouteModule();
+
+    const recordingId = await resolveBasecampTimesheetRecording(
+        '202',
+        '10228452358',
+        'task-todo',
+        {
+            getTodo: async () => ({ id: 10228452358 }),
+            findProjectTimesheetRecordingId: async () => {
+                throw new Error('project recording discovery must not run for a verified task to-do');
+            },
+        },
+    );
+
+    assert.equal(recordingId, '10228452358');
+});
+
 test('timesheet POST rejects unauthenticated and untrusted internal direct calls before store or provider work', async () => {
     const { createBasecampTimesheetPost } = await loadRouteModule();
     for (const denial of [
@@ -304,9 +346,9 @@ test('timesheet verifies a recording under the authorized project before create'
         createStore: () => ({ getTimeLog: async () => baseLog }),
         createAccessSource: () => externalSource(),
         verifyEntry: async () => { throw new Error('entry lookup must not run'); },
-        resolveRecording: async (projectId, candidate) => {
+        resolveRecording: async (projectId, candidate, candidateKind) => {
             resolved = true;
-            assert.deepEqual([projectId, candidate], ['202', '77']);
+            assert.deepEqual([projectId, candidate, candidateKind], ['202', '77', 'task-todo']);
             return '77';
         },
         performAuthorized: async (_body, context) => {
@@ -320,6 +362,35 @@ test('timesheet verifies a recording under the authorized project before create'
     assert.equal(response.status, 200);
     assert.equal(resolved, true);
     assert.equal(recordingId, '77');
+});
+
+test('timesheet identifies a non-task cached recording as a project-timesheet candidate', async () => {
+    const { createBasecampTimesheetPost } = await loadRouteModule();
+    let candidateKind: string | null = null;
+    const post = createBasecampTimesheetPost({
+        authorizeTimeLog: async () => clientAuthorization,
+        createStore: () => ({
+            getTimeLog: async () => ({
+                ...baseLog,
+                taskId: null,
+                taskBasecampTodoId: null,
+                taskBasecampProjectId: null,
+                cachedRecordingId: '10228452358',
+            }),
+        }),
+        createAccessSource: () => externalSource(),
+        verifyEntry: async () => { throw new Error('entry lookup must not run'); },
+        resolveRecording: async (_projectId, _candidate, kind) => {
+            candidateKind = kind;
+            return '10228411459';
+        },
+        performAuthorized: async () => Response.json({ success: true }),
+    });
+
+    const response = await post(request({ action: 'sync', timeLogId: 'log-a' }));
+
+    assert.equal(response.status, 200);
+    assert.equal(candidateKind, 'project-timesheet');
 });
 
 test('a lost create response is adopted on retry instead of duplicating the provider entry', async () => {
@@ -374,6 +445,73 @@ test('adoption matches an empty provider description against an empty local desc
     );
 
     assert.equal(adopted, '41');
+});
+
+test('a to-do-path sync never caches the to-do id as the project timesheet recording', async () => {
+    const { planTimesheetRecordingCacheWrite } = await loadRouteModule();
+
+    // Task-linked sync: context.recordingId is the task's to-do (10228452358),
+    // not the project timesheet recording (10228411459). Caching it would send
+    // the next non-task sync to that stale to-do.
+    const write = planTimesheetRecordingCacheWrite(
+        { clientId: 'client-a', taskBasecampTodoId: '10228452358' },
+        '10228452358',
+    );
+
+    assert.equal(write, null);
+});
+
+test('a project-timesheet sync caches only the recording key as an additive patch', async () => {
+    const { planTimesheetRecordingCacheWrite } = await loadRouteModule();
+
+    // Non-task sync resolved the real project timesheet recording. The write is a
+    // one-key merge patch, so other custom_fields keys (e.g. basecamp_todolist_id)
+    // are preserved rather than clobbered by a stale snapshot spread.
+    const write = planTimesheetRecordingCacheWrite(
+        { clientId: 'client-a', taskBasecampTodoId: null },
+        '10228411459',
+    );
+
+    assert.deepEqual(write, { patch: { basecamp_timesheet_recording_id: 10228411459 } });
+    assert.deepEqual(Object.keys(write?.patch ?? {}), ['basecamp_timesheet_recording_id']);
+});
+
+test('a task-linked sync that resolved a project recording distinct from the to-do still caches it', async () => {
+    const { planTimesheetRecordingCacheWrite } = await loadRouteModule();
+
+    const write = planTimesheetRecordingCacheWrite(
+        { clientId: 'client-a', taskBasecampTodoId: '10228452358' },
+        '10228411459',
+    );
+
+    assert.deepEqual(write, { patch: { basecamp_timesheet_recording_id: 10228411459 } });
+});
+
+test('the recording cache write is skipped for internal (client-less) time logs', async () => {
+    const { planTimesheetRecordingCacheWrite } = await loadRouteModule();
+
+    assert.equal(
+        planTimesheetRecordingCacheWrite({ clientId: null, taskBasecampTodoId: null }, '10228411459'),
+        null,
+    );
+});
+
+test('a failed atomic recording-cache merge is surfaced before provider creation can continue', async () => {
+    const { persistTimesheetRecordingCache } = await loadRouteModule();
+    const databaseError = new Error('merge_client_custom_fields is unavailable');
+
+    await assert.rejects(
+        persistTimesheetRecordingCache(
+            {
+                organizationId: 'org-a',
+                clientId: 'client-a',
+                taskBasecampTodoId: null,
+            },
+            '10228411459',
+            async () => ({ error: databaseError }),
+        ),
+        databaseError,
+    );
 });
 
 test('repeated lost responses adopt the oldest unclaimed duplicate rather than creating another', async () => {

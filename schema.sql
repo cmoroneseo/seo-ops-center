@@ -2553,3 +2553,29 @@ $$;
 
 revoke execute on function public.finalize_time_attempt(uuid, text, boolean, boolean, text, uuid, timestamptz) from public, anon;
 grant execute on function public.finalize_time_attempt(uuid, text, boolean, boolean, text, uuid, timestamptz) to authenticated;
+
+-- Migration 035: atomic jsonb merge for clients.custom_fields
+create or replace function public.merge_client_custom_fields(
+  p_client_id uuid,
+  p_organization_id uuid,
+  p_patch jsonb
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_patch is null or jsonb_typeof(p_patch) <> 'object' then
+    raise exception 'p_patch must be a jsonb object' using errcode = '22004';
+  end if;
+
+  update public.clients
+     set custom_fields = coalesce(custom_fields, '{}'::jsonb) || p_patch
+   where id = p_client_id
+     and organization_id = p_organization_id;
+end;
+$$;
+
+revoke all on function public.merge_client_custom_fields(uuid, uuid, jsonb) from public;
+grant execute on function public.merge_client_custom_fields(uuid, uuid, jsonb) to service_role;

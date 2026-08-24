@@ -104,12 +104,98 @@ export function selectAdoptableTimesheetEntry(
         .sort((left, right) => Number(left) - Number(right))[0] ?? null;
 }
 
+/**
+ * Decides whether a completed sync should refresh the cached project-timesheet
+ * recording on the client (clients.custom_fields.basecamp_timesheet_recording_id).
+ *
+ * That cache only exists to let resolveRecording skip rediscovery of the
+ * PROJECT-LEVEL timesheet recording. A task-linked sync resolves to the task's
+ * to-do id instead, so caching that here would make the next NON-task sync read
+ * a stale to-do as its candidate and attach project time to the wrong recording.
+ * Returns a merge patch (never a full custom_fields object, so concurrent keys
+ * survive) or null when there is nothing safe to cache.
+ */
+export function planTimesheetRecordingCacheWrite(
+    log: Pick<CanonicalTimeLog, 'clientId' | 'taskBasecampTodoId'>,
+    recordingId: string | number | null,
+): { patch: { basecamp_timesheet_recording_id: number } } | null {
+    if (!log.clientId) return null;
+    const recording = numericId(recordingId);
+    if (!recording) return null;
+    const taskTodoId = numericId(log.taskBasecampTodoId);
+    if (taskTodoId !== null && taskTodoId === recording) return null;
+    return { patch: { basecamp_timesheet_recording_id: Number(recording) } };
+}
+
+interface RecordingCacheMergeArguments {
+    p_client_id: string;
+    p_organization_id: string;
+    p_patch: { basecamp_timesheet_recording_id: number };
+}
+
+export async function persistTimesheetRecordingCache(
+    log: Pick<CanonicalTimeLog, 'organizationId' | 'clientId' | 'taskBasecampTodoId'>,
+    recordingId: string | number | null,
+    merge: (
+        args: RecordingCacheMergeArguments,
+    ) => PromiseLike<{ error: unknown }>,
+): Promise<void> {
+    const cacheWrite = planTimesheetRecordingCacheWrite(log, recordingId);
+    if (!cacheWrite || !log.clientId) return;
+
+    const { error } = await merge({
+        p_client_id: log.clientId,
+        p_organization_id: log.organizationId,
+        p_patch: cacheWrite.patch,
+    });
+    if (error) throw error;
+}
+
 export interface AuthorizedTimeLogContext {
     authorization: Extract<TimeLogAuthorization, { ok: true }>;
     log: CanonicalTimeLog;
     projectId: string | null;
     recordingId: string | null;
     entryId: string | null;
+}
+
+export type RecordingCandidateKind = 'task-todo' | 'project-timesheet';
+
+interface TimesheetRecordingProvider {
+    getTodo(
+        projectId: string,
+        todoId: string,
+    ): Promise<{ id: string | number } | null>;
+    findProjectTimesheetRecordingId(projectId: string): Promise<string | number | null>;
+}
+
+/**
+ * Verifies a recording candidate according to where it came from. A task link
+ * may intentionally target a to-do. The client cache may only target the
+ * project-level timesheet recording; if that cache points at a to-do, discard
+ * it and rediscover the project recording so the next successful sync heals it.
+ */
+export async function resolveBasecampTimesheetRecording(
+    projectId: string,
+    candidateRecordingId: string | null,
+    candidateKind: RecordingCandidateKind,
+    provider: TimesheetRecordingProvider,
+): Promise<string | null> {
+    let candidate = numericId(candidateRecordingId);
+    if (candidate) {
+        const todo = await provider.getTodo(projectId, candidate);
+        const isMatchingTodo = numericId(todo?.id) === candidate;
+        if (candidateKind === 'task-todo') return isMatchingTodo ? candidate : null;
+        if (isMatchingTodo) candidate = null;
+    } else if (candidateKind === 'task-todo') {
+        return null;
+    }
+
+    const projectRecording = numericId(
+        await provider.findProjectTimesheetRecordingId(projectId),
+    );
+    if (!projectRecording) return null;
+    return !candidate || candidate === projectRecording ? projectRecording : null;
 }
 
 interface Dependencies {
@@ -126,7 +212,11 @@ interface Dependencies {
         projectId: string,
         entryId: string,
     ): Promise<{ entryId: string; recordingId: string } | null>;
-    resolveRecording(projectId: string, candidateRecordingId: string | null): Promise<string | null>;
+    resolveRecording(
+        projectId: string,
+        candidateRecordingId: string | null,
+        candidateKind: RecordingCandidateKind,
+    ): Promise<string | null>;
     performAuthorized(
         body: Record<string, unknown>,
         context: AuthorizedTimeLogContext,
@@ -166,6 +256,7 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
 
             let projectId: string | null;
             let recordingId: string | null = null;
+            let recordingCandidateKind: RecordingCandidateKind = 'project-timesheet';
             if (log.clientId) {
                 projectId = numericId(log.configuredProjectId);
                 if (!projectId) {
@@ -181,7 +272,10 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
                     return json({ error: 'Task Basecamp link does not match client configuration' }, 409);
                 }
                 if (action === 'sync') {
-                    if (taskProjectId === projectId && taskTodoId) recordingId = taskTodoId;
+                    if (taskProjectId === projectId && taskTodoId) {
+                        recordingId = taskTodoId;
+                        recordingCandidateKind = 'task-todo';
+                    }
                     if (!recordingId) recordingId = numericId(log.cachedRecordingId);
                 }
             } else {
@@ -236,6 +330,7 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
                 recordingId = await dependencies.resolveRecording(
                     projectAccess.projectId,
                     recordingId,
+                    recordingCandidateKind,
                 );
                 if (!recordingId) {
                     return json({ error: 'No verified Basecamp timesheet recording is available' }, 409);
