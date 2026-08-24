@@ -18,7 +18,9 @@ import {
 import { updatePlannerEvent, deletePlannerEvent } from '@/lib/supabase/planner-events';
 import {
     createTimeLog, getTimeLogForPlannerEvent, getClientTimesheetSyncEnabled,
+    getTaskTimeLogs, logTaskCompletionTime,
 } from '@/lib/supabase/time-logs';
+import { getTask, updateTask } from '@/lib/supabase/tasks';
 import { localDateForInstant, parseLocalDate } from '@/lib/planner/local-date';
 import { durationMinutes } from '@/lib/planner/layout';
 import { TeamMember } from './MeetWithFilter';
@@ -26,6 +28,8 @@ import { BasecampProjectPicker, type BasecampProject } from './BasecampProjectPi
 import { ACTUAL_STYLE, KIND_STYLES } from './EventCard';
 import { usePlannerDialogFocus } from './usePlannerDialogFocus';
 import { usePlannerSurfaceBehavior } from './usePlannerSurfaceBehavior';
+import { TaskCompletionDrawer } from '@/components/tasks/TaskCompletionDrawer';
+import { completeTaskWithReconciliation } from '@/lib/tasks/task-completion';
 
 interface EventDetailPanelProps {
     item: PlannerItem;
@@ -73,10 +77,37 @@ export function EventDetailPanel({
     // Internal time stays in SEO PM unless the person explicitly chooses a
     // Basecamp destination. Recents remain shortcuts, never an implicit sync.
     const [internalProject, setInternalProject] = useState<BasecampProject | undefined>(undefined);
+    const [taskTrackedHours, setTaskTrackedHours] = useState(0);
+    const [isLoadingTaskTime, setIsLoadingTaskTime] = useState(false);
+    const [showCompletion, setShowCompletion] = useState(false);
+    const [isCompleting, setIsCompleting] = useState(false);
+    const [completionError, setCompletionError] = useState<string | null>(null);
+    const completionOperationId = useRef<string | null>(null);
 
     useEffect(() => {
         setInternalProject(undefined);
     }, [organizationId]);
+
+    useEffect(() => {
+        if (!task?.id) {
+            setTaskTrackedHours(0);
+            setIsLoadingTaskTime(false);
+            return;
+        }
+        let cancelled = false;
+        setTaskTrackedHours(0);
+        setIsLoadingTaskTime(true);
+        void getTaskTimeLogs(task.id)
+            .then(logs => {
+                if (!cancelled) {
+                    setTaskTrackedHours(logs.reduce((sum, log) => sum + log.hours, 0));
+                }
+            })
+            .finally(() => {
+                if (!cancelled) setIsLoadingTaskTime(false);
+            });
+        return () => { cancelled = true; };
+    }, [task?.id]);
 
     // Has this block already been turned into time? Keeps the action idempotent.
     const eventId = event?.id;
@@ -171,6 +202,63 @@ export function EventDetailPanel({
         if (saved) onChanged();
     };
 
+    const changeTaskStatus = async (status: Task['status']) => {
+        if (!task) return;
+        if (status === 'done' && task.status !== 'done') {
+            setCompletionError(null);
+            setShowCompletion(true);
+            return;
+        }
+        const result = await updateTask(task.id, { status, updatedBy: userId });
+        if (result.success) onChanged();
+    };
+
+    const completeTask = async (additionalMinutes: number) => {
+        if (!task || isCompleting) return;
+        setIsCompleting(true);
+        setCompletionError(null);
+        completionOperationId.current ??= crypto.randomUUID();
+        const operationId = completionOperationId.current;
+        const syncToBasecamp = additionalMinutes > 0
+            ? await getClientTimesheetSyncEnabled(task.clientId)
+            : false;
+        const result = await completeTaskWithReconciliation({
+            taskId: task.id,
+            additionalMinutes,
+            operationId,
+        }, {
+            logTime: input => logTaskCompletionTime({
+                ...input,
+                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+                syncToBasecamp,
+            }),
+            markDone: async taskId => {
+                const current = await getTask(taskId);
+                if (current.task?.status === 'done') {
+                    return { success: true, task: current.task };
+                }
+                const updated = await updateTask(taskId, { status: 'done', updatedBy: userId });
+                return {
+                    success: updated.success,
+                    task: updated.data,
+                    error: updated.error,
+                };
+            },
+        });
+        setIsCompleting(false);
+        if (!result.success) {
+            setCompletionError(result.timeLogId
+                ? 'Time was saved, but the task could not be completed. Retry to finish it.'
+                : result.error);
+            return;
+        }
+        completionOperationId.current = null;
+        setShowCompletion(false);
+        window.dispatchEvent(new Event('planner:data-changed'));
+        window.dispatchEvent(new Event('task:data-changed'));
+        onChanged();
+    };
+
     const attendeeNames = (event?.attendeeIds ?? [])
         .map(id => members.find(m => m.userId === id)?.name)
         .filter(Boolean);
@@ -198,7 +286,7 @@ export function EventDetailPanel({
             aria-modal={surface.modal || undefined}
             aria-labelledby="planner-detail-heading"
             tabIndex={-1}
-            className="fixed inset-x-0 bottom-0 z-[70] flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-y-auto rounded-t-2xl border border-border bg-card shadow-2xl lg:static lg:z-auto lg:h-full lg:max-h-none lg:w-80 lg:shrink-0 lg:rounded-none lg:border-y-0 lg:border-r-0 lg:shadow-none"
+            className="fixed inset-x-0 bottom-0 z-[70] flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-y-auto rounded-t-2xl border border-border bg-card shadow-2xl lg:relative lg:z-auto lg:h-full lg:max-h-none lg:w-[28rem] lg:shrink-0 lg:rounded-none lg:border-y-0 lg:border-r-0 lg:shadow-none"
         >
             <div className="flex items-center gap-2 border-b border-border px-4 py-3">
                 <h2 id="planner-detail-heading" className="sr-only">{plannerSourceLabel(item)} details</h2>
@@ -233,6 +321,13 @@ export function EventDetailPanel({
                     className="w-full rounded-md bg-transparent text-base font-semibold outline-none focus:bg-muted focus:px-2 focus:py-1"
                 />
 
+                {task?.clientName && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Building2 className="h-3.5 w-3.5" />
+                        <span>{task.clientName}</span>
+                    </div>
+                )}
+
                 {task && !task.startDate ? (
                     <div className="text-xs text-muted-foreground">Unscheduled</div>
                 ) : (
@@ -248,7 +343,21 @@ export function EventDetailPanel({
                         <dt className="text-muted-foreground">Source</dt>
                         <dd>{plannerSourceLabel(item)}</dd>
                         <dt className="text-muted-foreground">Status</dt>
-                        <dd className="capitalize">{task.status.replaceAll('_', ' ')}</dd>
+                        <dd>
+                            <select
+                                value={task.status}
+                                onChange={event => void changeTaskStatus(event.target.value as Task['status'])}
+                                aria-label="Task status"
+                                className="w-full cursor-pointer bg-transparent capitalize text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            >
+                                <option value="todo">To Do</option>
+                                <option value="in_progress">In Progress</option>
+                                <option value="review">Review</option>
+                                <option value="approved">Approved</option>
+                                <option value="blocked">Blocked</option>
+                                <option value="done">Done</option>
+                            </select>
+                        </dd>
                         <dt className="text-muted-foreground">Priority</dt>
                         <dd className="capitalize">{task.priority}</dd>
                         <dt className="text-muted-foreground">Assignee</dt>
@@ -306,7 +415,7 @@ export function EventDetailPanel({
                     </div>
                 )}
 
-                {item.clientName && (
+                {item.clientName && !task && (
                     <div className="flex items-center gap-2 text-xs">
                         <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
                         {item.clientName}
@@ -451,6 +560,22 @@ export function EventDetailPanel({
                 >
                     <Trash2 className="h-3.5 w-3.5" /> Delete event
                 </button>
+            )}
+
+            {showCompletion && task && (
+                <TaskCompletionDrawer
+                    task={task}
+                    trackedHours={taskTrackedHours}
+                    hasOpenAttempt={false}
+                    isLoadingTime={isLoadingTaskTime}
+                    isSubmitting={isCompleting}
+                    error={completionError}
+                    onClose={() => {
+                        setShowCompletion(false);
+                        setCompletionError(null);
+                    }}
+                    onComplete={minutes => void completeTask(minutes)}
+                />
             )}
         </aside>
         </>

@@ -129,7 +129,7 @@ export function EventCard({
                     onKeyDown={handleKeyDown}
                     aria-label={item.source === 'actual_time'
                         ? presentation.accessibleName
-                        : `${item.title}, ${timeLabel}`}
+                        : `${item.title}${item.clientName ? `, ${item.clientName}` : ''}, ${timeLabel}`}
                     className={cn(
                         'absolute inset-0 w-full overflow-hidden text-left focus:outline-none',
                         isCompact ? 'px-1.5 py-0.5' : 'px-2 py-1',
@@ -146,6 +146,9 @@ export function EventCard({
                     ) : (
                         <>
                             <div className="truncate text-[11px] font-semibold leading-tight">{item.title}</div>
+                            {item.source === 'task' && item.clientName && (
+                                <div className="truncate text-[10px] opacity-70">{item.clientName}</div>
+                            )}
                             <div className="truncate text-[10px] opacity-75">
                                 {format(new Date(item.startsAt), 'h:mm')} – {format(new Date(item.endsAt), 'h:mm a')}
                             </div>
@@ -158,6 +161,9 @@ export function EventCard({
             ) : (
                 <div className={isCompact ? 'px-1.5 py-0.5' : 'px-2 py-1'}>
                     <div className="truncate text-[11px] font-semibold leading-tight">{item.title}</div>
+                    {!isCompact && item.source === 'task' && item.clientName && (
+                        <div className="truncate text-[10px] opacity-70">{item.clientName}</div>
+                    )}
                     <div className="truncate text-[10px] opacity-75">
                         {format(new Date(item.startsAt), 'h:mm')} – {format(new Date(item.endsAt), 'h:mm a')}
                     </div>
