@@ -526,6 +526,34 @@ export async function listBasecampProjectTimesheetEntries(
     }
 }
 
+/**
+ * List a project's timesheet entry ids and dates for reconciliation.
+ *
+ * Returns 'unavailable' rather than an empty list on failure — an empty sweep
+ * and a failed sweep must not look the same to the caller.
+ */
+export async function listBasecampTimesheetEntryStubs(
+    projectId: number | string,
+    maxPages = 20,
+): Promise<{ id: string; date: string }[] | 'unavailable'> {
+    try {
+        const pid = safeId(projectId, 'projectId');
+        const stubs: { id: string; date: string }[] = [];
+        let url: string | null = `${BASE_URL()}/projects/${pid}/timesheet.json`;
+        for (let page = 0; url && page < maxPages; page += 1) {
+            const res: Response = await basecampFetch(url);
+            if (!res.ok) return 'unavailable';
+            const entries = await res.json() as BasecampTimesheetEntry[];
+            stubs.push(...entries.map(entry => ({ id: String(entry.id), date: entry.date })));
+            url = parseNextLink(res.headers.get('Link'));
+        }
+        return stubs;
+    } catch (err) {
+        console.error('[Basecamp] listTimesheetEntryStubs error:', err);
+        return 'unavailable';
+    }
+}
+
 /** Create a timesheet entry under a recording (todo or project timesheet). */
 export async function createBasecampTimesheetEntry(
     recordingId: number | string,

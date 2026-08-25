@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Timesheets Ledger Grid — Implementation Plan</title>
+  <style>
+    :root { color-scheme: dark; --bg:#090909; --surface:#111; --line:#303030; --text:#f5f5f5; --muted:#a4a4a4; --pink:#ec008c; --cyan:#4fc3f7; --green:#65c877; --amber:#f6b64a; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:15px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width:1180px; margin:0 auto; padding:52px 28px 80px; }
+    h1,h2,h3 { line-height:1.15; margin:0 0 14px; } h1 { font-size:38px; } h2 { font-size:24px; margin-top:44px; padding-top:22px; border-top:1px solid var(--line); } h3 { font-size:18px; margin-top:28px; }
+    p,li { color:#dedede; } .muted { color:var(--muted); } .eyebrow { color:var(--pink); font-weight:700; letter-spacing:.08em; text-transform:uppercase; font-size:12px; }
+    .meta,.grid { display:grid; gap:14px; } .meta { grid-template-columns:repeat(3,1fr); margin:28px 0; } .grid { grid-template-columns:repeat(2,1fr); }
+    .card { padding:18px; background:var(--surface); border:1px solid var(--line); border-radius:12px; } .card strong { display:block; margin-bottom:4px; }
+    .hero { width:100%; border:1px solid var(--line); border-radius:14px; display:block; margin:24px 0 8px; }
+    code { color:#ffd2eb; background:#1a1117; padding:2px 5px; border-radius:4px; } pre { padding:16px; overflow:auto; background:#111; border:1px solid var(--line); border-radius:10px; color:#e8e8e8; }
+    table { width:100%; border-collapse:collapse; margin:18px 0; } th,td { text-align:left; padding:12px; vertical-align:top; border-bottom:1px solid var(--line); } th { color:var(--muted); font-size:12px; letter-spacing:.04em; text-transform:uppercase; }
+    .task { margin:22px 0; padding:20px; border:1px solid var(--line); border-left:3px solid var(--pink); border-radius:0 12px 12px 0; background:#0e0e0e; } .task h3 { margin-top:0; }
+    .tag { display:inline-block; margin-right:6px; padding:2px 8px; border:1px solid var(--line); border-radius:999px; font-size:12px; color:var(--muted); }
+    .callout { padding:16px 18px; border-left:3px solid var(--amber); background:#19150d; border-radius:0 8px 8px 0; } a { color:#ff6ab7; }
+    @media (max-width:720px) { main{padding:32px 18px 64px;} h1{font-size:30px;} .meta,.grid{grid-template-columns:1fr;} table{font-size:13px;} }
+  </style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">SEO PM App · Selected visual #1</p>
+  <h1>Timesheets Ledger Grid Implementation Plan</h1>
+  <p class="muted">Prepared for Claude Code · August 24, 2026</p>
+
+  <div class="meta">
+    <div class="card"><strong>Goal</strong>Create one trusted time ledger that presents native SEO PM and imported Basecamp time together, then lets managers review and approve each client’s monthly SEO-budget usage.</div>
+    <div class="card"><strong>Architecture</strong>Keep <code>time_logs</code> as the canonical ledger. Basecamp webhooks become verified import signals; UI read models derive weekly/team/monthly views from that ledger; approval snapshots are immutable audit records.</div>
+    <div class="card"><strong>Stack</strong>Next.js 15 App Router, React 19, TypeScript 5, Supabase/Postgres/RLS, Tailwind, Lucide, Node <code>node:test</code>.</div>
+  </div>
+  <p><strong>Spec:</strong> the approved Ledger Grid visual and product decisions are embedded in this document. Treat the selected visual below as the implementation source of truth.</p>
+
+  <h2>Selected visual target</h2>
+  <p>The implementation must use this as the visual source: black/charcoal surfaces, thin dividers, white type, muted metadata, and magenta as the primary action/selection color. Do not copy ClickUp branding or capacity-centric reporting.</p>
+  <img class="hero" src="assets/timesheets-ledger-grid-selected.png" alt="Selected Ledger Grid Timesheets design" />
+
+  <h2>Product decisions</h2>
+  <ul>
+    <li><strong>One ledger, not two:</strong> SEO PM and Basecamp entries are individual <code>time_logs</code> rows. Their source/provenance is visible but they are not duplicated in separate systems.</li>
+    <li><strong>Basecamp is event-driven plus recoverable:</strong> a Timesheet-entry webhook queues a verified import; scheduled reconciliation repairs missed/deactivated deliveries. Existing SEO PM → Basecamp sync remains intact.</li>
+    <li><strong>Weekly is the default:</strong> My Timesheet renders the selected Ledger Grid. Daily is a drill-down and Monthly is for client-budget review, not a cramped 31-column table.</li>
+    <li><strong>Managers see people and exceptions:</strong> Team provides Carlos/Abel/future-member filtering, totals, budget allocation, and unmapped entries. It does not present generic capacity as the core metric.</li>
+    <li><strong>Approval is client/month, across all team members:</strong> it locks a specific snapshot of eligible SEO time, writes a client activity event, and flags later source changes rather than silently altering the approved total.</li>
+    <li><strong>Human mapping is explicit:</strong> unresolved Basecamp person/project/task relationships become a review item. Do not guess a client, task, or user.</li>
+  </ul>
+
+  <div class="callout"><strong>Scope boundary:</strong> Deliver this as four independently deployable increments. Do not ship monthly approvals before inbound Basecamp entry identity and deduplication are durable.</div>
+
+  <h2>File structure and contracts</h2>
+  <table>
+    <thead><tr><th>Area</th><th>Files</th><th>Responsibility</th></tr></thead>
+    <tbody>
+      <tr><td>Database</td><td><code>migrations/038_timesheet_ledger.sql</code>, <code>schema.sql</code></td><td>Add time source, imported-entry provenance, unique external-entry identity, import-review state, approval snapshots, and RLS/RPC boundaries.</td></tr>
+      <tr><td>Domain</td><td><code>lib/timesheets/ledger.ts</code>, <code>lib/timesheets/review.ts</code> and tests</td><td>Pure aggregation, weekly rows, source labels, exception detection, and immutable client-month snapshot calculation.</td></tr>
+      <tr><td>Inbound Basecamp</td><td><code>lib/basecamp/timesheet-webhook-route.ts</code>, <code>app/api/integrations/basecamp/webhook/route.ts</code></td><td>Parse, verify, deduplicate, import/update/void Basecamp timesheet entries without trusting webhook payload state.</td></tr>
+      <tr><td>API/read models</td><td><code>app/api/timesheets/*</code>, <code>lib/supabase/time-logs.ts</code></td><td>Authenticated server-side query and mutation boundaries; no browser-supplied organization/user/provider identity is trusted.</td></tr>
+      <tr><td>UI</td><td><code>app/(dashboard)/timesheets/page.tsx</code>, <code>components/timesheets/*</code></td><td>Ledger Grid, team view, client review inspector, mapping sheet, and approval confirmation.</td></tr>
+      <tr><td>Audit trail</td><td><code>lib/supabase/client-activity.ts</code>, <code>components/workspace/ActivityFeed.tsx</code></td><td>Render client-month approval and post-approval-change events clearly.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Data model</h2>
+  <pre>time_logs (existing canonical ledger)
+  source: 'seo_pm' | 'basecamp'
+  basecamp_entry_id: bigint nullable
+  basecamp_project_id: bigint nullable
+  basecamp_recording_id: bigint nullable
+  import_status: 'mapped' | 'needs_review' | 'voided'
+  imported_at: timestamptz nullable
+  provider_updated_at: timestamptz nullable
+  voided_at: timestamptz nullable
+
+timesheet_client_approvals
+  id, organization_id, client_id, month ('YYYY-MM')
+  status: 'approved' | 'reopened'
+  approved_by, approved_at, note
+  budget_minutes, eligible_minutes, non_budget_minutes
+  snapshot jsonb
+
+timesheet_approval_entries
+  approval_id, time_log_id, included_minutes
+  unique (approval_id, time_log_id)</pre>
+  <p>Add a partial unique index on <code>time_logs(basecamp_entry_id)</code> where the value is not null. This is the hard deduplication invariant that prevents webhook echoes from producing a second time entry.</p>
+
+  <h2>Implementation tasks</h2>
+
+  <section class="task">
+    <h3>Task 1 — Establish durable ledger provenance</h3>
+    <span class="tag">Migration</span><span class="tag">TDD</span>
+    <p><strong>Files:</strong> Create <code>migrations/038_timesheet_ledger.sql</code>, <code>lib/timesheets/ledger-migration.test.ts</code>. Modify <code>schema.sql</code>, <code>lib/types.ts</code>.</p>
+    <ol>
+      <li>Write static migration tests asserting additive SQL, a partial unique <code>basecamp_entry_id</code> index, RLS, service-only provider fields, and exact schema mirror.</li>
+      <li>Run <code>node --test lib/timesheets/ledger-migration.test.ts</code>; expect RED.</li>
+      <li>Add the columns/types above; preserve existing <code>status</code> semantics and represent removed Basecamp entries with <code>import_status = 'voided'</code>, not a destructive delete.</li>
+      <li>Create <code>timesheet_client_approvals</code> and <code>timesheet_approval_entries</code>; prevent duplicate active approvals for one client/month.</li>
+      <li>Mirror migration 038 in <code>schema.sql</code>, run the focused test, then <code>npm run typecheck</code>.</li>
+      <li>Commit: <code>feat: add timesheet ledger provenance</code>.</li>
+    </ol>
+  </section>
+
+  <section class="task">
+    <h3>Task 2 — Build pure ledger and approval-snapshot logic</h3>
+    <span class="tag">Domain</span><span class="tag">TDD</span>
+    <p><strong>Files:</strong> Create <code>lib/timesheets/ledger.ts</code>, <code>lib/timesheets/ledger.test.ts</code>, <code>lib/timesheets/review.ts</code>, <code>lib/timesheets/review.test.ts</code>.</p>
+    <ol>
+      <li>Write failing fixtures for same-day grouping, client/task totals, weekly daily totals, budget-eligible versus non-budget totals, source identity, and unmapped rows.</li>
+      <li>Implement <code>buildWeeklyLedger(logs, weekStart, timezone)</code> returning client groups, task rows, seven local-date cells, totals, and exceptions.</li>
+      <li>Write failing approval tests: only mapped, non-voided rows qualify; approval records exact included IDs/minutes; late imported changes are detected against the stored snapshot.</li>
+      <li>Implement <code>buildClientMonthSnapshot(logs, budgetMinutes)</code> and <code>detectPostApprovalChanges(snapshot, logs)</code>. Never use current totals to overwrite an approved snapshot.</li>
+      <li>Run both focused files and <code>npm test</code>. Commit: <code>feat: add timesheet ledger read models</code>.</li>
+    </ol>
+  </section>
+
+  <section class="task">
+    <h3>Task 3 — Import verified Basecamp timesheet entries</h3>
+    <span class="tag">Integration</span><span class="tag">Security</span>
+    <p><strong>Files:</strong> Create <code>lib/basecamp/timesheet-webhook-route.ts</code> and tests. Modify <code>lib/basecamp/webhook-route.ts</code>, <code>app/api/integrations/basecamp/webhook/route.ts</code>, <code>lib/basecamp/api.ts</code>.</p>
+    <ol>
+      <li>Write tests for create, update, and delete/trash events; duplicate delivery; a locally-created entry echoed through Basecamp; unknown person; unmapped project; and provider failure.</li>
+      <li>Extend webhook routing to recognize Basecamp’s Timesheet-entry resource type. Preserve the existing event receipt table and return retryable failure when provider verification is unavailable.</li>
+      <li>Fetch the canonical Basecamp entry with OAuth before writing. Derive project/client, person/member, parent recording/task, date, hours, and description from trusted server state.</li>
+      <li>Upsert by <code>basecamp_entry_id</code>. Existing native rows with that ID are reconciled, not duplicated. Unresolved relationships produce a <code>needs_review</code> row with no guessed task/client assignment.</li>
+      <li>Void imported rows when the verified provider entry is absent/deleted; do not delete financial history.</li>
+      <li>Run focused tests, <code>npm test</code>, <code>npm run typecheck</code>, then commit: <code>feat: import Basecamp timesheet entries</code>.</li>
+    </ol>
+  </section>
+
+  <section class="task">
+    <h3>Task 4 — Add reconciliation and mapping recovery</h3>
+    <span class="tag">Reliability</span>
+    <p><strong>Files:</strong> Create <code>app/api/integrations/basecamp/timesheet/reconcile/route.ts</code>, <code>lib/basecamp/timesheet-reconcile.ts</code>, tests. Modify <code>lib/basecamp/api.ts</code>.</p>
+    <ol>
+      <li>Write tests for reconciliation over a configured client project, idempotent import, and no cross-organization reads.</li>
+      <li>Add a protected manager-only endpoint that reads a bounded date range from Basecamp and passes entries through the same importer used by webhooks.</li>
+      <li>Add a small mapping mutation for managers: assign an unresolved row to an authorized client/task/member; record who mapped it and when.</li>
+      <li>Expose the reconciliation endpoint to the production scheduler at a 60-minute cadence only after route tests pass. Keep manual “Sync now” available to managers.</li>
+      <li>Commit: <code>feat: reconcile Basecamp timesheet imports</code>.</li>
+    </ol>
+  </section>
+
+  <section class="task">
+    <h3>Task 5 — Ship My Timesheet (Ledger Grid)</h3>
+    <span class="tag">UI</span><span class="tag">Selected visual</span>
+    <p><strong>Files:</strong> Create <code>app/(dashboard)/timesheets/page.tsx</code>, <code>components/timesheets/TimesheetsShell.tsx</code>, <code>WeeklyLedgerGrid.tsx</code>, <code>LedgerInspector.tsx</code>, and component tests. Modify <code>components/dashboard/Sidebar.tsx</code>.</p>
+    <ol>
+      <li>Add a Timesheets navigation item and route. Default to the signed-in user and the local containing week.</li>
+      <li>Render source-aware but quiet rows: client/task grouping, Sun–Sat local-date columns, daily/weekly totals, a single compact budget summary strip, and one unmapped count.</li>
+      <li>Use progressive disclosure: selecting a row opens the right inspector with individual entries, source, description, mapping status, and “Open task”.</li>
+      <li>Keep manual add/edit actions on existing hardened time-log routes. Do not duplicate timer behavior in this screen.</li>
+      <li>Write browser/component tests for week navigation, selected-row inspector, source labels, and keyboard accessible grid/inspector focus. Commit: <code>feat: add weekly timesheet ledger</code>.</li>
+    </ol>
+  </section>
+
+  <section class="task">
+    <h3>Task 6 — Add Team Timesheets and exception review</h3>
+    <span class="tag">Manager-only</span>
+    <p><strong>Files:</strong> Create <code>components/timesheets/TeamTimesheetView.tsx</code>, <code>components/timesheets/MappingReviewSheet.tsx</code>. Create <code>app/api/timesheets/team/route.ts</code> and tests.</p>
+    <ol>
+      <li>Authorize manager/owner access server-side before returning team rows. Members can only read their own ledger.</li>
+      <li>Render Carlos, Abel, and future members as expandable summary rows: tracked, SEO-budget, non-budget, internal, unmapped count, and daily distribution.</li>
+      <li>Use the attention rail only for actionable issues: unmapped provider entries, over-budget clients, and post-approval changes.</li>
+      <li>Open the mapping sheet from an exception; require an explicit client/task/member selection and show the Basecamp source details before save.</li>
+      <li>Test role boundaries and that mapping never permits a cross-organization client/task. Commit: <code>feat: add team timesheet review</code>.</li>
+    </ol>
+  </section>
+
+  <section class="task">
+    <h3>Task 7 — Add monthly Client Review approvals and activity audit</h3>
+    <span class="tag">Approval</span><span class="tag">Audit</span>
+    <p><strong>Files:</strong> Create <code>app/api/timesheets/client-review/route.ts</code>, <code>app/api/timesheets/approvals/route.ts</code>, <code>components/timesheets/ClientReviewView.tsx</code>, <code>ApprovalInspector.tsx</code>, tests. Modify <code>lib/supabase/client-activity.ts</code>, <code>components/workspace/ActivityFeed.tsx</code>.</p>
+    <ol>
+      <li>Write failing server tests for a client/month snapshot: member forbidden, manager allowed, unmapped rows block approval, and over-budget approval requires a manager note.</li>
+      <li>Implement client-month queries with budget, eligible/non-budget totals, exceptions, and current approval state. Read budget settings from existing client data; do not create a second client budget source.</li>
+      <li>Create approval transaction: lock eligible rows, write approval/snapshot/join rows, and append <code>timesheet.client_month_approved</code> activity with client, month, totals, approver, and note.</li>
+      <li>Render the selected Client Close-style inspector: reconciliation, teammate breakdown, exceptions, note, exact primary approval copy, and post-approval-change status.</li>
+      <li>Add reopen action for managers. It creates an activity event and never edits the prior snapshot.</li>
+      <li>Run focused tests, full test suite, typecheck, and lint. Commit: <code>feat: approve monthly client timesheets</code>.</li>
+    </ol>
+  </section>
+
+  <section class="task">
+    <h3>Task 8 — Verify real workflow and release safely</h3>
+    <span class="tag">QA</span><span class="tag">Release</span>
+    <ol>
+      <li>In Basecamp, subscribe the configured project webhook to <strong>Timesheet entry</strong> and preserve the existing <strong>To-do</strong> subscription.</li>
+      <li>Log one entry as Abel in Basecamp, edit it, and delete it. Verify exactly one SEO PM row follows each change and the row is correctly attributed/mapped or visibly queued for review.</li>
+      <li>Log one entry in SEO PM with Basecamp sync enabled. Verify the inbound echo updates the existing row by <code>basecamp_entry_id</code> rather than creating another row.</li>
+      <li>Review a client month, approve it, then alter one included entry. Verify the approval snapshot remains unchanged and the client activity feed flags the later change.</li>
+      <li>Run <code>npm test</code>, <code>npm run typecheck</code>, <code>npm run lint</code>, production migration checks, and the deployed webhook-health check before release.</li>
+    </ol>
+  </section>
+
+  <h2>Acceptance criteria</h2>
+  <ul>
+    <li>Every eligible SEO PM and Basecamp entry appears once in the timesheet ledger, with a durable source and provider identity.</li>
+    <li>Abel’s Basecamp time imports automatically when project and person mappings exist; otherwise it appears in an actionable exception queue.</li>
+    <li>Managers can filter/select a team member; non-managers cannot view another member’s time.</li>
+    <li>Weekly Ledger Grid totals agree with the underlying <code>time_logs</code> ledger and distinguish SEO-budget, non-budget, and internal time.</li>
+    <li>Client/month approval includes all team members, logs an immutable snapshot to client activity, and never silently changes after approval.</li>
+    <li>Webhook retries, reconciliation runs, and SEO PM → Basecamp echoes do not create duplicate entries.</li>
+  </ul>
+
+  <h2>Validation checklist</h2>
+  <pre>npm test
+npm run typecheck
+npm run lint
+git diff --check
+
+# Deploy-time checks
+supabase migration list
+vercel inspect &lt;deployment-url&gt;
+# Exercise the actual Basecamp webhook delivery and inspect its recent deliveries.</pre>
+
+  <p class="muted">Plan self-review: all requested workflow elements map to Tasks 3–7; Task 8 covers production behavior. No client, task, teammate, or provider identity is trusted from the browser or raw webhook payload.</p>
+</main>
+</body>
+</html>

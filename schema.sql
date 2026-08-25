@@ -2781,6 +2781,12 @@ alter table public.time_logs
 alter table public.time_logs
   add column if not exists voided_at timestamp with time zone;
 
+-- Who resolved an unmapped import to a client/task/member, and when.
+alter table public.time_logs
+  add column if not exists mapped_by uuid references public.users(id) on delete set null;
+alter table public.time_logs
+  add column if not exists mapped_at timestamp with time zone;
+
 -- Hard deduplication invariant: one ledger row per Basecamp entry, ever.
 -- Webhook retries, reconciliation runs, and SEO PM -> Basecamp echoes all
 -- collapse onto the same row instead of creating a second one.
