@@ -125,12 +125,19 @@ function cleanText(value: string): string {
     return decodeHtml(value.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 }
 
+const HTML_ENTITY_REPLACEMENTS = {
+    '&amp;': '&',
+    '&nbsp;': ' ',
+    '&quot;': '"',
+    '&#39;': "'",
+    '&apos;': "'",
+    '&lt;': '<',
+    '&gt;': '>',
+} as const;
+
 function decodeHtml(value: string): string {
-    return value
-        .replace(/&amp;/g, '&')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;|&apos;/g, "'")
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>');
+    return value.replace(
+        /&(?:amp|nbsp|quot|#39|apos|lt|gt);/g,
+        (entity) => HTML_ENTITY_REPLACEMENTS[entity as keyof typeof HTML_ENTITY_REPLACEMENTS],
+    );
 }

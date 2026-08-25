@@ -45,6 +45,18 @@ test('the embedded reader keeps all guide content while adding only reader prese
     assert.equal(withoutEmbedScaffolding, html);
 });
 
+test('guide metadata decodes each HTML entity at most once', () => {
+    const html = `<!doctype html><html><head><title>&amp;lt;script&amp;gt; &amp;nbsp; &amp;quot; &amp;#39; &amp;apos; &amp;amp;</title></head><body>
+<nav id="nav"><div class="grp">&lt;safe&gt; &nbsp; &quot; &#39; &apos; &amp;</div><a href="#safe">&amp;lt;b&amp;gt; &amp; Section</a></nav>
+<section id="safe" data-track="both"></section></body></html>`;
+
+    const guide = parseTrainingGuideDocument(html);
+
+    assert.equal(guide.title, '&lt;script&gt; &nbsp; &quot; &#39; &apos; &amp;');
+    assert.equal(guide.sections[0]?.group, '<safe> " \' \' &');
+    assert.equal(guide.sections[0]?.title, '&lt;b&gt; & Section');
+});
+
 test('saved guide state restores checks and a valid last-read section safely', () => {
     const sections = ['how', 'lp4b', 'sources'];
     assert.deepEqual(
