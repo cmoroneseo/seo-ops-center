@@ -23,6 +23,7 @@ export const viewport: Viewport = {
   ],
 };
 
+import { BrandThemeSync, brandThemeBootScript } from "@/components/providers/brand-theme";
 import { OrganizationProvider } from "@/components/providers/organization-provider";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { SchemaMarkup } from "@/components/seo/schema-markup";
@@ -34,6 +35,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Paints the organization's brand colour before first paint. */}
+        <script dangerouslySetInnerHTML={{ __html: brandThemeBootScript }} />
+      </head>
       <body
         className={`${plusJakartaSans.variable} font-sans antialiased`}
       >
@@ -44,6 +49,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <OrganizationProvider>
+            <BrandThemeSync />
             {children}
             <SchemaMarkup />
           </OrganizationProvider>

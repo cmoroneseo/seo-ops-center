@@ -28,7 +28,11 @@ create table public.organizations (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   -- Records the creating user so they can read the org back immediately on
   -- creation (before the membership row exists). FK attached after users table.
-  created_by uuid default auth.uid()
+  created_by uuid default auth.uid(),
+  -- Brand theme selection (migration 039): {"preset":"<id>"} or
+  -- {"preset":"custom","hex":"#rrggbb"}. Null = shipped default.
+  -- Token set is derived in lib/theme/palette.ts, not stored here.
+  theme jsonb
 );
 
 -- 2. Users (extends Supabase auth.users)

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   ChevronDown, Settings, Clock, CheckSquare,
-  MessageSquarePlus, HelpCircle, LogOut, NotebookPen, AlarmClock,
+  MessageSquarePlus, HelpCircle, LogOut, NotebookPen, AlarmClock, Palette,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
@@ -120,6 +120,15 @@ export function UserMenu() {
           <Link href="/settings" onClick={() => setIsOpen(false)} className={itemClass}>
             <Settings className="h-4 w-4 text-muted-foreground" />
             Settings
+          </Link>
+
+          <Link
+            href="/settings?tab=appearance"
+            onClick={() => setIsOpen(false)}
+            className={itemClass}
+          >
+            <Palette className="h-4 w-4 text-muted-foreground" />
+            Themes
           </Link>
 
           <p className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">

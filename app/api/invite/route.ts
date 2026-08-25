@@ -5,6 +5,7 @@ import { createInvitePost } from '@/lib/security/invite-route';
 import { requireOrganizationAdmin } from '@/lib/security/tenant-authz';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { teamInviteEmail } from '@/lib/email/templates';
+import { parseTheme } from '@/lib/theme/palette';
 
 export async function POST(req: NextRequest) {
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://seo-ops-center.vercel.app';
@@ -40,6 +41,14 @@ export async function POST(req: NextRequest) {
             return data?.properties?.action_link ?? null;
         },
         async sendInviteEmail(input) {
+            // Brand the invite with the inviting organization's theme. A failed
+            // lookup falls back to the default rather than blocking the invite.
+            const { data: org } = await createAdminClient()
+                .from('organizations')
+                .select('theme')
+                .eq('id', input.organizationId)
+                .maybeSingle();
+
             const { error } = await new Resend(process.env.RESEND_API_KEY).emails.send({
                 from: 'SEO Ops Command Center <onboarding@resend.dev>',
                 to: input.to,
@@ -48,6 +57,7 @@ export async function POST(req: NextRequest) {
                     inviteUrl: input.inviteUrl,
                     organizationName: input.organizationName,
                     invitedByName: input.invitedByName,
+                    theme: parseTheme(org?.theme),
                 }),
             });
             if (error) throw error;

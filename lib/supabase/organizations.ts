@@ -1,5 +1,6 @@
 import { createClient } from './client';
 import { OrganizationMember, User } from '../types';
+import { OrganizationTheme, parseTheme } from '../theme/palette';
 
 export async function getOrganizationMembers(organizationId: string): Promise<(OrganizationMember & { user: User })[]> {
     const supabase = createClient();
@@ -97,4 +98,28 @@ export async function addMemberByEmail(organizationId: string, email: string, ro
         console.error('Error adding member:', err);
         return { success: false, error: err.message };
     }
+}
+
+/**
+ * Persist the organization's brand theme.
+ *
+ * Gated by the existing "Owners can update their own organizations" RLS
+ * policy — a non-owner's write is rejected by Postgres, not merely hidden in
+ * the UI. The value is normalised through parseTheme first so a malformed hex
+ * can never reach the column.
+ */
+export async function updateOrganizationTheme(
+    organizationId: string,
+    theme: OrganizationTheme,
+): Promise<{ success: boolean; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
+
+    const { error } = await supabase
+        .from('organizations')
+        .update({ theme: parseTheme(theme) })
+        .eq('id', organizationId);
+
+    if (error) return { success: false, error: error.message };
+    return { success: true };
 }

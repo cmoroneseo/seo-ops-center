@@ -135,6 +135,21 @@ https://seo-ops-center.vercel.app
   - Client budget comes from `clients.seo_hours` — deliberately not a second budget source
   - Activity feed renders `timesheet.client_month_approved` / `_reopened` under the Hours filter
 
+- **Brand Theming** (migration 039, Aug 2026):
+  - Settings -> **Appearance** tab (`components/settings/AppearanceTab.tsx`); UserMenu gets a "Themes" item deep-linking to `/settings?tab=appearance`
+  - Org-level, not per-user: `organizations.theme jsonb` = `{"preset":"<id>"}` or `{"preset":"custom","hex":"#rrggbb"}`. Null = shipped default, so the migration is a visual no-op
+  - **One brand colour -> a derived token set.** `lib/theme/palette.ts` emits `--primary`, `--primary-foreground`, `--ring`, `--accent`, `--accent-foreground`, `--chart-1`, `--chart-2`, `--sidebar-primary`, `--sidebar-primary-foreground`, `--sidebar-ring`. **Semantic colours are never themed** — `destructive` and the red/amber/blue/green status palette stay fixed, and charts 3-5 stay fixed so series remain separable
+  - `lib/theme/color.ts` — OKLCH <-> sRGB + WCAG contrast, pure math. Chroma is binary-searched down to fit the sRGB gamut so a computed contrast ratio matches what actually renders
+  - **Contrast is clamped, not hoped for.** Lightness is forced into a per-mode band and the foreground is picked by measured ratio: light text while it clears AA, ink when it is decisively better (>=1.5 higher). This is what stops a pale brand colour from producing invisible buttons
+  - The shipped `#FF0080` primary carries white text at **3.85:1** — AA Large, not AA. `neon-pink` is grandfathered to reproduce it exactly; every other preset clears 4.5:1. The picker shows the live ratio + level badge so a weak custom colour is a visible tradeoff
+  - `--accent-foreground` on the default **deliberately changed** from white to ink (3.0:1 -> 5.8:1); 6 call sites use `text-accent-foreground`
+  - No-flash: the org is only known client-side, so `brandThemeBootScript` (inline in `app/layout.tsx` `<head>`) paints the cached stylesheet before React boots. Cache is the **resolved CSS string** in `localStorage.brandThemeCss`, not the theme object, so the boot script needs no imports. Deliberately **not** a cookie — `cookies()` in the root layout would make every static page dynamic
+  - One `<style id="brand-theme">` element, written imperatively by `BrandThemeSync` — the boot script and React share it, so no duplicate blocks and no hydration mismatch
+  - Writes gated by the existing "Owners can update their own organizations" RLS policy — server-side, not just hidden in the UI
+  - Invite emails resolve the gradient to literal hex (`lib/email/templates.ts`); `sendInviteEmail` now carries `organizationId` so the route can look the theme up
+  - Tests: `node --test lib/theme/palette.test.ts` (20)
+  - **Hardcoded purple/violet/indigo literals were deliberately left alone** — they are categorical (deliverable type, event category, roadmap stage), not brand-carrying. Collapsing them into `primary` would destroy the category distinction
+
 ## Key files (campaign)
 - `components/campaign/CampaignPlanTab.tsx` — 3-tab orchestrator
 - `components/campaign/sections/SectionCard.tsx` — shared helpers, types, label maps
@@ -173,6 +188,7 @@ https://seo-ops-center.vercel.app
 034: start_task_timer project-less fix (applied Aug 2026 — verified live). Supersedes 033's `start_task_timer`; **never edit 033 in place**, supersede it with a new migration
 036: task completion time reconciliation (applied Aug 24, 2026 — verified live: authenticated RPC available, anon execution denied, idempotency index present)
 037: basecamp_webhook_deliveries (service-only webhook delivery receipts)
+039: organizations.theme (brand theming) — NOT YET APPLIED, run migrations/039_organization_theme.sql
 038: timesheet ledger provenance + client-month approvals (applied Aug 24, 2026 — verified against the DB: all 7 `time_logs` provenance columns, both partial unique indexes, both approval tables, and the `protect_time_log_import_provenance` trigger are present)
 
 To re-check migration 038 directly, run in the Supabase SQL editor:

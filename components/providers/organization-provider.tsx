@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Organization, OrganizationMember } from '@/lib/types'
+import { parseTheme } from '@/lib/theme/palette'
 import { useRouter } from 'next/navigation'
 
 interface OrganizationContextType {
@@ -98,6 +99,7 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
                                 subscriptionStatus: m.organization.subscription_status,
                                 planType: m.organization.plan_type || 'starter',
                                 isInternal: m.organization.is_internal ?? false,
+                                theme: parseTheme(m.organization.theme),
                                 createdAt: m.organization.created_at
                             } : null
                         })).filter((m: any) => m.organization !== null);

@@ -80,6 +80,9 @@ test('invite binds a one-time ledger record and link to canonical inviter organi
     assert.deepEqual(mailed, {
         to: 'new@example.com',
         inviteUrl: 'https://auth.test/action',
+        // Canonical id, not the caller-supplied one — the email's branding is
+        // looked up from this, so it must come from the authorization result.
+        organizationId: 'org-a',
         organizationName: 'Canonical Org',
         invitedByName: 'Canonical Admin',
     });

@@ -1,5 +1,8 @@
 export type PlanType = 'starter' | 'pro' | 'agency' | 'enterprise';
 
+import type { OrganizationTheme } from './theme/palette';
+export type { OrganizationTheme };
+
 export interface Organization {
     id: string;
     name: string;
@@ -8,6 +11,7 @@ export interface Organization {
     subscriptionStatus: 'active' | 'trialing' | 'past_due' | 'canceled' | 'incomplete';
     planType: PlanType;
     isInternal?: boolean; // internal/comp org — bypasses plan limits & billing
+    theme?: OrganizationTheme; // brand colour selection; undefined = shipped default
     createdAt: string;
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { User, Bell, Shield, Users, Plus, Loader2, MessageSquarePlus, Bug, Lightbulb, MessageSquare, ExternalLink, ChevronDown } from 'lucide-react';
+import { User, Bell, Shield, Users, Plus, Loader2, MessageSquarePlus, Bug, Lightbulb, MessageSquare, ExternalLink, ChevronDown, Palette } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
@@ -8,6 +8,7 @@ import { getOrganizationMembers, addMemberByEmail, updateMemberBasecampPersonId 
 import { createClient } from '@/lib/supabase/client';
 import { User as UserType, OrganizationMember } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { AppearanceTab } from '@/components/settings/AppearanceTab';
 
 interface MemberWithUser extends OrganizationMember {
     user: UserType;
@@ -47,7 +48,9 @@ const SEVERITY_STYLES: Record<string, string> = {
     blocking: 'text-red-500 font-semibold',
 };
 
-type SettingsTab = 'general' | 'feedback';
+type SettingsTab = 'general' | 'appearance' | 'feedback';
+
+const TAB_IDS: SettingsTab[] = ['general', 'appearance', 'feedback'];
 
 export default function SettingsPage() {
     const { organization } = useOrganization();
@@ -71,6 +74,16 @@ export default function SettingsPage() {
     const [statusFilter, setStatusFilter] = useState<'all' | string>('open');
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+    // Deep links from the user menu (?tab=appearance). Read from the URL
+    // directly rather than useSearchParams, which would force this page behind
+    // a Suspense boundary for a single optional query param.
+    useEffect(() => {
+        const requested = new URLSearchParams(window.location.search).get('tab');
+        if (requested && (TAB_IDS as string[]).includes(requested)) {
+            setActiveTab(requested as SettingsTab);
+        }
+    }, []);
 
     useEffect(() => {
         if (organization) fetchMembers();
@@ -171,6 +184,16 @@ export default function SettingsPage() {
                     General
                 </button>
                 <button
+                    onClick={() => setActiveTab('appearance')}
+                    className={cn(
+                        'flex items-center gap-2 px-4 py-1.5 text-sm font-medium rounded-md transition-all',
+                        activeTab === 'appearance' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                    )}
+                >
+                    <Palette className="h-3.5 w-3.5" />
+                    Appearance
+                </button>
+                <button
                     onClick={() => setActiveTab('feedback')}
                     className={cn(
                         'flex items-center gap-2 px-4 py-1.5 text-sm font-medium rounded-md transition-all',
@@ -185,6 +208,9 @@ export default function SettingsPage() {
                     )}
                 </button>
             </div>
+
+            {/* ── Appearance Tab ── */}
+            {activeTab === 'appearance' && <AppearanceTab />}
 
             {/* ── General Tab ── */}
             {activeTab === 'general' && (

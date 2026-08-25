@@ -26,6 +26,7 @@ interface Dependencies {
     sendInviteEmail(input: {
         to: string;
         inviteUrl: string;
+        organizationId: string;
         organizationName: string;
         invitedByName: string;
     }): Promise<void>;
@@ -80,6 +81,7 @@ export function createInvitePost(dependencies: Dependencies) {
             await dependencies.sendInviteEmail({
                 to: email,
                 inviteUrl,
+                organizationId: authorization.organizationId,
                 organizationName: authorization.organizationName,
                 invitedByName: authorization.actorName,
             });

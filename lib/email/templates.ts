@@ -1,11 +1,20 @@
+import { DEFAULT_THEME, OrganizationTheme, previewAccentHex, previewHex } from '../theme/palette';
+
 interface TeamInviteProps {
     inviteUrl: string;
     organizationName: string;
     invitedByName?: string;
+    /** The recipient's organization brand theme; falls back to the app default. */
+    theme?: OrganizationTheme;
 }
 
-export function teamInviteEmail({ inviteUrl, organizationName, invitedByName }: TeamInviteProps): string {
+export function teamInviteEmail({ inviteUrl, organizationName, invitedByName, theme }: TeamInviteProps): string {
     const invitedBy = invitedByName ? `<strong>${invitedByName}</strong> has invited you` : `You've been invited`;
+
+    // Email clients cannot read CSS custom properties, so the brand gradient is
+    // resolved to literal hex here from the same palette the app renders.
+    const resolved = theme ?? DEFAULT_THEME;
+    const brandGradient = `linear-gradient(135deg,${previewHex(resolved)},${previewAccentHex(resolved)})`;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -23,7 +32,7 @@ export function teamInviteEmail({ inviteUrl, organizationName, invitedByName }: 
           <!-- Logo / Brand -->
           <tr>
             <td align="center" style="padding-bottom:32px;">
-              <div style="display:inline-block;background:linear-gradient(135deg,#ff0080,#ff5f6d);border-radius:12px;padding:10px 20px;">
+              <div style="display:inline-block;background:${brandGradient};border-radius:12px;padding:10px 20px;">
                 <span style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:0.5px;">SEO Ops Command Center</span>
               </div>
             </td>
@@ -36,7 +45,7 @@ export function teamInviteEmail({ inviteUrl, organizationName, invitedByName }: 
               <!-- Heading -->
               <h1 style="margin:0 0 8px;font-size:24px;font-weight:700;color:#ffffff;line-height:1.3;">
                 You're invited to join<br/>
-                <span style="background:linear-gradient(135deg,#ff0080,#ff5f6d);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">${organizationName}</span>
+                <span style="background:${brandGradient};-webkit-background-clip:text;-webkit-text-fill-color:transparent;">${organizationName}</span>
               </h1>
 
               <p style="margin:0 0 28px;font-size:15px;color:#999999;line-height:1.6;">
@@ -46,7 +55,7 @@ export function teamInviteEmail({ inviteUrl, organizationName, invitedByName }: 
               <!-- CTA Button -->
               <table cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
                 <tr>
-                  <td style="background:linear-gradient(135deg,#ff0080,#ff5f6d);border-radius:10px;">
+                  <td style="background:${brandGradient};border-radius:10px;">
                     <a href="${inviteUrl}"
                        style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;letter-spacing:0.3px;">
                       Accept Invitation →
