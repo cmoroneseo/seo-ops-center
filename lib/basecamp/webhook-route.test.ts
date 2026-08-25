@@ -233,3 +233,101 @@ test('leaves a receipt retryable when provider verification is temporarily unava
     assert.deepEqual(calls.processed, []);
     assert.deepEqual(calls.updated, []);
 });
+
+// ---------------------------------------------------------------------------
+// Timesheet-entry routing (migration 038 ledger import)
+// ---------------------------------------------------------------------------
+
+const timesheetPayload = {
+    id: 1695159999,
+    kind: 'timesheet_entry_created',
+    recording: {
+        id: 9001,
+        type: 'Timesheet::Entry',
+        url: 'https://3.basecampapi.com/5338018/buckets/202/timesheet_entries/9001.json',
+    },
+    creator: { name: 'Abel Miranda' },
+};
+
+test('routes a Timesheet entry delivery to the importer and records the receipt', async () => {
+    const { createBasecampWebhookPost } = await loadRouteModule();
+    const seen: unknown[] = [];
+    const { value, calls } = dependencies({
+        async importTimesheetEntry(delivery: unknown) {
+            seen.push(delivery);
+            return { status: 200, result: 'created', body: { ok: true, action: 'created' } };
+        },
+    });
+    const post = createBasecampWebhookPost(value);
+
+    const response = await post(request(timesheetPayload));
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await responseBody(response), { ok: true, action: 'created' });
+    assert.deepEqual(seen, [{
+        kind: 'timesheet_entry_created',
+        recordingId: '9001',
+        recordingUrl: 'https://3.basecampapi.com/5338018/buckets/202/timesheet_entries/9001.json',
+    }]);
+    assert.deepEqual(calls.processed, ['1695159999']);
+    // A timesheet entry must never be looked up as a to-do.
+    assert.deepEqual(calls.provider, []);
+});
+
+test('a retryable importer failure leaves the delivery unprocessed so Basecamp resends', async () => {
+    const { createBasecampWebhookPost } = await loadRouteModule();
+    const { value, calls } = dependencies({
+        async importTimesheetEntry() {
+            return {
+                status: 503,
+                result: 'retry:provider-unavailable',
+                body: { error: 'Basecamp provider verification unavailable' },
+            };
+        },
+    });
+    const post = createBasecampWebhookPost(value);
+
+    const response = await post(request(timesheetPayload));
+
+    assert.equal(response.status, 503);
+    assert.deepEqual(calls.processed, []);
+});
+
+test('a duplicate timesheet delivery is skipped before the importer runs', async () => {
+    const { createBasecampWebhookPost } = await loadRouteModule();
+    let imports = 0;
+    const { value } = dependencies({
+        store: {
+            async claimDelivery() { return 'processed' as const; },
+            async markDeliveryProcessed() {},
+            async getTaskByTodoId() { return null; },
+            async updateTaskStatus() { return false; },
+        },
+        async importTimesheetEntry() {
+            imports += 1;
+            return { status: 200, result: 'created', body: { ok: true } };
+        },
+    });
+    const post = createBasecampWebhookPost(value);
+
+    const response = await post(request(timesheetPayload));
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await responseBody(response), { ok: true, skipped: 'duplicate' });
+    assert.equal(imports, 0);
+});
+
+test('timesheet deliveries are skipped when no importer is wired', async () => {
+    const { createBasecampWebhookPost } = await loadRouteModule();
+    const { value, calls } = dependencies();
+    const post = createBasecampWebhookPost(value);
+
+    const response = await post(request(timesheetPayload));
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await responseBody(response), {
+        ok: true,
+        skipped: 'timesheet_entry_created',
+    });
+    assert.deepEqual(calls.processed, ['1695159999']);
+});

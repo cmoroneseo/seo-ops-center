@@ -17,6 +17,8 @@
  *   - Comments:   /buckets/{projectId}/recordings/{recordingId}/comments.json
  */
 
+import type { ProviderTimesheetEntry } from './timesheet-webhook-route';
+
 const BASE_URL = () => {
     const accountId = process.env.BASECAMP_ACCOUNT_ID;
     if (!accountId) throw new Error('BASECAMP_ACCOUNT_ID env var not set');
@@ -366,6 +368,64 @@ export interface BasecampTimesheetEntry {
     description: string;
     app_url: string;
     parent: { id: number; type: string };
+    // Present on canonical single-entry reads; used by inbound ledger import.
+    updated_at?: string;
+    bucket?: { id: number; name?: string };
+    creator?: { id: number; name?: string };
+}
+
+/**
+ * Read one timesheet entry as canonical provider state, for inbound import.
+ *
+ * The three-way return is load-bearing: 'missing' means Basecamp confirmed the
+ * entry is gone (void the ledger row), 'unavailable' means we could not ask
+ * (retry the delivery). Collapsing them would let an outage erase real time.
+ */
+export async function getBasecampTimesheetEntryState(
+    projectId: number | string,
+    entryId: number | string,
+): Promise<ProviderTimesheetEntry | 'missing' | 'unavailable'> {
+    let raw: BasecampTimesheetEntry | null = null;
+    try {
+        const eid = safeId(entryId, 'entryId');
+        const res = await basecampFetch(`${BASE_URL()}/timesheet_entries/${eid}.json`);
+        if (res.status === 404 || res.status === 403) return 'missing';
+        if (res.ok) {
+            raw = await res.json() as BasecampTimesheetEntry;
+        } else if (res.status >= 500 || res.status === 429) {
+            return 'unavailable';
+        }
+    } catch (err) {
+        console.error('[Basecamp] getTimesheetEntryState error:', err);
+        return 'unavailable';
+    }
+
+    // Some accounts only expose the entry through the project collection.
+    if (!raw) {
+        try {
+            raw = await getBasecampProjectTimesheetEntry(projectId, entryId);
+        } catch {
+            return 'unavailable';
+        }
+        if (!raw) return 'missing';
+    }
+
+    const bucketId = raw.bucket?.id ?? Number(projectId);
+    const creatorId = raw.creator?.id;
+    if (!raw.parent?.id || !creatorId || !Number.isFinite(bucketId)) return 'unavailable';
+
+    const hours = Number(raw.hours);
+    return {
+        id: String(raw.id),
+        date: raw.date,
+        hours: Number.isFinite(hours) ? hours : 0,
+        description: raw.description ?? '',
+        updatedAt: raw.updated_at ?? '',
+        bucketId: String(bucketId),
+        parentId: String(raw.parent.id),
+        parentType: raw.parent.type,
+        creatorId: String(creatorId),
+    };
 }
 
 /** Fetch a project's timesheet availability. */
