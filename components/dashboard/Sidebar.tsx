@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, CheckSquare, Briefcase, ClipboardList, PackageCheck, CalendarRange } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Briefcase, ClipboardList, PackageCheck, CalendarRange, GraduationCap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export const navigation = [
@@ -12,6 +12,7 @@ export const navigation = [
   { name: 'Tasks', href: '/tasks', icon: CheckSquare },
   { name: 'Planner', href: '/planner', icon: CalendarRange },
   { name: 'Deliverables', href: '/deliverables', icon: PackageCheck },
+  { name: 'Training', href: '/training', icon: GraduationCap },
 ];
 
 export function Sidebar() {

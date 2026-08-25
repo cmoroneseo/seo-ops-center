@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The SEO Playbook — Universal &amp; Local Fundamentals, Evidence-Graded (2026)</title>
+<style>
+:root{
+  --ink:#1c1a17; --ink-2:#4a453e; --ink-3:#767068;
+  --paper:#faf8f4; --card:#ffffff; --rule:#e5e0d6;
+  --accent:#0d5c63; --accent-2:#0a4a50; --accent-soft:#e6f0f0;
+  --amber:#9a6410; --amber-soft:#fbf1de;
+  --rose:#8c2f2f; --rose-soft:#f8e9e6;
+  --slate:#42566b; --slate-soft:#eaeef3;
+  --shadow:0 1px 2px rgba(28,26,23,.05),0 8px 24px -12px rgba(28,26,23,.18);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth; scroll-padding-top:16px}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font:16px/1.62 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,h4{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif; font-weight:600; letter-spacing:-.01em; line-height:1.22; margin:0}
+a{color:var(--accent); text-decoration-thickness:1px; text-underline-offset:2px}
+a:hover{color:var(--accent-2)}
+code{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f1ede4; padding:1px 5px; border-radius:4px; color:#3d3a34}
+
+/* ---------- layout ---------- */
+.wrap{display:grid; grid-template-columns:250px minmax(0,1fr); gap:0; max-width:1240px; margin:0 auto}
+.side{position:sticky; top:0; align-self:start; height:100vh; overflow-y:auto; padding:26px 18px 40px; border-right:1px solid var(--rule)}
+.main{padding:26px 30px 90px; min-width:0}
+@media(max-width:900px){
+  .wrap{grid-template-columns:1fr}
+  .side{position:static; height:auto; border-right:0; border-bottom:1px solid var(--rule); padding:16px}
+  .main{padding:18px 16px 70px}
+}
+
+/* ---------- sidebar ---------- */
+.brand{font-family:"Iowan Old Style",Georgia,serif; font-size:15px; font-weight:600; margin-bottom:2px}
+.brand small{display:block; font-family:inherit; font-size:11.5px; color:var(--ink-3); font-weight:400; letter-spacing:.04em; text-transform:uppercase; margin-top:4px}
+nav{margin-top:20px}
+nav a{display:block; padding:6px 10px; margin:1px 0; border-radius:6px; font-size:13.5px; color:var(--ink-2); text-decoration:none; border-left:2px solid transparent}
+nav a:hover{background:#f2eee5}
+nav a.on{background:var(--accent-soft); color:var(--accent-2); border-left-color:var(--accent); font-weight:500}
+nav .grp{font-size:10.5px; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-3); margin:16px 0 5px 10px}
+.prog{margin-top:20px; padding:12px; border:1px solid var(--rule); border-radius:8px; background:var(--card)}
+.prog b{display:block; font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--ink-3); font-weight:600}
+.prog .num{font-family:Georgia,serif; font-size:22px; margin:5px 0 7px}
+.bar{height:5px; background:#eae5da; border-radius:99px; overflow:hidden}
+.bar i{display:block; height:100%; background:var(--accent); width:0; transition:width .25s}
+
+/* ---------- header ---------- */
+header.hero{padding:14px 0 26px; border-bottom:1px solid var(--rule); margin-bottom:26px}
+.kicker{font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--accent); font-weight:600}
+h1{font-size:clamp(29px,4.4vw,41px); margin:10px 0 12px; max-width:20ch}
+.lede{font-size:17.5px; color:var(--ink-2); max-width:66ch}
+.meta{margin-top:16px; font-size:12.5px; color:var(--ink-3); display:flex; flex-wrap:wrap; gap:6px 18px}
+
+/* ---------- controls ---------- */
+.controls{position:sticky; top:0; z-index:20; background:rgba(250,248,244,.94); backdrop-filter:blur(8px); padding:10px 0; margin:0 0 22px; border-bottom:1px solid var(--rule); display:flex; flex-wrap:wrap; gap:8px; align-items:center}
+.controls label.lbl{font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--ink-3); font-weight:600; margin-right:2px}
+.chip{border:1px solid var(--rule); background:var(--card); border-radius:99px; padding:4px 11px; font-size:12.5px; cursor:pointer; color:var(--ink-2); font-family:inherit}
+.chip:hover{border-color:#cfc7b8}
+.chip.on{background:var(--ink); color:#faf8f4; border-color:var(--ink)}
+input.q{flex:1; min-width:150px; border:1px solid var(--rule); background:var(--card); border-radius:7px; padding:6px 10px; font:14px inherit; font-family:inherit; color:var(--ink)}
+input.q:focus{outline:2px solid var(--accent-soft); border-color:var(--accent)}
+
+/* ---------- sections ---------- */
+section{margin:0 0 46px; scroll-margin-top:64px}
+.sechead{display:flex; align-items:baseline; gap:12px; border-bottom:2px solid var(--ink); padding-bottom:9px; margin-bottom:6px}
+.sechead .n{font-family:Georgia,serif; font-size:13px; color:var(--ink-3)}
+.sechead h2{font-size:25px; flex:1}
+.sechead .pct{font-size:12px; color:var(--ink-3); font-variant-numeric:tabular-nums}
+.why{font-size:15.5px; color:var(--ink-2); margin:14px 0 18px; max-width:70ch}
+
+h3{font-size:17.5px; margin:26px 0 9px}
+h4{font-size:14.5px; margin:18px 0 7px; letter-spacing:0}
+p{margin:0 0 12px; max-width:72ch}
+ul.plain{margin:0 0 14px; padding-left:19px; max-width:72ch}
+ul.plain li{margin:5px 0}
+
+/* ---------- tier badges ---------- */
+.tier{display:inline-block; font-size:10px; font-weight:700; letter-spacing:.07em; padding:2px 6px; border-radius:4px; vertical-align:2px; white-space:nowrap}
+.t-A{background:var(--accent-soft); color:var(--accent-2)}
+.t-B{background:var(--amber-soft); color:var(--amber)}
+.t-C{background:var(--slate-soft); color:var(--slate)}
+.t-D{background:#f0ede7; color:var(--ink-3)}
+
+/* ---------- checklist ---------- */
+.check{border:1px solid var(--rule); border-radius:9px; background:var(--card); box-shadow:var(--shadow); overflow:hidden; margin:16px 0}
+.check > .hd{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:9px 14px; background:#fcfaf6; border-bottom:1px solid var(--rule)}
+.check > .hd b{font-size:11.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3)}
+.check > .hd span{font-size:11.5px; color:var(--ink-3); font-variant-numeric:tabular-nums}
+.item{display:flex; gap:11px; padding:11px 14px; border-top:1px solid #f1ece2; align-items:flex-start}
+.item:first-of-type{border-top:0}
+.item input{margin:4px 0 0; width:15px; height:15px; accent-color:var(--accent); flex:none; cursor:pointer}
+.item .bd{flex:1; min-width:0}
+.item .ttl{font-size:14.5px; font-weight:600; color:var(--ink)}
+.item .ds{font-size:13.5px; color:var(--ink-2); margin-top:2px}
+.item.done .ttl,.item.done .ds{color:var(--ink-3); text-decoration:line-through; text-decoration-color:#cfc7b8}
+.item.hide{display:none}
+
+/* ---------- callouts ---------- */
+.note{border-left:3px solid var(--accent); background:var(--accent-soft); padding:11px 14px; border-radius:0 7px 7px 0; margin:14px 0; font-size:14.5px; max-width:72ch}
+.note.warn{border-left-color:var(--rose); background:var(--rose-soft)}
+.note.evd{border-left-color:var(--amber); background:var(--amber-soft)}
+.note b{display:block; font-size:11px; letter-spacing:.08em; text-transform:uppercase; margin-bottom:4px}
+
+/* ---------- tables ---------- */
+.tbl{width:100%; border-collapse:collapse; font-size:13.5px; margin:14px 0; background:var(--card); border:1px solid var(--rule); border-radius:8px; overflow:hidden}
+.tbl th{text-align:left; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3); padding:8px 11px; background:#fcfaf6; border-bottom:1px solid var(--rule); font-weight:600}
+.tbl td{padding:9px 11px; border-top:1px solid #f1ece2; vertical-align:top}
+.tbl td:first-child{font-weight:600}
+.tbl .num{font-variant-numeric:tabular-nums; white-space:nowrap}
+.scroll{overflow-x:auto; -webkit-overflow-scrolling:touch}
+
+/* ---------- bar viz ---------- */
+.viz{margin:16px 0; background:var(--card); border:1px solid var(--rule); border-radius:9px; padding:15px 16px; box-shadow:var(--shadow)}
+.viz h4{margin:0 0 3px}
+.viz .cap{font-size:12px; color:var(--ink-3); margin-bottom:12px}
+.row{display:grid; grid-template-columns:74px 1fr 54px; gap:9px; align-items:center; margin:5px 0; font-size:13px}
+.row .lb{color:var(--ink-2)}
+.row .tr{background:#f1ece2; border-radius:3px; height:15px; overflow:hidden}
+.row .fl{height:100%; border-radius:3px; background:var(--accent)}
+.row .fl.b{background:var(--amber)}
+.row .vl{text-align:right; font-variant-numeric:tabular-nums; color:var(--ink-2)}
+
+/* ---------- misc ---------- */
+.grid2{display:grid; grid-template-columns:repeat(auto-fit,minmax(255px,1fr)); gap:14px; margin:16px 0}
+.mini{border:1px solid var(--rule); background:var(--card); border-radius:9px; padding:13px 15px; box-shadow:var(--shadow)}
+.mini h4{margin:0 0 6px; font-size:14.5px}
+.mini p{font-size:13.5px; color:var(--ink-2); margin:0}
+.mini .stat{font-family:Georgia,serif; font-size:27px; color:var(--accent); line-height:1.1; margin-bottom:3px}
+.myth{border:1px solid var(--rule); border-radius:9px; background:var(--card); padding:13px 15px; margin:11px 0; box-shadow:var(--shadow)}
+.myth .m{font-weight:600; color:var(--rose); font-size:14.5px}
+.myth .r{font-size:13.8px; color:var(--ink-2); margin-top:5px}
+.myth .r b{color:var(--ink)}
+footer{border-top:1px solid var(--rule); padding-top:18px; font-size:13px; color:var(--ink-3)}
+ol.src{font-size:13.3px; padding-left:20px; columns:1}
+ol.src li{margin:6px 0; color:var(--ink-2)}
+@media print{.side,.controls{display:none} .wrap{display:block} .main{padding:0}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<aside class="side">
+  <div class="brand">The SEO Playbook<small>Universal + local · Aug 2026</small></div>
+  <nav id="nav">
+    <div class="grp" data-track="both">Start here</div>
+    <a href="#how" data-track="both">How to read this</a>
+    <a href="#operating" data-track="both">Fundamentals, strategy, roadmap</a>
+    <div class="grp" data-track="core">Part one · Universal</div>
+    <a href="#model" data-track="core">The mental model</a>
+    <a href="#p1" data-track="core">1 · Demand &amp; intent</a>
+    <a href="#p2" data-track="core">2 · Crawling &amp; indexing</a>
+    <a href="#p3" data-track="core">3 · Content quality</a>
+    <a href="#p4" data-track="core">4 · On-page relevance</a>
+    <a href="#p5" data-track="core">5 · Architecture &amp; internal links</a>
+    <a href="#p6" data-track="core">6 · Off-site authority</a>
+    <a href="#p7" data-track="core">7 · Experience &amp; performance</a>
+    <a href="#evidence" data-track="core">The leak &amp; the trial</a>
+    <div class="grp" data-track="local">Part two · Local</div>
+    <a href="#lmodel" data-track="local">How local differs</a>
+    <a href="#lp1" data-track="local">1 · The Business Profile</a>
+    <a href="#lp2" data-track="local">2 · Proximity &amp; footprint</a>
+    <a href="#lp3" data-track="local">3 · Reviews &amp; reputation</a>
+    <a href="#lp4" data-track="local">4 · On-site local relevance</a>
+    <a href="#lp4b" data-track="local">&nbsp;&nbsp;↳ Location page framework</a>
+    <a href="#lp5" data-track="local">5 · Citations &amp; consistency</a>
+    <a href="#lp6" data-track="local">6 · Local authority &amp; links</a>
+    <a href="#lp7" data-track="local">7 · Behaviour &amp; conversion</a>
+    <a href="#ai2026" data-track="local">The 2026 AI local shift</a>
+    <a href="#risk" data-track="local">Spam, suspensions &amp; risk</a>
+    <div class="grp" data-track="both">Applying it</div>
+    <a href="#measure" data-track="both">Measurement</a>
+    <a href="#myths" data-track="both">Myths</a>
+    <a href="#plan" data-track="both">The 90-day sequences</a>
+    <a href="#sources" data-track="both">Sources</a>
+  </nav>
+  <div class="prog">
+    <b>Checklist done</b>
+    <div class="num" id="gnum">0 / 0</div>
+    <div class="bar"><i id="gbar"></i></div>
+  </div>
+</aside>
+<main class="main">
+<header class="hero">
+  <div class="kicker">Deep research brief · complete edition</div>
+  <h1>The SEO playbook: universal and local fundamentals, graded by evidence</h1>
+  <p class="lede">Almost everything written about SEO is asserted rather than demonstrated. This playbook separates what Google documents, what internal documents and sworn testimony confirm, what large-scale data merely correlates with, and what is folklore — across both organic search and local search — then turns the durable parts into a checklist you can work through.</p>
+  <div class="meta"><span>Compiled 20 August 2026</span><span>Two tracks · fourteen pillars</span><span>132 checklist items</span><span>Primary sources cited throughout</span></div>
+</header>
+
+<div class="controls">
+  <label class="lbl">Track</label>
+  <button class="chip on" data-tr="core">Universal</button>
+  <button class="chip on" data-tr="local">Local</button>
+  <span style="width:12px"></span>
+  <label class="lbl">Evidence</label>
+  <button class="chip on" data-t="A">A</button>
+  <button class="chip on" data-t="B">B</button>
+  <button class="chip on" data-t="C">C</button>
+  <button class="chip on" data-t="D">D</button>
+  <input class="q" id="q" type="search" placeholder="Filter checklist items…">
+  <button class="chip" id="reset">Reset ticks</button>
+</div>
+<section id="how" data-track="both">
+  <div class="sechead"><span class="n">00</span><h2>How to read this</h2></div>
+
+  <p class="why">This playbook covers two related but mechanically different disciplines. Part One is universal search — ranking web pages in Google's organic results. Part Two is local search — ranking a business entity in the map pack and localised results. Local sits <i>on top of</i> universal: everything in Part One still applies to a local business's website, and none of Part Two substitutes for it.</p>
+  <p>Use the <b>track</b> chips to show only the half you're working in, and the <b>evidence</b> chips to hide anything below your tolerance for uncertainty. Every checklist item carries an evidence grade. The grade says how much weight the claim can bear, not how important it is.</p>
+  <div class="grid2">
+    <div class="mini"><h4><span class="tier t-A">A</span> &nbsp;Documented</h4><p>Stated by Google in its developer documentation, Business Profile Help, Maps policies, or its own published playbooks. In the local half these double as compliance rules — breaking them removes the listing, not just the ranking.</p></div>
+    <div class="mini"><h4><span class="tier t-B">B</span> &nbsp;Corroborated</h4><p>Supported by the May 2024 Content Warehouse API leak, sworn testimony in <i>US v. Google</i>, or Google's own published performance figures. Real internal artefacts — partly stale, stripped of weighting.</p></div>
+    <div class="mini"><h4><span class="tier t-C">C</span> &nbsp;Studied</h4><p>Large-N observational studies, SERP tracking, and structured expert surveys (Whitespark's 47-specialist panel scoring 187 local factors; BrightLocal's consumer research). Measured — but measuring observation or opinion, not mechanism.</p></div>
+    <div class="mini"><h4><span class="tier t-D">D</span> &nbsp;Practitioner</h4><p>Consistent, replicated field experience without formal evidence. Worth doing when cheap and harmless; worth dropping the moment it costs real time. This tier is larger in local, where the algorithm is less documented and more testable.</p></div>
+  </div>
+  <div class="note warn"><b>Two honest caveats</b>Google runs hundreds of signals, re-ranks after the fact, and personalises by location, language and device — no public document reveals weights, and anyone quoting a percentage for a "ranking factor" invented it. And in local, proximity means there is no single ranking at all: your position changes street by street, so "we rank #1" is incomplete without a location.</div>
+</section>
+<section id="operating" data-track="both">
+  <div class="sechead"><span class="n">01</span><h2>Fundamentals, strategy, roadmap</h2></div>
+  <p class="why">Three words that get used interchangeably and shouldn't be. Everything in this playbook is <i>fundamentals</i> — the standard. Strategy and roadmap are what turn that standard into work for a specific client. Confusing them is the reason onboarding feels like starting from scratch every time.</p>
+
+  <div class="grid2">
+    <div class="mini"><h4>Fundamentals</h4><p><b>The standard. Identical for every client.</b><br>Answers: <i>what must be true of any site we touch?</i> A quality floor, enforced rather than debated. Nobody buys this line item; it's what stops us shipping strategy onto a broken base.</p></div>
+    <div class="mini"><h4>Strategy</h4><p><b>The choices unique to this client.</b><br>Answers: <i>given this business, where does effort turn into revenue fastest, and what are we deliberately not doing?</i> Mostly a diagnosis plus a refusal. Fits on one page.</p></div>
+    <div class="mini"><h4>Roadmap</h4><p><b>Strategy on a calendar, under real constraints.</b><br>Answers: <i>what, in what order, by when, by whom?</i> Shaped as much by hours, budget, dev access and client approval speed as by strategy.</p></div>
+  </div>
+
+  <h3>The sequence</h3>
+  <p>The intuitive version — "fundamentals plus a tailored strategy equals a custom roadmap" — is close, with two corrections. Fundamentals aren't an <i>input</i> to strategy; they run underneath regardless of it. We don't decide whether to fix indexation based on strategy. And there's a missing step in the middle:</p>
+  <div class="note"><b>The actual flow</b>Fundamentals (fixed) → <b>Diagnosis</b> (fixed process, variable output) → Strategy (3–5 decisions) → Roadmap (assembled, not written)</div>
+  <p>Diagnosis is the step most often skipped, and it's the one that makes strategy fast. Every client has one <b>binding constraint</b> — the thing that, until fixed, makes everything else not work. Name it and the sequence largely picks itself.</p>
+
+  <div class="scroll"><table class="tbl">
+    <tr><th>Binding constraint</th><th>What it looks like</th><th>What runs first</th></tr>
+    <tr><td>Indexation</td><td>Pages missing, canonical conflicts, render gaps, migration damage</td><td>Pillar 2 in full, before anything else is worth doing</td></tr>
+    <tr><td>Relevance</td><td>Thin or missing pages for the services that actually make money</td><td>Pillars 1, 4 and local 4 — coverage and depth</td></tr>
+    <tr><td>Authority</td><td>Right pages exist, competitive SERP, nothing linking or citing</td><td>Pillars 6 and local 6, plus reviews for local</td></tr>
+    <tr><td>Conversion</td><td>Traffic and rankings fine, leads aren't</td><td>Local pillar 7 — the ceiling isn't ranking, it's the page</td></tr>
+    <tr><td>Measurement</td><td>Nobody can say what's working; no call tracking, no attribution</td><td>Instrument first. Everything else is guesswork until then.</td></tr>
+  </table></div>
+
+  <h3>What's fixed and what's invented</h3>
+  <p>The bottleneck in onboarding is <b>inventing</b> what should be <b>selected</b>. Customisation means creating something new; configuration means choosing from known options. Agencies scale on configuration. Roughly this is the split we're aiming for:</p>
+  <div class="scroll"><table class="tbl">
+    <tr><th>Asset</th><th>Fixed or variable</th><th>Where it comes from</th></tr>
+    <tr><td>Standards</td><td>Fixed</td><td>This playbook, converted into pass/fail definitions of done</td></tr>
+    <tr><td>Intake</td><td>Fixed</td><td>Same questions every time — business model, <b>margin per service</b>, geography, capacity, approvals, access</td></tr>
+    <tr><td>Diagnostic</td><td>Fixed process</td><td>Same audit, same output shape: a scorecard plus a named binding constraint</td></tr>
+    <tr><td>Play library</td><td>Fixed</td><td>Each recurring job as a play: trigger, steps, deliverable, definition of done, estimated hours, owner, expected latency</td></tr>
+    <tr><td>Client archetypes</td><td>Fixed</td><td>Three or four defaults (single-location local service, multi-location, ecommerce, B2B lead gen), each with a pre-sequenced 90-day plan</td></tr>
+    <tr><td><b>Strategy one-pager</b></td><td><b>Variable</b></td><td><b>The only thing genuinely written from scratch.</b> Fixed template, bespoke content.</td></tr>
+  </table></div>
+  <p>Once those exist, a roadmap stops being a document you write and becomes plays selected from the library, ordered by dependency, fitted to the retainer's monthly hours. Onboarding becomes <i>deviations from a default</i> rather than a blank page. If a new client needs more than a day of strategic thinking, either the diagnostic is weak or we're missing an archetype.</p>
+
+  <h3>The strategy one-pager</h3>
+  <p>Six headings, one page, no exceptions:</p>
+  <ul class="plain">
+    <li><b>Constraint</b> — the binding constraint, named, with the evidence for it.</li>
+    <li><b>Where we compete</b> — which services, which geography, how tight.</li>
+    <li><b>What we're refusing</b> — written down explicitly. This is the half that protects us later.</li>
+    <li><b>The bet</b> — one sentence on why this converts faster than the alternatives.</li>
+    <li><b>Success at 90 days</b> — in business terms, not positions.</li>
+    <li><b>What we need from the client</b> — access, approvals, information, decisions.</li>
+  </ul>
+
+  <h3>Worked example</h3>
+  <p>A general contracting client: one location, four services, claiming coverage across two large counties, on a six-month agreement at ten hours a month. Sixty hours total.</p>
+  <div class="scroll"><table class="tbl">
+    <tr><th>Layer</th><th>What it was</th><th>Hours</th></tr>
+    <tr><td>Fundamentals</td><td>Pulled off the shelf, run as pass/fail. Came back red on trust signals (no licence number on a contractor's site), red on entity consistency (a competing directory listing tangled with a similarly-named unlicensed operator), amber on service page depth.</td><td>~6</td></tr>
+    <tr><td>Strategy</td><td><b>Constraint:</b> relevance and coverage — four thin pages spread over two counties means vaguely relevant everywhere, strongly relevant nowhere. <b>Compete:</b> a tight radius around the home city, on two services, chosen on margin. <b>Refuse:</b> a blog, county-wide pages they can't service, and the most competitive of the four services. <b>Success:</b> calls and booked jobs, not positions.</td><td>~1</td></tr>
+    <tr><td>Roadmap</td><td>Months 1–2 fundamentals, profile and entity cleanup, review engine. Months 3–4 rebuild the two money services plus a handful of genuine town pages. Months 5–6 proof, local links, harvest positions 6–20, report on calls. Every row a play that already existed with hours attached.</td><td>~53</td></tr>
+  </table></div>
+  <div class="note"><b>Note the ratio</b>Of sixty hours, the fundamentals were pre-written and the roadmap was assembled. The only genuinely new thinking was the strategy page — about an hour of senior time, most of it spent naming the constraint and deciding what to refuse. That ratio is the target. And note what the retainer <i>can't</i> do: at ten hours a month you cannot fix four services across two counties. Saying that in the strategy page is what protects us in month five.</div>
+
+  <h3>Enforcement</h3>
+  <p>A standards document nobody is measured against is decoration. Fundamentals get enforced when three things exist:</p>
+  <ul class="plain">
+    <li><b>A gate</b> — nothing ships without passing the definition of done for its deliverable type.</li>
+    <li><b>An owner</b> — a named person signs off, not "the team".</li>
+    <li><b>A metric</b> — reviewed monthly, not aspirational.</li>
+  </ul>
+  <div class="grid2">
+    <div class="mini"><div class="stat">%</div><h4>Accounts passing the scorecard</h4><p>The health of the department in one number.</p></div>
+    <div class="mini"><div class="stat">d</div><h4>Days to first shipped change</h4><p>Signature to something live. The clearest measure of onboarding drag.</p></div>
+    <div class="mini"><div class="stat">h</div><h4>Onboarding hours per client</h4><p>Should fall every quarter as the play library fills out.</p></div>
+    <div class="mini"><div class="stat">↺</div><h4>Rework rate</h4><p>The real indicator. Rework is what fundamentals exist to prevent, and it stays invisible until someone counts it.</p></div>
+  </div>
+
+  <div class="note warn"><b>What we never standardise</b>The strategic decisions themselves, the constraint diagnosis, and the honest "this client shouldn't buy SEO from us" conversation. The diagnosis looks mechanical but it's judgement — it's what senior people are for. Standardise the scaffolding, never the thinking.</div>
+</section>
+
+<section id="model" data-track="core">
+  <div class="sechead"><span class="n">02</span><h2>The mental model · universal search</h2></div>
+
+  <p class="why">Universal SEO has three jobs, in order. Everything else is a tactic serving one of them.</p>
+<p class="why">SEO has exactly three jobs, in this order. Everything else is a tactic serving one of them. If a proposed task doesn't map onto one of the three, it is probably decoration.</p>
+  <div class="grid2">
+    <div class="mini"><div class="stat">1</div><h4>Be reachable</h4><p>Google must be able to fetch the page, render it as a user would, and choose it as the canonical version of its content. A page that fails here cannot rank at any quality level.</p></div>
+    <div class="mini"><div class="stat">2</div><h4>Be the best answer</h4><p>The page must satisfy a real query better than the alternatives currently ranking — measured by usefulness to the person, not by keyword coverage.</p></div>
+    <div class="mini"><div class="stat">3</div><h4>Be credible</h4><p>The site must carry enough independent corroboration — links, citations, brand demand, real-world reputation — that Google will risk showing it.</p></div>
+  </div>
+  <p>Google's own description of Search is three stages: crawling, indexing, and serving. At the indexing stage it groups near-identical pages and "select[s] the one that's most representative of the group." At the serving stage, "hundreds of factors" decide relevance, modified by the searcher's location, language and device. The practical consequence is that ranking is a relative, contextual judgement — you are never optimising in the abstract, only against the ten results currently on the page.</p>
+  <div class="note evd"><b>What changed, and what didn't</b>Between 2024 and 2026 the surface of search changed enormously — AI Overviews appeared on roughly a quarter of queries by Q1 2026, and click-through rates on position one fell sharply. The <i>inputs</i> changed very little. The same crawlability, content quality, relevance and authority signals that decided blue-link rankings also decide which pages get quoted in generated answers. Fundamentals didn't stop working; the payout per ranking dropped.</div>
+</section>
+
+<section id="p1" data-track="core">
+  <div class="sechead"><span class="n">03</span><h2>Pillar 1 · Demand and intent</h2><span class="pct" data-pct="c1"></span></div>
+<p class="why">Ranking is worthless if nobody searches for the thing, and impossible if your page answers a different question than the one being asked. Demand research and intent matching come first because they determine whether the other six pillars have anything to work on.</p>
+
+  <h3>What the data says about search demand</h3>
+  <p>Search demand is brutally long-tailed. Ahrefs found that <b>94.74% of keywords get ten or fewer searches a month</b>, while only 0.0008% exceed 100,000. On the supply side, <b>96.55% of pages get zero organic traffic from Google</b>, and only 1.94% get between one and ten visits a month. Those two facts together explain most SEO disappointment: publishing more pages is not a strategy, because the median page earns nothing.</p>
+  <div class="viz">
+    <h4>Where the pages go</h4>
+    <div class="cap">Share of pages by monthly organic search traffic (Ahrefs, ~1bn pages)</div>
+    <div class="row"><span class="lb">0 visits</span><span class="tr"><i class="fl" style="width:96.5%"></i></span><span class="vl">96.55%</span></div>
+    <div class="row"><span class="lb">1–10</span><span class="tr"><i class="fl b" style="width:1.94%"></i></span><span class="vl">1.94%</span></div>
+    <div class="row"><span class="lb">11+</span><span class="tr"><i class="fl b" style="width:1.51%"></i></span><span class="vl">~1.5%</span></div>
+  </div>
+
+  <h3>Intent is inferred from the SERP, not from the keyword</h3>
+  <p>Google's ranking systems named in its own documentation — <b>RankBrain</b>, <b>neural matching</b>, <b>BERT</b> and the <b>passage ranking system</b> — all exist to map concepts rather than strings. Neural matching "matches concepts in queries to representations found on pages"; passage ranking "analyzes individual page sections to assess relevance." The operational takeaway is that you cannot argue with a SERP: whatever page type currently occupies the top ten <i>is</i> Google's judgement about intent for that query. If the results are all comparison tables and you publish an essay, you have chosen to lose.</p>
+  <div class="note"><b>The site diversity system</b>Google documents a system that "limits top results to generally two listings per site." Planning five pages to blanket one SERP is planning for three of them to be suppressed. Consolidate instead.</div>
+
+  <div class="check" data-c="c1">
+    <div class="hd"><b>Demand &amp; intent checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Validate demand before writing <span class="tier t-C">C</span></div><div class="ds">Confirm the query has non-trivial volume or clear commercial value. Given that 94.7% of keywords see ≤10 searches/month, cluster related long-tail queries into one page rather than chasing them individually.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Read the SERP before choosing a format <span class="tier t-A">A</span></div><div class="ds">Note the dominant page type, the presence of AI Overviews, and which SERP features occupy space. Match the format Google is already rewarding rather than the one you prefer.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">One dominant intent per URL <span class="tier t-D">D</span></div><div class="ds">Splitting one intent across several pages creates cannibalisation; merging several intents into one page dilutes relevance for all of them.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Audit for cannibalisation quarterly <span class="tier t-A">A</span></div><div class="ds">In Search Console, look for queries where the ranking URL flips between pages. Consolidate the weaker page into the stronger one with a 301 rather than leaving both.</div></div></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Size the opportunity against realistic timelines <span class="tier t-C">C</span></div><div class="ds">Only ~5.7% of new pages reach the top 10 within a year, and 72.9% of current top-10 pages are over three years old. Budget for compounding, not for quarterly wins.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Map queries to a business outcome <span class="tier t-D">D</span></div><div class="ds">Rank each target by proximity to revenue, not by volume. High-volume informational terms are increasingly answered inside AI Overviews without a click.</div></div></div>
+  </div>
+</section>
+
+<section id="p2" data-track="core">
+  <div class="sechead"><span class="n">04</span><h2>Pillar 2 · Crawling and indexing</h2><span class="pct" data-pct="c2"></span></div>
+<p class="why">This is the only pillar with a hard pass/fail. Every technical SEO problem worth fixing eventually expresses itself as: Google can't fetch it, can't render it, or picked a different URL than you intended.</p>
+
+  <h3>The three stages, and what breaks at each</h3>
+  <p>Google names three stages. <b>Crawling</b> fails on server errors, network problems, login walls, and "robots.txt rules preventing Googlebot's access to the page." <b>Indexing</b> fails on low content quality, robots <code>noindex</code> rules, page designs that hinder analysis, and duplicate or non-canonical status. <b>Serving</b> is where relevance is decided. Note the ordering trap that catches people constantly: robots.txt blocks <i>crawling</i>, not indexing — a URL blocked in robots.txt can still appear in results, and a <code>noindex</code> tag on a robots-blocked page will never be read.</p>
+
+  <h3>Canonicalisation, ranked by strength</h3>
+  <p>When you don't specify, "Google will identify which version of the URL is objectively the best version to show to users in Search." Your influence over that decision runs, strongest to weakest: <b>permanent redirects</b> → <b><code>rel="canonical"</code></b> (HTML head or HTTP header) → <b>XML sitemaps</b>. Google also states it "prefers HTTPS pages over equivalent HTTP pages as canonical." Consistent internal linking is the quiet fourth signal; inconsistent internal links actively undermine your stated preference.</p>
+  <div class="note warn"><b>Four canonical mistakes Google calls out</b>Using robots.txt or the removal tool for canonicalisation; specifying different canonicals for the same page through different methods; using a URL fragment as a canonical; and using <code>noindex</code> to steer canonical selection within a site.</div>
+
+  <h3>Render parity</h3>
+  <p>Google's guidance is explicit: "When Google crawls a page, it should ideally see the page the same way an average user does." That single sentence is the whole of JavaScript SEO. If the main content, internal links or structured data only exist after a client-side fetch that Googlebot doesn't execute, the page is effectively empty. The URL Inspection tool in Search Console shows the rendered HTML Google actually holds — this is the check, not a browser view-source.</p>
+  <div class="note evd"><b>From the leaked documentation</b>The Content Warehouse schema includes <code>hostAge</code>, described as being used "to sandbox fresh spam in serving time." This is consistent with the long-observed pattern that brand-new hosts underperform for a period regardless of content quality — plan for a ramp, and don't diagnose a new domain's slow start as a technical fault.</div>
+
+  <div class="check" data-c="c2">
+    <div class="hd"><b>Crawl &amp; index checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Confirm indexation coverage in Search Console <span class="tier t-A">A</span></div><div class="ds">Work the Page Indexing report by reason. "Crawled – currently not indexed" and "Discovered – currently not indexed" at scale are quality and crawl-priority signals, not bugs to be forced.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Verify rendered HTML for your top templates <span class="tier t-A">A</span></div><div class="ds">Use URL Inspection → Test Live URL → View Crawled Page on one URL per template. Check that body content, internal links and structured data are present.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Never block a page you want de-indexed <span class="tier t-A">A</span></div><div class="ds">Use <code>noindex</code> on a crawlable URL, or a 410/404. Robots.txt disallow prevents Google from ever seeing the noindex directive.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Self-referencing canonical on every indexable page <span class="tier t-A">A</span></div><div class="ds">Absolute URL, matching the version you link to internally, matching the version in your sitemap, on HTTPS.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">One reachable URL per piece of content <span class="tier t-A">A</span></div><div class="ds">Redirect www/non-www, http/https, trailing-slash and index-file variants. Strip or canonicalise tracking and session parameters.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Keep the XML sitemap clean and truthful <span class="tier t-A">A</span></div><div class="ds">Canonical, indexable, 200-status URLs only, with accurate <code>lastmod</code>. Sitemaps are optional for small sites but valuable for large, new or poorly-linked ones.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Contain crawl traps <span class="tier t-D">D</span></div><div class="ds">Faceted navigation, calendars, internal search results and infinite pagination generate unbounded URL space. Block, canonicalise or nofollow them deliberately rather than letting them accumulate.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Fix server reliability before anything else <span class="tier t-A">A</span></div><div class="ds">Sustained 5xx errors and slow responses suppress crawl rate. Check the Crawl Stats report for response-time trends and error spikes.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Preserve equity through migrations <span class="tier t-D">D</span></div><div class="ds">Map every old URL to a single relevant new URL with a 301. Chains, loops and blanket redirects to the homepage are the standard causes of post-migration collapse.</div></div></div>
+  </div>
+</section>
+
+<section id="p3" data-track="core">
+  <div class="sechead"><span class="n">05</span><h2>Pillar 3 · Content quality</h2><span class="pct" data-pct="c3"></span></div>
+<p class="why">This is where core updates are won and lost, and it is the pillar most resistant to shortcuts. Google's public position and its internal machinery agree more here than anywhere else.</p>
+
+  <h3>People-first, defined by Google</h3>
+  <p>Google defines people-first content as material "created primarily for people, and not to manipulate search engine rankings," and lists the tells of the opposite: producing "lots of content on many different topics" hoping some sticks, "extensive automation to produce content on many topics," "mainly summarizing what others have to say without adding much value," writing for trends rather than for an audience, and changing dates to look fresh "when the content has not substantially changed."</p>
+
+  <h4>The self-assessment questions worth actually running</h4>
+  <ul class="plain">
+    <li>Does the content provide <b>original</b> information, reporting, research or analysis?</li>
+    <li>Does it provide "insightful analysis or interesting information that is beyond the obvious"?</li>
+    <li>Is this "the sort of page you'd want to bookmark, share with a friend, or recommend"?</li>
+    <li>Does it present information "in a way that makes you want to trust it, such as clear sourcing, evidence of the expertise involved"?</li>
+    <li>Was it produced by "an expert or enthusiast who demonstrably knows the topic well"?</li>
+    <li>Does it contain "easily-verified factual errors"?</li>
+  </ul>
+
+  <h3>Who, How and Why</h3>
+  <p><b>Who</b> made it — bylines and author pages that demonstrate real background. <b>How</b> it was made — for reviews, "the number of products that were tested, what the test results were, and how the tests were conducted"; for AI-assisted work, disclosure where "someone might think 'How was this created?'". <b>Why</b> it exists — the load-bearing question. Content should exist "primarily to help people." Using automation "to produce content for the primary purpose of manipulating search rankings" is a spam policy violation, not a grey area.</p>
+
+  <h3>E-E-A-T, precisely</h3>
+  <p>Experience, Expertise, Authoritativeness, Trust — with <b>trust the most important</b>. Google is equally explicit that E-E-A-T is not itself a ranking factor: asked directly, the answer is "No, it's not." Both things are true at once. E-E-A-T is the concept quality raters are trained to evaluate; the ranking systems approximate it through many separate signals. The leaked schema is consistent with that — it contains <code>ymylHealthScore</code> and <code>ymylNewsScore</code> classifiers, an <code>originalContentScore</code>, and site-level quality attributes, but nothing called "EEAT."</p>
+  <div class="note evd"><b>March 2026 core update, in the aggregate</b>Independent SERP tracking found 79.5% of top-3 positions and 90.7% of top-10 positions changed, with ~24.1% of top-10 pages falling out of the top 100 entirely. The directional finding: rankings shifted "from intermediary sites toward stronger destination sources." Aggregators, directories, comparison sites and job boards lost; official institutions, established brands, specialist niche sources and primary-data holders gained. If your page's only reason to exist is that it summarises other people's pages, that is now the risk position.</div>
+
+  <h3>Recovering from a core update</h3>
+  <p>Google's guidance is unusually blunt: wait "at least a full week after a core update completes before analyzing your site"; a move from position 2 to 4 needs no action; and "avoid doing 'quick fix' changes (like removing some page element because you heard it was bad for SEO)." Deleting content is "a last resort," and the need to delete suggests the content "was created for search engines first, and not people." Recovery "can take effect in a few days, but it could take several months," with "no guarantee."</p>
+
+  <h3>Decay is the default state</h3>
+  <p>Published content loses traffic continuously — one analysis puts average decay at roughly <b>1.2% per week</b> for ageing posts. The counter is a refresh discipline: statistics and screenshots updated, broken links fixed, gaps that competitors now cover filled, overlapping pages merged with redirects, and titles/meta rewritten. Refreshing an existing ranking URL is consistently cheaper than earning a new one, because the page already holds links, history and click data.</p>
+
+  <div class="check" data-c="c3">
+    <div class="hd"><b>Content quality checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Add something that isn't on the other ten results <span class="tier t-A">A</span></div><div class="ds">Original data, first-hand testing, named expert commentary, photography you took, a calculator, a template. Synthesis alone is the profile that lost ground in 2026 core updates.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Real bylines with real credentials <span class="tier t-A">A</span></div><div class="ds">Author page, relevant background, links to their work elsewhere. Fictional personas are a trust liability, particularly on YMYL topics.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Show your method <span class="tier t-A">A</span></div><div class="ds">State how many things you tested, over what period, with what results. Google names this explicitly for review content.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Disclose AI involvement where a reader would wonder <span class="tier t-A">A</span></div><div class="ds">Google's stated bar: disclose "when it would be reasonably expected," and explain why automation was useful.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Do not publish at scale without per-page value <span class="tier t-A">A</span></div><div class="ds">Scaled content abuse covers "generating numerous pages without user value specifically to manipulate rankings" — regardless of whether a human or a model wrote them.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Guard against site reputation abuse <span class="tier t-A">A</span></div><div class="ds">Third-party content published on your domain to borrow its ranking strength is a named policy violation. Applies to coupon sections, sponsored subfolders and rented subdomains.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Keep dates honest <span class="tier t-A">A</span></div><div class="ds">Only change a "last updated" date when the content substantially changed. The leak shows Google extracting <code>bylineDate</code>, <code>syntacticDate</code> and <code>semanticDate</code> separately — inconsistent dates are detectable.</div></div></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Run a quarterly decay sweep <span class="tier t-C">C</span></div><div class="ds">Flag URLs down &gt;20% in 90 days, down 5+ positions, or with falling CTR on flat impressions. Refresh, merge or retarget — in that order of preference.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">After a core update, diagnose before you act <span class="tier t-A">A</span></div><div class="ds">Wait a week past completion, segment the drop by query type and page type, and change substance rather than removing elements you read were "bad for SEO."</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Prune deliberately, not reflexively <span class="tier t-D">D</span></div><div class="ds">Improve or consolidate first. Delete only pages with no traffic, no links, no conversions and no strategic role — and redirect where a relevant target exists.</div></div></div>
+  </div>
+</section>
+
+<section id="p4" data-track="core">
+  <div class="sechead"><span class="n">06</span><h2>Pillar 4 · On-page relevance</h2><span class="pct" data-pct="c4"></span></div>
+<p class="why">On-page work is the cheapest, fastest, most reliably positive category of SEO — and the one most polluted by ritual. The rule of thumb: anything that helps a reader or clarifies the topic is worth doing; anything whose only audience is a crawler is not.</p>
+
+  <h3>Titles</h3>
+  <p>Google generates the title link from several sources — the <code>&lt;title&gt;</code> element, visible headings, <code>&lt;h1&gt;</code>, Open Graph tags, styled text, and anchor text pointing at the page. It rewrites titles when they are stale, inaccurate, half-empty (<code>| Site Name</code> alone), boilerplate across many pages, or keyword-stuffed ("foobar, foo bar, foobars"). There is no hard length limit; titles are "truncated in Google Search results as needed, typically to fit the device width." The leaked schema contains <code>titlematchScore</code>, "a signal that tells how well titles are matching user queries" — which is the strongest available support for the oldest on-page rule there is: put the actual subject of the page in the title.</p>
+
+  <h3>Meta descriptions</h3>
+  <p>Not a ranking input. They are advertising copy for the result, and Google frequently rewrites them from page text when its own extract fits the query better. Write "short, unique to one particular page" summaries that include the most relevant points — one or two sentences.</p>
+
+  <h3>Headings, structure and placement</h3>
+  <p>Google's position on heading order is that it doesn't matter "from Google Search perspective" and there is "no magical, ideal amount of headings." Headings still matter for readers, for accessibility, and for passage ranking, which evaluates sections independently. What does appear to matter mechanically is <b>placement</b>: leaked documentation indicates documents are truncated at a maximum token count, so content buried below thousands of words of preamble may not be considered at all. Answer the question near the top.</p>
+
+  <h3>Structured data</h3>
+  <p>Structured data is not a ranking factor; it is an eligibility mechanism for rich results, and rich results move CTR. Google's own case studies cite +25% CTR (Rotten Tomatoes), +35% visits (Food Network) and +82% CTR on rich-result pages (Nestlé). Two rules carry most of the risk: "don't add structured data about information that is not visible to the user, even if the information is accurate," and prefer "fewer but complete and accurate recommended properties" over exhaustive but sloppy markup.</p>
+
+  <div class="check" data-c="c4">
+    <div class="hd"><b>On-page checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Unique, descriptive title on every indexable page <span class="tier t-A">A</span></div><div class="ds">Primary subject first, brand last behind a delimiter. No repeated keyword variants, no shared boilerplate across templates.</div></div></div>
+    <div class="item" data-tier="B"><input type="checkbox"><div class="bd"><div class="ttl">Make the title match the query it targets <span class="tier t-B">B</span></div><div class="ds">Supported by <code>titlematchScore</code> in the leaked schema. Not keyword stuffing — literal, plain-language correspondence between the query and the title.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Check which titles Google is rewriting <span class="tier t-A">A</span></div><div class="ds">Rewrites usually mean a mismatch between your title and the page's visible content. Fix the page or the title rather than fighting the rewrite.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Distinct meta descriptions on pages that matter <span class="tier t-A">A</span></div><div class="ds">One or two sentences, most relevant points, written as ad copy. Skip on low-value templates rather than duplicating.</div></div></div>
+    <div class="item" data-tier="B"><input type="checkbox"><div class="bd"><div class="ttl">Front-load the answer <span class="tier t-B">B</span></div><div class="ds">Direct answer in the first 100–150 words, then depth. Serves passage ranking, featured snippets, AI-answer extraction and readers who bounce.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Use headings for structure, not for keyword placement <span class="tier t-A">A</span></div><div class="ds">Order is not a ranking factor. Clear, scannable, descriptive subheads that map to sub-questions are the goal.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Descriptive anchor text on internal and external links <span class="tier t-A">A</span></div><div class="ds">Google names "appropriate anchor text" as a way to help users and search engines understand the destination. "Click here" wastes a signal.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Images near relevant text, with real alt text <span class="tier t-A">A</span></div><div class="ds">Alt text should explain the image's relationship to the surrounding content, not restate the target keyword.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Mark up only what is visible and true <span class="tier t-A">A</span></div><div class="ds">Article, Product, FAQ, Breadcrumb, Organization, LocalBusiness as applicable. Validate with the Rich Results Test and monitor the enhancement reports.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Readable URLs grouped in topical directories <span class="tier t-A">A</span></div><div class="ds">Google notes that directories help it "learn how often the URLs in individual directories change." Keyword-stuffed URLs add nothing; clear ones cost nothing.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">No keyword stuffing anywhere <span class="tier t-A">A</span></div><div class="ds">A named spam policy: "filling a web page with keywords or numbers in an attempt to manipulate rankings." Includes hidden text, white-on-white, and off-screen positioning.</div></div></div>
+  </div>
+</section>
+
+<section id="p5" data-track="core">
+  <div class="sechead"><span class="n">07</span><h2>Pillar 5 · Architecture and internal links</h2><span class="pct" data-pct="c5"></span></div>
+<p class="why">Internal linking is the highest-leverage under-used lever in SEO: it is entirely under your control, costs nothing external, and directly governs how authority and crawl attention are distributed across your site.</p>
+
+  <h3>How authority moves inside a site</h3>
+  <p>Google names "Link analysis systems and PageRank" as an active ranking system that evaluates "how pages link to determine relevance and helpfulness." PageRank does not distinguish between internal and external links in principle — which means your own linking decides where accumulated authority lands. The leaked documentation reinforces the picture, containing homepage trust attributes (<code>homePageInfo</code> with values including "FULLY_TRUSTED") and site-level authority scoring, alongside the practitioner reading that homepage strength propagates outward through the link graph.</p>
+
+  <h3>Topical cohesion is measured</h3>
+  <p>Two leaked attributes are particularly instructive: <code>siteFocusScore</code>, "how much a site is focused on one topic," and <code>siteRadius</code>, "how far page_embeddings deviate from the site_embedding." Combined with <code>pageEmbedding</code> and <code>siteEmbedding</code>, this describes a system that models what a site is <i>about</i> and notices pages that sit far outside it. That is a mechanical basis for topical authority — build depth in a defined territory before spreading into adjacent ones.</p>
+
+  <div class="check" data-c="c5">
+    <div class="hd"><b>Architecture checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Group related pages into directories <span class="tier t-A">A</span></div><div class="ds">A flat dump of URLs gives Google no structural information. Directories communicate grouping and update frequency.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Keep important pages within ~3 clicks of the homepage <span class="tier t-D">D</span></div><div class="ds">Deep pages are crawled less and receive less internal authority. Depth, not directory nesting, is what matters.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Eliminate orphan pages <span class="tier t-D">D</span></div><div class="ds">Crawl the site and diff against the sitemap. Any indexable URL with zero internal links is invisible to the link graph.</div></div></div>
+    <div class="item" data-tier="B"><input type="checkbox"><div class="bd"><div class="ttl">Point internal links at your money pages <span class="tier t-B">B</span></div><div class="ds">Identify the pages with the most external links and link from them, in-content, to the pages you actually need to rank.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Use varied, descriptive internal anchors <span class="tier t-A">A</span></div><div class="ds">Anchor text is one of the sources Google uses to understand a destination page — and one of the sources it uses to generate title links.</div></div></div>
+    <div class="item" data-tier="B"><input type="checkbox"><div class="bd"><div class="ttl">Build hub-and-spoke topic clusters <span class="tier t-B">B</span></div><div class="ds">A pillar page linking to and from every supporting page. Consistent with <code>siteFocusScore</code> and <code>siteRadius</code> modelling site-level topical coherence.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Resist expanding beyond your topic too early <span class="tier t-D">D</span></div><div class="ds">Off-topic sections dilute site-level focus and rarely rank on a site with no track record in that area.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Retire dead internal links <span class="tier t-D">D</span></div><div class="ds">Internal links to redirected or 404 URLs leak crawl budget and dilute the signal. Update the links at source.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Use crawlable <code>&lt;a href&gt;</code> links <span class="tier t-A">A</span></div><div class="ds">Google's own advice is to keep "links crawlable so that Google can find other pages on your site." JavaScript click handlers without href attributes are not links.</div></div></div>
+  </div>
+</section>
+
+<section id="p6" data-track="core">
+  <div class="sechead"><span class="n">08</span><h2>Pillar 6 · Off-site authority</h2><span class="pct" data-pct="c6"></span></div>
+<p class="why">Links remain the most durably confirmed off-site signal — and the area with the widest gap between what works and what is sold. The distinguishing question is whether a link exists because someone judged your page worth citing.</p>
+
+  <h3>What is actually established</h3>
+  <ul class="plain">
+    <li><b>Google runs link analysis and PageRank as a named, current ranking system</b> <span class="tier t-A">A</span> — it is listed in Google's own guide to ranking systems.</li>
+    <li><b>Site-level authority exists internally</b> <span class="tier t-B">B</span> — the leaked schema contains <code>siteAuthority</code>, "converted from quality_nsr.SiteAuthority, applied in Qstar," despite years of public statements that Google has no domain authority metric. Third-party scores like DR and DA still aren't that metric; they merely approximate the same idea.</li>
+    <li><b>Link value is not uniform</b> <span class="tier t-B">B</span> — the leaked documentation describes source-page tiering and homepage trust states, supporting the long-standing view that one editorially-given link from a trusted, relevant page outweighs hundreds of low-tier ones.</li>
+    <li><b>Referring domains correlate with organic traffic</b> <span class="tier t-C">C</span> — consistently, across large studies, with higher-ranking pages also acquiring new referring domains faster. Correlation, and partly reverse causation: ranking earns links too.</li>
+  </ul>
+
+  <h3>What Google's spam policy actually prohibits</h3>
+  <p>Link spam is "creating inbound or outbound links primarily for ranking manipulation, including paid links without proper attributes." The relevant machinery is attribution, not abstinence: <code>rel="sponsored"</code> for paid or affiliate links, <code>rel="ugc"</code> for user-generated links, <code>rel="nofollow"</code> for links you can't vouch for. Google's guidance is that user-generated links should have nofollow "automatically added by your CMS." Two adjacent policies catch common agency tactics: <b>expired domain abuse</b> (buying old domains to inherit their signals) and <b>site reputation abuse</b> (publishing third-party content on a strong host to exploit its rankings).</p>
+
+  <div class="note"><b>The reliable link sources, in rough order of return</b>Original research and proprietary data others want to cite · being the primary source for a piece of news in your niche · genuinely useful free tools · expert commentary offered to journalists · partnerships, sponsorships and community involvement that would exist without SEO · unlinked brand mentions converted to links. Everything on this list works because a human decided to link.</div>
+
+  <div class="check" data-c="c6">
+    <div class="hd"><b>Authority checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Audit your current link profile before building <span class="tier t-C">C</span></div><div class="ds">Referring domains, their relevance, anchor distribution, and which of your pages hold the links. You cannot plan acquisition without knowing your baseline.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Create at least one genuinely linkable asset per quarter <span class="tier t-D">D</span></div><div class="ds">Original data from your own operations is the cheapest form: you already own numbers nobody else can publish.</div></div></div>
+    <div class="item" data-tier="B"><input type="checkbox"><div class="bd"><div class="ttl">Prioritise relevance and source quality over volume <span class="tier t-B">B</span></div><div class="ds">Leaked link tiering and homepage trust states both point the same way: a few strong, topically-adjacent links beat bulk acquisition.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Attribute paid and UGC links correctly <span class="tier t-A">A</span></div><div class="ds"><code>rel="sponsored"</code> on paid/affiliate, <code>rel="ugc"</code> on user-generated, <code>rel="nofollow"</code> where you can't vouch. This is the line between advertising and link spam.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Avoid the named schemes outright <span class="tier t-A">A</span></div><div class="ds">Reciprocal link exchanges at scale, PBNs, bulk paid guest posts, expired-domain acquisition for signal inheritance, and rented subfolders are all documented violations.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Reclaim unlinked mentions and broken inbound links <span class="tier t-D">D</span></div><div class="ds">The highest-conversion outreach there is — the publisher already referenced you or already linked and the target broke.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Build brand demand deliberately <span class="tier t-D">D</span></div><div class="ds">Google's own SEO guidance includes promoting your site and building community awareness. Branded search demand is the signal that is hardest to fake and hardest to lose.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Disavow only for a manual action or clear negative SEO <span class="tier t-D">D</span></div><div class="ds">Google ignores most spam links automatically. Careless disavow files remove real value.</div></div></div>
+  </div>
+</section>
+
+<section id="p7" data-track="core">
+  <div class="sechead"><span class="n">09</span><h2>Pillar 7 · Experience and performance</h2><span class="pct" data-pct="c7"></span></div>
+<p class="why">Page experience is real but small, and it is routinely oversold. Google's framing is the correct one: it is a tiebreaker among comparably helpful results, not a substitute for being helpful.</p>
+
+  <h3>Core Web Vitals, current thresholds</h3>
+  <div class="scroll"><table class="tbl">
+    <tr><th>Metric</th><th>Measures</th><th class="num">"Good"</th><th>Notes</th></tr>
+    <tr><td>LCP</td><td>Loading — largest content element paints</td><td class="num">≤ 2.5s</td><td>Usually the hero image or headline block</td></tr>
+    <tr><td>INP</td><td>Interactivity — response to user input</td><td class="num">≤ 200ms</td><td>Replaced FID; became a stable Core Web Vital in 2024</td></tr>
+    <tr><td>CLS</td><td>Visual stability — unexpected layout shift</td><td class="num">≤ 0.1</td><td>Reserve space for images, ads and embeds</td></tr>
+  </table></div>
+  <p>All three are assessed at the <b>75th percentile</b> of page loads, segmented across mobile and desktop — meaning your worst quarter of visits decides the verdict, and field data (real users) beats lab scores.</p>
+
+  <h3>How much it counts</h3>
+  <p>Google states plainly that "Core Web Vitals are used by our ranking systems," while adding that good scores don't "guarantee that your pages will rank at the top," and — the sentence that should govern your prioritisation — "Google Search always seeks to show the most relevant content, even if the page experience is sub-par." Alongside Core Web Vitals, Google names HTTPS, mobile-friendliness, ad density, intrusive interstitials, and clear separation of main from supplementary content.</p>
+  <div class="note evd"><b>A note on Chrome data</b>The leaked schema contains <code>chromeInTotal</code>, described as site-level Chrome view data — which sits uncomfortably beside public statements that Chrome usage data isn't used in ranking. Whatever the precise application, the practical instruction is unchanged: real-user experience is measured, so optimise for real users on real devices rather than for a lab score.</div>
+
+  <div class="check" data-c="c7">
+    <div class="hd"><b>Experience checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Fix Core Web Vitals from field data <span class="tier t-A">A</span></div><div class="ds">Use the Search Console Core Web Vitals report and CrUX. Chase failing URL groups at the 75th percentile, not a Lighthouse score.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">HTTPS everywhere <span class="tier t-A">A</span></div><div class="ds">Named page experience signal, and Google "prefers HTTPS pages over equivalent HTTP pages as canonical."</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Design and test mobile-first <span class="tier t-A">A</span></div><div class="ds">Indexing uses the mobile rendering. Content, links and structured data hidden on mobile are effectively hidden from Google.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Remove intrusive interstitials <span class="tier t-A">A</span></div><div class="ds">Full-screen overlays on arrival from search are a named negative. Consent and age gates that are legally required are handled separately.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Keep main content distinguishable from ads <span class="tier t-A">A</span></div><div class="ds">Ad density and unclear separation of primary from supplementary content are both named page experience factors.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Set a performance budget <span class="tier t-D">D</span></div><div class="ds">Image formats and sizing, lazy-loading below the fold, deferred third-party scripts, explicit dimensions on media. Most CWV failures are third-party JavaScript and unsized images.</div></div></div>
+  </div>
+</section>
+
+<section id="evidence" data-track="core">
+  <div class="sechead"><span class="n">10</span><h2>What the leak and the trial showed</h2></div>
+<p class="why">Two events between 2023 and 2024 moved several long-argued questions from speculation to something closer to fact: sworn testimony in the US Department of Justice's antitrust case against Google, and the May 2024 accidental publication of Google's Content Warehouse API documentation. Neither gives weights. Both constrain what is plausible.</p>
+
+  <h3>Click and engagement signals are used</h3>
+  <p>The leaked schema names <code>goodClicks</code>, <code>badClicks</code>, <code>lastLongestClicks</code>, <code>unsquashedClicks</code> and <code>unicornClicks</code>, associated with the NavBoost re-ranking system, along with <code>lastGoodClickDate</code> tracking traffic decay. This sits directly against years of public statements that using clicks in ranking "would be a mistake."</p>
+  <div class="note warn"><b>Read this carefully before acting on it</b>These are <i>search-result</i> interaction signals — whether searchers clicked your result and whether the click ended their search — measured in aggregate across queries. They are not your Google Analytics bounce rate, and they are not something you improve by buying clicks. The legitimate implication is narrow and old-fashioned: earn the click with an honest, well-matched snippet, and satisfy the visit so the searcher doesn't go back and pick a competitor.</div>
+
+  <h3>Site-level authority exists</h3>
+  <p><code>siteAuthority</code> appears in the schema, "converted from quality_nsr.SiteAuthority, applied in Qstar." Separately, <code>hostAge</code> is used "to sandbox fresh spam in serving time," <code>smallPersonalSite</code> allows discretionary treatment of independent blogs, and <code>babyPandaV2Demotion</code> sits "on top of Panda." The reasonable conclusion is not that Ahrefs DR or Moz DA are ranking factors — they are not — but that site-level quality and authority scoring is real, that new hosts face a probationary period, and that site-wide quality problems can demote individual pages that are fine on their own merits.</p>
+
+  <h3>Content is modelled semantically, and truncated</h3>
+  <p><code>pageEmbedding</code>, <code>siteEmbedding</code>, <code>siteFocusScore</code> and <code>siteRadius</code> together describe topic modelling at both page and site level. <code>originalContentScore</code> measures originality specifically "for pages with little content." <code>titlematchScore</code> measures title-to-query correspondence. And documents are truncated at a maximum token count — a mundane engineering detail with a real content consequence: length beyond a point isn't merely useless, it is unread.</p>
+
+  <h3>What the two sources do <i>not</i> establish</h3>
+  <ul class="plain">
+    <li><b>Weights.</b> Nothing in either source says how much any attribute matters.</li>
+    <li><b>Currency.</b> The documentation is a snapshot; attributes may be deprecated, experimental, or unused in the live serving path.</li>
+    <li><b>Direct manipulability.</b> Knowing an attribute exists does not tell you how to move it, and most attempts to move engagement metrics artificially are detectable and pointless.</li>
+  </ul>
+  <p>Used properly, these sources are a filter for advice: any tactic that would have looked implausible before the leak and still looks implausible after it can be discarded with more confidence, and any long-denied phenomenon that practitioners kept observing anyway — sandboxing, site-level quality, click-informed re-ranking — can be planned around.</p>
+</section>
+
+<section id="lmodel" data-track="local">
+  <div class="sechead"><span class="n">11</span><h2>How local search differs · two rankings, three factors</h2></div>
+<p class="why">The single most common strategic error in local SEO is treating it as one ranking problem. It is two, and they respond to different inputs.</p>
+  <div class="grid2">
+    <div class="mini"><h4>The local pack &amp; Maps</h4><p>Ranks <b>Business Profiles</b>, not web pages. Driven primarily by profile data, proximity, reviews and prominence. Your website influences it, but the entity being ranked is the listing.</p></div>
+    <div class="mini"><h4>Localised organic</h4><p>Ranks <b>web pages</b> with a geographic modifier applied. Driven by everything in classic SEO — content, links, technical health — plus geographic relevance.</p></div>
+  </div>
+  <p>Whitespark's 2026 survey makes the split concrete. The top five factors experts scored for the <b>local pack</b> were: primary GBP category, proximity of address to the point of search, keywords in the GBP business title, physical address in the city of search, and whether the business is open at the time of search. The top five for <b>local organic</b> were entirely different: a dedicated page for each service, geographic keyword relevance of content, quality and authority of inbound links to the domain, keywords in the GBP landing page title tag, and quantity of industry-relevant inbound links.</p>
+
+  <h3>Google's three stated factors</h3>
+  <p>Google's own explanation is short enough to quote in full. <b>Relevance</b> is "how well a Business Profile matches what someone is searching for." <b>Distance</b> is "how far each business is from the customer who's searching." <b>Prominence</b> is "how well-known a business is," based on factors including "websites link to your business and how many reviews you have." And the line that ends most sales conversations: <b>"There's no way to request or pay for a better local ranking on Google."</b></p>
+  <div class="note"><b>How the three map to work</b>Relevance is the only one you control directly and quickly — categories, services, description, on-site content. Prominence is the one you build slowly — reviews, links, mentions, real-world reputation. Distance is the one you cannot change without moving, which is why so much bad local advice is really an attempt to fake an address.</div>
+</section>
+
+<section id="lp1" data-track="local">
+  <div class="sechead"><span class="n">12</span><h2>Local pillar 1 · The Business Profile</h2><span class="pct" data-pct="lc1"></span></div>
+<p class="why">The profile is the ranked object in the local pack and the record AI assistants read when someone asks for a recommendation. It is also the highest-leverage hour of work in local SEO: most of it is free, fast, and under your direct control.</p>
+
+  <h3>What Google says the profile is worth</h3>
+  <p>Google's own 2026 Business Profile playbook publishes the numbers it wants operators to act on: <b>7× more clicks</b> for businesses with complete profiles, <b>5× more views</b> for regularly updated profiles, <b>42% more direction requests</b> when photos are present on Maps, and <b>96% of customers</b> more likely to visit a business that displays its hours. Treat these as directional marketing figures rather than controlled experiments — but note that they are Google telling you exactly which fields it wants populated.</p>
+
+  <h3>Categories: the single biggest pack lever</h3>
+  <p>The primary category was scored the number-one local pack factor in the 2026 expert survey. Google's guidance is to "select the fewest categories possible," using the test "this business <i>IS</i> a" rather than "HAS a" — categories describe what the business is, not what it offers or what is nearby. One primary plus up to nine secondary is the structural limit. Choosing a broader category than your competitors is usually a downgrade; choosing a more specific one that matches the query is usually the win.</p>
+
+  <h3>The business name rule, and the uncomfortable tension</h3>
+  <p>Google's rule is verbatim: "Your name should reflect your business's real-world name, as used consistently on your storefront, website, stationery, and as known to customers." Explicitly prohibited: marketing taglines, store codes, trademark symbols, phone numbers, URLs, all-caps words, hours, unsupported special characters, service or product descriptors, and location information.</p>
+  <div class="note warn"><b>Read this before you "just add the city"</b>Keywords in the GBP business title were scored the <b>third strongest</b> local pack factor by the 2026 expert panel — and are simultaneously a documented guideline violation. Both statements are true. The tactic works, competitors can and do report it through the redressal process, and the downside is not a ranking dip but a suspended listing and zero local visibility while you appeal. The defensible version: if your legal or trading name genuinely contains the descriptor, use it consistently everywhere — signage, invoices, website, citations — so it is your real-world name rather than a keyword insertion.</div>
+
+  <h3>The description</h3>
+  <p>Not a pack ranking factor, and for years correctly dismissed as low priority. That has changed for one reason: it is the only field where the business describes itself in prose, and AI assistants answering local questions lift prose. The field rules are hard constraints — 750 characters maximum, only about the first 250 shown before "More," no URLs, no phone numbers or email addresses, no prices or promotional offers, no keyword stuffing or all-caps.</p>
+  <div class="note"><b>The structure that survives being quoted</b>Open with a plain semantic triple: <i>[business name] provides [specific services] to [named service area]</i>. Then expand — the specific services rather than category abstractions, the flagship offerings, the actual cities or counties served, and the customer type. Write the first 250 characters as if nothing after them will ever be read, because for most viewers that is true.</div>
+
+  <div class="check" data-c="lc1">
+    <div class="hd"><b>Business Profile checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Verify the profile, and keep ownership <span class="tier t-A">A</span></div><div class="ds">Verification "tells Google that you're authorized to represent the business." Add multiple managers so access survives staff turnover — losing access is a slow, painful recovery.</div></div></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Get the primary category exactly right <span class="tier t-C">C</span></div><div class="ds">Scored the #1 local pack factor in 2026. Check which category your top-ranking competitors use for the query you want, then choose the most specific accurate match.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Add secondary categories sparingly <span class="tier t-A">A</span></div><div class="ds">Google: "select the fewest categories possible." Each one should pass the "this business IS a" test. Categories used as keyword slots is a named misuse.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Use your real-world name, exactly <span class="tier t-A">A</span></div><div class="ds">Match storefront, website, stationery and citations. No taglines, cities, services, phone numbers or symbols appended.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Complete every field Google offers <span class="tier t-A">A</span></div><div class="ds">Hours including holiday hours, attributes, service area, social links, booking links, messaging. Google's own figure for complete profiles is 7× the clicks.</div></div></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Keep hours accurate, including special hours <span class="tier t-C">C</span></div><div class="ds">"Business is open at the time of search" was scored a top-five pack factor in 2026, and business hours rose 64 places in the rankings. Wrong hours cost you visibility at exactly the moment demand exists.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Populate the Services section properly <span class="tier t-A">A</span></div><div class="ds">Named services with written descriptions. This factor jumped 75 positions in the 2026 survey after testing showed ranking impact, and keywords in service descriptions scored highly for conversion.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Write the description as a semantic triple <span class="tier t-D">D</span></div><div class="ds">Business + specific services + named locations in the first sentence. 750 characters, first 250 load-bearing, no URLs, phone numbers, prices or promos.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Upload real photos and video, regularly <span class="tier t-A">A</span></div><div class="ds">Google reports 42% more direction requests with photos on Maps and 90% higher visit likelihood. Recency of uploaded video also scored highly for AI visibility in 2026.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Link social profiles from the GBP <span class="tier t-A">A</span></div><div class="ds">Now a supported field, and one the 2026 panel scored highly for AI search visibility.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Post weekly, but for conversion not rankings <span class="tier t-D">D</span></div><div class="ds">Google's playbook recommends weekly posts. Treat them as merchandising and freshness signals — the ranking evidence is thin, the engagement evidence is not.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Enable booking and messaging where it fits <span class="tier t-A">A</span></div><div class="ds">Google cites 77% of consumers expecting to book services online. With call buttons disappearing from AI local packs, alternative contact paths matter more than they did.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Audit the profile monthly for unauthorised edits <span class="tier t-D">D</span></div><div class="ds">Google accepts user-suggested edits. Hours, categories, website URLs and even the pin location get changed by third parties without notice.</div></div></div>
+  </div>
+</section>
+
+<section id="lp2" data-track="local">
+  <div class="sechead"><span class="n">13</span><h2>Local pillar 2 · Proximity and footprint</h2><span class="pct" data-pct="lc2"></span></div>
+<p class="why">Distance is the factor with the largest effect and the least room for manoeuvre. Almost every local SEO scandal — virtual offices, fake addresses, lead-generation listings — is an attempt to cheat this one factor. What follows is what you can legitimately do instead.</p>
+
+  <h3>Why "what's my ranking?" is the wrong question</h3>
+  <p>Proximity of the address to the point of search was scored the second strongest local pack factor in 2026, and "physical address in the city of search" the fourth. Because the searcher's location is an input, your position is a surface across a map, not a number. A single-point rank check tells you almost nothing; a grid of checks across the area you actually serve tells you where your visibility ends — which is the real, actionable metric.</p>
+
+  <h3>Service-area businesses: the rules that carry suspensions</h3>
+  <p>Google's guidance for businesses that travel to customers: one profile for the central office, with a designated service area, staffed during business hours, and no displayed street address. Service areas "shouldn't extend beyond approximately 2 hours' driving time," and the profile playbook caps them at 20 designated areas. P.O. boxes and virtual offices are explicitly unacceptable.</p>
+  <div class="note warn"><b>The three highest-risk local mistakes</b>The 2026 expert survey scored suspension risk separately, and the top three negatives are all footprint problems: <b>showing an address for a service-area business</b> (risk score 105), <b>overlapping service areas across multiple profiles</b> (102), and <b>an excessive service-area radius</b> (82). These are not ranking penalties. They are listing removals.</div>
+
+  <h3>Multiple locations, done legitimately</h3>
+  <p>A separate profile per staffed, distinct physical location is correct and expected. A separate profile per service you offer at one location is not — Google's guidelines on departments and practitioners exist to prevent exactly that, and the 2026 developments round-up flagged auto dealers creating separate listings for oil changes and tire rotations as a live enforcement risk. The legitimate route into a new city is a real, staffed location with its own address, phone, hours, landing page and citation set.</p>
+
+  <div class="check" data-c="lc2">
+    <div class="hd"><b>Footprint checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Measure visibility with a geo-grid, not a single rank <span class="tier t-C">C</span></div><div class="ds">Run a grid across your service area. The output — where your visibility drops off — drives every subsequent decision about content, links and locations.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Hide the address if you are a service-area business <span class="tier t-A">A</span></div><div class="ds">The single highest-scored suspension risk in the 2026 survey. If customers don't come to you, the address must not display.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Keep the service area within ~2 hours' drive <span class="tier t-A">A</span></div><div class="ds">Google's own limit. Oversized service areas don't extend your ranking radius — they raise suspension risk while doing nothing.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">No overlapping service areas across your own profiles <span class="tier t-A">A</span></div><div class="ds">Second-highest suspension risk. Multi-location businesses must carve territories cleanly.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Never use a virtual office, PO box or co-working desk <span class="tier t-A">A</span></div><div class="ds">Explicitly unacceptable. This is the most commonly sold and most commonly suspended local tactic.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">One profile per real staffed location, not per service <span class="tier t-A">A</span></div><div class="ds">Departments and practitioners have their own narrow rules. Splitting services into listings is a documented violation under active enforcement.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Local phone number under your own control <span class="tier t-A">A</span></div><div class="ds">Google requires a local number directly controlled by the business — not a call centre or a forwarding service.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Verify the map pin actually lands on your door <span class="tier t-D">D</span></div><div class="ds">Misplaced pins quietly cost proximity relevance and generate lost-customer complaints. Check after every profile edit.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Compete on prominence where proximity is against you <span class="tier t-D">D</span></div><div class="ds">In outer parts of your service area you will lose distance. Reviews, links, relevance and localised organic pages are the levers that still work there.</div></div></div>
+  </div>
+</section>
+
+<section id="lp3" data-track="local">
+  <div class="sechead"><span class="n">14</span><h2>Local pillar 3 · Reviews and reputation</h2><span class="pct" data-pct="lc3"></span></div>
+<p class="why">Reviews are the only local factor that is simultaneously a ranking input Google names out loud, a conversion driver with hard consumer data behind it, and a source of input to AI-generated answers. The 2026 expert survey identified review signals as the category that rose most in importance.</p>
+
+  <h3>What consumers actually do</h3>
+  <p>BrightLocal's 2026 Local Consumer Review Survey provides the numbers worth internalising: <b>97% of consumers read reviews</b> for local businesses; <b>31% will only use businesses rated 4.5+</b>, up sharply from 17% the year before; <b>74% prioritise reviews from the last three months</b>; <b>80% are more likely to use a business that responds to all reviews</b>, and <b>89% expect owners to reply</b> at all. Half view generic or templated responses negatively. Consumers consult an average of six review platforms — Google is the centre of gravity, not the whole picture.</p>
+  <div class="viz">
+    <h4>The review bar consumers set</h4>
+    <div class="cap">BrightLocal Local Consumer Review Survey 2026</div>
+    <div class="row"><span class="lb">Read reviews</span><span class="tr"><i class="fl" style="width:97%"></i></span><span class="vl">97%</span></div>
+    <div class="row"><span class="lb">Expect a reply</span><span class="tr"><i class="fl" style="width:89%"></i></span><span class="vl">89%</span></div>
+    <div class="row"><span class="lb">Prefer responders</span><span class="tr"><i class="fl" style="width:80%"></i></span><span class="vl">80%</span></div>
+    <div class="row"><span class="lb">Want &lt;3mo old</span><span class="tr"><i class="fl b" style="width:74%"></i></span><span class="vl">74%</span></div>
+    <div class="row"><span class="lb">Require 4.5★+</span><span class="tr"><i class="fl b" style="width:31%"></i></span><span class="vl">31%</span></div>
+  </div>
+
+  <h3>The rules you cannot break</h3>
+  <p>Google's contribution policies prohibit reviews "that have been paid for, directly or in kind," content "posted from multiple accounts by or at the request of one person," and offering "incentives – such as payment, discounts, free goods and/or services – in exchange for posting any review or revision or removal of a negative review." Merchants specifically must not pressure staff to hit review quotas, selectively solicit positive reviews while discouraging negative ones (review gating), require customers to review while on the premises, or ask that reviews include particular identifying details. What <i>is</i> permitted is plain: asking every customer, without incentive and without steering the content.</p>
+
+  <div class="check" data-c="lc3">
+    <div class="hd"><b>Reviews checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Build a continuous request process, not campaigns <span class="tier t-D">D</span></div><div class="ds">Ask at the natural completion moment, every time, through one repeatable channel. Steady velocity beats bursts, and bursts look inorganic.</div></div></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Treat recency as a target, not a by-product <span class="tier t-C">C</span></div><div class="ds">74% of consumers weight reviews from the last three months. A 4.9 average built three years ago is a decaying asset.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Respond to every review, specifically <span class="tier t-A">A</span></div><div class="ds">Google explicitly lists responding as a ranking tip. 89% of consumers expect a reply and 50% penalise templated ones — so reference the actual job.</div></div></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Reply within a week, ideally sooner <span class="tier t-C">C</span></div><div class="ds">81% of consumers expect a response within one week; 19% expect same-day.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Never incentivise, gate or stage reviews <span class="tier t-A">A</span></div><div class="ds">Payment, discounts, free goods, staff quotas, filtering unhappy customers away from the review form, and on-premises review requirements are all named violations.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Don't ask reviewers to include specific wording <span class="tier t-A">A</span></div><div class="ds">Requesting that reviews mention a service or location is prohibited — which also disposes of the "get keywords in your reviews" tactic.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Maintain reviews beyond Google <span class="tier t-D">D</span></div><div class="ds">Consumers use an average of six platforms. Cover the two or three that matter in your vertical — they also feed AI answers and act as citations.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Report policy-violating and extortion reviews properly <span class="tier t-A">A</span></div><div class="ds">Use Google's reporting flows, including the merchant extortion form, rather than arguing in public replies.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Watch what AI summaries are quoting <span class="tier t-D">D</span></div><div class="ds">AI review summaries have been observed pulling three-year-old reviews into current descriptions. Fresh volume is the only practical counterweight.</div></div></div>
+  </div>
+</section>
+
+<section id="lp4" data-track="local">
+  <div class="sechead"><span class="n">15</span><h2>Local pillar 4 · On-site local relevance</h2><span class="pct" data-pct="lc4"></span></div>
+<p class="why">The website is where localised organic rankings are won, and it is the supporting evidence Google uses to judge what your Business Profile is relevant for. The two top-scored local organic factors in 2026 are both site-side and both structural.</p>
+
+  <h3>A page per service, not a page listing services</h3>
+  <p>"Dedicated page for each service" was scored the strongest local organic factor of 2026, ahead of geographic keyword relevance and link authority. A single "Services" page covering nine offerings competes for none of them properly. Each money page needs the substance a buyer actually wants: what the job involves, price ranges, how long it takes, credentials and licensing, photos of real work, and the questions people ask before booking.</p>
+
+  <h3>Location pages that aren't doorways</h3>
+  <p>City pages are where local SEO most often collides with Google's spam policies. <b>Doorway abuse</b> is defined as fabricating multiple pages or sites targeting specific searches to funnel visitors through intermediate pages — which is precisely what a template with the city name swapped is. The distinction that holds up is whether the page could only have been written about that place: real projects completed there, named neighbourhoods, local pricing or permitting differences, staff who work that territory, photos taken there, reviews from customers there.</p>
+  <div class="note warn"><b>The scaling test</b>If you can generate the page by find-and-replace, so can Google's classifiers. Twenty genuinely local pages outperform two hundred templated ones, and carry none of the scaled-content-abuse risk.</div>
+
+  <h3>The link between profile and page</h3>
+  <p>"Keywords in the GBP landing page title tag" was scored the fourth strongest local organic factor. The landing page you attach to the profile should be the most relevant page for what the profile is about — for a single-location business, usually the homepage; for a multi-location business, always that location's own page, never the generic homepage and never a tracking redirect.</p>
+
+  <h3>Structured data</h3>
+  <p>Google's LocalBusiness markup requires only <code>name</code> and <code>address</code>, but the recommended set is where the value sits: <code>openingHoursSpecification</code>, <code>telephone</code>, <code>url</code>, <code>geo</code> (five decimal places minimum), and <code>priceRange</code>. Multi-department businesses mark up each department separately. As with all structured data, it must describe what is visible on the page — Google warns that violations can draw a manual action.</p>
+
+  <div class="check" data-c="lc4">
+    <div class="hd"><b>On-site checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">One page per service, starting with the highest-revenue one <span class="tier t-C">C</span></div><div class="ds">The #1 scored local organic factor. Build depth on the services that pay before adding breadth.</div></div></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Make service pages answer buying questions <span class="tier t-C">C</span></div><div class="ds">Process, price range, timescale, licensing and insurance, real project photos, FAQs, and a mobile-first call to action.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Write location pages that could only be about that location <span class="tier t-A">A</span></div><div class="ds">Named neighbourhoods, completed jobs, local regulations, local reviews, local photos. Templated city pages are doorway abuse.</div></div></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Put the service and the place in the title tag <span class="tier t-C">C</span></div><div class="ds">Scored a top-five local organic factor. Plain and accurate — "Emergency Drain Repair in Kettering" — not a keyword chain.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Point the GBP website link at the right page <span class="tier t-A">A</span></div><div class="ds">Google requires a page representing that individual location. Not a social profile, not a shared landing page, not a redirect.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Show consistent NAP in crawlable HTML <span class="tier t-D">D</span></div><div class="ds">Name, address and phone in the footer and on the contact page, as text rather than inside an image, matching the profile character for character.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Implement LocalBusiness structured data <span class="tier t-A">A</span></div><div class="ds">Use the most specific applicable type, include the recommended properties, mark up only what's visible, and validate with the Rich Results Test.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Cross-link services and locations deliberately <span class="tier t-D">D</span></div><div class="ds">Every service page links to the locations that offer it and vice versa. This is what turns a page count into a coherent local topic structure.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Give each location its own indexed page <span class="tier t-D">D</span></div><div class="ds">Unique address, hours, phone, staff, embedded map, location-specific reviews, and its own structured data block.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Apply the general fundamentals underneath all of it <span class="tier t-A">A</span></div><div class="ds">Localised organic is still organic: crawlable, canonical, fast on mobile, internally linked, and genuinely useful. Local tactics don't substitute for that layer.</div></div></div>
+  </div>
+</section>
+<section id="lp4b" data-track="local">
+  <div class="sechead"><span class="n">16</span><h2>The location page framework</h2><span class="pct" data-pct="lc4b"></span></div>
+  <p class="why">Location pages fail for one of two opposite reasons: they're built as a doorway — a template with the city swapped, existing only to rank — or they're built as a brochure with no idea what job they're supposed to do for the visitor. This is a reverse-engineered framework: what the page is <i>for</i>, what it has to answer before a visitor will trust it, the layout that recurring studies converge on, and the conversion mechanics specific to local intent.</p>
+
+  <h3>Purpose — what job the page actually does</h3>
+  <p>A location page has three jobs running at once, and losing sight of any one of them is where pages fail:</p>
+  <div class="grid2">
+    <div class="mini"><div class="stat">1</div><h4>Wins the search</h4><p>Captures "[service] in [city]" and "near me" queries the homepage and a generic services page can't compete for — because Google's own systems model site and page focus by topic and geography, and a page that only vaguely mentions a place loses to one built around it.</p></div>
+    <div class="mini"><div class="stat">2</div><h4>Proves the presence</h4><p>Is the on-site evidence that corroborates the Business Profile — the landing page a GBP listing should point to, and the entity data (NAP, hours, service area) Google cross-checks against citations and the profile itself.</p></div>
+    <div class="mini"><div class="stat">3</div><h4>Closes the visitor</h4><p>Most location-page traffic has high, narrow intent — "does this business serve me, right now" — and converts or bounces in seconds. A page optimised for rankings but not for that decision wastes the traffic it earns.</p></div>
+  </div>
+  <p>Note what's <i>not</i> a job: ranking for the city name alone, or existing as inventory to make the site look comprehensive. A location page that isn't earning visits or producing calls is a doorway page wearing a disguise, whatever the intent behind it.</p>
+
+  <h3>What it must answer</h3>
+  <p>Before writing a word of copy, the page has to answer six questions a real visitor is silently asking. Every layout decision below exists to answer one of these, in order:</p>
+  <ul class="plain">
+    <li><b>Do you serve me?</b> — the place name, confirmed immediately, not inferred from a URL slug.</li>
+    <li><b>Are you actually here, or is this a funnel?</b> — real address or defined service area, real hours, a page that couldn't be about anywhere else.</li>
+    <li><b>Can you do the specific thing I need?</b> — the services available at or from this location, not a generic "we do everything" claim.</li>
+    <li><b>Why you and not the next result?</b> — local proof: reviews from this area, work completed here, staff who cover this territory.</li>
+    <li><b>What does it cost and how fast can you start?</b> — even a range or a "starts at" figure beats forcing a call to find out.</li>
+    <li><b>How do I act on this right now?</b> — one obvious next step, reachable without hunting.</li>
+  </ul>
+  <div class="note evd"><b>The RicketyRoo framing</b>"Legitimate pages provide real-world value to users in that specific location, while spammy ones prioritize search algorithm manipulation over user experience." Every section below is answerable only if that's true of the business — the framework can't manufacture a local presence that doesn't exist.</div>
+
+  <h3>Layout and heading order</h3>
+  <p>Four independent sources — an agency guide built from small-business site audits, a 300-page correlation study of ranking location pages, a local-SEO-specialist outline, and a local-website field guide — converge on the same shape with minor reordering. Synthesised:</p>
+  <div class="scroll"><table class="tbl">
+    <tr><th>Order</th><th>Section</th><th>Heading</th><th>Why here</th></tr>
+    <tr><td>1</td><td>H1 + identity strip</td><td><code>H1: [Service] in [City, State]</code></td><td>Business type and place in the H1 — answers "do you serve me" in one glance. Not the business name alone.</td></tr>
+    <tr><td>2</td><td>NAP, hours, open-now status</td><td>(no heading — persistent block)</td><td>Highest-correlating basics; "open now" alone showed a measurable ranking edge in the correlation study.</td></tr>
+    <tr><td>3</td><td>Local proof paragraph</td><td>(intro copy, no heading)</td><td>The uniqueness zone — must fail the "swap the city and it's still true" test. This is what separates the page from a doorway.</td></tr>
+    <tr><td>4</td><td>Services at this location</td><td><code>H2: Services in [City]</code></td><td>Answers "can you do the specific thing" — links out to full service pages rather than duplicating them.</td></tr>
+    <tr><td>5</td><td>Why choose us here</td><td><code>H2: Why [City] chooses us</code> / local trust</td><td>Local reviews, completed jobs, staff, community involvement — answers "why you."</td></tr>
+    <tr><td>6</td><td>Directions, map, service area</td><td><code>H2: Service area</code></td><td>Directions/nav links showed a measurable ranking edge; confirms coverage for service-area businesses.</td></tr>
+    <tr><td>7</td><td>Local FAQ</td><td><code>H2: Frequently asked questions</code></td><td>Local-specific questions only — permits, drive time, parking — not the generic service FAQ repeated.</td></tr>
+    <tr><td>8</td><td>Final call to action</td><td>(no heading — CTA block)</td><td>Reiterates the single primary action from the top of the page.</td></tr>
+  </table></div>
+  <p>Heading order below H1 is not itself a ranking factor — Google says so plainly — but it is a comprehension aid for readers and for passage ranking, and a page that wanders through these sections out of order reads as improvised rather than authoritative.</p>
+
+  <div class="viz">
+    <h4>What correlated with outranking, in one vertical</h4>
+    <div class="cap">300-page study of ranking location pages, restaurant/food-service subset (n=100) — treat as directional, not universal</div>
+    <div class="row"><span class="lb">Hyperlocal content</span><span class="tr"><i class="fl" style="width:100%"></i></span><span class="vl">+107%</span></div>
+    <div class="row"><span class="lb">Custom photos</span><span class="tr"><i class="fl" style="width:78%"></i></span><span class="vl">+84%</span></div>
+    <div class="row"><span class="lb">Local social links</span><span class="tr"><i class="fl" style="width:47%"></i></span><span class="vl">+50%</span></div>
+    <div class="row"><span class="lb">Directions link</span><span class="tr"><i class="fl b" style="width:15%"></i></span><span class="vl">+16%</span></div>
+    <div class="row"><span class="lb">"Open now" status</span><span class="tr"><i class="fl b" style="width:10%"></i></span><span class="vl">+10%</span></div>
+    <div class="row"><span class="lb">Embedded Google Map</span><span class="tr"><i class="fl b" style="width:34%;background:var(--rose)"></i></span><span class="vl">−34%</span></div>
+  </div>
+  <div class="note warn"><b>Read the embedded-map number carefully</b>A generic embedded Google Map correlating negatively doesn't mean maps hurt — it's one study's signal that a stock map iframe is what low-effort pages default to, not a cause of poor rankings by itself. The pattern across every source here is consistent: generic, swappable elements underperform; specific, unswappable ones outperform. Treat the direction as the finding, not the exact percentage, and never as license to skip the map for a service-area business that needs to show coverage.</div>
+
+  <h3>The uniqueness bar</h3>
+  <p>BrightLocal's benchmark: <b>40–60% of the page's content should be unique to that location</b> — content that becomes false the moment you paste it onto another city's page. Below that, the page reads as a template; Google's scaled-content and doorway policies exist precisely for pages built that way. The practical test carried over from <a href="#lp4">local pillar 4</a>: if you can generate the page by find-and-replace, so can a classifier.</p>
+
+  <h3>CRO — local intent converts differently</h3>
+  <p>Location-page visitors are closer to a decision than almost any other page type on the site, which changes the conversion mechanics from a normal landing page.</p>
+  <div class="grid2">
+    <div class="mini"><h4>One primary action, not a menu</h4><p>Landing pages convert best driving toward a single action. Location pages are the common exception with two legitimate paths — call now, or fill a form — so when both are needed, make the hierarchy explicit rather than presenting them as equal choices.</p></div>
+    <div class="mini"><h4>Phone wins on mobile, form on desktop</h4><p>Click-to-call suits mobile users with urgent, narrow intent; a form suits desktop users comparing options or who'd rather not commit to a call. Lead with a tap-to-call button on mobile, a visible form on desktop, both always reachable.</p></div>
+    <div class="mini"><h4>Local proof outperforms generic proof</h4><p>A photo taken at the job site, a review naming the neighbourhood, and a staff member who covers that territory each did measurably better than the generic equivalent in the correlation data above. Swap-test your trust signals the same way you swap-test your copy.</p></div>
+    <div class="mini"><h4>Never make the visitor hunt</h4><p>Phone number, one clear CTA, and a star rating or review count should all be visible without scrolling on mobile. Every extra tap between arrival and contact is a visitor who leaves to call the next result instead.</p></div>
+  </div>
+  <div class="note"><b>The sticky mobile bar</b>A persistent call button fixed to the bottom of the screen on mobile is the single highest-leverage CRO change on a location page — it removes the scroll-back-up tax entirely and keeps the primary action reachable through the whole page.</div>
+
+  <h3>Structured data for this page specifically</h3>
+  <p>Beyond the general LocalBusiness markup covered in local pillar 4: a true multi-location business marks up each location as its own <code>LocalBusiness</code> (or the most specific subtype) with its own <code>address</code> and <code>geo</code>; a service-area business without a public address uses <code>areaServed</code> to declare coverage instead of fabricating a location. Never mix the two patterns on one page — declaring both a storefront address and a broad service area on a business that has neither invites exactly the scrutiny doorway pages attract.</p>
+
+  <div class="check" data-c="lc4b">
+    <div class="hd"><b>Location page checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="B"><input type="checkbox"><div class="bd"><div class="ttl">H1 states service and place together <span class="tier t-B">B</span></div><div class="ds">"[Service] in [City, State]," not the business name alone. Answers the first silent question in one glance.</div></div></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">NAP, hours and open-now status above the fold <span class="tier t-C">C</span></div><div class="ds">The highest-correlating basics in the ranking data, and the first thing a real visitor checks.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Pass the 40–60% uniqueness bar <span class="tier t-A">A</span></div><div class="ds">Content that becomes false if pasted onto another location's page. Below this it's a doorway page with a place name attached.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">List services with links, not a repeated services page <span class="tier t-D">D</span></div><div class="ds">Name what's offered at or from this location and link to the full service page rather than duplicating its content.</div></div></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Use local, first-party proof — not generic or third-party <span class="tier t-C">C</span></div><div class="ds">Photos taken on site, reviews naming the area, staff who cover the territory. Generic stock and third-party embeds underperformed in the correlation data.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Confirm coverage with a map or service-area description <span class="tier t-D">D</span></div><div class="ds">A directions link or clear area description, matched to whether the business has a real storefront or serves an area.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Answer local-specific questions only, in the FAQ <span class="tier t-D">D</span></div><div class="ds">Permits, drive time, parking, local regulations — not the generic service FAQ copied in again.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">One obvious primary action, reachable without scrolling <span class="tier t-D">D</span></div><div class="ds">Tap-to-call prioritised on mobile, a short form visible on desktop. Never bury contact info below a wall of copy.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Add a sticky mobile call bar <span class="tier t-D">D</span></div><div class="ds">Highest-leverage single CRO change on this page type — keeps the primary action reachable through the whole scroll.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Match structured data to the real business model <span class="tier t-A">A</span></div><div class="ds">A real address gets <code>LocalBusiness</code> + <code>geo</code>; a service-area business gets <code>areaServed</code>. Never both on a business that has neither.</div></div></div>
+  </div>
+</section>
+
+
+<section id="lp5" data-track="local">
+  <div class="sechead"><span class="n">17</span><h2>Local pillar 5 · Citations and data consistency</h2><span class="pct" data-pct="lc5"></span></div>
+<p class="why">Citations are the most over-sold service in local SEO and, in 2026, the one whose rationale changed most. They are worth less as a ranking factor than they were, and more as a supply of machine-readable corroboration.</p>
+
+  <h3>The decline, and the twist</h3>
+  <p>The 2026 expert survey continues a long trend of citation signals losing weight for local pack rankings — the category slipped again, and external linking to authority sites fell 64 positions. Buying a thousand directory listings has not been a serious strategy for years. But the same report notes that in AI search contexts "citations are back," on the reasoning that "mentions are the new link": generative systems corroborate facts about a business by finding them repeated consistently across independent sources. The value has moved from ranking weight to entity confirmation.</p>
+  <div class="note"><b>What that means practically</b>Stop measuring citations by count. Measure them by consistency and by whether the source is one a person or a model would actually consult: the major aggregators, the platforms with real traffic in your vertical, your chamber and trade bodies, your suppliers' dealer locators. Twenty accurate, relevant listings beat a thousand purchased ones, and the thousand create a maintenance liability that outlives the contract.</div>
+
+  <div class="check" data-c="lc5">
+    <div class="hd"><b>Citations checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Define the canonical NAP once and write it down <span class="tier t-D">D</span></div><div class="ds">Exact legal-or-trading name, address formatting, and phone number. Every listing, every page, every profile uses that string.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Audit and correct existing listings before creating new ones <span class="tier t-D">D</span></div><div class="ds">Old addresses, dead phone numbers and duplicate listings are the actual problem. Fixing them beats adding more.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Cover the aggregators and the platforms that matter in your vertical <span class="tier t-D">D</span></div><div class="ds">Then stop. Long-tail directory blasts add maintenance cost and near-zero value.</div></div></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Treat consistent mentions as AI corroboration <span class="tier t-C">C</span></div><div class="ds">Same facts, same wording, across independent sources. That is what makes a model confident enough to name you.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Find and merge duplicate Business Profiles <span class="tier t-D">D</span></div><div class="ds">Duplicates split reviews and confuse Google's entity resolution. Common after rebrands, moves and franchise changes.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Update everything the day details change <span class="tier t-D">D</span></div><div class="ds">A move or number change that propagates over six months leaves conflicting data in the graph for six months.</div></div></div>
+  </div>
+</section>
+
+<section id="lp6" data-track="local">
+  <div class="sechead"><span class="n">18</span><h2>Local pillar 6 · Local authority and links</h2><span class="pct" data-pct="lc6"></span></div>
+<p class="why">Prominence is the half of Google's model that money cannot shortcut. Google names links and reviews as its examples, and the 2026 survey puts inbound link quality third and industry-relevant link quantity fifth for local organic.</p>
+
+  <h3>Two dimensions that matter more locally than nationally</h3>
+  <p>For a local business, a link's value is roughly the product of two things: <b>topical relevance</b> (is the linking site in or adjacent to your industry?) and <b>geographic relevance</b> (is it in or about your area?). A link from the regional newspaper or the county trade association outperforms a higher-authority but placeless generic blog. This is the rare case where the small, obscure link is the better one.</p>
+
+  <h3>The sources that reliably work</h3>
+  <ul class="plain">
+    <li>Sponsorships of real local things — teams, festivals, charities, school programmes — where a listing page results.</li>
+    <li>Chamber of commerce, BID, trade association and licensing body directories.</li>
+    <li>Local press: offering genuine expert comment, local data, or a story that concerns the area.</li>
+    <li>Supplier and manufacturer dealer locators, franchise directories, and certification listings you already qualify for.</li>
+    <li>Partnerships with non-competing local businesses that serve the same customer.</li>
+    <li>Local scholarships, community resources, and genuinely useful local guides that others cite.</li>
+  </ul>
+  <p>All of these are structurally the same move: participate in the place, then let the link be a by-product. That also happens to be the only form of link building that survives Google's link spam policy, which prohibits links "created primarily for ranking manipulation, including paid links without proper attributes."</p>
+
+  <div class="check" data-c="lc6">
+    <div class="hd"><b>Local authority checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Prioritise industry-relevant links <span class="tier t-C">C</span></div><div class="ds">Scored a top-five local organic factor. Relevance to your trade beats raw authority for local queries.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Claim every membership and certification listing you already have <span class="tier t-D">D</span></div><div class="ds">The cheapest local links in existence: trade bodies, licensing registers, insurers, suppliers, franchisors. Most businesses have several unclaimed.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Sponsor something real, once a quarter <span class="tier t-D">D</span></div><div class="ds">Budget it as marketing, not link building. The link is the receipt for participation that would be worth doing anyway.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Become the quotable local expert <span class="tier t-D">D</span></div><div class="ds">Local journalists need sources on trade topics — energy costs, storm damage, regulation changes. Being reachable and quick is most of the job.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Publish something only a local operator could publish <span class="tier t-D">D</span></div><div class="ds">Your own pricing data, job volumes by season, permit timelines by council. Local originality earns links that generic advice never will.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Keep paid placements attributed <span class="tier t-A">A</span></div><div class="ds">Sponsored directory features and paid local guides need <code>rel="sponsored"</code>. Paid links without attribution are link spam by definition.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Audit competitors' local links quarterly <span class="tier t-D">D</span></div><div class="ds">In a defined geography the pool of available local links is small and largely visible. Competitor profiles are effectively a to-do list.</div></div></div>
+  </div>
+</section>
+
+<section id="lp7" data-track="local">
+  <div class="sechead"><span class="n">19</span><h2>Local pillar 7 · Behaviour and conversion</h2><span class="pct" data-pct="lc7"></span></div>
+<p class="why">Behavioural signals rose alongside reviews as the biggest movers in the 2026 survey — and in the AI-answer context, click-through rate was scored the single most influential factor, ahead of its weight in the traditional local pack.</p>
+
+  <h3>The signals in play</h3>
+  <p>Click-through rate on the listing, whether the business is open at the moment of search, the Popular Times data attached to the profile, recency of uploaded video, and reactions to photos and reviews all scored highly in 2026 — the last two at 99–100 for conversion impact, alongside frequency of owner or manager activity at 92. Whether Google uses each of these directly is unproven. What is not in doubt is that they all correlate with a profile that a real, operating business actively maintains, and that is the thing being modelled.</p>
+
+  <h3>The conversion path is narrowing</h3>
+  <p>Sterling Sky's 2026 analysis of 179 profiles across 34 US law firms found click-to-call rates declining over two years, concentrated on mobile — the same period in which AI local packs began appearing without call buttons and paid units expanded into the space. The strategic response is not to chase the call button but to widen the paths: messaging, booking links, forms, and a mobile site that converts the visits you still get.</p>
+
+  <div class="check" data-c="lc7">
+    <div class="hd"><b>Behaviour &amp; conversion checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Optimise the listing for the click, not just the rank <span class="tier t-C">C</span></div><div class="ds">Photos, rating, review count, hours, attributes and category all decide whether a ranked listing is the one chosen. CTR scored highest of all AI-visibility factors in 2026.</div></div></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Be open when demand happens <span class="tier t-C">C</span></div><div class="ds">"Open at time of search" is a top-five pack factor. Extended or emergency hours, accurately listed, are a ranking decision as much as an operations one.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Offer more than one way to contact you <span class="tier t-D">D</span></div><div class="ds">Call buttons are disappearing from AI local packs. Messaging, booking links and a fast mobile form are the hedge.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Answer fast <span class="tier t-D">D</span></div><div class="ds">Local intent is immediate — a large share of consumers decide within minutes. Response speed is a ranking-adjacent business process.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Keep visible owner activity constant <span class="tier t-D">D</span></div><div class="ds">Replies, photos, posts, updated services. Frequency of owner activity scored 92 for conversion impact and is the clearest "this business is real and operating" signal available.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Fix the landing page before buying more visibility <span class="tier t-D">D</span></div><div class="ds">Mobile speed, click-to-call, prices or ranges, service area stated, proof. Extra impressions into a weak page is the most expensive way to learn this.</div></div></div>
+  </div>
+</section>
+
+<section id="ai2026" data-track="local">
+  <div class="sechead"><span class="n">20</span><h2>The 2026 AI local shift</h2></div>
+<p class="why">This is the section with the shortest shelf life and the largest current impact. Local results changed shape in 2025–26 in ways that break the traditional relationship between ranking and revenue.</p>
+
+  <h3>AI local packs</h3>
+  <p>Google began rolling out AI-generated local packs on mobile in the US. Tracking through early 2026 found them on roughly <b>7–8% of tracked keywords</b>, showing <b>one to two businesses instead of three</b>, frequently <b>without call buttons</b>, and often featuring <b>different businesses</b> than the traditional pack for the same query. The coverage difference is the striking figure: AI local packs surfaced <b>5,943 unique businesses where traditional 3-packs surfaced 18,330</b> — about 32% as many — with 88% of analysed markets showing a decline in the total number of visible businesses.</p>
+  <div class="viz">
+    <h4>Businesses visible: AI local pack vs traditional 3-pack</h4>
+    <div class="cap">Unique businesses surfaced across the same tracked query set (Sterling Sky, 2026)</div>
+    <div class="row"><span class="lb">3-pack</span><span class="tr"><i class="fl" style="width:100%"></i></span><span class="vl">18,330</span></div>
+    <div class="row"><span class="lb">AI pack</span><span class="tr"><i class="fl b" style="width:32.4%"></i></span><span class="vl">5,943</span></div>
+  </div>
+
+  <h3>Paid encroachment</h3>
+  <p>Over the same period, Local Pack Ads went from about 1% of tracked results in January 2025 to 22% by December 2025, and Local Services Ads from 11% to 31%. Organic local real estate shrank while AI units took the top of it.</p>
+
+  <h3>Query fan-out</h3>
+  <p>AI systems decompose a single question into multiple sub-queries and assemble an answer from all of them. One consequence reported in early 2026: holding a top-ten organic position gives roughly a <b>25% chance</b> of appearing in the AI-generated result for that query. Ranking is becoming a probability of inclusion rather than a guarantee of placement.</p>
+
+  <h3>Where consumers are going</h3>
+  <p>BrightLocal's 2026 data shows generative AI tools now third among sources consumers use for local recommendations at <b>45% usage</b>, up from 6%, with 40% saying they trust AI platforms for business recommendations and 82% reading AI-generated review summaries. Google's share of local discovery fell from 83% to 71% year over year. Separate tracking puts Google at about 73% of all searches with ChatGPT at roughly 2.8% — so this is a redistribution at the margin, not a collapse.</p>
+  <div class="note evd"><b>What this does and doesn't change</b>It does not introduce a new set of fundamentals. Every input AI local answers draw on — profile completeness and accuracy, category, review volume and recency, consistent mentions across independent sources, a real website that says plainly what you do and where — is already in pillars one through seven. What it changes is the payoff structure: fewer businesses shown, fewer clicks per impression, and a much higher penalty for being the business whose data is thin, stale or inconsistent.</div>
+</section>
+
+<section id="risk" data-track="local">
+  <div class="sechead"><span class="n">21</span><h2>Local spam, suspensions and risk</h2></div>
+<p class="why">Local is the one area of SEO where the penalty for policy violations is not a ranking drop but deletion — and where competitors are actively incentivised to report you. Risk management is a fundamental here, not an afterthought.</p>
+
+  <h3>The asymmetry</h3>
+  <p>An aggressive on-page tactic that fails costs you some rankings. A suspended Business Profile costs you the entire local channel while you appeal, with reviews, photos and history in limbo. Because Google accepts third-party edit suggestions and redressal reports, the people most motivated to notice your violation are the businesses ranking below you.</p>
+
+  <h3>What actually triggers suspensions</h3>
+  <ul class="plain">
+    <li><b>Address problems</b> — displaying an address as a service-area business, virtual offices, PO boxes, co-working desks, residential addresses shown when they shouldn't be.</li>
+    <li><b>Overlapping or oversized service areas</b> across multiple profiles, or beyond roughly two hours' drive.</li>
+    <li><b>Business name violations</b> — appended keywords, cities, taglines, phone numbers or URLs.</li>
+    <li><b>Listings that aren't businesses</b> — one profile per service, per department, or per practitioner where the rules don't allow it.</li>
+    <li><b>Review manipulation</b> — incentives, gating, staff-written or purchased reviews, multiple accounts.</li>
+    <li><b>Category or content that doesn't match reality</b>, including websites that don't represent the individual location.</li>
+  </ul>
+  <div class="note warn"><b>If you inherit a client with violations</b>Fix quietly and in order: name first, then address display, then service areas, then duplicate listings. Changing several high-risk fields at once is itself a trigger for review. Document the real-world evidence — signage photos, utility bills, licences — before you need it, because reinstatement is an evidence process, not an argument.</div>
+</section>
+
+<section id="measure" data-track="both">
+  <div class="sechead"><span class="n">22</span><h2>Measurement</h2></div>
+  <p class="why">Two measurement problems, one principle: report the thing that survives a SERP layout change. For organic that means business outcomes rather than rankings; for local it means actions on a map rather than a position at a point.</p>
+<h3>Part One · Measuring organic search</h3>
+<p class="why">SEO without measurement is superstition with a budget. The discipline is simple: one first-party source of truth, benchmarks you actually believe, and a review cadence slow enough to distinguish signal from noise.</p>
+
+  <h4>Search Console is the only first-party ranking data</h4>
+  <p>Third-party rank trackers sample; Search Console reports what Google actually served to real users, including impressions, average position, clicks and the queries themselves. The four diagnostic patterns worth knowing by heart:</p>
+  <div class="scroll"><table class="tbl">
+    <tr><th>Pattern</th><th>Usual meaning</th><th>Action</th></tr>
+    <tr><td>Impressions up, clicks flat</td><td>Ranking in low positions, or losing the click to a SERP feature</td><td>Improve title/description; check for AI Overview on the query</td></tr>
+    <tr><td>Impressions flat, CTR falling</td><td>SERP layout changed around you</td><td>Rewrite snippet copy; pursue rich result eligibility</td></tr>
+    <tr><td>Position 5–15 with volume</td><td>Relevance is close but insufficient</td><td>Highest-ROI zone: refresh content, add internal links</td></tr>
+    <tr><td>Impressions collapse on one template</td><td>Technical or canonical problem, not content</td><td>Inspect URL, check indexation and redirects</td></tr>
+  </table></div>
+
+  <h4>CTR benchmarks — and why they disagree</h4>
+  <p>Published CTR curves diverge wildly because they measure different things: some use Search Console data from a sample of sites, others model from clickstream panels, and averages across query types are close to meaningless (branded queries pull position-one CTR far above informational ones). Use them as a shape, not a target.</p>
+  <div class="viz">
+    <h4>Position 1 organic CTR, two credible sources</h4>
+    <div class="cap">The spread is the point — and it is mostly methodology. First Page Sage is a meta-analysis measuring "clean" SERPs with no other elements; GrowthSRC uses Search Console data from 30+ real sites, features and all. Measure your own curve.</div>
+    <div class="row"><span class="lb">FPS 2026</span><span class="tr"><i class="fl" style="width:79.6%"></i></span><span class="vl">39.8%</span></div>
+    <div class="row"><span class="lb">GrowthSRC '24</span><span class="tr"><i class="fl b" style="width:56%"></i></span><span class="vl">28.0%</span></div>
+    <div class="row"><span class="lb">GrowthSRC '25</span><span class="tr"><i class="fl b" style="width:38%"></i></span><span class="vl">19.0%</span></div>
+  </div>
+  <p>The trend inside a single consistent dataset is more trustworthy than any absolute number. GrowthSRC, analysing 200,000+ keywords across 30+ sites year over year, found position-one CTR fell 32% (28% → 19%) and position two fell 39%, while positions 6–10 <i>gained</i> about 31% — a flattening of the curve consistent with more results being scrolled past on AI-heavy SERPs.</p>
+
+  <h4>The AI-answer overlay</h4>
+  <p>By Q1 2026, roughly <b>25.1% of Google searches</b> triggered an AI Overview, up from 7.6% in February 2025. Pew Research found users clicked a traditional result on <b>8% of visits where an AI Overview appeared, versus 15% where it did not</b>. Query types most exposed are definitions, dates, single facts and quick how-tos; comparison, decision-stage and transactional queries hold up far better. This changes portfolio strategy, not fundamentals: shift effort toward queries where a click still has to happen, and treat citation inside AI answers as a distribution channel that the same quality and authority signals feed.</p>
+
+  <div class="check" data-c="c8">
+    <div class="hd"><b>Measurement checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Verify every property variant in Search Console <span class="tier t-A">A</span></div><div class="ds">Domain property preferred, so www, non-www, http and https all report together.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Export and archive GSC data monthly <span class="tier t-D">D</span></div><div class="ds">The interface only retains 16 months. Year-over-year comparison is the single most useful SEO view and requires your own archive.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Annotate core updates and site changes <span class="tier t-D">D</span></div><div class="ds">Deploys, migrations, redesigns, price changes. Without annotations you will attribute traffic movements to the wrong cause.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Report on business outcomes, not rankings <span class="tier t-D">D</span></div><div class="ds">Qualified sessions, leads, revenue by landing page. Rankings are a diagnostic, not a result.</div></div></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Build your own CTR curve <span class="tier t-C">C</span></div><div class="ds">Segment by branded vs non-branded and by SERP feature presence. Published averages will mislead you about your own opportunity.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Track AI-answer presence on your priority queries <span class="tier t-D">D</span></div><div class="ds">Whether an AI Overview appears, and whether you are cited, now determines the ceiling on clicks from that query.</div></div></div>
+    <div class="item" data-tier="A"><input type="checkbox"><div class="bd"><div class="ttl">Review on a monthly cadence, not weekly <span class="tier t-A">A</span></div><div class="ds">Google explicitly advises waiting a full week after a core update completes before analysing. Weekly ranking reviews mostly measure noise.</div></div></div>
+  </div>
+
+<h3>Part Two · Measuring local search</h3>
+<p class="why">Local measurement has one structural problem — proximity makes position location-dependent — and one 2026 problem: rankings and revenue have partially decoupled. Both push in the same direction, toward measuring actions rather than positions.</p>
+
+  <h4>Rankings are a surface, not a number</h4>
+  <p>Because distance is an input, your position varies across your service area. A grid of checks across the territory you actually serve produces the only honest picture: where you are visible, where visibility ends, and whether that boundary is moving. A single rank check at the office address flatters everyone.</p>
+
+  <h4>The decoupling</h4>
+  <p>Search Engine Land's 2026 analysis of the problem is blunt: rank trackers show stable top-three positions while calls and site visits fall, because AI packs show fewer businesses, remove call buttons, and pick different winners, while ads take the space above. The recommendation follows directly — measure clicks-to-call and website clicks from the profile, form submissions, booked jobs, and revenue by landing page, not position.</p>
+
+  <div class="scroll"><table class="tbl">
+    <tr><th>Measure</th><th>Source</th><th>What it tells you</th></tr>
+    <tr><td>Calls, direction requests, website clicks</td><td>GBP performance</td><td>Whether the profile converts the visibility it has</td></tr>
+    <tr><td>Grid visibility across service area</td><td>Geo-grid rank tool</td><td>Where your local reach ends — the map, not the number</td></tr>
+    <tr><td>Impressions &amp; CTR on local queries</td><td>Search Console</td><td>Whether localised organic is growing independently of the pack</td></tr>
+    <tr><td>Leads, booked jobs, revenue by page</td><td>CRM + GA4 + call tracking</td><td>The only measure that survives a SERP layout change</td></tr>
+    <tr><td>Review count, rating, recency</td><td>GBP + review platforms</td><td>The prominence input you can move fastest</td></tr>
+  </table></div>
+
+  <div class="check" data-c="lc8">
+    <div class="hd"><b>Measurement checklist</b><span class="cnt"></span></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Set up tracking before optimising anything <span class="tier t-D">D</span></div><div class="ds">GA4, Search Console, GBP performance, UTM-tagged profile links, call tracking and form attribution. Without a baseline, local SEO is guesswork.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Track visibility on a grid, monthly <span class="tier t-D">D</span></div><div class="ds">Same grid, same queries, same day of month. Trend over territory is the metric; a single position is not.</div></div></div>
+    <div class="item" data-tier="C"><input type="checkbox"><div class="bd"><div class="ttl">Report actions, not rankings <span class="tier t-C">C</span></div><div class="ds">Calls, messages, bookings, forms, revenue. In 2026 stable rankings and falling calls happen simultaneously and routinely.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Use call tracking without breaking NAP consistency <span class="tier t-D">D</span></div><div class="ds">Keep the real number as the primary on the profile and site; use dynamic insertion or the GBP secondary-number field rather than replacing your canonical number everywhere.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Separate branded from non-branded local queries <span class="tier t-D">D</span></div><div class="ds">Branded growth means marketing is working; non-branded growth means local SEO is. Mixed, they hide each other.</div></div></div>
+    <div class="item" data-tier="D"><input type="checkbox"><div class="bd"><div class="ttl">Check whether AI local packs appear on your money queries <span class="tier t-D">D</span></div><div class="ds">On mobile, in your market. If they do, the ceiling on clicks from that query has already moved and traditional rank reporting will mislead you.</div></div></div>
+  </div>
+</section>
+
+<section id="myths" data-track="both">
+  <div class="sechead"><span class="n">23</span><h2>Myths and low-yield work</h2></div>
+  <p class="why">Everything below is either explicitly contradicted by Google, unsupported by evidence, or true in a much narrower way than commonly claimed. Cutting these frees the time the real fundamentals need — and in the local half, several of them carry suspension risk rather than just wasted effort.</p>
+<h3>Universal search myths</h3>
+<div class="myth"><div class="m">"There's an ideal word count."</div><div class="r"><b>No.</b> Google: "There's no magical word count target, minimum or maximum." Length correlates with rankings only because thorough answers tend to be longer. Padding a page to hit 2,000 words adds tokens Google may truncate anyway.</div></div><div class="myth"><div class="m">"Heading order is a ranking factor."</div><div class="r"><b>No.</b> Google: "From Google Search perspective, it doesn't matter if you're using them out of order." Semantic order matters for screen readers, which is reason enough to do it — but it is an accessibility practice, not a ranking one.</div></div><div class="myth"><div class="m">"Meta keywords still help a little."</div><div class="r"><b>No.</b> "Google Search doesn't use the keywords meta tag." Unchanged for well over a decade.</div></div><div class="myth"><div class="m">"Put keywords in the domain."</div><div class="r"><b>Almost nothing.</b> Keywords in a domain have "hardly any effect beyond appearing in breadcrumbs," and Google runs an exact match domain system specifically to stop such domains "receiving excessive ranking credit."</div></div><div class="myth"><div class="m">"Duplicate content carries a penalty."</div><div class="r"><b>No penalty exists.</b> Google: having content at multiple URLs is "inefficient, but it's not something that will cause a manual action." The real cost is split signals and Google choosing a canonical you didn't intend.</div></div><div class="myth"><div class="m">"E-E-A-T is a ranking factor you can optimise."</div><div class="r"><b>Not directly.</b> Asked whether E-E-A-T is a ranking factor, Google's answer is "No, it's not." It is the concept quality raters evaluate; ranking systems approximate it through many separate signals. Optimise the underlying reality — authorship, sourcing, accuracy, reputation — not the acronym.</div></div><div class="myth"><div class="m">"Domain Authority / Domain Rating is a Google metric."</div><div class="r"><b>No.</b> DA and DR are third-party estimates built from link graphs. The leak shows Google has its own internal <code>siteAuthority</code>, which is not the same thing and cannot be read from any tool. Useful as relative benchmarks; useless as targets.</div></div><div class="myth"><div class="m">"Bounce rate and time-on-site from Analytics feed rankings."</div><div class="r"><b>Not as such.</b> Google does not ingest your Analytics. What the leak shows is search-result click behaviour — a different thing measured on Google's side of the click. Improving genuine satisfaction affects both; gaming Analytics metrics affects neither.</div></div><div class="myth"><div class="m">"Publish more and traffic follows."</div><div class="r"><b>Volume alone fails.</b> 96.55% of pages get zero organic traffic. Scaled publication without per-page value is also a named spam policy ("scaled content abuse"). Depth in a defined topic beats breadth across many.</div></div><div class="myth"><div class="m">"Keyword density / LSI keywords."</div><div class="r"><b>Neither is real.</b> "LSI keywords" is a misapplication of an unrelated 1980s information-retrieval technique. Keyword density has no target; overdoing it triggers a documented spam policy. Google's systems match concepts, not term frequencies.</div></div><div class="myth"><div class="m">"Submit your site to search engines / pay to be indexed."</div><div class="r"><b>Unnecessary and impossible respectively.</b> Google finds pages primarily "through links from other pages it already crawled," and "doesn't accept payment to rank pages higher."</div></div><div class="myth"><div class="m">"A perfect Lighthouse score will lift rankings."</div><div class="r"><b>Marginal at best.</b> Core Web Vitals are assessed on field data at the 75th percentile, and Google states it "always seeks to show the most relevant content, even if the page experience is sub-par." Fix genuinely bad experiences; stop optimising 92 to 98.</div></div><div class="myth"><div class="m">"Structured data boosts rankings."</div><div class="r"><b>It boosts eligibility and clicks, not position.</b> Google's own documentation frames it entirely as understanding and rich-result appearance. The CTR gains are real; the ranking claim isn't made.</div></div>
+<h3>Local search myths</h3>
+<div class="myth"><div class="m">"Buy citations — it's the foundation of local SEO."</div><div class="r"><b>Outdated.</b> Citation signals have declined for years in expert weighting, and bulk directory listings create maintenance liabilities. Consistency across a small set of relevant sources is what matters; volume is not.</div></div><div class="myth"><div class="m">"Add your city and service to your business name."</div><div class="r"><b>Effective and against the rules.</b> Keywords in the title do score as a strong pack factor — and Google's naming rule prohibits location and service descriptors outright. Competitors report it, and the penalty is suspension, not a ranking dip.</div></div><div class="myth"><div class="m">"Rent a virtual office to rank in the next city."</div><div class="r"><b>No.</b> P.O. boxes and virtual offices are explicitly unacceptable, and address violations are the highest-scored suspension risk in the field. The only legitimate route into a new city is a real staffed location.</div></div><div class="myth"><div class="m">"Expand your service area to rank across a wider radius."</div><div class="r"><b>It doesn't work that way.</b> The service area field describes where you'll travel; it does not extend the proximity radius Google will rank you in. Oversized areas add suspension risk with no ranking upside.</div></div><div class="myth"><div class="m">"Add every category that vaguely applies."</div><div class="r"><b>Counterproductive.</b> Google's instruction is to "select the fewest categories possible," using "this business IS a" rather than "HAS a." Diluted categories weaken the primary signal that scored #1 for pack rankings.</div></div><div class="myth"><div class="m">"Ask customers to mention the service and city in their review."</div><div class="r"><b>Prohibited.</b> Google's contribution policy specifically bars requesting that reviews include particular details. Solicit reviews freely; don't script them.</div></div><div class="myth"><div class="m">"Offer a discount for a review."</div><div class="r"><b>Explicit violation.</b> "Payment, discounts, free goods and/or services" in exchange for a review is named in the policy, as is removing or revising negative reviews for compensation.</div></div><div class="myth"><div class="m">"Filter unhappy customers before the review request."</div><div class="r"><b>Review gating is banned.</b> Discouraging negative reviews while selectively soliciting positive ones is a named merchant violation — and it is also how a 4.9 rating stops being believed.</div></div><div class="myth"><div class="m">"Spin up a page for every city within 50 miles."</div><div class="r"><b>Doorway abuse.</b> Templated location pages are exactly the pattern Google's doorway policy describes. Twenty pages with real local substance beat two hundred find-and-replace pages, at a fraction of the risk.</div></div><div class="myth"><div class="m">"We rank #1 for the whole city."</div><div class="r"><b>Not a coherent claim.</b> Proximity means position varies across the map. Without a grid, "#1" means "#1 at the one point that was checked" — often the office.</div></div><div class="myth"><div class="m">"Posting to GBP every week lifts rankings."</div><div class="r"><b>Weak as a ranking claim.</b> Google recommends weekly posts and reports higher views for updated profiles, which is a good reason to post — but the evidence supports engagement and freshness, not pack position.</div></div><div class="myth"><div class="m">"You can pay Google for better local placement."</div><div class="r"><b>Directly denied.</b> "There's no way to request or pay for a better local ranking on Google." Ads buy ad placement, which is a separate, clearly labelled surface — and one that expanded considerably in 2025–26.</div></div></section>
+
+<section id="plan" data-track="both">
+  <div class="sechead"><span class="n">24</span><h2>The 90-day sequences</h2></div>
+  <p class="why">Two sequences, same logic: nothing downstream pays off until the stage above it works. Run the site track for any website; run the local track in parallel when the business has a physical presence or service area. A local service business needs both — the local sprint moves faster, so start it first and let the site work run behind it.</p>
+<h3>Track A · Any website, first 90 days</h3>
+<div class="scroll"><table class="tbl">
+    <tr><th>Window</th><th>Work</th><th>Done when</th></tr>
+    <tr><td>Days 1–14<br><span style="font-weight:400;color:var(--ink-3)">Baseline</span></td><td>Verify Search Console; archive 16 months of query data; full crawl; map templates; record current indexation, CWV, referring domains and revenue by landing page.</td><td>You can state, with numbers, what is currently working and what isn't.</td></tr>
+    <tr><td>Days 15–30<br><span style="font-weight:400;color:var(--ink-3)">Reachability</span></td><td>Fix indexation blockers, canonical conflicts, redirect chains, render gaps, server errors, crawl traps. Nothing else.</td><td>Every page you want indexed is indexed under the URL you chose.</td></tr>
+    <tr><td>Days 31–60<br><span style="font-weight:400;color:var(--ink-3)">Harvest</span></td><td>Rewrite titles and descriptions on high-impression/low-CTR pages; refresh decaying content; merge cannibalising pages; add internal links from your strongest pages to your priority pages.</td><td>The position 5–15 cohort has moved and CTR on top pages has improved.</td></tr>
+    <tr><td>Days 61–90<br><span style="font-weight:400;color:var(--ink-3)">Build</span></td><td>Publish net-new content only where demand is validated and you can add something original; ship one linkable asset; begin outreach on unlinked mentions and broken links.</td><td>New pages are indexed and gaining impressions; first earned links are live.</td></tr>
+    <tr><td>Ongoing<br><span style="font-weight:400;color:var(--ink-3)">Compound</span></td><td>Quarterly decay sweep and refresh; monthly CWV and indexation check; annotate and wait out core updates; one linkable asset per quarter.</td><td>Never — this is the job.</td></tr>
+  </table></div><div class="note"><b>If you can only do five things</b>1 · Make sure every important page is crawlable, rendered and canonical. 2 · Put the real subject of the page in the title and answer the query in the first paragraph. 3 · Add something to each page that isn't already on the SERP. 4 · Link internally from your strongest pages to your most valuable ones. 5 · Refresh what is decaying before writing anything new.</div>
+<h3>Track B · A local business, first 90 days</h3>
+<div class="scroll"><table class="tbl">
+    <tr><th>Window</th><th>Work</th><th>Done when</th></tr>
+    <tr><td>Days 1–3<br><span style="font-weight:400;color:var(--ink-3)">Instrument</span></td><td>GA4, Search Console, GBP performance, UTM tags on profile links, call tracking, form attribution, baseline geo-grid.</td><td>You can see calls, clicks and grid visibility before you touch anything.</td></tr>
+    <tr><td>Days 4–10<br><span style="font-weight:400;color:var(--ink-3)">Profile &amp; compliance</span></td><td>Verification, name compliance, primary and secondary categories, hours and special hours, service area sanity, services with descriptions, description rewrite, photos, attributes, booking and messaging. Fix any suspension-risk violations now.</td><td>The profile is complete, accurate and compliant, and you'd be comfortable with a competitor auditing it.</td></tr>
+    <tr><td>Days 11–35<br><span style="font-weight:400;color:var(--ink-3)">Money pages</span></td><td>A dedicated page per high-revenue service; genuinely local location pages for the territories that matter; title tags naming service and place; LocalBusiness schema; NAP in HTML; service↔location cross-links.</td><td>Every service you want leads for has one strong page, and every real location has its own.</td></tr>
+    <tr><td>Days 36–70<br><span style="font-weight:400;color:var(--ink-3)">Prominence</span></td><td>Continuous review request process live; every review answered; citation audit and correction; claim membership, certification and supplier listings; first local sponsorship or press placement.</td><td>Review velocity is steady and rising, NAP conflicts are resolved, and the first relevant local links are live.</td></tr>
+    <tr><td>Days 71–90<br><span style="font-weight:400;color:var(--ink-3)">Harvest &amp; report</span></td><td>Improve pages sitting in positions 6–20 in Search Console; re-run the grid; check for AI local packs on money queries; report on calls, forms, booked jobs and reviews rather than positions.</td><td>You can show movement in leads, and you know which queries have a lowered ceiling.</td></tr>
+  </table></div><div class="note"><b>If you can only do five things</b>1 · Get the primary category and name exactly right, and fix any suspension risk today. 2 · Complete every field on the profile and keep hours accurate. 3 · Build a continuous review request and response habit. 4 · Give each real service its own substantial page and each real location its own local one. 5 · Measure calls and booked jobs, on a grid, not rankings at a single point.</div></section>
+
+<section id="sources" data-track="both">
+  <div class="sechead"><span class="n">25</span><h2>Sources</h2></div>
+  <p class="why">Primary sources first. Where a claim rests on a third-party study, the study is named inline so you can weigh its methodology yourself.</p>
+<h3>Part One · Universal search</h3>
+<h4>Google primary documentation — universal</h4>
+  <ol class="src">
+    <li><a href="https://developers.google.com/search/docs/fundamentals/seo-starter-guide">SEO Starter Guide</a> — titles, descriptions, headings, images, links, site organisation, and the explicit list of things that don't matter.</li>
+    <li><a href="https://developers.google.com/search/docs/essentials">Google Search Essentials</a> — technical requirements, spam policies, key best practices.</li>
+    <li><a href="https://developers.google.com/search/docs/essentials/spam-policies">Spam policies for Google web search</a> — all 16 named categories.</li>
+    <li><a href="https://developers.google.com/search/docs/fundamentals/creating-helpful-content">Creating helpful, reliable, people-first content</a> — self-assessment questions, Who/How/Why, E-E-A-T, AI disclosure.</li>
+    <li><a href="https://developers.google.com/search/docs/fundamentals/how-search-works">How Google Search works</a> — crawling, indexing, serving.</li>
+    <li><a href="https://developers.google.com/search/docs/appearance/ranking-systems-guide">A guide to Google Search ranking systems</a> — active and retired systems.</li>
+    <li><a href="https://developers.google.com/search/updates/core-updates">Google core updates and your website</a> — diagnosis and recovery guidance.</li>
+    <li><a href="https://developers.google.com/search/docs/appearance/title-link">Control your title links in search results</a>.</li>
+    <li><a href="https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls">Consolidate duplicate URLs (canonicalization)</a>.</li>
+    <li><a href="https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data">Introduction to structured data markup</a>.</li>
+    <li><a href="https://developers.google.com/search/docs/appearance/page-experience">Understanding page experience in Google Search results</a>.</li>
+    <li><a href="https://web.dev/articles/vitals">Web Vitals</a> — LCP, INP, CLS thresholds and the 75th-percentile rule.</li>
+  </ol><h4>Internal documents and testimony — universal</h4>
+  <ol class="src" start="13">
+    <li><a href="https://ipullrank.com/google-algo-leak">iPullRank — Secrets from the Algorithm: Google Search's Internal Engineering Documentation Has Leaked</a> — attribute-level analysis of the May 2024 Content Warehouse API leak (<code>siteAuthority</code>, NavBoost click attributes, <code>hostAge</code>, <code>titlematchScore</code>, embeddings, <code>chromeInTotal</code>).</li>
+    <li><a href="https://www.hobo-web.co.uk/google-vs-doj/">Hobo — Strategic SEO insights from US DOJ v. Google (2020–2025)</a> — collated trial disclosures on click signals and re-ranking.</li>
+  </ol><h4>Studies and market data — universal</h4>
+  <ol class="src" start="15">
+    <li><a href="https://ahrefs.com/blog/seo-statistics/">Ahrefs — SEO statistics</a> — 96.55% of pages get zero organic traffic; 94.74% of keywords ≤10 searches/month; 72.9% of top-10 pages 3+ years old; ~5.7% of new pages reach top 10 within a year.</li>
+    <li><a href="https://growthsrc.com/google-organic-ctr-study/">GrowthSRC — Google organic CTR study</a> — 200,000+ keywords, 30+ sites, 2024 vs 2025: position 1 CTR 28% → 19%.</li>
+    <li><a href="https://firstpagesage.com/reports/google-click-through-rates-ctrs-by-ranking-position/">First Page Sage — Google CTR by ranking position</a> — meta-analysis, updated May 2025; 39.8% at position 1 but explicitly for SERPs "with no other elements on them."</li>
+    <li><a href="https://contently.com/2026/04/27/ai-overview-traffic-impact/">Contently — What the 2026 data shows on AI Overviews and organic traffic</a> — 25.11% AI Overview prevalence in Q1 2026; Pew Research 8% vs 15% click rates.</li>
+    <li><a href="https://searchengineland.com/march-2026-google-core-update-what-changed-474397">Search Engine Land — What changed in the March 2026 core update</a> — volatility figures and winner/loser categories.</li>
+    <li><a href="https://www.animalz.co/blog/content-refresh">Animalz — Content refresh strategy</a> — decay identification criteria and refresh cadence.</li>
+  </ol>
+<h3>Part Two · Local search</h3>
+<h4>Google primary documentation — local</h4>
+  <ol class="src">
+    <li><a href="https://support.google.com/business/answer/7091">Improve your local ranking on Google</a> — relevance, distance, prominence, and the tips list; "There's no way to request or pay for a better local ranking on Google."</li>
+    <li><a href="https://support.google.com/business/answer/3038177">Guidelines for representing your business on Google</a> — name rule, address and service-area rules, categories, hours, website and phone requirements.</li>
+    <li><a href="https://services.google.com/fh/files/helpcenter/1_official_gbp_best_practices_playbook_2026.pdf">Google — Business Profile best practices playbook (2026, PDF)</a> — recommended actions in order, plus Google's own statistics (7× clicks for complete profiles, 5× views for updated profiles, 42% more direction requests with photos, 96% more likely to visit when hours are shown).</li>
+    <li><a href="https://support.google.com/contributionpolicy/answer/7400114">Prohibited &amp; restricted content (Maps contributions)</a> — fake engagement, incentivised reviews, conflicts of interest, and the specific merchant solicitation restrictions.</li>
+    <li><a href="https://developers.google.com/search/docs/appearance/structured-data/local-business">LocalBusiness structured data</a> — required and recommended properties, departments, manual action warning.</li>
+    <li><a href="https://developers.google.com/search/docs/essentials/spam-policies">Google Search spam policies</a> — doorway abuse, scaled content abuse, link spam, as they apply to city and service pages.</li>
+  </ol><h4>Surveys and tracking studies — local</h4>
+  <ol class="src" start="7">
+    <li><a href="https://whitespark.ca/local-search-ranking-factors/">Whitespark — 2026 Local Search Ranking Factors</a> — 47 specialists scoring 187 factors across local pack, local organic, conversion and AI visibility; top factors, negative factors and suspension-risk scores.</li>
+    <li><a href="https://www.brightlocal.com/research/local-consumer-review-survey/">BrightLocal — Local Consumer Review Survey 2026</a> — 97% read reviews, 31% require 4.5★+, 74% prioritise reviews under three months old, 80%/89% response expectations, 45% using generative AI for recommendations.</li>
+    <li><a href="https://www.brightlocal.com/research/consumer-search-behavior/">BrightLocal — Consumer Search Behavior (2025, n=1,000 US adults)</a> — discovery channels, decision speed, 85% weighting contact details and hours, generational AI adoption.</li>
+    <li><a href="https://www.sterlingsky.ca/the-state-of-local-seo-in-2026/">Sterling Sky — The State of Local SEO in 2026</a> — AI local pack prevalence and composition, 5,943 vs 18,330 unique businesses, click-to-call decline across 179 profiles, Local Pack Ads 1%→22% and LSAs 11%→31%.</li>
+    <li><a href="https://searchengineland.com/local-rankings-fine-calls-vanishing-468321">Search Engine Land — Your local rankings look fine. So why are calls disappearing?</a> — the ranking/revenue decoupling and what to measure instead.</li>
+    <li><a href="https://whitespark.ca/blog/20-local-developments-you-need-to-know-about-from-q1-2026/">Whitespark — 20 local developments from Q1 2026</a> — AI local packs on ~8% of tracked keywords, query fan-out and the 25% inclusion figure, GBP feature tests, enforcement notes.</li>
+    <li><a href="https://searchengineland.com/local-seo-sprints-a-90-day-plan-for-service-businesses-in-2026-469059">Search Engine Land — Local SEO sprints: a 90-day plan for service businesses in 2026</a> — sprint structure and KPI set.</li>
+  </ol>
+  <footer><p>Compiled 20 August 2026. Evidence grades reflect source strength at the time of writing; Google's documentation changes without notice, the leaked schema is a 2024 snapshot, and the 2026 AI-local findings have the shortest shelf life in this document. Where this playbook and a current Google page disagree, the Google page wins.</p></footer></section>
+
+</main>
+</div>
+<script>
+(function(){
+  var items  = [].slice.call(document.querySelectorAll('.item'));
+  var checks = [].slice.call(document.querySelectorAll('.check'));
+  var secs   = [].slice.call(document.querySelectorAll('section[data-track]'));
+  var navEls = [].slice.call(document.querySelectorAll('#nav [data-track]'));
+
+  var tier  = {A:true,B:true,C:true,D:true};
+  var track = {core:true, local:true, both:true};
+  var q = '';
+
+  function pct(n,d){ return d ? Math.round(n/d*100) : 0; }
+
+  function trackOn(el){
+    var t = el.getAttribute('data-track') || 'both';
+    return t === 'both' ? (track.core || track.local) : !!track[t];
+  }
+
+  function refresh(){
+    var gDone=0, gTot=0;
+    checks.forEach(function(c){
+      var live = [].slice.call(c.querySelectorAll('.item')).filter(function(i){return !i.classList.contains('hide');});
+      var done = live.filter(function(i){return i.querySelector('input').checked;}).length;
+      var cnt = c.querySelector('.cnt');
+      if(cnt) cnt.textContent = done + ' / ' + live.length;
+      var tag = document.querySelector('[data-pct="' + c.getAttribute('data-c') + '"]');
+      if(tag) tag.textContent = live.length ? pct(done,live.length) + '% complete' : '';
+      if(c.closest('section') && c.closest('section').style.display !== 'none'){ gDone += done; gTot += live.length; }
+    });
+    document.getElementById('gnum').textContent = gDone + ' / ' + gTot;
+    document.getElementById('gbar').style.width = pct(gDone,gTot) + '%';
+  }
+
+  function apply(){
+    secs.forEach(function(s){ s.style.display = trackOn(s) ? '' : 'none'; });
+    navEls.forEach(function(a){ a.style.display = trackOn(a) ? '' : 'none'; });
+    items.forEach(function(it){
+      var t  = it.getAttribute('data-tier') || 'A';
+      var ok = !!tier[t] && (!q || it.textContent.toLowerCase().indexOf(q) > -1);
+      it.classList.toggle('hide', !ok);
+    });
+    checks.forEach(function(c){ c.style.display = c.querySelector('.item:not(.hide)') ? '' : 'none'; });
+    refresh();
+  }
+
+  items.forEach(function(it){
+    var box = it.querySelector('input');
+    box.addEventListener('change', function(){ it.classList.toggle('done', box.checked); refresh(); });
+  });
+
+  [].forEach.call(document.querySelectorAll('.chip[data-t]'), function(b){
+    b.addEventListener('click', function(){
+      var t = b.getAttribute('data-t'); tier[t] = !tier[t];
+      b.classList.toggle('on', tier[t]); apply();
+    });
+  });
+
+  [].forEach.call(document.querySelectorAll('.chip[data-tr]'), function(b){
+    b.addEventListener('click', function(){
+      var t = b.getAttribute('data-tr');
+      if(track[t] && !(track.core && track.local)) return;   // never turn both tracks off
+      track[t] = !track[t];
+      b.classList.toggle('on', track[t]); apply();
+    });
+  });
+
+  document.getElementById('q').addEventListener('input', function(e){
+    q = e.target.value.toLowerCase().trim(); apply();
+  });
+
+  document.getElementById('reset').addEventListener('click', function(){
+    items.forEach(function(it){ it.querySelector('input').checked = false; it.classList.remove('done'); });
+    refresh();
+  });
+
+  var links = [].slice.call(document.querySelectorAll('#nav a'));
+  var targets = links.map(function(a){ return document.querySelector(a.getAttribute('href')); });
+  function spy(){
+    var y = window.scrollY + 90, cur = null;
+    targets.forEach(function(s){ if(s && s.style.display !== 'none' && s.offsetTop <= y) cur = s; });
+    links.forEach(function(a){ a.classList.toggle('on', !!cur && a.getAttribute('href') === '#' + cur.id); });
+  }
+  window.addEventListener('scroll', spy, {passive:true});
+  spy(); apply();
+})();
+</script>
+</body>
+</html>
