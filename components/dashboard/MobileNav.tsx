@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
-  Menu, X, Search, LogOut, Users, Settings,
+  Menu, X, Search, LogOut, Users, Settings, Check,
   LayoutDashboard, Briefcase, CheckSquare, PackageCheck, MoreHorizontal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,7 @@ import { UserMenu } from '@/components/dashboard/UserMenu';
 import { ClientListPanel } from '@/components/workspace/ClientListPanel';
 import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
+import { useOrganization } from '@/components/providers/organization-provider';
 
 // Primary destinations surfaced in the bottom tab bar (one-handed reach).
 const primaryTabs = [
@@ -35,9 +36,16 @@ function isActiveHref(pathname: string, href: string) {
 
 export function MobileNav({ showClientList }: { showClientList: boolean }) {
   const pathname = usePathname();
+  const { organization, memberships, setOrganization } = useOrganization();
   const [menuOpen, setMenuOpen] = useState(false);
   const [clientsOpen, setClientsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+
+  // Only worth showing the tenant switcher when there is somewhere to switch to.
+  const switchableOrgs = memberships
+    .map((m) => m.organization)
+    .filter((o): o is NonNullable<typeof o> => o !== null && o !== undefined);
+  const showOrgSwitcher = switchableOrgs.length > 1;
 
   // Close drawers on route change.
   useEffect(() => {
@@ -72,9 +80,22 @@ export function MobileNav({ showClientList }: { showClientList: boolean }) {
         >
           <Menu className="h-6 w-6" />
         </button>
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary font-bold text-primary-foreground shadow-sm">
-          A
-        </div>
+        {/* Tapping the mark opens the menu, where the tenant can be switched.
+            The name only earns its space when more than one org exists. */}
+        <button
+          onClick={() => setMenuOpen(true)}
+          aria-label={organization ? `Organization: ${organization.name}` : 'Organization'}
+          className="flex min-w-0 items-center gap-2 rounded-lg py-1 pr-1 active:scale-95 transition"
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary font-bold text-primary-foreground shadow-sm">
+            {organization?.name?.charAt(0).toUpperCase() ?? 'A'}
+          </span>
+          {showOrgSwitcher && organization && (
+            <span className="min-w-0 truncate text-sm font-semibold text-foreground">
+              {organization.name}
+            </span>
+          )}
+        </button>
         <div className="ml-auto flex items-center gap-1">
           {showClientList && (
             <button
@@ -129,6 +150,39 @@ export function MobileNav({ showClientList }: { showClientList: boolean }) {
       {/* Full-menu drawer */}
       <Drawer open={menuOpen} onClose={() => setMenuOpen(false)} side="left" title="Menu">
         <div className="flex-1 overflow-y-auto p-2">
+          {/* Tenant switcher — desktop has this in the top nav; on mobile it
+              lives here so the crowded top bar stays legible. */}
+          {showOrgSwitcher && (
+            <div className="mb-2 border-b border-border pb-2">
+              <span className="block px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                Organization
+              </span>
+              {switchableOrgs.map((org) => {
+                const current = organization?.id === org.id;
+                return (
+                  <button
+                    key={org.id}
+                    onClick={() => {
+                      if (!current) setOrganization(org);
+                      setMenuOpen(false);
+                    }}
+                    aria-current={current ? 'true' : undefined}
+                    className={cn(
+                      'flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium transition-colors',
+                      current ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted'
+                    )}
+                  >
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary text-[11px] font-bold text-primary-foreground">
+                      {org.name.charAt(0).toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{org.name}</span>
+                    {current && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {drawerNavigation.map((item) => {
             const active = isActiveHref(pathname, item.href);
             return (
