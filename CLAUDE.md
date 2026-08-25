@@ -121,6 +121,20 @@ https://seo-ops-center.vercel.app
   - Day/Week/Month views; `Cmd+/` command bar (`Cmd+K` and `Cmd+Shift+T` stay with `TopNav`)
   - `components/tasks/TaskCalendarView.tsx` is deliberately untouched — the Tasks page month grid is separate code
 
+- **Timesheets — Ledger Grid** (migration 038, Aug 2026):
+  - `/timesheets` page — three tabs: **My timesheet** (weekly Ledger Grid), **Team**, **Client review**. Team/Client review are manager-only and gated server-side, not just hidden in the UI
+  - `time_logs` stays the ONE canonical ledger. Migration 038 adds `source` ('seo_pm'|'basecamp'), `import_status` ('mapped'|'needs_review'|'voided'), `imported_at`, `provider_updated_at`, `voided_at`, `mapped_by`, `mapped_at`, plus the **partial unique index on `basecamp_entry_id`** — the hard dedupe invariant
+  - `protect_time_log_import_provenance` trigger makes all of the above service-role only (same pattern as 031/032)
+  - `timesheet_client_approvals` + `timesheet_approval_entries` — immutable client/month snapshots; partial unique index allows one live `approved` row per client month; reopening flips status and keeps the old snapshot
+  - **Inbound Basecamp import** — the webhook route now also handles `timesheet_entry_*` kinds. The payload is never trusted: entry id + project come from the canonical recording URL, everything else is re-read via OAuth (`getBasecampTimesheetEntryState`). Unknown person / untracked to-do → `needs_review`, never a guessed client/task/member. Deleted at the provider → `voided_at`, never a delete
+  - `lib/basecamp/timesheet-import-merge.ts` — **an import may add attribution, never remove it.** This is what stops an SEO PM → Basecamp echo from blanking a native row's client/task/user, and stops a later provider edit from undoing a manager's manual mapping
+  - Reconciliation: `POST /api/integrations/basecamp/timesheet/reconcile` (manager, bounded ≤62 days) and hourly cron `/api/cron/reconcile-timesheets` (CRON_SECRET only, 14-day lookback). Both replay through the *same* importer as the webhook
+  - Pure domain logic (all tested, `node:test`): `lib/timesheets/ledger.ts` (weekly grid), `review.ts` (snapshot + `detectPostApprovalChanges`), `team.ts`, `mapping.ts`, `format.ts`
+  - API: `/api/timesheets/ledger` (own week always, another member only as manager), `/team`, `/client-review`, `/approvals`, `/mapping`
+  - Approval invariant: **an approved snapshot is a record, not a view.** Drift is reported by comparing the frozen snapshot against the live ledger; the only resolution is a manager reopening the month
+  - Client budget comes from `clients.seo_hours` — deliberately not a second budget source
+  - Activity feed renders `timesheet.client_month_approved` / `_reopened` under the Hours filter
+
 ## Key files (campaign)
 - `components/campaign/CampaignPlanTab.tsx` — 3-tab orchestrator
 - `components/campaign/sections/SectionCard.tsx` — shared helpers, types, label maps
@@ -158,6 +172,24 @@ https://seo-ops-center.vercel.app
 033: time_log_segments + timer RPCs (applied Aug 2026 — verified against the DB: all six RPCs resolve and reject `anon` with 42501)
 034: start_task_timer project-less fix (applied Aug 2026 — verified live). Supersedes 033's `start_task_timer`; **never edit 033 in place**, supersede it with a new migration
 036: task completion time reconciliation (applied Aug 24, 2026 — verified live: authenticated RPC available, anon execution denied, idempotency index present)
+037: basecamp_webhook_deliveries (service-only webhook delivery receipts)
+038: timesheet ledger provenance + client-month approvals — **NOT YET APPLIED.** Paste `migrations/038_timesheet_ledger.sql` into the Supabase SQL editor (it needs superuser for the trigger function). Verify with the query below.
+
+To verify migration 038 after applying it:
+
+```sql
+select column_name from information_schema.columns
+where table_name = 'time_logs'
+  and column_name in ('source','import_status','imported_at','provider_updated_at','voided_at','mapped_by','mapped_at')
+order by column_name;
+
+select indexname from pg_indexes
+where tablename in ('time_logs','timesheet_client_approvals')
+  and indexname in ('time_logs_basecamp_entry_unique','timesheet_client_approvals_active_unique');
+
+select tgname from pg_trigger
+where not tgisinternal and tgname = 'protect_time_log_import_provenance';
+```
 
 To re-check the 031/032 triggers directly, run in the Supabase SQL editor:
 

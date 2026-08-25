@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin';
+import { mergeImportedEntry } from './timesheet-import-merge';
 import type {
     ImportedEntryInput,
     TimesheetImportStore,
@@ -22,34 +23,26 @@ async function writeImportedEntry(input: ImportedEntryInput): Promise<'created' 
     const admin = createAdminClient();
     const entryId = Number(input.basecampEntryId);
 
-    const row = {
-        organization_id: input.organizationId,
-        client_id: input.clientId,
-        task_id: input.taskId,
-        user_id: input.userId,
-        date: input.date,
-        hours: input.hours,
-        description: input.description,
-        status: 'logged',
-        source: 'basecamp',
-        import_status: input.importStatus,
-        basecamp_entry_id: entryId,
-        basecamp_project_id: Number(input.basecampProjectId),
-        basecamp_recording_id: Number(input.basecampRecordingId),
-        basecamp_synced_at: input.importedAt,
-        basecamp_sync_error: null,
-        imported_at: input.importedAt,
-        provider_updated_at: input.providerUpdatedAt || null,
-        // A previously voided entry that reappears at the provider is live again.
-        voided_at: null,
-    };
-
     const existing = await admin
         .from('time_logs')
-        .select('id')
+        .select('id, source, import_status, client_id, task_id, user_id')
         .eq('basecamp_entry_id', entryId)
         .maybeSingle();
     if (existing.error) throw existing.error;
+
+    // An import may add attribution, never remove it — see mergeImportedEntry.
+    const row = mergeImportedEntry(
+        existing.data
+            ? {
+                source: existing.data.source ?? 'seo_pm',
+                importStatus: existing.data.import_status ?? 'mapped',
+                clientId: existing.data.client_id ?? null,
+                taskId: existing.data.task_id ?? null,
+                userId: existing.data.user_id ?? null,
+            }
+            : null,
+        input,
+    );
 
     if (existing.data) {
         const { error } = await admin
