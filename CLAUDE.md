@@ -188,7 +188,7 @@ https://seo-ops-center.vercel.app
 034: start_task_timer project-less fix (applied Aug 2026 — verified live). Supersedes 033's `start_task_timer`; **never edit 033 in place**, supersede it with a new migration
 036: task completion time reconciliation (applied Aug 24, 2026 — verified live: authenticated RPC available, anon execution denied, idempotency index present)
 037: basecamp_webhook_deliveries (service-only webhook delivery receipts)
-039: organizations.theme (brand theming) — NOT YET APPLIED, run migrations/039_organization_theme.sql
+039: organizations.theme (brand theming) — applied Aug 25, 2026 (verified live: a custom theme saved from the Appearance tab survives a localStorage wipe and reload)
 038: timesheet ledger provenance + client-month approvals (applied Aug 24, 2026 — verified against the DB: all 7 `time_logs` provenance columns, both partial unique indexes, both approval tables, and the `protect_time_log_import_provenance` trigger are present)
 
 To re-check migration 038 directly, run in the Supabase SQL editor:
