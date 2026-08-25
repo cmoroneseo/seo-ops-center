@@ -568,6 +568,16 @@ export interface SyncRun {
 
 export type TimeLogStatus = 'in_progress' | 'logged' | 'needs_review';
 
+/** Where a ledger row originated. Provenance, not a second system. */
+export type TimeLogSource = 'seo_pm' | 'basecamp';
+
+/**
+ * How far an imported row got. `needs_review` means we could not resolve a
+ * client/task/member from trusted provider state and refuse to guess one;
+ * `voided` means the provider entry is gone but we keep the financial history.
+ */
+export type TimeLogImportStatus = 'mapped' | 'needs_review' | 'voided';
+
 export interface SessionNote {
     id: string;
     text: string;      // may contain [Label](/path) internal links
@@ -610,6 +620,44 @@ export interface TimeLog {
     basecampProjectId?: number;
     basecampSyncedAt?: string;
     basecampSyncError?: string; // why the last push failed (cleared on success)
+    /** migration 038 — server-controlled ledger provenance */
+    source: TimeLogSource;
+    importStatus: TimeLogImportStatus;
+    basecampRecordingId?: number;
+    importedAt?: string;
+    /** Provider-side last-updated stamp, so a later Basecamp edit is detectable. */
+    providerUpdatedAt?: string;
+    voidedAt?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Timesheet client-month approvals — migration 038
+// ---------------------------------------------------------------------------
+
+export type TimesheetApprovalStatus = 'approved' | 'reopened';
+
+/** One immutable included row inside an approval snapshot. */
+export interface TimesheetApprovalEntry {
+    timeLogId: string;
+    includedMinutes: number;
+}
+
+export interface TimesheetClientApproval {
+    id: string;
+    organizationId: string;
+    clientId: string;
+    /** 'YYYY-MM' */
+    month: string;
+    status: TimesheetApprovalStatus;
+    approvedBy?: string;
+    approvedAt: string;
+    reopenedBy?: string;
+    reopenedAt?: string;
+    note?: string;
+    budgetMinutes: number;
+    eligibleMinutes: number;
+    nonBudgetMinutes: number;
+    entries: TimesheetApprovalEntry[];
 }
 
 export interface TimeLogSegment {

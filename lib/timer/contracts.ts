@@ -1,6 +1,8 @@
 import type {
     SessionNote,
+    TimeLogImportStatus,
     TimeLogSegment,
+    TimeLogSource,
     TimeLogStatus,
     TimerAttempt,
 } from '../types';
@@ -113,6 +115,13 @@ export function timerAttemptFromRow(value: unknown): TimerAttempt {
         basecampProjectId: optionalNumber(row.basecamp_project_id),
         basecampSyncedAt: optionalString(row.basecamp_synced_at),
         basecampSyncError: optionalString(row.basecamp_sync_error),
+        basecampRecordingId: optionalNumber(row.basecamp_recording_id),
+        source: (optionalString(row.source) as TimeLogSource | undefined) ?? 'seo_pm',
+        importStatus: (optionalString(row.import_status) as TimeLogImportStatus | undefined)
+            ?? 'mapped',
+        importedAt: optionalString(row.imported_at),
+        providerUpdatedAt: optionalString(row.provider_updated_at),
+        voidedAt: optionalString(row.voided_at),
         segments: segmentRows
             .map(segmentFromRow)
             .filter((segment): segment is TimeLogSegment => segment !== null)
