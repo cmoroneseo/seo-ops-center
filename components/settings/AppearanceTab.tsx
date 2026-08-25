@@ -22,6 +22,10 @@ import { cn } from '@/lib/utils';
 const sameTheme = (a: OrganizationTheme, b: OrganizationTheme) =>
     a.preset === b.preset && (a.preset !== 'custom' || a.hex === b.hex);
 
+/** The hex the custom field should show for a given theme. */
+const hexFor = (theme: OrganizationTheme) =>
+    theme.preset === 'custom' ? theme.hex ?? '#ff0080' : '#ff0080';
+
 const LEVEL_STYLES: Record<string, string> = {
     AA: 'bg-green-500/10 text-green-500 border-green-500/20',
     'AA Large': 'bg-amber-500/10 text-amber-500 border-amber-500/20',
@@ -29,25 +33,48 @@ const LEVEL_STYLES: Record<string, string> = {
 };
 
 export function AppearanceTab() {
-    const { organization, setOrganization } = useOrganization();
-    const { isOwner } = useCurrentMember();
+    const { organization, setOrganization, isLoading: isOrgLoading } = useOrganization();
+    const { isOwner, isLoading: isMemberLoading } = useCurrentMember();
+
+    // Role is only trustworthy once both the session and the memberships have
+    // landed; until then it defaults to 'member' and would wrongly tell an
+    // owner they lack permission.
+    const isRoleResolved = !isOrgLoading && !isMemberLoading;
 
     const saved = organization?.theme ?? DEFAULT_THEME;
     const [draft, setDraft] = useState<OrganizationTheme>(saved);
-    const [customHex, setCustomHex] = useState(
-        saved.preset === 'custom' ? saved.hex ?? '#ff0080' : '#ff0080',
-    );
+    const [customHex, setCustomHex] = useState(hexFor(saved));
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // Distinguishes "the user picked this" from "this is just the initial
+    // value", so a late-arriving saved theme can adopt without clobbering edits.
+    const [isTouched, setIsTouched] = useState(false);
 
-    const isDirty = !sameTheme(draft, saved);
+    const isDirty = isTouched && !sameTheme(draft, saved);
+    const isCustom = draft.preset === 'custom';
     const contrast = themeContrast(draft);
+
+    // The organization resolves after this component mounts, so the initial
+    // draft is the default rather than the real theme. Adopt the saved theme
+    // when it arrives — otherwise the picker shows the wrong colour and a
+    // phantom unsaved-changes state.
+    useEffect(() => {
+        if (isTouched) return;
+        setDraft(saved);
+        setCustomHex(hexFor(saved));
+        // `saved` is a fresh object each render; depending on it would loop.
+        // Its two fields are the whole identity of a theme.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [saved.preset, saved.hex, isTouched]);
 
     // Applying the draft to the live stylesheet is the preview — the whole app
     // recolours, which is the only honest way to judge a brand colour.
+    // Suppressed while the org loads so this never paints the default over the
+    // correct colour the boot script already applied.
     useEffect(() => {
+        if (isOrgLoading) return;
         previewThemeCss(buildThemeCss(draft));
-    }, [draft]);
+    }, [draft, isOrgLoading]);
 
     // Abandoning the tab with an unsaved draft must not leave the app recoloured.
     const savedRef = useRef(saved);
@@ -60,9 +87,21 @@ export function AppearanceTab() {
     );
 
     const applyCustomHex = useCallback((value: string) => {
+        setIsTouched(true);
         setCustomHex(value);
         if (hexToOklch(value)) setDraft({ preset: 'custom', hex: value.toLowerCase() });
     }, []);
+
+    const selectPreset = useCallback((presetId: string) => {
+        setIsTouched(true);
+        setDraft({ preset: presetId });
+    }, []);
+
+    const discard = useCallback(() => {
+        setIsTouched(false);
+        setDraft(saved);
+        setCustomHex(hexFor(saved));
+    }, [saved]);
 
     const handleSave = async () => {
         if (!organization || !isOwner) return;
@@ -72,11 +111,14 @@ export function AppearanceTab() {
         const result = await updateOrganizationTheme(organization.id, draft);
 
         if (result.success) {
+            setIsTouched(false);
             setOrganization({ ...organization, theme: draft });
         } else {
             setError(result.error ?? 'Could not save the theme.');
             previewThemeCss(buildThemeCss(saved));
+            setIsTouched(false);
             setDraft(saved);
+            setCustomHex(hexFor(saved));
         }
         setIsSaving(false);
     };
@@ -92,14 +134,14 @@ export function AppearanceTab() {
                     </p>
                 </div>
 
-                {!isOwner && (
+                {isRoleResolved && !isOwner && (
                     <div className="mb-6 flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
                         <Lock className="h-3.5 w-3.5 shrink-0" />
                         Only an organization owner can change the brand color.
                     </div>
                 )}
 
-                <fieldset disabled={!isOwner || isSaving} className="disabled:opacity-60">
+                <fieldset disabled={!isRoleResolved || !isOwner || isSaving} className="disabled:opacity-60">
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                         {THEME_PRESETS.map((preset) => {
                             const isSelected = draft.preset === preset.id;
@@ -107,7 +149,7 @@ export function AppearanceTab() {
                                 <button
                                     key={preset.id}
                                     type="button"
-                                    onClick={() => setDraft({ preset: preset.id })}
+                                    onClick={() => selectPreset(preset.id)}
                                     aria-pressed={isSelected}
                                     className={cn(
                                         'group flex flex-col gap-2 rounded-lg border p-3 text-left transition-all',
@@ -135,12 +177,21 @@ export function AppearanceTab() {
                         })}
                     </div>
 
-                    <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-border p-3">
+                    {/* Selected state matches the preset tiles — a tinted label alone
+                        read as "nothing is selected" when a custom colour was active. */}
+                    <div
+                        className={cn(
+                            'mt-4 flex flex-wrap items-center gap-3 rounded-lg border p-3 transition-all',
+                            isCustom
+                                ? 'border-primary ring-2 ring-primary/40'
+                                : 'border-border',
+                        )}
+                    >
                         <label
                             htmlFor="brand-custom-color"
                             className={cn(
                                 'flex items-center gap-2 text-sm font-medium',
-                                draft.preset === 'custom' && 'text-primary',
+                                isCustom && 'text-primary',
                             )}
                         >
                             <input
@@ -163,6 +214,7 @@ export function AppearanceTab() {
                         <p className="text-xs text-muted-foreground">
                             Very light or very dark colors are adjusted to stay readable.
                         </p>
+                        {isCustom && <Check className="ml-auto h-4 w-4 shrink-0 text-primary" />}
                     </div>
                 </fieldset>
             </div>
@@ -226,7 +278,7 @@ export function AppearanceTab() {
                     </button>
                     <button
                         type="button"
-                        onClick={() => setDraft(saved)}
+                        onClick={discard}
                         disabled={!isDirty || isSaving}
                         className="flex h-10 items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
                     >
