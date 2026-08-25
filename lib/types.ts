@@ -399,7 +399,10 @@ export type ActivityEventType =
     | 'campaign.approved'
     | 'campaign.phase_status_changed'
     | 'campaign.expectation_flagged'
-    | 'campaign.kpi_rebaselined';
+    | 'campaign.kpi_rebaselined'
+    // Timesheet client-month approvals (migration 038)
+    | 'timesheet.client_month_approved'
+    | 'timesheet.client_month_reopened';
 
 export interface ClientActivityEvent {
     id: string;

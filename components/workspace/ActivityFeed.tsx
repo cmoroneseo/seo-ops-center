@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, type ReactNode } from 'react';
-import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download, Pencil, RefreshCw, CheckSquare, ClipboardList, Send, Package, Building2, Target, Shield } from 'lucide-react';
+import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download, Pencil, RefreshCw, CheckSquare, ClipboardList, Send, Package, Building2, Target, Shield, FileCheck2, History } from 'lucide-react';
 // ChevronDown/ChevronUp kept — used in TimeLogRow and NoteRow expand toggles
 import { ClientProject, TimeLog, ClientNote, ClientAssignment, ClientActivityEvent } from '@/lib/types';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
@@ -28,6 +28,7 @@ function eventDomain(eventType: string): Exclude<ActivityType, 'all'> {
     if (eventType.startsWith('task.')) return 'tasks';
     if (eventType.startsWith('deliverable.')) return 'deliverables';
     if (eventType.startsWith('client.') || eventType === 'retainer.amended') return 'updates';
+    if (eventType.startsWith('timesheet.')) return 'hours';
     if (eventType.startsWith('campaign.')) return 'updates';
     return 'integrations';
 }
@@ -581,6 +582,62 @@ function CampaignEventRow({ event }: { event: ClientActivityEvent }) {
 }
 
 /** Dispatch a logged activity event to the right row renderer by domain. */
+/**
+ * A client-month approval or reopen.
+ *
+ * Shows the approved totals as recorded at the time. It never recomputes them
+ * from current data — that is the whole point of the snapshot.
+ */
+function TimesheetApprovalRow({ event }: { event: ClientActivityEvent }) {
+    const { eventType, metadata, actorName, occurredAt } = event;
+    const isApproved = eventType === 'timesheet.client_month_approved';
+
+    const month = metadata.month as string | undefined;
+    const note = metadata.note as string | undefined;
+    const entryCount = metadata.entryCount as number | undefined;
+    const eligibleMinutes = (isApproved
+        ? metadata.eligibleMinutes
+        : metadata.approvedEligibleMinutes) as number | undefined;
+
+    const accent = isApproved ? 'text-green-500' : 'text-amber-500';
+    const bg = isApproved ? 'bg-green-500/10' : 'bg-amber-500/10';
+    const Icon = isApproved ? FileCheck2 : History;
+
+    const hours = typeof eligibleMinutes === 'number'
+        ? `${Math.floor(eligibleMinutes / 60)}h ${String(eligibleMinutes % 60).padStart(2, '0')}m`
+        : null;
+
+    return (
+        <div className="flex items-start gap-3 py-3">
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${bg}`}>
+                <Icon className={`h-3.5 w-3.5 ${accent}`} />
+            </div>
+            <div className="flex-1 min-w-0">
+                <p className="text-sm leading-snug">
+                    {actorName && <span className="font-semibold">{actorName} </span>}
+                    <span className="text-foreground/80">
+                        {isApproved ? 'approved timesheets for ' : 'reopened timesheets for '}
+                    </span>
+                    {month && <span className={`font-medium ${accent}`}>{month}</span>}
+                    <span className="text-muted-foreground text-xs ml-1.5">
+                        {new Date(occurredAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                </p>
+                {hours && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                        {hours} of SEO budget time
+                        {typeof entryCount === 'number' ? ` · ${entryCount} entries` : ''}
+                        {isApproved ? ' · locked snapshot' : ' · prior snapshot kept'}
+                    </p>
+                )}
+                {note && (
+                    <p className="text-xs text-muted-foreground mt-0.5 italic">"{note}"</p>
+                )}
+            </div>
+        </div>
+    );
+}
+
 function EventRow({ event }: { event: ClientActivityEvent }) {
     const t = event.eventType;
     if (t === 'retainer.amended') return <RetainerAmendedRow event={event} />;
@@ -588,6 +645,7 @@ function EventRow({ event }: { event: ClientActivityEvent }) {
     if (t.startsWith('deliverable.')) return <DeliverableEventRow event={event} />;
     if (t.startsWith('client.')) return <ClientEventRow event={event} />;
     if (t.startsWith('campaign.')) return <CampaignEventRow event={event} />;
+    if (t.startsWith('timesheet.')) return <TimesheetApprovalRow event={event} />;
     return <IntegrationEventRow event={event} />;
 }
 

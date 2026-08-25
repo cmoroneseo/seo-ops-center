@@ -201,6 +201,52 @@ export async function requireClientOrgMember(
     return requireClientMember(clientIdInput, assertedOrganizationIdInput);
 }
 
+/**
+ * Requires authenticated membership in an organization and reports the role.
+ *
+ * Unlike `requireOrganizationAdmin` this admits members and viewers — callers
+ * that need manager authority branch on `isManager` themselves, so a route can
+ * serve "my own data" to everyone and "anyone's data" to managers only.
+ */
+export async function requireOrganizationMember(
+    organizationIdInput: unknown,
+): Promise<
+    | {
+        ok: true;
+        userId: string;
+        actorName: string;
+        organizationId: string;
+        role: 'owner' | 'admin' | 'member' | 'viewer';
+        isManager: boolean;
+    }
+    | { ok: false; status: 400 | 401 | 403 | 404 | 500; error: string }
+> {
+    const organizationId = normalizeString(organizationIdInput);
+    if (!organizationId) return { ok: false, status: 400, error: 'Missing organizationId' };
+
+    const actor = await getAuthenticatedActor();
+    if (!actor) return { ok: false, status: 401, error: 'Unauthorized' };
+
+    const { data: membership, error } = await createAdminClient()
+        .from('organization_members')
+        .select('role')
+        .eq('organization_id', organizationId)
+        .eq('user_id', actor.id)
+        .maybeSingle();
+    if (error) return { ok: false, status: 500, error: 'Unable to verify organization access' };
+    if (!membership) return { ok: false, status: 403, error: 'Forbidden' };
+
+    const role = membership.role as 'owner' | 'admin' | 'member' | 'viewer';
+    return {
+        ok: true,
+        userId: actor.id,
+        actorName: actor.name,
+        organizationId,
+        role,
+        isManager: role === 'owner' || role === 'admin',
+    };
+}
+
 /** Requires an authenticated owner/admin for the canonical organization row. */
 export async function requireOrganizationAdmin(
     organizationIdInput: unknown,
