@@ -50,6 +50,7 @@ export default function DashboardLayout({
     const isWorkspace = pathname.startsWith('/workspace');
     const isTasks = pathname.startsWith('/tasks');
     const isPlanner = pathname.startsWith('/planner');
+    const isTraining = pathname.startsWith('/training');
     const isDashboard = pathname === '/dashboard';
     const showProjectSidebar = !isSetupPage && (isWorkspace || isTasks || isDashboard);
 
@@ -70,6 +71,8 @@ export default function DashboardLayout({
                                 // of the page padding entirely.
                                 : isPlanner
                                     ? "overflow-hidden p-0 pt-14 lg:pt-0"
+                                    : isTraining
+                                        ? "overflow-y-auto p-0 pb-20 pt-14 lg:pb-0 lg:pt-0 xl:overflow-hidden"
                                     // Base padding, then mobile top/bottom offsets to clear the fixed bars.
                                     : "p-4 sm:p-6 lg:p-8 pt-[calc(3.5rem+1rem)] pb-20 lg:pt-8 lg:pb-8"
                         )}>
