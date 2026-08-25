@@ -1,125 +1,118 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { logClientActivity } from '@/lib/supabase/client-activity';
-import { isAuthorizedBasecampWebhook } from '@/lib/basecamp/webhook-auth';
+import { getBasecampTodo, isBasecampConfigured } from '@/lib/basecamp/api';
+import {
+    createBasecampWebhookPost,
+    type BasecampWebhookTask,
+} from '@/lib/basecamp/webhook-route';
 
 export const dynamic = 'force-dynamic';
 
-const COMPLETION_KINDS = new Set([
-    'todo_completion_created',
-    'todo_completed',
-    'todo_changed',
-]);
-
-const REOPEN_KINDS = new Set([
-    'todo_completion_destroyed',
-    'todo_uncompleted',
-]);
-
 /**
  * POST /api/integrations/basecamp/webhook
- * Authentication: x-basecamp-webhook-secret header.
  *
- * Receives Basecamp 3 webhook payloads. Handles:
+ * Basecamp does not sign webhook requests or support custom request headers.
+ * Treat the payload as an untrusted notification, then verify the canonical
+ * linked to-do through the authenticated Basecamp API before changing state.
+ * Handles:
  *   - Todo completion → marks the linked SEO PM task as done
  *   - Todo uncomplete → reopens the linked SEO PM task
  */
-export async function POST(req: NextRequest) {
-    if (!isAuthorizedBasecampWebhook(req, process.env.BASECAMP_WEBHOOK_SECRET)) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+export const POST = createBasecampWebhookPost({
+    expectedAccountId: process.env.BASECAMP_ACCOUNT_ID ?? '',
+    now: () => new Date().toISOString(),
+    provider: {
+        isConfigured: isBasecampConfigured,
+        getTodo: getBasecampTodo,
+    },
+    store: {
+        async claimDelivery(delivery) {
+            const admin = createAdminClient();
+            const { error } = await admin
+                .from('basecamp_webhook_deliveries')
+                .insert({
+                    event_id: delivery.eventId,
+                    request_id: delivery.requestId,
+                    kind: delivery.kind,
+                    recording_id: delivery.recordingId,
+                });
+            if (!error) return 'new';
+            if (error.code !== '23505') throw error;
 
-    let payload: any;
-    try {
-        payload = await req.json();
-    } catch {
-        return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
-    }
-
-    const { kind, recording, creator } = payload;
-    if (!recording?.id) {
-        return NextResponse.json({ ok: true, skipped: 'no recording id' });
-    }
-
-    // For todo_changed, check if the todo was actually completed
-    const isCompletion = COMPLETION_KINDS.has(kind) &&
-        (kind !== 'todo_changed' || recording.completed === true);
-    const isReopen = REOPEN_KINDS.has(kind) ||
-        (kind === 'todo_changed' && recording.completed === false);
-
-    if (!isCompletion && !isReopen) {
-        return NextResponse.json({ ok: true, skipped: kind });
-    }
-
-    const admin = createAdminClient();
-
-    // Look up the task by basecamp_todo_id
-    const { data: task, error: lookupError } = await admin
-        .from('tasks')
-        .select('id, status, status_history, organization_id, client_id, title')
-        .eq('basecamp_todo_id', recording.id)
-        .maybeSingle();
-
-    if (lookupError) {
-        return NextResponse.json({ error: 'DB lookup failed' }, { status: 500 });
-    }
-
-    if (!task) {
-        return NextResponse.json({ ok: true, skipped: 'no linked task' });
-    }
-
-    const now = new Date().toISOString();
-    const actorName = creator?.name ?? 'Basecamp';
-
-    if (isCompletion && task.status !== 'done') {
-        const history = Array.isArray(task.status_history) ? task.status_history : [];
-        history.push({ status: 'done', at: now, by: actorName });
-
-        const { error: updateError } = await admin
-            .from('tasks')
-            .update({
-                status: 'done',
-                completed_at: now,
-                status_history: history,
-                last_synced_at: now,
-            })
-            .eq('id', task.id);
-
-        if (updateError) {
-            return NextResponse.json({ error: 'Update failed' }, { status: 500 });
-        }
-
-        if (task.client_id) {
-            await logClientActivity({
-                organizationId: task.organization_id,
-                clientId: task.client_id,
-                eventType: 'task.completed',
-                actorName,
-                metadata: { taskId: task.id, title: task.title, source: 'basecamp' },
-            });
-        }
-
-        return NextResponse.json({ ok: true, action: 'completed', taskId: task.id });
-    }
-
-    if (isReopen && task.status === 'done') {
-        const history = Array.isArray(task.status_history) ? task.status_history : [];
-        history.push({ status: 'todo', at: now, by: actorName });
-
-        const { error: updateError } = await admin
-            .from('tasks')
-            .update({
-                status: 'todo',
-                completed_at: null,
-                status_history: history,
-                last_synced_at: now,
-            })
-            .eq('id', task.id);
-        if (updateError) {
-            return NextResponse.json({ error: 'Update failed' }, { status: 500 });
-        }
-        return NextResponse.json({ ok: true, action: 'reopened', taskId: task.id });
-    }
-
-    return NextResponse.json({ ok: true, skipped: 'no status change needed' });
-}
+            let receipt = await admin
+                .from('basecamp_webhook_deliveries')
+                .select('processed_at')
+                .eq('event_id', delivery.eventId)
+                .maybeSingle();
+            if (receipt.error) throw receipt.error;
+            if (!receipt.data) {
+                receipt = await admin
+                    .from('basecamp_webhook_deliveries')
+                    .select('processed_at')
+                    .eq('request_id', delivery.requestId)
+                    .maybeSingle();
+                if (receipt.error) throw receipt.error;
+            }
+            return receipt.data?.processed_at ? 'processed' : 'retry';
+        },
+        async markDeliveryProcessed(eventId, result) {
+            const { error } = await createAdminClient()
+                .from('basecamp_webhook_deliveries')
+                .update({
+                    processed_at: new Date().toISOString(),
+                    result,
+                })
+                .eq('event_id', eventId);
+            if (error) throw error;
+        },
+        async getTaskByTodoId(todoId) {
+            const { data, error } = await createAdminClient()
+                .from('tasks')
+                .select('id, status, status_history, organization_id, client_id, title, basecamp_todo_id, basecamp_project_id')
+                .eq('basecamp_todo_id', todoId)
+                .maybeSingle();
+            if (error) throw error;
+            if (!data?.basecamp_todo_id || !data.basecamp_project_id) return null;
+            return {
+                id: data.id,
+                status: data.status,
+                statusHistory: Array.isArray(data.status_history) ? data.status_history : [],
+                organizationId: data.organization_id,
+                clientId: data.client_id,
+                title: data.title,
+                basecampTodoId: String(data.basecamp_todo_id),
+                basecampProjectId: String(data.basecamp_project_id),
+            };
+        },
+        async updateTaskStatus(task, status, actorName, now) {
+            const statusHistory = [
+                ...task.statusHistory,
+                { status, at: now, by: actorName },
+            ];
+            const { data, error } = await createAdminClient()
+                .from('tasks')
+                .update({
+                    status,
+                    completed_at: status === 'done' ? now : null,
+                    status_history: statusHistory,
+                    last_synced_at: now,
+                })
+                .eq('id', task.id)
+                .eq('status', task.status)
+                .select('id')
+                .maybeSingle();
+            if (error) throw error;
+            return Boolean(data);
+        },
+    },
+    async logCompletion(task: BasecampWebhookTask, actorName: string) {
+        if (!task.clientId) return;
+        await logClientActivity({
+            organizationId: task.organizationId,
+            clientId: task.clientId,
+            eventType: 'task.completed',
+            actorName,
+            metadata: { taskId: task.id, title: task.title, source: 'basecamp' },
+        });
+    },
+});
