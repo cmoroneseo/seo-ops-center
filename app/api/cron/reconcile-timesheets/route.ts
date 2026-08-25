@@ -18,7 +18,13 @@ const LOOKBACK_DAYS = 14;
 /**
  * GET|POST /api/cron/reconcile-timesheets
  *
- * Hourly recovery for missed or deactivated Basecamp webhook deliveries.
+ * Daily recovery for missed or deactivated Basecamp webhook deliveries.
+ *
+ * The cadence is daily because the Vercel account is on the Hobby plan, which
+ * rejects any cron running more than once per day. The webhook is the primary
+ * path and is unaffected; this only sets how long a *missed* delivery can sit
+ * unnoticed. Managers can always run it on demand from the reconcile route.
+ * If the plan is upgraded, `0 * * * *` in vercel.json restores hourly.
  * Sweeps every timesheet-enabled client through the same importer the webhook
  * uses, so a re-run can never produce a duplicate ledger row.
  *
