@@ -173,9 +173,9 @@ https://seo-ops-center.vercel.app
 034: start_task_timer project-less fix (applied Aug 2026 — verified live). Supersedes 033's `start_task_timer`; **never edit 033 in place**, supersede it with a new migration
 036: task completion time reconciliation (applied Aug 24, 2026 — verified live: authenticated RPC available, anon execution denied, idempotency index present)
 037: basecamp_webhook_deliveries (service-only webhook delivery receipts)
-038: timesheet ledger provenance + client-month approvals — **NOT YET APPLIED.** Paste `migrations/038_timesheet_ledger.sql` into the Supabase SQL editor (it needs superuser for the trigger function). Verify with the query below.
+038: timesheet ledger provenance + client-month approvals (applied Aug 24, 2026 — verified against the DB: all 7 `time_logs` provenance columns, both partial unique indexes, both approval tables, and the `protect_time_log_import_provenance` trigger are present)
 
-To verify migration 038 after applying it:
+To re-check migration 038 directly, run in the Supabase SQL editor:
 
 ```sql
 select column_name from information_schema.columns
