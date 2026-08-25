@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Organization, OrganizationMember } from '@/lib/types'
 import { parseTheme } from '@/lib/theme/palette'
+import { SELECTED_ORG_COOKIE } from '@/lib/theme/cookie'
 import { useRouter } from 'next/navigation'
 
 interface OrganizationContextType {
@@ -14,6 +15,17 @@ interface OrganizationContextType {
 }
 
 const OrganizationContext = createContext<OrganizationContextType | undefined>(undefined)
+
+const ORG_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
+
+/**
+ * The selection lives in localStorage, which the server cannot read. This
+ * mirror lets SSR resolve the right organization's brand colour on the very
+ * first paint. It carries no authority — the server still verifies membership.
+ */
+function writeSelectedOrgCookie(organizationId: string) {
+    document.cookie = `${SELECTED_ORG_COOKIE}=${organizationId}; path=/; max-age=${ORG_COOKIE_MAX_AGE}; SameSite=Lax`
+}
 
 export function OrganizationProvider({ children }: { children: React.ReactNode }) {
     const [organization, setOrganization] = useState<Organization | null>(null)
@@ -76,7 +88,10 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
                         *,
                         organization:organizations(*)
                     `)
-                    .eq('user_id', session.user.id);
+                    .eq('user_id', session.user.id)
+                    // Must match the server-side theme resolver's ordering, or
+                    // SSR could brand a different org than the client picks.
+                    .order('created_at', { ascending: true });
 
                 if (error) {
                     console.error('OrganizationProvider: Fetch error:', error);
@@ -110,7 +125,11 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
                         if (mappedMembers.length > 0) {
                             const savedOrgId = localStorage.getItem('selectedOrgId');
                             const foundOrg = mappedMembers.find((m: any) => m.organization?.id === savedOrgId);
-                            setOrganization(foundOrg?.organization || mappedMembers[0].organization);
+                            const active = foundOrg?.organization || mappedMembers[0].organization;
+                            setOrganization(active);
+                            // Mirror the resolved choice into a cookie so the
+                            // next request can brand the first paint correctly.
+                            if (active) writeSelectedOrgCookie(active.id);
                         } else {
                             setOrganization(null);
                         }
@@ -134,6 +153,7 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
     const handleSetOrganization = (org: Organization) => {
         setOrganization(org)
         localStorage.setItem('selectedOrgId', org.id)
+        writeSelectedOrgCookie(org.id)
     }
 
     return (

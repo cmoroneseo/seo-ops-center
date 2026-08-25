@@ -1,93 +1,22 @@
-'use client';
+import { BrandThemeStyle } from '@/components/providers/brand-theme-style';
+import { DashboardShell } from '@/components/dashboard/DashboardShell';
 
-import { Sidebar } from '@/components/dashboard/Sidebar';
-import { MobileNav } from '@/components/dashboard/MobileNav';
-import { TopNav } from '@/components/dashboard/TopNav';
-import { ClientListPanel } from '@/components/workspace/ClientListPanel';
-import { useOrganization } from '@/components/providers/organization-provider';
-import { TimerProvider } from '@/components/providers/timer-provider';
-import { TimerNotifications } from '@/components/timer/TimerNotifications';
-import { FloatingTimer } from '@/components/timer/FloatingTimer';
-import { useClients } from '@/lib/hooks/use-clients';
-import { useRouter, usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { cn } from '@/lib/utils';
-import { OnboardingChecklist } from '@/components/dashboard/OnboardingChecklist';
-import { FeedbackWidget } from '@/components/feedback/FeedbackWidget';
-import { NotepadPanel } from '@/components/notepad/NotepadPanel';
-import { RemindersPanel } from '@/components/reminders/RemindersPanel';
-
+/**
+ * Server layout for the dashboard segment.
+ *
+ * Exists so the organization's brand colour can be resolved during SSR and
+ * emitted with the first byte of HTML — the interactive shell below is a
+ * client component and cannot do that itself.
+ */
 export default function DashboardLayout({
     children,
 }: {
     children: React.ReactNode;
 }) {
-    const { organization, isLoading } = useOrganization();
-    const { clients } = useClients({ statuses: ['Active'] });
-    const router = useRouter();
-    const pathname = usePathname();
-    const [mounted, setMounted] = useState(false);
-
-    useEffect(() => {
-        setMounted(true);
-    }, []);
-
-    useEffect(() => {
-        if (mounted && !isLoading && !organization && !pathname.startsWith('/setup-organization')) {
-            router.push('/setup-organization');
-        }
-    }, [organization, isLoading, router, pathname, mounted]);
-
-    if (!mounted || isLoading) {
-        return <div className="flex h-screen items-center justify-center">Loading...</div>;
-    }
-
-    if (!organization && !pathname.startsWith('/setup-organization')) {
-        return null; // Redirecting
-    }
-
-    const isSetupPage = pathname.startsWith('/setup-organization');
-    const isWorkspace = pathname.startsWith('/workspace');
-    const isTasks = pathname.startsWith('/tasks');
-    const isPlanner = pathname.startsWith('/planner');
-    const isTraining = pathname.startsWith('/training');
-    const isDashboard = pathname === '/dashboard';
-    const showProjectSidebar = !isSetupPage && (isWorkspace || isTasks || isDashboard);
-
     return (
-        <TimerProvider>
-            <div className="flex h-screen overflow-hidden bg-background">
-                {!isSetupPage && <Sidebar />}
-                {!isSetupPage && <MobileNav showClientList={showProjectSidebar} />}
-                <div className="flex flex-1 min-w-0 flex-col">
-                    {!isSetupPage && <TopNav />}
-                    <div className="flex flex-1 min-h-0">
-                        {showProjectSidebar && <ClientListPanel />}
-                        <main className={cn(
-                            "flex-1 min-w-0 overflow-y-auto",
-                            isSetupPage
-                                ? "flex flex-col items-center justify-center"
-                                // The planner manages its own scrolling and rails, so it opts out
-                                // of the page padding entirely.
-                                : isPlanner
-                                    ? "overflow-hidden p-0 pt-14 lg:pt-0"
-                                    : isTraining
-                                        ? "overflow-y-auto p-0 pb-20 pt-14 lg:pb-0 lg:pt-0 xl:overflow-hidden"
-                                    // Base padding, then mobile top/bottom offsets to clear the fixed bars.
-                                    : "p-4 sm:p-6 lg:p-8 pt-[calc(3.5rem+1rem)] pb-20 lg:pt-8 lg:pb-8"
-                        )}>
-                            {children}
-                        </main>
-                    </div>
-                </div>
-                {/* OnboardingChecklist hidden until tasks are updated for public launch */}
-                {/* {!isSetupPage && <OnboardingChecklist />} */}
-            </div>
-            {!isSetupPage && <FloatingTimer clients={clients} />}
-            {!isSetupPage && <TimerNotifications />}
-            {!isSetupPage && <FeedbackWidget />}
-            {!isSetupPage && <NotepadPanel />}
-            {!isSetupPage && <RemindersPanel />}
-        </TimerProvider>
+        <>
+            <BrandThemeStyle />
+            <DashboardShell>{children}</DashboardShell>
+        </>
     );
 }
