@@ -35,15 +35,18 @@ interface UpdateCall {
     ids: string[];
     updates: Record<string, unknown>;
     expectedStatus: string;
+    authorizedUserId: string | null;
 }
 
 function harness(options: {
     authorization?: MutationAuthorization;
     rows?: QueueSourceRow[];
     changed?: number;
+    clientValid?: boolean;
 } = {}) {
     const authorizedOrganizations: string[] = [];
     const loads: Array<{ organizationId: string; ids: string[] }> = [];
+    const clientChecks: Array<{ organizationId: string; clientId: string }> = [];
     const updates: UpdateCall[] = [];
     const authorization: MutationAuthorization = options.authorization ?? {
         ok: true,
@@ -61,8 +64,18 @@ function harness(options: {
             loads.push({ organizationId, ids });
             return options.rows ?? ids.map(id => row({ id }));
         },
-        async applyUpdate(organizationId, ids, patch, expectedStatus) {
-            updates.push({ organizationId, ids, updates: patch, expectedStatus });
+        async validateClient(organizationId, clientId) {
+            clientChecks.push({ organizationId, clientId });
+            return options.clientValid ?? true;
+        },
+        async applyUpdate(organizationId, ids, patch, expectedStatus, authorizedUserId) {
+            updates.push({
+                organizationId,
+                ids,
+                updates: patch,
+                expectedStatus,
+                authorizedUserId,
+            });
             return options.changed ?? ids.length;
         },
         now: () => NOW,
@@ -70,6 +83,7 @@ function harness(options: {
 
     return {
         authorizedOrganizations,
+        clientChecks,
         loads,
         updates,
         patch: createImportEntriesPatch(dependencies),
@@ -177,6 +191,28 @@ test('body-supplied manager authority cannot approve rows', async () => {
     assert.deepEqual(updates, []);
 });
 
+test('a foreign or missing edit client is rejected before transition persistence', async () => {
+    const { patch, clientChecks, updates } = harness({ clientValid: false });
+
+    const response = await patch(request({
+        organizationId: 'org-requested',
+        action: 'edit',
+        ids: ['log-1'],
+        edit: {
+            activityKey: 'technical_audit',
+            clientId: 'client-foreign',
+        },
+    }));
+
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { error: 'Client not found' });
+    assert.deepEqual(clientChecks, [{
+        organizationId: 'org-canonical',
+        clientId: 'client-foreign',
+    }]);
+    assert.deepEqual(updates, []);
+});
+
 test('editing an internal row persists a clientless non-budget patch', async () => {
     const { patch, updates } = harness({
         rows: [row({
@@ -210,6 +246,7 @@ test('editing an internal row persists a clientless non-budget patch', async () 
             client_id: null,
         },
         expectedStatus: 'needs_context',
+        authorizedUserId: 'user-abel',
     }]);
 });
 
@@ -240,7 +277,28 @@ test('submit persists only transition-selected ids with the authenticated actor'
             review_note: null,
         },
         expectedStatus: 'needs_context',
+        authorizedUserId: 'user-abel',
     }]);
+});
+
+test('a zero, partial, or mismatched atomic result is a conflict, never success', async () => {
+    for (const changed of [0, 1, 3]) {
+        const { patch } = harness({
+            changed,
+            rows: [row({ id: 'log-1' }), row({ id: 'log-2' })],
+        });
+
+        const response = await patch(request({
+            organizationId: 'org-requested',
+            action: 'submit',
+            ids: ['log-1', 'log-2'],
+        }));
+
+        assert.equal(response.status, 409);
+        assert.deepEqual(await response.json(), {
+            error: 'Entries changed during review',
+        });
+    }
 });
 
 test('a manager can approve another member’s pending row', async () => {
@@ -271,6 +329,7 @@ test('a manager can approve another member’s pending row', async () => {
             review_note: null,
         },
         expectedStatus: 'pending_review',
+        authorizedUserId: null,
     }]);
 });
 
@@ -295,4 +354,5 @@ test('a manager bounce preserves the transition-normalized note', async () => {
     assert.equal(response.status, 200);
     assert.equal(updates[0].updates.review_note, 'Add client detail');
     assert.equal(updates[0].expectedStatus, 'pending_review');
+    assert.equal(updates[0].authorizedUserId, null);
 });

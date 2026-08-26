@@ -36,6 +36,7 @@ export function buildEntryEdit(
     edit: EntryEdit,
     _actor: Actor,
 ): TransitionResult<{ updates: Record<string, unknown> }> {
+    void _actor;
     if (!isEditable(row)) {
         return {
             ok: false,

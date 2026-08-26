@@ -146,22 +146,43 @@ export async function loadQueueRowsByIds(
     return rows.filter(row => wanted.has(row.id));
 }
 
-/** Apply one patch to a set of rows, guarded by their expected status. */
+/** Resolve a client only inside the authenticated organization. */
+export async function clientBelongsToOrganization(
+    organizationId: string,
+    clientId: string,
+): Promise<boolean> {
+    const { data, error } = await createAdminClient()
+        .from('clients')
+        .select('id')
+        .eq('organization_id', organizationId)
+        .eq('id', clientId)
+        .maybeSingle();
+    if (error) throw error;
+    return data !== null;
+}
+
+/** Apply one all-or-none patch through the transactional database RPC. */
 export async function applyQueueUpdate(
     organizationId: string,
     ids: string[],
     updates: Record<string, unknown>,
     expectedStatus: string,
+    authorizedUserId: string | null,
 ): Promise<number> {
     if (ids.length === 0) return 0;
-    const { data, error } = await createAdminClient()
-        .from('time_logs')
-        .update(updates)
-        .eq('organization_id', organizationId)
-        .in('id', ids)
-        // Losing a race against a concurrent transition must not overwrite it.
-        .eq('import_status', expectedStatus)
-        .select('id');
+    const { data, error } = await createAdminClient().rpc(
+        'apply_timesheet_import_transition',
+        {
+            p_organization_id: organizationId,
+            p_ids: ids,
+            p_authorized_user_id: authorizedUserId,
+            p_expected_status: expectedStatus,
+            p_updates: updates,
+        },
+    );
+    if (error?.code === 'P0001') return 0;
     if (error) throw error;
-    return data?.length ?? 0;
+
+    const changed = Number(data);
+    return Number.isInteger(changed) ? changed : 0;
 }

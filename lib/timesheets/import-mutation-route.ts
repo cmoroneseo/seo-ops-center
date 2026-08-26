@@ -20,11 +20,13 @@ export type MutationAuthorization =
 export interface ImportMutationDependencies {
     authorize(organizationId: string): Promise<MutationAuthorization>;
     loadRows(organizationId: string, ids: string[]): Promise<QueueSourceRow[]>;
+    validateClient(organizationId: string, clientId: string): Promise<boolean>;
     applyUpdate(
         organizationId: string,
         ids: string[],
         updates: Record<string, unknown>,
         expectedStatus: string,
+        authorizedUserId: string | null,
     ): Promise<number>;
     now(): string;
 }
@@ -102,6 +104,7 @@ export function createImportEntriesPatch(dependencies: ImportMutationDependencie
         }
 
         const actor = { userId: member.userId, isManager: member.isManager };
+        const authorizedUserId = member.isManager ? null : member.userId;
         const now = dependencies.now();
 
         if (action === 'edit') {
@@ -110,12 +113,17 @@ export function createImportEntriesPatch(dependencies: ImportMutationDependencie
             }
 
             const edit = objectRecord(input.edit);
+            const clientId = typeof edit.clientId === 'string' && edit.clientId
+                ? edit.clientId
+                : null;
+            if (clientId && !await dependencies.validateClient(member.organizationId, clientId)) {
+                return json({ error: 'Client not found' }, 404);
+            }
+
             const result = buildEntryEdit(rows[0], {
                 activityKey: typeof edit.activityKey === 'string' ? edit.activityKey : '',
                 detail: typeof edit.detail === 'string' ? edit.detail : '',
-                clientId: typeof edit.clientId === 'string' && edit.clientId
-                    ? edit.clientId
-                    : null,
+                clientId,
                 countsTowardBudget: typeof edit.countsTowardBudget === 'boolean'
                     ? edit.countsTowardBudget
                     : undefined,
@@ -129,7 +137,11 @@ export function createImportEntriesPatch(dependencies: ImportMutationDependencie
                 [rows[0].id],
                 result.updates,
                 rows[0].importStatus,
+                authorizedUserId,
             );
+            if (changed !== 1) {
+                return json({ error: 'Entries changed during review' }, 409);
+            }
             return json({ ok: true, changed });
         }
 
@@ -154,7 +166,11 @@ export function createImportEntriesPatch(dependencies: ImportMutationDependencie
             result.ids,
             result.updates,
             expectedStatus,
+            authorizedUserId,
         );
+        if (changed !== result.ids.length) {
+            return json({ error: 'Entries changed during review' }, 409);
+        }
         return json({ ok: true, action, changed });
     };
 }

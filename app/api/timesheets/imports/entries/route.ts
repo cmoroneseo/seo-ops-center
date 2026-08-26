@@ -1,6 +1,7 @@
 import { createImportEntriesPatch } from '@/lib/timesheets/import-mutation-route';
 import {
     applyQueueUpdate,
+    clientBelongsToOrganization,
     loadQueueRowsByIds,
 } from '@/lib/supabase/timesheet-imports';
 import { requireOrganizationMember } from '@/lib/security/tenant-authz';
@@ -24,6 +25,7 @@ export const PATCH = createImportEntriesPatch({
             : { ok: false, status: member.status, error: member.error };
     },
     loadRows: loadQueueRowsByIds,
+    validateClient: clientBelongsToOrganization,
     applyUpdate: applyQueueUpdate,
     now: () => new Date().toISOString(),
 });
