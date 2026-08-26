@@ -146,7 +146,21 @@ This extends `mergeImportedEntry`, whose existing rule — *an import may add
 attribution, never remove it* — already covers the rest.
 
 Manual CSV upload reuses the same parser, for when OAuth is down or the data
-predates Basecamp's report range.
+predates Basecamp's report range. **Deferred:** the server-side fetch covers
+every case we currently have, and `parseTimesheetCsv` is transport-agnostic, so
+adding an upload endpoint later is a route and a file input — not a redesign.
+
+## Implementation plans
+
+This design is executed as two sequential plans:
+
+1. `docs/superpowers/plans/2026-08-25-timesheet-import-foundation.md` — schema,
+   CSV parsing and identity, project roles, backfill. Ends with real data in the
+   ledger, quarantined and provably duplicate-free.
+2. `docs/superpowers/plans/2026-08-25-timesheet-import-review-workflow.md` —
+   issues, state transitions, queue API, review UI, retiring the mapping sheet.
+
+Plan 2 depends on Plan 1 being applied and verified against Abel's August.
 
 ### Activity catalog drives budget
 
