@@ -62,7 +62,7 @@ export function parseTimesheetCsv(text: string): CsvTimesheetRow[] {
         if (!line.trim()) continue;
 
         const fields = splitLine(line);
-        if (fields.length < EXPECTED_FIELDS) continue;
+        if (fields.length !== EXPECTED_FIELDS) continue;
 
         const hours = Number(fields[2]);
         // A row we cannot read is skipped, never imported as zero hours.
@@ -91,6 +91,11 @@ export function parseTimesheetCsv(text: string): CsvTimesheetRow[] {
  * row measured, and `created` alone is near-unique.
  */
 export function fingerprintFor(row: CsvTimesheetRow): string {
-    const key = [row.person, row.projectName, row.date, row.hours, row.created].join('|');
+    // Netstring-style length-prefixing (`<byteLength>:<value>`) so no field's
+    // content — however many `|` or `:` characters it contains — can shift a
+    // boundary and collide with a different split of the same total bytes.
+    const key = [row.person, row.projectName, row.date, String(row.hours), row.created]
+        .map(field => `${Buffer.byteLength(field, 'utf8')}:${field}`)
+        .join('');
     return createHash('sha256').update(key).digest('hex').slice(0, 32);
 }

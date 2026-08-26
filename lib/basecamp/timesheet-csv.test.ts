@@ -110,3 +110,23 @@ test('fingerprint is a short hex digest', () => {
     };
     assert.match(fingerprintFor(row), /^[0-9a-f]{32}$/);
 });
+
+test('fingerprint does not collide when a separator character shifts between fields', () => {
+    const base = {
+        date: '2026-08-06', hours: 4.5, item: '', notes: '',
+        created: '2026-08-07T19:51:38Z',
+    };
+    const rowA = { ...base, person: 'A|B', projectName: 'C' };
+    const rowB = { ...base, person: 'A', projectName: 'B|C' };
+
+    assert.notEqual(fingerprintFor(rowA), fingerprintFor(rowB));
+});
+
+test('a row with more than the expected number of fields is skipped, not misparsed', () => {
+    const rows = parseTimesheetCsv([
+        HEADER,
+        '2026-08-01,Abel Miranda,1.0,Acme,,"",2026-08-01T10:00:00Z,extra,another',
+    ].join('\n'));
+
+    assert.equal(rows.length, 0);
+});
