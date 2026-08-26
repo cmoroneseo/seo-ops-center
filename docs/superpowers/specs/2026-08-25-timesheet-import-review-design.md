@@ -169,7 +169,7 @@ Plan 2 depends on Plan 1 being applied and verified against Abel's August.
 internal admin do not. Choosing an activity sets both the description and the
 budget flag in one action, with a visible per-entry override.
 
-## Schema (migration 039)
+## Schema (migration 040)
 
 ```
 time_logs

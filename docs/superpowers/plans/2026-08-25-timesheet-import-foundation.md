@@ -35,7 +35,7 @@
 ### Task 1: Schema for import provenance and project roles
 
 **Files:**
-- Create: `migrations/039_timesheet_import_review.sql`
+- Create: `migrations/040_timesheet_import_review.sql`
 - Create: `lib/timesheets/import-migration.test.ts`
 - Modify: `schema.sql` (append mirror), `lib/types.ts`
 
@@ -52,18 +52,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 
-const migrationUrl = new URL('../../migrations/039_timesheet_import_review.sql', import.meta.url);
+const migrationUrl = new URL('../../migrations/040_timesheet_import_review.sql', import.meta.url);
 const schemaUrl = new URL('../../schema.sql', import.meta.url);
 
 function sources() {
-    assert.ok(existsSync(migrationUrl), 'missing migration 039');
+    assert.ok(existsSync(migrationUrl), 'missing migration 040');
     return {
         migration: readFileSync(migrationUrl, 'utf8'),
         schema: readFileSync(schemaUrl, 'utf8'),
     };
 }
 
-test('migration 039 is additive only', () => {
+test('migration 040 is additive only', () => {
     const { migration } = sources();
     assert.doesNotMatch(migration, /drop table|drop column|truncate|delete from/i);
 });
@@ -149,14 +149,14 @@ test('timesheet_import_runs records each backfill', () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --import tsx --test lib/timesheets/import-migration.test.ts`
-Expected: FAIL — `missing migration 039`.
+Expected: FAIL — `missing migration 040`.
 
 - [ ] **Step 3: Write the migration**
 
-Create `migrations/039_timesheet_import_review.sql`:
+Create `migrations/040_timesheet_import_review.sql`:
 
 ```sql
--- Migration 039: import context capture + review workflow
+-- Migration 040: import context capture + review workflow
 --
 -- Adds the member-enrichment stage between "imported" and "counts". Also adds
 -- CSV identity (import_fingerprint), because Basecamp's timesheet CSV export
@@ -288,7 +288,7 @@ grant select, insert, update, delete on table public.timesheet_import_runs
 Run:
 
 ```bash
-{ echo ""; echo "-- Migration 039: import context capture + review workflow"; sed -n '7,$p' migrations/039_timesheet_import_review.sql; } >> schema.sql
+{ echo ""; echo "-- Migration 040: import context capture + review workflow"; sed -n '7,$p' migrations/040_timesheet_import_review.sql; } >> schema.sql
 ```
 
 - [ ] **Step 5: Run the test to verify it passes**
@@ -318,7 +318,7 @@ export type TimeLogImportStatus =
 Add to the `TimeLog` interface, after `voidedAt?: string;`:
 
 ```ts
-    /** migration 039 — context capture and review */
+    /** migration 040 — context capture and review */
     activityKey?: string;
     /** CSV identity, when the provider entry id is not knowable at import. */
     importFingerprint?: string;
@@ -386,7 +386,7 @@ Expected: typecheck silent, all tests pass.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add migrations/039_timesheet_import_review.sql schema.sql lib/types.ts lib/timesheets lib/basecamp components/timesheets
+git add migrations/040_timesheet_import_review.sql schema.sql lib/types.ts lib/timesheets lib/basecamp components/timesheets
 git commit -m "feat: add timesheet import review schema"
 ```
 
@@ -1942,12 +1942,12 @@ git commit -m "feat: backfill Basecamp time from the timesheet CSV report"
 
 **Files:** none — this task is operational.
 
-- [ ] **Step 1: Apply migration 039**
+- [ ] **Step 1: Apply migration 040**
 
 Copy the migration to the clipboard:
 
 ```bash
-cat migrations/039_timesheet_import_review.sql | pbcopy
+cat migrations/040_timesheet_import_review.sql | pbcopy
 ```
 
 Paste into the Supabase SQL editor and run. It needs superuser for the trigger.

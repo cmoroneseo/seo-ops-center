@@ -8,7 +8,7 @@
 
 **Tech Stack:** Next.js 15 App Router, React 19, TypeScript strict, Tailwind v4, lucide-react, Supabase, `node:test` via `tsx`.
 
-**Depends on:** `2026-08-25-timesheet-import-foundation.md` — do not start until migration 039 is applied and Abel's August is imported and quarantined.
+**Depends on:** `2026-08-25-timesheet-import-foundation.md` — do not start until migration 040 is applied and Abel's August is imported and quarantined.
 
 ## Global Constraints
 
