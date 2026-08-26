@@ -52,8 +52,10 @@ export function buildEntryEdit(
         updates: {
             activity_key: edit.activityKey,
             description: describeActivity(edit.activityKey, edit.detail),
-            // The activity answers "does this bill?" unless explicitly overridden.
-            counts_toward_budget: edit.countsTowardBudget ?? budgetDefaultFor(edit.activityKey),
+            // Internal work never consumes a client's SEO budget.
+            counts_toward_budget: row.isInternal
+                ? false
+                : edit.countsTowardBudget ?? budgetDefaultFor(edit.activityKey),
             client_id: edit.clientId,
         },
     };

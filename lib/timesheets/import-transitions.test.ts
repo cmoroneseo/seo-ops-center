@@ -57,6 +57,15 @@ test('an explicit budget override beats the activity default', () => {
     assert.equal(result.ok && result.updates.counts_toward_budget, true);
 });
 
+test('internal work never consumes client budget despite an explicit override', () => {
+    const result = buildEntryEdit(row({ isInternal: true, clientId: null }), {
+        activityKey: 'technical_audit', detail: '', clientId: null,
+        countsTowardBudget: true,
+    }, actor);
+
+    assert.equal(result.ok && result.updates.counts_toward_budget, false);
+});
+
 test('an unknown activity key is rejected rather than stored', () => {
     const result = buildEntryEdit(row(), {
         activityKey: 'not_real', detail: '', clientId: 'client-a',
