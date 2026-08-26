@@ -82,6 +82,28 @@ export function parseTimesheetCsv(text: string): CsvTimesheetRow[] {
     return rows;
 }
 
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
+
+/**
+ * One instant, one spelling: second-precision UTC.
+ *
+ * The CSV export writes `2026-08-17T01:47:31Z` while the API writes
+ * `2026-08-21T21:46:54.268Z` for the same kind of value. Hashing them raw makes
+ * the same entry produce two different fingerprints, so a webhook would insert
+ * a duplicate row beside the one a backfill already created instead of adopting
+ * it. Truncating (never rounding) to seconds is what the two sources agree on.
+ *
+ * Anything that is not an ISO-8601 instant is returned untouched: collapsing
+ * unparseable values to a shared constant would make unrelated rows collide on
+ * the fingerprint's unique index.
+ */
+export function normalizeCreatedAt(created: string): string {
+    if (!ISO_INSTANT.test(created)) return created;
+    const parsed = new Date(created);
+    if (Number.isNaN(parsed.getTime())) return created;
+    return `${parsed.toISOString().slice(0, 19)}Z`;
+}
+
 /**
  * Stand-in identity for a CSV row.
  *
@@ -94,7 +116,13 @@ export function fingerprintFor(row: CsvTimesheetRow): string {
     // Netstring-style length-prefixing (`<byteLength>:<value>`) so no field's
     // content — however many `|` or `:` characters it contains — can shift a
     // boundary and collide with a different split of the same total bytes.
-    const key = [row.person, row.projectName, row.date, String(row.hours), row.created]
+    const key = [
+        row.person,
+        row.projectName,
+        row.date,
+        String(row.hours),
+        normalizeCreatedAt(row.created),
+    ]
         .map(field => `${Buffer.byteLength(field, 'utf8')}:${field}`)
         .join('');
     return createHash('sha256').update(key).digest('hex').slice(0, 32);

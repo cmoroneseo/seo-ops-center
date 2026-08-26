@@ -10,7 +10,9 @@ import {
 } from './timesheet-webhook-route.ts';
 
 const ACCOUNT = '1234567';
-const ENTRY_URL = `https://3.basecampapi.com/${ACCOUNT}/buckets/48599958/timesheet_entries/9001.json`;
+// The real canonical shape Basecamp emits, confirmed against a live delivery:
+// https://3.basecampapi.com/5338018/projects/48599958/timesheet/entries/10228422582.json
+const ENTRY_URL = `https://3.basecampapi.com/${ACCOUNT}/projects/48599958/timesheet/entries/9001.json`;
 
 function providerEntry(overrides: Partial<ProviderTimesheetEntry> = {}): ProviderTimesheetEntry {
     return {
@@ -94,17 +96,24 @@ test('only a canonical timesheet-entry recording URL parses', () => {
         projectId: '48599958',
         entryId: '9001',
     });
+    // A live account id that is not ours.
     assert.equal(parseTimesheetRecordingUrl(ENTRY_URL, '9999999'), null);
     assert.equal(
-        parseTimesheetRecordingUrl(`http://3.basecampapi.com/${ACCOUNT}/buckets/1/timesheet_entries/2.json`, ACCOUNT),
+        parseTimesheetRecordingUrl(`http://3.basecampapi.com/${ACCOUNT}/projects/1/timesheet/entries/2.json`, ACCOUNT),
         null,
     );
     assert.equal(
-        parseTimesheetRecordingUrl(`https://evil.example.com/${ACCOUNT}/buckets/1/timesheet_entries/2.json`, ACCOUNT),
+        parseTimesheetRecordingUrl(`https://evil.example.com/${ACCOUNT}/projects/1/timesheet/entries/2.json`, ACCOUNT),
         null,
     );
     assert.equal(
-        parseTimesheetRecordingUrl(`https://3.basecampapi.com/${ACCOUNT}/buckets/1/todos/2.json`, ACCOUNT),
+        parseTimesheetRecordingUrl(`https://3.basecampapi.com/${ACCOUNT}/projects/1/todos/2.json`, ACCOUNT),
+        null,
+    );
+    // The shape this module used to expect. Basecamp never emits it, and
+    // accepting two shapes would widen the provenance surface for nothing.
+    assert.equal(
+        parseTimesheetRecordingUrl(`https://3.basecampapi.com/${ACCOUNT}/buckets/1/timesheet_entries/2.json`, ACCOUNT),
         null,
     );
 });
@@ -260,7 +269,7 @@ test('an unconfigured provider is retryable rather than trusting the payload', a
 test('a non-canonical recording URL is rejected as a provenance mismatch', async () => {
     const { importer, recorded } = harness();
     const outcome = await importer(delivery({
-        recordingUrl: `https://3.basecampapi.com/${ACCOUNT}/buckets/1/todos/9001.json`,
+        recordingUrl: `https://3.basecampapi.com/${ACCOUNT}/projects/1/todos/9001.json`,
     }));
 
     assert.equal(outcome.status, 403);

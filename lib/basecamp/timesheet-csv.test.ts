@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTimesheetCsv, fingerprintFor } from './timesheet-csv.ts';
+import { parseTimesheetCsv, fingerprintFor, normalizeCreatedAt } from './timesheet-csv.ts';
 
 const HEADER = 'Date,Person,Hours,Project,Item,Notes,Created';
 
@@ -129,4 +129,51 @@ test('a row with more than the expected number of fields is skipped, not mispars
     ].join('\n'));
 
     assert.equal(rows.length, 0);
+});
+
+test('created timestamps normalize to second precision in UTC', () => {
+    // Live values: the CSV export is second-precision, the API is millisecond.
+    assert.equal(normalizeCreatedAt('2026-08-17T01:47:31Z'), '2026-08-17T01:47:31Z');
+    assert.equal(normalizeCreatedAt('2026-08-21T21:46:54.268Z'), '2026-08-21T21:46:54Z');
+    // Offsets resolve to UTC so the same instant never hashes two ways.
+    assert.equal(normalizeCreatedAt('2026-08-21T14:46:54.268-07:00'), '2026-08-21T21:46:54Z');
+    // Unparseable input is passed through rather than collapsed to a shared value.
+    assert.equal(normalizeCreatedAt('not a date'), 'not a date');
+    assert.equal(normalizeCreatedAt(''), '');
+});
+
+test('a CSV row and the same API entry fingerprint identically', () => {
+    // The created-at trap: without normalization the ms-precision API instant
+    // and the second-precision CSV instant hash differently, so a webhook would
+    // insert a duplicate beside the row a backfill already created.
+    const base = {
+        date: '2026-08-21',
+        person: 'Carlos Morones',
+        hours: 2,
+        projectName: 'SEO Ops Sandbox (testing)',
+        item: '',
+        notes: '',
+    };
+
+    assert.equal(
+        fingerprintFor({ ...base, created: '2026-08-21T21:46:54.268Z' }),
+        fingerprintFor({ ...base, created: '2026-08-21T21:46:54Z' }),
+    );
+});
+
+test('normalization leaves existing second-precision CSV identities unchanged', () => {
+    // Fingerprints are persisted on time_logs behind a unique index. A change
+    // in this hash would orphan every row a previous backfill wrote.
+    assert.equal(
+        fingerprintFor({
+            date: '2026-08-21',
+            person: 'Carlos Morones',
+            hours: 2,
+            projectName: 'SEO Ops Sandbox (testing)',
+            item: '',
+            notes: '',
+            created: '2026-08-21T21:46:54Z',
+        }),
+        '2c319e6d74e552544b2816255b41215b',
+    );
 });

@@ -16,8 +16,20 @@ import type { TimeLogImportStatus } from '../types.ts';
  */
 
 const TIMESHEET_ENTRY_KIND_PREFIX = 'timesheet_entry_';
+/**
+ * `/{account}/projects/{project}/timesheet/entries/{entry}.json`
+ *
+ * Verified against a live delivery:
+ * https://3.basecampapi.com/5338018/projects/48599958/timesheet/entries/10228422582.json
+ *
+ * This module previously expected `/buckets/{project}/timesheet_entries/{id}` —
+ * both segments wrong — so every real delivery was rejected as a provenance
+ * mismatch and nothing inbound could ever import. Only the shape Basecamp
+ * actually emits is accepted; matching both would widen the provenance surface
+ * for a shape that is never sent.
+ */
 const RECORDING_PATH =
-    /^\/(\d+)\/buckets\/(\d+)\/timesheet_entries\/(\d+)\.json$/;
+    /^\/(\d+)\/projects\/(\d+)\/timesheet\/entries\/(\d+)\.json$/;
 
 /** Canonical Basecamp entry state, already normalized. */
 export interface ProviderTimesheetEntry {
