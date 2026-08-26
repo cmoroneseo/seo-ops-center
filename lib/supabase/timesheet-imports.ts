@@ -1,6 +1,7 @@
 import { createAdminClient } from './admin';
 import type { ProjectRoleRecord } from '@/lib/basecamp/project-roles';
 import type { BasecampProjectRoleKind } from '@/lib/types';
+import type { QueueSourceRow } from '@/lib/timesheets/import-queue-route';
 
 /** Service-role adapters for the import pipeline. */
 
@@ -54,4 +55,82 @@ export async function finishImportRun(
         .update({ ...patch, finished_at: new Date().toISOString() })
         .eq('id', id);
     if (error) throw error;
+}
+
+interface ImportQueueDatabaseRow {
+    id: string;
+    user_id: string | null;
+    client_id: string | null;
+    activity_key: string | null;
+    task_id: string | null;
+    import_status: QueueSourceRow['importStatus'] | null;
+    date: string;
+    hours: number | string | null;
+    description: string | null;
+    counts_toward_budget: boolean | null;
+    review_note: string | null;
+    basecamp_project_id: number | string | null;
+    clients: { name: string } | null;
+    tasks: { title: string } | null;
+}
+
+const QUEUE_SELECT = `
+    id, user_id, client_id, activity_key, task_id, import_status, date, hours,
+    description, counts_toward_budget, review_note, basecamp_project_id,
+    clients(name), tasks(title)
+`;
+
+function rowToQueueSourceRow(
+    row: ImportQueueDatabaseRow,
+    projectRoles: Map<string, ProjectRoleRecord>,
+): QueueSourceRow {
+    const role = projectRoles.get(String(row.basecamp_project_id ?? ''));
+    const isInternal = role?.role === 'internal';
+    const hours = Number(row.hours);
+
+    return {
+        id: row.id,
+        userId: row.user_id ?? '',
+        clientId: row.client_id ?? null,
+        clientName: row.clients?.name ?? null,
+        // Internal is a property of the project, not of the entry.
+        isInternal,
+        activityKey: row.activity_key ?? null,
+        taskId: row.task_id ?? null,
+        taskTitle: row.tasks?.title ?? null,
+        importStatus: row.import_status ?? 'needs_context',
+        date: row.date,
+        hours: Number.isFinite(hours) ? hours : 0,
+        description: row.description ?? '',
+        // Internal time never consumes a client's deliverable budget.
+        countsTowardBudget: !isInternal && row.counts_toward_budget !== false,
+        basecampProjectName: role?.basecampProjectName ?? null,
+        reviewNote: row.review_note ?? null,
+    };
+}
+
+/** Rows still moving through review. Approved and voided rows are excluded. */
+export async function listImportQueue(scope: {
+    organizationId: string;
+    userId: string | null;
+}): Promise<QueueSourceRow[]> {
+    const admin = createAdminClient();
+
+    let query = admin
+        .from('time_logs')
+        .select(QUEUE_SELECT)
+        .eq('organization_id', scope.organizationId)
+        .in('import_status', ['needs_context', 'pending_review'])
+        .order('date', { ascending: true });
+    if (scope.userId) query = query.eq('user_id', scope.userId);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const roles = await listProjectRoles(scope.organizationId);
+    const byProject = new Map(roles.map(role => [role.basecampProjectId, role]));
+
+    return (data as unknown as ImportQueueDatabaseRow[] ?? []).map(row =>
+        rowToQueueSourceRow(row, byProject),
+    );
 }
