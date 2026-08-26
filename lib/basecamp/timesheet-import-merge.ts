@@ -83,9 +83,12 @@ export function mergeImportedEntry(
             ? existing.importStatus
             : source === 'seo_pm'
                 ? 'mapped'
-                // A CSV backfill (no entry id yet) always stays in review until
-                // the provider confirms it — attribution alone isn't enough.
-                : (userId && clientId && entryId !== null) ? 'mapped' : 'needs_context';
+                // Merely having a Basecamp entry id proves nothing about whether
+                // the entry has context: resolved attribution AND an activity
+                // still don't guarantee a description, and most webhook rows
+                // arrive with an empty one. Imported time must pass through
+                // context capture before it counts toward budget.
+                : (userId && clientId && activityKey) ? 'mapped' : 'needs_context';
 
     return {
         organization_id: incoming.organizationId,

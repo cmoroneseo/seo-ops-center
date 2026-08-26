@@ -36,11 +36,11 @@ function existing(overrides: Partial<ExistingLedgerRow> = {}): ExistingLedgerRow
     };
 }
 
-test('a brand new row is written exactly as imported, marked basecamp', () => {
+test('a brand new row is written with resolved attribution but still waits for context before it counts', () => {
     const merged = mergeImportedEntry(null, incoming());
 
     assert.equal(merged.source, 'basecamp');
-    assert.equal(merged.import_status, 'mapped');
+    assert.equal(merged.import_status, 'needs_context');
     assert.equal(merged.user_id, 'user-abel');
     assert.equal(merged.client_id, 'client-a');
     assert.equal(merged.voided_at, null);
@@ -101,29 +101,32 @@ test('a manager-resolved import is not re-broken by a later provider update', ()
     assert.equal(merged.client_id, 'client-a');
 });
 
-test('a still-unresolved import stays in review and takes any new resolution', () => {
+test('a still-unresolved import stays in needs_context, and resolved attribution alone does not promote it to mapped', () => {
     const stillBroken = mergeImportedEntry(
         existing({ importStatus: 'needs_context', userId: null, clientId: null }),
         incoming({ userId: null, clientId: null, importStatus: 'needs_context' }),
     );
     assert.equal(stillBroken.import_status, 'needs_context');
 
-    const nowResolved = mergeImportedEntry(
+    const attributionResolved = mergeImportedEntry(
         existing({ importStatus: 'needs_context', userId: null, clientId: null }),
         incoming({ userId: 'user-abel', clientId: 'client-a', importStatus: 'mapped' }),
     );
-    assert.equal(nowResolved.import_status, 'mapped');
-    assert.equal(nowResolved.user_id, 'user-abel');
+    // Attribution is adopted...
+    assert.equal(attributionResolved.user_id, 'user-abel');
+    assert.equal(attributionResolved.client_id, 'client-a');
+    // ...but without an activity key (context), the row still needs review.
+    assert.equal(attributionResolved.import_status, 'needs_context');
 });
 
-test('a returning provider entry clears a prior void', () => {
+test('a returning provider entry clears a prior void but still waits for context before it counts', () => {
     const merged = mergeImportedEntry(
         existing({ importStatus: 'voided' }),
         incoming(),
     );
 
     assert.equal(merged.voided_at, null);
-    assert.equal(merged.import_status, 'mapped');
+    assert.equal(merged.import_status, 'needs_context');
 });
 
 test('provider provenance is always refreshed', () => {
