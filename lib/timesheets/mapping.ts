@@ -52,7 +52,7 @@ export function buildMappingUpdate(
     if (context.log.organizationId !== context.organizationId) {
         return { ok: false, status: 403, error: 'Forbidden' };
     }
-    if (context.log.importStatus !== 'needs_review') {
+    if (context.log.importStatus !== 'needs_context') {
         return {
             ok: false,
             status: 409,

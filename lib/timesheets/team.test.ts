@@ -76,7 +76,7 @@ test('member rows carry a seven-day distribution aligned to the week', () => {
 test('unmapped entries are counted per member and surfaced on the rail', () => {
     const summary = buildTeamSummary(
         [
-            log({ id: 'orphan', date: '2026-08-24', userId: 'user-abel', source: 'basecamp', importStatus: 'needs_review' }),
+            log({ id: 'orphan', date: '2026-08-24', userId: 'user-abel', source: 'basecamp', importStatus: 'needs_context' }),
             log({ id: 'ok', date: '2026-08-24' }),
         ],
         '2026-08-23',
@@ -93,7 +93,7 @@ test('an unmapped entry with no member yet still reaches the exception rail', ()
     const summary = buildTeamSummary(
         [log({
             id: 'orphan', date: '2026-08-24', userId: '',
-            source: 'basecamp', importStatus: 'needs_review',
+            source: 'basecamp', importStatus: 'needs_context',
         })],
         '2026-08-23',
         members,

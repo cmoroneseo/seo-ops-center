@@ -143,7 +143,7 @@ function isLedgerEligible(log: LedgerLog): boolean {
  * than a visible exception.
  */
 function isUnmapped(log: LedgerLog): boolean {
-    return log.importStatus === 'needs_review';
+    return log.importStatus === 'needs_context';
 }
 
 interface GroupKey {

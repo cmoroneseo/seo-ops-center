@@ -41,7 +41,7 @@ export interface ImportedEntryInput {
     basecampProjectId: string;
     basecampRecordingId: string;
     organizationId: string;
-    /** null only when we refuse to guess — paired with `needs_review`. */
+    /** null only when we refuse to guess — paired with `needs_context`. */
     clientId: string | null;
     taskId: string | null;
     userId: string | null;
@@ -208,7 +208,7 @@ export function createTimesheetEntryImporter(dependencies: TimesheetImportDepend
         // Anything we could not resolve from trusted state becomes a review
         // item. We never fall back to "probably this client/task/person".
         const unresolved = !member || (isTodoParent && !task);
-        const importStatus: TimeLogImportStatus = unresolved ? 'needs_review' : 'mapped';
+        const importStatus: TimeLogImportStatus = unresolved ? 'needs_context' : 'mapped';
 
         const action = await dependencies.store.upsertImportedEntry({
             basecampEntryId: entry.id,

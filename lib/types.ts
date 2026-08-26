@@ -579,11 +579,17 @@ export type TimeLogStatus = 'in_progress' | 'logged' | 'needs_review';
 export type TimeLogSource = 'seo_pm' | 'basecamp';
 
 /**
- * How far an imported row got. `needs_review` means we could not resolve a
- * client/task/member from trusted provider state and refuse to guess one;
- * `voided` means the provider entry is gone but we keep the financial history.
+ * How far an imported row got.
+ *   needs_context  — imported; the owning member must add an activity/client
+ *   pending_review — member submitted; awaiting manager approval
+ *   mapped         — approved; counts toward budgets and approvals
+ *   voided         — gone at the provider, kept for financial history
  */
-export type TimeLogImportStatus = 'mapped' | 'needs_review' | 'voided';
+export type TimeLogImportStatus =
+    | 'needs_context'
+    | 'pending_review'
+    | 'mapped'
+    | 'voided';
 
 export interface SessionNote {
     id: string;
@@ -635,6 +641,15 @@ export interface TimeLog {
     /** Provider-side last-updated stamp, so a later Basecamp edit is detectable. */
     providerUpdatedAt?: string;
     voidedAt?: string;
+    /** migration 040 — context capture and review */
+    activityKey?: string;
+    /** CSV identity, when the provider entry id is not knowable at import. */
+    importFingerprint?: string;
+    submittedAt?: string;
+    submittedBy?: string;
+    reviewedAt?: string;
+    reviewedBy?: string;
+    reviewNote?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -682,6 +697,44 @@ export interface TimerAttempt extends TimeLog {
     reviewingAt?: string;
     operationId?: string;
     segments: TimeLogSegment[];
+}
+
+// ---------------------------------------------------------------------------
+// Timesheet import review — migration 040
+// ---------------------------------------------------------------------------
+
+export type BasecampProjectRoleKind = 'client' | 'internal' | 'ignored';
+
+export interface BasecampProjectRole {
+    id: string;
+    organizationId: string;
+    basecampProjectId: number;
+    basecampProjectName?: string;
+    role: BasecampProjectRoleKind;
+    /** Required when role is 'client'. */
+    clientId?: string;
+    createdBy?: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export type TimesheetImportSource = 'csv' | 'upload' | 'webhook';
+
+export interface TimesheetImportRun {
+    id: string;
+    organizationId: string;
+    requestedBy?: string;
+    userId?: string;
+    rangeStart: string;
+    rangeEnd: string;
+    source: TimesheetImportSource;
+    status: 'running' | 'complete' | 'failed';
+    scanned: number;
+    imported: number;
+    skipped: number;
+    error?: string;
+    startedAt: string;
+    finishedAt?: string;
 }
 
 // ---------------------------------------------------------------------------

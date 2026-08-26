@@ -151,7 +151,7 @@ test('unmapped imported rows are counted and surfaced as exceptions', () => {
     const ledger = buildWeeklyLedger(
         [
             log({
-                id: 'orphan', date: '2026-08-24', source: 'basecamp', importStatus: 'needs_review',
+                id: 'orphan', date: '2026-08-24', source: 'basecamp', importStatus: 'needs_context',
                 clientId: undefined, clientName: undefined, taskId: undefined, taskTitle: undefined,
             }),
             log({ id: 'ok', date: '2026-08-24' }),
@@ -167,7 +167,7 @@ test('unmapped imported rows are counted and surfaced as exceptions', () => {
 
 test('unmapped rows sit in a review bucket, not under a guessed client', () => {
     const ledger = buildWeeklyLedger(
-        [log({ id: 'orphan', date: '2026-08-24', source: 'basecamp', importStatus: 'needs_review' })],
+        [log({ id: 'orphan', date: '2026-08-24', source: 'basecamp', importStatus: 'needs_context' })],
         '2026-08-23',
     );
 

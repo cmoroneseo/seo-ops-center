@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
  * POST /api/timesheets/mapping
  * Body: { timeLogId, clientId, taskId?, userId }
  *
- * Resolves one `needs_review` imported entry to an explicit client/task/member.
+ * Resolves one `needs_context` imported entry to an explicit client/task/member.
  * Manager-only. Every referenced record is re-read server-side and checked
  * against the actor's organization before the write.
  */
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
         .update(result.patch)
         .eq('id', timeLogId)
         // Losing a race against a concurrent mapping must not overwrite it.
-        .eq('import_status', 'needs_review');
+        .eq('import_status', 'needs_context');
     if (error) {
         return NextResponse.json({ error: 'Unable to save mapping' }, { status: 500 });
     }

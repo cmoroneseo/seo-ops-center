@@ -185,7 +185,7 @@ test('unmapped entries block approval', async () => {
     const { approval, recorded } = deps({
         logs: [
             log({ id: 'a', date: '2026-08-10' }),
-            log({ id: 'orphan', date: '2026-08-11', source: 'basecamp', importStatus: 'needs_review' }),
+            log({ id: 'orphan', date: '2026-08-11', source: 'basecamp', importStatus: 'needs_context' }),
         ],
     });
     const response = await createApprovalPost(approval)(approvalRequest(approve));

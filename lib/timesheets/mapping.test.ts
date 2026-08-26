@@ -10,7 +10,7 @@ function context(overrides: Partial<MappingContext> = {}): MappingContext {
         log: {
             id: 'log-1',
             organizationId: 'org-1',
-            importStatus: 'needs_review',
+            importStatus: 'needs_context',
             source: 'basecamp',
         },
         client: { id: 'client-a', organizationId: 'org-1' },
@@ -88,7 +88,7 @@ test('a member in another organization is rejected', () => {
 
 test('a time log in another organization is rejected', () => {
     const result = buildMappingUpdate(
-        context({ log: { id: 'log-1', organizationId: 'org-2', importStatus: 'needs_review', source: 'basecamp' } }),
+        context({ log: { id: 'log-1', organizationId: 'org-2', importStatus: 'needs_context', source: 'basecamp' } }),
         request,
     );
 

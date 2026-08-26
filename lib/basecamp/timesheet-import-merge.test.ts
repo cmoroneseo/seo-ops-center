@@ -69,7 +69,7 @@ test('an SEO PM row echoed back keeps its native source', () => {
 test('an echo never nulls out the attribution a native row already had', () => {
     const merged = mergeImportedEntry(
         existing({ source: 'seo_pm', userId: 'user-carlos', clientId: 'client-a', taskId: 'task-1' }),
-        incoming({ userId: null, clientId: null, taskId: null, importStatus: 'needs_review' }),
+        incoming({ userId: null, clientId: null, taskId: null, importStatus: 'needs_context' }),
     );
 
     assert.equal(merged.user_id, 'user-carlos');
@@ -81,7 +81,7 @@ test('an echo never nulls out the attribution a native row already had', () => {
 test('an echo of an unresolvable person does not push a native row into review', () => {
     const merged = mergeImportedEntry(
         existing({ source: 'seo_pm' }),
-        incoming({ userId: null, importStatus: 'needs_review' }),
+        incoming({ userId: null, importStatus: 'needs_context' }),
     );
 
     assert.equal(merged.import_status, 'mapped');
@@ -90,7 +90,7 @@ test('an echo of an unresolvable person does not push a native row into review',
 test('a manager-resolved import is not re-broken by a later provider update', () => {
     const merged = mergeImportedEntry(
         existing({ source: 'basecamp', importStatus: 'mapped', userId: 'user-abel', clientId: 'client-a' }),
-        incoming({ userId: null, importStatus: 'needs_review', clientId: null }),
+        incoming({ userId: null, importStatus: 'needs_context', clientId: null }),
     );
 
     assert.equal(merged.import_status, 'mapped');
@@ -100,13 +100,13 @@ test('a manager-resolved import is not re-broken by a later provider update', ()
 
 test('a still-unresolved import stays in review and takes any new resolution', () => {
     const stillBroken = mergeImportedEntry(
-        existing({ importStatus: 'needs_review', userId: null, clientId: null }),
-        incoming({ userId: null, clientId: null, importStatus: 'needs_review' }),
+        existing({ importStatus: 'needs_context', userId: null, clientId: null }),
+        incoming({ userId: null, clientId: null, importStatus: 'needs_context' }),
     );
-    assert.equal(stillBroken.import_status, 'needs_review');
+    assert.equal(stillBroken.import_status, 'needs_context');
 
     const nowResolved = mergeImportedEntry(
-        existing({ importStatus: 'needs_review', userId: null, clientId: null }),
+        existing({ importStatus: 'needs_context', userId: null, clientId: null }),
         incoming({ userId: 'user-abel', clientId: 'client-a', importStatus: 'mapped' }),
     );
     assert.equal(nowResolved.import_status, 'mapped');

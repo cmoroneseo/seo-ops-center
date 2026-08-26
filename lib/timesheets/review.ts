@@ -94,7 +94,7 @@ export function buildClientMonthSnapshot(
     let unmappedCount = 0;
 
     for (const log of scoped) {
-        if (log.importStatus === 'needs_review' && !log.voidedAt && log.status === 'logged') {
+        if (log.importStatus === 'needs_context' && !log.voidedAt && log.status === 'logged') {
             unmappedCount += 1;
             continue;
         }

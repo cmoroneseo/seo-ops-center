@@ -191,13 +191,13 @@ test('an entry attached to a synced to-do carries the task linkage', async () =>
     assert.equal(recorded.upserts[0].importStatus, 'mapped');
 });
 
-test('an unknown person produces a needs_review row with no guessed member', async () => {
+test('an unknown person produces a needs_context row with no guessed member', async () => {
     const { importer, recorded } = harness({ member: null });
     const outcome = await importer(delivery());
 
     assert.equal(outcome.result, 'created');
     assert.equal(recorded.upserts[0].userId, null);
-    assert.equal(recorded.upserts[0].importStatus, 'needs_review');
+    assert.equal(recorded.upserts[0].importStatus, 'needs_context');
 });
 
 test('an entry on a to-do we do not track still imports without guessing a task', async () => {
@@ -208,7 +208,7 @@ test('an entry on a to-do we do not track still imports without guessing a task'
     await importer(delivery());
 
     assert.equal(recorded.upserts[0].taskId, null);
-    assert.equal(recorded.upserts[0].importStatus, 'needs_review');
+    assert.equal(recorded.upserts[0].importStatus, 'needs_context');
 });
 
 test('an unmapped Basecamp project is skipped, not guessed into a client', async () => {

@@ -65,7 +65,7 @@ test('only mapped, non-voided, finalized rows qualify', () => {
             log({ id: 'ok', date: '2026-08-10' }),
             log({ id: 'running', date: '2026-08-11', status: 'in_progress' }),
             log({ id: 'voided', date: '2026-08-12', importStatus: 'voided', voidedAt: '2026-08-12T00:00:00Z' }),
-            log({ id: 'review', date: '2026-08-13', importStatus: 'needs_review' }),
+            log({ id: 'review', date: '2026-08-13', importStatus: 'needs_context' }),
         ],
         { clientId: 'client-a', month: '2026-08', budgetMinutes: 600 },
     );
@@ -77,7 +77,7 @@ test('unmapped rows in the month block approval', () => {
     const snapshot = buildClientMonthSnapshot(
         [
             log({ id: 'ok', date: '2026-08-10' }),
-            log({ id: 'orphan', date: '2026-08-11', source: 'basecamp', importStatus: 'needs_review' }),
+            log({ id: 'orphan', date: '2026-08-11', source: 'basecamp', importStatus: 'needs_context' }),
         ],
         { clientId: 'client-a', month: '2026-08', budgetMinutes: 600 },
     );

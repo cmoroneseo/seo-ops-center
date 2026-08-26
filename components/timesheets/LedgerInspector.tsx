@@ -96,7 +96,7 @@ export function LedgerInspector({
                 <ul className="mt-3 space-y-3">
                     {rowEntries.map(entry => {
                         const heading = formatDayHeading(entry.date);
-                        const needsReview = entry.importStatus === 'needs_review';
+                        const needsReview = entry.importStatus === 'needs_context';
                         return (
                             <li
                                 key={entry.id}
