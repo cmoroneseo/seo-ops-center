@@ -629,6 +629,35 @@ export async function deleteBasecampTimesheetEntry(entryId: number | string): Pr
     }
 }
 
+/**
+ * Fetch the timesheet report as CSV for one person and date range.
+ *
+ * The CSV lives on the API host and accepts the OAuth bearer, so no manual
+ * download is needed. It is also more accurate than the JSON project endpoint,
+ * which repeats entries across pages.
+ */
+export async function fetchTimesheetCsv(input: {
+    personId: string;
+    from: string;
+    to: string;
+}): Promise<string | 'unavailable'> {
+    try {
+        const person = safeId(input.personId, 'personId');
+        const query = new URLSearchParams({
+            start_date: input.from,
+            end_date: input.to,
+        });
+        query.append('people_ids[]', person);
+
+        const res = await basecampFetch(`${BASE_URL()}/reports/timesheet.csv?${query}`);
+        if (!res.ok) return 'unavailable';
+        return await res.text();
+    } catch (err) {
+        console.error('[Basecamp] fetchTimesheetCsv error:', err);
+        return 'unavailable';
+    }
+}
+
 /** Post a comment on a Basecamp todo */
 export async function createBasecampComment(
     projectId: number | string,
