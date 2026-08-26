@@ -50,16 +50,33 @@ export function findActivity(key: string): TimesheetActivity | null {
 }
 
 /**
- * Budget default for an activity. An unrecognized key resolves to false —
- * failing closed, so a bad key can never silently bill a client.
+ * Budget default for a set of activities.
+ *
+ * True when ANY selected activity bills: a block tagged both Technical SEO
+ * Audit and Internal Admin still did billable delivery work. An unrecognized
+ * key contributes nothing, so a bad key can never silently bill a client.
+ *
+ * This is only ever a DEFAULT, offered on first selection. Real reviewed data
+ * shows eligibility is not derivable from the activity — the same activity
+ * bills for one client and not another — so the user's explicit choice owns
+ * `counts_toward_budget` and must never be silently recomputed from here.
  */
-export function budgetDefaultFor(key: string): boolean {
-    return findActivity(key)?.countsTowardBudget ?? false;
+export function budgetDefaultFor(keys: string[]): boolean {
+    return keys.some(key => findActivity(key)?.countsTowardBudget ?? false);
 }
 
-/** The human description stored on the ledger row. */
-export function describeActivity(key: string, detail: string): string {
-    const label = findActivity(key)?.label ?? '';
+/**
+ * The human description stored on the ledger row.
+ *
+ * Labels are joined in CATALOG order rather than selection order, so the same
+ * set of activities always reads the same way no matter how it was picked.
+ */
+export function describeActivity(keys: string[], detail: string): string {
+    const selected = new Set(keys);
+    const label = TIMESHEET_ACTIVITIES
+        .filter(activity => selected.has(activity.key))
+        .map(activity => activity.label)
+        .join(', ');
     const trimmed = detail.trim();
     if (!label) return trimmed;
     return trimmed ? `${label} — ${trimmed}` : label;

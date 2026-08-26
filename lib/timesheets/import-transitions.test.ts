@@ -14,7 +14,7 @@ function row(overrides: Partial<ReviewableRow> = {}): ReviewableRow {
         userId: 'user-abel',
         clientId: 'client-a',
         isInternal: false,
-        activityKey: 'technical_audit',
+        activityKeys: ['technical_audit'],
         taskId: null,
         importStatus: 'needs_context',
         ...overrides,
@@ -28,13 +28,13 @@ const NOW = '2026-08-25T12:00:00Z';
 // --- editing ---------------------------------------------------------------
 
 test('choosing an activity sets description and budget together', () => {
-    const result = buildEntryEdit(row({ activityKey: null }), {
-        activityKey: 'technical_audit', detail: 'Crawl budget', clientId: 'client-a',
+    const result = buildEntryEdit(row({ activityKeys: [] }), {
+        activityKeys: ['technical_audit'], detail: 'Crawl budget', clientId: 'client-a',
     }, actor);
 
     assert.equal(result.ok, true);
     assert.deepEqual(result.ok && result.updates, {
-        activity_key: 'technical_audit',
+        activity_keys: ['technical_audit'],
         description: 'Technical SEO Audit — Crawl budget',
         counts_toward_budget: true,
         client_id: 'client-a',
@@ -43,7 +43,7 @@ test('choosing an activity sets description and budget together', () => {
 
 test('a non-delivery activity does not consume client budget', () => {
     const result = buildEntryEdit(row(), {
-        activityKey: 'client_meeting', detail: '', clientId: 'client-a',
+        activityKeys: ['client_meeting'], detail: '', clientId: 'client-a',
     }, actor);
 
     assert.equal(result.ok && result.updates.counts_toward_budget, false);
@@ -51,7 +51,7 @@ test('a non-delivery activity does not consume client budget', () => {
 
 test('an explicit budget override beats the activity default', () => {
     const result = buildEntryEdit(row(), {
-        activityKey: 'client_meeting', detail: '', clientId: 'client-a',
+        activityKeys: ['client_meeting'], detail: '', clientId: 'client-a',
         countsTowardBudget: true,
     }, actor);
 
@@ -60,21 +60,72 @@ test('an explicit budget override beats the activity default', () => {
 
 test('internal work clears a supplied client and never consumes its budget', () => {
     const result = buildEntryEdit(row({ isInternal: true, clientId: null }), {
-        activityKey: 'technical_audit', detail: '', clientId: 'stale-client',
+        activityKeys: ['technical_audit'], detail: '', clientId: 'stale-client',
         countsTowardBudget: true,
     }, actor);
 
     assert.deepEqual(result.ok && result.updates, {
-        activity_key: 'technical_audit',
+        activity_keys: ['technical_audit'],
         description: 'Technical SEO Audit',
         counts_toward_budget: false,
         client_id: null,
     });
 });
 
+test('a block tagged with three activities round-trips as one entry', () => {
+    // Reviewed data: a 2h block that was GBP Optimization + Keyword Research &
+    // Strategy + Content Strategy. The hours are never split.
+    const result = buildEntryEdit(row({ activityKeys: [] }), {
+        activityKeys: ['content_strategy', 'gbp_optimization', 'keyword_research'],
+        detail: 'Aug refresh',
+        clientId: 'client-a',
+    }, actor);
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.ok && result.updates.activity_keys, [
+        'content_strategy', 'gbp_optimization', 'keyword_research',
+    ]);
+    // Catalog order, so the stored text does not depend on click order.
+    assert.equal(
+        result.ok && result.updates.description,
+        'Keyword Research & Strategy, Content Strategy & Calendar, GBP Optimization — Aug refresh',
+    );
+    assert.equal(result.ok && result.updates.counts_toward_budget, true);
+    // Nothing about hours is touched — this is tagging, not splitting.
+    assert.deepEqual(Object.keys((result.ok && result.updates) || {}).sort(), [
+        'activity_keys', 'client_id', 'counts_toward_budget', 'description',
+    ]);
+});
+
+test('any one billable activity is enough for the budget default', () => {
+    const result = buildEntryEdit(row(), {
+        activityKeys: ['internal_admin', 'technical_audit'], detail: '', clientId: 'client-a',
+    }, actor);
+
+    assert.equal(result.ok && result.updates.counts_toward_budget, true);
+});
+
+test('an entry with no activity at all is rejected', () => {
+    const result = buildEntryEdit(row(), {
+        activityKeys: [], detail: 'Something', clientId: 'client-a',
+    }, actor);
+
+    assert.equal(result.ok, false);
+    assert.equal(!result.ok && result.status, 400);
+});
+
+test('one bad key poisons an otherwise valid selection', () => {
+    const result = buildEntryEdit(row(), {
+        activityKeys: ['technical_audit', 'not_real'], detail: '', clientId: 'client-a',
+    }, actor);
+
+    assert.equal(result.ok, false);
+    assert.equal(!result.ok && result.status, 400);
+});
+
 test('an unknown activity key is rejected rather than stored', () => {
     const result = buildEntryEdit(row(), {
-        activityKey: 'not_real', detail: '', clientId: 'client-a',
+        activityKeys: ['not_real'], detail: '', clientId: 'client-a',
     }, actor);
 
     assert.equal(result.ok, false);
@@ -83,7 +134,7 @@ test('an unknown activity key is rejected rather than stored', () => {
 
 test('a row a manager already approved is not editable through this path', () => {
     const result = buildEntryEdit(row({ importStatus: 'mapped' }), {
-        activityKey: 'blog_post', detail: '', clientId: 'client-a',
+        activityKeys: ['blog_post'], detail: '', clientId: 'client-a',
     }, manager);
 
     assert.equal(result.ok, false);
@@ -92,7 +143,7 @@ test('a row a manager already approved is not editable through this path', () =>
 
 test('a voided row cannot be edited back to life', () => {
     const result = buildEntryEdit(row({ importStatus: 'voided' }), {
-        activityKey: 'blog_post', detail: '', clientId: 'client-a',
+        activityKeys: ['blog_post'], detail: '', clientId: 'client-a',
     }, manager);
 
     assert.equal(result.ok, false);
@@ -114,7 +165,7 @@ test('submitting a ready batch moves it to pending_review', () => {
 });
 
 test('submitting is refused when any row still has a blocking issue', () => {
-    const result = buildSubmit([row(), row({ id: 'log-2', activityKey: null })], actor, NOW);
+    const result = buildSubmit([row(), row({ id: 'log-2', activityKeys: [] })], actor, NOW);
 
     assert.equal(result.ok, false);
     assert.equal(!result.ok && result.status, 409);
@@ -173,7 +224,7 @@ test('approving a row that was never submitted is refused', () => {
 
 test('approving is refused if a submitted row lost its activity', () => {
     const result = buildApproval(
-        [row({ importStatus: 'pending_review', activityKey: null })],
+        [row({ importStatus: 'pending_review', activityKeys: [] })],
         manager,
         NOW,
     );

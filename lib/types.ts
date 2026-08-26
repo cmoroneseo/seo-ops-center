@@ -641,8 +641,8 @@ export interface TimeLog {
     /** Provider-side last-updated stamp, so a later Basecamp edit is detectable. */
     providerUpdatedAt?: string;
     voidedAt?: string;
-    /** migration 040 — context capture and review */
-    activityKey?: string;
+    /** migration 042 — context capture and review; a block may carry several */
+    activityKeys?: string[];
     /** CSV identity, when the provider entry id is not knowable at import. */
     importFingerprint?: string;
     submittedAt?: string;

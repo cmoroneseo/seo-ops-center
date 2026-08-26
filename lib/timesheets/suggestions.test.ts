@@ -26,8 +26,8 @@ test('a suggestion carries its task id so the row can link to it', () => {
 test('suggestions guess an activity from the title when it is unambiguous', () => {
     const result = suggestionsFor(todos, { date: '2026-08-06' });
 
-    assert.equal(result[0].activityKey, 'metadata_optimization');
-    assert.equal(result[1].activityKey, 'technical_audit');
+    assert.deepEqual(result[0].activityKeys, ['metadata_optimization']);
+    assert.deepEqual(result[1].activityKeys, ['technical_audit']);
 });
 
 test('a title matching nothing suggests no activity rather than a wrong one', () => {
@@ -36,7 +36,16 @@ test('a title matching nothing suggests no activity rather than a wrong one', ()
         { date: '2026-08-06' },
     );
 
-    assert.equal(result[0].activityKey, null);
+    assert.deepEqual(result[0].activityKeys, []);
+});
+
+test('an inferred activity arrives as a single-element array', () => {
+    const result = suggestionsFor(todos, { date: '2026-08-06' });
+
+    for (const suggestion of result) {
+        assert.ok(Array.isArray(suggestion.activityKeys));
+        assert.ok(suggestion.activityKeys.length <= 1);
+    }
 });
 
 test('a date with no completed to-dos suggests nothing', () => {

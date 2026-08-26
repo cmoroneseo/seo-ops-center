@@ -15,7 +15,8 @@ export interface Actor {
 }
 
 export interface EntryEdit {
-    activityKey: string;
+    /** At least one; every activity the block was tagged with. */
+    activityKeys: string[];
     detail: string;
     clientId: string | null;
     /** Overrides the activity's budget default when present. */
@@ -44,19 +45,22 @@ export function buildEntryEdit(
             error: 'Only entries in review can be edited here',
         };
     }
-    if (!findActivity(edit.activityKey)) {
+    if (edit.activityKeys.length === 0
+        || edit.activityKeys.some(key => !findActivity(key))) {
         return { ok: false, status: 400, error: 'Choose a valid activity' };
     }
 
     return {
         ok: true,
         updates: {
-            activity_key: edit.activityKey,
-            description: describeActivity(edit.activityKey, edit.detail),
-            // Internal work never consumes a client's SEO budget.
+            activity_keys: edit.activityKeys,
+            description: describeActivity(edit.activityKeys, edit.detail),
+            // Internal work never consumes a client's SEO budget. Otherwise an
+            // explicit choice always wins; the activity set only fills in a
+            // default when the caller has made no choice at all.
             counts_toward_budget: row.isInternal
                 ? false
-                : edit.countsTowardBudget ?? budgetDefaultFor(edit.activityKey),
+                : edit.countsTowardBudget ?? budgetDefaultFor(edit.activityKeys),
             client_id: row.isInternal ? null : edit.clientId,
         },
     };

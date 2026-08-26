@@ -16,7 +16,7 @@ function row(overrides: Partial<QueueSourceRow> = {}): QueueSourceRow {
         clientId: 'client-a',
         clientName: 'Client A',
         isInternal: false,
-        activityKey: 'technical_audit',
+        activityKeys: ['technical_audit'],
         taskId: null,
         taskTitle: null,
         importStatus: 'needs_context',
@@ -167,7 +167,7 @@ test('a member cannot mutate another member’s resolved row', async () => {
         organizationId: 'org-requested',
         action: 'edit',
         ids: ['log-1'],
-        edit: { activityKey: 'technical_audit' },
+        edit: { activityKeys: ['technical_audit'] },
         userId: 'user-carlos',
     }));
 
@@ -199,7 +199,7 @@ test('a foreign or missing edit client is rejected before transition persistence
         action: 'edit',
         ids: ['log-1'],
         edit: {
-            activityKey: 'technical_audit',
+            activityKeys: ['technical_audit'],
             clientId: 'client-foreign',
         },
     }));
@@ -228,7 +228,7 @@ test('editing an internal row persists a clientless non-budget patch', async () 
         action: 'edit',
         ids: ['log-1'],
         edit: {
-            activityKey: 'technical_audit',
+            activityKeys: ['technical_audit'],
             detail: 'Crawl budget',
             clientId: 'client-attacker',
             countsTowardBudget: true,
@@ -240,7 +240,7 @@ test('editing an internal row persists a clientless non-budget patch', async () 
         organizationId: 'org-canonical',
         ids: ['log-1'],
         updates: {
-            activity_key: 'technical_audit',
+            activity_keys: ['technical_audit'],
             description: 'Technical SEO Audit — Crawl budget',
             counts_toward_budget: false,
             client_id: null,

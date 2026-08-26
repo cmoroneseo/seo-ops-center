@@ -8,7 +8,7 @@ function row(overrides: Partial<ReviewableRow> = {}): ReviewableRow {
         userId: 'user-abel',
         clientId: 'client-a',
         isInternal: false,
-        activityKey: 'technical_audit',
+        activityKeys: ['technical_audit'],
         taskId: 'task-1',
         importStatus: 'needs_context',
         ...overrides,
@@ -42,12 +42,18 @@ test('explicitly internal work needs no client', () => {
 });
 
 test('a missing activity is an issue — this is the common case', () => {
-    assert.deepEqual(deriveIssues(row({ activityKey: null })), ['no_activity']);
-    assert.equal(isReadyToSubmit(row({ activityKey: null })), false);
+    assert.deepEqual(deriveIssues(row({ activityKeys: [] })), ['no_activity']);
+    assert.equal(isReadyToSubmit(row({ activityKeys: [] })), false);
 });
 
-test('an empty-string activity counts as missing', () => {
-    assert.deepEqual(deriveIssues(row({ activityKey: '' })), ['no_activity']);
+test('several activities on one entry resolve the issue once', () => {
+    const tagged = row({
+        activityKeys: ['gbp_optimization', 'keyword_research', 'content_strategy'],
+        taskId: 'task-1',
+    });
+
+    assert.deepEqual(deriveIssues(tagged), []);
+    assert.equal(isReadyToSubmit(tagged), true);
 });
 
 test('a missing task link is advisory and never blocks', () => {
@@ -59,7 +65,7 @@ test('a missing task link is advisory and never blocks', () => {
 
 test('issues accumulate in a stable order', () => {
     assert.deepEqual(
-        deriveIssues(row({ userId: null, clientId: null, activityKey: null, taskId: null })),
+        deriveIssues(row({ userId: null, clientId: null, activityKeys: [], taskId: null })),
         ['no_member', 'no_client', 'no_activity', 'no_task_link'],
     );
 });
@@ -70,7 +76,7 @@ test('an already-mapped row reports no issues, even with no member', () => {
 });
 
 test('a voided row reports no issues and cannot be submitted, even with no member', () => {
-    assert.deepEqual(deriveIssues(row({ importStatus: 'voided', activityKey: null, userId: null })), []);
+    assert.deepEqual(deriveIssues(row({ importStatus: 'voided', activityKeys: [], userId: null })), []);
     assert.equal(isReadyToSubmit(row({ importStatus: 'voided' })), false);
 });
 

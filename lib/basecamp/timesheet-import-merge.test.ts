@@ -30,7 +30,7 @@ function existing(overrides: Partial<ExistingLedgerRow> = {}): ExistingLedgerRow
         clientId: 'client-a',
         taskId: null,
         userId: 'user-abel',
-        activityKey: null,
+        activityKeys: [],
         description: '',
         importFingerprint: null,
         basecampEntryId: null,
@@ -66,7 +66,7 @@ test('a provider edit never blanks context a member supplied', () => {
     const merged = mergeImportedEntry(
         existing({
             importStatus: 'mapped',
-            activityKey: 'keyword_research',
+            activityKeys: ['keyword_research'],
             description: 'Keyword Research — mapped the money pages',
         }),
         incoming({ description: '' }),
@@ -74,7 +74,7 @@ test('a provider edit never blanks context a member supplied', () => {
 
     assert.equal(merged.description, 'Keyword Research — mapped the money pages');
     assert.equal(merged.import_status, 'mapped');
-    assert.equal(merged.activity_key, 'keyword_research');
+    assert.deepEqual(merged.activity_keys, ['keyword_research']);
 });
 
 test('member context survives even a non-empty provider description', () => {
@@ -83,7 +83,7 @@ test('member context survives even a non-empty provider description', () => {
     const merged = mergeImportedEntry(
         existing({
             importStatus: 'pending_review',
-            activityKey: 'technical_audit',
+            activityKeys: ['technical_audit'],
             description: 'Technical Audit — crawl + fixes',
         }),
         incoming({ description: 'Revised in Basecamp' }),
@@ -94,7 +94,7 @@ test('member context survives even a non-empty provider description', () => {
 
 test('a row with no member context still takes the provider description', () => {
     const merged = mergeImportedEntry(
-        existing({ importStatus: 'needs_context', activityKey: null, description: 'stale' }),
+        existing({ importStatus: 'needs_context', activityKeys: [], description: 'stale' }),
         incoming({ description: 'Revised in Basecamp' }),
     );
 
@@ -104,11 +104,52 @@ test('a row with no member context still takes the provider description', () => 
 test('an activity key with an empty description still accepts provider text', () => {
     // Nothing to remove, so filling it in is an addition.
     const merged = mergeImportedEntry(
-        existing({ importStatus: 'mapped', activityKey: 'technical_audit', description: '' }),
+        existing({ importStatus: 'mapped', activityKeys: ['technical_audit'], description: '' }),
         incoming({ description: 'Crawl notes' }),
     );
 
     assert.equal(merged.description, 'Crawl notes');
+});
+
+test('several activities survive a provider edit intact', () => {
+    // A 4h block tagged Technical SEO Audit + Internal Linking Optimization.
+    const keys = ['technical_audit', 'internal_linking'];
+    const merged = mergeImportedEntry(
+        existing({
+            importStatus: 'mapped',
+            activityKeys: keys,
+            description: 'Technical SEO Audit, Internal Linking Optimization — sweep',
+            clientId: 'client-a',
+            userId: 'user-abel',
+        }),
+        incoming({ description: '', clientId: null, userId: null }),
+    );
+
+    assert.deepEqual(merged.activity_keys, keys);
+    assert.equal(merged.description, 'Technical SEO Audit, Internal Linking Optimization — sweep');
+    // An import may add attribution, never remove it.
+    assert.equal(merged.client_id, 'client-a');
+    assert.equal(merged.user_id, 'user-abel');
+    assert.equal(merged.import_status, 'mapped');
+});
+
+test('having at least one activity is what marks a row resolved', () => {
+    const unresolved = mergeImportedEntry(
+        existing({ importStatus: 'needs_context', activityKeys: [], clientId: 'client-a', userId: 'user-abel' }),
+        incoming({}),
+    );
+    assert.equal(unresolved.import_status, 'needs_context');
+
+    const resolved = mergeImportedEntry(
+        existing({
+            importStatus: 'needs_context',
+            activityKeys: ['technical_audit', 'internal_linking'],
+            clientId: 'client-a',
+            userId: 'user-abel',
+        }),
+        incoming({}),
+    );
+    assert.equal(resolved.import_status, 'mapped');
 });
 
 test('an SEO PM row echoed back keeps its native source', () => {
@@ -218,19 +259,19 @@ test('a webhook adopts a fingerprinted row and stamps the entry id', () => {
 test('adoption never clears context a member already supplied', () => {
     const merged = mergeImportedEntry(
         existing({
-            importStatus: 'pending_review', activityKey: 'technical_audit',
+            importStatus: 'pending_review', activityKeys: ['technical_audit'],
             clientId: 'client-a', userId: 'user-abel',
         }),
         incoming({ basecampEntryId: '9001' }),
     );
 
-    assert.equal(merged.activity_key, 'technical_audit');
+    assert.deepEqual(merged.activity_keys, ['technical_audit']);
     assert.equal(merged.import_status, 'pending_review');
 });
 
 test('a provider edit does not drag an approved row back into review', () => {
     const merged = mergeImportedEntry(
-        existing({ importStatus: 'mapped', activityKey: 'blog_post', clientId: 'client-a', userId: 'user-abel' }),
+        existing({ importStatus: 'mapped', activityKeys: ['blog_post'], clientId: 'client-a', userId: 'user-abel' }),
         incoming({ importStatus: 'needs_context', userId: null, clientId: null }),
     );
 
@@ -265,7 +306,7 @@ test('re-running the backfill after a webhook adoption keeps the entry id', () =
             importStatus: backfilled.import_status,
             clientId: backfilled.client_id,
             userId: backfilled.user_id,
-            activityKey: backfilled.activity_key,
+            activityKeys: backfilled.activity_keys,
             description: backfilled.description,
             importFingerprint: backfilled.import_fingerprint,
             basecampEntryId: backfilled.basecamp_entry_id,
@@ -281,7 +322,7 @@ test('re-running the backfill after a webhook adoption keeps the entry id', () =
             importStatus: adopted.import_status,
             clientId: adopted.client_id,
             userId: adopted.user_id,
-            activityKey: adopted.activity_key,
+            activityKeys: adopted.activity_keys,
             description: adopted.description,
             importFingerprint: adopted.import_fingerprint,
             basecampEntryId: adopted.basecamp_entry_id,

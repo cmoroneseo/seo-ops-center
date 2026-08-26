@@ -23,7 +23,7 @@ export interface QueueSourceRow {
     clientId: string | null;
     clientName: string | null;
     isInternal: boolean;
-    activityKey: string | null;
+    activityKeys: string[];
     taskId: string | null;
     taskTitle: string | null;
     importStatus: TimeLogImportStatus;

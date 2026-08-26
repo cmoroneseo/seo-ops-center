@@ -27,7 +27,13 @@ export interface ReviewableRow {
     clientId: string | null;
     /** Time on a project marked `internal` — legitimately has no client. */
     isInternal: boolean;
-    activityKey: string | null;
+    /**
+     * Every activity this block of time was tagged with. A single block often
+     * spans several — real reviewed data has a 2h block that was GBP
+     * Optimization + Keyword Research & Strategy + Content Strategy. The hours
+     * are never split; the whole block carries all of its tags.
+     */
+    activityKeys: string[];
     taskId: string | null;
     importStatus: TimeLogImportStatus;
 }
@@ -43,7 +49,7 @@ export function deriveIssues(row: ReviewableRow): ImportIssue[] {
     const issues: ImportIssue[] = [];
     if (!row.userId) issues.push('no_member');
     if (!row.clientId && !row.isInternal) issues.push('no_client');
-    if (!row.activityKey) issues.push('no_activity');
+    if (row.activityKeys.length === 0) issues.push('no_activity');
     if (!row.taskId) issues.push('no_task_link');
     return issues;
 }

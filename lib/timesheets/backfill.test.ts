@@ -116,7 +116,7 @@ test('a backfilled internal row reads back as internal, not as a no_client block
         id: 'log-hq',
         user_id: hq.userId,
         client_id: hq.clientId,
-        activity_key: null,
+        activity_keys: [],
         task_id: null,
         import_status: 'needs_context',
         date: hq.date,

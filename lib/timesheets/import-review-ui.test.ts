@@ -9,7 +9,9 @@ import {
     type QueuePayload,
 } from '../../components/timesheets/ImportReviewView.tsx';
 import {
+    budgetChoicePatch,
     buildActivityEdit,
+    buildImportEdit,
     buildSuggestionEdit,
     createInFlightRequestCache,
     createLatestRequestSequencer,
@@ -21,6 +23,7 @@ import {
     withRunningState,
 } from './import-review-ui.ts';
 import type { QueueRow } from './import-queue-route.ts';
+import { TIMESHEET_ACTIVITIES, describeActivity } from './activities.ts';
 
 const readyRow: QueueRow = {
     id: 'entry-ready',
@@ -28,7 +31,7 @@ const readyRow: QueueRow = {
     clientId: 'client-1',
     clientName: 'Acme',
     isInternal: false,
-    activityKey: 'technical_audit',
+    activityKeys: ['technical_audit'],
     taskId: null,
     taskTitle: null,
     importStatus: 'needs_context',
@@ -52,7 +55,7 @@ const pendingRow: QueueRow = {
 const blockedRow: QueueRow = {
     ...readyRow,
     id: 'entry-blocked',
-    activityKey: null,
+    activityKeys: [],
     countsTowardBudget: false,
     issues: ['missing_activity', 'no_task_link'],
     isReady: false,
@@ -93,31 +96,107 @@ function payload(rows: QueueRow[], isManager: boolean): QueuePayload {
 test('activity picker exposes grouped delivery and non-budget choices', () => {
     const html = renderToStaticMarkup(createElement(ActivityPicker, {
         id: 'activity-entry-ready',
-        value: null,
+        value: [],
         onChange: () => undefined,
+        defaultOpen: true,
     }));
 
     assert.match(html, /What was this\?/);
-    assert.match(html, /<optgroup label="Technical SEO">/);
-    assert.match(html, /value="technical_audit">Technical SEO Audit/);
-    assert.match(html, /<optgroup label="Non-billable to budget">/);
-    assert.match(html, /value="internal_admin">Internal Admin/);
+    // Grouped by category, and every choice is a real checkbox — a native
+    // <select multiple> would demand shift-clicking and show no affordance.
+    assert.match(html, /Technical SEO</);
+    assert.match(html, /Technical SEO Audit</);
+    assert.match(html, /Non-billable to budget</);
+    assert.match(html, /Internal Admin</);
+    assert.doesNotMatch(html, /<select/);
+    assert.doesNotMatch(html, /multiple/);
+    assert.equal((html.match(/type="checkbox"/g) ?? []).length, TIMESHEET_ACTIVITIES.length);
 });
 
-test('choosing an activity includes its budget default in the edit', () => {
-    const draft = { ...draftForRow(readyRow), detail: 'crawl review' };
-    assert.deepEqual(buildActivityEdit(readyRow, draft, 'technical_audit'), {
-        activityKey: 'technical_audit',
+test('the closed picker still reads out every selected activity on the row', () => {
+    const keys = ['gbp_optimization', 'keyword_research', 'content_strategy'];
+    const html = renderToStaticMarkup(createElement(ActivityPicker, {
+        id: 'activity-entry-ready',
+        value: keys,
+        onChange: () => undefined,
+    }));
+
+    // A manager scanning the queue reads the tags without opening anything.
+    const summary = describeActivity(keys, '');
+    assert.ok(summary.includes(','), 'expected a multi-activity summary');
+    assert.match(html, new RegExp(summary.replace(/&/g, '&amp;')));
+    assert.match(html, /aria-expanded="false"/);
+    // Tailwind semantic tokens only — no hard-coded colors.
+    assert.doesNotMatch(html, /#[0-9a-fA-F]{3,8}\b/);
+});
+
+test('a first activity choice seeds the budget default', () => {
+    // blockedRow carries no activities, so nobody has decided budget yet.
+    const draft = { ...draftForRow(blockedRow), detail: 'crawl review' };
+    assert.equal(draft.budgetIsExplicit, false);
+
+    assert.deepEqual(buildActivityEdit(blockedRow, draft, ['technical_audit']), {
+        activityKeys: ['technical_audit'],
         detail: 'crawl review',
         clientId: 'client-1',
         countsTowardBudget: true,
     });
-    assert.deepEqual(buildActivityEdit(readyRow, draft, 'internal_admin'), {
-        activityKey: 'internal_admin',
+    assert.deepEqual(buildActivityEdit(blockedRow, draft, ['internal_admin']), {
+        activityKeys: ['internal_admin'],
         detail: 'crawl review',
         clientId: 'client-1',
         countsTowardBudget: false,
     });
+});
+
+test('a block carries several activities without splitting its hours', () => {
+    const draft = draftForRow(blockedRow);
+    const keys = ['gbp_optimization', 'keyword_research', 'content_strategy'];
+    const edit = buildActivityEdit(blockedRow, draft, keys);
+
+    assert.deepEqual(edit?.activityKeys, keys);
+    // Nothing in the edit touches hours: tagging is not splitting.
+    assert.deepEqual(Object.keys(edit ?? {}).sort(), [
+        'activityKeys', 'clientId', 'countsTowardBudget', 'detail',
+    ]);
+});
+
+test('clearing every activity yields no edit at all', () => {
+    assert.equal(buildActivityEdit(readyRow, draftForRow(readyRow), []), null);
+    assert.equal(buildImportEdit(blockedRow, draftForRow(blockedRow)), null);
+});
+
+test('an explicit budget choice survives any later activity change', () => {
+    // Turn budget OFF on a delivery activity that would default it ON.
+    const decided = {
+        ...draftForRow(blockedRow),
+        ...budgetChoicePatch(false),
+        activityKeys: ['technical_audit'],
+    };
+    assert.equal(decided.budgetIsExplicit, true);
+    assert.equal(
+        buildActivityEdit(blockedRow, decided, ['blog_post'])?.countsTowardBudget,
+        false,
+    );
+
+    // And the same in the other direction: budget ON stays ON even when every
+    // newly chosen activity would default it OFF. Account Management & Comms
+    // billed for two clients and not for two others in the reviewed data —
+    // the activity simply does not decide this.
+    const billed = {
+        ...draftForRow(blockedRow),
+        ...budgetChoicePatch(true),
+        activityKeys: ['technical_audit'],
+    };
+    assert.equal(
+        buildActivityEdit(blockedRow, billed, ['account_management', 'internal_admin'])
+            ?.countsTowardBudget,
+        true,
+    );
+
+    // A row that already went through review carries a decision, not a guess.
+    const reviewed = draftForRow(readyRow);
+    assert.equal(reviewed.budgetIsExplicit, true);
 });
 
 test('a detail-only suggestion preserves an explicit budget override', () => {
@@ -129,27 +208,29 @@ test('a detail-only suggestion preserves an explicit budget override', () => {
     assert.deepEqual(buildSuggestionEdit(readyRow, draft, {
         title: 'Review crawl findings',
         taskId: 'task-1',
-        activityKey: null,
+        activityKeys: [],
     }), {
-        activityKey: 'technical_audit',
+        activityKeys: ['technical_audit'],
         detail: 'Review crawl findings',
         clientId: 'client-1',
         countsTowardBudget: false,
     });
 });
 
-test('a suggestion changes the budget default only when it changes activity', () => {
-    const draft = {
-        ...draftForRow(readyRow),
-        countsTowardBudget: false,
-    };
-
-    assert.equal(buildSuggestionEdit(readyRow, draft, {
-        title: 'Same audit', taskId: null, activityKey: 'technical_audit',
-    })?.countsTowardBudget, false);
-    assert.equal(buildSuggestionEdit(readyRow, draft, {
-        title: 'Write blog', taskId: null, activityKey: 'blog_post',
+test('a suggestion seeds the budget default only while none was chosen', () => {
+    const undecided = draftForRow(blockedRow);
+    assert.equal(buildSuggestionEdit(blockedRow, undecided, {
+        title: 'Write blog', taskId: null, activityKeys: ['blog_post'],
     })?.countsTowardBudget, true);
+    assert.equal(buildSuggestionEdit(blockedRow, undecided, {
+        title: 'Team sync', taskId: null, activityKeys: ['internal_admin'],
+    })?.countsTowardBudget, false);
+
+    // Once a person has decided, a suggestion may retag but never re-bill.
+    const decided = { ...undecided, ...budgetChoicePatch(false) };
+    assert.equal(buildSuggestionEdit(blockedRow, decided, {
+        title: 'Write blog', taskId: null, activityKeys: ['blog_post'],
+    })?.countsTowardBudget, false);
 });
 
 test('internal drafts and edits always clear client and budget values', () => {
@@ -165,8 +246,8 @@ test('internal drafts and edits always clear client and budget values', () => {
         clientId: null,
         countsTowardBudget: false,
     });
-    assert.deepEqual(buildActivityEdit(internalRow, draft, 'technical_audit'), {
-        activityKey: 'technical_audit',
+    assert.deepEqual(buildActivityEdit(internalRow, draft, ['technical_audit']), {
+        activityKeys: ['technical_audit'],
         detail: '',
         clientId: null,
         countsTowardBudget: false,
@@ -186,7 +267,7 @@ test('bulk client plans exclude internal rows and report the affected count', ()
     assert.deepEqual(plan.edits, [{
         id: readyRow.id,
         edit: {
-            activityKey: 'technical_audit',
+            activityKeys: ['technical_audit'],
             detail: '',
             clientId: 'client-2',
             countsTowardBudget: true,

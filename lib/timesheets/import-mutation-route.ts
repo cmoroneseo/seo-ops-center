@@ -121,7 +121,9 @@ export function createImportEntriesPatch(dependencies: ImportMutationDependencie
             }
 
             const result = buildEntryEdit(rows[0], {
-                activityKey: typeof edit.activityKey === 'string' ? edit.activityKey : '',
+                activityKeys: Array.isArray(edit.activityKeys)
+                    ? edit.activityKeys.filter((key): key is string => typeof key === 'string')
+                    : [],
                 detail: typeof edit.detail === 'string' ? edit.detail : '',
                 clientId,
                 countsTowardBudget: typeof edit.countsTowardBudget === 'boolean'

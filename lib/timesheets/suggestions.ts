@@ -37,7 +37,8 @@ export interface CandidateTodo {
 export interface Suggestion {
     title: string;
     taskId: string | null;
-    activityKey: string | null;
+    /** Empty when nothing could be inferred; at most one inferred activity. */
+    activityKeys: string[];
 }
 
 /** A half-open UTC calendar-day range suitable for timestamp queries. */
@@ -76,6 +77,11 @@ function inferActivity(title: string): string | null {
     return null;
 }
 
+function activityKeysFor(title: string): string[] {
+    const key = inferActivity(title);
+    return key ? [key] : [];
+}
+
 export function suggestionsFor(
     todos: CandidateTodo[],
     row: { date: string },
@@ -86,6 +92,6 @@ export function suggestionsFor(
         .map(todo => ({
             title: todo.title,
             taskId: todo.taskId,
-            activityKey: inferActivity(todo.title),
+            activityKeys: activityKeysFor(todo.title),
         }));
 }

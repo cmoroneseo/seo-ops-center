@@ -61,7 +61,7 @@ interface ImportQueueDatabaseRow {
     id: string;
     user_id: string | null;
     client_id: string | null;
-    activity_key: string | null;
+    activity_keys: string[] | null;
     task_id: string | null;
     import_status: QueueSourceRow['importStatus'] | null;
     date: string;
@@ -75,7 +75,7 @@ interface ImportQueueDatabaseRow {
 }
 
 const QUEUE_SELECT = `
-    id, user_id, client_id, activity_key, task_id, import_status, date, hours,
+    id, user_id, client_id, activity_keys, task_id, import_status, date, hours,
     description, counts_toward_budget, review_note, basecamp_project_id,
     clients(name), tasks(title)
 `;
@@ -95,7 +95,7 @@ export function mapImportQueueRow(
         clientName: isInternal ? null : row.clients?.name ?? null,
         // Internal is a property of the project, not of the entry.
         isInternal,
-        activityKey: row.activity_key ?? null,
+        activityKeys: row.activity_keys ?? [],
         taskId: row.task_id ?? null,
         taskTitle: row.tasks?.title ?? null,
         importStatus: row.import_status ?? 'needs_context',

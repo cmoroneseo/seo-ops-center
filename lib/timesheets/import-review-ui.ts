@@ -1,19 +1,31 @@
-import { budgetDefaultFor, findActivity } from './activities';
+import { budgetDefaultFor, describeActivity } from './activities';
 import type { QueueRow } from './import-queue-route';
 import type { Suggestion } from './suggestions';
 
 export interface ImportEntryEdit {
-    activityKey: string;
+    activityKeys: string[];
     detail: string;
     clientId: string | null;
     countsTowardBudget: boolean;
 }
 
 export interface ImportDraft {
-    activityKey: string | null;
+    activityKeys: string[];
     detail: string;
     clientId: string | null;
     countsTowardBudget: boolean;
+    /**
+     * True once `countsTowardBudget` represents a decision rather than a
+     * suggestion.
+     *
+     * Budget eligibility is not derivable from the activity: reviewed data has
+     * Account Management & Comms billable for two clients and non-billable for
+     * two others, and Internal Admin billable three times and non-billable
+     * once. So the activity set may only seed the budget flag on FIRST
+     * selection — once a person has decided, changing the activities must
+     * never silently recompute it.
+     */
+    budgetIsExplicit: boolean;
 }
 
 export interface KeyedResult<T> {
@@ -26,19 +38,25 @@ export function currentRequestItems<T>(result: KeyedResult<T>, requestKey: strin
 }
 
 export function detailForRow(row: QueueRow): string {
-    const activity = row.activityKey ? findActivity(row.activityKey) : null;
-    if (!activity) return row.description;
-    if (row.description === activity.label) return '';
-    const prefix = `${activity.label} — `;
+    // describeActivity writes "<labels> — <detail>", so peel the labels the
+    // row's own activity set produces back off. Catalog order makes that a
+    // stable string rather than a guess at how it was originally picked.
+    const label = describeActivity(row.activityKeys, '');
+    if (!label) return row.description;
+    if (row.description === label) return '';
+    const prefix = `${label} — `;
     return row.description.startsWith(prefix) ? row.description.slice(prefix.length) : row.description;
 }
 
 export function draftForRow(row: QueueRow): ImportDraft {
     return {
-        activityKey: row.activityKey,
+        activityKeys: row.activityKeys,
         detail: detailForRow(row),
         clientId: row.isInternal ? null : row.clientId,
         countsTowardBudget: row.isInternal ? false : row.countsTowardBudget,
+        // A row that already carries activities has been through review, so
+        // its stored flag is a decision that survives further edits.
+        budgetIsExplicit: row.activityKeys.length > 0,
     };
 }
 
@@ -53,10 +71,10 @@ export function buildImportEdit(
     draft: ImportDraft,
     patch: Partial<ImportDraft> = {},
 ): ImportEntryEdit | null {
-    const activityKey = patch.activityKey ?? draft.activityKey;
-    if (!activityKey) return null;
+    const activityKeys = patch.activityKeys ?? draft.activityKeys;
+    if (activityKeys.length === 0) return null;
     return {
-        activityKey,
+        activityKeys,
         detail: patch.detail ?? draft.detail,
         clientId: row.isInternal ? null : patch.clientId === undefined
             ? draft.clientId
@@ -66,17 +84,35 @@ export function buildImportEdit(
     };
 }
 
+/** The draft patch a budget toggle produces — always an explicit decision. */
+export function budgetChoicePatch(countsTowardBudget: boolean): Partial<ImportDraft> {
+    return { countsTowardBudget, budgetIsExplicit: true };
+}
+
+/**
+ * The draft patch a change of activities produces.
+ *
+ * The budget default is offered only while no explicit choice exists. Once one
+ * does, retagging the block leaves it exactly as the person set it.
+ */
+export function activityChoicePatch(
+    draft: ImportDraft,
+    activityKeys: string[],
+): Partial<ImportDraft> {
+    return {
+        activityKeys,
+        countsTowardBudget: draft.budgetIsExplicit
+            ? draft.countsTowardBudget
+            : budgetDefaultFor(activityKeys),
+    };
+}
+
 export function buildActivityEdit(
     row: QueueRow,
     draft: ImportDraft,
-    activityKey: string,
-): ImportEntryEdit {
-    return buildImportEdit(row, draft, {
-        activityKey,
-        countsTowardBudget: activityKey === draft.activityKey
-            ? draft.countsTowardBudget
-            : budgetDefaultFor(activityKey),
-    })!;
+    activityKeys: string[],
+): ImportEntryEdit | null {
+    return buildImportEdit(row, draft, activityChoicePatch(draft, activityKeys));
 }
 
 export function buildSuggestionEdit(
@@ -84,17 +120,13 @@ export function buildSuggestionEdit(
     draft: ImportDraft,
     suggestion: Suggestion,
 ): ImportEntryEdit | null {
-    const activityKey = suggestion.activityKey ?? draft.activityKey;
-    if (!activityKey) return null;
-    const changesActivity = Boolean(
-        suggestion.activityKey && suggestion.activityKey !== draft.activityKey,
-    );
+    const activityKeys = suggestion.activityKeys.length > 0
+        ? suggestion.activityKeys
+        : draft.activityKeys;
+    if (activityKeys.length === 0) return null;
     return buildImportEdit(row, draft, {
-        activityKey,
+        ...activityChoicePatch(draft, activityKeys),
         detail: suggestion.title,
-        countsTowardBudget: changesActivity
-            ? budgetDefaultFor(activityKey)
-            : draft.countsTowardBudget,
     });
 }
 
@@ -110,7 +142,7 @@ export function planBulkClientEdits(
     });
     const externalRows = selectedRows.filter(row => !row.isInternal);
     const editableRows = externalRows.filter(
-        (row): row is QueueRow & { activityKey: string } => Boolean(row.activityKey),
+        row => row.activityKeys.length > 0,
     );
     return {
         affectedCount: editableRows.length,

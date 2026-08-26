@@ -26,8 +26,8 @@ export interface ExistingLedgerRow {
     clientId: string | null;
     taskId: string | null;
     userId: string | null;
-    activityKey: string | null;
-    /** What the row says now. Member-supplied when `activityKey` is set. */
+    activityKeys: string[];
+    /** What the row says now. Member-supplied when `activityKeys` is non-empty. */
     description: string | null;
     importFingerprint: string | null;
     /** Stamped by a webhook adoption; the CSV backfill never supplies one. */
@@ -45,7 +45,7 @@ export interface MergedLedgerRow {
     status: 'logged';
     source: TimeLogSource;
     import_status: TimeLogImportStatus;
-    activity_key: string | null;
+    activity_keys: string[];
     import_fingerprint: string | null;
     basecamp_entry_id: number | null;
     basecamp_project_id: number | null;
@@ -75,15 +75,16 @@ export function mergeImportedEntry(
     const taskId = existing?.taskId ?? incoming.taskId;
     const userId = existing?.userId ?? incoming.userId;
     // Only ever set by a human via review; an import never supplies one.
-    const activityKey = existing?.activityKey ?? null;
+    const activityKeys = existing?.activityKeys ?? [];
+    const hasActivity = activityKeys.length > 0;
     // Review writes the member's context into `description` (describeActivity),
-    // and `activity_key` is the marker that it did. Basecamp is authoritative
+    // and having at least one activity is the marker that it did. Basecamp is authoritative
     // for descriptions only until a member has put context there — after that a
     // provider edit (13 of 14 arrive empty) would silently blank an approved
     // row while it keeps counting toward budget.
     // An empty stored description holds no context to protect, so the provider
     // value is still an addition rather than a removal.
-    const description = (activityKey && existing?.description)
+    const description = (hasActivity && existing?.description)
         ? existing.description
         : incoming.description;
 
@@ -104,7 +105,7 @@ export function mergeImportedEntry(
                 // still don't guarantee a description, and most webhook rows
                 // arrive with an empty one. Imported time must pass through
                 // context capture before it counts toward budget.
-                : (userId && clientId && activityKey) ? 'mapped' : 'needs_context';
+                : (userId && clientId && hasActivity) ? 'mapped' : 'needs_context';
 
     return {
         organization_id: incoming.organizationId,
@@ -117,7 +118,7 @@ export function mergeImportedEntry(
         status: 'logged',
         source,
         import_status: importStatus,
-        activity_key: activityKey,
+        activity_keys: activityKeys,
         // Adoption: keep whichever identity we already had, add the new one.
         // Both identity columns follow the same rule, and the entry id needs it
         // just as much: the CSV backfill is documented as safe to re-run, and it

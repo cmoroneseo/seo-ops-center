@@ -4,6 +4,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Link2Off } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
+    activityChoicePatch,
+    budgetChoicePatch,
     buildActivityEdit,
     buildImportEdit,
     buildSuggestionEdit,
@@ -146,13 +148,18 @@ export function ImportRow({
                 <div className="w-56">
                     <ActivityPicker
                         id={`activity-${row.id}`}
-                        value={draft.activityKey}
+                        label={`Activities for ${heading.weekday} ${heading.date}`}
+                        value={draft.activityKeys}
                         disabled={isBusy}
-                        onChange={nextActivityKey => {
-                            if (!nextActivityKey) return;
-                            const edit = buildActivityEdit(row, draftRef.current, nextActivityKey);
-                            updateDraft(edit);
-                            void onEdit(edit);
+                        onChange={nextActivityKeys => {
+                            const current = draftRef.current;
+                            // Patch the draft even when the selection empties —
+                            // clearing every tag is a real state, and the row
+                            // then reports `no_activity` instead of saving.
+                            const patch = activityChoicePatch(current, nextActivityKeys);
+                            const edit = buildActivityEdit(row, current, nextActivityKeys);
+                            updateDraft(patch);
+                            if (edit) void onEdit(edit);
                         }}
                     />
                 </div>
@@ -161,9 +168,9 @@ export function ImportRow({
                     <input
                         type="checkbox"
                         checked={draft.countsTowardBudget}
-                        disabled={isBusy || !draft.activityKey || row.isInternal}
+                        disabled={isBusy || draft.activityKeys.length === 0 || row.isInternal}
                         onChange={event => {
-                            save({ countsTowardBudget: event.target.checked });
+                            save(budgetChoicePatch(event.target.checked));
                         }}
                         className="h-4 w-4 accent-primary disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                     />

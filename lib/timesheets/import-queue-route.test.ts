@@ -13,7 +13,7 @@ function sourceRow(overrides: Partial<QueueSourceRow> = {}): QueueSourceRow {
         clientId: 'client-a',
         clientName: 'Client A',
         isInternal: false,
-        activityKey: 'technical_audit',
+        activityKeys: ['technical_audit'],
         taskId: null,
         taskTitle: null,
         importStatus: 'needs_context',
@@ -86,7 +86,7 @@ test('rows carry derived issues and readiness', async () => {
     const { get } = harness({
         rows: [
             sourceRow({ id: 'ready' }),
-            sourceRow({ id: 'blocked', activityKey: null }),
+            sourceRow({ id: 'blocked', activityKeys: [] }),
         ],
     });
 
@@ -101,7 +101,7 @@ test('the summary counts what the footer needs', async () => {
     const { get } = harness({
         rows: [
             sourceRow({ id: 'a' }),
-            sourceRow({ id: 'b', activityKey: null }),
+            sourceRow({ id: 'b', activityKeys: [] }),
             sourceRow({ id: 'c', importStatus: 'pending_review' }),
         ],
     });
