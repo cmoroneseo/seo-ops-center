@@ -103,6 +103,13 @@ export function TimesheetsShell() {
     // Changing the week invalidates the selected row's identity.
     useEffect(() => { setSelectedRowKey(null); }, [weekStart, targetUserId]);
 
+    // The Team attention rail hands off to the import queue.
+    useEffect(() => {
+        const open = () => setTab('imports');
+        window.addEventListener('timesheets:open-imports', open);
+        return () => window.removeEventListener('timesheets:open-imports', open);
+    }, []);
+
     const ledger = data?.ledger ?? null;
     const selected = useMemo(() => {
         if (!ledger || !selectedRowKey) return null;

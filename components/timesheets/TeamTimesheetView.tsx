@@ -5,8 +5,6 @@ import { ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDayHeading, formatDuration } from '@/lib/timesheets/format';
 import type { TeamSummary } from '@/lib/timesheets/team';
-import type { LedgerException } from '@/lib/timesheets/ledger';
-import { MappingReviewSheet } from './MappingReviewSheet';
 
 interface TeamTimesheetViewProps {
     organizationId: string;
@@ -23,7 +21,6 @@ interface TeamTimesheetViewProps {
 export function TeamTimesheetView({ organizationId, weekStart }: TeamTimesheetViewProps) {
     const [summary, setSummary] = useState<TeamSummary | null>(null);
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
-    const [mapping, setMapping] = useState<LedgerException | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -199,7 +196,11 @@ export function TeamTimesheetView({ organizationId, weekStart }: TeamTimesheetVi
                                     <li key={exception.timeLogId}>
                                         <button
                                             type="button"
-                                            onClick={() => setMapping(exception)}
+                                            onClick={() => {
+                                                window.dispatchEvent(
+                                                    new CustomEvent('timesheets:open-imports'),
+                                                );
+                                            }}
                                             className="w-full rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-left hover:bg-amber-500/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                                         >
                                             <span className="flex items-center justify-between gap-2 text-sm text-foreground">
@@ -223,15 +224,6 @@ export function TeamTimesheetView({ organizationId, weekStart }: TeamTimesheetVi
                     )}
                 </div>
             </aside>
-
-            {mapping && (
-                <MappingReviewSheet
-                    organizationId={organizationId}
-                    exception={mapping}
-                    onClose={() => setMapping(null)}
-                    onMapped={() => { void load(); }}
-                />
-            )}
         </div>
     );
 }
