@@ -1,3 +1,4 @@
+import { fingerprintFor } from './timesheet-csv.ts';
 import type { TimeLogImportStatus } from '../types.ts';
 
 /**
@@ -44,8 +45,20 @@ export interface ProviderTimesheetEntry {
     /** The recording the entry hangs off: a to-do, or the project timesheet. */
     parentId: string;
     parentType: string;
-    /** The Basecamp person the time belongs to. */
+    /**
+     * The Basecamp person the time belongs to — `person`, falling back to
+     * `creator`. Not the account that happened to make the API call: SEO PM's
+     * own push sets `person` to the member while `creator` is the single shared
+     * OAuth account, so keying on `creator` would misattribute every teammate's
+     * synced row to one person.
+     */
     creatorId: string;
+    /** Display name of that same person. Empty when Basecamp omits it. */
+    personName: string;
+    /** Display name of the project (bucket). Empty when Basecamp omits it. */
+    bucketName: string;
+    /** ISO instant the entry was created — ms precision from the API. */
+    createdAt: string;
 }
 
 export interface ImportedEntryInput {
@@ -64,8 +77,12 @@ export interface ImportedEntryInput {
     providerUpdatedAt: string;
     importedAt: string;
     /**
-     * CSV identity, when the provider entry id is unknown. Null for webhook
-     * imports, which always carry a real entry id.
+     * The CSV backfill's stand-in identity, computed by `fingerprintFor`.
+     *
+     * The webhook carries a real entry id *and* this fingerprint: the id is the
+     * primary key, and the fingerprint is what lets the delivery recognize —
+     * and adopt — the row a CSV backfill already wrote for the same entry.
+     * Null only when the provider withheld a field the hash needs.
      */
     importFingerprint: string | null;
 }
@@ -143,6 +160,34 @@ export function parseTimesheetRecordingUrl(
     } catch {
         return null;
     }
+}
+
+/**
+ * The CSV backfill's identity for the same entry, computed from provider state.
+ *
+ * This is the bridge. The backfill hashes person / project / date / hours /
+ * created out of the CSV; here the identical five fields come off the verified
+ * provider entry and go through the identical `fingerprintFor`. That is what
+ * lets a delivery adopt a backfilled row instead of inserting beside it.
+ *
+ * Returns null unless every field the hash needs is present. `import_fingerprint`
+ * carries a unique index, so hashing a shape with blanks in it would let two
+ * unrelated entries land on one identity and adopt each other's rows — strictly
+ * worse than having no fingerprint at all.
+ */
+export function csvIdentityFor(entry: ProviderTimesheetEntry): string | null {
+    if (!entry.personName || !entry.bucketName || !entry.date || !entry.createdAt) {
+        return null;
+    }
+    return fingerprintFor({
+        person: entry.personName,
+        projectName: entry.bucketName,
+        date: entry.date,
+        // A number on both sides: the CSV parses `"2.0"` and so does the API
+        // reader, so `String(hours)` spells them the same way.
+        hours: entry.hours,
+        created: entry.createdAt,
+    });
 }
 
 export function createTimesheetEntryImporter(dependencies: TimesheetImportDependencies) {
@@ -241,7 +286,7 @@ export function createTimesheetEntryImporter(dependencies: TimesheetImportDepend
             importStatus,
             providerUpdatedAt: entry.updatedAt,
             importedAt: dependencies.now(),
-            importFingerprint: null,
+            importFingerprint: csvIdentityFor(entry),
         });
 
         return {

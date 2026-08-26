@@ -371,8 +371,15 @@ export interface BasecampTimesheetEntry {
     parent: { id: number; type: string };
     // Present on canonical single-entry reads; used by inbound ledger import.
     updated_at?: string;
+    created_at?: string;
     bucket?: { id: number; name?: string };
     creator?: { id: number; name?: string };
+    /**
+     * The person the time belongs to. Distinct from `creator`, which is
+     * whoever made the API call — for SEO PM's own push that is the single
+     * shared OAuth account, not the teammate who logged the time.
+     */
+    person?: { id: number; name?: string };
 }
 
 /**
@@ -412,13 +419,23 @@ export async function getBasecampTimesheetEntryState(
     }
 
     const bucketId = raw.bucket?.id ?? Number(projectId);
-    const creatorId = raw.creator?.id;
+    // `person` is the person the time belongs to; `creator` is only whoever
+    // made the call. They are identical for every entry logged in Basecamp
+    // itself, but SEO PM's own push sets `person` to the member while `creator`
+    // stays the one shared OAuth account — so keying on `creator` would both
+    // misattribute the row and break fingerprint parity with the CSV, whose
+    // `Person` column is the person.
+    const attributed = raw.person ?? raw.creator;
+    const creatorId = attributed?.id;
     if (!raw.parent?.id || !creatorId || !Number.isFinite(bucketId)) return 'unavailable';
 
     const hours = Number(raw.hours);
     return {
         id: String(raw.id),
         date: raw.date,
+        // Basecamp sends hours as a string (`"2.0"`); the CSV path parses its
+        // column the same way, which is what keeps `String(hours)` identical
+        // on both sides of the fingerprint.
         hours: Number.isFinite(hours) ? hours : 0,
         description: raw.description ?? '',
         updatedAt: raw.updated_at ?? '',
@@ -426,6 +443,9 @@ export async function getBasecampTimesheetEntryState(
         parentId: String(raw.parent.id),
         parentType: raw.parent.type,
         creatorId: String(creatorId),
+        personName: attributed?.name ?? '',
+        bucketName: raw.bucket?.name ?? '',
+        createdAt: raw.created_at ?? '',
     };
 }
 

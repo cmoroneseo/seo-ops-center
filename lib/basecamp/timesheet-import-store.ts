@@ -35,7 +35,7 @@ async function writeImportedEntry(input: ImportedEntryInput): Promise<'created' 
         ? { data: null, error: null }
         : await admin
             .from('time_logs')
-            .select('id, source, import_status, client_id, task_id, user_id, activity_key, description, import_fingerprint')
+            .select('id, source, import_status, client_id, task_id, user_id, activity_key, description, import_fingerprint, basecamp_entry_id')
             .eq('basecamp_entry_id', entryId)
             .maybeSingle();
     if (existing.error) throw existing.error;
@@ -43,7 +43,7 @@ async function writeImportedEntry(input: ImportedEntryInput): Promise<'created' 
     if (!existing.data && input.importFingerprint) {
         existing = await admin
             .from('time_logs')
-            .select('id, source, import_status, client_id, task_id, user_id, activity_key, description, import_fingerprint')
+            .select('id, source, import_status, client_id, task_id, user_id, activity_key, description, import_fingerprint, basecamp_entry_id')
             .eq('import_fingerprint', input.importFingerprint)
             .maybeSingle();
         if (existing.error) throw existing.error;
@@ -61,6 +61,7 @@ async function writeImportedEntry(input: ImportedEntryInput): Promise<'created' 
                 activityKey: existing.data.activity_key ?? null,
                 description: existing.data.description ?? null,
                 importFingerprint: existing.data.import_fingerprint ?? null,
+                basecampEntryId: existing.data.basecamp_entry_id ?? null,
             }
             : null,
         input,

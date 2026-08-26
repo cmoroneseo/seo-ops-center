@@ -33,6 +33,7 @@ function existing(overrides: Partial<ExistingLedgerRow> = {}): ExistingLedgerRow
         activityKey: null,
         description: '',
         importFingerprint: null,
+        basecampEntryId: null,
         ...overrides,
     };
 }
@@ -241,4 +242,63 @@ test('a brand new webhook row with no fingerprint is unchanged', () => {
 
     assert.equal(merged.import_fingerprint, null);
     assert.equal(merged.basecamp_entry_id, 9001);
+});
+
+test('re-running the backfill after a webhook adoption keeps the entry id', () => {
+    // The exact sequence that used to un-adopt a row and produce a duplicate:
+    // backfill writes a fingerprinted row, a webhook adopts it and stamps the
+    // entry id, then the backfill is re-run (documented as idempotent) with an
+    // empty `basecampEntryId`. If that blanks the id, the next delivery finds
+    // nothing by entry id and inserts a second ledger row for the same hours.
+    const fingerprint = 'abc123';
+
+    const backfilled = mergeImportedEntry(null, incoming({
+        basecampEntryId: '', importFingerprint: fingerprint,
+        userId: 'user-abel', clientId: 'client-a',
+    }));
+    assert.equal(backfilled.basecamp_entry_id, null);
+    assert.equal(backfilled.import_fingerprint, fingerprint);
+
+    const adopted = mergeImportedEntry(
+        existing({
+            source: 'basecamp',
+            importStatus: backfilled.import_status,
+            clientId: backfilled.client_id,
+            userId: backfilled.user_id,
+            activityKey: backfilled.activity_key,
+            description: backfilled.description,
+            importFingerprint: backfilled.import_fingerprint,
+            basecampEntryId: backfilled.basecamp_entry_id,
+        }),
+        incoming({ basecampEntryId: '9001', importFingerprint: fingerprint }),
+    );
+    assert.equal(adopted.basecamp_entry_id, 9001);
+    assert.equal(adopted.import_fingerprint, fingerprint);
+
+    const reBackfilled = mergeImportedEntry(
+        existing({
+            source: 'basecamp',
+            importStatus: adopted.import_status,
+            clientId: adopted.client_id,
+            userId: adopted.user_id,
+            activityKey: adopted.activity_key,
+            description: adopted.description,
+            importFingerprint: adopted.import_fingerprint,
+            basecampEntryId: adopted.basecamp_entry_id,
+        }),
+        incoming({ basecampEntryId: '', importFingerprint: fingerprint }),
+    );
+
+    // Still one row, still adopted — both identities intact.
+    assert.equal(reBackfilled.basecamp_entry_id, 9001);
+    assert.equal(reBackfilled.import_fingerprint, fingerprint);
+});
+
+test('an incoming entry id still wins over a stale stored one', () => {
+    const merged = mergeImportedEntry(
+        existing({ basecampEntryId: 9001 }),
+        incoming({ basecampEntryId: '9002' }),
+    );
+
+    assert.equal(merged.basecamp_entry_id, 9002);
 });

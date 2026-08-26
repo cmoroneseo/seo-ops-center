@@ -30,6 +30,8 @@ export interface ExistingLedgerRow {
     /** What the row says now. Member-supplied when `activityKey` is set. */
     description: string | null;
     importFingerprint: string | null;
+    /** Stamped by a webhook adoption; the CSV backfill never supplies one. */
+    basecampEntryId: number | null;
 }
 
 export interface MergedLedgerRow {
@@ -117,8 +119,13 @@ export function mergeImportedEntry(
         import_status: importStatus,
         activity_key: activityKey,
         // Adoption: keep whichever identity we already had, add the new one.
+        // Both identity columns follow the same rule, and the entry id needs it
+        // just as much: the CSV backfill is documented as safe to re-run, and it
+        // passes an empty `basecampEntryId`. Overwriting unconditionally would
+        // blank the id a webhook had stamped on, undoing the adoption — and the
+        // next delivery would then miss the row and insert a duplicate.
         import_fingerprint: existing?.importFingerprint ?? incoming.importFingerprint,
-        basecamp_entry_id: entryId,
+        basecamp_entry_id: entryId ?? existing?.basecampEntryId ?? null,
         basecamp_project_id: numberOrNull(incoming.basecampProjectId),
         basecamp_recording_id: numberOrNull(incoming.basecampRecordingId),
         basecamp_synced_at: incoming.importedAt,

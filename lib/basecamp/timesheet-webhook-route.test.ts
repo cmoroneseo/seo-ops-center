@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     createTimesheetEntryImporter,
+    csvIdentityFor,
     isTimesheetEntryKind,
     parseTimesheetRecordingUrl,
     type ImportedEntryInput,
     type ProviderTimesheetEntry,
     type TimesheetImportDependencies,
 } from './timesheet-webhook-route.ts';
+import { fingerprintFor, parseTimesheetCsv } from './timesheet-csv.ts';
 
 const ACCOUNT = '1234567';
 // The real canonical shape Basecamp emits, confirmed against a live delivery:
@@ -25,6 +27,9 @@ function providerEntry(overrides: Partial<ProviderTimesheetEntry> = {}): Provide
         parentId: '777',
         parentType: 'Timesheet',
         creatorId: '55501',
+        personName: 'Carlos Morones',
+        bucketName: 'SEO Ops Sandbox (testing)',
+        createdAt: '2026-08-24T17:59:12.409Z',
         ...overrides,
     };
 }
@@ -139,7 +144,9 @@ test('a created entry imports as a mapped ledger row from provider state', async
         importStatus: 'mapped',
         providerUpdatedAt: '2026-08-24T18:00:00Z',
         importedAt: '2026-08-24T18:05:00Z',
-        importFingerprint: null,
+        // The CSV identity for the same entry — this is what lets the delivery
+        // adopt a backfilled row instead of billing the client twice.
+        importFingerprint: csvIdentityFor(providerEntry()),
     });
 });
 
@@ -290,4 +297,93 @@ test('a provider entry from a different bucket than the URL is rejected', async 
 
     assert.equal(outcome.status, 403);
     assert.equal(recorded.upserts.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// The bridge: the CSV backfill and the live webhook must land on ONE identity
+// for one real Basecamp entry. Every literal below is the verified live shape
+// of entry 10228422582 as each source reports it.
+// ---------------------------------------------------------------------------
+
+test('a CSV row and the live provider entry for the SAME entry fingerprint identically', () => {
+    // Exactly what Basecamp's timesheet CSV report exports for this entry:
+    // Date,Person,Hours,Project,Item,Notes,Created
+    const csv = [
+        'Date,Person,Hours,Project,Item,Notes,Created',
+        '2026-08-21,Carlos Morones,2.0,SEO Ops Sandbox (testing),,,2026-08-21T21:46:54Z',
+    ].join('\n');
+    const [row] = parseTimesheetCsv(csv);
+    assert.ok(row, 'the CSV fixture must parse');
+
+    // Exactly what GET /{account}/projects/{project}/timesheet/entries/{id}.json
+    // returns for it: hours as a STRING, created_at at MILLISECOND precision.
+    const entry = providerEntry({
+        id: '10228422582',
+        date: '2026-08-21',
+        hours: Number('2.0'),
+        personName: 'Carlos Morones',
+        bucketName: 'SEO Ops Sandbox (testing)',
+        createdAt: '2026-08-21T21:46:54.268Z',
+    });
+
+    assert.equal(csvIdentityFor(entry), fingerprintFor(row));
+    // And it is the identity the CSV backfill actually persisted, not merely
+    // two functions agreeing on a shape.
+    assert.equal(csvIdentityFor(entry), '2c319e6d74e552544b2816255b41215b');
+});
+
+test('hours parity holds across every spelling Basecamp uses', () => {
+    // The API sends hours as a string; the CSV sends the same digits as text.
+    // Both are parsed to a number before hashing, so `String(hours)` agrees.
+    for (const [apiHours, csvHours] of [
+        ['2', '2'], ['2.0', '2.0'], ['0.5', '0.5'],
+        ['1.25', '1.25'], ['0.3', '0.3'],
+    ]) {
+        const [row] = parseTimesheetCsv([
+            'Date,Person,Hours,Project,Item,Notes,Created',
+            `2026-08-21,Carlos Morones,${csvHours},SEO Ops Sandbox (testing),,,2026-08-21T21:46:54Z`,
+        ].join('\n'));
+        const entry = providerEntry({
+            date: '2026-08-21',
+            hours: Number(apiHours),
+            personName: 'Carlos Morones',
+            bucketName: 'SEO Ops Sandbox (testing)',
+            createdAt: '2026-08-21T21:46:54.268Z',
+        });
+        assert.equal(csvIdentityFor(entry), fingerprintFor(row), `hours ${apiHours}`);
+    }
+
+    // "2.0" and "2" are the same quantity of time and must be the same row.
+    assert.equal(
+        csvIdentityFor(providerEntry({ hours: Number('2.0') })),
+        csvIdentityFor(providerEntry({ hours: 2 })),
+    );
+});
+
+test('created-at parity holds between millisecond and second precision', () => {
+    assert.equal(
+        csvIdentityFor(providerEntry({ createdAt: '2026-08-21T21:46:54.268Z' })),
+        csvIdentityFor(providerEntry({ createdAt: '2026-08-21T21:46:54Z' })),
+    );
+});
+
+test('the webhook importer sends the CSV identity through to the store', () => {
+    const { recorded, importer } = harness();
+    return importer(delivery()).then(() => {
+        assert.equal(recorded.upserts.length, 1);
+        assert.equal(
+            recorded.upserts[0].importFingerprint,
+            csvIdentityFor(providerEntry()),
+        );
+        assert.match(recorded.upserts[0].importFingerprint ?? '', /^[0-9a-f]{32}$/);
+    });
+});
+
+test('no fingerprint is invented when the provider withholds a field the hash needs', () => {
+    // `import_fingerprint` is uniquely indexed. Hashing blanks would let two
+    // unrelated entries collide on one identity and adopt each other's rows.
+    assert.equal(csvIdentityFor(providerEntry({ personName: '' })), null);
+    assert.equal(csvIdentityFor(providerEntry({ bucketName: '' })), null);
+    assert.equal(csvIdentityFor(providerEntry({ createdAt: '' })), null);
+    assert.equal(csvIdentityFor(providerEntry({ date: '' })), null);
 });

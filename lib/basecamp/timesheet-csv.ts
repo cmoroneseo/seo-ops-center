@@ -12,18 +12,32 @@ import { createHash } from 'node:crypto';
  * rather than identifying it. `fingerprintFor` supplies a stand-in key.
  */
 
-export interface CsvTimesheetRow {
+/**
+ * The five fields that make up a timesheet entry's stand-in identity.
+ *
+ * Both import paths hash exactly this shape through `fingerprintFor`, which is
+ * the whole point: the CSV backfill builds it from a `CsvTimesheetRow`, and the
+ * live webhook builds it from the provider entry it read back over OAuth. If
+ * the two ever diverged, the same Basecamp entry would produce two identities
+ * and the client would be billed twice.
+ */
+export interface TimesheetIdentityInput {
+    /** Display name of the person the time belongs to. */
+    person: string;
+    /** Display name of the Basecamp project (bucket). */
+    projectName: string;
     /** yyyy-MM-dd */
     date: string;
-    person: string;
+    /** Parsed hours. The API sends `"2.0"` as a string; parse before hashing. */
     hours: number;
-    /** Display name only — Basecamp does not export the project id. */
-    projectName: string;
+    /** ISO instant the entry was created, in either source's precision. */
+    created: string;
+}
+
+export interface CsvTimesheetRow extends TimesheetIdentityInput {
     /** To-do title when the entry hangs off one; empty for project-level time. */
     item: string;
     notes: string;
-    /** ISO instant the entry was created. Second-precision, effectively unique. */
-    created: string;
 }
 
 const EXPECTED_FIELDS = 7;
@@ -112,7 +126,7 @@ export function normalizeCreatedAt(created: string): string {
  * import a duplicate. Date + hours + project + created is unique across every
  * row measured, and `created` alone is near-unique.
  */
-export function fingerprintFor(row: CsvTimesheetRow): string {
+export function fingerprintFor(row: TimesheetIdentityInput): string {
     // Netstring-style length-prefixing (`<byteLength>:<value>`) so no field's
     // content — however many `|` or `:` characters it contains — can shift a
     // boundary and collide with a different split of the same total bytes.
