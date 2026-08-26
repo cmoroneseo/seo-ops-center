@@ -80,7 +80,7 @@ const QUEUE_SELECT = `
     clients(name), tasks(title)
 `;
 
-function rowToQueueSourceRow(
+export function mapImportQueueRow(
     row: ImportQueueDatabaseRow,
     projectRoles: Map<string, ProjectRoleRecord>,
 ): QueueSourceRow {
@@ -91,8 +91,8 @@ function rowToQueueSourceRow(
     return {
         id: row.id,
         userId: row.user_id ?? '',
-        clientId: row.client_id ?? null,
-        clientName: row.clients?.name ?? null,
+        clientId: isInternal ? null : row.client_id ?? null,
+        clientName: isInternal ? null : row.clients?.name ?? null,
         // Internal is a property of the project, not of the entry.
         isInternal,
         activityKey: row.activity_key ?? null,
@@ -131,6 +131,6 @@ export async function listImportQueue(scope: {
     const byProject = new Map(roles.map(role => [role.basecampProjectId, role]));
 
     return (data as unknown as ImportQueueDatabaseRow[] ?? []).map(row =>
-        rowToQueueSourceRow(row, byProject),
+        mapImportQueueRow(row, byProject),
     );
 }
