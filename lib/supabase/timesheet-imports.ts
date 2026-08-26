@@ -134,3 +134,34 @@ export async function listImportQueue(scope: {
         mapImportQueueRow(row, byProject),
     );
 }
+
+/** Load the rows a transition is about, scoped to one organization. */
+export async function loadQueueRowsByIds(
+    organizationId: string,
+    ids: string[],
+): Promise<QueueSourceRow[]> {
+    if (ids.length === 0) return [];
+    const rows = await listImportQueue({ organizationId, userId: null });
+    const wanted = new Set(ids);
+    return rows.filter(row => wanted.has(row.id));
+}
+
+/** Apply one patch to a set of rows, guarded by their expected status. */
+export async function applyQueueUpdate(
+    organizationId: string,
+    ids: string[],
+    updates: Record<string, unknown>,
+    expectedStatus: string,
+): Promise<number> {
+    if (ids.length === 0) return 0;
+    const { data, error } = await createAdminClient()
+        .from('time_logs')
+        .update(updates)
+        .eq('organization_id', organizationId)
+        .in('id', ids)
+        // Losing a race against a concurrent transition must not overwrite it.
+        .eq('import_status', expectedStatus)
+        .select('id');
+    if (error) throw error;
+    return data?.length ?? 0;
+}

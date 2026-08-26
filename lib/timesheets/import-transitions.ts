@@ -56,7 +56,7 @@ export function buildEntryEdit(
             counts_toward_budget: row.isInternal
                 ? false
                 : edit.countsTowardBudget ?? budgetDefaultFor(edit.activityKey),
-            client_id: edit.clientId,
+            client_id: row.isInternal ? null : edit.clientId,
         },
     };
 }
