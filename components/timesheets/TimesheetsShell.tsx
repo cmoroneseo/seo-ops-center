@@ -13,8 +13,9 @@ import { WeeklyLedgerGrid } from './WeeklyLedgerGrid';
 import { LedgerInspector } from './LedgerInspector';
 import { TeamTimesheetView } from './TeamTimesheetView';
 import { ClientReviewView } from './ClientReviewView';
+import { ImportReviewView } from './ImportReviewView';
 
-type Tab = 'mine' | 'team' | 'review';
+type Tab = 'mine' | 'imports' | 'team' | 'review';
 
 interface LedgerResponse {
     userId: string | null;
@@ -33,6 +34,7 @@ function shiftWeek(weekStart: string, weeks: number): string {
 
 const TABS: { id: Tab; label: string; managerOnly: boolean }[] = [
     { id: 'mine', label: 'My timesheet', managerOnly: false },
+    { id: 'imports', label: 'Imports', managerOnly: false },
     { id: 'team', label: 'Team', managerOnly: true },
     { id: 'review', label: 'Client review', managerOnly: true },
 ];
@@ -40,6 +42,7 @@ const TABS: { id: Tab; label: string; managerOnly: boolean }[] = [
 interface TeamMember {
     userId: string;
     displayName: string;
+    basecampPersonId?: string;
 }
 
 export function TimesheetsShell() {
@@ -85,11 +88,13 @@ export function TimesheetsShell() {
     useEffect(() => {
         if (!organizationId) return;
         let active = true;
+        setMembers([]);
         void getOrganizationMembers(organizationId).then(rows => {
             if (!active) return;
             setMembers(rows.map(row => ({
                 userId: row.userId,
                 displayName: row.user.fullName || row.user.email.split('@')[0],
+                basecampPersonId: row.basecampPersonId,
             })));
         });
         return () => { active = false; };
@@ -109,6 +114,11 @@ export function TimesheetsShell() {
     }, [ledger, selectedRowKey]);
 
     const visibleTabs = TABS.filter(entry => !entry.managerOnly || isManager);
+    const backfillMembers = useMemo(() => members.map(member => ({
+        userId: member.userId,
+        label: member.displayName,
+        hasBasecampPerson: Boolean(member.basecampPersonId),
+    })), [members]);
 
     if (memberLoading) {
         return <p className="p-6 text-sm text-muted-foreground">Loading timesheet…</p>;
@@ -143,6 +153,14 @@ export function TimesheetsShell() {
 
             {tab === 'review' && isManager && (
                 <ClientReviewView organizationId={organizationId} />
+            )}
+
+            {tab === 'imports' && (
+                <ImportReviewView
+                    key={organizationId}
+                    organizationId={organizationId}
+                    backfillMembers={backfillMembers}
+                />
             )}
 
             {tab === 'mine' && (
