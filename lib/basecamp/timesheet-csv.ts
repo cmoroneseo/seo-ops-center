@@ -96,7 +96,11 @@ export function parseTimesheetCsv(text: string): CsvTimesheetRow[] {
     return rows;
 }
 
-const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
+// The zone suffix is REQUIRED. Without it `new Date` resolves against the
+// server's timezone, which would make a persisted fingerprint depend on where
+// the process runs. Both live sources always send one (CSV `...31Z`, API
+// `...54.268Z`), so an unzoned value is passed through untouched instead.
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/;
 
 /**
  * One instant, one spelling: second-precision UTC.

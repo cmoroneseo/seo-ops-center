@@ -177,3 +177,19 @@ test('normalization leaves existing second-precision CSV identities unchanged', 
         '2c319e6d74e552544b2816255b41215b',
     );
 });
+
+test('a timestamp with no timezone is left untouched, so the digest is not server-local', () => {
+    // `new Date('2026-08-17T01:47:31')` resolves against the SERVER's timezone.
+    // Normalizing such a value would make a persisted identity depend on where
+    // the process happens to run. Neither live source emits this shape, so the
+    // safe behavior is to pass it through rather than reinterpret it.
+    assert.equal(normalizeCreatedAt('2026-08-17T01:47:31'), '2026-08-17T01:47:31');
+    assert.equal(normalizeCreatedAt('2026-08-17 01:47:31'), '2026-08-17 01:47:31');
+    assert.equal(normalizeCreatedAt('2026-08-17T01:47:31.268'), '2026-08-17T01:47:31.268');
+});
+
+test('zoned timestamps still normalize to second-precision UTC', () => {
+    assert.equal(normalizeCreatedAt('2026-08-21T21:46:54.268Z'), '2026-08-21T21:46:54Z');
+    assert.equal(normalizeCreatedAt('2026-08-17T01:47:31Z'), '2026-08-17T01:47:31Z');
+    assert.equal(normalizeCreatedAt('2026-08-17T03:47:31+02:00'), '2026-08-17T01:47:31Z');
+});
