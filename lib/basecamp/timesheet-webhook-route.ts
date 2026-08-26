@@ -51,6 +51,11 @@ export interface ImportedEntryInput {
     importStatus: TimeLogImportStatus;
     providerUpdatedAt: string;
     importedAt: string;
+    /**
+     * CSV identity, when the provider entry id is unknown. Null for webhook
+     * imports, which always carry a real entry id.
+     */
+    importFingerprint: string | null;
 }
 
 export interface TimesheetImportStore {
@@ -224,6 +229,7 @@ export function createTimesheetEntryImporter(dependencies: TimesheetImportDepend
             importStatus,
             providerUpdatedAt: entry.updatedAt,
             importedAt: dependencies.now(),
+            importFingerprint: null,
         });
 
         return {

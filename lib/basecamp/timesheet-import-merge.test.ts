@@ -18,6 +18,7 @@ function incoming(overrides: Partial<ImportedEntryInput> = {}): ImportedEntryInp
         importStatus: 'mapped',
         providerUpdatedAt: '2026-08-24T18:00:00Z',
         importedAt: '2026-08-24T18:05:00Z',
+        importFingerprint: null,
         ...overrides,
     };
 }
@@ -29,6 +30,8 @@ function existing(overrides: Partial<ExistingLedgerRow> = {}): ExistingLedgerRow
         clientId: 'client-a',
         taskId: null,
         userId: 'user-abel',
+        activityKey: null,
+        importFingerprint: null,
         ...overrides,
     };
 }
@@ -131,4 +134,56 @@ test('provider provenance is always refreshed', () => {
     assert.equal(merged.basecamp_entry_id, 9001);
     assert.equal(merged.basecamp_recording_id, 777);
     assert.equal(merged.basecamp_sync_error, null);
+});
+
+test('a CSV import carries its fingerprint and no entry id', () => {
+    const merged = mergeImportedEntry(null, incoming({
+        basecampEntryId: '', importFingerprint: 'abc123',
+    }));
+
+    assert.equal(merged.import_fingerprint, 'abc123');
+    assert.equal(merged.basecamp_entry_id, null);
+    assert.equal(merged.import_status, 'needs_context');
+});
+
+test('a webhook adopts a fingerprinted row and stamps the entry id', () => {
+    const merged = mergeImportedEntry(
+        existing({
+            source: 'basecamp', importStatus: 'needs_context',
+            importFingerprint: 'abc123', userId: 'user-abel', clientId: null,
+        }),
+        incoming({ basecampEntryId: '9001', importFingerprint: 'abc123' }),
+    );
+
+    assert.equal(merged.basecamp_entry_id, 9001);
+    assert.equal(merged.import_fingerprint, 'abc123');
+});
+
+test('adoption never clears context a member already supplied', () => {
+    const merged = mergeImportedEntry(
+        existing({
+            importStatus: 'pending_review', activityKey: 'technical_audit',
+            clientId: 'client-a', userId: 'user-abel',
+        }),
+        incoming({ basecampEntryId: '9001' }),
+    );
+
+    assert.equal(merged.activity_key, 'technical_audit');
+    assert.equal(merged.import_status, 'pending_review');
+});
+
+test('a provider edit does not drag an approved row back into review', () => {
+    const merged = mergeImportedEntry(
+        existing({ importStatus: 'mapped', activityKey: 'blog_post', clientId: 'client-a', userId: 'user-abel' }),
+        incoming({ importStatus: 'needs_context', userId: null, clientId: null }),
+    );
+
+    assert.equal(merged.import_status, 'mapped');
+});
+
+test('a brand new webhook row with no fingerprint is unchanged', () => {
+    const merged = mergeImportedEntry(null, incoming());
+
+    assert.equal(merged.import_fingerprint, null);
+    assert.equal(merged.basecamp_entry_id, 9001);
 });

@@ -19,16 +19,35 @@ import type {
  * express `on conflict (col) where col is not null`. The index still backstops
  * a race — a losing insert raises 23505 and is retried as an update.
  */
+function incomingEntryId(input: ImportedEntryInput): number | null {
+    if (!input.basecampEntryId) return null;
+    const parsed = Number(input.basecampEntryId);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
 async function writeImportedEntry(input: ImportedEntryInput): Promise<'created' | 'updated'> {
     const admin = createAdminClient();
-    const entryId = Number(input.basecampEntryId);
+    const entryId = incomingEntryId(input);
 
-    const existing = await admin
-        .from('time_logs')
-        .select('id, source, import_status, client_id, task_id, user_id')
-        .eq('basecamp_entry_id', entryId)
-        .maybeSingle();
+    // Entry id first; fall back to the CSV fingerprint so a webhook adopts the
+    // row a backfill already created instead of inserting beside it.
+    let existing = entryId === null
+        ? { data: null, error: null }
+        : await admin
+            .from('time_logs')
+            .select('id, source, import_status, client_id, task_id, user_id, activity_key, import_fingerprint')
+            .eq('basecamp_entry_id', entryId)
+            .maybeSingle();
     if (existing.error) throw existing.error;
+
+    if (!existing.data && input.importFingerprint) {
+        existing = await admin
+            .from('time_logs')
+            .select('id, source, import_status, client_id, task_id, user_id, activity_key, import_fingerprint')
+            .eq('import_fingerprint', input.importFingerprint)
+            .maybeSingle();
+        if (existing.error) throw existing.error;
+    }
 
     // An import may add attribution, never remove it — see mergeImportedEntry.
     const row = mergeImportedEntry(
@@ -39,6 +58,8 @@ async function writeImportedEntry(input: ImportedEntryInput): Promise<'created' 
                 clientId: existing.data.client_id ?? null,
                 taskId: existing.data.task_id ?? null,
                 userId: existing.data.user_id ?? null,
+                activityKey: existing.data.activity_key ?? null,
+                importFingerprint: existing.data.import_fingerprint ?? null,
             }
             : null,
         input,
@@ -58,10 +79,10 @@ async function writeImportedEntry(input: ImportedEntryInput): Promise<'created' 
     if (error.code !== '23505') throw error;
 
     // Lost the race against a concurrent delivery — reconcile onto that row.
-    const { error: updateError } = await admin
-        .from('time_logs')
-        .update(row)
-        .eq('basecamp_entry_id', entryId);
+    const recovery = admin.from('time_logs').update(row);
+    const { error: updateError } = entryId !== null
+        ? await recovery.eq('basecamp_entry_id', entryId)
+        : await recovery.eq('import_fingerprint', input.importFingerprint ?? '');
     if (updateError) throw updateError;
     return 'updated';
 }

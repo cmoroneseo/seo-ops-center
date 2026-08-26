@@ -130,6 +130,7 @@ test('a created entry imports as a mapped ledger row from provider state', async
         importStatus: 'mapped',
         providerUpdatedAt: '2026-08-24T18:00:00Z',
         importedAt: '2026-08-24T18:05:00Z',
+        importFingerprint: null,
     });
 });
 

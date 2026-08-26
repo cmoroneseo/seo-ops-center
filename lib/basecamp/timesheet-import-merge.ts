@@ -24,6 +24,8 @@ export interface ExistingLedgerRow {
     clientId: string | null;
     taskId: string | null;
     userId: string | null;
+    activityKey: string | null;
+    importFingerprint: string | null;
 }
 
 export interface MergedLedgerRow {
@@ -37,14 +39,25 @@ export interface MergedLedgerRow {
     status: 'logged';
     source: TimeLogSource;
     import_status: TimeLogImportStatus;
-    basecamp_entry_id: number;
-    basecamp_project_id: number;
-    basecamp_recording_id: number;
+    activity_key: string | null;
+    import_fingerprint: string | null;
+    basecamp_entry_id: number | null;
+    basecamp_project_id: number | null;
+    basecamp_recording_id: number | null;
     basecamp_synced_at: string;
     basecamp_sync_error: null;
     imported_at: string;
     provider_updated_at: string | null;
     voided_at: null;
+}
+
+/** Statuses a provider update must never move a row away from. */
+const MEMBER_OWNED: TimeLogImportStatus[] = ['pending_review', 'mapped'];
+
+function numberOrNull(value: string): number | null {
+    if (!value) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function mergeImportedEntry(
@@ -55,13 +68,24 @@ export function mergeImportedEntry(
     const clientId = existing?.clientId ?? incoming.clientId;
     const taskId = existing?.taskId ?? incoming.taskId;
     const userId = existing?.userId ?? incoming.userId;
+    // Only ever set by a human via review; an import never supplies one.
+    const activityKey = existing?.activityKey ?? null;
 
     // A row is only unresolved if it is *still* unresolved after the merge.
     // A native row is resolved by construction and never enters review.
     const source: TimeLogSource = existing?.source ?? 'basecamp';
-    const importStatus: TimeLogImportStatus = source === 'seo_pm'
-        ? 'mapped'
-        : (userId && clientId) ? 'mapped' : incoming.importStatus;
+    const entryId = numberOrNull(incoming.basecampEntryId);
+
+    // A member has already acted on these; a provider edit is not allowed to
+    // undo that and send the row back to the queue.
+    const importStatus: TimeLogImportStatus =
+        existing && MEMBER_OWNED.includes(existing.importStatus)
+            ? existing.importStatus
+            : source === 'seo_pm'
+                ? 'mapped'
+                // A CSV backfill (no entry id yet) always stays in review until
+                // the provider confirms it — attribution alone isn't enough.
+                : (userId && clientId && entryId !== null) ? 'mapped' : 'needs_context';
 
     return {
         organization_id: incoming.organizationId,
@@ -73,10 +97,13 @@ export function mergeImportedEntry(
         description: incoming.description,
         status: 'logged',
         source,
-        import_status: importStatus === 'voided' ? 'mapped' : importStatus,
-        basecamp_entry_id: Number(incoming.basecampEntryId),
-        basecamp_project_id: Number(incoming.basecampProjectId),
-        basecamp_recording_id: Number(incoming.basecampRecordingId),
+        import_status: importStatus,
+        activity_key: activityKey,
+        // Adoption: keep whichever identity we already had, add the new one.
+        import_fingerprint: existing?.importFingerprint ?? incoming.importFingerprint,
+        basecamp_entry_id: entryId,
+        basecamp_project_id: numberOrNull(incoming.basecampProjectId),
+        basecamp_recording_id: numberOrNull(incoming.basecampRecordingId),
         basecamp_synced_at: incoming.importedAt,
         basecamp_sync_error: null,
         imported_at: incoming.importedAt,
