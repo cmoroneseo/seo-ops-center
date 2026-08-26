@@ -11,6 +11,7 @@ import type { ReviewableRow } from './import-issues.ts';
 function row(overrides: Partial<ReviewableRow> = {}): ReviewableRow {
     return {
         id: 'log-1',
+        userId: 'user-abel',
         clientId: 'client-a',
         isInternal: false,
         activityKey: 'technical_audit',
@@ -120,6 +121,14 @@ test('submitting is refused when any row still has a blocking issue', () => {
     assert.match(!result.ok ? result.error : '', /1 entry/);
 });
 
+test('submitting a batch with a memberless row is refused', () => {
+    const result = buildSubmit([row(), row({ id: 'log-2', userId: null })], actor, NOW);
+
+    assert.equal(result.ok, false);
+    assert.equal(!result.ok && result.status, 409);
+    assert.match(!result.ok ? result.error : '', /1 entry/);
+});
+
 test('submitting an empty batch is refused', () => {
     const result = buildSubmit([], actor, NOW);
 
@@ -165,6 +174,17 @@ test('approving a row that was never submitted is refused', () => {
 test('approving is refused if a submitted row lost its activity', () => {
     const result = buildApproval(
         [row({ importStatus: 'pending_review', activityKey: null })],
+        manager,
+        NOW,
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(!result.ok && result.status, 409);
+});
+
+test('a manager cannot approve a row with no mapped member', () => {
+    const result = buildApproval(
+        [row({ importStatus: 'pending_review', userId: null })],
         manager,
         NOW,
     );

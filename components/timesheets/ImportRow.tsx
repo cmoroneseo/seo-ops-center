@@ -216,6 +216,13 @@ export function ImportRow({
                 ))}
             </div>
 
+            {row.issues.includes('no_member') && (
+                <p className="mt-2 flex items-start gap-2 pl-7 text-xs text-amber-500">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                    No org member is mapped to this Basecamp person. Map them in Settings to submit this entry.
+                </p>
+            )}
+
             {row.reviewNote && (
                 <p className="mt-2 flex items-start gap-2 pl-7 text-xs text-amber-500">
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />

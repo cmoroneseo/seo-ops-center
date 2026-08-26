@@ -11,13 +11,19 @@ import type { TimeLogImportStatus } from '../types.ts';
  * nothing ever imports.
  */
 
-export type ImportIssue = 'no_client' | 'no_activity' | 'no_task_link';
+export type ImportIssue = 'no_member' | 'no_client' | 'no_activity' | 'no_task_link';
 
 /** Blocking issues, in the order they are surfaced. */
-const BLOCKING: ImportIssue[] = ['no_client', 'no_activity'];
+const BLOCKING: ImportIssue[] = ['no_member', 'no_client', 'no_activity'];
 
 export interface ReviewableRow {
     id: string;
+    /**
+     * The org member this time belongs to. Null when the Basecamp person who
+     * logged it has never been mapped to an org member in Settings — the row
+     * is unattributed and must never be approvable.
+     */
+    userId: string | null;
     clientId: string | null;
     /** Time on a project marked `internal` — legitimately has no client. */
     isInternal: boolean;
@@ -35,6 +41,7 @@ export function deriveIssues(row: ReviewableRow): ImportIssue[] {
     if (!isOpen(row.importStatus)) return [];
 
     const issues: ImportIssue[] = [];
+    if (!row.userId) issues.push('no_member');
     if (!row.clientId && !row.isInternal) issues.push('no_client');
     if (!row.activityKey) issues.push('no_activity');
     if (!row.taskId) issues.push('no_task_link');

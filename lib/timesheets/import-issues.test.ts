@@ -5,6 +5,7 @@ import { deriveIssues, isReadyToSubmit, type ReviewableRow } from './import-issu
 function row(overrides: Partial<ReviewableRow> = {}): ReviewableRow {
     return {
         id: 'log-1',
+        userId: 'user-abel',
         clientId: 'client-a',
         isInternal: false,
         activityKey: 'technical_audit',
@@ -17,6 +18,15 @@ function row(overrides: Partial<ReviewableRow> = {}): ReviewableRow {
 test('a complete row has no issues and can be submitted', () => {
     assert.deepEqual(deriveIssues(row()), []);
     assert.equal(isReadyToSubmit(row()), true);
+});
+
+test('a row with no mapped member is an issue', () => {
+    assert.deepEqual(deriveIssues(row({ userId: null })), ['no_member']);
+    assert.equal(isReadyToSubmit(row({ userId: null })), false);
+});
+
+test('a row with a mapped member does not report no_member', () => {
+    assert.equal(deriveIssues(row()).includes('no_member'), false);
 });
 
 test('a missing client is an issue', () => {
@@ -49,18 +59,18 @@ test('a missing task link is advisory and never blocks', () => {
 
 test('issues accumulate in a stable order', () => {
     assert.deepEqual(
-        deriveIssues(row({ clientId: null, activityKey: null, taskId: null })),
-        ['no_client', 'no_activity', 'no_task_link'],
+        deriveIssues(row({ userId: null, clientId: null, activityKey: null, taskId: null })),
+        ['no_member', 'no_client', 'no_activity', 'no_task_link'],
     );
 });
 
-test('an already-mapped row reports no issues', () => {
-    assert.deepEqual(deriveIssues(row({ importStatus: 'mapped', taskId: null })), []);
+test('an already-mapped row reports no issues, even with no member', () => {
+    assert.deepEqual(deriveIssues(row({ importStatus: 'mapped', taskId: null, userId: null })), []);
     assert.equal(isReadyToSubmit(row({ importStatus: 'mapped' })), false);
 });
 
-test('a voided row reports no issues and cannot be submitted', () => {
-    assert.deepEqual(deriveIssues(row({ importStatus: 'voided', activityKey: null })), []);
+test('a voided row reports no issues and cannot be submitted, even with no member', () => {
+    assert.deepEqual(deriveIssues(row({ importStatus: 'voided', activityKey: null, userId: null })), []);
     assert.equal(isReadyToSubmit(row({ importStatus: 'voided' })), false);
 });
 
