@@ -14,8 +14,10 @@ import type { TimeLogImportStatus, TimeLogSource } from '../types.ts';
  *   * a manager resolves an unmapped import by hand. The next provider edit
  *     must not undo that decision.
  *
- * Provider-owned facts (date, hours, description, provenance) always win —
- * those are exactly what Basecamp is authoritative for.
+ * Provider-owned facts (date, hours, provenance) always win — those are exactly
+ * what Basecamp is authoritative for. The description is the exception: once a
+ * member has supplied context through review it is ours, not Basecamp's, and
+ * the same rule applies — an import may add context, never remove it.
  */
 
 export interface ExistingLedgerRow {
@@ -25,6 +27,8 @@ export interface ExistingLedgerRow {
     taskId: string | null;
     userId: string | null;
     activityKey: string | null;
+    /** What the row says now. Member-supplied when `activityKey` is set. */
+    description: string | null;
     importFingerprint: string | null;
 }
 
@@ -70,6 +74,16 @@ export function mergeImportedEntry(
     const userId = existing?.userId ?? incoming.userId;
     // Only ever set by a human via review; an import never supplies one.
     const activityKey = existing?.activityKey ?? null;
+    // Review writes the member's context into `description` (describeActivity),
+    // and `activity_key` is the marker that it did. Basecamp is authoritative
+    // for descriptions only until a member has put context there — after that a
+    // provider edit (13 of 14 arrive empty) would silently blank an approved
+    // row while it keeps counting toward budget.
+    // An empty stored description holds no context to protect, so the provider
+    // value is still an addition rather than a removal.
+    const description = (activityKey && existing?.description)
+        ? existing.description
+        : incoming.description;
 
     // A row is only unresolved if it is *still* unresolved after the merge.
     // A native row is resolved by construction and never enters review.
@@ -97,7 +111,7 @@ export function mergeImportedEntry(
         user_id: userId,
         date: incoming.date,
         hours: incoming.hours,
-        description: incoming.description,
+        description,
         status: 'logged',
         source,
         import_status: importStatus,

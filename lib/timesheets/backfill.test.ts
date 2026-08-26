@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCsvBackfill, type BackfillDependencies } from './backfill.ts';
 import type { ImportedEntryInput } from '../basecamp/timesheet-webhook-route.ts';
+import type { ProjectRoleRecord } from '../basecamp/project-roles.ts';
+import { mapImportQueueRow } from '../supabase/timesheet-imports.ts';
+import { deriveIssues } from './import-issues.ts';
 
 const HEADER = 'Date,Person,Hours,Project,Item,Notes,Created';
 const CSV = [
@@ -70,6 +73,65 @@ test('an internal project imports with no client', async () => {
     const hq = written.find(entry => entry.hours === 1);
     assert.equal(hq?.clientId, null);
     assert.equal(hq?.importStatus, 'needs_context');
+});
+
+test('a matched row carries the project id its role was matched on', async () => {
+    const { backfill, written } = harness();
+    await backfill(request);
+
+    const hq = written.find(entry => entry.hours === 1);
+    assert.equal(hq?.basecampProjectId, '27062278');
+
+    const scott = written.find(entry => entry.hours === 4.5);
+    assert.equal(scott?.basecampProjectId, '38327950');
+});
+
+test('an unknown project keeps an empty project id, never a guess', async () => {
+    const { backfill, written } = harness();
+    await backfill(request);
+
+    const patios = written.find(entry => entry.hours === 0.4);
+    assert.equal(patios?.basecampProjectId, '');
+});
+
+test('a backfilled internal row reads back as internal, not as a no_client blocker', async () => {
+    // The end-to-end failure: without the project id the queue cannot key the
+    // role, so HQ time shows isInternal = false, gets a permanent blocking
+    // no_client issue, and the only escape is billing it to a real client.
+    const { backfill, written } = harness();
+    await backfill(request);
+
+    const hq = written.find(entry => entry.hours === 1);
+    assert.ok(hq);
+
+    const roles = new Map<string, ProjectRoleRecord>([
+        ['27062278', {
+            basecampProjectId: '27062278',
+            basecampProjectName: 'Marketing Empire Group HQ',
+            role: 'internal',
+            clientId: null,
+        }],
+    ]);
+    const queued = mapImportQueueRow({
+        id: 'log-hq',
+        user_id: hq.userId,
+        client_id: hq.clientId,
+        activity_key: null,
+        task_id: null,
+        import_status: 'needs_context',
+        date: hq.date,
+        hours: hq.hours,
+        description: hq.description,
+        counts_toward_budget: true,
+        review_note: null,
+        basecamp_project_id: hq.basecampProjectId,
+        clients: null,
+        tasks: null,
+    }, roles);
+
+    assert.equal(queued.isInternal, true);
+    assert.equal(queued.countsTowardBudget, false);
+    assert.ok(!deriveIssues(queued).includes('no_client'));
 });
 
 test('an unknown project still imports, for a human decision', async () => {

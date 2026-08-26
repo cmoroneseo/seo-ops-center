@@ -11,37 +11,49 @@ const roles: ProjectRoleRecord[] = [
 test('a client project resolves to its client', () => {
     const result = resolveProjectRole(roles, { projectId: '46422132', projectName: '12 Volt Power' });
 
-    assert.deepEqual(result, { kind: 'client', clientId: 'client-12v' });
+    assert.deepEqual(result, { kind: 'client', clientId: 'client-12v', basecampProjectId: '46422132' });
 });
 
 test('an internal project resolves with no client', () => {
     const result = resolveProjectRole(roles, { projectId: '27062278', projectName: 'Marketing Empire Group HQ' });
 
-    assert.deepEqual(result, { kind: 'internal', clientId: null });
+    assert.deepEqual(result, { kind: 'internal', clientId: null, basecampProjectId: '27062278' });
 });
 
 test('an ignored project is skipped entirely', () => {
     const result = resolveProjectRole(roles, { projectId: '99999999', projectName: 'Dead Project' });
 
-    assert.deepEqual(result, { kind: 'ignored', clientId: null });
+    assert.deepEqual(result, { kind: 'ignored', clientId: null, basecampProjectId: '99999999' });
 });
 
 test('an unknown project surfaces for a decision rather than being dropped', () => {
     const result = resolveProjectRole(roles, { projectId: '11111111', projectName: 'Superior Patios' });
 
-    assert.deepEqual(result, { kind: 'unknown', clientId: null });
+    assert.deepEqual(result, { kind: 'unknown', clientId: null, basecampProjectId: null });
 });
 
 test('a CSV row with no project id resolves by name', () => {
     const result = resolveProjectRole(roles, { projectId: null, projectName: '12 Volt Power' });
 
-    assert.deepEqual(result, { kind: 'client', clientId: 'client-12v' });
+    assert.deepEqual(result, { kind: 'client', clientId: 'client-12v', basecampProjectId: '46422132' });
+});
+
+test('a name match still recovers the project id the CSV never carried', () => {
+    // The whole point: downstream (queue mapping, migration 041) keys project
+    // roles by basecamp_project_id. A resolution without one is unusable.
+    const result = resolveProjectRole(roles, {
+        projectId: null,
+        projectName: 'Marketing Empire Group HQ',
+    });
+
+    assert.equal(result.kind, 'internal');
+    assert.equal(result.basecampProjectId, '27062278');
 });
 
 test('name matching ignores case and surrounding whitespace', () => {
     const result = resolveProjectRole(roles, { projectId: null, projectName: '  12 VOLT POWER ' });
 
-    assert.deepEqual(result, { kind: 'client', clientId: 'client-12v' });
+    assert.deepEqual(result, { kind: 'client', clientId: 'client-12v', basecampProjectId: '46422132' });
 });
 
 test('a project id wins over a conflicting name', () => {

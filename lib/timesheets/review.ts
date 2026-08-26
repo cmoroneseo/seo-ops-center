@@ -1,4 +1,4 @@
-import { minutesFromHours, type LedgerLog } from './ledger.ts';
+import { isUnmappedImport, minutesFromHours, type LedgerLog } from './ledger.ts';
 
 /**
  * Client-month approval maths.
@@ -74,11 +74,26 @@ function inClientMonth(log: LedgerLog, options: ClientMonthOptions): boolean {
  * Approvable time. A running timer is not final, a voided row no longer exists
  * at the provider, and an unmapped row has no trustworthy attribution — none of
  * the three may be silently folded into an approved total.
+ *
+ * `pending_review` is deliberately not approvable: it is submitted time waiting
+ * on a manager, and it blocks the month instead (see `isBlockingUnmapped`).
  */
 function isApprovable(log: LedgerLog): boolean {
     return log.status === 'logged'
         && log.importStatus === 'mapped'
         && !log.voidedAt;
+}
+
+/**
+ * Live, unapproved import time in the month.
+ *
+ * Both `needs_context` and `pending_review` block: neither has been accepted by
+ * a manager, so approving the month around them would freeze a snapshot that
+ * the queue is about to contradict — turning the exceptional drift flag into a
+ * routine one. Matches the ledger's review bucket exactly.
+ */
+function isBlockingUnmapped(log: LedgerLog): boolean {
+    return isUnmappedImport(log) && !log.voidedAt && log.status === 'logged';
 }
 
 export function buildClientMonthSnapshot(
@@ -94,7 +109,7 @@ export function buildClientMonthSnapshot(
     let unmappedCount = 0;
 
     for (const log of scoped) {
-        if (log.importStatus === 'needs_context' && !log.voidedAt && log.status === 'logged') {
+        if (isBlockingUnmapped(log)) {
             unmappedCount += 1;
             continue;
         }

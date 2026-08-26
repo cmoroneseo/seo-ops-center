@@ -23,9 +23,19 @@ export interface ProjectRoleRecord {
 export interface ProjectResolution {
     kind: BasecampProjectRoleKind | 'unknown';
     clientId: string | null;
+    /**
+     * The id of the role record we matched, null when nothing matched.
+     *
+     * A CSV export names its project but carries no id, so this is often the
+     * only place the id is recoverable. Downstream keys project roles by
+     * `basecamp_project_id` — the queue read model to decide `isInternal`, and
+     * migration 041 to force internal attribution — so dropping it here files
+     * internal time as an unresolvable `no_client` exception.
+     */
+    basecampProjectId: string | null;
 }
 
-const UNKNOWN: ProjectResolution = { kind: 'unknown', clientId: null };
+const UNKNOWN: ProjectResolution = { kind: 'unknown', clientId: null, basecampProjectId: null };
 
 function normalize(name: string | null): string {
     return (name ?? '').trim().toLowerCase();
@@ -45,5 +55,6 @@ export function resolveProjectRole(
     return {
         kind: match.role,
         clientId: match.role === 'client' ? match.clientId : null,
+        basecampProjectId: match.basecampProjectId,
     };
 }

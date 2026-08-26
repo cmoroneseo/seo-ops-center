@@ -27,7 +27,23 @@ test('import_status gains the review states and drops needs_review', () => {
         );
     }
     // Existing rows must be migrated, not stranded on a now-invalid value.
-    assert.match(migration, /update public\.time_logs\s+set import_status = 'needs_context'\s+where import_status = 'needs_review'/i);
+    for (const sql of [migration, schema]) {
+        const backfill = sql.search(
+            /update public\.time_logs\s+set import_status = 'needs_context'\s+where import_status = 'needs_review'/i,
+        );
+        const widened = sql.search(
+            /add constraint time_logs_import_status_check\s+check \(import_status in \('needs_context', 'pending_review', 'mapped', 'voided'\)\)/i,
+        );
+        assert.notEqual(backfill, -1, 'missing the needs_review backfill');
+        assert.notEqual(widened, -1, 'missing the widened import_status constraint');
+        // Ordering is the whole point: writing 'needs_context' while migration
+        // 038's constraint is still in force raises 23514 and rolls the whole
+        // migration back. The constraint must be widened first.
+        assert.ok(
+            backfill > widened,
+            'the needs_review backfill must run AFTER the constraint is widened',
+        );
+    }
 });
 
 test('time_logs gains activity, fingerprint, and review columns', () => {

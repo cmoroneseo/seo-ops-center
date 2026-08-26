@@ -90,7 +90,7 @@ export function mapImportQueueRow(
 
     return {
         id: row.id,
-        userId: row.user_id ?? '',
+        userId: row.user_id,
         clientId: isInternal ? null : row.client_id ?? null,
         clientName: isInternal ? null : row.clients?.name ?? null,
         // Internal is a property of the project, not of the entry.

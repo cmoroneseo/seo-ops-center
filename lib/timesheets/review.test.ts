@@ -5,7 +5,7 @@ import {
     detectPostApprovalChanges,
     monthOf,
 } from './review.ts';
-import type { LedgerLog } from './ledger.ts';
+import { buildWeeklyLedger, type LedgerLog } from './ledger.ts';
 
 function log(overrides: Partial<LedgerLog> & { id: string; date: string }): LedgerLog {
     return {
@@ -85,6 +85,57 @@ test('unmapped rows in the month block approval', () => {
     assert.equal(snapshot.unmappedCount, 1);
     assert.equal(snapshot.canApprove, false);
     assert.deepEqual(snapshot.blockers, ['unmapped_entries']);
+});
+
+test('submitted-but-unapproved rows are not approvable and block the month', () => {
+    const snapshot = buildClientMonthSnapshot(
+        [
+            log({ id: 'ok', date: '2026-08-10' }),
+            log({
+                id: 'submitted', date: '2026-08-11', hours: 5,
+                source: 'basecamp', importStatus: 'pending_review',
+            }),
+        ],
+        { clientId: 'client-a', month: '2026-08', budgetMinutes: 600 },
+    );
+
+    assert.deepEqual(snapshot.entries.map(entry => entry.timeLogId), ['ok']);
+    assert.equal(snapshot.eligibleMinutes, 60);
+    assert.equal(snapshot.unmappedCount, 1);
+    assert.equal(snapshot.canApprove, false);
+    assert.deepEqual(snapshot.blockers, ['unmapped_entries']);
+});
+
+test('approving a queue after the month never shows up as routine drift', () => {
+    // The scenario: a member submits 20h. The three modules have to agree, or
+    // the manager sees 20h in the ledger, no blocker on the month, approves at
+    // 0h, and approving the queue afterwards re-adds all 20h as post-approval
+    // 'added' changes — making the exceptional drift flag routine.
+    const submitted = Array.from({ length: 10 }, (_, index) => log({
+        id: `submitted-${index}`,
+        date: '2026-08-24',
+        hours: 2,
+        source: 'basecamp',
+        importStatus: 'pending_review' as const,
+    }));
+
+    const ledger = buildWeeklyLedger(submitted, '2026-08-23');
+    assert.equal(ledger.clients.find(group => group.clientId === 'client-a'), undefined);
+    assert.equal(ledger.totals.budgetMinutes, 0);
+    assert.equal(ledger.totals.unmappedCount, 10);
+
+    const options = { clientId: 'client-a', month: '2026-08', budgetMinutes: 600 };
+    const before = buildClientMonthSnapshot(submitted, options);
+    assert.equal(before.unmappedCount, 10);
+    assert.equal(before.canApprove, false, 'the month must not be approvable at 0h');
+
+    // Once the manager approves the queue, the month becomes approvable and
+    // the 20h are in the snapshot from the start — no drift.
+    const approved = submitted.map(entry => ({ ...entry, importStatus: 'mapped' as const }));
+    const after = buildClientMonthSnapshot(approved, options);
+    assert.equal(after.canApprove, true);
+    assert.equal(after.eligibleMinutes, 1200);
+    assert.deepEqual(detectPostApprovalChanges(after, approved), []);
 });
 
 test('a clean month with no unmapped rows can be approved', () => {

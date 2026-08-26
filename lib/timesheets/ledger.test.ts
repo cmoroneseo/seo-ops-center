@@ -176,6 +176,30 @@ test('unmapped rows sit in a review bucket, not under a guessed client', () => {
     assert.equal(group.clientId, null);
 });
 
+test('submitted-but-unapproved rows stay in the review bucket, not under the client', () => {
+    // pending_review is submitted, not approved. Showing it as ordinary client
+    // time tells a manager the month is settled when it is not.
+    const ledger = buildWeeklyLedger(
+        [
+            log({
+                id: 'submitted', date: '2026-08-24', hours: 3,
+                source: 'basecamp', importStatus: 'pending_review',
+            }),
+            log({ id: 'approved', date: '2026-08-24', hours: 1 }),
+        ],
+        '2026-08-23',
+    );
+
+    const review = ledger.clients.find(group => group.needsReview);
+    const client = ledger.clients.find(group => group.clientId === 'client-a');
+    assert.equal(review?.totalMinutes, 180);
+    assert.equal(client?.totalMinutes, 60);
+    assert.equal(client?.budgetMinutes, 60);
+    assert.equal(ledger.totals.budgetMinutes, 60);
+    assert.equal(ledger.totals.unmappedCount, 1);
+    assert.deepEqual(ledger.exceptions.map(exception => exception.timeLogId), ['submitted']);
+});
+
 test('voided imports are excluded from every total', () => {
     const ledger = buildWeeklyLedger(
         [

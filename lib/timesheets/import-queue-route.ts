@@ -12,7 +12,14 @@ import type { TimeLogImportStatus } from '../types.ts';
 
 export interface QueueSourceRow {
     id: string;
-    userId: string;
+    /**
+     * The org member this time belongs to, or null when the Basecamp person
+     * who logged it has never been mapped in Settings. Null, never a sentinel:
+     * this field is the member-privacy check in the entries route, the one
+     * boundary RLS cannot express, and a placeholder that types as a real id
+     * is exactly how that check quietly stops failing closed.
+     */
+    userId: string | null;
     clientId: string | null;
     clientName: string | null;
     isInternal: boolean;

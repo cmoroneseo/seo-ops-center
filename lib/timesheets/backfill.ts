@@ -111,7 +111,9 @@ export function createCsvBackfill(dependencies: BackfillDependencies) {
             await dependencies.upsertImportedEntry({
                 // The CSV carries no ids at all; fingerprint is the identity.
                 basecampEntryId: '',
-                basecampProjectId: '',
+                // Recovered from the matched role record: the CSV has no ids,
+                // and the queue keys project roles by this column.
+                basecampProjectId: resolution.basecampProjectId ?? '',
                 basecampRecordingId: '',
                 organizationId: authorization.organizationId,
                 clientId: resolution.clientId,

@@ -141,9 +141,14 @@ function isLedgerEligible(log: LedgerLog): boolean {
  * Unresolved imports get their own bucket. We deliberately do not fall back to
  * whatever client/task the payload hinted at — a wrong attribution is worse
  * than a visible exception.
+ *
+ * `pending_review` is submitted, not approved: the member has supplied context
+ * but no manager has accepted it, so it is not yet countable time. Rendering it
+ * as ordinary client time would tell a manager the month is settled while the
+ * queue behind it is still open. Only `mapped` counts.
  */
-function isUnmapped(log: LedgerLog): boolean {
-    return log.importStatus === 'needs_context';
+export function isUnmappedImport(log: Pick<LedgerLog, 'importStatus'>): boolean {
+    return log.importStatus === 'needs_context' || log.importStatus === 'pending_review';
 }
 
 interface GroupKey {
@@ -154,7 +159,7 @@ interface GroupKey {
 }
 
 function groupKeyFor(log: LedgerLog): GroupKey {
-    if (isUnmapped(log)) {
+    if (isUnmappedImport(log)) {
         return {
             clientId: null,
             clientName: REVIEW_GROUP_LABEL,
@@ -277,14 +282,19 @@ export function buildWeeklyLedger(
         totals.dailyMinutes[index] += minutes;
         totals.totalMinutes += minutes;
 
-        if (key.isInternal) {
-            totals.internalMinutes += minutes;
-        } else if (log.countsTowardBudget) {
-            group.budgetMinutes += minutes;
-            totals.budgetMinutes += minutes;
-        } else {
-            group.nonBudgetMinutes += minutes;
-            totals.nonBudgetMinutes += minutes;
+        // Unapproved import time is not client time yet. It shows in the week's
+        // totals and in its own bucket, but it must never be reported as
+        // consuming — or as being exempt from — an SEO budget.
+        if (!key.needsReview) {
+            if (key.isInternal) {
+                totals.internalMinutes += minutes;
+            } else if (log.countsTowardBudget) {
+                group.budgetMinutes += minutes;
+                totals.budgetMinutes += minutes;
+            } else {
+                group.nonBudgetMinutes += minutes;
+                totals.nonBudgetMinutes += minutes;
+            }
         }
 
         if (key.needsReview) {

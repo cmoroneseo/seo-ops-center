@@ -31,6 +31,7 @@ function existing(overrides: Partial<ExistingLedgerRow> = {}): ExistingLedgerRow
         taskId: null,
         userId: 'user-abel',
         activityKey: null,
+        description: '',
         importFingerprint: null,
         ...overrides,
     };
@@ -56,6 +57,57 @@ test('an existing imported row takes the provider values', () => {
     assert.equal(merged.description, 'Revised');
     assert.equal(merged.date, '2026-08-25');
     assert.equal(merged.source, 'basecamp');
+});
+
+test('a provider edit never blanks context a member supplied', () => {
+    // 13 of 14 Basecamp descriptions are empty. An approved row whose context
+    // came from review must not be silently emptied by a provider touch.
+    const merged = mergeImportedEntry(
+        existing({
+            importStatus: 'mapped',
+            activityKey: 'keyword_research',
+            description: 'Keyword Research — mapped the money pages',
+        }),
+        incoming({ description: '' }),
+    );
+
+    assert.equal(merged.description, 'Keyword Research — mapped the money pages');
+    assert.equal(merged.import_status, 'mapped');
+    assert.equal(merged.activity_key, 'keyword_research');
+});
+
+test('member context survives even a non-empty provider description', () => {
+    // Same rule as attribution: an import may add, never remove. A row a member
+    // has acted on keeps its context whatever Basecamp now says.
+    const merged = mergeImportedEntry(
+        existing({
+            importStatus: 'pending_review',
+            activityKey: 'technical_audit',
+            description: 'Technical Audit — crawl + fixes',
+        }),
+        incoming({ description: 'Revised in Basecamp' }),
+    );
+
+    assert.equal(merged.description, 'Technical Audit — crawl + fixes');
+});
+
+test('a row with no member context still takes the provider description', () => {
+    const merged = mergeImportedEntry(
+        existing({ importStatus: 'needs_context', activityKey: null, description: 'stale' }),
+        incoming({ description: 'Revised in Basecamp' }),
+    );
+
+    assert.equal(merged.description, 'Revised in Basecamp');
+});
+
+test('an activity key with an empty description still accepts provider text', () => {
+    // Nothing to remove, so filling it in is an addition.
+    const merged = mergeImportedEntry(
+        existing({ importStatus: 'mapped', activityKey: 'technical_audit', description: '' }),
+        incoming({ description: 'Crawl notes' }),
+    );
+
+    assert.equal(merged.description, 'Crawl notes');
 });
 
 test('an SEO PM row echoed back keeps its native source', () => {

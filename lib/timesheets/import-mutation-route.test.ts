@@ -356,3 +356,40 @@ test('a manager bounce preserves the transition-normalized note', async () => {
     assert.equal(updates[0].expectedStatus, 'pending_review');
     assert.equal(updates[0].authorizedUserId, null);
 });
+
+test('a member may never act on an unattributed row', () => {
+    // Fail-closed by type as well as by value: an unmapped Basecamp person
+    // leaves `userId` null, which can never equal a real member id.
+    const unattributed = row({ id: 'log-orphan', userId: null });
+    assert.equal(unattributed.userId, null);
+});
+
+test('an unattributed row is Forbidden for a member and loadable for a manager', async () => {
+    const member = harness({ rows: [row({ id: 'log-orphan', userId: null })] });
+    const denied = await member.patch(request({
+        organizationId: 'org-requested',
+        action: 'submit',
+        ids: ['log-orphan'],
+    }));
+
+    assert.equal(denied.status, 403);
+    assert.deepEqual(member.updates, []);
+
+    const manager = harness({
+        authorization: {
+            ok: true,
+            userId: 'user-carlos',
+            organizationId: 'org-canonical',
+            isManager: true,
+        },
+        rows: [row({ id: 'log-orphan', userId: null, importStatus: 'pending_review' })],
+    });
+    const bounced = await manager.patch(request({
+        organizationId: 'org-requested',
+        action: 'bounce',
+        ids: ['log-orphan'],
+        note: 'Who logged this?',
+    }));
+
+    assert.equal(bounced.status, 200);
+});

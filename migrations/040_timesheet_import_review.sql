@@ -13,16 +13,20 @@
 -- Review state machine
 -- ---------------------------------------------------------------------------
 
--- Migrate existing rows before the constraint changes under them.
-update public.time_logs
-   set import_status = 'needs_context'
- where import_status = 'needs_review';
-
+-- Widen the constraint FIRST. Migration 038 allows only
+-- ('mapped', 'needs_review', 'voided'), so writing 'needs_context' while that
+-- check is still in force raises 23514 on the first matching row and rolls the
+-- entire migration back. Widen, then migrate the existing rows.
 alter table public.time_logs
   drop constraint if exists time_logs_import_status_check;
 alter table public.time_logs
   add constraint time_logs_import_status_check
   check (import_status in ('needs_context', 'pending_review', 'mapped', 'voided'));
+
+-- Existing rows carry the old spelling; move them onto the new value.
+update public.time_logs
+   set import_status = 'needs_context'
+ where import_status = 'needs_review';
 
 alter table public.time_logs
   add column if not exists activity_key text;
