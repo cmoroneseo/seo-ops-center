@@ -18,6 +18,7 @@
  */
 
 import type { ProviderTimesheetEntry } from './timesheet-webhook-route';
+import { nextPageUrl } from './pagination';
 
 const BASE_URL = () => {
     const accountId = process.env.BASECAMP_ACCOUNT_ID;
@@ -461,13 +462,15 @@ export async function findProjectTimesheetRecordingId(projectId: number | string
         }
 
         let url: string | null = `${BASE_URL()}/projects/${pid}/timesheet.json`;
+        const seen = new Set<string>();
         while (url) {
+            seen.add(url);
             const res = await basecampFetch(url);
             if (!res.ok) return null;
             const page = await res.json() as BasecampTimesheetEntry[];
             const projectLevel = page.find(e => e.parent?.type === 'Timesheet');
             if (projectLevel) return projectLevel.parent.id;
-            url = parseNextLink(res.headers.get('Link'));
+            url = nextPageUrl(res.headers.get('Link'), seen);
         }
         return null;
     } catch (err) {
@@ -485,13 +488,15 @@ export async function getBasecampProjectTimesheetEntry(
         const pid = safeId(projectId, 'projectId');
         const eid = safeId(entryId, 'entryId');
         let url: string | null = `${BASE_URL()}/projects/${pid}/timesheet.json`;
+        const seen = new Set<string>();
         while (url) {
+            seen.add(url);
             const response = await basecampFetch(url);
             if (!response.ok) return null;
             const page = await response.json() as BasecampTimesheetEntry[];
             const entry = page.find(candidate => String(candidate.id) === eid);
             if (entry) return entry;
-            url = parseNextLink(response.headers.get('Link'));
+            url = nextPageUrl(response.headers.get('Link'), seen);
         }
         return null;
     } catch (error) {
@@ -512,12 +517,14 @@ export async function listBasecampProjectTimesheetEntries(
     try {
         const pid = safeId(projectId, 'projectId');
         const entries: BasecampTimesheetEntry[] = [];
+        const seen = new Set<string>();
         let url: string | null = `${BASE_URL()}/projects/${pid}/timesheet.json`;
         for (let page = 0; url && page < maxPages; page += 1) {
+            seen.add(url);
             const res: Response = await basecampFetch(url);
             if (!res.ok) return entries;
             entries.push(...await res.json() as BasecampTimesheetEntry[]);
-            url = parseNextLink(res.headers.get('Link'));
+            url = nextPageUrl(res.headers.get('Link'), seen);
         }
         return entries;
     } catch (err) {
@@ -539,13 +546,15 @@ export async function listBasecampTimesheetEntryStubs(
     try {
         const pid = safeId(projectId, 'projectId');
         const stubs: { id: string; date: string }[] = [];
+        const seen = new Set<string>();
         let url: string | null = `${BASE_URL()}/projects/${pid}/timesheet.json`;
         for (let page = 0; url && page < maxPages; page += 1) {
+            seen.add(url);
             const res: Response = await basecampFetch(url);
             if (!res.ok) return 'unavailable';
             const entries = await res.json() as BasecampTimesheetEntry[];
             stubs.push(...entries.map(entry => ({ id: String(entry.id), date: entry.date })));
-            url = parseNextLink(res.headers.get('Link'));
+            url = nextPageUrl(res.headers.get('Link'), seen);
         }
         return stubs;
     } catch (err) {
