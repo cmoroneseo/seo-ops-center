@@ -1,12 +1,18 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
 import { getClients } from '@/lib/supabase/clients';
+import {
+    createLatestRequestSequencer,
+    planBulkClientEdits,
+    settleOperations,
+    type ImportEntryEdit,
+} from '@/lib/timesheets/import-review-ui';
 import type { QueueRow } from '@/lib/timesheets/import-queue-route';
 import type { ClientProject } from '@/lib/types';
 import { BackfillControl, type BackfillMember } from './BackfillControl';
-import { detailForRow, ImportRow, type ImportEntryEdit } from './ImportRow';
+import { ImportRow } from './ImportRow';
 
 interface ImportReviewViewProps {
     organizationId: string;
@@ -26,9 +32,11 @@ interface ImportReviewQueueProps {
     selected: Set<string>;
     isBusy: boolean;
     error: string | null;
+    notice?: string | null;
     backfillMembers: BackfillMember[];
     refreshVersion?: number;
-    onReload: () => void;
+    onReload: () => Promise<void>;
+    onBackfillRunningChange?: (running: boolean) => void;
     onToggle: (id: string) => void;
     onClearSelection: () => void;
     onEdit: (id: string, edit: ImportEntryEdit) => void;
@@ -54,9 +62,11 @@ export function ImportReviewQueue({
     selected,
     isBusy,
     error,
+    notice,
     backfillMembers,
     refreshVersion = 0,
     onReload,
+    onBackfillRunningChange,
     onToggle,
     onClearSelection,
     onEdit,
@@ -69,9 +79,10 @@ export function ImportReviewQueue({
     const needsContext = rows.filter(row => row.importStatus === 'needs_context');
     const pending = rows.filter(row => row.importStatus === 'pending_review');
     const ready = needsContext.filter(row => row.isReady);
-    const selectedRows = rows.filter(row => selected.has(row.id));
-    const canBulkSetClient = selectedRows.length === selected.size
-        && selectedRows.every(row => Boolean(row.activityKey));
+    const bulkClientPlan = planBulkClientEdits(rows, selected, null);
+    const canBulkSetClient = bulkClientPlan.missingCount === 0
+        && bulkClientPlan.invalidActivityCount === 0
+        && bulkClientPlan.affectedCount > 0;
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
@@ -79,7 +90,9 @@ export function ImportReviewQueue({
                 <BackfillControl
                     organizationId={organizationId}
                     members={backfillMembers}
+                    disabled={isBusy}
                     onImported={onReload}
+                    onRunningChange={onBackfillRunningChange}
                 />
             )}
 
@@ -89,6 +102,15 @@ export function ImportReviewQueue({
                     className="mx-6 mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
                 >
                     {error}
+                </p>
+            )}
+
+            {notice && (
+                <p
+                    role="status"
+                    className="mx-6 mt-4 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+                >
+                    {notice}
                 </p>
             )}
 
@@ -119,9 +141,20 @@ export function ImportReviewQueue({
                                         <option key={client.id} value={client.id}>{client.clientName}</option>
                                     ))}
                                 </select>
-                                {!canBulkSetClient && (
+                                <span className="text-xs text-muted-foreground">
+                                    {bulkClientPlan.affectedCount} will be updated
+                                    {bulkClientPlan.excludedInternalCount > 0
+                                        ? `; ${bulkClientPlan.excludedInternalCount} internal excluded`
+                                        : ''}
+                                </span>
+                                {bulkClientPlan.invalidActivityCount > 0 && (
                                     <span className="text-xs text-amber-500">
-                                        Choose an activity for every selected entry first.
+                                        Choose an activity for each selected client entry first.
+                                    </span>
+                                )}
+                                {bulkClientPlan.missingCount > 0 && (
+                                    <span className="text-xs text-destructive">
+                                        Refresh this selection before applying a bulk change.
                                     </span>
                                 )}
                                 <button
@@ -202,9 +235,20 @@ export function ImportReviewView({
     const [clients, setClients] = useState<ClientProject[]>([]);
     const [selected, setSelected] = useState<Set<string>>(() => new Set());
     const [error, setError] = useState<string | null>(null);
-    const [isBusy, setIsBusy] = useState(false);
+    const [notice, setNotice] = useState<string | null>(null);
+    const [activeOperations, setActiveOperations] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [refreshVersion, setRefreshVersion] = useState(0);
+    const queueSequencer = useRef(createLatestRequestSequencer<QueuePayload>());
+    const isBusy = activeOperations > 0;
+
+    const beginOperation = useCallback(() => {
+        setActiveOperations(count => count + 1);
+    }, []);
+
+    const endOperation = useCallback(() => {
+        setActiveOperations(count => Math.max(0, count - 1));
+    }, []);
 
     const requestQueue = useCallback(async (signal?: AbortSignal) => {
         const response = await fetch(
@@ -220,31 +264,35 @@ export function ImportReviewView({
         return body as unknown as QueuePayload;
     }, [organizationId]);
 
-    const reloadQueue = useCallback(async () => {
-        const nextPayload = await requestQueue();
-        setPayload(nextPayload);
-        setRefreshVersion(version => version + 1);
+    const reloadQueue = useCallback(async (signal?: AbortSignal) => {
+        await queueSequencer.current.run(
+            () => requestQueue(signal),
+            nextPayload => {
+                setPayload(nextPayload);
+                setRefreshVersion(version => version + 1);
+            },
+        );
     }, [requestQueue]);
 
     useEffect(() => {
         if (!organizationId) return;
         let active = true;
         const controller = new AbortController();
+        const sequencer = queueSequencer.current;
         setPayload(null);
         setClients([]);
         setSelected(new Set());
         setIsLoading(true);
         setError(null);
+        setNotice(null);
 
         void Promise.all([
-            requestQueue(controller.signal),
+            reloadQueue(controller.signal),
             getClients(organizationId),
         ])
-            .then(([nextPayload, nextClients]) => {
+            .then(([, nextClients]) => {
                 if (!active) return;
-                setPayload(nextPayload);
                 setClients(nextClients);
-                setRefreshVersion(version => version + 1);
             })
             .catch(loadError => {
                 if (!active || (loadError instanceof Error && loadError.name === 'AbortError')) return;
@@ -256,9 +304,10 @@ export function ImportReviewView({
 
         return () => {
             active = false;
+            sequencer.invalidate();
             controller.abort();
         };
-    }, [organizationId, requestQueue]);
+    }, [organizationId, reloadQueue]);
 
     const sendMutation = useCallback(async (
         action: 'edit' | 'submit' | 'approve' | 'bounce',
@@ -277,8 +326,9 @@ export function ImportReviewView({
     }, [organizationId]);
 
     const runMutation = useCallback(async (operation: () => Promise<void>) => {
-        setIsBusy(true);
+        beginOperation();
         setError(null);
+        setNotice(null);
         try {
             await operation();
             setSelected(new Set());
@@ -295,9 +345,9 @@ export function ImportReviewView({
                     ? reloadError.message
                     : 'Unable to reload the import queue'));
             }
-            setIsBusy(false);
+            endOperation();
         }
-    }, [reloadQueue]);
+    }, [beginOperation, endOperation, reloadQueue]);
 
     const mutate = useCallback((
         action: 'edit' | 'submit' | 'approve' | 'bounce',
@@ -306,11 +356,6 @@ export function ImportReviewView({
     ) => {
         void runMutation(() => sendMutation(action, ids, extra));
     }, [runMutation, sendMutation]);
-
-    const rowsById = useMemo(
-        () => new Map((payload?.rows ?? []).map(row => [row.id, row])),
-        [payload?.rows],
-    );
 
     const toggle = useCallback((id: string) => {
         setSelected(previous => {
@@ -322,31 +367,64 @@ export function ImportReviewView({
     }, []);
 
     const bulkSetClient = useCallback((clientId: string) => {
-        const selectedRows = [...selected]
-            .map(id => rowsById.get(id))
-            .filter((row): row is QueueRow => Boolean(row));
+        const plan = planBulkClientEdits(payload?.rows ?? [], selected, clientId);
 
         void runMutation(async () => {
-            if (
-                selectedRows.length !== selected.size
-                || selectedRows.some(row => !row.activityKey)
-            ) {
-                throw new Error('Choose an activity for every selected entry before setting a client');
+            if (plan.missingCount > 0) {
+                throw new Error('Refresh this selection before setting a client');
             }
-            await Promise.all(selectedRows.map(row => sendMutation('edit', [row.id], {
-                edit: {
-                    activityKey: row.activityKey,
-                    detail: detailForRow(row),
-                    clientId,
-                    countsTowardBudget: row.countsTowardBudget,
-                },
-            })));
+            if (plan.invalidActivityCount > 0) {
+                throw new Error('Choose an activity for each selected client entry before setting a client');
+            }
+            if (plan.affectedCount === 0) {
+                throw new Error('No selected client entries can be updated');
+            }
+
+            const summary = await settleOperations(plan.edits.map(({ id, edit }) => (
+                () => sendMutation('edit', [id], { edit })
+            )));
+            const exclusion = plan.excludedInternalCount > 0
+                ? ` ${plan.excludedInternalCount} internal excluded.`
+                : '';
+
+            if (summary.failedCount > 0) {
+                setNotice(
+                    `Updated ${summary.succeededCount} of ${plan.affectedCount} client entries.${exclusion}`,
+                );
+                const messages = summary.errors.map(item => item.message).join('; ');
+                throw new Error(
+                    `${summary.failedCount} client ${summary.failedCount === 1 ? 'update' : 'updates'} failed${messages ? `: ${messages}` : ''}`,
+                );
+            }
+
+            setNotice(
+                `Updated ${plan.affectedCount} client ${plan.affectedCount === 1 ? 'entry' : 'entries'}.${exclusion}`,
+            );
         });
-    }, [rowsById, runMutation, selected, sendMutation]);
+    }, [payload?.rows, runMutation, selected, sendMutation]);
+
+    const reloadWithError = useCallback(async () => {
+        setError(null);
+        try {
+            await reloadQueue();
+        } catch (loadError) {
+            const message = loadError instanceof Error
+                ? loadError.message
+                : 'Unable to load the import queue';
+            setError(message);
+            throw loadError;
+        }
+    }, [reloadQueue]);
+
+    const handleBackfillRunningChange = useCallback((running: boolean) => {
+        if (running) beginOperation();
+        else endOperation();
+    }, [beginOperation, endOperation]);
 
     const retryLoad = useCallback(() => {
         setIsLoading(true);
         setError(null);
+        setNotice(null);
         void Promise.all([reloadQueue(), getClients(organizationId)])
             .then(([, nextClients]) => setClients(nextClients))
             .catch(loadError => setError(loadError instanceof Error
@@ -383,13 +461,11 @@ export function ImportReviewView({
             selected={selected}
             isBusy={isBusy}
             error={error}
+            notice={notice}
             backfillMembers={backfillMembers}
             refreshVersion={refreshVersion}
-            onReload={() => {
-                void reloadQueue().catch(loadError => setError(loadError instanceof Error
-                    ? loadError.message
-                    : 'Unable to load the import queue'));
-            }}
+            onReload={reloadWithError}
+            onBackfillRunningChange={handleBackfillRunningChange}
             onToggle={toggle}
             onClearSelection={() => setSelected(new Set())}
             onEdit={(id, edit) => mutate('edit', [id], { edit })}

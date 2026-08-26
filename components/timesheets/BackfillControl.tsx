@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { withRunningState } from '@/lib/timesheets/import-review-ui';
 
 export interface BackfillMember {
     userId: string;
@@ -13,7 +14,9 @@ export interface BackfillMember {
 interface BackfillControlProps {
     organizationId: string;
     members: BackfillMember[];
-    onImported: () => void | Promise<void>;
+    disabled?: boolean;
+    onImported: () => Promise<void>;
+    onRunningChange?: (running: boolean) => void;
 }
 
 interface RunStatus {
@@ -22,7 +25,13 @@ interface RunStatus {
 }
 
 /** Manager-only historical import. The server rechecks every permission. */
-export function BackfillControl({ organizationId, members, onImported }: BackfillControlProps) {
+export function BackfillControl({
+    organizationId,
+    members,
+    disabled = false,
+    onImported,
+    onRunningChange,
+}: BackfillControlProps) {
     const availableMembers = members.filter(member => member.hasBasecampPerson);
     const [userId, setUserId] = useState('');
     const [from, setFrom] = useState('');
@@ -30,32 +39,35 @@ export function BackfillControl({ organizationId, members, onImported }: Backfil
     const [status, setStatus] = useState<RunStatus | null>(null);
     const [isRunning, setIsRunning] = useState(false);
     const hasInvalidRange = Boolean(from && to && from > to);
+    const controlsDisabled = disabled || isRunning;
 
     const run = async () => {
-        setIsRunning(true);
         setStatus(null);
         try {
-            const response = await fetch('/api/timesheets/import/backfill', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ organizationId, userId, from, to }),
+            await withRunningState(running => {
+                setIsRunning(running);
+                onRunningChange?.(running);
+            }, async () => {
+                const response = await fetch('/api/timesheets/import/backfill', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ organizationId, userId, from, to }),
+                });
+                const body = await response.json() as Record<string, unknown>;
+                if (!response.ok) {
+                    throw new Error(typeof body.error === 'string' ? body.error : 'Import failed');
+                }
+                await onImported();
+                setStatus({
+                    kind: 'success',
+                    message: `Scanned ${body.scanned ?? 0}, imported ${body.imported ?? 0}, skipped ${body.skipped ?? 0}.`,
+                });
             });
-            const body = await response.json() as Record<string, unknown>;
-            if (!response.ok) {
-                throw new Error(typeof body.error === 'string' ? body.error : 'Import failed');
-            }
-            setStatus({
-                kind: 'success',
-                message: `Scanned ${body.scanned ?? 0}, imported ${body.imported ?? 0}, skipped ${body.skipped ?? 0}.`,
-            });
-            await onImported();
         } catch (runError) {
             setStatus({
                 kind: 'error',
                 message: runError instanceof Error ? runError.message : 'Import failed',
             });
-        } finally {
-            setIsRunning(false);
         }
     };
 
@@ -66,7 +78,7 @@ export function BackfillControl({ organizationId, members, onImported }: Backfil
                     <span className="block text-xs text-muted-foreground">Member</span>
                     <select
                         value={userId}
-                        disabled={isRunning || availableMembers.length === 0}
+                        disabled={controlsDisabled || availableMembers.length === 0}
                         onChange={event => setUserId(event.target.value)}
                         className="mt-1 rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                     >
@@ -82,7 +94,7 @@ export function BackfillControl({ organizationId, members, onImported }: Backfil
                     <input
                         type="date"
                         value={from}
-                        disabled={isRunning}
+                        disabled={controlsDisabled}
                         onChange={event => setFrom(event.target.value)}
                         className="mt-1 rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                     />
@@ -93,7 +105,7 @@ export function BackfillControl({ organizationId, members, onImported }: Backfil
                     <input
                         type="date"
                         value={to}
-                        disabled={isRunning}
+                        disabled={controlsDisabled}
                         onChange={event => setTo(event.target.value)}
                         className="mt-1 rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                     />
@@ -101,7 +113,7 @@ export function BackfillControl({ organizationId, members, onImported }: Backfil
 
                 <button
                     type="button"
-                    disabled={isRunning || !userId || !from || !to || hasInvalidRange}
+                    disabled={controlsDisabled || !userId || !from || !to || hasInvalidRange}
                     onClick={() => { void run(); }}
                     className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                 >
@@ -128,7 +140,7 @@ export function BackfillControl({ organizationId, members, onImported }: Backfil
                 </p>
             )}
             {hasInvalidRange && (
-                <p role="alert" className="mt-2 text-xs text-amber-500">
+                <p role="alert" className="mt-2 text-xs text-destructive">
                     The start date must be on or before the end date.
                 </p>
             )}
