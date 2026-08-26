@@ -83,10 +83,21 @@ function buildHeaders(token: string): Record<string, string> {
     };
 }
 
+/**
+ * Statuses that mean "your token is stale", so a refresh-and-retry is worth it.
+ *
+ * 401 is the documented one. 406 is empirical: measured 2026-08-25, the
+ * timesheet CSV report (`/reports/timesheet.csv`) answers an expired token with
+ * `406 text/html` and an empty body rather than 401. Without it here, a stale
+ * token never triggers a refresh and the backfill fails with a misleading
+ * "Basecamp timesheet report unavailable".
+ */
+const STALE_TOKEN_STATUSES = new Set([401, 406]);
+
 async function basecampFetch(url: string, init?: RequestInit): Promise<Response> {
     const token = await getAccessToken();
     const res = await fetch(url, { ...init, headers: { ...buildHeaders(token), ...init?.headers } });
-    if (res.status === 401) {
+    if (STALE_TOKEN_STATUSES.has(res.status)) {
         const freshToken = await refreshAccessToken();
         return fetch(url, { ...init, headers: { ...buildHeaders(freshToken), ...init?.headers } });
     }
