@@ -129,8 +129,8 @@ https://seo-ops-center.vercel.app
   - **Inbound Basecamp import** — the webhook route now also handles `timesheet_entry_*` kinds. The payload is never trusted: entry id + project come from the canonical recording URL, everything else is re-read via OAuth (`getBasecampTimesheetEntryState`). Unknown person / untracked to-do → `needs_review`, never a guessed client/task/member. Deleted at the provider → `voided_at`, never a delete
   - `lib/basecamp/timesheet-import-merge.ts` — **an import may add attribution, never remove it.** This is what stops an SEO PM → Basecamp echo from blanking a native row's client/task/user, and stops a later provider edit from undoing a manager's manual mapping
   - Reconciliation: `POST /api/integrations/basecamp/timesheet/reconcile` (manager, bounded ≤62 days) and daily cron `/api/cron/reconcile-timesheets` at 05:00 UTC (CRON_SECRET only, 14-day lookback). **Daily, not hourly, because Vercel Hobby rejects sub-daily crons** — restore `0 * * * *` in vercel.json if the plan is upgraded. Both replay through the *same* importer as the webhook
-  - Pure domain logic (all tested, `node:test`): `lib/timesheets/ledger.ts` (weekly grid), `review.ts` (snapshot + `detectPostApprovalChanges`), `team.ts`, `mapping.ts`, `format.ts`
-  - API: `/api/timesheets/ledger` (own week always, another member only as manager), `/team`, `/client-review`, `/approvals`, `/mapping`
+  - Pure domain logic (all tested, `node:test`): `lib/timesheets/ledger.ts` (weekly grid), `review.ts` (snapshot + `detectPostApprovalChanges`), `team.ts`, `format.ts`
+  - API: `/api/timesheets/ledger` (own week always, another member only as manager), `/team`, `/client-review`, `/approvals`
   - Approval invariant: **an approved snapshot is a record, not a view.** Drift is reported by comparing the frozen snapshot against the live ledger; the only resolution is a manager reopening the month
   - Client budget comes from `clients.seo_hours` — deliberately not a second budget source
   - Activity feed renders `timesheet.client_month_approved` / `_reopened` under the Hours filter
