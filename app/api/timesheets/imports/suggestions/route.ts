@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireClientOrgMember, requireOrganizationMember } from '@/lib/security/tenant-authz';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { suggestionsFor, type CandidateTodo } from '@/lib/timesheets/suggestions';
+import {
+    suggestionsFor,
+    utcDayWindow,
+    type CandidateTodo,
+} from '@/lib/timesheets/suggestions';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +24,11 @@ export async function GET(req: NextRequest) {
     const date = params.get('date')?.trim() ?? '';
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return NextResponse.json({ error: 'date must be yyyy-MM-dd' }, { status: 400 });
+    }
+
+    const dayWindow = utcDayWindow(date);
+    if (!dayWindow) {
         return NextResponse.json({ error: 'date must be yyyy-MM-dd' }, { status: 400 });
     }
 
@@ -43,8 +52,8 @@ export async function GET(req: NextRequest) {
         .eq('organization_id', member.organizationId)
         .eq('client_id', member.clientId)
         .not('completed_at', 'is', null)
-        .gte('completed_at', `${date}T00:00:00Z`)
-        .lte('completed_at', `${date}T23:59:59Z`)
+        .gte('completed_at', dayWindow.startsAt)
+        .lt('completed_at', dayWindow.endsBefore)
         .limit(20);
     if (error) {
         return NextResponse.json({ error: 'Unable to load suggestions' }, { status: 500 });

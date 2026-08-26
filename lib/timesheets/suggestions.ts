@@ -40,6 +40,33 @@ export interface Suggestion {
     activityKey: string | null;
 }
 
+/** A half-open UTC calendar-day range suitable for timestamp queries. */
+export interface UtcDayWindow {
+    startsAt: string;
+    endsBefore: string;
+}
+
+export function utcDayWindow(date: string): UtcDayWindow | null {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+    if (!match) return null;
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const start = new Date(Date.UTC(year, month - 1, day));
+    if (
+        start.getUTCFullYear() !== year
+        || start.getUTCMonth() !== month - 1
+        || start.getUTCDate() !== day
+    ) {
+        return null;
+    }
+
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 1);
+    return { startsAt: start.toISOString(), endsBefore: end.toISOString() };
+}
+
 function inferActivity(title: string): string | null {
     const haystack = title.toLowerCase();
     for (const [key, hints] of Object.entries(ACTIVITY_HINTS)) {
