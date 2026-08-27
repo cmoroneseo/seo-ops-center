@@ -144,6 +144,8 @@ test('the client comes from the time log, never from the body', async () => {
         organizationId: 'org-canonical',
         clientId: 'client-a',
         title: 'Add roadmap to-dos to Basecamp',
+        // Empty here because this request sent no notes; the row supplies them.
+        notes: '',
         assigneeUserId: 'user-abel',
         createdBy: 'user-abel',
     }]);
@@ -250,3 +252,4 @@ test('malformed JSON is a 400', async () => {
     assert.equal(response.status, 400);
     assert.deepEqual(await response.json(), { error: 'Invalid JSON' });
 });
+

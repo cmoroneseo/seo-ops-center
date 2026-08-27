@@ -22,6 +22,9 @@ import {
     removeReferenceLinkPatch,
     planBulkClientEdits,
     taskLinkPatch,
+    importEditForPatch,
+    taskNotesFromDraft,
+    activityTitle,
     taskTitleFromDraft,
     taskUnlinkPatch,
     settleOperations,
@@ -656,27 +659,22 @@ test('moving a row to another client drops the task it stranded', () => {
     );
 });
 
-test('a new task title prefers the person\'s own words', () => {
+test('a new task title names the work, and the notes carry the commentary', () => {
     const draft = draftForRow(readyRow);
+    // Superseded intent: this used to prefer `detail`, which is why a real
+    // Basecamp to-do arrived titled with a paragraph of notes.
     assert.equal(
         taskTitleFromDraft(readyRow, { ...draft, detail: 'Added roadmap To-do\'s to basecamp' }),
-        'Added roadmap To-do\'s to basecamp',
-    );
-    // With no detail, the activity tags name the work.
-    assert.equal(
-        taskTitleFromDraft(readyRow, { ...draft, detail: '' }),
         'Technical SEO Audit',
     );
-    // With neither, whatever the import carried is already a decent title.
     assert.equal(
-        taskTitleFromDraft(
-            { ...readyRow, description: 'Checked off Basecamp to-dos' },
-            { ...draft, detail: '', activityKeys: [] },
-        ),
-        'Checked off Basecamp to-dos',
+        taskNotesFromDraft(readyRow, { ...draft, detail: 'Added roadmap To-do\'s to basecamp' }),
+        'Added roadmap To-do\'s to basecamp',
     );
-    assert.ok(
-        taskTitleFromDraft(readyRow, { ...draft, detail: 'x'.repeat(500) }).length <= 200,
+    // With no activities at all, the person's words are the best title left.
+    assert.equal(
+        taskTitleFromDraft(readyRow, { ...draft, activityKeys: [], detail: 'Ad hoc fix' }),
+        'Ad hoc fix',
     );
 });
 
@@ -707,4 +705,81 @@ test('a row with no client says so instead of offering an empty list', () => {
 test('an internal row cannot pick a task either', () => {
     // Internal time has no client by construction, so it has no task set.
     assert.match(renderRow(internalRow), /Choose a client to link a task/);
+});
+
+// ── The seam that broke linking ──────────────────────────────────────────────
+// `buildImportEdit` reads `patch.taskId`. The row component merged the patch
+// into the draft first and then called it WITHOUT the patch, so every link and
+// unlink was dropped before it reached the server — while the unit tests above,
+// which pass the patch correctly, stayed green. `importEditForPatch` composes
+// both steps so that mistake is not available.
+
+test('linking a task through the composed seam actually sends task_id', () => {
+    const row = readyRow;
+    const { draft, edit } = importEditForPatch(
+        row, draftForRow(row), taskLinkPatch('task-1', 'Roadmap'),
+    );
+
+    assert.equal(draft.taskId, 'task-1');
+    assert.equal(draft.taskTitle, 'Roadmap');
+    assert.equal(edit?.taskId, 'task-1', 'the link must reach the server, not just local state');
+});
+
+test('unlinking through the composed seam sends an explicit null', () => {
+    const row = readyRow;
+    const linked = importEditForPatch(row, draftForRow(row), taskLinkPatch('task-1', 'Roadmap')).draft;
+    const { draft, edit } = importEditForPatch(row, linked, taskUnlinkPatch());
+
+    assert.equal(draft.taskId, null);
+    assert.equal(edit?.taskId, null, 'unlink must be sent, not silently skipped');
+});
+
+test('changing the client clears a task link that would strand billable time', () => {
+    const row = readyRow;
+    const linked = importEditForPatch(row, draftForRow(row), taskLinkPatch('task-1', 'Roadmap')).draft;
+    const { edit } = importEditForPatch(row, linked, { clientId: 'another-client' });
+
+    assert.equal(edit?.clientId, 'another-client');
+    assert.equal(edit?.taskId, null, 'a task from the old client must not follow the row');
+});
+
+test('an unrelated edit leaves an existing task link untouched', () => {
+    const row = readyRow;
+    const linked = importEditForPatch(row, draftForRow(row), taskLinkPatch('task-1', 'Roadmap')).draft;
+    const { edit } = importEditForPatch(row, linked, { detail: 'new note' });
+
+    assert.equal('taskId' in (edit ?? {}), false, 'do not resend a link that did not change');
+});
+
+// ── Task title and notes ─────────────────────────────────────────────────────
+
+test('a task is titled by its activities, not by the notes', () => {
+    // A real to-do arrived in Basecamp titled "Updated GBP categories, added
+    // services with descriptions, added UTM to website URL, created updated
+    // SEO roadmap draft" — the commentary, with Notes left empty.
+    const row = readyRow;
+    const draft = importEditForPatch(row, draftForRow(row), {
+        activityKeys: ['keyword_research', 'content_strategy', 'gbp_optimization'],
+        detail: 'Updated GBP categories, added services with descriptions',
+    }).draft;
+
+    assert.equal(
+        taskTitleFromDraft(row, draft),
+        'Keyword Research & Strategy + Content Strategy & Calendar + GBP Optimization',
+    );
+    assert.equal(
+        taskNotesFromDraft(row, draft),
+        'Updated GBP categories, added services with descriptions',
+    );
+});
+
+test('the activity title is stable regardless of tick order', () => {
+    assert.equal(
+        activityTitle(['gbp_optimization', 'keyword_research']),
+        activityTitle(['keyword_research', 'gbp_optimization']),
+    );
+});
+
+test('with no activities the detail is still usable as a title', () => {
+    assert.equal(activityTitle([]), '');
 });

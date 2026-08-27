@@ -45,6 +45,8 @@ export interface ImportTasksDependencies {
         organizationId: string;
         clientId: string;
         title: string;
+        /** Becomes the to-do's Notes in Basecamp. */
+        notes: string;
         assigneeUserId: string | null;
         createdBy: string;
     }): Promise<{ id: string }>;
@@ -100,7 +102,7 @@ export function createImportTasksGet(dependencies: ImportTasksDependencies) {
 
 /**
  * POST /api/timesheets/imports/tasks
- * Body: { organizationId, timeLogId, title, assigneeUserId? }
+ * Body: { organizationId, timeLogId, title, notes?, assigneeUserId? }
  *
  * The client is derived from the TIME LOG, never from the body: the whole
  * point of the link is attribution, and a caller-supplied client is exactly
@@ -121,6 +123,7 @@ export function createImportTasksPost(dependencies: ImportTasksDependencies) {
             : '';
         const timeLogId = typeof input.timeLogId === 'string' ? input.timeLogId.trim() : '';
         const title = (typeof input.title === 'string' ? input.title : '').trim();
+        const notes = (typeof input.notes === 'string' ? input.notes : '').trim();
         const assigneeUserId = typeof input.assigneeUserId === 'string' && input.assigneeUserId
             ? input.assigneeUserId
             : null;
@@ -154,6 +157,7 @@ export function createImportTasksPost(dependencies: ImportTasksDependencies) {
             organizationId: member.organizationId,
             clientId: entry.clientId,
             title,
+            notes,
             // Falls back to whoever the time belongs to, so the common case
             // needs nothing from the body at all.
             assigneeUserId: assigneeUserId ?? entry.userId,

@@ -9,7 +9,7 @@ import {
     addReferenceLinkPatch,
     budgetChoicePatch,
     buildActivityEdit,
-    buildImportEdit,
+    importEditForPatch,
     buildSuggestionEdit,
     createInFlightRequestCache,
     currentRequestItems,
@@ -17,6 +17,7 @@ import {
     normalizeImportDraft,
     removeReferenceLinkPatch,
     taskLinkPatch,
+    taskNotesFromDraft,
     taskTitleFromDraft,
     taskUnlinkPatch,
     type ImportDraft,
@@ -250,6 +251,7 @@ function TaskLinkControl({
     taskId,
     taskTitle,
     prefillTitle,
+    prefillNotes,
     assigneeUserId,
     rowLabel,
     disabled,
@@ -262,6 +264,7 @@ function TaskLinkControl({
     taskId: string | null;
     taskTitle: string | null;
     prefillTitle: string;
+    prefillNotes: string;
     assigneeUserId: string | null;
     rowLabel: string;
     disabled: boolean;
@@ -333,6 +336,7 @@ function TaskLinkControl({
                     organizationId,
                     timeLogId,
                     title,
+                    notes: prefillNotes,
                     ...(assigneeUserId ? { assigneeUserId } : {}),
                 }),
             });
@@ -546,7 +550,11 @@ export function ImportRow({
     };
 
     const save = (patch: Partial<ImportDraft> = {}) => {
-        const edit = buildImportEdit(row, updateDraft(patch));
+        // importEditForPatch merges AND builds. Calling buildImportEdit with a
+        // pre-merged draft and no patch silently dropped every task link.
+        const { draft: next, edit } = importEditForPatch(row, draftRef.current, patch);
+        draftRef.current = next;
+        setDraft(() => next);
         if (edit) void onEdit(edit);
     };
 
@@ -605,10 +613,10 @@ export function ImportRow({
                     value={draft.clientId ?? ''}
                     disabled={isBusy || row.isInternal}
                     onChange={event => {
-                        const nextClientId = event.target.value || null;
-                        const next = updateDraft({ clientId: nextClientId });
-                        const edit = buildImportEdit(row, next);
-                        if (edit) void onEdit(edit);
+                        // Through save() so the patch reaches buildImportEdit —
+                        // otherwise its strandsTaskLink check can never fire and
+                        // a client change leaves the old client's task attached.
+                        save({ clientId: event.target.value || null });
                     }}
                     className="w-44 rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                 >
@@ -657,6 +665,7 @@ export function ImportRow({
                     taskId={draft.taskId}
                     taskTitle={draft.taskTitle}
                     prefillTitle={taskTitleFromDraft(row, draft)}
+                    prefillNotes={taskNotesFromDraft(row, draft)}
                     assigneeUserId={row.userId}
                     rowLabel={`${heading.weekday} ${heading.date}`}
                     disabled={isBusy}

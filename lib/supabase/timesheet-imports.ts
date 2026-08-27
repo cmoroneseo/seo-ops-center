@@ -267,6 +267,7 @@ export async function createTaskFromImportEntry(input: {
     organizationId: string;
     clientId: string;
     title: string;
+    notes: string;
     assigneeUserId: string | null;
     createdBy: string;
 }): Promise<{ id: string }> {
@@ -277,6 +278,11 @@ export async function createTaskFromImportEntry(input: {
             organization_id: input.organizationId,
             client_id: input.clientId,
             title: input.title,
+            // The Basecamp push already forwards `task.description` into the
+            // to-do's Notes; it was simply never being given one, which is why
+            // imported to-dos arrived with a paragraph as their title and an
+            // empty Notes field.
+            description: input.notes || null,
             status: 'todo',
             priority: 'medium',
             assignee_ids: input.assigneeUserId ? [input.assigneeUserId] : [],

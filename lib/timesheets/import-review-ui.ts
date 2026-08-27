@@ -1,4 +1,4 @@
-import { budgetDefaultFor, describeActivity } from './activities';
+import { TIMESHEET_ACTIVITIES, budgetDefaultFor, describeActivity } from './activities';
 import { MAX_TASK_TITLE_LENGTH } from './import-tasks-route';
 import type { QueueRow } from './import-queue-route';
 import type { Suggestion } from './suggestions';
@@ -82,6 +82,35 @@ export function normalizeImportDraft(row: QueueRow, draft: ImportDraft): ImportD
     return row.isInternal
         ? { ...draft, clientId: null, countsTowardBudget: false }
         : draft;
+}
+
+/**
+ * Merge a draft patch and produce the edit to persist.
+ *
+ * This exists because the two-step version was a trap: `buildImportEdit` reads
+ * `patch.taskId` to decide whether a task link changed, and a caller that
+ * merged the patch into the draft first and then called it WITHOUT the patch
+ * silently dropped every link and unlink. The edit looked fine, the local UI
+ * updated, and the change never reached the server. Composing both steps here
+ * means the seam is covered by a test instead of by remembering.
+ */
+export function importEditForPatch(
+    row: QueueRow,
+    currentDraft: ImportDraft,
+    patch: Partial<ImportDraft>,
+): { draft: ImportDraft; edit: ImportEntryEdit | null } {
+    const draft = normalizeImportDraft(row, { ...currentDraft, ...patch });
+    const edit = buildImportEdit(row, draft, patch);
+    // Only this function can see BOTH clients, so the strand check lives here:
+    // buildImportEdit receives an already-merged draft and would be comparing
+    // the new client against itself.
+    const movedClient = edit !== null && draft.clientId !== currentDraft.clientId;
+    return {
+        draft: movedClient ? { ...draft, taskId: null, taskTitle: null } : draft,
+        edit: movedClient && currentDraft.taskId !== null
+            ? { ...edit, taskId: null }
+            : edit,
+    };
 }
 
 export function buildImportEdit(
@@ -178,10 +207,34 @@ export function removeReferenceLinkPatch(
  * basecamp", which is already a perfectly good task title.
  */
 export function taskTitleFromDraft(row: QueueRow, draft: ImportDraft): string {
-    const candidate = draft.detail.trim()
-        || describeActivity(draft.activityKeys, '')
+    // The activities are what the work WAS; the detail is commentary about it.
+    // Titling a to-do with the commentary produced Basecamp entries called
+    // "Updated GBP categories, added services with descriptions, added UTM to
+    // website URL, created updated SEO roadmap draft" — a paragraph where a
+    // title belongs, with the Notes field left empty. The detail belongs in
+    // Notes (see `taskNotesFromDraft`), so it is only a fallback here.
+    const candidate = activityTitle(draft.activityKeys)
+        || draft.detail.trim()
         || row.description.trim();
     return candidate.slice(0, MAX_TASK_TITLE_LENGTH);
+}
+
+/** Activity labels as a task title: "Keyword Research + Content Strategy". */
+export function activityTitle(activityKeys: string[]): string {
+    // Catalog order, matching `describeActivity`, so the title does not depend
+    // on the order the boxes happened to be ticked in.
+    return TIMESHEET_ACTIVITIES
+        .filter(activity => activityKeys.includes(activity.key))
+        .map(activity => activity.label)
+        .join(' + ');
+}
+
+/**
+ * What belongs in the to-do's Notes: the person's own words, without the
+ * activity labels the title already carries.
+ */
+export function taskNotesFromDraft(row: QueueRow, draft: ImportDraft): string {
+    return draft.detail.trim() || row.description.trim();
 }
 
 /** The draft patch a budget toggle produces — always an explicit decision. */
