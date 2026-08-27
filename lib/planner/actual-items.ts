@@ -34,9 +34,57 @@ function timerState(attempt: TimerAttempt): PlannerTimerState {
         : 'paused';
 }
 
+/**
+ * The window a segment-less log occupies on the grid.
+ *
+ * Time logged by hand has no segments, so it produced NO planner items at all
+ * and simply did not exist on the calendar. That is what made rescheduling
+ * feel destructive: a day whose only mark was the task's forecast block lost
+ * its entire visual record the moment that block was dragged elsewhere, even
+ * though the hours were safely recorded.
+ *
+ * The block starts where the work was planned to start and runs for the hours
+ * actually logged — so logging 2h against a 2h45m block draws two hours, not a
+ * block that lies about its own length.
+ */
+export function loggedWindow(
+    attempt: TimerAttempt,
+): { startsAt: string; endsAt: string } | null {
+    if (!attempt.plannedStartsAt || !(attempt.hours > 0)) return null;
+    const start = new Date(attempt.plannedStartsAt);
+    if (Number.isNaN(start.getTime())) return null;
+    return {
+        startsAt: start.toISOString(),
+        endsAt: new Date(start.getTime() + attempt.hours * 3600_000).toISOString(),
+    };
+}
+
 /** Convert one canonical attempt into read-only, five-minute-grouped evidence. */
 export function actualAttemptToItems(attempt: TimerAttempt, now: Date): PlannerItem[] {
     const state = timerState(attempt);
+
+    if (attempt.segments.length === 0) {
+        const window = loggedWindow(attempt);
+        if (!window) return [];
+        return [{
+            id: `actual:${attempt.id}:0`,
+            source: 'actual_time',
+            title: attempt.taskTitle || attempt.description || attempt.clientName || 'Actual work',
+            startsAt: window.startsAt,
+            endsAt: window.endsAt,
+            allDay: false,
+            kind: 'focus',
+            clientName: attempt.clientName,
+            ownerId: attempt.userId,
+            attendeeIds: [attempt.userId],
+            draggable: false,
+            raw: attempt,
+            attemptId: attempt.id,
+            // No timer ran, so there are no active seconds to claim.
+            timerState: state,
+        }];
+    }
+
     return groupSegmentsForDisplay(attempt.segments, undefined, now).map((group, index) => ({
         id: `actual:${attempt.id}:${index}`,
         source: 'actual_time',

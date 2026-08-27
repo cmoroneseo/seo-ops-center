@@ -245,6 +245,12 @@ export async function createTimeLog(
                 counts_toward_budget: log.countsTowardBudget ?? true,
                 status: 'logged',
                 category: log.category,
+                // The forecast this entry answers, when it was logged against a
+                // scheduled block. Without these the entry has no position on
+                // the calendar and the block it fulfilled keeps showing as
+                // unworked.
+                planned_starts_at: log.plannedStartsAt ?? null,
+                planned_minutes: log.plannedMinutes ?? null,
             }])
             .select()
             .single();

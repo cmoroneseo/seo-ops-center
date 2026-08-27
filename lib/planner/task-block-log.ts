@@ -73,6 +73,10 @@ export interface TaskBlockLogContext {
     taskTitle: string;
     /** The block's own date, not today — a block is often logged after the fact. */
     date: string;
+    /** When the block was scheduled to start. */
+    plannedStartsAt: string;
+    /** The SCHEDULED length, not the length logged. */
+    plannedMinutes: number;
 }
 
 /**
@@ -98,5 +102,12 @@ export function taskBlockLogInput(context: TaskBlockLogContext, draft: TaskBlock
         description: note || context.taskTitle,
         billable: true,
         countsTowardBudget: draft.countsTowardBudget,
+        // The forecast this log answers. Two jobs: it gives the entry a place
+        // on the calendar, and it tells the planner this block's plan has been
+        // worked, so the forecast is replaced by evidence rather than doubled.
+        // Deliberately the SCHEDULED length — logging 2h against a 2h45m block
+        // still consumes that block.
+        plannedStartsAt: context.plannedStartsAt,
+        plannedMinutes: context.plannedMinutes,
     };
 }

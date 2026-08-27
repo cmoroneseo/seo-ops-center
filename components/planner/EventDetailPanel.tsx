@@ -236,6 +236,8 @@ export function EventDetailPanel({
                 // The block's own date. Logging after the fact is the norm here,
                 // so defaulting to today would silently misdate the work.
                 date: localDateForInstant(item.startsAt),
+                plannedStartsAt: item.startsAt,
+                plannedMinutes: blockMinutes,
             },
             { minutes, note: taskLogNote, countsTowardBudget: taskLogCountsBudget },
         ), { syncToBasecamp: bcAvailable && sendToBasecamp });
