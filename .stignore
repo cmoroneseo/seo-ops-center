@@ -1,0 +1,22 @@
+// Syncthing ignore rules for seo-ops-center
+// These are machine-specific or large generated files — handled by git or npm, not sync.
+
+// Node packages — platform-specific binaries, ~200MB, npm install rebuilds these
+node_modules/
+
+// Next.js build output — machine-specific, rebuilt with npm run build
+.next/
+
+// Git worktrees — contain absolute paths to this machine's filesystem, will
+// break git on any other machine. Use git pull/push instead.
+.claude/worktrees/
+
+// Python bytecode
+__pycache__/
+*.pyc
+
+// OS files
+.DS_Store
+
+// Syncthing conflict files — if a conflict happens, don't sync the conflict copy
+*.sync-conflict-*

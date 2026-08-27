@@ -12,7 +12,9 @@ import {
     createBasecampTimesheetEntry,
     updateBasecampTimesheetEntry,
     deleteBasecampTimesheetEntry,
+    createBasecampComment,
 } from '@/lib/basecamp/api';
+import { timeLogCommentBody, commentTargetFor } from '@/lib/basecamp/time-log-comment';
 import { createBasecampTimesheetGet } from '@/lib/basecamp/resource-routes';
 import {
     createBasecampTimesheetPost,
@@ -57,6 +59,20 @@ export async function GET(req: NextRequest) {
 }
 
 /** POST /api/integrations/basecamp/timesheet */
+/** The name to attribute a to-do comment to, or null when unknown. */
+async function resolveActorName(
+    admin: ReturnType<typeof createAdminClient>,
+    userId: string | null,
+): Promise<string | null> {
+    if (!userId) return null;
+    try {
+        const { data } = await admin.from('users').select('full_name').eq('id', userId).maybeSingle();
+        return data?.full_name ?? null;
+    } catch {
+        return null;
+    }
+}
+
 export async function POST(req: NextRequest) {
     const post = createBasecampTimesheetPost({
         authorizeTimeLog: timeLogId => requireTimeLogIntegrationManager(timeLogId),
@@ -89,10 +105,11 @@ export async function POST(req: NextRequest) {
 
                     let taskBasecampTodoId: string | number | null = null;
                     let taskBasecampProjectId: string | number | null = null;
+                    let taskTitle: string | null = null;
                     if (log.task_id) {
                         let taskQuery = admin
                             .from('tasks')
-                            .select('basecamp_todo_id, basecamp_project_id')
+                            .select('basecamp_todo_id, basecamp_project_id, title')
                             .eq('id', log.task_id)
                             .eq('organization_id', organizationId);
                         if (clientId) taskQuery = taskQuery.eq('client_id', clientId);
@@ -100,6 +117,7 @@ export async function POST(req: NextRequest) {
                         if (taskError) throw taskError;
                         taskBasecampTodoId = task?.basecamp_todo_id ?? null;
                         taskBasecampProjectId = task?.basecamp_project_id ?? null;
+                        taskTitle = task?.title ?? null;
                     }
 
                     let personId: number | null = null;
@@ -138,6 +156,7 @@ export async function POST(req: NextRequest) {
                             clientCustomFields.basecamp_timesheet_recording_id as string | number | null | undefined
                         ) ?? null,
                         taskBasecampTodoId,
+                        taskTitle,
                         taskBasecampProjectId,
                         personId,
                         clientCustomFields,
@@ -270,6 +289,32 @@ export async function POST(req: NextRequest) {
                 basecamp_synced_at: new Date().toISOString(),
                 basecamp_sync_error: null,
             }).eq('id', log.id).eq('organization_id', log.organizationId);
+
+            // The note goes on the task's own to-do, where the people reading
+            // it are. Only on CREATE — a re-sync of an existing entry would
+            // otherwise post the same comment again every time.
+            //
+            // Best effort: the hours are already in Basecamp and recorded here,
+            // so a failed comment must not turn a successful sync into an error
+            // the person has to retry.
+            const taskTodoId = commentTargetFor(log, projectId);
+            if (taskTodoId) {
+                const commentBody = timeLogCommentBody({
+                    description: log.description,
+                    taskTitle: log.taskTitle ?? null,
+                    hours: log.hours,
+                    date: log.date,
+                    actorName: await resolveActorName(admin, log.userId),
+                });
+                if (commentBody) {
+                    try {
+                        await createBasecampComment(projectId, taskTodoId, commentBody);
+                    } catch (err) {
+                        console.error('[Basecamp timesheet] comment failed:', err);
+                    }
+                }
+            }
+
             return NextResponse.json({ success: true, entryId: created.id, appUrl: created.appUrl });
         },
     });

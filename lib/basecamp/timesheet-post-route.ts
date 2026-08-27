@@ -36,6 +36,8 @@ export interface CanonicalTimeLog {
     cachedRecordingId: string | number | null;
     taskBasecampTodoId: string | number | null;
     taskBasecampProjectId: string | number | null;
+    /** Lets the comment recognize a description that is only the title fallback. */
+    taskTitle?: string | null;
     personId: number | null;
     basecampSyncError?: string | null;
     clientCustomFields?: Record<string, unknown>;
@@ -227,7 +229,7 @@ function json(body: unknown, status = 200) {
     return Response.json(body, { status });
 }
 
-function numericId(value: unknown): string | null {
+export function numericId(value: unknown): string | null {
     if (typeof value !== 'string' && typeof value !== 'number') return null;
     const normalized = String(value).trim();
     return /^\d+$/.test(normalized) ? normalized : null;
