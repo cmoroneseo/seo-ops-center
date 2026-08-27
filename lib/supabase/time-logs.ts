@@ -13,6 +13,21 @@ import {
     type TimerStateResponse,
 } from '../timer/contracts';
 
+/**
+ * The only `import_status` whose hours are real, confirmed, countable time.
+ *
+ * Named once here because the rule is easy to forget: `time_logs.status` is the
+ * timer's state, not the review state. An imported Basecamp entry is `logged`
+ * from the instant it arrives and stays that way while a member is still
+ * deciding what it was.
+ */
+export const COUNTABLE_IMPORT_STATUS = 'mapped';
+
+/** True when this entry's hours should count toward totals shown to a human. */
+export function countsAsConfirmedTime(importStatus: string | null | undefined): boolean {
+    return importStatus === COUNTABLE_IMPORT_STATUS;
+}
+
 function rowToTimeLog(row: any): TimeLog {
     return timerAttemptFromRow(row);
 }
@@ -55,16 +70,32 @@ export async function getClientTimesheetSyncEnabled(clientId: string | undefined
 /**
  * Time logs for an org, optionally filtered by client and/or month (YYYY-MM).
  * Excludes in_progress entries by default — pass includeInProgress to include them.
+ *
+ * Also excludes imported time that has not been reviewed yet. `status` is the
+ * TIMER's state ("not still running") and says nothing about whether an entry
+ * has been through context capture — a Basecamp import lands as `logged` the
+ * moment it arrives. Without this filter, unapproved imported hours appear as
+ * ordinary confirmed time everywhere this function is read: the client activity
+ * feed, the workspace budget meter, the agency dashboard and the client-portal
+ * preview. Only `mapped` counts; `needs_context` and `pending_review` are still
+ * being decided, and `voided` no longer exists at the provider.
  */
 export async function getTimeLogs(
     organizationId: string,
-    opts: { clientId?: string; month?: string; includeInProgress?: boolean } = {},
+    opts: {
+        clientId?: string;
+        month?: string;
+        includeInProgress?: boolean;
+        /** Review surfaces that deliberately show unapproved imports. */
+        includeUnreviewedImports?: boolean;
+    } = {},
 ): Promise<TimeLog[]> {
     const supabase = createClient();
     if (!supabase) return [];
     try {
         let q = supabase.from('time_logs').select('*, clients(name), tasks(title)').eq('organization_id', organizationId);
         if (!opts.includeInProgress) q = q.eq('status', 'logged');
+        if (!opts.includeUnreviewedImports) q = q.eq('import_status', COUNTABLE_IMPORT_STATUS);
         if (opts.clientId) q = q.eq('client_id', opts.clientId);
         if (opts.month) {
             const [y, m] = opts.month.split('-').map(Number);
