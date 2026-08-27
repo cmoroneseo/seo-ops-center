@@ -6,6 +6,7 @@ import {
     describeActivity,
     findActivity,
 } from './activities.ts';
+import { SEO_ACTIVITIES } from '../scope-estimates.ts';
 
 test('every SEO delivery activity is offered', () => {
     assert.ok(TIMESHEET_ACTIVITIES.length >= 28);
@@ -89,4 +90,45 @@ test('detail alone is used when no activity is known', () => {
     assert.equal(describeActivity([], 'Ad hoc fix'), 'Ad hoc fix');
     assert.equal(describeActivity([], ''), '');
     assert.equal(describeActivity(['not_a_real_key'], 'Ad hoc fix'), 'Ad hoc fix');
+});
+
+test('per-unit notation is dropped from timesheet labels', () => {
+    // "(1)" means "one page" in the Scope Meter's capacity maths. In a
+    // timesheet line it reads as a quantity nobody asked about.
+    assert.equal(findActivity('service_page')?.label, 'Service Pages');
+    assert.equal(findActivity('city_page')?.label, 'City/Location Pages');
+    assert.equal(findActivity('blog_post')?.label, 'Blog Posts');
+    assert.equal(findActivity('landing_page')?.label, 'Landing Pages');
+    assert.equal(findActivity('content_refresh')?.label, 'Content Refresh');
+});
+
+test('no timesheet label carries per-unit notation', () => {
+    for (const activity of TIMESHEET_ACTIVITIES) {
+        assert.doesNotMatch(activity.label, /\(\s*1\b/, `${activity.key} still has per-unit notation`);
+    }
+});
+
+test('the Scope Meter catalog keeps its own wording', () => {
+    // Overriding the timesheet label must not reach back into scope-estimates,
+    // where the notation is load-bearing.
+    const source = SEO_ACTIVITIES.find(activity => activity.key === 'service_page');
+    assert.equal(source?.label, 'Service Page (1)');
+});
+
+test('only the label is overridden — keys, hours and budget are untouched', () => {
+    const source = SEO_ACTIVITIES.find(activity => activity.key === 'service_page')!;
+    const timesheet = findActivity('service_page')!;
+
+    assert.equal(timesheet.key, source.key);
+    assert.equal(timesheet.minHours, source.minHours);
+    assert.equal(timesheet.maxHours, source.maxHours);
+    assert.equal(timesheet.category, source.category);
+    assert.equal(timesheet.countsTowardBudget, true);
+});
+
+test('descriptions now read cleanly', () => {
+    assert.equal(
+        describeActivity(['service_page'], 'Service page dev'),
+        'Service Pages — Service page dev',
+    );
 });

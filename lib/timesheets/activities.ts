@@ -38,8 +38,34 @@ const NON_DELIVERY: TimesheetActivity[] = [
     },
 ];
 
+/**
+ * Timesheet wording for activities whose catalog label carries per-unit
+ * notation.
+ *
+ * `Service Page (1)` is correct in the Scope Meter, where the `(1)` says the
+ * hour estimate is for one page so a planner can multiply it. In a timesheet
+ * description it is noise: "Service Page (1) — Service page dev" reads as a
+ * quantity nobody asked about. The plurals here also match how the team
+ * actually writes it — a reviewed August sheet said "Service Pages" and
+ * "City/Location Pages" unprompted.
+ *
+ * Overrides only the display label. Keys, hours and budget semantics are
+ * untouched, and `lib/scope-estimates.ts` keeps its own wording.
+ */
+const TIMESHEET_LABEL: Record<string, string> = {
+    blog_post: 'Blog Posts',
+    service_page: 'Service Pages',
+    city_page: 'City/Location Pages',
+    content_refresh: 'Content Refresh',
+    landing_page: 'Landing Pages',
+};
+
 export const TIMESHEET_ACTIVITIES: TimesheetActivity[] = [
-    ...SEO_ACTIVITIES.map(activity => ({ ...activity, countsTowardBudget: true })),
+    ...SEO_ACTIVITIES.map(activity => ({
+        ...activity,
+        label: TIMESHEET_LABEL[activity.key] ?? activity.label,
+        countsTowardBudget: true,
+    })),
     ...NON_DELIVERY,
 ];
 
