@@ -26,6 +26,7 @@ import { durationMinutes } from '@/lib/planner/layout';
 import {
     formatBlockDuration, parseDurationInput, taskBlockLogInput,
 } from '@/lib/planner/task-block-log';
+import { TASK_STATUS_LABELS, taskStatusLabel } from '@/lib/tasks/status-labels';
 import { TeamMember } from './MeetWithFilter';
 import { BasecampProjectPicker, type BasecampProject } from './BasecampProjectPicker';
 import { ACTUAL_STYLE, KIND_STYLES } from './EventCard';
@@ -415,14 +416,11 @@ export function EventDetailPanel({
                                 value={task.status}
                                 onChange={event => void changeTaskStatus(event.target.value as Task['status'])}
                                 aria-label="Task status"
-                                className="w-full cursor-pointer bg-transparent capitalize text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                className="w-full cursor-pointer bg-transparent text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary"
                             >
-                                <option value="todo">To Do</option>
-                                <option value="in_progress">In Progress</option>
-                                <option value="review">Review</option>
-                                <option value="approved">Approved</option>
-                                <option value="blocked">Blocked</option>
-                                <option value="done">Done</option>
+                                {Object.entries(TASK_STATUS_LABELS).map(([value, label]) => (
+                                    <option key={value} value={value}>{label}</option>
+                                ))}
                             </select>
                         </dd>
                         <dt className="text-muted-foreground">Priority</dt>
@@ -476,46 +474,49 @@ export function EventDetailPanel({
                 )}
 
                 {task && (
-                    <div className="rounded-lg border border-border p-2.5">
+                    <div className="rounded-xl bg-muted/30 p-3">
                         {taskLoggedMinutes !== null ? (
                             <div className="space-y-2">
-                                <div className="flex items-center gap-1.5 text-xs font-medium text-green-500">
+                                <div className="flex items-center gap-1.5 text-xs font-medium text-primary">
                                     <Check className="h-3.5 w-3.5" />
                                     Logged {formatBlockDuration(taskLoggedMinutes)}
                                 </div>
-                                <p className="text-[10px] leading-snug text-muted-foreground">
-                                    {taskTrackedHours.toFixed(2)}h on this task now. Still{' '}
-                                    <span className="capitalize">{task.status.replace('_', ' ')}</span>.
+                                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                                    {taskTrackedHours.toFixed(2)}h on this task now.
+                                    Still {taskStatusLabel(task.status)}.
                                 </p>
                                 <button
                                     type="button"
                                     onClick={() => setTaskLoggedMinutes(null)}
-                                    className="text-[11px] text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                    className="text-[11px] font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                                 >
                                     Log more time
                                 </button>
                             </div>
                         ) : !task.clientId ? (
-                            <p className="text-[11px] leading-snug text-muted-foreground">
+                            <p className="text-[11px] leading-relaxed text-muted-foreground">
                                 Give this task a client to log time against it.
                             </p>
                         ) : (
-                            <div className="space-y-2.5">
+                            <div className="space-y-3">
                                 <div className="flex items-baseline justify-between">
-                                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                    <span className="text-[11px] font-medium text-foreground/70">
                                         Log time
                                     </span>
                                     {taskTrackedHours > 0 && (
-                                        <span className="text-[10px] text-muted-foreground">
+                                        <span className="text-[11px] text-muted-foreground">
                                             {taskTrackedHours.toFixed(2)}h so far
                                         </span>
                                     )}
                                 </div>
 
-                                <div className="flex items-center gap-2">
+                                {/* Same column grid as the details above, so the
+                                    card reads as part of the panel rather than a
+                                    form dropped into it. */}
+                                <div className="grid grid-cols-[5rem_1fr] items-center gap-x-3 gap-y-2">
                                     <label
                                         htmlFor="task-block-duration"
-                                        className="shrink-0 text-[11px] text-muted-foreground"
+                                        className="text-[11px] text-muted-foreground"
                                     >
                                         Duration
                                     </label>
@@ -523,29 +524,35 @@ export function EventDetailPanel({
                                         id="task-block-duration"
                                         value={taskLogDuration}
                                         onChange={e => { setTaskLogDuration(e.target.value); setTaskLogError(null); }}
-                                        inputMode="text"
-                                        className="min-h-11 w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-xs outline-none focus:border-primary"
+                                        className="min-h-9 w-full rounded-lg bg-background/60 px-2.5 py-1.5 text-xs outline-none ring-1 ring-inset ring-border focus:ring-primary"
+                                    />
+
+                                    <label
+                                        htmlFor="task-block-note"
+                                        className="text-[11px] text-muted-foreground"
+                                    >
+                                        Note
+                                    </label>
+                                    <input
+                                        id="task-block-note"
+                                        value={taskLogNote}
+                                        onChange={e => setTaskLogNote(e.target.value)}
+                                        placeholder="What did you work on?"
+                                        className="min-h-9 w-full rounded-lg bg-background/60 px-2.5 py-1.5 text-xs outline-none ring-1 ring-inset ring-border placeholder:text-muted-foreground/60 focus:ring-primary"
                                     />
                                 </div>
-
-                                <input
-                                    value={taskLogNote}
-                                    onChange={e => setTaskLogNote(e.target.value)}
-                                    placeholder="What did you work on? (optional)"
-                                    className="min-h-11 w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-xs outline-none focus:border-primary"
-                                />
 
                                 <button
                                     type="button"
                                     role="switch"
                                     aria-checked={taskLogCountsBudget}
                                     onClick={() => setTaskLogCountsBudget(v => !v)}
-                                    className="flex min-h-11 w-full items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                    className="flex min-h-9 w-full items-center gap-2 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                                 >
                                     <span
                                         className={cn(
                                             'relative h-4 w-7 shrink-0 rounded-full transition-colors',
-                                            taskLogCountsBudget ? 'bg-green-500' : 'bg-muted',
+                                            taskLogCountsBudget ? 'bg-primary' : 'bg-border',
                                         )}
                                     >
                                         <span
@@ -559,17 +566,20 @@ export function EventDetailPanel({
                                 </button>
 
                                 {taskLogError && (
-                                    <p className="flex items-start gap-1.5 text-[10px] leading-snug text-destructive">
+                                    <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-destructive">
                                         <AlertCircle className="mt-px h-3 w-3 shrink-0" />
                                         {taskLogError}
                                     </p>
                                 )}
 
+                                {/* The action of this card, so it carries the
+                                    card's weight. It was grey while two
+                                    navigation buttons beside it were filled. */}
                                 <button
                                     type="button"
                                     onClick={() => void logTaskBlock()}
                                     disabled={isLoggingTaskBlock || !organizationId}
-                                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-muted px-3 py-1.5 text-xs font-medium hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
+                                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
                                 >
                                     <Clock className="h-3.5 w-3.5" />
                                     {isLoggingTaskBlock
@@ -577,9 +587,8 @@ export function EventDetailPanel({
                                         : `Log ${formatBlockDuration(parseDurationInput(taskLogDuration) ?? blockMinutes)}`}
                                 </button>
 
-                                <p className="text-[10px] leading-snug text-muted-foreground">
-                                    Records the time only. This task stays{' '}
-                                    <span className="capitalize">{task.status.replace('_', ' ')}</span>.
+                                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                                    Records the time only. This task stays {taskStatusLabel(task.status)}.
                                 </p>
                             </div>
                         )}
@@ -707,7 +716,7 @@ export function EventDetailPanel({
                     item.source === 'task' ? (
                         <Link
                             href={`/tasks?task=${encodeURIComponent(item.raw.id)}`}
-                            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                             Open task
                             <ExternalLink className="h-3.5 w-3.5" />
@@ -715,7 +724,7 @@ export function EventDetailPanel({
                     ) : item.source === 'actual_time' && attempt?.taskId ? (
                         <Link
                             href={`/tasks?task=${encodeURIComponent(attempt.taskId)}`}
-                            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                             Open task
                             <ExternalLink className="h-3.5 w-3.5" />
