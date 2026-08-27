@@ -23,6 +23,9 @@ import {
 import { getTask, updateTask } from '@/lib/supabase/tasks';
 import { localDateForInstant, parseLocalDate } from '@/lib/planner/local-date';
 import { durationMinutes } from '@/lib/planner/layout';
+import {
+    formatBlockDuration, parseDurationInput, taskBlockLogInput,
+} from '@/lib/planner/task-block-log';
 import { TeamMember } from './MeetWithFilter';
 import { BasecampProjectPicker, type BasecampProject } from './BasecampProjectPicker';
 import { ACTUAL_STYLE, KIND_STYLES } from './EventCard';
@@ -79,6 +82,14 @@ export function EventDetailPanel({
     const [internalProject, setInternalProject] = useState<BasecampProject | undefined>(undefined);
     const [taskTrackedHours, setTaskTrackedHours] = useState(0);
     const [isLoadingTaskTime, setIsLoadingTaskTime] = useState(false);
+    // Logging a worked task block. Seeded from the block itself so the common
+    // case — "I worked the time I planned" — is one click with nothing to type.
+    const [taskLogDuration, setTaskLogDuration] = useState('');
+    const [taskLogNote, setTaskLogNote] = useState('');
+    const [taskLogCountsBudget, setTaskLogCountsBudget] = useState(true);
+    const [isLoggingTaskBlock, setIsLoggingTaskBlock] = useState(false);
+    const [taskLogError, setTaskLogError] = useState<string | null>(null);
+    const [taskLoggedMinutes, setTaskLoggedMinutes] = useState<number | null>(null);
     const [showCompletion, setShowCompletion] = useState(false);
     const [isCompleting, setIsCompleting] = useState(false);
     const [completionError, setCompletionError] = useState<string | null>(null);
@@ -109,6 +120,19 @@ export function EventDetailPanel({
         return () => { cancelled = true; };
     }, [task?.id]);
 
+    // Seed (and re-seed) the duration from the block being viewed. A task block
+    // can be logged more than once — two sittings on the same block is normal —
+    // so this is deliberately NOT made idempotent the way an event log is.
+    useEffect(() => {
+        setTaskLogDuration(formatBlockDuration(
+            Math.max(1, durationMinutes(item.startsAt, item.endsAt)),
+        ));
+        setTaskLogNote('');
+        setTaskLogCountsBudget(true);
+        setTaskLogError(null);
+        setTaskLoggedMinutes(null);
+    }, [item.id, item.startsAt, item.endsAt]);
+
     // Has this block already been turned into time? Keeps the action idempotent.
     const eventId = event?.id;
     useEffect(() => {
@@ -129,7 +153,9 @@ export function EventDetailPanel({
         return () => { cancelled = true; };
     }, [event?.clientId]);
 
-    const blockMinutes = event ? Math.max(1, durationMinutes(item.startsAt, item.endsAt)) : 0;
+    const blockMinutes = (event || task)
+        ? Math.max(1, durationMinutes(item.startsAt, item.endsAt))
+        : 0;
     const isPast = new Date(item.endsAt).getTime() <= Date.now();
 
     /**
@@ -175,6 +201,47 @@ export function EventDetailPanel({
         const pushed = (event.clientId && bcAvailable && sendToBasecamp)
             || (!event.clientId && Boolean(internalProject));
         if (pushed) void pollForSyncResult(event.id);
+    };
+
+    /**
+     * Log a worked task block WITHOUT touching the task's status.
+     *
+     * The gap this closes: the only one-click route to a task's hours was
+     * marking it done, which conflated "record my time" with "this work is
+     * finished". Someone who worked 3:15–6:00 and intends to continue tomorrow
+     * had to leave the panel, open the task modal, and retype a duration the
+     * panel was already showing them.
+     */
+    const logTaskBlock = async () => {
+        if (!task || !organizationId || !task.clientId || isLoggingTaskBlock) return;
+        const minutes = parseDurationInput(taskLogDuration);
+        if (!minutes) {
+            setTaskLogError('Enter a duration like 2h 45m, 2:45, or 2.75.');
+            return;
+        }
+        setTaskLogError(null);
+        setIsLoggingTaskBlock(true);
+        const res = await createTimeLog(taskBlockLogInput(
+            {
+                organizationId,
+                userId,
+                taskId: task.id,
+                clientId: task.clientId,
+                taskTitle: task.title,
+                // The block's own date. Logging after the fact is the norm here,
+                // so defaulting to today would silently misdate the work.
+                date: localDateForInstant(item.startsAt),
+            },
+            { minutes, note: taskLogNote, countsTowardBudget: taskLogCountsBudget },
+        ));
+        setIsLoggingTaskBlock(false);
+        if (!res.success) {
+            setTaskLogError(res.error || 'Could not log this time. Try again.');
+            return;
+        }
+        setTaskLoggedMinutes(minutes);
+        setTaskTrackedHours(hours => hours + (Math.round((minutes / 60) * 100) / 100));
+        onChanged();
     };
 
     /** Re-read the log until Basecamp reports success or failure, then stop. */
@@ -405,6 +472,117 @@ export function EventDetailPanel({
                                 </button>
                             );
                         })}
+                    </div>
+                )}
+
+                {task && (
+                    <div className="rounded-lg border border-border p-2.5">
+                        {taskLoggedMinutes !== null ? (
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-1.5 text-xs font-medium text-green-500">
+                                    <Check className="h-3.5 w-3.5" />
+                                    Logged {formatBlockDuration(taskLoggedMinutes)}
+                                </div>
+                                <p className="text-[10px] leading-snug text-muted-foreground">
+                                    {taskTrackedHours.toFixed(2)}h on this task now. Still{' '}
+                                    <span className="capitalize">{task.status.replace('_', ' ')}</span>.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setTaskLoggedMinutes(null)}
+                                    className="text-[11px] text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                >
+                                    Log more time
+                                </button>
+                            </div>
+                        ) : !task.clientId ? (
+                            <p className="text-[11px] leading-snug text-muted-foreground">
+                                Give this task a client to log time against it.
+                            </p>
+                        ) : (
+                            <div className="space-y-2.5">
+                                <div className="flex items-baseline justify-between">
+                                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                        Log time
+                                    </span>
+                                    {taskTrackedHours > 0 && (
+                                        <span className="text-[10px] text-muted-foreground">
+                                            {taskTrackedHours.toFixed(2)}h so far
+                                        </span>
+                                    )}
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <label
+                                        htmlFor="task-block-duration"
+                                        className="shrink-0 text-[11px] text-muted-foreground"
+                                    >
+                                        Duration
+                                    </label>
+                                    <input
+                                        id="task-block-duration"
+                                        value={taskLogDuration}
+                                        onChange={e => { setTaskLogDuration(e.target.value); setTaskLogError(null); }}
+                                        inputMode="text"
+                                        className="min-h-11 w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-xs outline-none focus:border-primary"
+                                    />
+                                </div>
+
+                                <input
+                                    value={taskLogNote}
+                                    onChange={e => setTaskLogNote(e.target.value)}
+                                    placeholder="What did you work on? (optional)"
+                                    className="min-h-11 w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-xs outline-none focus:border-primary"
+                                />
+
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={taskLogCountsBudget}
+                                    onClick={() => setTaskLogCountsBudget(v => !v)}
+                                    className="flex min-h-11 w-full items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                >
+                                    <span
+                                        className={cn(
+                                            'relative h-4 w-7 shrink-0 rounded-full transition-colors',
+                                            taskLogCountsBudget ? 'bg-green-500' : 'bg-muted',
+                                        )}
+                                    >
+                                        <span
+                                            className={cn(
+                                                'absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform',
+                                                taskLogCountsBudget ? 'translate-x-3.5' : 'translate-x-0.5',
+                                            )}
+                                        />
+                                    </span>
+                                    <span className="text-[11px]">Counts toward SEO budget</span>
+                                </button>
+
+                                {taskLogError && (
+                                    <p className="flex items-start gap-1.5 text-[10px] leading-snug text-destructive">
+                                        <AlertCircle className="mt-px h-3 w-3 shrink-0" />
+                                        {taskLogError}
+                                    </p>
+                                )}
+
+                                <button
+                                    type="button"
+                                    onClick={() => void logTaskBlock()}
+                                    disabled={isLoggingTaskBlock || !organizationId}
+                                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-muted px-3 py-1.5 text-xs font-medium hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
+                                >
+                                    <Clock className="h-3.5 w-3.5" />
+                                    {isLoggingTaskBlock
+                                        ? 'Logging…'
+                                        : `Log ${formatBlockDuration(parseDurationInput(taskLogDuration) ?? blockMinutes)}`}
+                                </button>
+
+                                <p className="text-[10px] leading-snug text-muted-foreground">
+                                    Records the time only. This task stays{' '}
+                                    <span className="capitalize">{task.status.replace('_', ' ')}</span>.
+                                </p>
+                            </div>
+                        )}
                     </div>
                 )}
 
