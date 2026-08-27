@@ -271,3 +271,79 @@ test('a member cannot bounce', () => {
     assert.equal(result.ok, false);
     assert.equal(!result.ok && result.status, 403);
 });
+
+// --- reference links -------------------------------------------------------
+
+test('an edit that says nothing about links leaves the stored ones alone', () => {
+    const result = buildEntryEdit(row(), {
+        activityKeys: ['technical_audit'], detail: '', clientId: 'client-a',
+    }, actor);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.ok && 'reference_links' in result.updates, false);
+});
+
+test('valid reference links reach the patch, trimmed and normalized', () => {
+    const result = buildEntryEdit(row(), {
+        activityKeys: ['technical_audit'],
+        detail: 'roadmap draft',
+        clientId: 'client-a',
+        referenceLinks: [{
+            label: '  All In One Construction - 6-Month SEO Roadmap  ',
+            url: '  https://docs.google.com/document/d/roadmap  ',
+        }],
+    }, actor);
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.ok && result.updates.reference_links, [{
+        label: 'All In One Construction - 6-Month SEO Roadmap',
+        url: 'https://docs.google.com/document/d/roadmap',
+    }]);
+});
+
+test('an empty list is a real value — it clears the row', () => {
+    const result = buildEntryEdit(row(), {
+        activityKeys: ['technical_audit'], detail: '', clientId: 'client-a',
+        referenceLinks: [],
+    }, actor);
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.ok && result.updates.reference_links, []);
+});
+
+test('a dangerous or malformed link is a 400, never a silent drop', () => {
+    for (const referenceLinks of [
+        [{ label: 'click', url: 'javascript:alert(document.cookie)' }],
+        [{ label: 'click', url: 'JaVaScRiPt:alert(1)' }],
+        [{ label: 'click', url: 'java\nscript:alert(1)' }],
+        [{ label: 'payload', url: 'data:text/html,<script>alert(1)</script>' }],
+        [{ label: 'away', url: '//evil.com' }],
+        [{ label: '', url: 'https://example.com' }],
+        [{ label: 'good', url: 'https://example.com' }, { label: 'bad', url: 'file:///etc/passwd' }],
+    ]) {
+        const result = buildEntryEdit(row(), {
+            activityKeys: ['technical_audit'],
+            detail: '',
+            clientId: 'client-a',
+            referenceLinks,
+        }, actor);
+
+        assert.equal(result.ok, false, `expected 400: ${JSON.stringify(referenceLinks)}`);
+        assert.equal(!result.ok && result.status, 400);
+        // The good link in the mixed case must NOT have been kept.
+        assert.equal('updates' in result, false);
+    }
+});
+
+test('more links than a row may carry is a 400', () => {
+    const referenceLinks = Array.from({ length: 11 }, (_, index) => ({
+        label: `Doc ${index}`,
+        url: `https://example.com/${index}`,
+    }));
+    const result = buildEntryEdit(row(), {
+        activityKeys: ['technical_audit'], detail: '', clientId: 'client-a', referenceLinks,
+    }, actor);
+
+    assert.equal(result.ok, false);
+    assert.equal(!result.ok && result.status, 400);
+});

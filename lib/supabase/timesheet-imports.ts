@@ -2,6 +2,7 @@ import { createAdminClient } from './admin';
 import type { ProjectRoleRecord } from '@/lib/basecamp/project-roles';
 import type { BasecampProjectRoleKind } from '@/lib/types';
 import type { QueueSourceRow } from '@/lib/timesheets/import-queue-route';
+import { parseReferenceLinks } from '@/lib/timesheets/reference-links';
 
 /** Service-role adapters for the import pipeline. */
 
@@ -62,6 +63,7 @@ interface ImportQueueDatabaseRow {
     user_id: string | null;
     client_id: string | null;
     activity_keys: string[] | null;
+    reference_links: unknown;
     task_id: string | null;
     import_status: QueueSourceRow['importStatus'] | null;
     date: string;
@@ -75,7 +77,7 @@ interface ImportQueueDatabaseRow {
 }
 
 const QUEUE_SELECT = `
-    id, user_id, client_id, activity_keys, task_id, import_status, date, hours,
+    id, user_id, client_id, activity_keys, reference_links, task_id, import_status, date, hours,
     description, counts_toward_budget, review_note, basecamp_project_id,
     clients(name), tasks(title)
 `;
@@ -96,6 +98,9 @@ export function mapImportQueueRow(
         // Internal is a property of the project, not of the entry.
         isInternal,
         activityKeys: row.activity_keys ?? [],
+        // Defensive on purpose: this is a jsonb column, so the shape is a
+        // claim rather than a guarantee.
+        referenceLinks: parseReferenceLinks(row.reference_links),
         taskId: row.task_id ?? null,
         taskTitle: row.tasks?.title ?? null,
         importStatus: row.import_status ?? 'needs_context',

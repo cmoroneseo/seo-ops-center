@@ -1,5 +1,7 @@
 import { budgetDefaultFor, describeActivity, findActivity } from './activities.ts';
 import { deriveIssues, isReadyToSubmit, type ReviewableRow } from './import-issues.ts';
+import { validateReferenceLinks } from './reference-links.ts';
+import type { TimeLogReferenceLink } from '../types.ts';
 
 /**
  * Every state change an imported entry can undergo.
@@ -21,6 +23,12 @@ export interface EntryEdit {
     clientId: string | null;
     /** Overrides the activity's budget default when present. */
     countsTowardBudget?: boolean;
+    /**
+     * Documents this block of time produced or cited. Omitted means "leave
+     * whatever is stored alone" — an edit that only changes the detail must
+     * not quietly drop a row's links.
+     */
+    referenceLinks?: TimeLogReferenceLink[];
 }
 
 export type TransitionResult<T> =
@@ -50,10 +58,20 @@ export function buildEntryEdit(
         return { ok: false, status: 400, error: 'Choose a valid activity' };
     }
 
+    // A bad link is a 400, never a silent drop: the person typed it, and an
+    // artifact that vanishes without a word is worse than one that is refused.
+    const references = validateReferenceLinks(edit.referenceLinks);
+    if (!references.ok) {
+        return { ok: false, status: 400, error: references.error };
+    }
+
     return {
         ok: true,
         updates: {
             activity_keys: edit.activityKeys,
+            ...(edit.referenceLinks === undefined
+                ? {}
+                : { reference_links: references.links }),
             description: describeActivity(edit.activityKeys, edit.detail),
             // Internal work never consumes a client's SEO budget. Otherwise an
             // explicit choice always wins; the activity set only fills in a

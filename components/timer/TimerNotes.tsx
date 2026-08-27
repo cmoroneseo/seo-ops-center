@@ -5,6 +5,7 @@ import { X, StickyNote, Link2, Pencil, Check } from 'lucide-react';
 import { useTimer } from '@/components/providers/timer-provider';
 import { SessionNote } from '@/lib/types';
 import { ClientProject } from '@/lib/types';
+import { isExternalHref, safeHref } from '@/lib/links/safe-href';
 
 // ── Link rendering ────────────────────────────────────────────────────────────
 // Parses [Label](/path) markdown-style links and renders them as <a> tags.
@@ -13,12 +14,21 @@ function renderNoteText(text: string) {
     return parts.map((part, i) => {
         const match = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
         if (match) {
+            // Never trust the captured URL. A note reading
+            // `[click](javascript:alert(document.cookie))` used to render as a
+            // working script link; a rejected URL now degrades to plain label
+            // text so what the person typed is still readable.
+            const href = safeHref(match[2]);
+            if (!href) return <span key={i}>{match[1]}</span>;
+            const external = isExternalHref(href);
             return (
                 <a
                     key={i}
-                    href={match[2]}
-                    className="text-primary underline underline-offset-2 hover:opacity-80 transition-opacity"
+                    href={href}
+                    target={external ? '_blank' : undefined}
+                    rel={external ? 'noopener noreferrer' : undefined}
                     onClick={e => e.stopPropagation()}
+                    className="text-primary underline underline-offset-2 hover:opacity-80 transition-opacity"
                 >
                     {match[1]}
                 </a>

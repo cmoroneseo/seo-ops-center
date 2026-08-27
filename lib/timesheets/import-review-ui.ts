@@ -1,12 +1,15 @@
 import { budgetDefaultFor, describeActivity } from './activities';
 import type { QueueRow } from './import-queue-route';
 import type { Suggestion } from './suggestions';
+import { MAX_REFERENCE_LINKS, validateReferenceLinks } from './reference-links';
+import type { TimeLogReferenceLink } from '../types';
 
 export interface ImportEntryEdit {
     activityKeys: string[];
     detail: string;
     clientId: string | null;
     countsTowardBudget: boolean;
+    referenceLinks: TimeLogReferenceLink[];
 }
 
 export interface ImportDraft {
@@ -14,6 +17,8 @@ export interface ImportDraft {
     detail: string;
     clientId: string | null;
     countsTowardBudget: boolean;
+    /** Documents this block of time produced or cited. */
+    referenceLinks: TimeLogReferenceLink[];
     /**
      * True once `countsTowardBudget` represents a decision rather than a
      * suggestion.
@@ -51,6 +56,7 @@ export function detailForRow(row: QueueRow): string {
 export function draftForRow(row: QueueRow): ImportDraft {
     return {
         activityKeys: row.activityKeys,
+        referenceLinks: row.referenceLinks,
         detail: detailForRow(row),
         clientId: row.isInternal ? null : row.clientId,
         countsTowardBudget: row.isInternal ? false : row.countsTowardBudget,
@@ -75,12 +81,51 @@ export function buildImportEdit(
     if (activityKeys.length === 0) return null;
     return {
         activityKeys,
+        referenceLinks: patch.referenceLinks ?? draft.referenceLinks,
         detail: patch.detail ?? draft.detail,
         clientId: row.isInternal ? null : patch.clientId === undefined
             ? draft.clientId
             : patch.clientId,
         countsTowardBudget: row.isInternal ? false : patch.countsTowardBudget
             ?? draft.countsTowardBudget,
+    };
+}
+
+/**
+ * The draft patch adding one link produces, or the reason it was refused.
+ *
+ * Validation lives here rather than in the component so the rejection a person
+ * sees is the same rule the route enforces.
+ */
+export function addReferenceLinkPatch(
+    draft: ImportDraft,
+    label: string,
+    url: string,
+): { ok: true; patch: Partial<ImportDraft> } | { ok: false; error: string } {
+    if (draft.referenceLinks.length >= MAX_REFERENCE_LINKS) {
+        return {
+            ok: false,
+            error: `An entry can carry at most ${MAX_REFERENCE_LINKS} links`,
+        };
+    }
+
+    const candidate = validateReferenceLinks([{ label, url }]);
+    if (!candidate.ok) return { ok: false, error: candidate.error };
+
+    const added = candidate.links[0];
+    if (draft.referenceLinks.some(link => link.url === added.url)) {
+        return { ok: false, error: 'That link is already on this entry' };
+    }
+    return { ok: true, patch: { referenceLinks: [...draft.referenceLinks, added] } };
+}
+
+/** The draft patch removing the link at `index` produces. */
+export function removeReferenceLinkPatch(
+    draft: ImportDraft,
+    index: number,
+): Partial<ImportDraft> {
+    return {
+        referenceLinks: draft.referenceLinks.filter((_, position) => position !== index),
     };
 }
 

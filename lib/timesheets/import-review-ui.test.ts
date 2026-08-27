@@ -16,8 +16,10 @@ import {
     createInFlightRequestCache,
     createLatestRequestSequencer,
     currentRequestItems,
+    addReferenceLinkPatch,
     draftForRow,
     normalizeImportDraft,
+    removeReferenceLinkPatch,
     planBulkClientEdits,
     settleOperations,
     withRunningState,
@@ -32,6 +34,7 @@ const readyRow: QueueRow = {
     clientName: 'Acme',
     isInternal: false,
     activityKeys: ['technical_audit'],
+    referenceLinks: [],
     taskId: null,
     taskTitle: null,
     importStatus: 'needs_context',
@@ -137,12 +140,14 @@ test('a first activity choice seeds the budget default', () => {
 
     assert.deepEqual(buildActivityEdit(blockedRow, draft, ['technical_audit']), {
         activityKeys: ['technical_audit'],
+        referenceLinks: [],
         detail: 'crawl review',
         clientId: 'client-1',
         countsTowardBudget: true,
     });
     assert.deepEqual(buildActivityEdit(blockedRow, draft, ['internal_admin']), {
         activityKeys: ['internal_admin'],
+        referenceLinks: [],
         detail: 'crawl review',
         clientId: 'client-1',
         countsTowardBudget: false,
@@ -157,7 +162,7 @@ test('a block carries several activities without splitting its hours', () => {
     assert.deepEqual(edit?.activityKeys, keys);
     // Nothing in the edit touches hours: tagging is not splitting.
     assert.deepEqual(Object.keys(edit ?? {}).sort(), [
-        'activityKeys', 'clientId', 'countsTowardBudget', 'detail',
+        'activityKeys', 'clientId', 'countsTowardBudget', 'detail', 'referenceLinks',
     ]);
 });
 
@@ -211,6 +216,7 @@ test('a detail-only suggestion preserves an explicit budget override', () => {
         activityKeys: [],
     }), {
         activityKeys: ['technical_audit'],
+        referenceLinks: [],
         detail: 'Review crawl findings',
         clientId: 'client-1',
         countsTowardBudget: false,
@@ -248,6 +254,7 @@ test('internal drafts and edits always clear client and budget values', () => {
     });
     assert.deepEqual(buildActivityEdit(internalRow, draft, ['technical_audit']), {
         activityKeys: ['technical_audit'],
+        referenceLinks: [],
         detail: '',
         clientId: null,
         countsTowardBudget: false,
@@ -268,6 +275,7 @@ test('bulk client plans exclude internal rows and report the affected count', ()
         id: readyRow.id,
         edit: {
             activityKeys: ['technical_audit'],
+            referenceLinks: [],
             detail: '',
             clientId: 'client-2',
             countsTowardBudget: true,
@@ -484,4 +492,99 @@ test('the bulk client control tells managers how many external rows it will upda
 
     assert.match(html, /1 will be updated/);
     assert.match(html, /1 internal excluded/);
+});
+
+// --- reference links -------------------------------------------------------
+
+const linkedRow: QueueRow = {
+    ...readyRow,
+    id: 'entry-linked',
+    referenceLinks: [{
+        label: 'All In One Construction - 6-Month SEO Roadmap',
+        url: 'https://docs.google.com/document/d/roadmap',
+    }],
+};
+
+test('existing links render as chips that open in a new tab', () => {
+    const html = renderToStaticMarkup(createElement(ImportRow, {
+        row: linkedRow,
+        clients: [],
+        organizationId: 'org-1',
+        isSelected: false,
+        isManager: false,
+        isBusy: false,
+        onToggleSelect: () => undefined,
+        onEdit: () => undefined,
+        onApprove: () => undefined,
+        onBounce: () => undefined,
+    }));
+
+    assert.match(html, /All In One Construction - 6-Month SEO Roadmap/);
+    assert.match(html, /href="https:\/\/docs\.google\.com\/document\/d\/roadmap"/);
+    assert.match(html, /target="_blank"/);
+    assert.match(html, /rel="noopener noreferrer"/);
+    // Removable, labelled, and an affordance to add another.
+    assert.match(html, /aria-label="Remove All In One Construction - 6-Month SEO Roadmap"/);
+    assert.match(html, />Add link</);
+    // Tailwind semantic tokens only — no hard-coded colors.
+    assert.doesNotMatch(html, /#[0-9a-fA-F]{3,8}\b/);
+});
+
+test('a draft carries the row\'s links into every edit it builds', () => {
+    const draft = draftForRow(linkedRow);
+    assert.deepEqual(draft.referenceLinks, linkedRow.referenceLinks);
+    assert.deepEqual(
+        buildImportEdit(linkedRow, draft)?.referenceLinks,
+        linkedRow.referenceLinks,
+    );
+});
+
+test('adding a link patches the draft; a rejected URL patches nothing', () => {
+    const draft = draftForRow(readyRow);
+
+    const added = addReferenceLinkPatch(draft, '  Roadmap  ', '  https://example.com/doc  ');
+    assert.equal(added.ok, true);
+    assert.deepEqual(added.ok && added.patch.referenceLinks, [
+        { label: 'Roadmap', url: 'https://example.com/doc' },
+    ]);
+
+    for (const url of ['javascript:alert(1)', 'JaVaScRiPt:alert(1)', '//evil.com', 'nope']) {
+        const rejected = addReferenceLinkPatch(draft, 'click', url);
+        assert.equal(rejected.ok, false, `expected rejection: ${url}`);
+        assert.equal('patch' in rejected, false);
+    }
+
+    assert.equal(addReferenceLinkPatch(draft, '   ', 'https://example.com').ok, false);
+});
+
+test('the same link is never added twice, and ten is the ceiling', () => {
+    const draft = draftForRow(linkedRow);
+    const duplicate = addReferenceLinkPatch(draft, 'Same doc', linkedRow.referenceLinks[0].url);
+    assert.equal(duplicate.ok, false);
+
+    const full = {
+        ...draft,
+        referenceLinks: Array.from({ length: 10 }, (_, index) => ({
+            label: `Doc ${index}`,
+            url: `https://example.com/${index}`,
+        })),
+    };
+    const overflow = addReferenceLinkPatch(full, 'One more', 'https://example.com/extra');
+    assert.equal(overflow.ok, false);
+    assert.match(!overflow.ok ? overflow.error : '', /at most 10 links/);
+});
+
+test('removing a chip removes exactly that link', () => {
+    const draft = {
+        ...draftForRow(readyRow),
+        referenceLinks: [
+            { label: 'A', url: 'https://example.com/a' },
+            { label: 'B', url: 'https://example.com/b' },
+            { label: 'C', url: 'https://example.com/c' },
+        ],
+    };
+    assert.deepEqual(removeReferenceLinkPatch(draft, 1).referenceLinks, [
+        { label: 'A', url: 'https://example.com/a' },
+        { label: 'C', url: 'https://example.com/c' },
+    ]);
 });

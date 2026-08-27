@@ -5,6 +5,7 @@ import {
     buildSubmit,
 } from './import-transitions.ts';
 import type { QueueSourceRow } from './import-queue-route.ts';
+import type { TimeLogReferenceLink } from '../types.ts';
 
 type MutationAction = 'edit' | 'submit' | 'approve' | 'bounce';
 
@@ -128,6 +129,12 @@ export function createImportEntriesPatch(dependencies: ImportMutationDependencie
                 clientId,
                 countsTowardBudget: typeof edit.countsTowardBudget === 'boolean'
                     ? edit.countsTowardBudget
+                    : undefined,
+                // Passed through as-is when present, so a malformed payload
+                // reaches validateReferenceLinks and comes back a 400. The
+                // cast only satisfies the compiler; it asserts nothing.
+                referenceLinks: 'referenceLinks' in edit
+                    ? edit.referenceLinks as TimeLogReferenceLink[] | undefined
                     : undefined,
             }, actor);
             if (!result.ok) {

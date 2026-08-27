@@ -15,14 +15,28 @@ import {
 import { getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
 import { SessionNote } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { isExternalHref, safeHref } from '@/lib/links/safe-href';
 
 function renderNoteText(text: string) {
     const parts = text.split(/(\[[^\]]+\]\([^)]+\))/g);
     return parts.map((part, i) => {
         const match = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
         if (match) {
+            // Never trust the captured URL. A note reading
+            // `[click](javascript:alert(document.cookie))` used to render as a
+            // working script link; a rejected URL now degrades to plain label
+            // text so what the person typed is still readable.
+            const href = safeHref(match[2]);
+            if (!href) return <span key={i}>{match[1]}</span>;
+            const external = isExternalHref(href);
             return (
-                <a key={i} href={match[2]} className="text-primary underline underline-offset-2 hover:opacity-80">
+                <a
+                    key={i}
+                    href={href}
+                    target={external ? '_blank' : undefined}
+                    rel={external ? 'noopener noreferrer' : undefined}
+                    className="text-primary underline underline-offset-2 hover:opacity-80"
+                >
                     {match[1]}
                 </a>
             );

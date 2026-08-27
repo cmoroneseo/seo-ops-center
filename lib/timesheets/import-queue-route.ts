@@ -1,6 +1,6 @@
 import { deriveIssues, isReadyToSubmit, type ImportIssue } from './import-issues.ts';
 import { minutesFromHours } from './ledger.ts';
-import type { TimeLogImportStatus } from '../types.ts';
+import type { TimeLogImportStatus, TimeLogReferenceLink } from '../types.ts';
 
 /**
  * The review queue read model.
@@ -24,6 +24,8 @@ export interface QueueSourceRow {
     clientName: string | null;
     isInternal: boolean;
     activityKeys: string[];
+    /** Documents this block of time produced or cited. */
+    referenceLinks: TimeLogReferenceLink[];
     taskId: string | null;
     taskTitle: string | null;
     importStatus: TimeLogImportStatus;

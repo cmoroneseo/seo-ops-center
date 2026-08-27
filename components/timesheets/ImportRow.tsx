@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Link2Off } from 'lucide-react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { AlertTriangle, ExternalLink, Link2Off, Plus, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { safeHref } from '@/lib/links/safe-href';
 import {
     activityChoicePatch,
+    addReferenceLinkPatch,
     budgetChoicePatch,
     buildActivityEdit,
     buildImportEdit,
@@ -13,13 +15,14 @@ import {
     currentRequestItems,
     draftForRow,
     normalizeImportDraft,
+    removeReferenceLinkPatch,
     type ImportDraft,
     type ImportEntryEdit,
 } from '@/lib/timesheets/import-review-ui';
 import { formatDayHeading, formatDuration } from '@/lib/timesheets/format';
 import type { QueueRow } from '@/lib/timesheets/import-queue-route';
 import type { Suggestion } from '@/lib/timesheets/suggestions';
-import type { ClientProject } from '@/lib/types';
+import type { ClientProject, TimeLogReferenceLink } from '@/lib/types';
 import { ActivityPicker } from './ActivityPicker';
 
 interface ImportRowProps {
@@ -44,6 +47,179 @@ function requestSuggestions(url: string): Promise<Suggestion[]> {
         const body = await response.json() as { suggestions?: Suggestion[] };
         return body.suggestions ?? [];
     });
+}
+
+/**
+ * The documents a block of time produced or cited.
+ *
+ * The team habitually pastes a Google Doc into their time notes — a reviewed
+ * August entry named a 6-month SEO roadmap with the doc title as a live
+ * hyperlink. Chips keep those visible while a manager scans a queue, and keep
+ * them as data rather than as prose a future client-month review cannot read.
+ *
+ * A hand-rolled disclosure (`useState` + an outside-click ref) rather than a
+ * Radix popover, matching the rest of this codebase.
+ */
+function ReferenceLinkChips({
+    links,
+    rowLabel,
+    disabled,
+    onAdd,
+    onRemove,
+}: {
+    links: TimeLogReferenceLink[];
+    rowLabel: string;
+    disabled: boolean;
+    /** Returns the reason it was refused, or null once added. */
+    onAdd: (label: string, url: string) => string | null;
+    onRemove: (index: number) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const [labelDraft, setLabelDraft] = useState('');
+    const [urlDraft, setUrlDraft] = useState('');
+    const [error, setError] = useState<string | null>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const panelId = useId();
+    const errorId = `${panelId}-error`;
+
+    useEffect(() => {
+        if (!open) return;
+        const onDown = (event: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+                setOpen(false);
+            }
+        };
+        const onKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); }
+        };
+        document.addEventListener('mousedown', onDown);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('mousedown', onDown);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [open]);
+
+    const submit = () => {
+        const reason = onAdd(labelDraft, urlDraft);
+        if (reason) { setError(reason); return; }
+        setLabelDraft('');
+        setUrlDraft('');
+        setError(null);
+        setOpen(false);
+    };
+
+    return (
+        <div ref={containerRef} className="relative flex flex-wrap items-center gap-2">
+            <ul className="flex flex-wrap items-center gap-2" aria-label={`Documents for ${rowLabel}`}>
+                {links.map((link, index) => {
+                    // Already validated on the way in, checked again on the way
+                    // out: the column is jsonb and its shape is a claim.
+                    const href = safeHref(link.url);
+                    return (
+                        <li
+                            key={`${link.url}-${index}`}
+                            className="flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-xs text-muted-foreground"
+                        >
+                            {href ? (
+                                <a
+                                    href={href}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex max-w-[220px] items-center gap-1 truncate text-primary hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                                    title={link.label}
+                                >
+                                    <span className="truncate">{link.label}</span>
+                                    <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+                                    <span className="sr-only">(opens in a new tab)</span>
+                                </a>
+                            ) : (
+                                <span className="max-w-[220px] truncate" title={link.label}>{link.label}</span>
+                            )}
+                            <button
+                                type="button"
+                                disabled={disabled}
+                                onClick={() => onRemove(index)}
+                                aria-label={`Remove ${link.label}`}
+                                className="shrink-0 rounded-full text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                            >
+                                <X className="h-3 w-3" aria-hidden />
+                            </button>
+                        </li>
+                    );
+                })}
+            </ul>
+
+            <button
+                type="button"
+                disabled={disabled}
+                aria-expanded={open}
+                aria-controls={open ? panelId : undefined}
+                onClick={() => { setOpen(current => !current); setError(null); }}
+                className="flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
+                <Plus className="h-3 w-3" aria-hidden />
+                Add link
+            </button>
+
+            {open && (
+                <div
+                    id={panelId}
+                    className="absolute left-0 top-full z-50 mt-1 w-80 rounded-xl border border-border bg-card p-3 shadow-xl"
+                >
+                    <label className="block text-xs text-muted-foreground" htmlFor={`${panelId}-label`}>
+                        Document name
+                    </label>
+                    <input
+                        id={`${panelId}-label`}
+                        type="text"
+                        value={labelDraft}
+                        onChange={event => { setLabelDraft(event.target.value); setError(null); }}
+                        placeholder="6-Month SEO Roadmap"
+                        className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                    />
+
+                    <label className="mt-2 block text-xs text-muted-foreground" htmlFor={`${panelId}-url`}>
+                        Link
+                    </label>
+                    <input
+                        id={`${panelId}-url`}
+                        type="url"
+                        value={urlDraft}
+                        onChange={event => { setUrlDraft(event.target.value); setError(null); }}
+                        onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); submit(); } }}
+                        placeholder="https://docs.google.com/…"
+                        aria-invalid={error ? true : undefined}
+                        aria-describedby={error ? errorId : undefined}
+                        className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                    />
+
+                    {error && (
+                        <p id={errorId} role="alert" className="mt-2 text-xs text-amber-500">
+                            {error}
+                        </p>
+                    )}
+
+                    <div className="mt-3 flex justify-end gap-2">
+                        <button
+                            type="button"
+                            onClick={() => { setOpen(false); setError(null); }}
+                            className="rounded-lg border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={submit}
+                            className="rounded-lg bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                        >
+                            Add
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 }
 
 export function ImportRow({
@@ -97,6 +273,18 @@ export function ImportRow({
     const save = (patch: Partial<ImportDraft> = {}) => {
         const edit = buildImportEdit(row, updateDraft(patch));
         if (edit) void onEdit(edit);
+    };
+
+    /** Returns the reason the link was refused, or null once it is added. */
+    const addReferenceLink = (label: string, url: string): string | null => {
+        const result = addReferenceLinkPatch(draftRef.current, label, url);
+        if (!result.ok) return result.error;
+        save(result.patch);
+        return null;
+    };
+
+    const removeReferenceLink = (index: number) => {
+        save(removeReferenceLinkPatch(draftRef.current, index));
     };
 
     return (
@@ -221,6 +409,16 @@ export function ImportRow({
                         {suggestion.title}
                     </button>
                 ))}
+            </div>
+
+            <div className="mt-3 pl-7">
+                <ReferenceLinkChips
+                    links={draft.referenceLinks}
+                    rowLabel={`${heading.weekday} ${heading.date}`}
+                    disabled={isBusy}
+                    onAdd={addReferenceLink}
+                    onRemove={removeReferenceLink}
+                />
             </div>
 
             {row.issues.includes('no_member') && (

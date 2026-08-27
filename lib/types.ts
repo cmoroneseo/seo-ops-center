@@ -597,6 +597,18 @@ export interface SessionNote {
     createdAt: string; // ISO
 }
 
+/**
+ * A document produced by, or referenced from, a block of logged time.
+ *
+ * The team attaches Google Docs to their time notes; holding those as data
+ * rather than free text lets a client-month review list what a month actually
+ * produced. `url` is always a `safeHref`-approved http(s) URL.
+ */
+export interface TimeLogReferenceLink {
+    label: string;
+    url: string;
+}
+
 export interface TimeLog {
     id: string;
     organizationId: string;
@@ -643,6 +655,8 @@ export interface TimeLog {
     voidedAt?: string;
     /** migration 042 — context capture and review; a block may carry several */
     activityKeys?: string[];
+    /** migration 043 — documents this block of time produced or cited. */
+    referenceLinks?: TimeLogReferenceLink[];
     /** CSV identity, when the provider entry id is not knowable at import. */
     importFingerprint?: string;
     submittedAt?: string;
