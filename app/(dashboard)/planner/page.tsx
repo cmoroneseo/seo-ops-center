@@ -637,6 +637,7 @@ export default function PlannerPage() {
                     onClose={() => setQuickCreate(null)}
                     onCreated={() => void reloadAll()}
                     onBlockChange={block => setQuickCreate(qc => qc && { ...qc, ...block })}
+                    onTimesChange={times => setQuickCreate(qc => qc && { ...qc, ...times })}
                     onOpenFullTask={setFullTaskDraft}
                     restoreFocusRef={plannerSurfaceRef}
                 />

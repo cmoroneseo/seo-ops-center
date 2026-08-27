@@ -17,6 +17,10 @@ import { quickCreateTypeButtonProps } from '@/lib/planner/responsive';
 import {
     isNonWorkTab, quickCreateTitle, quickCreateClientId,
 } from '@/lib/planner/quick-create-kinds';
+import {
+    formatTimeLabel, endTimeOptions, startTimeOptions, withStartTime, withEndTime,
+    type TimeOption,
+} from '@/lib/planner/time-options';
 
 type Tab = 'event' | 'task' | 'focus' | 'ooo' | 'break';
 
@@ -86,6 +90,12 @@ interface QuickCreatePopoverProps {
     onClose: () => void;
     onCreated: () => void;
     onBlockChange?: (block: { kind: PlannerEventKind; label: string }) => void;
+    /**
+     * The draft's times, edited from inside the popover. Lifted rather than kept
+     * local because the ghost block on the grid is drawn from the same state —
+     * a time picker that left the block showing the old range would be lying.
+     */
+    onTimesChange?: (times: { startsAt: string; endsAt: string }) => void;
     onOpenFullTask?: (draft: FullTaskDraft) => void;
     restoreFocusRef?: RefObject<HTMLElement | null>;
 }
@@ -102,11 +112,81 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     );
 }
 
+/**
+ * The list behind a clickable time.
+ *
+ * Scrolls the current value into view on open, because a 96-entry day list
+ * that opens at midnight makes the person hunt for where they already are.
+ */
+function TimeMenu({
+    options, selected, onPick, onClose, align,
+}: {
+    options: TimeOption[];
+    selected: string;
+    onPick: (value: string) => void;
+    onClose: () => void;
+    align: 'left' | 'right';
+}) {
+    const listRef = useRef<HTMLDivElement>(null);
+    const activeRef = useRef<HTMLButtonElement>(null);
+
+    useEffect(() => {
+        activeRef.current?.scrollIntoView({ block: 'center' });
+    }, []);
+
+    useEffect(() => {
+        const onDown = (e: MouseEvent) => {
+            if (!listRef.current?.contains(e.target as Node)) onClose();
+        };
+        // Deferred so the click that opened this menu does not immediately
+        // close it again.
+        const id = setTimeout(() => document.addEventListener('mousedown', onDown), 0);
+        return () => { clearTimeout(id); document.removeEventListener('mousedown', onDown); };
+    }, [onClose]);
+
+    const selectedMs = new Date(selected).getTime();
+
+    return (
+        <div
+            ref={listRef}
+            role="listbox"
+            className={cn(
+                'absolute top-full z-50 mt-1 max-h-56 w-44 overflow-y-auto rounded-lg border border-border bg-card py-1 shadow-lg',
+                align === 'right' ? 'right-0' : 'left-0',
+            )}
+        >
+            {options.map(option => {
+                const isSelected = new Date(option.value).getTime() === selectedMs;
+                return (
+                    <button
+                        key={option.value}
+                        ref={isSelected ? activeRef : undefined}
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        onClick={() => { onPick(option.value); onClose(); }}
+                        className={cn(
+                            'flex w-full items-baseline justify-between gap-3 px-3 py-1.5 text-left text-xs hover:bg-muted',
+                            isSelected && 'bg-muted font-medium',
+                        )}
+                    >
+                        <span>{option.label}</span>
+                        {option.duration && (
+                            <span className="text-[11px] text-muted-foreground">{option.duration}</span>
+                        )}
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
+
 export function QuickCreatePopover({
     organizationId, userId, anchor, draft, clients, members, tasks,
-    onClose, onCreated, onBlockChange, onOpenFullTask, restoreFocusRef,
+    onClose, onCreated, onBlockChange, onTimesChange, onOpenFullTask, restoreFocusRef,
 }: QuickCreatePopoverProps) {
     const [tab, setTab] = useState<Tab>('event');
+    const [openTimeMenu, setOpenTimeMenu] = useState<'start' | 'end' | null>(null);
     const [title, setTitle] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
@@ -434,9 +514,59 @@ export function QuickCreatePopover({
                 </div>
             )}
 
-            <div className="mt-2 text-xs text-muted-foreground">
-                {format(new Date(draft.startsAt), 'MMM d, yyyy')}{' · '}
-                {format(new Date(draft.startsAt), 'h:mm a')} → {format(new Date(draft.endsAt), 'h:mm a')}
+            {/*
+              Clickable rather than plain text: correcting a block you have just
+              drawn used to mean cancelling and dragging again.
+            */}
+            <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+                <span>{format(new Date(draft.startsAt), 'MMM d, yyyy')}</span>
+                <span aria-hidden>·</span>
+
+                <span className="relative">
+                    <button
+                        type="button"
+                        onClick={() => setOpenTimeMenu(v => (v === 'start' ? null : 'start'))}
+                        aria-haspopup="listbox"
+                        aria-expanded={openTimeMenu === 'start'}
+                        aria-label={`Start time, ${formatTimeLabel(draft.startsAt)}`}
+                        className="rounded px-1.5 py-0.5 text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                        {formatTimeLabel(draft.startsAt)}
+                    </button>
+                    {openTimeMenu === 'start' && (
+                        <TimeMenu
+                            align="left"
+                            options={startTimeOptions(draft.startsAt)}
+                            selected={draft.startsAt}
+                            onPick={value => onTimesChange?.(withStartTime(draft, value))}
+                            onClose={() => setOpenTimeMenu(null)}
+                        />
+                    )}
+                </span>
+
+                <span aria-hidden>→</span>
+
+                <span className="relative">
+                    <button
+                        type="button"
+                        onClick={() => setOpenTimeMenu(v => (v === 'end' ? null : 'end'))}
+                        aria-haspopup="listbox"
+                        aria-expanded={openTimeMenu === 'end'}
+                        aria-label={`End time, ${formatTimeLabel(draft.endsAt)}`}
+                        className="rounded px-1.5 py-0.5 text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                        {formatTimeLabel(draft.endsAt)}
+                    </button>
+                    {openTimeMenu === 'end' && (
+                        <TimeMenu
+                            align="left"
+                            options={endTimeOptions(draft.startsAt)}
+                            selected={draft.endsAt}
+                            onPick={value => onTimesChange?.(withEndTime(draft, value))}
+                            onClose={() => setOpenTimeMenu(null)}
+                        />
+                    )}
+                </span>
             </div>
 
             {/*
