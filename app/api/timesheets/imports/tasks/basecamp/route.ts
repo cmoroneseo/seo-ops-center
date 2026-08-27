@@ -54,6 +54,8 @@ export const POST = createImportBasecampTaskPost({
     findImportedTask: findImportedBasecampTask,
     insertTask: insertImportedTask,
     async logImport(payload) {
+        // Internal audit: which to-do we pulled, and when we pulled it. Hidden
+        // from the client-facing feed by isClientVisibleEvent.
         await logClientActivity({
             organizationId: payload.organizationId,
             clientId: payload.clientId,
@@ -61,6 +63,18 @@ export const POST = createImportBasecampTaskPost({
             actorId: payload.actorId,
             metadata: { service: 'basecamp', imported: 1, source: 'timesheet_review', title: payload.title },
         });
+        // The client-facing half: a to-do that arrived already finished is a
+        // completion, dated when it was finished — not when we imported it.
+        if (payload.completedAt) {
+            await logClientActivity({
+                organizationId: payload.organizationId,
+                clientId: payload.clientId,
+                eventType: 'task.completed',
+                actorId: payload.actorId,
+                occurredAt: payload.completedAt,
+                metadata: { title: payload.title, source: 'basecamp_import' },
+            });
+        }
     },
     now: () => new Date().toISOString(),
 });

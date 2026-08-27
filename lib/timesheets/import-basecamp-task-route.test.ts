@@ -243,3 +243,31 @@ test('a non-numeric to-do id is rejected before any lookup', async () => {
     assert.equal(response.status, 400);
     assert.deepEqual(member.providerCalls, []);
 });
+
+/**
+ * The client's activity feed is also a client-facing report, so the date an
+ * event carries is the date the client reads as "when this happened".
+ *
+ * A to-do completed on the 14th and imported on the 27th produced only an
+ * "integration.tasks_imported" event stamped the 27th: the completion never
+ * appeared in the feed at all, and the import sat above genuinely newer work.
+ * Reported against "XERF landing page" — finished Aug 17, imported Aug 27.
+ */
+
+test('importing a finished to-do records the completion on the day it was finished', async () => {
+    const member = harness();
+    const response = await member.post(request());
+    assert.equal(response.status, 201);
+
+    const completion = member.logs.find(entry => entry.completedAt);
+    assert.ok(completion, 'the import must carry the provider completion moment');
+    assert.equal(completion.completedAt, '2026-08-14T17:20:00.000Z');
+});
+
+test('a to-do that is still open records no completion date', async () => {
+    const member = harness({ todo: { ...completedTodo, completed: false, completion: null } });
+    const response = await member.post(request());
+    assert.equal(response.status, 201);
+
+    assert.equal(member.logs[0].completedAt, null);
+});

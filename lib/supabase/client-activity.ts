@@ -58,6 +58,24 @@ function rowToEvent(row: any): ClientActivityEvent {
     };
 }
 
+/**
+ * Event types that describe OUR tooling rather than the client's work.
+ *
+ * The activity feed doubles as a client-facing report, and "tasks imported
+ * from Basecamp" answers a question no client asked — where a task came from —
+ * while a backfilled import stamps it at the top of their feed. The rows are
+ * still written and still queryable; they are simply not part of the story the
+ * client is shown.
+ */
+const INTERNAL_EVENT_TYPES: ReadonlySet<string> = new Set([
+    'integration.tasks_imported',
+]);
+
+/** Whether an event belongs in the client-facing feed and its export. */
+export function isClientVisibleEvent(eventType: string): boolean {
+    return !INTERNAL_EVENT_TYPES.has(eventType);
+}
+
 /** Write an activity event (server-side only — uses service role). */
 export async function logClientActivity(payload: {
     organizationId: string;
@@ -71,6 +89,17 @@ export async function logClientActivity(payload: {
      * forwards a caller-supplied value.
      */
     operationId?: string;
+    /**
+     * When the event actually happened, if that is not now.
+     *
+     * Needed because work can enter SEO PM long after it was done: a Basecamp
+     * to-do completed on the 17th and imported on the 27th belongs in the
+     * client's feed on the 17th, beside its peers. Without this the column
+     * defaults to now() and every backfilled event stacks at the top of the
+     * feed on the day of the import, which reads to the client as work done
+     * today.
+     */
+    occurredAt?: string | null;
     metadata?: Record<string, unknown>;
 }): Promise<void> {
     const admin = createAdminClient();
@@ -82,6 +111,9 @@ export async function logClientActivity(payload: {
         actor_id: payload.actorId ?? null,
         actor_name: payload.actorName ?? null,
         operation_id: payload.operationId ?? null,
+        // Omitted rather than nulled: the column's default is now(), and an
+        // explicit null would violate NOT NULL instead of falling back.
+        ...(payload.occurredAt ? { occurred_at: payload.occurredAt } : {}),
         metadata: payload.metadata ?? {},
     });
     if (error) console.error('logClientActivity error:', error);
@@ -101,5 +133,5 @@ export async function getClientActivity(clientId: string): Promise<ClientActivit
         console.error('getClientActivity error:', error);
         return [];
     }
-    return (data ?? []).map(rowToEvent);
+    return (data ?? []).map(rowToEvent).filter((event: ClientActivityEvent) => isClientVisibleEvent(event.eventType));
 }

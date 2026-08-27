@@ -59,8 +59,22 @@ export interface ImportBasecampTaskDependencies {
         clientId: string;
         actorId: string;
         title: string;
+        /**
+         * When the to-do was completed at the provider, or null if it arrives
+         * outstanding. A to-do imported already-done has to reach the client's
+         * feed as a completion on the day it was finished — otherwise the only
+         * trace of it is an import event dated today, and the work never shows
+         * as completed at all.
+         */
+        completedAt: string | null;
     }): Promise<void>;
     now(): string;
+}
+
+/** The completion moment on a built task row, if it imported as done. */
+export function completedAtOf(row: Record<string, unknown>): string | null {
+    const value = row.completed_at;
+    return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -187,6 +201,7 @@ export function createImportBasecampTaskPost(dependencies: ImportBasecampTaskDep
                 clientId: entry.clientId,
                 actorId: member.userId,
                 title: created.title,
+                completedAt: completedAtOf(built.rows[0]),
             });
         } catch { /* logged upstream */ }
 
