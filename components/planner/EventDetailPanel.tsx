@@ -587,9 +587,6 @@ export function EventDetailPanel({
                                         : `Log ${formatBlockDuration(parseDurationInput(taskLogDuration) ?? blockMinutes)}`}
                                 </button>
 
-                                <p className="text-[11px] leading-relaxed text-muted-foreground">
-                                    Records the time only. This task stays {taskStatusLabel(task.status)}.
-                                </p>
                             </div>
                         )}
                     </div>
