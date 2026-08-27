@@ -16,6 +16,7 @@ import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useTimer } from '@/components/providers/timer-provider';
 import { groupSegmentsForDisplay, sumActiveSeconds } from '@/lib/timer/segments';
+import { timeLogSyncState, canPushToBasecamp } from '@/lib/timesheets/log-sync-state';
 import { completeTaskWithReconciliation } from '@/lib/tasks/task-completion';
 import { TaskCompletionDrawer } from './TaskCompletionDrawer';
 import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
@@ -72,11 +73,14 @@ function TaskTimeLogRow({
     loggerName,
     retrying,
     onRetryBasecamp,
+    basecampAvailable,
 }: {
     log: TimerAttempt;
     loggerName?: string;
     retrying: boolean;
     onRetryBasecamp: (log: TimerAttempt) => void;
+    /** Whether this client syncs timesheets at all. */
+    basecampAvailable: boolean;
 }) {
     const groups = groupSegmentsForDisplay(log.segments);
     const activeSeconds = sumActiveSeconds(log.segments);
@@ -109,22 +113,34 @@ function TaskTimeLogRow({
                     ))}
                 </ul>
             )}
-            {log.basecampSyncError ? (
-                <div className="flex items-center gap-2 pt-0.5">
-                    <span className="text-[11px] text-destructive">Basecamp sync failed</span>
-                    <button
-                        type="button"
-                        onClick={() => onRetryBasecamp(log)}
-                        disabled={retrying}
-                        className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-50"
-                    >
-                        <RefreshCw className={cn('h-3 w-3', retrying && 'animate-spin')} />
-                        {retrying ? 'Retrying' : 'Retry'}
-                    </button>
-                </div>
-            ) : log.basecampSyncedAt ? (
-                <p className="text-[11px] text-muted-foreground/70">Synced to Basecamp</p>
-            ) : null}
+            {(() => {
+                const state = timeLogSyncState(log, basecampAvailable);
+                if (state === 'synced') {
+                    return <p className="text-[11px] text-muted-foreground/70">Synced to Basecamp</p>;
+                }
+                if (!canPushToBasecamp(state)) return null;
+                return (
+                    <div className="flex items-center gap-2 pt-0.5">
+                        <span
+                            className={cn(
+                                'text-[11px]',
+                                state === 'failed' ? 'text-destructive' : 'text-muted-foreground',
+                            )}
+                        >
+                            {state === 'failed' ? 'Basecamp sync failed' : 'Not sent to Basecamp'}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => onRetryBasecamp(log)}
+                            disabled={retrying}
+                            className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-50"
+                        >
+                            <RefreshCw className={cn('h-3 w-3', retrying && 'animate-spin')} />
+                            {retrying ? 'Sending' : state === 'failed' ? 'Retry' : 'Send'}
+                        </button>
+                    </div>
+                );
+            })()}
         </div>
     );
 }
@@ -141,6 +157,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const [loadingTaskTime, setLoadingTaskTime] = useState(false);
     const [timeLogs, setTimeLogs] = useState<TimerAttempt[]>([]);
     const [retryingLogId, setRetryingLogId] = useState<string | null>(null);
+    // Whether this client syncs timesheets. Needed as state, not on demand,
+    // because the log rows have to say when time never reached Basecamp.
+    const [basecampAvailable, setBasecampAvailable] = useState(false);
     const [subtasks, setSubtasks] = useState<Task[]>([]);
     const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
     const [addingSubtask, setAddingSubtask] = useState(false);
@@ -218,6 +237,15 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             setLoadingTaskTime(false);
         }
     }, [task?.id]);
+
+    useEffect(() => {
+        if (!task?.clientId) { setBasecampAvailable(false); return; }
+        let cancelled = false;
+        void getClientTimesheetSyncEnabled(task.clientId).then(on => {
+            if (!cancelled) setBasecampAvailable(on);
+        });
+        return () => { cancelled = true; };
+    }, [task?.clientId]);
 
     const handleRetryBasecamp = useCallback(async (log: TimerAttempt) => {
         setRetryingLogId(log.id);
@@ -785,6 +813,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                             loggerName={orgMembers.find(m => m.id === log.userId)?.name}
                                             retrying={retryingLogId === log.id}
                                             onRetryBasecamp={handleRetryBasecamp}
+                                            basecampAvailable={basecampAvailable}
                                         />
                                     ))}
                                     {timeLogs.length > 5 && (
@@ -858,7 +887,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                                     date: logDate,
                                                     description: logNote || undefined,
                                                     billable: true,
-                                                });
+                                                }, { syncToBasecamp: basecampAvailable });
                                                 if (result.success) {
                                                     void loadTaskData();
                                                     setShowLogForm(false);

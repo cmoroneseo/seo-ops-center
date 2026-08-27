@@ -145,14 +145,18 @@ export function EventDetailPanel({
         return () => { cancelled = true; };
     }, [eventId]);
 
+    // Covers tasks as well as events. When this only looked at events, a task
+    // block logged real hours and never attempted a Basecamp push at all —
+    // not a failed sync, an unattempted one, which left no error to retry.
+    const syncClientId = event?.clientId ?? task?.clientId;
     useEffect(() => {
-        if (!event?.clientId) { setBcAvailable(false); return; }
+        if (!syncClientId) { setBcAvailable(false); return; }
         let cancelled = false;
-        void getClientTimesheetSyncEnabled(event.clientId).then(on => {
+        void getClientTimesheetSyncEnabled(syncClientId).then(on => {
             if (!cancelled) setBcAvailable(on);
         });
         return () => { cancelled = true; };
-    }, [event?.clientId]);
+    }, [syncClientId]);
 
     const blockMinutes = (event || task)
         ? Math.max(1, durationMinutes(item.startsAt, item.endsAt))
@@ -234,7 +238,7 @@ export function EventDetailPanel({
                 date: localDateForInstant(item.startsAt),
             },
             { minutes, note: taskLogNote, countsTowardBudget: taskLogCountsBudget },
-        ));
+        ), { syncToBasecamp: bcAvailable && sendToBasecamp });
         setIsLoggingTaskBlock(false);
         if (!res.success) {
             setTaskLogError(res.error || 'Could not log this time. Try again.');
@@ -484,6 +488,9 @@ export function EventDetailPanel({
                                 <p className="text-[11px] leading-relaxed text-muted-foreground">
                                     {taskTrackedHours.toFixed(2)}h on this task now.
                                     Still {taskStatusLabel(task.status)}.
+                                    {bcAvailable && (sendToBasecamp
+                                        ? ' Sent to Basecamp.'
+                                        : ' Not sent to Basecamp.')}
                                 </p>
                                 <button
                                     type="button"
@@ -541,6 +548,31 @@ export function EventDetailPanel({
                                         className="min-h-9 w-full rounded-lg bg-background/60 px-2.5 py-1.5 text-xs outline-none ring-1 ring-inset ring-border placeholder:text-muted-foreground/60 focus:ring-primary"
                                     />
                                 </div>
+
+                                {bcAvailable && (
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={sendToBasecamp}
+                                        onClick={() => setSendToBasecamp(v => !v)}
+                                        className="flex min-h-9 w-full items-center gap-2 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                    >
+                                        <span
+                                            className={cn(
+                                                'relative h-4 w-7 shrink-0 rounded-full transition-colors',
+                                                sendToBasecamp ? 'bg-primary' : 'bg-border',
+                                            )}
+                                        >
+                                            <span
+                                                className={cn(
+                                                    'absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform',
+                                                    sendToBasecamp ? 'translate-x-3.5' : 'translate-x-0.5',
+                                                )}
+                                            />
+                                        </span>
+                                        <span className="text-[11px]">Send to Basecamp timesheet</span>
+                                    </button>
+                                )}
 
                                 <button
                                     type="button"
