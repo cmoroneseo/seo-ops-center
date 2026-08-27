@@ -1282,7 +1282,7 @@ create table public.planner_events (
   user_id uuid references public.users(id) on delete cascade not null,
   title text not null,
   description text,
-  kind text not null default 'event' check (kind in ('meeting', 'focus', 'ooo', 'lunch', 'break', 'event')),
+  kind text not null default 'event' check (kind in ('meeting', 'focus', 'ooo', 'break', 'event')),
   starts_at timestamp with time zone not null,
   ends_at timestamp with time zone not null,
   all_day boolean not null default false,

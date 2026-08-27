@@ -370,6 +370,13 @@ export function QuickCreatePopover({
                         </button>
                     </div>
                 </div>
+            ) : isNonWorkTab(tab) ? (
+                /*
+                  A break needs no name. Its whole purpose is to close a gap in
+                  one click, and an input sitting there — even an optional one —
+                  reads as something to fill in before you may continue.
+                */
+                null
             ) : (
                 <div className="relative">
                     <input

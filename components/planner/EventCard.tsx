@@ -18,11 +18,10 @@ export const KIND_STYLES: Record<PlannerEventKind, { card: string; accent: strin
     meeting: { card: 'bg-blue-500/15 text-blue-700 dark:text-blue-300', accent: 'bg-blue-500' },
     focus:   { card: 'bg-violet-500/15 text-violet-700 dark:text-violet-300', accent: 'bg-violet-500' },
     ooo:     { card: 'bg-amber-500/15 text-amber-700 dark:text-amber-300', accent: 'bg-amber-500' },
-    lunch:   { card: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300', accent: 'bg-emerald-500' },
     // Deliberately colorless among the work kinds: a break is the one block on
     // the grid that is NOT work, and it should not read as another commitment
     // competing for attention. Green is unavailable anyway — logged time
-    // already owns it.
+    // already owns it, and 'lunch' used to collide with exactly that.
     break:   { card: 'bg-slate-500/15 text-slate-700 dark:text-slate-300', accent: 'bg-slate-500' },
     event:   { card: 'bg-sky-500/15 text-sky-700 dark:text-sky-300', accent: 'bg-sky-500' },
 };
@@ -40,7 +39,6 @@ export const KIND_GHOST: Record<PlannerEventKind, string> = {
     meeting: 'bg-blue-500 text-white',
     focus:   'bg-violet-500 text-white',
     ooo:     'bg-amber-500 text-white',
-    lunch:   'bg-emerald-500 text-white',
     break:   'bg-slate-500 text-white',
     event:   'bg-sky-500 text-white',
 };
