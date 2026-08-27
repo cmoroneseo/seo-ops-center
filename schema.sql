@@ -148,7 +148,11 @@ create table public.projects (
 create table public.tasks (
   id uuid default uuid_generate_v4() primary key,
   organization_id uuid references public.organizations(id) on delete cascade not null,
-  project_id uuid references public.projects(id) on delete cascade not null,
+  -- Nullable since migration 014: tasks are created against a client, not a
+  -- project, and every real caller omits this. Verified nullable in production
+  -- 2026-08-26 — this line previously said `not null` and contradicted both the
+  -- database and the comment in the task-completion RPC below.
+  project_id uuid references public.projects(id) on delete cascade,
   title text not null,
   description text,
   status text check (status in ('todo', 'in_progress', 'review', 'done')) default 'todo',
