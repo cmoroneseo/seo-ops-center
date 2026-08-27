@@ -66,6 +66,20 @@ type ClientAuthorization =
 
 interface ImportWriter {
     insertTasks(rows: Array<Record<string, unknown>>): Promise<string | null>;
+    /**
+     * Completions for to-dos that arrived already finished.
+     *
+     * Separate from logActivity because the two answer different questions:
+     * logActivity records that WE ran an import, today; this records that the
+     * CLIENT'S work was finished, on the day it was actually finished.
+     */
+    logCompletions(payload: {
+        organizationId: string;
+        clientId: string;
+        actorId: string;
+        actorName?: string;
+        completions: Array<{ title: string; completedAt: string }>;
+    }): Promise<void>;
     logActivity(payload: {
         organizationId: string;
         clientId: string;
@@ -82,6 +96,13 @@ interface Dependencies {
     isConfigured(): boolean;
     getTodo: GetProviderTodo;
     createWriter(): ImportWriter;
+    /**
+     * Basecamp person id -> org member user id. Unmapped people are omitted.
+     *
+     * Takes the organization explicitly because it is the SERVER-derived one
+     * from authorizeClient, never the organizationId on the request body.
+     */
+    resolveAssignees(organizationId: string, personIds: number[]): Promise<Map<number, string>>;
     now(): string;
 }
 
@@ -252,17 +273,35 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
                 userId: authorization.userId,
                 getTodo: dependencies.getTodo,
                 now: dependencies.now(),
+                options: {
+                    // A to-do already finished in Basecamp must not arrive
+                    // outstanding here — it would show as open work, skew task
+                    // counts, and never reach the client's feed as completed.
+                    mirrorCompletion: true,
+                    // Carry whoever did the work, so an imported completion is
+                    // attributed rather than anonymous.
+                    resolveAssignees: personIds => dependencies.resolveAssignees(
+                        authorization.organizationId,
+                        personIds,
+                    ),
+                },
             });
             if (!built.ok) return json({ error: built.error }, built.status);
             const rows = built.rows;
 
             const writer = dependencies.createWriter();
             const errors: string[] = [];
+            const insertedRows: Array<Record<string, unknown>> = [];
             let imported = 0;
             for (const part of chunk(rows)) {
                 const error = await writer.insertTasks(part);
                 if (error) errors.push(error);
-                else imported += part.length;
+                else {
+                    imported += part.length;
+                    // Only rows that actually landed. A failed chunk must not
+                    // announce completions for work that was never imported.
+                    insertedRows.push(...part);
+                }
             }
 
             if (imported > 0) {
@@ -274,6 +313,25 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
                     imported,
                     errors: errors.length,
                 });
+
+                const completions = insertedRows
+                    .map(row => ({ title: String(row.title ?? ''), completedAt: row.completed_at }))
+                    .filter((entry): entry is { title: string; completedAt: string } => (
+                        typeof entry.completedAt === 'string' && entry.completedAt.length > 0
+                    ));
+                if (completions.length > 0) {
+                    // The task rows exist either way; a failed feed write must
+                    // not turn a successful import into an error.
+                    try {
+                        await writer.logCompletions({
+                            organizationId: authorization.organizationId,
+                            clientId: authorization.clientId,
+                            actorId: authorization.userId,
+                            actorName: authorization.actorName,
+                            completions,
+                        });
+                    } catch { /* logged upstream */ }
+                }
             }
 
             return json({ imported, errors });

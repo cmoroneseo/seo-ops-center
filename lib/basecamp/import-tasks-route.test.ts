@@ -178,10 +178,12 @@ test('authorized import writes the canonical client organization after provider 
 });
 
 // ---------------------------------------------------------------------------
-// `buildBasecampTaskRows` is shared with the timesheet picker's
-// import-and-link, which mirrors completion and carries assignees. Both are
-// OPTIONS: the bulk import screen's callers must keep landing every to-do as
-// an unassigned `todo`, whatever the provider says about it.
+// `buildBasecampTaskRows` is shared by the bulk import screen and the
+// timesheet picker's import-and-link. Mirroring completion and carrying
+// assignees are OPTIONS on the builder, defaulting off — but BOTH callers now
+// opt in. A to-do finished in Basecamp that arrives here outstanding shows as
+// open work, skews task counts, and never reaches the client's feed as
+// completed at all.
 // ---------------------------------------------------------------------------
 
 const completedProviderTodo = {
@@ -194,7 +196,7 @@ const completedProviderTodo = {
     assignees: [{ id: 5001 }],
 };
 
-test('the bulk importer still lands a completed, assigned to-do as an unassigned todo', async () => {
+test('the builder leaves completion alone unless asked', async () => {
     const { buildBasecampTaskRows } = await loadRouteModule();
     const built = await buildBasecampTaskRows({
         tasks: [{ basecampTodoId: 77, basecampProjectId: 202 }],
@@ -273,4 +275,94 @@ test('the row builder refuses a to-do the provider does not confirm', async () =
     assert.equal(built.ok, false);
     if (built.ok) return;
     assert.equal(built.status, 403);
+});
+
+/**
+ * The bulk import screen's own wiring, not the builder's defaults.
+ *
+ * Its to-dos used to land as `todo` with `completed_at` null however finished
+ * they were in Basecamp, so a backfilled project arrived looking entirely
+ * outstanding and the client's feed showed one "tasks imported" line for the
+ * lot of it.
+ */
+test('the bulk importer mirrors completion and announces it on the day it happened', async () => {
+    const { createBasecampImportTasksPost } = await loadRouteModule();
+    let insertedRows: Array<Record<string, unknown>> = [];
+    const completions: unknown[] = [];
+    const assigneeLookups: Array<{ organizationId: string; personIds: number[] }> = [];
+
+    const post = createBasecampImportTasksPost({
+        authorizeClient: async () => authorized,
+        createAccessSource: () => externalSource(),
+        isConfigured: () => true,
+        getTodo: async () => completedProviderTodo as never,
+        resolveAssignees: async (organizationId, personIds) => {
+            assigneeLookups.push({ organizationId, personIds });
+            return new Map([[5001, 'user-abel']]);
+        },
+        createWriter: () => ({
+            insertTasks: async rows => { insertedRows = rows; return null; },
+            logActivity: async () => {},
+            logCompletions: async payload => { completions.push(...payload.completions); },
+        }),
+        now: () => '2026-08-26T00:00:00.000Z',
+    });
+
+    const response = await post(new Request('https://seo-ops.test/api/integrations/basecamp/import-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            organizationId: 'org-a',
+            clientId: 'client-a',
+            tasks: [{ basecampTodoId: 77, basecampProjectId: 202 }],
+        }),
+    }));
+
+    assert.equal(response.status, 200);
+    // The SERVER-derived organization, never the request body's.
+    assert.deepEqual(assigneeLookups, [{ organizationId: 'org-a', personIds: [5001] }]);
+    assert.equal(insertedRows[0].status, 'done');
+    assert.equal(insertedRows[0].completed_at, '2026-08-14T17:20:00.000Z');
+    assert.deepEqual(insertedRows[0].assignee_ids, ['user-abel']);
+    assert.deepEqual(completions, [
+        { title: 'XERF landing page', completedAt: '2026-08-14T17:20:00.000Z' },
+    ]);
+});
+
+test('a chunk that failed to insert announces no completions', async () => {
+    const { createBasecampImportTasksPost } = await loadRouteModule();
+    const completions: unknown[] = [];
+
+    const post = createBasecampImportTasksPost({
+        authorizeClient: async () => authorized,
+        createAccessSource: () => externalSource(),
+        isConfigured: () => true,
+        getTodo: async () => completedProviderTodo as never,
+        resolveAssignees: async () => new Map([[5001, 'user-abel']]),
+        createWriter: () => ({
+            insertTasks: async () => 'insert failed',
+            logActivity: async () => {},
+            logCompletions: async payload => { completions.push(...payload.completions); },
+        }),
+        now: () => '2026-08-26T00:00:00.000Z',
+    });
+
+    const response = await post(new Request('https://seo-ops.test/api/integrations/basecamp/import-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            organizationId: 'org-a',
+            clientId: 'client-a',
+            tasks: [{ basecampTodoId: 77, basecampProjectId: 202 }],
+        }),
+    }));
+
+    // Asserted so this cannot pass vacuously: a 500 would also record no
+    // completions, and would say nothing about the insert-failure path.
+    assert.equal(response.status, 200);
+    assert.deepEqual(await responseBody(response), { imported: 0, errors: ['insert failed'] });
+
+    // Announcing work that was never imported would put a completion in the
+    // client's feed for a task that does not exist.
+    assert.deepEqual(completions, []);
 });

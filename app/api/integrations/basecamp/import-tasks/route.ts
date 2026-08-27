@@ -5,6 +5,7 @@ import { createBasecampImportTasksPost } from '@/lib/basecamp/import-tasks-route
 import { createSupabaseBasecampProjectAccessSource } from '@/lib/basecamp/supabase-project-access-source';
 import { requireClientOrgMember } from '@/lib/security/tenant-authz';
 import { logClientActivity } from '@/lib/supabase/client-activity';
+import { membersByBasecampPersonId } from '@/lib/supabase/timesheet-imports';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +25,21 @@ export async function POST(req: NextRequest) {
                     const { error } = await admin.from('tasks').insert(rows);
                     return error?.message ?? null;
                 },
+                async logCompletions(payload) {
+                    // One event per finished to-do, dated when it was
+                    // finished — not when the import ran.
+                    for (const completion of payload.completions) {
+                        await logClientActivity({
+                            organizationId: payload.organizationId,
+                            clientId: payload.clientId,
+                            eventType: 'task.completed',
+                            actorId: payload.actorId,
+                            actorName: payload.actorName,
+                            occurredAt: completion.completedAt,
+                            metadata: { title: completion.title, source: 'basecamp_import' },
+                        });
+                    }
+                },
                 async logActivity(payload) {
                     await logClientActivity({
                         organizationId: payload.organizationId,
@@ -40,6 +56,7 @@ export async function POST(req: NextRequest) {
                 },
             };
         },
+        resolveAssignees: membersByBasecampPersonId,
         now: () => new Date().toISOString(),
     });
 
