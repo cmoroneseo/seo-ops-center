@@ -220,26 +220,68 @@ export async function listBasecampTodolists(projectId: number | string): Promise
     }
 }
 
-/** List all todos for a todolist, following pagination. Excludes completed by default. */
+/**
+ * The URLs that together cover a todolist.
+ *
+ * Basecamp returns active and completed to-dos from two differently
+ * parameterized requests to the same path, and never both from one. Exported
+ * so the two-request rule is testable without a live account — the bug this
+ * replaced filtered a single default response and could not, even in
+ * principle, return a completed to-do.
+ */
+export function todoRequestUrls(base: string, includeCompleted: boolean): string[] {
+    return includeCompleted ? [base, `${base}?completed=true`] : [base];
+}
+
+/** Merge to-do pages, keeping one entry per id. */
+export function mergeTodosById<T extends { id: number | string }>(groups: T[][]): T[] {
+    const byId = new Map<number | string, T>();
+    for (const todo of groups.flat()) byId.set(todo.id, todo);
+    return [...byId.values()];
+}
+
+/** Page through one todos.json URL, following Link headers. */
+async function fetchTodoPages(startUrl: string): Promise<BasecampTodoFull[]> {
+    const results: BasecampTodoFull[] = [];
+    let url: string | null = startUrl;
+    const seen = new Set<string>();
+    while (url) {
+        const res = await basecampFetch(url);
+        if (!res.ok) break;
+        results.push(...(await res.json() as BasecampTodoFull[]));
+        url = nextPageUrl(res.headers.get('Link'), seen);
+    }
+    return results;
+}
+
+/**
+ * List todos for a todolist, following pagination. Excludes completed by default.
+ *
+ * Basecamp splits these across two responses from the same endpoint:
+ * `todos.json` returns ONLY the active to-dos, and `?completed=true` returns
+ * ONLY the completed ones. No parameter returns both, so including completed
+ * work means asking twice and merging by id.
+ *
+ * This is worth stating plainly because the shape of the bug it caused was
+ * invisible: filtering a single default response for completed to-dos always
+ * yields nothing, since a completed to-do was never in that payload to begin
+ * with. The filter looked correct and returned the wrong answer silently.
+ */
 export async function listBasecampTodos(
     projectId: number | string,
     todolistId: number | string,
     includeCompleted = false,
 ): Promise<BasecampTodoFull[]> {
-    const results: BasecampTodoFull[] = [];
-    let url: string | null = `${BASE_URL()}/buckets/${projectId}/todolists/${todolistId}/todos.json`;
+    const base = `${BASE_URL()}/buckets/${projectId}/todolists/${todolistId}/todos.json`;
     try {
-        while (url) {
-            const res = await basecampFetch(url);
-            if (!res.ok) break;
-            const page = await res.json() as BasecampTodoFull[];
-            results.push(...page);
-            url = parseNextLink(res.headers.get('Link'));
-        }
-        return includeCompleted ? results : results.filter(t => !t.completed);
+        const groups = await Promise.all(
+            todoRequestUrls(base, includeCompleted).map(url => fetchTodoPages(url)),
+        );
+        const todos = mergeTodosById(groups);
+        return includeCompleted ? todos : todos.filter(t => !t.completed);
     } catch (err) {
         console.error('[Basecamp] listTodos error:', err);
-        return results.filter(t => includeCompleted || !t.completed);
+        return [];
     }
 }
 
