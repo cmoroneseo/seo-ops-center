@@ -26,6 +26,7 @@ import type { TaskCandidate } from '@/lib/timesheets/import-tasks-route';
 import { formatDayHeading, formatDuration } from '@/lib/timesheets/format';
 import type { QueueRow } from '@/lib/timesheets/import-queue-route';
 import type { Suggestion } from '@/lib/timesheets/suggestions';
+import { PUSH_OUTCOME_MESSAGE, pushOutcomeFor, type PushOutcome } from '@/lib/timesheets/push-outcome';
 import type { ClientProject, TimeLogReferenceLink } from '@/lib/types';
 import { ActivityPicker } from './ActivityPicker';
 
@@ -264,7 +265,7 @@ function TaskLinkControl({
     assigneeUserId: string | null;
     rowLabel: string;
     disabled: boolean;
-    onLink: (task: { id: string; title: string }) => void;
+    onLink: (task: { id: string; title: string }, pushOutcome?: PushOutcome) => void;
     onUnlink: () => void;
 }) {
     const [open, setOpen] = useState(false);
@@ -343,15 +344,28 @@ function TaskLinkControl({
             // Push the to-do through the endpoint SEO PM already uses for
             // every other task creation. It resolves the Basecamp project,
             // the todolist and the assignee person ids from the task and its
-            // client config, so there is nothing to reimplement — and like
-            // every other caller, it is fire-and-forget.
-            void fetch('/api/integrations/basecamp/push', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'create_todo', taskId: body.taskId }),
-            }).catch(() => undefined);
+            // client config, so there is nothing to reimplement.
+            //
+            // Unlike every other caller this is NOT fire-and-forget. Most
+            // clients have no Basecamp project bound, so a 409 is the ordinary
+            // reply — and this screen offers "create the task" as the feature,
+            // so silently swallowing that would tell someone their to-do
+            // reached Basecamp when it never did. The task itself is already
+            // saved either way; only the push outcome is reported.
+            let outcome: PushOutcome;
+            try {
+                const push = await fetch('/api/integrations/basecamp/push', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'create_todo', taskId: body.taskId }),
+                });
+                const pushBody = await push.json().catch(() => null);
+                outcome = pushOutcomeFor(push.status, pushBody);
+            } catch {
+                outcome = pushOutcomeFor(null, null);
+            }
 
-            onLink({ id: body.taskId, title });
+            onLink({ id: body.taskId, title }, outcome);
             setOpen(false);
         } catch {
             setError('Could not create the task');
@@ -493,6 +507,9 @@ export function ImportRow({
     onBounce,
 }: ImportRowProps) {
     const [draft, setDraft] = useState<ImportDraft>(() => draftForRow(row));
+    // Why a newly created task did not reach Basecamp. Transient: it describes
+    // the last create, not a property of the row, so it is not persisted.
+    const [pushNote, setPushNote] = useState<string | null>(null);
     const draftRef = useRef(draft);
     const [suggestionResult, setSuggestionResult] = useState({
         requestKey: '',
@@ -545,11 +562,15 @@ export function ImportRow({
         save(removeReferenceLinkPatch(draftRef.current, index));
     };
 
-    const linkTask = (task: { id: string; title: string }) => {
+    const linkTask = (task: { id: string; title: string }, pushOutcome?: PushOutcome) => {
+        // The task saved regardless; this only reports whether it reached Basecamp.
+        setPushNote(pushOutcome && pushOutcome !== 'pushed'
+            ? PUSH_OUTCOME_MESSAGE[pushOutcome]
+            : null);
         save(taskLinkPatch(task.id, task.title));
     };
 
-    const unlinkTask = () => { save(taskUnlinkPatch()); };
+    const unlinkTask = () => { setPushNote(null); save(taskUnlinkPatch()); };
 
     return (
         <li
@@ -704,6 +725,13 @@ export function ImportRow({
                 <p className="mt-2 flex items-start gap-2 pl-7 text-xs text-amber-500">
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                     Sent back: {row.reviewNote}
+                </p>
+            )}
+
+            {pushNote && (
+                <p role="status" className="mt-2 flex items-start gap-2 pl-7 text-xs text-amber-500">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                    {pushNote}
                 </p>
             )}
 
