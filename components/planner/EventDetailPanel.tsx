@@ -416,7 +416,7 @@ export function EventDetailPanel({
                                 value={task.status}
                                 onChange={event => void changeTaskStatus(event.target.value as Task['status'])}
                                 aria-label="Task status"
-                                className="w-full cursor-pointer bg-transparent text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                className="-ml-1 w-full cursor-pointer appearance-none bg-transparent px-1 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary"
                             >
                                 {Object.entries(TASK_STATUS_LABELS).map(([value, label]) => (
                                     <option key={value} value={value}>{label}</option>
@@ -474,7 +474,7 @@ export function EventDetailPanel({
                 )}
 
                 {task && (
-                    <div className="rounded-xl bg-muted/30 p-3">
+                    <div className="rounded-lg border border-border p-3">
                         {taskLoggedMinutes !== null ? (
                             <div className="space-y-2">
                                 <div className="flex items-center gap-1.5 text-xs font-medium text-primary">
@@ -579,7 +579,7 @@ export function EventDetailPanel({
                                     type="button"
                                     onClick={() => void logTaskBlock()}
                                     disabled={isLoggingTaskBlock || !organizationId}
-                                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
+                                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary/25 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
                                 >
                                     <Clock className="h-3.5 w-3.5" />
                                     {isLoggingTaskBlock
