@@ -847,7 +847,7 @@ export interface Reminder {
 // Weekly Planner (migration 026)
 // ---------------------------------------------------------------------------
 
-export type PlannerEventKind = 'meeting' | 'focus' | 'ooo' | 'lunch' | 'event';
+export type PlannerEventKind = 'meeting' | 'focus' | 'ooo' | 'lunch' | 'break' | 'event';
 export type PlannerEventVisibility = 'default' | 'private';
 
 export interface PlannerEvent {

@@ -14,20 +14,26 @@ import { resolveQuickCreateSave } from '@/lib/planner/quick-create-save';
 import { usePlannerDialogFocus } from './usePlannerDialogFocus';
 import { usePlannerSurfaceBehavior } from './usePlannerSurfaceBehavior';
 import { quickCreateTypeButtonProps } from '@/lib/planner/responsive';
+import {
+    isNonWorkTab, quickCreateTitle, quickCreateClientId,
+} from '@/lib/planner/quick-create-kinds';
 
-type Tab = 'event' | 'task' | 'focus' | 'ooo';
+type Tab = 'event' | 'task' | 'focus' | 'ooo' | 'break';
 
 const TABS: { id: Tab; label: string }[] = [
     { id: 'event', label: 'Event' },
     { id: 'task', label: 'Task' },
     { id: 'focus', label: 'Focus time' },
     { id: 'ooo', label: 'OOO' },
+    { id: 'break', label: 'Break' },
 ];
+
 
 const TAB_KIND: Record<Exclude<Tab, 'task'>, PlannerEventKind> = {
     event: 'event',
     focus: 'focus',
     ooo: 'ooo',
+    break: 'break',
 };
 
 /** How the block on the grid should look for each tab. */
@@ -36,6 +42,7 @@ const TAB_BLOCK: Record<Tab, { kind: PlannerEventKind; label: string }> = {
     task: { kind: 'focus', label: 'New task' },
     focus: { kind: 'focus', label: 'Focus time' },
     ooo: { kind: 'ooo', label: 'Out of office' },
+    break: { kind: 'break', label: 'Break' },
 };
 
 const PRIORITIES: { value: TaskPriority; label: string }[] = [
@@ -209,7 +216,7 @@ export function QuickCreatePopover({
             return;
         }
 
-        const trimmed = title.trim();
+        const trimmed = quickCreateTitle(tab, title);
         if (!trimmed || title.startsWith(MENTION)) return;
         setIsSaving(true);
 
@@ -219,7 +226,7 @@ export function QuickCreatePopover({
             const res = await createTask({
                 organizationId,
                 title: trimmed,
-                clientId: clientId || undefined,
+                clientId: quickCreateClientId(tab, clientId),
                 startDate: draft.startsAt,
                 dueDate: localDateForInstant(draft.startsAt),
                 scheduledMinutes: blockMinutes,
@@ -241,7 +248,7 @@ export function QuickCreatePopover({
                 kind: TAB_KIND[tab],
                 startsAt: draft.startsAt,
                 endsAt: draft.endsAt,
-                clientId: clientId || undefined,
+                clientId: quickCreateClientId(tab, clientId),
                 // The one honest use of task_id: this meeting is about that task.
                 taskId: referencedTask?.id,
                 visibility: tab === 'focus' ? 'private' : 'default',
@@ -429,7 +436,7 @@ export function QuickCreatePopover({
               In scheduling mode these belong to the task, not to this form, so
               they collapse away rather than sitting there greyed out.
             */}
-            {!scheduledTask && (
+            {!scheduledTask && !isNonWorkTab(tab) && (
                 <div className="mt-3 grid grid-cols-2 gap-2">
                     <Field label="Client">
                         <select className={fieldCls} value={clientId} onChange={e => setClientId(e.target.value)}>
@@ -526,7 +533,8 @@ export function QuickCreatePopover({
                 <button
                     type="button"
                     onClick={() => void handleSave()}
-                    disabled={isSaving || (!scheduledTask && (!title.trim() || title.startsWith(MENTION)))}
+                    disabled={isSaving || (!scheduledTask
+                        && (!quickCreateTitle(tab, title) || title.startsWith(MENTION)))}
                     className="min-h-11 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
                 >
                     {isSaving ? 'Saving…' : scheduledTask ? 'Schedule' : 'Save'}
