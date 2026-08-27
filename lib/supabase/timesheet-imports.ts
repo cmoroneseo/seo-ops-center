@@ -191,3 +191,100 @@ export async function applyQueueUpdate(
     const changed = Number(data);
     return Number.isInteger(changed) ? changed : 0;
 }
+
+/** Resolve a task only inside the authenticated organization, with its client. */
+export async function taskBelongsToOrganization(
+    organizationId: string,
+    taskId: string,
+): Promise<{ clientId: string | null } | null> {
+    const { data, error } = await createAdminClient()
+        .from('tasks')
+        .select('id, client_id')
+        .eq('organization_id', organizationId)
+        .eq('id', taskId)
+        .maybeSingle();
+    if (error) throw error;
+    return data ? { clientId: data.client_id ?? null } : null;
+}
+
+/** Candidate tasks for one client, optionally narrowed by a search term. */
+export async function searchClientTasks(scope: {
+    organizationId: string;
+    clientId: string;
+    query: string;
+    limit: number;
+}): Promise<Array<{ id: string; title: string; status: string }>> {
+    let query = createAdminClient()
+        .from('tasks')
+        .select('id, title, status')
+        .eq('organization_id', scope.organizationId)
+        .eq('client_id', scope.clientId);
+    if (scope.query) {
+        // Escaped: `%`, `_` and `,` are all meaningful to PostgREST's filter
+        // grammar, and a search box is user input.
+        const term = scope.query.replace(/[%_,()\\]/g, '');
+        if (term) query = query.ilike('title', `%${term}%`);
+    }
+
+    const { data, error } = await query
+        .order('created_at', { ascending: false })
+        .limit(scope.limit);
+    if (error) throw error;
+
+    return (data ?? []).map(task => ({
+        id: task.id,
+        title: task.title ?? '',
+        status: task.status ?? 'todo',
+    }));
+}
+
+/**
+ * The entry a task is being created from.
+ *
+ * Read straight from `time_logs` rather than through the review queue: the
+ * ownership check and the client derivation must see the stored row, not a
+ * projection that has already blanked the client for internal projects.
+ */
+export async function loadImportEntryForTask(
+    organizationId: string,
+    timeLogId: string,
+): Promise<{ id: string; userId: string | null; clientId: string | null } | null> {
+    const { data, error } = await createAdminClient()
+        .from('time_logs')
+        .select('id, user_id, client_id')
+        .eq('organization_id', organizationId)
+        .eq('id', timeLogId)
+        .in('import_status', ['needs_context', 'pending_review'])
+        .maybeSingle();
+    if (error) throw error;
+    return data
+        ? { id: data.id, userId: data.user_id ?? null, clientId: data.client_id ?? null }
+        : null;
+}
+
+/** Create the SEO PM task an imported entry will be attributed to. */
+export async function createTaskFromImportEntry(input: {
+    organizationId: string;
+    clientId: string;
+    title: string;
+    assigneeUserId: string | null;
+    createdBy: string;
+}): Promise<{ id: string }> {
+    const now = new Date().toISOString();
+    const { data, error } = await createAdminClient()
+        .from('tasks')
+        .insert({
+            organization_id: input.organizationId,
+            client_id: input.clientId,
+            title: input.title,
+            status: 'todo',
+            priority: 'medium',
+            assignee_ids: input.assigneeUserId ? [input.assigneeUserId] : [],
+            created_by: input.createdBy,
+            status_history: [{ status: 'todo', at: now, by: input.createdBy }],
+        })
+        .select('id')
+        .single();
+    if (error) throw error;
+    return { id: data.id };
+}

@@ -43,10 +43,12 @@ function harness(options: {
     rows?: QueueSourceRow[];
     changed?: number;
     clientValid?: boolean;
+    task?: { clientId: string | null } | null;
 } = {}) {
     const authorizedOrganizations: string[] = [];
     const loads: Array<{ organizationId: string; ids: string[] }> = [];
     const clientChecks: Array<{ organizationId: string; clientId: string }> = [];
+    const taskChecks: Array<{ organizationId: string; taskId: string }> = [];
     const updates: UpdateCall[] = [];
     const authorization: MutationAuthorization = options.authorization ?? {
         ok: true,
@@ -68,6 +70,12 @@ function harness(options: {
             clientChecks.push({ organizationId, clientId });
             return options.clientValid ?? true;
         },
+        async validateTask(organizationId, taskId) {
+            taskChecks.push({ organizationId, taskId });
+            return options.task === undefined
+                ? { clientId: 'client-a' }
+                : options.task;
+        },
         async applyUpdate(organizationId, ids, patch, expectedStatus, authorizedUserId) {
             updates.push({
                 organizationId,
@@ -84,6 +92,7 @@ function harness(options: {
     return {
         authorizedOrganizations,
         clientChecks,
+        taskChecks,
         loads,
         updates,
         patch: createImportEntriesPatch(dependencies),
@@ -392,4 +401,123 @@ test('an unattributed row is Forbidden for a member and loadable for a manager',
     }));
 
     assert.equal(bounced.status, 200);
+});
+
+// --- task links ------------------------------------------------------------
+
+test('a task is resolved inside the canonical organization before the write', async () => {
+    const member = harness();
+    const response = await member.patch(request({
+        organizationId: 'org-typed',
+        action: 'edit',
+        ids: ['log-1'],
+        edit: {
+            activityKeys: ['technical_audit'],
+            detail: '',
+            clientId: 'client-a',
+            taskId: 'task-roadmap',
+        },
+    }));
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(member.taskChecks, [{
+        organizationId: 'org-canonical',
+        taskId: 'task-roadmap',
+    }]);
+    assert.equal(member.updates[0].updates.task_id, 'task-roadmap');
+});
+
+test('an unknown task is a 404 and nothing is written', async () => {
+    const member = harness({ task: null });
+    const response = await member.patch(request({
+        organizationId: 'org-canonical',
+        action: 'edit',
+        ids: ['log-1'],
+        edit: {
+            activityKeys: ['technical_audit'],
+            detail: '',
+            clientId: 'client-a',
+            taskId: 'task-gone',
+        },
+    }));
+
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { error: 'Task not found' });
+    assert.deepEqual(member.updates, []);
+});
+
+test('a task from another client is refused, never silently attributed', async () => {
+    const member = harness({ task: { clientId: 'client-b' } });
+    const response = await member.patch(request({
+        organizationId: 'org-canonical',
+        action: 'edit',
+        ids: ['log-1'],
+        edit: {
+            activityKeys: ['technical_audit'],
+            detail: '',
+            clientId: 'client-a',
+            taskId: 'task-of-client-b',
+        },
+    }));
+
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), {
+        error: 'That task belongs to a different client',
+    });
+    assert.deepEqual(member.updates, []);
+});
+
+test('an internal row is matched against no client at all', async () => {
+    // Internal time has its client forced to null, so only a task with no
+    // client could ever match — and none does in practice.
+    const member = harness({
+        rows: [row({ isInternal: true, clientId: null })],
+        task: { clientId: 'client-a' },
+    });
+    const response = await member.patch(request({
+        organizationId: 'org-canonical',
+        action: 'edit',
+        ids: ['log-1'],
+        edit: {
+            activityKeys: ['technical_audit'],
+            detail: '',
+            clientId: 'client-a',
+            taskId: 'task-roadmap',
+        },
+    }));
+
+    assert.equal(response.status, 409);
+    assert.deepEqual(member.updates, []);
+});
+
+test('clearing a link needs no task lookup', async () => {
+    const member = harness();
+    const response = await member.patch(request({
+        organizationId: 'org-canonical',
+        action: 'edit',
+        ids: ['log-1'],
+        edit: {
+            activityKeys: ['technical_audit'],
+            detail: '',
+            clientId: 'client-a',
+            taskId: null,
+        },
+    }));
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(member.taskChecks, []);
+    assert.equal(member.updates[0].updates.task_id, null);
+});
+
+test('an edit that says nothing about the task leaves it stored', async () => {
+    const member = harness();
+    await member.patch(request({
+        organizationId: 'org-canonical',
+        action: 'edit',
+        ids: ['log-1'],
+        edit: { activityKeys: ['technical_audit'], detail: '', clientId: 'client-a' },
+    }));
+
+    assert.deepEqual(member.taskChecks, []);
+    assert.equal('task_id' in member.updates[0].updates, false);
 });

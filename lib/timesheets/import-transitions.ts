@@ -29,6 +29,21 @@ export interface EntryEdit {
      * not quietly drop a row's links.
      */
     referenceLinks?: TimeLogReferenceLink[];
+    /**
+     * The SEO PM task this time belongs to.
+     *
+     * Omitted means "leave whatever is stored alone"; an explicit `null`
+     * clears the link. The Basecamp timesheet entry is never re-parented to
+     * match — `updateBasecampTimesheetEntry` cannot re-parent, and deleting
+     * and recreating it would mint a new `basecamp_entry_id` and destroy the
+     * dedupe identity the import rests on. The linkage lives here.
+     *
+     * Tenancy is deliberately NOT checked here: this layer is pure and has no
+     * way to know which organization or client owns the task. The route
+     * resolves it and the RPC re-validates it against the patched row's client
+     * inside the same transaction as the write.
+     */
+    taskId?: string | null;
 }
 
 export type TransitionResult<T> =
@@ -72,6 +87,7 @@ export function buildEntryEdit(
             ...(edit.referenceLinks === undefined
                 ? {}
                 : { reference_links: references.links }),
+            ...(edit.taskId === undefined ? {} : { task_id: edit.taskId }),
             description: describeActivity(edit.activityKeys, edit.detail),
             // Internal work never consumes a client's SEO budget. Otherwise an
             // explicit choice always wins; the activity set only fills in a

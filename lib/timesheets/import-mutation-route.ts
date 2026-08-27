@@ -22,6 +22,15 @@ export interface ImportMutationDependencies {
     authorize(organizationId: string): Promise<MutationAuthorization>;
     loadRows(organizationId: string, ids: string[]): Promise<QueueSourceRow[]>;
     validateClient(organizationId: string, clientId: string): Promise<boolean>;
+    /**
+     * The task, if it exists inside this organization. Returns its client so
+     * the route can refuse a cross-client link with a readable status rather
+     * than letting the RPC's tenant guard answer with a bare conflict.
+     */
+    validateTask(
+        organizationId: string,
+        taskId: string,
+    ): Promise<{ clientId: string | null } | null>;
     applyUpdate(
         organizationId: string,
         ids: string[],
@@ -121,6 +130,32 @@ export function createImportEntriesPatch(dependencies: ImportMutationDependencie
                 return json({ error: 'Client not found' }, 404);
             }
 
+            // Derived from the row and the resolved client, never trusted
+            // from the body: a task belonging to another client would silently
+            // mis-attribute billable time.
+            const effectiveClientId = rows[0].isInternal ? null : clientId;
+            let taskId: string | null | undefined;
+            if ('taskId' in edit) {
+                taskId = typeof edit.taskId === 'string' && edit.taskId
+                    ? edit.taskId
+                    : null;
+                if (taskId) {
+                    const task = await dependencies.validateTask(
+                        member.organizationId,
+                        taskId,
+                    );
+                    if (!task) {
+                        return json({ error: 'Task not found' }, 404);
+                    }
+                    if (task.clientId !== effectiveClientId) {
+                        return json(
+                            { error: 'That task belongs to a different client' },
+                            409,
+                        );
+                    }
+                }
+            }
+
             const result = buildEntryEdit(rows[0], {
                 activityKeys: Array.isArray(edit.activityKeys)
                     ? edit.activityKeys.filter((key): key is string => typeof key === 'string')
@@ -136,6 +171,7 @@ export function createImportEntriesPatch(dependencies: ImportMutationDependencie
                 referenceLinks: 'referenceLinks' in edit
                     ? edit.referenceLinks as TimeLogReferenceLink[] | undefined
                     : undefined,
+                taskId,
             }, actor);
             if (!result.ok) {
                 return json({ error: result.error }, result.status);

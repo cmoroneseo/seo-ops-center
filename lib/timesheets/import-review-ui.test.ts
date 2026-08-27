@@ -21,6 +21,9 @@ import {
     normalizeImportDraft,
     removeReferenceLinkPatch,
     planBulkClientEdits,
+    taskLinkPatch,
+    taskTitleFromDraft,
+    taskUnlinkPatch,
     settleOperations,
     withRunningState,
 } from './import-review-ui.ts';
@@ -587,4 +590,121 @@ test('removing a chip removes exactly that link', () => {
         { label: 'A', url: 'https://example.com/a' },
         { label: 'C', url: 'https://example.com/c' },
     ]);
+});
+
+// --- task links ------------------------------------------------------------
+
+const taskLinkedRow: QueueRow = {
+    ...readyRow,
+    id: 'entry-task-linked',
+    taskId: 'task-roadmap',
+    taskTitle: 'Add roadmap to-dos to Basecamp',
+    issues: [],
+};
+
+function renderRow(row: QueueRow) {
+    return renderToStaticMarkup(createElement(ImportRow, {
+        row,
+        clients: [],
+        organizationId: 'org-1',
+        isSelected: false,
+        isManager: false,
+        isBusy: false,
+        onToggleSelect: () => undefined,
+        onEdit: () => undefined,
+        onApprove: () => undefined,
+        onBounce: () => undefined,
+    }));
+}
+
+test('a draft carries the row\'s task link and its title', () => {
+    const draft = draftForRow(taskLinkedRow);
+    assert.equal(draft.taskId, 'task-roadmap');
+    assert.equal(draft.taskTitle, 'Add roadmap to-dos to Basecamp');
+    // An edit that only retags the block leaves the attribution alone rather
+    // than resending — or dropping — a link nobody touched.
+    assert.equal('taskId' in (buildImportEdit(taskLinkedRow, draft) ?? {}), false);
+});
+
+test('linking and unlinking both reach the patch', () => {
+    const draft = draftForRow(readyRow);
+    const linked = buildImportEdit(readyRow, draft, taskLinkPatch('task-1', 'Roadmap'));
+    assert.equal(linked?.taskId, 'task-1');
+
+    // Clearing is an explicit null, never an omission: the RPC writes what the
+    // patch carries, and an omitted key leaves the stored link in place.
+    const unlinked = buildImportEdit(
+        taskLinkedRow,
+        draftForRow(taskLinkedRow),
+        taskUnlinkPatch(),
+    );
+    assert.equal(unlinked?.taskId, null);
+});
+
+test('moving a row to another client drops the task it stranded', () => {
+    const draft = draftForRow(taskLinkedRow);
+    // Billable time attributed to a task on the client it just left is exactly
+    // the mis-attribution the RPC guard exists to prevent.
+    assert.equal(
+        buildImportEdit(taskLinkedRow, draft, { clientId: 'client-2' })?.taskId,
+        null,
+    );
+    // Re-picking the same client is not a move and touches nothing.
+    assert.equal(
+        'taskId' in (buildImportEdit(taskLinkedRow, draft, { clientId: 'client-1' }) ?? {}),
+        false,
+    );
+});
+
+test('a new task title prefers the person\'s own words', () => {
+    const draft = draftForRow(readyRow);
+    assert.equal(
+        taskTitleFromDraft(readyRow, { ...draft, detail: 'Added roadmap To-do\'s to basecamp' }),
+        'Added roadmap To-do\'s to basecamp',
+    );
+    // With no detail, the activity tags name the work.
+    assert.equal(
+        taskTitleFromDraft(readyRow, { ...draft, detail: '' }),
+        'Technical SEO Audit',
+    );
+    // With neither, whatever the import carried is already a decent title.
+    assert.equal(
+        taskTitleFromDraft(
+            { ...readyRow, description: 'Checked off Basecamp to-dos' },
+            { ...draft, detail: '', activityKeys: [] },
+        ),
+        'Checked off Basecamp to-dos',
+    );
+    assert.ok(
+        taskTitleFromDraft(readyRow, { ...draft, detail: 'x'.repeat(500) }).length <= 200,
+    );
+});
+
+test('a linked row reads out its task and offers a way to unlink', () => {
+    const html = renderRow(taskLinkedRow);
+    assert.match(html, /Add roadmap to-dos to Basecamp/);
+    assert.match(html, /aria-label="Unlink the task from [^"]+"/);
+    assert.doesNotMatch(html, />Link task</);
+    assert.doesNotMatch(html, /#[0-9a-fA-F]{3,8}\b/);
+});
+
+test('an unlinked row offers a keyboard-operable picker', () => {
+    const html = renderRow(readyRow);
+    assert.match(html, />Link task</);
+    assert.match(html, /aria-label="Link a task to [^"]+"/);
+    assert.match(html, /aria-expanded="false"/);
+    // Hand-rolled disclosure, not Radix: nothing is rendered until it opens.
+    assert.doesNotMatch(html, /Find a task/);
+    assert.doesNotMatch(html, /#[0-9a-fA-F]{3,8}\b/);
+});
+
+test('a row with no client says so instead of offering an empty list', () => {
+    const html = renderRow({ ...readyRow, clientId: null, clientName: null });
+    assert.match(html, /Choose a client to link a task/);
+    assert.doesNotMatch(html, />Link task</);
+});
+
+test('an internal row cannot pick a task either', () => {
+    // Internal time has no client by construction, so it has no task set.
+    assert.match(renderRow(internalRow), /Choose a client to link a task/);
 });

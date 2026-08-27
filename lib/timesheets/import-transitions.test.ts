@@ -347,3 +347,51 @@ test('more links than a row may carry is a 400', () => {
     assert.equal(result.ok, false);
     assert.equal(!result.ok && result.status, 400);
 });
+
+// --- task links ------------------------------------------------------------
+
+test('a task link rides the same patch as everything else', () => {
+    const result = buildEntryEdit(row(), {
+        activityKeys: ['technical_audit'], detail: '', clientId: 'client-a',
+        taskId: 'task-roadmap',
+    }, actor);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.ok && result.updates.task_id, 'task-roadmap');
+});
+
+test('an explicit null clears the link; an omission leaves it alone', () => {
+    const cleared = buildEntryEdit(row({ taskId: 'task-roadmap' }), {
+        activityKeys: ['technical_audit'], detail: '', clientId: 'client-a',
+        taskId: null,
+    }, actor);
+    assert.equal(cleared.ok && 'task_id' in cleared.updates, true);
+    assert.equal(cleared.ok && cleared.updates.task_id, null);
+
+    // Retagging a block must not quietly drop the attribution somebody made.
+    const untouched = buildEntryEdit(row({ taskId: 'task-roadmap' }), {
+        activityKeys: ['technical_audit'], detail: 'crawl budget', clientId: 'client-a',
+    }, actor);
+    assert.equal(untouched.ok && 'task_id' in untouched.updates, false);
+});
+
+test('the pure layer carries the id without pretending to check tenancy', () => {
+    // Nothing here knows which organization or client owns the task. The route
+    // resolves it and the RPC re-validates it against the patched row's client
+    // inside the same transaction as the write.
+    const result = buildEntryEdit(row(), {
+        activityKeys: ['technical_audit'], detail: '', clientId: 'client-a',
+        taskId: 'task-from-another-tenant',
+    }, actor);
+    assert.equal(result.ok, true);
+    assert.equal(result.ok && result.updates.task_id, 'task-from-another-tenant');
+});
+
+test('an entry that is not in review cannot be linked at all', () => {
+    const result = buildEntryEdit(row({ importStatus: 'mapped' }), {
+        activityKeys: ['technical_audit'], detail: '', clientId: 'client-a',
+        taskId: 'task-roadmap',
+    }, actor);
+    assert.equal(result.ok, false);
+    assert.equal(!result.ok && result.status, 409);
+});

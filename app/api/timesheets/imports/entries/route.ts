@@ -3,6 +3,7 @@ import {
     applyQueueUpdate,
     clientBelongsToOrganization,
     loadQueueRowsByIds,
+    taskBelongsToOrganization,
 } from '@/lib/supabase/timesheet-imports';
 import { requireOrganizationMember } from '@/lib/security/tenant-authz';
 
@@ -26,6 +27,7 @@ export const PATCH = createImportEntriesPatch({
     },
     loadRows: loadQueueRowsByIds,
     validateClient: clientBelongsToOrganization,
+    validateTask: taskBelongsToOrganization,
     applyUpdate: applyQueueUpdate,
     now: () => new Date().toISOString(),
 });
