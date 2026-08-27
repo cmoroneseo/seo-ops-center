@@ -20,6 +20,63 @@ export interface TaskCandidate {
     status: string;
 }
 
+/**
+ * A Basecamp to-do that is NOT yet a SEO PM task.
+ *
+ * The gap this closes: a 0.4h entry reading "Made revisions to XERF landing
+ * page for client" had a to-do called "XERF landing page" sitting in the
+ * client's Basecamp project — completed, assigned, and invisible to a picker
+ * that only searched the `tasks` table. Linking meant leaving the queue,
+ * importing by hand, and coming back.
+ */
+export interface BasecampTodoCandidate {
+    /** The Basecamp to-do id, as digits. Not a SEO PM task id. */
+    id: string;
+    title: string;
+    /**
+     * The common case, not the exception: time is logged against work that is
+     * already finished.
+     */
+    completed: boolean;
+    dueOn: string | null;
+    todolistTitle: string | null;
+    projectId: string;
+}
+
+/** Why the Basecamp group is empty, so the UI can say so instead of lying. */
+export type BasecampGroupReason =
+    | 'ok'
+    | 'not_requested'
+    /** Most clients have no Basecamp project bound. Not an error. */
+    | 'no_project'
+    | 'not_configured'
+    | 'not_authorized'
+    | 'unavailable';
+
+/**
+ * The Basecamp side of the picker. Optional on purpose: without it the GET
+ * still answers with SEO PM tasks, which is what "never block linking" means.
+ */
+export interface BasecampCandidateSource {
+    /**
+     * The client's Basecamp project, read from server-owned client config.
+     * Never from the request — a browser-chosen project is exactly how a
+     * to-do from another tenant would end up linked.
+     */
+    resolveClientProjectId(organizationId: string, clientId: string): Promise<string | null>;
+    /** The same entitlement boundary every other Basecamp operation crosses. */
+    authorizeProject(input: {
+        userId: string;
+        organizationId: string;
+        projectId: string;
+    }): Promise<boolean>;
+    isConfigured(): boolean;
+    /** Every to-do across every todolist in the project, completed included. */
+    listProjectTodos(projectId: string): Promise<BasecampTodoCandidate[]>;
+    /** `basecamp_todo_id`s already carried by a task in this organization. */
+    listImportedTodoIds(organizationId: string): Promise<number[]>;
+}
+
 /** The fields of the source entry that decide what may be created from it. */
 export interface TaskSourceEntry {
     id: string;
@@ -34,6 +91,7 @@ export type TasksAuthorization =
 
 export interface ImportTasksDependencies {
     authorize(organizationId: string): Promise<TasksAuthorization>;
+    basecamp?: BasecampCandidateSource;
     searchTasks(scope: {
         organizationId: string;
         clientId: string;
@@ -55,6 +113,55 @@ export interface ImportTasksDependencies {
 /** Enough to pick from, few enough to render in a popover. */
 export const TASK_SEARCH_LIMIT = 20;
 export const MAX_TASK_TITLE_LENGTH = 200;
+
+/**
+ * The Basecamp group is fetched once, when the picker opens, and filtered in
+ * the browser — listing every todolist and its to-dos is several provider
+ * calls and must not run per keystroke. The cap keeps that one fetch bounded.
+ */
+export const BASECAMP_TODO_LIMIT = 200;
+
+/**
+ * Which groups a GET should populate. The SEO PM search runs per keystroke;
+ * the Basecamp listing runs once on open. Splitting them keeps the expensive
+ * half off the typing path.
+ */
+export type ImportTaskGroups = 'all' | 'tasks' | 'basecamp';
+
+function requestedGroups(value: string | null): ImportTaskGroups {
+    return value === 'tasks' || value === 'basecamp' ? value : 'all';
+}
+
+async function loadBasecampCandidates(
+    source: BasecampCandidateSource,
+    member: { userId: string; organizationId: string },
+    clientId: string,
+): Promise<{ todos: BasecampTodoCandidate[]; reason: BasecampGroupReason }> {
+    const projectId = await source.resolveClientProjectId(member.organizationId, clientId);
+    // Most clients have no project bound. Say so; do not error.
+    if (!projectId) return { todos: [], reason: 'no_project' };
+
+    const authorized = await source.authorizeProject({
+        userId: member.userId,
+        organizationId: member.organizationId,
+        projectId,
+    });
+    if (!authorized) return { todos: [], reason: 'not_authorized' };
+
+    if (!source.isConfigured()) return { todos: [], reason: 'not_configured' };
+
+    const [todos, importedIds] = await Promise.all([
+        source.listProjectTodos(projectId),
+        source.listImportedTodoIds(member.organizationId),
+    ]);
+
+    const alreadyImported = new Set(importedIds.map(id => String(id)));
+    const offered = todos
+        .filter(todo => !alreadyImported.has(String(todo.id)))
+        .slice(0, BASECAMP_TODO_LIMIT);
+
+    return { todos: offered, reason: 'ok' };
+}
 
 function json(body: unknown, status = 200): Response {
     return Response.json(body, { status });
@@ -89,14 +196,45 @@ export function createImportTasksGet(dependencies: ImportTasksDependencies) {
             return json({ error: 'Give this entry a client first', tasks: [] }, 400);
         }
 
-        const tasks = await dependencies.searchTasks({
-            organizationId: member.organizationId,
-            clientId,
-            query,
-            limit: TASK_SEARCH_LIMIT,
-        });
+        const groups = requestedGroups(params.get('include'));
 
-        return json({ tasks });
+        const tasks = groups === 'basecamp'
+            ? []
+            : await dependencies.searchTasks({
+                organizationId: member.organizationId,
+                clientId,
+                query,
+                limit: TASK_SEARCH_LIMIT,
+            });
+
+        let basecampTodos: BasecampTodoCandidate[] = [];
+        let reason: BasecampGroupReason = 'not_requested';
+        if (groups !== 'tasks') {
+            if (!dependencies.basecamp) {
+                reason = 'not_configured';
+            } else {
+                try {
+                    const loaded = await loadBasecampCandidates(
+                        dependencies.basecamp,
+                        member,
+                        clientId,
+                    );
+                    basecampTodos = loaded.todos;
+                    reason = loaded.reason;
+                } catch {
+                    // A provider outage must never block linking to a task
+                    // that already exists in SEO PM.
+                    basecampTodos = [];
+                    reason = 'unavailable';
+                }
+            }
+        }
+
+        return json({
+            tasks,
+            basecampTodos,
+            basecamp: { available: reason === 'ok', reason },
+        });
     };
 }
 

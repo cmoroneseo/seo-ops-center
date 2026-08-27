@@ -133,6 +133,8 @@ export interface BasecampTodoFull {
     title: string;
     due_on: string | null;
     completed: boolean;
+    /** Present on completed to-dos; `created_at` is the moment it was checked off. */
+    completion?: { created_at: string } | null;
     description: string;
     assignees: { id: number; name: string }[];
     app_url: string;
@@ -707,4 +709,33 @@ export async function createBasecampComment(
         console.error('[Basecamp] createComment error:', err);
         return null;
     }
+}
+
+/**
+ * Every to-do in a project, across every todolist in every todoset, tagged
+ * with the list it came from.
+ *
+ * Completed to-dos are included by default here — unlike `listBasecampTodos`,
+ * whose callers are importing forward-looking work. The timesheet picker is
+ * looking backward: time is logged against work that is already finished, so
+ * excluding completed to-dos would hide the common case.
+ *
+ * This is several provider calls. Fetch it once when a picker opens, never
+ * per keystroke.
+ */
+export async function listAllBasecampProjectTodos(
+    projectId: number | string,
+    includeCompleted = true,
+): Promise<Array<BasecampTodoFull & { todolistTitle: string | null }>> {
+    const todolists = await listBasecampTodolists(projectId);
+    if (todolists.length === 0) return [];
+
+    const perList = await Promise.all(
+        todolists.map(async list => {
+            const todos = await listBasecampTodos(projectId, list.id, includeCompleted);
+            const title = list.title || list.name || null;
+            return todos.map(todo => ({ ...todo, todolistTitle: title }));
+        }),
+    );
+    return perList.flat();
 }

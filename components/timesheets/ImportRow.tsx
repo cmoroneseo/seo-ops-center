@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { AlertTriangle, ExternalLink, Link2, Link2Off, Plus, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Circle, Download, ExternalLink, Link2, Link2Off, Plus, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { safeHref } from '@/lib/links/safe-href';
 import {
@@ -23,7 +23,11 @@ import {
     type ImportDraft,
     type ImportEntryEdit,
 } from '@/lib/timesheets/import-review-ui';
-import type { TaskCandidate } from '@/lib/timesheets/import-tasks-route';
+import type {
+    BasecampGroupReason,
+    BasecampTodoCandidate,
+    TaskCandidate,
+} from '@/lib/timesheets/import-tasks-route';
 import { formatDayHeading, formatDuration } from '@/lib/timesheets/format';
 import type { QueueRow } from '@/lib/timesheets/import-queue-route';
 import type { Suggestion } from '@/lib/timesheets/suggestions';
@@ -230,6 +234,20 @@ function ReferenceLinkChips({
 
 
 /**
+ * Why the Basecamp group is empty. Most clients have no project bound, so
+ * "none" is the ordinary answer rather than a failure, and it is said plainly
+ * instead of leaving a blank list to be read as "Basecamp has nothing".
+ */
+const BASECAMP_GROUP_NOTE: Record<BasecampGroupReason, string | null> = {
+    ok: null,
+    not_requested: null,
+    no_project: 'This client has no Basecamp project connected.',
+    not_configured: 'Basecamp is not connected.',
+    not_authorized: 'You do not have access to this client\u2019s Basecamp project.',
+    unavailable: 'Could not reach Basecamp. Showing SEO PM tasks only.',
+};
+
+/**
  * The task an imported block of time belongs to.
  *
  * The driver: a teammate's reviewed August notes repeatedly reference
@@ -274,13 +292,19 @@ function TaskLinkControl({
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [candidates, setCandidates] = useState<TaskCandidate[]>([]);
+    const [basecampTodos, setBasecampTodos] = useState<BasecampTodoCandidate[]>([]);
+    const [basecampReason, setBasecampReason] = useState<BasecampGroupReason>('not_requested');
     const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingBasecamp, setIsLoadingBasecamp] = useState(false);
+    const [importingTodoId, setImportingTodoId] = useState<string | null>(null);
     const [isCreating, setIsCreating] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const panelId = useId();
     const errorId = `${panelId}-error`;
     const listId = `${panelId}-list`;
+    const seoPmGroupId = `${panelId}-group-seo-pm`;
+    const basecampGroupId = `${panelId}-group-basecamp`;
 
     useEffect(() => {
         if (!open) return;
@@ -303,7 +327,7 @@ function TaskLinkControl({
     useEffect(() => {
         if (!open || !clientId) return;
         let active = true;
-        const params = new URLSearchParams({ organizationId, clientId });
+        const params = new URLSearchParams({ organizationId, clientId, include: 'tasks' });
         if (query.trim()) params.set('q', query.trim());
         setIsLoading(true);
         void fetch(`/api/timesheets/imports/tasks?${params}`)
@@ -322,6 +346,80 @@ function TaskLinkControl({
             .finally(() => { if (active) setIsLoading(false); });
         return () => { active = false; };
     }, [open, organizationId, clientId, query]);
+
+    // The Basecamp group is fetched ONCE, when the picker opens — listing
+    // every todolist and its to-dos is several provider calls, so `query` is
+    // deliberately not a dependency here and the search term is applied in the
+    // browser instead. A failure leaves the SEO PM list untouched: an outage
+    // must never block linking.
+    useEffect(() => {
+        if (!open || !clientId) return;
+        let active = true;
+        const params = new URLSearchParams({ organizationId, clientId, include: 'basecamp' });
+        setIsLoadingBasecamp(true);
+        void fetch(`/api/timesheets/imports/tasks?${params}`)
+            .then(async response => {
+                const body = await response.json() as {
+                    basecampTodos?: BasecampTodoCandidate[];
+                    basecamp?: { reason?: BasecampGroupReason };
+                };
+                if (!active) return;
+                if (!response.ok) {
+                    setBasecampTodos([]);
+                    setBasecampReason('unavailable');
+                    return;
+                }
+                setBasecampTodos(body.basecampTodos ?? []);
+                setBasecampReason(body.basecamp?.reason ?? 'unavailable');
+            })
+            .catch(() => {
+                if (!active) return;
+                setBasecampTodos([]);
+                setBasecampReason('unavailable');
+            })
+            .finally(() => { if (active) setIsLoadingBasecamp(false); });
+        return () => { active = false; };
+    }, [open, organizationId, clientId]);
+
+    // Filtered here rather than refetched: see the effect above.
+    const term = query.trim().toLowerCase();
+    const matchingTodos = term
+        ? basecampTodos.filter(todo => todo.title.toLowerCase().includes(term))
+        : basecampTodos;
+
+    /**
+     * Import the to-do as a SEO PM task, then link the entry to it. The server
+     * derives the client from the time log and the project from that client,
+     * and re-verifies the to-do against Basecamp before writing anything.
+     */
+    const importTodo = async (todo: BasecampTodoCandidate) => {
+        setImportingTodoId(todo.id);
+        setError(null);
+        try {
+            const response = await fetch('/api/timesheets/imports/tasks/basecamp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ organizationId, timeLogId, basecampTodoId: todo.id }),
+            });
+            const body = await response.json() as {
+                taskId?: string;
+                taskTitle?: string;
+                error?: string;
+            };
+            if (!response.ok || !body.taskId) {
+                setError(body.error ?? 'Could not import that to-do');
+                return;
+            }
+            // No Basecamp push: the to-do is already there, which is the whole
+            // reason it was offered.
+            onLink({ id: body.taskId, title: body.taskTitle || todo.title });
+            setOpen(false);
+        } catch {
+            setError('Could not import that to-do');
+        } finally {
+            setImportingTodoId(null);
+        }
+    };
 
     const createTask = async () => {
         const title = prefillTitle.trim();
@@ -437,37 +535,98 @@ function TaskLinkControl({
                         type="search"
                         value={query}
                         onChange={event => { setQuery(event.target.value); setError(null); }}
-                        placeholder="Search this client’s tasks…"
+                        placeholder="Search tasks and Basecamp to-dos…"
                         aria-controls={listId}
                         aria-describedby={error ? errorId : undefined}
                         className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                     />
 
-                    <ul
+                    <div
                         id={listId}
-                        aria-label="Matching tasks"
-                        aria-busy={isLoading || undefined}
-                        className="mt-2 max-h-56 space-y-1 overflow-y-auto"
+                        aria-busy={isLoading || isLoadingBasecamp || undefined}
+                        className="mt-2 max-h-64 space-y-3 overflow-y-auto"
                     >
-                        {candidates.map(task => (
-                            <li key={task.id}>
-                                <button
-                                    type="button"
-                                    disabled={disabled}
-                                    onClick={() => { onLink(task); setOpen(false); }}
-                                    className="flex w-full items-center justify-between gap-2 rounded-lg border border-border px-2 py-1.5 text-left text-xs text-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-                                >
-                                    <span className="truncate" title={task.title}>{task.title}</span>
-                                    <span className="shrink-0 text-muted-foreground">{task.status}</span>
-                                </button>
-                            </li>
-                        ))}
-                        {candidates.length === 0 && (
-                            <li className="px-1 py-1.5 text-xs text-muted-foreground">
-                                {isLoading ? 'Loading…' : 'No matching tasks'}
-                            </li>
-                        )}
-                    </ul>
+                        {/* Already in SEO PM: picking one only makes the link. */}
+                        <section aria-labelledby={seoPmGroupId}>
+                            <h4
+                                id={seoPmGroupId}
+                                className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                            >
+                                In SEO PM
+                            </h4>
+                            <ul aria-labelledby={seoPmGroupId} className="mt-1 space-y-1">
+                                {candidates.map(task => (
+                                    <li key={task.id}>
+                                        <button
+                                            type="button"
+                                            disabled={disabled}
+                                            onClick={() => { onLink(task); setOpen(false); }}
+                                            className="flex w-full items-center justify-between gap-2 rounded-lg border border-border px-2 py-1.5 text-left text-xs text-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                                        >
+                                            <span className="truncate" title={task.title}>{task.title}</span>
+                                            <span className="shrink-0 text-muted-foreground">{task.status}</span>
+                                        </button>
+                                    </li>
+                                ))}
+                                {candidates.length === 0 && (
+                                    <li className="px-1 py-1.5 text-xs text-muted-foreground">
+                                        {isLoading ? 'Loading…' : 'No matching tasks'}
+                                    </li>
+                                )}
+                            </ul>
+                        </section>
+
+                        {/* Not in SEO PM yet: picking one imports it first. */}
+                        <section aria-labelledby={basecampGroupId} className="border-t border-border pt-2">
+                            <h4
+                                id={basecampGroupId}
+                                className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                            >
+                                In Basecamp — imports on pick
+                            </h4>
+                            <ul aria-labelledby={basecampGroupId} className="mt-1 space-y-1">
+                                {matchingTodos.map(todo => {
+                                    const isImporting = importingTodoId === todo.id;
+                                    return (
+                                        <li key={todo.id}>
+                                            <button
+                                                type="button"
+                                                disabled={disabled || importingTodoId !== null}
+                                                onClick={() => { void importTodo(todo); }}
+                                                aria-label={`Import the Basecamp to-do “${todo.title}”${todo.completed ? ' (completed)' : ''} and link it to ${rowLabel}`}
+                                                className="flex w-full items-center gap-2 rounded-lg border border-dashed border-border px-2 py-1.5 text-left text-xs text-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                                            >
+                                                {todo.completed
+                                                    ? <CheckCircle2 className="h-3 w-3 shrink-0 text-primary" aria-hidden />
+                                                    : <Circle className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />}
+                                                <span className="truncate" title={todo.title}>{todo.title}</span>
+                                                <span className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground">
+                                                    {todo.completed && <span>completed</span>}
+                                                    {isImporting
+                                                        ? <span>Importing…</span>
+                                                        : <Download className="h-3 w-3" aria-hidden />}
+                                                </span>
+                                            </button>
+                                        </li>
+                                    );
+                                })}
+                                {matchingTodos.length === 0 && (
+                                    <li className="px-1 py-1.5 text-xs text-muted-foreground">
+                                        {isLoadingBasecamp
+                                            ? 'Loading…'
+                                            : BASECAMP_GROUP_NOTE[basecampReason]
+                                                ?? 'No matching Basecamp to-dos'}
+                                    </li>
+                                )}
+                            </ul>
+                            {matchingTodos.length > 0 && (
+                                <p className="mt-1 px-1 text-[11px] text-muted-foreground">
+                                    Picking one imports it into SEO PM, keeping its
+                                    completed state and assignee, then links this entry.
+                                </p>
+                            )}
+                        </section>
+                    </div>
 
                     {error && (
                         <p id={errorId} role="alert" className="mt-2 text-xs text-amber-500">

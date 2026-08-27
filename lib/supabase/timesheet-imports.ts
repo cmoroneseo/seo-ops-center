@@ -294,3 +294,104 @@ export async function createTaskFromImportEntry(input: {
     if (error) throw error;
     return { id: data.id };
 }
+
+/**
+ * The Basecamp project bound to a client, from server-owned config.
+ *
+ * The picker never sends a project id: the client comes from the time log and
+ * the project comes from here, so a browser cannot point an import at a
+ * project it merely knows the number of.
+ */
+export async function clientBasecampProjectId(
+    organizationId: string,
+    clientId: string,
+): Promise<string | null> {
+    const { data, error } = await createAdminClient()
+        .from('clients')
+        .select('custom_fields')
+        .eq('organization_id', organizationId)
+        .eq('id', clientId)
+        .maybeSingle();
+    if (error) throw error;
+
+    const customFields = data?.custom_fields;
+    const raw = customFields !== null && typeof customFields === 'object' && !Array.isArray(customFields)
+        ? (customFields as Record<string, unknown>).basecamp_project_id
+        : null;
+    if (typeof raw !== 'string' && typeof raw !== 'number') return null;
+    const normalized = String(raw).trim();
+    return /^\d+$/.test(normalized) ? normalized : null;
+}
+
+/** Every `basecamp_todo_id` already carried by a task in this organization. */
+export async function listImportedBasecampTodoIds(
+    organizationId: string,
+): Promise<number[]> {
+    const { data, error } = await createAdminClient()
+        .from('tasks')
+        .select('basecamp_todo_id')
+        .eq('organization_id', organizationId)
+        .not('basecamp_todo_id', 'is', null);
+    if (error) throw error;
+    return (data ?? [])
+        .map(row => Number(row.basecamp_todo_id))
+        .filter(id => Number.isSafeInteger(id) && id > 0);
+}
+
+/** The task a Basecamp to-do was already imported as, if any. */
+export async function findImportedBasecampTask(
+    organizationId: string,
+    clientId: string,
+    basecampTodoId: number,
+): Promise<{ id: string; title: string } | null> {
+    const { data, error } = await createAdminClient()
+        .from('tasks')
+        .select('id, title')
+        .eq('organization_id', organizationId)
+        .eq('client_id', clientId)
+        .eq('basecamp_todo_id', basecampTodoId)
+        .limit(1)
+        .maybeSingle();
+    if (error) throw error;
+    return data ? { id: data.id, title: data.title ?? '' } : null;
+}
+
+/**
+ * Basecamp person id -> org member user id: the reverse of the mapping the
+ * push uses. A person with no member row is absent from the map, and the
+ * caller omits them rather than guessing.
+ */
+export async function membersByBasecampPersonId(
+    organizationId: string,
+    personIds: number[],
+): Promise<Map<number, string>> {
+    if (personIds.length === 0) return new Map();
+    const { data, error } = await createAdminClient()
+        .from('organization_members')
+        .select('user_id, basecamp_person_id')
+        .eq('organization_id', organizationId)
+        .in('basecamp_person_id', personIds);
+    if (error) throw error;
+
+    const mapped = new Map<number, string>();
+    for (const member of data ?? []) {
+        const personId = Number(member.basecamp_person_id);
+        if (Number.isSafeInteger(personId) && personId > 0 && member.user_id) {
+            mapped.set(personId, member.user_id);
+        }
+    }
+    return mapped;
+}
+
+/** Insert one already-shaped task row and hand back what it became. */
+export async function insertImportedTask(
+    row: Record<string, unknown>,
+): Promise<{ id: string; title: string }> {
+    const { data, error } = await createAdminClient()
+        .from('tasks')
+        .insert(row)
+        .select('id, title')
+        .single();
+    if (error) throw error;
+    return { id: data.id, title: data.title ?? '' };
+}

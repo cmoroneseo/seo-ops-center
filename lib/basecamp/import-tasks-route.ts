@@ -3,11 +3,54 @@ import {
     type BasecampProjectAccessSource,
 } from './project-access.ts';
 
-interface ImportTaskPayload {
+export interface ImportTaskPayload {
     basecampTodoId: number;
     basecampProjectId: number;
     category?: string;
     priority?: 'low' | 'medium' | 'high' | 'urgent';
+}
+
+/**
+ * What the provider tells us about a to-do.
+ *
+ * `completed`, `completion` and `assignees` are optional because the bulk
+ * importer never read them: widening the shape must not force every existing
+ * caller (or test double) to start supplying them.
+ */
+export interface ProviderTodo {
+    id: string | number;
+    title: string;
+    description: string;
+    due_on: string | null;
+    completed?: boolean;
+    /** Basecamp reports the completion moment here. */
+    completion?: { created_at?: string | null } | null;
+    completed_at?: string | null;
+    assignees?: Array<{ id: number | string }> | null;
+}
+
+export type GetProviderTodo = (
+    projectId: string,
+    todoId: string,
+) => Promise<ProviderTodo | null>;
+
+/**
+ * Deliberate departures from the bulk importer's defaults, both off unless a
+ * caller asks. The bulk "import selected to-dos" screen keeps landing
+ * everything as an unassigned `todo`; only the timesheet picker — which
+ * imports work that is usually already finished — turns these on.
+ */
+export interface BasecampImportOptions {
+    /**
+     * Carry the provider's completion state (and its date) onto the new task,
+     * so finished work does not arrive outstanding and skew task counts.
+     */
+    mirrorCompletion?: boolean;
+    /**
+     * Map Basecamp person ids back to org member user ids. An unmapped person
+     * is omitted rather than guessed at.
+     */
+    resolveAssignees?(personIds: number[]): Promise<Map<number, string>>;
 }
 
 type ClientAuthorization =
@@ -37,12 +80,7 @@ interface Dependencies {
     authorizeClient(clientId: unknown, organizationId: unknown): Promise<ClientAuthorization>;
     createAccessSource(): BasecampProjectAccessSource;
     isConfigured(): boolean;
-    getTodo(projectId: string, todoId: string): Promise<{
-        id: string | number;
-        title: string;
-        description: string;
-        due_on: string | null;
-    } | null>;
+    getTodo: GetProviderTodo;
     createWriter(): ImportWriter;
     now(): string;
 }
@@ -51,7 +89,7 @@ function json(body: unknown, status = 200) {
     return Response.json(body, { status });
 }
 
-function numericId(value: unknown): string | null {
+export function numericId(value: unknown): string | null {
     if (typeof value !== 'string' && typeof value !== 'number') return null;
     const normalized = String(value).trim();
     if (!/^\d+$/.test(normalized)) return null;
@@ -72,6 +110,104 @@ function chunk<T>(values: T[], size = 500): T[][] {
         chunks.push(values.slice(index, index + size));
     }
     return chunks;
+}
+
+/**
+ * Verify each requested to-do against the provider, then shape the `tasks`
+ * rows it becomes.
+ *
+ * Extracted so the timesheet picker's import-and-link can reuse the exact
+ * verification the bulk route already performs — re-fetching every to-do and
+ * refusing anything whose id or title does not match what was asked for —
+ * without reimplementing it or inheriting the bulk route's body-supplied
+ * client.
+ */
+export async function buildBasecampTaskRows(input: {
+    tasks: ImportTaskPayload[];
+    organizationId: string;
+    clientId: string;
+    userId: string;
+    getTodo: GetProviderTodo;
+    now: string;
+    options?: BasecampImportOptions;
+}): Promise<
+    | { ok: true; rows: Array<Record<string, unknown>> }
+    | { ok: false; status: number; error: string }
+> {
+    const providerTodos = new Map<string, ProviderTodo>();
+    for (const task of input.tasks) {
+        const projectId = numericId(task.basecampProjectId)!;
+        const todoId = numericId(task.basecampTodoId)!;
+        const providerTodo = await input.getTodo(projectId, todoId);
+        if (!providerTodo || String(providerTodo.id) !== todoId || !providerTodo.title?.trim()) {
+            return { ok: false, status: 403, error: 'Basecamp todo is not authorized' };
+        }
+        providerTodos.set(`${projectId}:${todoId}`, providerTodo);
+    }
+
+    const mirrorCompletion = input.options?.mirrorCompletion === true;
+    const resolveAssignees = input.options?.resolveAssignees;
+
+    let assigneesByPerson = new Map<number, string>();
+    if (resolveAssignees) {
+        const personIds = Array.from(new Set(
+            Array.from(providerTodos.values())
+                .flatMap(todo => todo.assignees ?? [])
+                .map(assignee => Number(assignee?.id))
+                .filter(id => Number.isSafeInteger(id) && id > 0),
+        ));
+        if (personIds.length > 0) {
+            assigneesByPerson = await resolveAssignees(personIds);
+        }
+    }
+
+    const rows = input.tasks.map(task => {
+        const projectId = numericId(task.basecampProjectId)!;
+        const todoId = numericId(task.basecampTodoId)!;
+        const providerTodo = providerTodos.get(`${projectId}:${todoId}`)!;
+
+        const isDone = mirrorCompletion && providerTodo.completed === true;
+        const status = isDone ? 'done' : 'todo';
+        // The moment the work actually finished, not the moment it was
+        // imported — otherwise every backfilled to-do reads as completed today.
+        const completedAt = isDone
+            ? providerTodo.completion?.created_at || providerTodo.completed_at || input.now
+            : null;
+
+        const assigneeIds = resolveAssignees
+            ? Array.from(new Set(
+                (providerTodo.assignees ?? [])
+                    .map(assignee => assigneesByPerson.get(Number(assignee?.id)))
+                    .filter((id): id is string => typeof id === 'string' && id.length > 0),
+            ))
+            : [];
+
+        return {
+            organization_id: input.organizationId,
+            client_id: input.clientId,
+            title: providerTodo.title.trim(),
+            description: providerTodo.description || null,
+            due_date: providerTodo.due_on || null,
+            priority: task.priority ?? 'medium',
+            status,
+            category: task.category || null,
+            tags: [],
+            assignee_ids: assigneeIds,
+            sort_order: 0,
+            basecamp_todo_id: Number(todoId),
+            basecamp_project_id: Number(projectId),
+            last_synced_at: input.now,
+            // One entry for the state the task arrives in, stamped with when
+            // that state happened — the same shape every other creator writes.
+            status_history: [{ status, at: completedAt ?? input.now, by: input.userId }],
+            completed_at: completedAt,
+            custom_fields: {},
+            watcher_ids: [],
+            created_by: input.userId,
+        } satisfies Record<string, unknown>;
+    });
+
+    return { ok: true, rows };
 }
 
 export function createBasecampImportTasksPost(dependencies: Dependencies) {
@@ -109,43 +245,16 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
                 return json({ error: 'Basecamp not configured', configured: false }, 503);
             }
 
-            const providerTodos = new Map<string, Awaited<ReturnType<Dependencies['getTodo']>>>();
-            for (const task of tasks) {
-                const projectId = numericId(task.basecampProjectId)!;
-                const todoId = numericId(task.basecampTodoId)!;
-                const providerTodo = await dependencies.getTodo(projectId, todoId);
-                if (!providerTodo || String(providerTodo.id) !== todoId || !providerTodo.title?.trim()) {
-                    return json({ error: 'Basecamp todo is not authorized' }, 403);
-                }
-                providerTodos.set(`${projectId}:${todoId}`, providerTodo);
-            }
-
-            const now = dependencies.now();
-            const rows = tasks.map(task => {
-                const projectId = numericId(task.basecampProjectId)!;
-                const todoId = numericId(task.basecampTodoId)!;
-                const providerTodo = providerTodos.get(`${projectId}:${todoId}`)!;
-                return {
-                    organization_id: authorization.organizationId,
-                    client_id: authorization.clientId,
-                    title: providerTodo.title.trim(),
-                    description: providerTodo.description || null,
-                    due_date: providerTodo.due_on || null,
-                    priority: task.priority ?? 'medium',
-                    status: 'todo',
-                    category: task.category || null,
-                    tags: [],
-                    assignee_ids: [],
-                    sort_order: 0,
-                    basecamp_todo_id: Number(todoId),
-                    basecamp_project_id: Number(projectId),
-                    last_synced_at: now,
-                    status_history: [{ status: 'todo', at: now, by: authorization.userId }],
-                    custom_fields: {},
-                    watcher_ids: [],
-                    created_by: authorization.userId,
-                };
+            const built = await buildBasecampTaskRows({
+                tasks,
+                organizationId: authorization.organizationId,
+                clientId: authorization.clientId,
+                userId: authorization.userId,
+                getTodo: dependencies.getTodo,
+                now: dependencies.now(),
             });
+            if (!built.ok) return json({ error: built.error }, built.status);
+            const rows = built.rows;
 
             const writer = dependencies.createWriter();
             const errors: string[] = [];

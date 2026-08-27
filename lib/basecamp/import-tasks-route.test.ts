@@ -176,3 +176,101 @@ test('authorized import writes the canonical client organization after provider 
     assert.equal(insertedRows[0].due_date, '2026-08-29');
     assert.equal(insertedRows[0].priority, 'medium');
 });
+
+// ---------------------------------------------------------------------------
+// `buildBasecampTaskRows` is shared with the timesheet picker's
+// import-and-link, which mirrors completion and carries assignees. Both are
+// OPTIONS: the bulk import screen's callers must keep landing every to-do as
+// an unassigned `todo`, whatever the provider says about it.
+// ---------------------------------------------------------------------------
+
+const completedProviderTodo = {
+    id: 77,
+    title: 'XERF landing page',
+    description: 'Revisions',
+    due_on: null,
+    completed: true,
+    completion: { created_at: '2026-08-14T17:20:00.000Z' },
+    assignees: [{ id: 5001 }],
+};
+
+test('the bulk importer still lands a completed, assigned to-do as an unassigned todo', async () => {
+    const { buildBasecampTaskRows } = await loadRouteModule();
+    const built = await buildBasecampTaskRows({
+        tasks: [{ basecampTodoId: 77, basecampProjectId: 202 }],
+        organizationId: 'org-a',
+        clientId: 'client-a',
+        userId: 'user-1',
+        getTodo: async () => completedProviderTodo,
+        now: '2026-08-26T00:00:00.000Z',
+    });
+
+    assert.equal(built.ok, true);
+    if (!built.ok) return;
+    const row = built.rows[0];
+    assert.equal(row.status, 'todo');
+    assert.equal(row.completed_at, null);
+    assert.deepEqual(row.assignee_ids, []);
+    assert.deepEqual(row.status_history, [
+        { status: 'todo', at: '2026-08-26T00:00:00.000Z', by: 'user-1' },
+    ]);
+});
+
+test('opting in mirrors completion and maps assignees back to org members', async () => {
+    const { buildBasecampTaskRows } = await loadRouteModule();
+    const built = await buildBasecampTaskRows({
+        tasks: [{ basecampTodoId: 77, basecampProjectId: 202 }],
+        organizationId: 'org-a',
+        clientId: 'client-a',
+        userId: 'user-1',
+        getTodo: async () => completedProviderTodo,
+        now: '2026-08-26T00:00:00.000Z',
+        options: {
+            mirrorCompletion: true,
+            resolveAssignees: async personIds => {
+                assert.deepEqual(personIds, [5001]);
+                return new Map([[5001, 'user-abel']]);
+            },
+        },
+    });
+
+    assert.equal(built.ok, true);
+    if (!built.ok) return;
+    const row = built.rows[0];
+    assert.equal(row.status, 'done');
+    assert.equal(row.completed_at, '2026-08-14T17:20:00.000Z');
+    assert.deepEqual(row.assignee_ids, ['user-abel']);
+});
+
+test('a completed to-do with no completion date falls back to the import moment', async () => {
+    const { buildBasecampTaskRows } = await loadRouteModule();
+    const built = await buildBasecampTaskRows({
+        tasks: [{ basecampTodoId: 77, basecampProjectId: 202 }],
+        organizationId: 'org-a',
+        clientId: 'client-a',
+        userId: 'user-1',
+        getTodo: async () => ({ ...completedProviderTodo, completion: null }),
+        now: '2026-08-26T00:00:00.000Z',
+        options: { mirrorCompletion: true },
+    });
+
+    assert.equal(built.ok, true);
+    if (!built.ok) return;
+    assert.equal(built.rows[0].completed_at, '2026-08-26T00:00:00.000Z');
+});
+
+test('the row builder refuses a to-do the provider does not confirm', async () => {
+    const { buildBasecampTaskRows } = await loadRouteModule();
+    const built = await buildBasecampTaskRows({
+        tasks: [{ basecampTodoId: 77, basecampProjectId: 202 }],
+        organizationId: 'org-a',
+        clientId: 'client-a',
+        userId: 'user-1',
+        getTodo: async () => ({ ...completedProviderTodo, title: '   ' }),
+        now: '2026-08-26T00:00:00.000Z',
+    });
+
+    assert.equal(built.ok, false);
+    if (built.ok) return;
+    assert.equal(built.status, 403);
+});
