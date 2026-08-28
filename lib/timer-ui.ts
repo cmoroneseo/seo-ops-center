@@ -1,5 +1,5 @@
 import { splitSegmentsByLocalDate, sumActiveSeconds } from './timer/segments.ts';
-import type { TimerAttempt } from './types';
+import type { SessionNote, TimerAttempt } from './types';
 import type { TimerMutationRequest, TimerStateResponse } from './timer/contracts';
 
 export type TimerSwitchConfirmation = (prompt: string) => boolean | Promise<boolean>;
@@ -95,6 +95,42 @@ export function stopReviewDefaults(attempt: TimerAttempt): StopReviewDefaults {
         countsTowardBudget: Boolean(attempt.clientId) && attempt.countsTowardBudget,
         markTaskComplete: false,
         canMarkTaskComplete: Boolean(attempt.taskId),
+    };
+}
+
+export interface StopReviewWorkContext {
+    description: string;
+    noteToPersist: string | null;
+    hasSessionNotes: boolean;
+}
+
+/**
+ * Session notes are the canonical work context at stop. Existing notes are
+ * ordered by their captured time; when none exist, the one review field is
+ * persisted as a note and reused as the finalized description.
+ */
+export function stopReviewWorkContext(
+    notes: SessionNote[],
+    fallbackNote: string,
+): StopReviewWorkContext {
+    const noteTexts = [...notes]
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+        .map(note => note.text.trim())
+        .filter(Boolean);
+
+    if (noteTexts.length > 0) {
+        return {
+            description: noteTexts.join('\n\n'),
+            noteToPersist: null,
+            hasSessionNotes: true,
+        };
+    }
+
+    const note = fallbackNote.trim();
+    return {
+        description: note,
+        noteToPersist: note || null,
+        hasSessionNotes: false,
     };
 }
 

@@ -1,24 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { timeLogCommentBody, escapeHtml, formatLogDate } from './time-log-comment.ts';
+import { timeLogCommentBody, escapeHtml } from './time-log-comment.ts';
 
 const base = {
     taskTitle: 'August Content: 4 Blogs, 1 Category, 1 Refresh',
-    hours: 2.75,
-    date: '2026-08-26',
-    actorName: 'Carlos Morones',
 };
 
-test('a note reaches the to-do with its hours and date', () => {
+test('a note reaches the to-do without repeating timesheet or author metadata', () => {
     const body = timeLogCommentBody({
         ...base,
         description: '"Van Electrical System Planning Checklist" blog post',
     });
-    assert.ok(body);
-    assert.match(body, /Van Electrical System Planning Checklist/);
-    assert.match(body, /2\.75h/);
-    assert.match(body, /Aug 26/);
-    assert.match(body, /Carlos Morones/);
+    assert.equal(body, '<div>&quot;Van Electrical System Planning Checklist&quot; blog post</div>');
+    assert.doesNotMatch(body, /2\.75h|Aug 26|Carlos Morones/);
 });
 
 test('a description that is only the task title says nothing', () => {
@@ -52,17 +46,11 @@ test('a note still posts when the task has no title to compare', () => {
     assert.match(body, /Drafted two blogs/);
 });
 
-test('the actor is omitted rather than left blank', () => {
-    const body = timeLogCommentBody({ ...base, actorName: null, description: 'Drafted two blogs' });
-    assert.ok(body);
-    assert.match(body, /2\.75h · Aug 26<\/em>/);
-});
-
-test('dates are read by parts so the day never shifts', () => {
-    // new Date('2026-08-26') is UTC midnight and renders as Aug 25 west of it.
-    assert.equal(formatLogDate('2026-08-26'), 'Aug 26');
-    assert.equal(formatLogDate('2026-01-01'), 'Jan 1');
-    assert.equal(formatLogDate('2026-12-31T10:00:00Z'), 'Dec 31');
+test('several session notes remain separate readable paragraphs', () => {
+    assert.equal(
+        timeLogCommentBody({ ...base, description: 'Investigated indexing\n\nPublished two blogs' }),
+        '<div>Investigated indexing</div><div>Published two blogs</div>',
+    );
 });
 
 test('escapeHtml covers the characters that break rich text', () => {

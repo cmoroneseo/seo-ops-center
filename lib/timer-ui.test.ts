@@ -156,6 +156,37 @@ test('a review sheet resolves its attempt by identity from the latest canonical 
     assert.equal(timerUi.findTimerAttempt(state, 'reviewing')?.sessionNotes[0]?.text, 'Saved note');
 });
 
+test('stop review uses session notes as the single chronological work description', () => {
+    const context = timerUi.stopReviewWorkContext([
+        { id: 'later', text: ' Published the two blog posts. ', createdAt: '2026-08-20T12:15:00.000Z' },
+        { id: 'earlier', text: 'Investigated the noindex issue.', createdAt: '2026-08-20T11:59:00.000Z' },
+    ], 'A second description must not win');
+
+    assert.deepEqual(context, {
+        description: 'Investigated the noindex issue.\n\nPublished the two blog posts.',
+        noteToPersist: null,
+        hasSessionNotes: true,
+    });
+});
+
+test('stop review turns the one fallback field into both a session note and description', () => {
+    const context = timerUi.stopReviewWorkContext([], '  Completed the content brief.  ');
+
+    assert.deepEqual(context, {
+        description: 'Completed the content brief.',
+        noteToPersist: 'Completed the content brief.',
+        hasSessionNotes: false,
+    });
+});
+
+test('stop review refuses an empty fallback instead of inventing work context', () => {
+    assert.deepEqual(timerUi.stopReviewWorkContext([], '   '), {
+        description: '',
+        noteToPersist: null,
+        hasSessionNotes: false,
+    });
+});
+
 test('sub-second segment drift never leaks into the reviewed duration', () => {
     const drifting = timerUi.stopReviewSummary(attempt({
         segments: [segment('a', '2026-08-20T17:00:00.250Z', '2026-08-20T17:30:00.750Z')],

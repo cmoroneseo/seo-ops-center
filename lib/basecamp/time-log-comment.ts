@@ -9,11 +9,6 @@
  * Pure: no provider calls.
  */
 
-const MONTHS = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
-
 /**
  * Basecamp comments are rich text, so the note is HTML.
  *
@@ -30,27 +25,10 @@ export function escapeHtml(value: string): string {
         .replace(/'/g, '&#39;');
 }
 
-/** "2026-08-26" -> "Aug 26". Parsed by parts: a Date would shift the day. */
-export function formatLogDate(date: string): string {
-    const match = date.slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!match) return date.slice(0, 10);
-    const month = MONTHS[Number(match[2]) - 1];
-    return month ? `${month} ${Number(match[3])}` : date.slice(0, 10);
-}
-
-function formatHours(hours: number): string {
-    const rounded = Math.round(hours * 100) / 100;
-    return `${rounded}h`;
-}
-
 export interface TimeLogCommentInput {
     description: string | null;
     /** The linked task's title, used to recognize a description that is not a note. */
     taskTitle: string | null;
-    hours: number;
-    date: string;
-    /** Who logged it, when known. */
-    actorName?: string | null;
 }
 
 /**
@@ -66,11 +44,12 @@ export function timeLogCommentBody(input: TimeLogCommentInput): string | null {
     if (!note) return null;
     if (input.taskTitle && note === input.taskTitle.trim()) return null;
 
-    const meta = [formatHours(input.hours), formatLogDate(input.date)];
-    if (input.actorName?.trim()) meta.push(input.actorName.trim());
-
-    return `<div>${escapeHtml(note)}</div>`
-        + `<div><em>${escapeHtml(meta.join(' · '))}</em></div>`;
+    return note
+        .split(/\r?\n+/)
+        .map(line => line.trim())
+        .filter(Boolean)
+        .map(line => `<div>${escapeHtml(line)}</div>`)
+        .join('');
 }
 
 export interface CommentTarget {

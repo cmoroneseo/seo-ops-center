@@ -62,20 +62,6 @@ export async function GET(req: NextRequest) {
 }
 
 /** POST /api/integrations/basecamp/timesheet */
-/** The name to attribute a to-do comment to, or null when unknown. */
-async function resolveActorName(
-    admin: ReturnType<typeof createAdminClient>,
-    userId: string | null,
-): Promise<string | null> {
-    if (!userId) return null;
-    try {
-        const { data } = await admin.from('users').select('full_name').eq('id', userId).maybeSingle();
-        return data?.full_name ?? null;
-    } catch {
-        return null;
-    }
-}
-
 export async function POST(req: NextRequest) {
     const post = createBasecampTimesheetPost({
         authorizeTimeLog: timeLogId => requireTimeLogIntegrationManager(timeLogId),
@@ -319,9 +305,6 @@ export async function POST(req: NextRequest) {
                 const commentBody = timeLogCommentBody({
                     description: log.description,
                     taskTitle: log.taskTitle ?? null,
-                    hours: log.hours,
-                    date: log.date,
-                    actorName: await resolveActorName(admin, log.userId),
                 });
                 if (commentBody) {
                     try {

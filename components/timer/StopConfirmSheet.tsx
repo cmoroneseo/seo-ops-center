@@ -6,6 +6,7 @@ import { useTimer } from '@/components/providers/timer-provider';
 import {
     basecampSyncEligibility,
     stopReviewDefaults,
+    stopReviewWorkContext,
     stopReviewSummary,
     stopSubmitFailure,
     stopSubmitOutcome,
@@ -142,9 +143,9 @@ export function StopConfirmSheet({
     onClose,
     defaultMarkTaskComplete = false,
 }: StopConfirmSheetProps) {
-    const { finalize, discard, editNote, getAttemptById } = useTimer();
+    const { finalize, discard, addNote, editNote, getAttemptById } = useTimer();
     const timer = getAttemptById(attemptId);
-    const [description, setDescription] = useState('');
+    const [sessionNoteDraft, setSessionNoteDraft] = useState('');
     const [billable, setBillable] = useState(true);
     const [countsTowardBudget, setCountsTowardBudget] = useState(false);
     const [markTaskComplete, setMarkTaskComplete] = useState(false);
@@ -159,6 +160,7 @@ export function StopConfirmSheet({
     const timerNoteCount = timer?.sessionNotes.length ?? 0;
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     const review = timer ? stopReviewSummary(timer, timeZone) : null;
+    const workContext = stopReviewWorkContext(timer?.sessionNotes ?? [], sessionNoteDraft);
     const trackedSeconds = review?.totalActiveSeconds ?? 0;
     const canMarkTaskComplete = Boolean(timer?.taskId);
     const isClientWork = Boolean(timer?.clientId);
@@ -199,13 +201,16 @@ export function StopConfirmSheet({
 
     const handleStop = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!timer || !description.trim() || isCheckingBasecamp || isSubmitting) return;
+        if (!timer || !workContext.description || isCheckingBasecamp || isSubmitting) return;
         setIsSubmitting(true);
         setOutcome(null);
         let result: StopSubmitOutcome;
         try {
+            if (workContext.noteToPersist) {
+                await addNote(timer.id, workContext.noteToPersist);
+            }
             result = stopSubmitOutcome(await finalize(timer, {
-                description: description.trim(),
+                description: workContext.description,
                 billable,
                 countsTowardBudget,
                 markTaskComplete,
@@ -314,8 +319,8 @@ export function StopConfirmSheet({
                             )}
                         </div>
 
-                        {/* Session notes (read-only context) */}
-                        {timer.sessionNotes.length > 0 && (
+                        {/* Existing session notes are the finalized work context. */}
+                        {workContext.hasSessionNotes && (
                             <div className="rounded-xl border border-border/60 overflow-hidden">
                                 <button
                                     type="button"
@@ -342,19 +347,20 @@ export function StopConfirmSheet({
                             </div>
                         )}
 
-                        {/* Description */}
-                        <div className="space-y-1.5">
-                            <label className="text-xs font-medium text-muted-foreground">What did you work on? *</label>
-                            <textarea
-                                autoFocus
-                                required
-                                rows={2}
-                                value={description}
-                                onChange={e => setDescription(e.target.value)}
-                                placeholder="Brief description of the work..."
-                                className="w-full p-2.5 rounded-lg bg-background border border-border text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all resize-none"
-                            />
-                        </div>
+                        {!workContext.hasSessionNotes && (
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-medium text-muted-foreground">Session notes *</label>
+                                <textarea
+                                    autoFocus
+                                    required
+                                    rows={2}
+                                    value={sessionNoteDraft}
+                                    onChange={e => setSessionNoteDraft(e.target.value)}
+                                    placeholder="What did you work on?"
+                                    className="w-full p-2.5 rounded-lg bg-background border border-border text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all resize-none"
+                                />
+                            </div>
+                        )}
 
                         <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
                             <p className="text-xs font-medium text-muted-foreground">Tracked time</p>
@@ -440,7 +446,7 @@ export function StopConfirmSheet({
                             </button>
                             <button
                                 type="submit"
-                                disabled={isSubmitting || isCheckingBasecamp || !description.trim()}
+                                disabled={isSubmitting || isCheckingBasecamp || !workContext.description}
                                 className="flex-[2] py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                             >
                                 {isSubmitting || isCheckingBasecamp ? (
