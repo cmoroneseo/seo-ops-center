@@ -11,6 +11,7 @@ import {
 } from '@/lib/timesheets/import-review-ui';
 import type { QueueRow } from '@/lib/timesheets/import-queue-route';
 import type { ClientProject } from '@/lib/types';
+import { ReconciliationPanel } from './ReconciliationPanel';
 import { BackfillControl, type BackfillMember } from './BackfillControl';
 import { ImportRow } from './ImportRow';
 
@@ -86,6 +87,10 @@ export function ImportReviewQueue({
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
+            {payload.isManager && (
+                <ReconciliationPanel organizationId={organizationId} members={backfillMembers} />
+            )}
+
             {payload.isManager && (
                 <BackfillControl
                     organizationId={organizationId}
