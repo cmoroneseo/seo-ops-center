@@ -17,7 +17,8 @@ import { getNextDueDate } from '../utils/recurrence';
 // ---------------------------------------------------------------------------
 
 /** Checks if a client has Basecamp sync enabled and returns its config. */
-async function getClientBasecampConfig(clientId: string | undefined): Promise<{
+/** The client's Basecamp to-do destination, or null when sync is off. */
+export async function getClientBasecampConfig(clientId: string | undefined): Promise<{
     projectId: string;
     todolistId: string;
 } | null> {

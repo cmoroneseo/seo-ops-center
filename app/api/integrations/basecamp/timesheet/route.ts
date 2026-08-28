@@ -15,6 +15,9 @@ import {
     createBasecampComment,
 } from '@/lib/basecamp/api';
 import { timeLogCommentBody, commentTargetFor } from '@/lib/basecamp/time-log-comment';
+import {
+    refuseProviderCreate, PROVIDER_CREATE_REFUSAL_MESSAGE,
+} from '@/lib/basecamp/provider-origin';
 import { createBasecampTimesheetGet } from '@/lib/basecamp/resource-routes';
 import {
     createBasecampTimesheetPost,
@@ -82,7 +85,7 @@ export async function POST(req: NextRequest) {
                 async getTimeLog(timeLogId, organizationId, clientId) {
                     let query = admin
                         .from('time_logs')
-                        .select('id, organization_id, client_id, user_id, task_id, date, hours, description, status, basecamp_entry_id, basecamp_project_id, basecamp_recording_id, basecamp_sync_error')
+                        .select('id, organization_id, client_id, user_id, task_id, date, hours, description, status, basecamp_entry_id, basecamp_project_id, basecamp_recording_id, basecamp_sync_error, source, import_fingerprint')
                         .eq('id', timeLogId)
                         .eq('organization_id', organizationId);
                     query = clientId ? query.eq('client_id', clientId) : query.is('client_id', null);
@@ -145,6 +148,8 @@ export async function POST(req: NextRequest) {
                         status: log.status,
                         basecampEntryId: log.basecamp_entry_id,
                         basecampSyncError: log.basecamp_sync_error ?? null,
+                        source: log.source ?? null,
+                        importFingerprint: log.import_fingerprint ?? null,
                         basecampRecordingId: log.basecamp_recording_id,
                         selectedBasecampProjectId: log.basecamp_project_id,
                         configuredProjectId: (
@@ -240,6 +245,18 @@ export async function POST(req: NextRequest) {
                 }
             } else if (body.createIfMissing !== true) {
                 return NextResponse.json({ skipped: true, reason: 'not synced yet' });
+            }
+
+            // Past this point we CREATE. Work that came from Basecamp already
+            // exists there, and an import that never learned the provider's
+            // entry id cannot be told apart from unsynced work by
+            // basecampEntryId alone — so creating would silently double the
+            // client's hours.
+            const refusal = refuseProviderCreate(log);
+            if (refusal) {
+                return NextResponse.json(
+                    { skipped: true, reason: PROVIDER_CREATE_REFUSAL_MESSAGE[refusal] },
+                );
             }
 
             const recordingId = Number(context.recordingId);

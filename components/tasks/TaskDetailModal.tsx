@@ -11,7 +11,8 @@ import {
 } from '@/lib/supabase/time-logs';
 import { cn } from '@/lib/utils';
 import { Task, TaskComment, TaskStatus, TaskPriority, TaskCategory, TimerAttempt } from '@/lib/types';
-import { getTask, updateTask, createTask, deleteTask, getTaskComments, createTaskComment } from '@/lib/supabase/tasks';
+import { getTask, updateTask, createTask, deleteTask, getTaskComments, createTaskComment, getClientBasecampConfig } from '@/lib/supabase/tasks';
+import { PUSH_OUTCOME_MESSAGE, pushOutcomeFor, type PushOutcome } from '@/lib/timesheets/push-outcome';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useTimer } from '@/components/providers/timer-provider';
@@ -160,6 +161,11 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     // Whether this client syncs timesheets. Needed as state, not on demand,
     // because the log rows have to say when time never reached Basecamp.
     const [basecampAvailable, setBasecampAvailable] = useState(false);
+    // Whether this client takes Basecamp to-dos at all, so a task that never
+    // reached Basecamp can be sent without leaving this screen.
+    const [basecampTodoTarget, setBasecampTodoTarget] = useState<{ projectId: string } | null>(null);
+    const [pushingTodo, setPushingTodo] = useState(false);
+    const [todoPushOutcome, setTodoPushOutcome] = useState<PushOutcome | null>(null);
     const [subtasks, setSubtasks] = useState<Task[]>([]);
     const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
     const [addingSubtask, setAddingSubtask] = useState(false);
@@ -246,6 +252,42 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         });
         return () => { cancelled = true; };
     }, [task?.clientId]);
+
+    useEffect(() => {
+        if (!task?.clientId) { setBasecampTodoTarget(null); return; }
+        let cancelled = false;
+        void getClientBasecampConfig(task.clientId).then(config => {
+            if (!cancelled) setBasecampTodoTarget(config);
+        });
+        return () => { cancelled = true; };
+    }, [task?.clientId]);
+
+    /**
+     * Send a task to Basecamp that never made it.
+     *
+     * The push only ever ran once, at creation time on the timesheet import
+     * screen, and a failure there left the task stranded — created here, absent
+     * in Basecamp, with no route back short of making the to-do by hand.
+     */
+    const handlePushTodo = useCallback(async () => {
+        if (!task || pushingTodo) return;
+        setPushingTodo(true);
+        setTodoPushOutcome(null);
+        try {
+            const res = await fetch('/api/integrations/basecamp/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'create_todo', taskId: task.id }),
+            });
+            const body = await res.json().catch(() => null);
+            setTodoPushOutcome(pushOutcomeFor(res.status, body));
+        } catch {
+            setTodoPushOutcome(pushOutcomeFor(null, null));
+        } finally {
+            setPushingTodo(false);
+            await loadTaskData();
+        }
+    }, [task, pushingTodo, loadTaskData]);
 
     const handleRetryBasecamp = useCallback(async (log: TimerAttempt) => {
         setRetryingLogId(log.id);
@@ -784,6 +826,35 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                 </div>
                             </div>
                         </div>
+
+                        {/*
+                          Only when this client takes Basecamp to-dos and this
+                          task has none. A task that already synced says nothing.
+                        */}
+                        {basecampTodoTarget && !task.basecampTodoId && (
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                                    <RefreshCw className="h-3 w-3" /> Basecamp
+                                </label>
+                                <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/20 px-3 py-2">
+                                    <span className="text-[11px] text-muted-foreground">Not in Basecamp</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => void handlePushTodo()}
+                                        disabled={pushingTodo}
+                                        className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-50"
+                                    >
+                                        <RefreshCw className={cn('h-3 w-3', pushingTodo && 'animate-spin')} />
+                                        {pushingTodo ? 'Sending' : 'Send to Basecamp'}
+                                    </button>
+                                </div>
+                                {todoPushOutcome && todoPushOutcome !== 'pushed' && (
+                                    <p className="text-[11px] leading-relaxed text-destructive">
+                                        {PUSH_OUTCOME_MESSAGE[todoPushOutcome]}
+                                    </p>
+                                )}
+                            </div>
+                        )}
 
                         {/* Time Log */}
                         <div className="space-y-2">

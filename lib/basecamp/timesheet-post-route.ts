@@ -40,6 +40,10 @@ export interface CanonicalTimeLog {
     taskTitle?: string | null;
     personId: number | null;
     basecampSyncError?: string | null;
+    /** 'seo_pm', or the provider this work was imported from. */
+    source?: string | null;
+    /** Written by every import path, including those that learn no entry id. */
+    importFingerprint?: string | null;
     clientCustomFields?: Record<string, unknown>;
 }
 
