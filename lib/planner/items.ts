@@ -112,6 +112,11 @@ export function taskBlockMinutes(t: Task): number {
     return TASK_DEFAULT_MINUTES;
 }
 
+/** Remove a task's forecast while preserving the task itself and its deadline. */
+export function unscheduleTask(task: Task): Task {
+    return { ...task, startDate: undefined, scheduledMinutes: undefined };
+}
+
 /**
  * A task lands on the grid only when it has a startDate. Tasks without one are
  * the Backlog.

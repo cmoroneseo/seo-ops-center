@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 import {
     X, Trash2, MapPin, Users, Building2, Clock, Check, AlertCircle, ExternalLink,
     Pause, Play, Square,
+    CalendarMinus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PlannerEvent, Task, TimeLog, TimerAttempt } from '@/lib/types';
@@ -49,12 +50,13 @@ interface EventDetailPanelProps {
     restoreFocusRef?: RefObject<HTMLElement | null>;
     onTimerAction?: (action: PlannerTimerAction, item: PlannerItem) => void;
     canControlTimer?: boolean;
+    onUnscheduleTask?: (taskId: string) => Promise<boolean>;
 }
 
 export function EventDetailPanel({
     item, members, organizationId, userId, recentProjects = [], onProjectUsed,
     onClose, onChanged, onDeleted, restoreFocusRef, onTimerAction,
-    canControlTimer = false,
+    canControlTimer = false, onUnscheduleTask,
 }: EventDetailPanelProps) {
     const dialogRef = useRef<HTMLElement>(null);
     const surface = usePlannerSurfaceBehavior('detail');
@@ -94,6 +96,8 @@ export function EventDetailPanel({
     const [showCompletion, setShowCompletion] = useState(false);
     const [isCompleting, setIsCompleting] = useState(false);
     const [completionError, setCompletionError] = useState<string | null>(null);
+    const [isUnscheduling, setIsUnscheduling] = useState(false);
+    const [unscheduleError, setUnscheduleError] = useState<string | null>(null);
     const completionOperationId = useRef<string | null>(null);
 
     useEffect(() => {
@@ -285,6 +289,16 @@ export function EventDetailPanel({
         }
         const result = await updateTask(task.id, { status, updatedBy: userId });
         if (result.success) onChanged();
+    };
+
+    const unschedule = async () => {
+        if (!task || !onUnscheduleTask || isUnscheduling) return;
+        setIsUnscheduling(true);
+        setUnscheduleError(null);
+        const success = await onUnscheduleTask(task.id);
+        setIsUnscheduling(false);
+        if (success) onChanged();
+        else setUnscheduleError('Could not remove this task from the calendar. Try again.');
     };
 
     const completeTask = async (additionalMinutes: number) => {
@@ -763,6 +777,23 @@ export function EventDetailPanel({
                     ) : (
                         <p className="text-xs text-muted-foreground">This is a reminder.</p>
                     )
+                )}
+
+                {task?.startDate && onUnscheduleTask && (
+                    <div className="space-y-1.5">
+                        <button
+                            type="button"
+                            onClick={() => void unschedule()}
+                            disabled={isUnscheduling}
+                            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
+                        >
+                            <CalendarMinus className="h-3.5 w-3.5" />
+                            {isUnscheduling ? 'Removing…' : 'Remove from calendar'}
+                        </button>
+                        {unscheduleError && (
+                            <p className="text-[11px] text-destructive" role="alert">{unscheduleError}</p>
+                        )}
+                    </div>
                 )}
             </div>
 

@@ -13,17 +13,27 @@ interface TaskDrawerProps {
     onTaskClick?: (task: Task) => void;
     /** Fires on pointerdown so the grid can pick the task up. */
     onTaskDragStart?: (task: Task, e: React.PointerEvent) => void;
+    taskDropTarget?: 'backlog';
+    dropTargetActive?: boolean;
 }
 
 export function TaskDrawer({
     title, tasks, defaultOpen = false, emptyLabel = 'No tasks match these filters',
-    onTaskClick, onTaskDragStart,
+    onTaskClick, onTaskDragStart, taskDropTarget, dropTargetActive = false,
 }: TaskDrawerProps) {
     const [open, setOpen] = useState(defaultOpen);
     const contentId = useId();
 
     return (
-        <div className="border-b border-border/60 py-2">
+        <div
+            role={taskDropTarget ? 'group' : undefined}
+            data-planner-task-drop-target={taskDropTarget}
+            aria-label={taskDropTarget ? 'Drop task to move to Backlog' : undefined}
+            className={cn(
+                'border-b border-border/60 py-2 transition-colors',
+                dropTargetActive && 'bg-primary/10 ring-2 ring-inset ring-primary',
+            )}
+        >
             <button
                 type="button"
                 onClick={() => setOpen(o => !o)}
@@ -32,7 +42,7 @@ export function TaskDrawer({
                 className="flex min-h-11 w-full items-center gap-1 rounded px-3 py-1 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
             >
                 <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-90')} />
-                {title}
+                {dropTargetActive && taskDropTarget ? 'Drop to move to Backlog' : title}
                 {tasks.length > 0 && (
                     <span className="ml-auto text-xs text-muted-foreground">{tasks.length}</span>
                 )}

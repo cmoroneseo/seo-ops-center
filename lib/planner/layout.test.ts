@@ -18,6 +18,7 @@ import {
     staggerBounds,
     isWorkMinute,
     plannerItemLayoutInterval,
+    plannerTaskDropTarget,
 } from './layout.ts';
 
 // --- pixel <-> minute conversion -------------------------------------------
@@ -358,4 +359,10 @@ test('shouldCommitSchedule requires a preview and a drop inside the grid', () =>
         rect: RECT,
         height: 728,
     }), false);
+});
+
+test('planner task drops recognize only the explicit backlog and priorities targets', () => {
+    assert.equal(plannerTaskDropTarget([null, 'backlog', null]), 'backlog');
+    assert.equal(plannerTaskDropTarget(['priorities', 'backlog']), 'priorities');
+    assert.equal(plannerTaskDropTarget([null, 'calendar', '']), null);
 });

@@ -15,18 +15,22 @@ import {
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import {
     listPlannerPriorities, createPlannerPriority,
-    reorderPlannerPriorities, deletePlannerPriority,
+    reorderPlannerPriorities, deletePlannerPriority, unschedulePlannerTask,
 } from '@/lib/supabase/planner-priorities';
 import { listPlannerEvents, updatePlannerEvent } from '@/lib/supabase/planner-events';
 import { getTasks, updateTask } from '@/lib/supabase/tasks';
 import { DragCommit } from '@/lib/planner/use-planner-drag';
 import { durationMinutes } from '@/lib/planner/layout';
+import type { PlannerTaskDropTarget } from '@/lib/planner/layout';
 import { listReminders } from '@/lib/supabase/personal-reminders';
 import { getTimerAttemptsForRange } from '@/lib/supabase/time-logs';
 import {
     PlannerItem, eventToItem, taskToItem, reminderToItem, overdueTaskToItem, taskBlockMinutes,
     taskToDetailItem,
+    unscheduleTask,
 } from '@/lib/planner/items';
+import { planTaskDrop } from '@/lib/planner/priority-updates';
+import { createLatestRequestGate } from '@/lib/planner/latest-request';
 import {
     actualAttemptToItems, resolvePlannerSelection, shouldRenderForecast,
     type PlannerTimerAction,
@@ -57,6 +61,8 @@ export default function PlannerPage() {
         runningTimer, pausedTimers, startTask, pause, resume, beginStop, getAttemptById,
     } = useTimer();
     const plannerSurfaceRef = useRef<HTMLDivElement>(null);
+    const workRequestGateRef = useRef(createLatestRequestGate());
+    const priorityRequestGateRef = useRef(createLatestRequestGate());
 
     const [anchorDate, setAnchorDate] = useState<Date>(() => new Date());
     const [view, setView] = useState<PlannerView>('week');
@@ -87,6 +93,7 @@ export default function PlannerPage() {
     const [members, setMembers] = useState<TeamMember[]>([]);
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
     const [dragHandles, setDragHandles] = useState<PlannerDragHandles | null>(null);
+    const [activeTaskDropTarget, setActiveTaskDropTarget] = useState<PlannerTaskDropTarget | null>(null);
     const [selected, setSelected] = useState<PlannerItem | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [announcement, setAnnouncement] = useState('');
@@ -149,11 +156,13 @@ export default function PlannerPage() {
 
     const loadWork = useCallback(async () => {
         if (!organization?.id || !userId) return;
+        const mayApply = workRequestGateRef.current.start();
         const [t, r, a] = await Promise.all([
             getTasks(organization.id, {}),
             listReminders({ organizationId: organization.id, userId }),
             getTimerAttemptsForRange(organization.id, range.start, range.end),
         ]);
+        if (!mayApply()) return;
         setTasks(t);
         setReminders(r);
         setAttempts(a);
@@ -198,7 +207,9 @@ export default function PlannerPage() {
 
     const loadPriorities = useCallback(async () => {
         if (!organization?.id || !userId) return;
-        setPriorities(await listPlannerPriorities({ organizationId: organization.id, userId }));
+        const mayApply = priorityRequestGateRef.current.start();
+        const loaded = await listPlannerPriorities({ organizationId: organization.id, userId });
+        if (mayApply()) setPriorities(loaded);
     }, [organization?.id, userId]);
 
     // Priorities and the teammate roster do not depend on the visible range.
@@ -324,17 +335,49 @@ export default function PlannerPage() {
         }
     }, [loadEvents, loadWork]);
 
-    const handleUnschedule = useCallback(async (itemId: string) => {
-        const rawId = itemId.split(':')[1];
-        if (!rawId) return;
-        setTasks(prev => prev.map(t =>
-            t.id === rawId ? { ...t, startDate: undefined, scheduledMinutes: undefined } : t));
-        const res = await updateTask(rawId, { startDate: null, scheduledMinutes: null });
-        if (!res.success) {
-            setError("Couldn't move that back to the backlog.");
-            void loadWork();
+    const handleUnschedule = useCallback(async (
+        itemId: string,
+        target: PlannerTaskDropTarget = 'backlog',
+    ): Promise<boolean> => {
+        const rawId = itemId.includes(':') ? itemId.split(':')[1] : itemId;
+        const existing = tasks.find(task => task.id === rawId);
+        if (!rawId || !existing) return false;
+        const plan = planTaskDrop(target, rawId, priorities);
+        const optimisticPriorityId = `optimistic:${rawId}`;
+
+        setTasks(prev => prev.map(task => task.id === rawId ? unscheduleTask(task) : task));
+        if (plan.addPriority && organization?.id && userId) {
+            setPriorities(prev => [...prev, {
+                id: optimisticPriorityId,
+                organizationId: organization.id,
+                userId,
+                taskId: rawId,
+                sortOrder: prev.length,
+                createdAt: new Date().toISOString(),
+            }]);
         }
-    }, [loadWork]);
+
+        const succeeded = await unschedulePlannerTask({
+            taskId: rawId,
+            // The database independently prevents duplicates, even if this
+            // browser's priority list is stale.
+            addToPriorities: target === 'priorities',
+        });
+        if (!succeeded) {
+            setError("Couldn't remove that task from the calendar — it's been restored.");
+            setTasks(prev => prev.map(task => task.id === rawId ? existing : task));
+            setPriorities(prev => prev.filter(priority => priority.id !== optimisticPriorityId));
+            await Promise.all([loadWork(), loadPriorities()]);
+            return false;
+        }
+
+        // Replace optimistic state with the authoritative transaction result.
+        await Promise.all([loadWork(), loadPriorities()]);
+        setAnnouncement(target === 'priorities'
+            ? `${existing.title} moved from the calendar to Priorities.`
+            : `${existing.title} moved from the calendar to Backlog.`);
+        return true;
+    }, [loadPriorities, loadWork, organization?.id, priorities, tasks, userId]);
 
     const handleCreate = useCallback((dayIndex: number, startMin: number, endMin: number) => {
         const day = days[dayIndex];
@@ -504,6 +547,7 @@ export default function PlannerPage() {
                 onReorderPriorities={handleReorderPriorities}
                 onTaskClick={handleTaskClick}
                 onTaskDragStart={handleTaskDragStart}
+                activeTaskDropTarget={activeTaskDropTarget}
             />
 
             <div
@@ -554,6 +598,7 @@ export default function PlannerPage() {
                         onCommit={handleCommit}
                         onCreate={handleCreate}
                         onUnschedule={handleUnschedule}
+                        onDropTargetChange={setActiveTaskDropTarget}
                         pendingBlock={quickCreate && {
                             startsAt: quickCreate.startsAt,
                             endsAt: quickCreate.endsAt,
@@ -584,6 +629,7 @@ export default function PlannerPage() {
                     restoreFocusRef={plannerSurfaceRef}
                     onTimerAction={handleTimerAction}
                     canControlTimer={canControlTimer(selectedItem)}
+                    onUnscheduleTask={taskId => handleUnschedule(taskId, 'backlog')}
                 />
             )}
 

@@ -167,6 +167,18 @@ export function isOutsideGrid(params: {
     );
 }
 
+export type PlannerTaskDropTarget = 'backlog' | 'priorities';
+
+/** Resolve the first explicit planner task drop target under the pointer. */
+export function plannerTaskDropTarget(
+    attributes: readonly (string | null)[],
+): PlannerTaskDropTarget | null {
+    for (const value of attributes) {
+        if (value === 'backlog' || value === 'priorities') return value;
+    }
+    return null;
+}
+
 /**
  * Resolve a drawer task only after the pointer has moved deliberately and is
  * actually over the planner grid. Sidebar jitter must remain an ordinary click.

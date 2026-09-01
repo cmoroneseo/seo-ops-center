@@ -1,6 +1,10 @@
 import { createClient } from './client';
 import { PlannerPriority } from '../types';
-import { priorityUpdatesSucceeded } from '../planner/priority-updates';
+import {
+    comparePlannerPriorityOrder,
+    plannerTaskDropRpcSucceeded,
+    priorityUpdatesSucceeded,
+} from '../planner/priority-updates';
 
 export function rowToPlannerPriority(row: any): PlannerPriority {
     return {
@@ -26,9 +30,13 @@ export async function listPlannerPriorities(params: {
             .select('*')
             .eq('organization_id', params.organizationId)
             .eq('user_id', params.userId)
-            .order('sort_order', { ascending: true });
+            .order('sort_order', { ascending: true })
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true });
         if (error) throw error;
-        return (data ?? []).map(rowToPlannerPriority);
+        return (data ?? [])
+            .map(rowToPlannerPriority)
+            .sort(comparePlannerPriorityOrder);
     } catch (err) {
         console.error('[planner-priorities] list error:', err);
         return [];
@@ -61,6 +69,32 @@ export async function createPlannerPriority(params: {
     } catch (err) {
         console.error('[planner-priorities] create error:', err);
         return null;
+    }
+}
+
+/**
+ * Remove a task's calendar block and optionally pin it to Priorities in one
+ * database transaction. The RPC is idempotent for repeated priority drops.
+ */
+export async function unschedulePlannerTask(params: {
+    taskId: string;
+    addToPriorities: boolean;
+}): Promise<boolean> {
+    const supabase = createClient();
+    if (!supabase) return false;
+    try {
+        const result = await supabase.rpc('unschedule_planner_task', {
+            p_task_id: params.taskId,
+            p_add_to_priorities: params.addToPriorities,
+        });
+        if (!plannerTaskDropRpcSucceeded(result)) {
+            console.error('[planner-priorities] unschedule task error:', result.error);
+            return false;
+        }
+        return true;
+    } catch (err) {
+        console.error('[planner-priorities] unschedule task error:', err);
+        return false;
     }
 }
 

@@ -16,6 +16,7 @@ import { AllDayRow } from './AllDayRow';
 import { usePlannerDrag, DragCommit } from '@/lib/planner/use-planner-drag';
 import { plannerGridAccessibility, weekGridMinWidth } from '@/lib/planner/responsive';
 import type { PlannerTimerAction } from '@/lib/planner/actual-items';
+import type { PlannerTaskDropTarget } from '@/lib/planner/layout';
 
 export interface PlannerDragHandles {
     beginSchedule: (taskId: string, title: string, durationMin: number, e: React.PointerEvent) => void;
@@ -35,7 +36,8 @@ interface WeekGridProps {
     canControlTimer?: (item: PlannerItem) => boolean;
     onCommit?: (commit: DragCommit) => void | Promise<void>;
     onCreate?: (dayIndex: number, startMin: number, endMin: number) => void;
-    onUnschedule?: (itemId: string) => void | Promise<void>;
+    onUnschedule?: (itemId: string, target: PlannerTaskDropTarget) => void | Promise<unknown>;
+    onDropTargetChange?: (target: PlannerTaskDropTarget | null) => void;
     /**
      * A block that has been drawn but not saved yet — it stays on the grid,
      * filled, while the quick-create popover collects the details.
@@ -66,6 +68,7 @@ export function WeekGrid({
     onCommit,
     onCreate,
     onUnschedule,
+    onDropTargetChange,
     pendingBlock,
     onDragHandlesReady,
 }: WeekGridProps) {
@@ -85,6 +88,7 @@ export function WeekGrid({
         onCommit: onCommit ?? (() => {}),
         onCreate,
         onUnschedule,
+        onDropTargetChange,
     });
 
     // pointerup after a drag is followed by a click; opening the detail panel

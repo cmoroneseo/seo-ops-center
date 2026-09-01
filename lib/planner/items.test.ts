@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     parseTaskStart, taskToItem, taskBlockMinutes, overdueTaskToItem, TASK_DEFAULT_MINUTES,
     plannerSourceLabel, plannerTimeLabel, taskToDetailItem, eventToItem, reminderToItem,
+    unscheduleTask,
 } from './items.ts';
 import type { PlannerEvent, Reminder, Task, TimerAttempt } from '../types';
 import type { PlannerItem } from './items.ts';
@@ -222,6 +223,24 @@ test('taskToDetailItem keeps an unscheduled task canonical and readable', () => 
     assert.equal(item.id, 'task:unscheduled-1');
     assert.equal(item.title, 'Audit redirects');
     assert.equal(item.raw, task);
+});
+
+test('unscheduling clears only the calendar fields from a task', () => {
+    const task = makeTask({
+        id: 'task-7',
+        startDate: '2026-09-01T16:45:00.000Z',
+        scheduledMinutes: 225,
+        dueDate: '2026-08-24',
+        status: 'in_progress',
+        assigneeIds: ['user-1'],
+        estimatedHours: 6,
+    });
+
+    assert.deepEqual(unscheduleTask(task), {
+        ...task,
+        startDate: undefined,
+        scheduledMinutes: undefined,
+    });
 });
 
 test('taskToDetailItem preserves overdue source semantics for drawer selection', () => {

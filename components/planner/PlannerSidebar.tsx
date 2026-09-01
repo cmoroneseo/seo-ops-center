@@ -4,6 +4,7 @@ import { Task, PlannerPriority } from '@/lib/types';
 import { PrioritiesList } from './PrioritiesList';
 import { MeetWithFilter, TeamMember } from './MeetWithFilter';
 import { TaskDrawer } from './TaskDrawer';
+import type { PlannerTaskDropTarget } from '@/lib/planner/layout';
 
 interface PlannerSidebarProps {
     priorities: PlannerPriority[];
@@ -19,6 +20,7 @@ interface PlannerSidebarProps {
     onReorderPriorities: (orderedIds: string[]) => void;
     onTaskClick: (task: Task) => void;
     onTaskDragStart: (task: Task, e: React.PointerEvent) => void;
+    activeTaskDropTarget: PlannerTaskDropTarget | null;
 }
 
 export function PlannerSidebar(props: PlannerSidebarProps) {
@@ -32,6 +34,7 @@ export function PlannerSidebar(props: PlannerSidebarProps) {
                 onAdd={props.onAddPriority}
                 onRemove={props.onRemovePriority}
                 onReorder={props.onReorderPriorities}
+                dropTargetActive={props.activeTaskDropTarget === 'priorities'}
             />
 
             <MeetWithFilter
@@ -56,6 +59,8 @@ export function PlannerSidebar(props: PlannerSidebarProps) {
                 title="Backlog"
                 tasks={props.backlog}
                 defaultOpen
+                taskDropTarget="backlog"
+                dropTargetActive={props.activeTaskDropTarget === 'backlog'}
                 onTaskClick={props.onTaskClick}
                 onTaskDragStart={props.onTaskDragStart}
             />

@@ -11,6 +11,8 @@ import {
     resolveSchedulePointer,
     shouldCommitSchedule,
     isOutsideGrid,
+    plannerTaskDropTarget,
+    type PlannerTaskDropTarget,
     MIN_EVENT_MINUTES,
 } from './layout';
 
@@ -53,8 +55,9 @@ interface Options {
     startHour: number;
     onCommit: (commit: DragCommit) => void | Promise<void>;
     onCreate?: (dayIndex: number, startMin: number, endMin: number) => void;
-    /** A scheduled task dragged off the grid goes back to the backlog. */
-    onUnschedule?: (itemId: string) => void | Promise<void>;
+    /** A scheduled task dropped on an explicit rail target leaves the grid. */
+    onUnschedule?: (itemId: string, target: PlannerTaskDropTarget) => void | Promise<unknown>;
+    onDropTargetChange?: (target: PlannerTaskDropTarget | null) => void;
 }
 
 /** Combine a calendar day with a minute offset into an ISO timestamp. */
@@ -70,7 +73,9 @@ function toIso(day: Date, minutes: number): string {
  * hook so they share one snapping rule and one pixel->time conversion. Pointer
  * capture keeps the drag alive when the cursor leaves the card.
  */
-export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedule }: Options) {
+export function usePlannerDrag({
+    days, startHour, onCommit, onCreate, onUnschedule, onDropTargetChange,
+}: Options) {
     const gridRef = useRef<HTMLDivElement | null>(null);
     const stateRef = useRef<DragState>({ mode: 'idle' });
     // The ref is the source of truth for where the drag currently is; the state
@@ -85,6 +90,21 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedu
     // A real mouse drag ends with pointerup AND a click. Without this flag the
     // detail panel would open every time a card is dropped.
     const draggedRef = useRef(false);
+    const dropTargetRef = useRef<PlannerTaskDropTarget | null>(null);
+
+    const setDropTarget = useCallback((target: PlannerTaskDropTarget | null) => {
+        if (dropTargetRef.current === target) return;
+        dropTargetRef.current = target;
+        onDropTargetChange?.(target);
+    }, [onDropTargetChange]);
+
+    const dropTargetAt = useCallback((e: PointerEvent) => {
+        if (typeof document === 'undefined') return null;
+        return plannerTaskDropTarget(
+            document.elementsFromPoint(e.clientX, e.clientY)
+                .map(element => element.getAttribute('data-planner-task-drop-target')),
+        );
+    }, []);
 
     /** Pointer position -> { dayIndex, minutes } in grid space. Math lives in layout.ts. */
     const resolve = useCallback((e: PointerEvent | React.PointerEvent) => {
@@ -151,6 +171,7 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedu
         // Reset before the draggable check: every card press starts here, so this
         // is what keeps a stale flag from swallowing an unrelated later click.
         draggedRef.current = false;
+        setDropTarget(null);
         if (!item.draggable) return;
         const at = resolve(e);
         if (!at) return;
@@ -162,7 +183,7 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedu
             durationMin: Math.max(MIN_EVENT_MINUTES, durationMinutes(item.startsAt, item.endsAt)),
         };
         (e.target as Element).setPointerCapture?.(e.pointerId);
-    }, [resolve]);
+    }, [resolve, setDropTarget]);
 
     const beginResize = useCallback((item: PlannerItem, edge: 'top' | 'bottom', e: React.PointerEvent) => {
         draggedRef.current = false;
@@ -206,6 +227,11 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedu
         const handleMove = (e: PointerEvent) => {
             const state = stateRef.current;
             if (state.mode === 'idle') return;
+            setDropTarget(
+                state.mode === 'move' && state.item.source === 'task'
+                    ? dropTargetAt(e)
+                    : null,
+            );
             const at = state.mode === 'schedule' ? resolveSchedule(e, state) : resolve(e);
             if (!at) return;
             draggedRef.current = true;
@@ -262,18 +288,19 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedu
         const handleUp = (e: PointerEvent) => {
             const state = stateRef.current;
             const current = previewRef.current;
+            const dropTarget = dropTargetRef.current;
             stateRef.current = { mode: 'idle' };
             setPreview(null);
+            setDropTarget(null);
             if (state.mode === 'idle') return;
             if (state.mode === 'schedule' && !canCommitSchedule(e, Boolean(current))) return;
-            if (!current) return;
 
-            // Dropping a scheduled task off the grid sends it back to the backlog.
-            // Events have no backlog to return to, so they just stay put.
-            if (state.mode === 'move' && state.item.source === 'task' && droppedOutside(e)) {
-                void onUnschedule?.(state.item.id);
+            if (state.mode === 'move' && state.item.source === 'task' && dropTarget) {
+                void onUnschedule?.(state.item.id, dropTarget);
                 return;
             }
+
+            if (!current || droppedOutside(e)) return;
 
             const day = days[current.dayIndex];
             if (!day) return;
@@ -308,6 +335,7 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedu
             stateRef.current = { mode: 'idle' };
             draggedRef.current = false;
             setPreview(null);
+            setDropTarget(null);
         };
 
         const handleKey = (e: KeyboardEvent) => {
@@ -323,10 +351,11 @@ export function usePlannerDrag({ days, startHour, onCommit, onCreate, onUnschedu
             window.removeEventListener('pointerup', handleUp);
             window.removeEventListener('pointercancel', abort);
             window.removeEventListener('keydown', handleKey);
+            setDropTarget(null);
         };
     }, [
-        days, resolve, resolveSchedule, canCommitSchedule, droppedOutside,
-        onCommit, onCreate, onUnschedule, setPreview,
+        days, resolve, resolveSchedule, canCommitSchedule, droppedOutside, dropTargetAt,
+        onCommit, onCreate, onUnschedule, setDropTarget, setPreview,
     ]);
 
     /**

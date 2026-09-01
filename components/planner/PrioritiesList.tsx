@@ -12,9 +12,12 @@ interface PrioritiesListProps {
     onAdd: (label: string) => void;
     onRemove: (id: string) => void;
     onReorder: (orderedIds: string[]) => void;
+    dropTargetActive?: boolean;
 }
 
-export function PrioritiesList({ priorities, tasks, onAdd, onRemove, onReorder }: PrioritiesListProps) {
+export function PrioritiesList({
+    priorities, tasks, onAdd, onRemove, onReorder, dropTargetActive = false,
+}: PrioritiesListProps) {
     const [adding, setAdding] = useState(false);
     const [draft, setDraft] = useState('');
     const [dragId, setDragId] = useState<string | null>(null);
@@ -45,8 +48,18 @@ export function PrioritiesList({ priorities, tasks, onAdd, onRemove, onReorder }
     };
 
     return (
-        <div className="border-b border-border/60 px-3 py-3">
-            <div className="mb-2 text-sm font-medium">Priorities</div>
+        <div
+            role="group"
+            data-planner-task-drop-target="priorities"
+            aria-label="Drop task to add to priorities"
+            className={cn(
+                'border-b border-border/60 px-3 py-3 transition-colors',
+                dropTargetActive && 'bg-primary/10 ring-2 ring-inset ring-primary',
+            )}
+        >
+            <div className="mb-2 text-sm font-medium">
+                {dropTargetActive ? 'Drop to prioritize' : 'Priorities'}
+            </div>
 
             <div className="space-y-1">
                 {priorities.map((p, i) => (
