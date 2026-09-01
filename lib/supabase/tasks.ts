@@ -106,6 +106,9 @@ type TaskInsert = {
     title: string;
     description?: string;
     assigneeIds?: string[];
+    watcherIds?: string[];
+    /** Child task titles created with the parent from the task configuration modal. */
+    subtaskTitles?: string[];
     dueDate?: string;
     startDate?: string;
     priority?: TaskPriority;
@@ -137,6 +140,7 @@ function taskToRow(t: Partial<TaskInsert>) {
         title: t.title,
         description: t.description,
         assignee_ids: t.assigneeIds ?? [],
+        watcher_ids: t.watcherIds ?? [],
         due_date: t.dueDate,
         start_date: t.startDate,
         priority: t.priority ?? 'medium',
@@ -273,6 +277,30 @@ export async function createTask(
         const { data, error } = await supabase.from('tasks').insert([row]).select('*, clients(name)').single();
         if (error) throw error;
         const task = rowToTask(data);
+
+        const subtaskTitles = (t.subtaskTitles ?? []).map(title => title.trim()).filter(Boolean);
+        if (subtaskTitles.length > 0) {
+            const now = new Date().toISOString();
+            const { error: subtaskError } = await supabase.from('tasks').insert(
+                subtaskTitles.map((title, index) => ({
+                    organization_id: t.organizationId,
+                    project_id: t.projectId,
+                    client_id: t.clientId,
+                    title,
+                    description: null,
+                    assignee_ids: [],
+                    watcher_ids: [],
+                    priority: t.priority ?? 'medium',
+                    status: 'todo',
+                    tags: [],
+                    parent_task_id: task.id,
+                    sort_order: index,
+                    created_by: t.createdBy,
+                    status_history: [{ status: 'todo', at: now, by: t.createdBy }],
+                })),
+            );
+            if (subtaskError) throw subtaskError;
+        }
 
         // Notify each assignee that they've been assigned this task
         if (t.assigneeIds && t.assigneeIds.length > 0) {
@@ -881,8 +909,11 @@ export async function createTaskFromTemplate(
             projectId: overrides.projectId,
             createdBy: overrides.createdBy,
             assigneeIds: overrides.assigneeIds,
+            watcherIds: overrides.watcherIds,
+            subtaskTitles: overrides.subtaskTitles,
             syncToBasecamp: overrides.syncToBasecamp,
             basecampTodolistId: overrides.basecampTodolistId,
+            actorName: overrides.actorName,
         });
     } catch (err: any) {
         console.error('Error creating task from template:', err);

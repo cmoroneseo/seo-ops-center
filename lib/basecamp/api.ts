@@ -140,6 +140,26 @@ export interface BasecampTodoFull {
     app_url: string;
 }
 
+export interface BasecampTodoCreateParams {
+    content: string;
+    dueOn?: string;
+    description?: string;
+    assigneePersonIds?: number[];
+    completionSubscriberPersonIds?: number[];
+}
+
+/** Map SEO PM's camelCase task data to Basecamp's documented create fields. */
+export function basecampTodoCreateBody(params: BasecampTodoCreateParams): Record<string, unknown> {
+    const body: Record<string, unknown> = { content: params.content };
+    if (params.dueOn) body.due_on = params.dueOn;
+    if (params.description) body.description = params.description;
+    if (params.assigneePersonIds?.length) body.assignee_ids = params.assigneePersonIds;
+    if (params.completionSubscriberPersonIds?.length) {
+        body.completion_subscriber_ids = params.completionSubscriberPersonIds;
+    }
+    return body;
+}
+
 /** Check if Basecamp credentials are configured */
 export function isBasecampConfigured(): boolean {
     return !!(process.env.BASECAMP_ACCESS_TOKEN && process.env.BASECAMP_ACCOUNT_ID);
@@ -289,18 +309,10 @@ export async function listBasecampTodos(
 export async function createBasecampTodo(
     projectId: number | string,
     todolistId: number | string,
-    params: {
-        content: string;
-        dueOn?: string;       // YYYY-MM-DD
-        description?: string;
-        assigneePersonIds?: number[];
-    },
+    params: BasecampTodoCreateParams,
 ): Promise<{ id: number; appUrl: string } | null> {
     try {
-        const body: Record<string, unknown> = { content: params.content };
-        if (params.dueOn) body.due_on = params.dueOn;
-        if (params.description) body.description = params.description;
-        if (params.assigneePersonIds?.length) body.assignee_ids = params.assigneePersonIds;
+        const body = basecampTodoCreateBody(params);
 
         const res = await basecampFetch(
             `${BASE_URL()}/buckets/${projectId}/todolists/${todolistId}/todos.json`,
@@ -311,6 +323,27 @@ export async function createBasecampTodo(
         return { id: todo.id, appUrl: todo.app_url };
     } catch (err) {
         console.error('[Basecamp] createTodo error:', err);
+        return null;
+    }
+}
+
+/** Create a Basecamp checklist step under a to-do (the same endpoint Basecamp uses for subtasks). */
+export async function createBasecampTodoStep(
+    projectId: number | string,
+    parentTodoId: number | string,
+    title: string,
+): Promise<{ id: number } | null> {
+    try {
+        const project = safeId(projectId, 'projectId');
+        const parent = safeId(parentTodoId, 'parentTodoId');
+        const res = await basecampFetch(
+            `${BASE_URL()}/buckets/${project}/card_tables/cards/${parent}/steps.json`,
+            { method: 'POST', body: JSON.stringify({ title }) },
+        );
+        if (!res.ok) throw new Error(`Basecamp createTodoStep failed: ${res.status} ${await res.text()}`);
+        return await res.json() as { id: number };
+    } catch (err) {
+        console.error('[Basecamp] createTodoStep error:', err);
         return null;
     }
 }

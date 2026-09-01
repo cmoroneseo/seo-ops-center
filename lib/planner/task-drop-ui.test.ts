@@ -5,8 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { PrioritiesList } from '../../components/planner/PrioritiesList.tsx';
 import { TaskDrawer } from '../../components/planner/TaskDrawer.tsx';
 import { EventDetailPanel } from '../../components/planner/EventDetailPanel.tsx';
-import { taskToDetailItem, taskToItem } from './items.ts';
-import type { Task } from '../types.ts';
+import { eventToItem, taskToDetailItem, taskToItem } from './items.ts';
+import type { PlannerEvent, Task } from '../types.ts';
 
 // These Planner components rely on Next's automatic JSX runtime in the app.
 // The direct tsx test runner preserves JSX, so expose React for server rendering.
@@ -94,4 +94,36 @@ test('an unscheduled task does not offer Remove from calendar', () => {
     } as Parameters<typeof EventDetailPanel>[0]));
 
     assert.doesNotMatch(html, />Remove from calendar</);
+});
+
+test('an event exposes a labelled actions menu for task creation and deletion', () => {
+    const event: PlannerEvent = {
+        id: 'event-2',
+        organizationId: 'org-1',
+        userId: 'user-1',
+        title: 'Client planning block',
+        description: 'Plan the next sprint.',
+        kind: 'event',
+        startsAt: '2026-09-01T17:00:00.000Z',
+        endsAt: '2026-09-01T18:00:00.000Z',
+        allDay: false,
+        attendeeIds: [],
+        busy: true,
+        visibility: 'private',
+        createdAt: '2026-09-01T16:00:00.000Z',
+        updatedAt: '2026-09-01T16:00:00.000Z',
+    };
+    const html = renderToStaticMarkup(createElement(EventDetailPanel, {
+        item: eventToItem(event),
+        members: [],
+        organizationId: 'org-1',
+        userId: 'user-1',
+        onClose: () => undefined,
+        onChanged: () => undefined,
+        onDeleted: () => undefined,
+        onCreateTaskFromEvent: () => undefined,
+    } as Parameters<typeof EventDetailPanel>[0]));
+
+    assert.match(html, /aria-label="Event actions"/);
+    assert.doesNotMatch(html, /mx-4 mb-4 mt-auto/);
 });

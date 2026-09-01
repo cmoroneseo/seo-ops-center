@@ -30,10 +30,18 @@ interface CanonicalTask {
     configuredTodolistId?: string | number | null;
     syncEnabled: boolean;
     assigneePersonIds: number[];
+    completionSubscriberPersonIds: number[];
+}
+
+interface CanonicalSubtask {
+    id: string;
+    title: string;
+    basecampTodoId?: string | number | null;
 }
 
 interface PushStore {
     getTask(taskId: string, organizationId: string, clientId: string): Promise<CanonicalTask | null>;
+    listSubtasks?(taskId: string, organizationId: string, clientId: string): Promise<CanonicalSubtask[]>;
     updateTaskLink(
         taskId: string,
         organizationId: string,
@@ -62,8 +70,14 @@ interface Provider {
             dueOn?: string;
             description?: string;
             assigneePersonIds?: number[];
+            completionSubscriberPersonIds?: number[];
         },
     ): Promise<{ id: string | number; appUrl: string } | null>;
+    createStep?(
+        projectId: string,
+        parentTodoId: string,
+        title: string,
+    ): Promise<{ id: string | number } | null>;
     completeTodo(projectId: string, todoId: string): Promise<boolean>;
     reopenTodo(projectId: string, todoId: string): Promise<boolean>;
     createComment(projectId: string, todoId: string, content: string): Promise<number | null>;
@@ -144,24 +158,76 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                     return json({ error: 'Todolist is not authorized' }, 403);
                 }
 
-                const created = await dependencies.provider.createTodo(projectId, todolistId, {
-                    content: task.title,
-                    dueOn: task.dueDate || undefined,
-                    description: task.description || undefined,
-                    assigneePersonIds: task.assigneePersonIds.length > 0
-                        ? task.assigneePersonIds
-                        : undefined,
-                });
+                const existingTodoId = linkedProjectId === projectId
+                    ? numericId(task.basecampTodoId)
+                    : null;
+                const existingTodo = existingTodoId
+                    ? await dependencies.provider.getTodo(projectId, existingTodoId)
+                    : null;
+                if (existingTodoId && (!existingTodo || String(existingTodo.id) !== existingTodoId)) {
+                    return json({ error: 'Linked Basecamp todo is not authorized' }, 403);
+                }
+
+                const created = existingTodoId
+                    ? { id: existingTodoId, appUrl: '' }
+                    : await dependencies.provider.createTodo(projectId, todolistId, {
+                        content: task.title,
+                        dueOn: task.dueDate || undefined,
+                        description: task.description || undefined,
+                        assigneePersonIds: task.assigneePersonIds.length > 0
+                            ? task.assigneePersonIds
+                            : undefined,
+                        completionSubscriberPersonIds: task.completionSubscriberPersonIds.length > 0
+                            ? task.completionSubscriberPersonIds
+                            : undefined,
+                    });
                 if (created) {
-                    const updateError = await store.updateTaskLink(
+                    // A retry after a partial subtask failure must reuse the linked
+                    // parent rather than duplicate it in Basecamp.
+                    if (!existingTodoId) {
+                        const updateError = await store.updateTaskLink(
+                            task.id,
+                            task.organizationId,
+                            task.clientId,
+                            projectId,
+                            String(created.id),
+                            dependencies.now(),
+                        );
+                        if (updateError) return json({ error: updateError }, 500);
+                    }
+
+                    const subtasks = await store.listSubtasks?.(
                         task.id,
                         task.organizationId,
                         task.clientId,
-                        projectId,
-                        String(created.id),
-                        dependencies.now(),
-                    );
-                    if (updateError) return json({ error: updateError }, 500);
+                    ) ?? [];
+                    if (subtasks.length > 0 && dependencies.provider.createStep) {
+                        for (const subtask of subtasks) {
+                            if (numericId(subtask.basecampTodoId)) continue;
+                            const step = await dependencies.provider.createStep(
+                                projectId,
+                                String(created.id),
+                                subtask.title,
+                            );
+                            if (!step) {
+                                return json({
+                                    success: false,
+                                    partial: true,
+                                    todoId: created.id,
+                                    error: `Basecamp subtask sync failed: ${subtask.title}`,
+                                }, 502);
+                            }
+                            const stepLinkError = await store.updateTaskLink(
+                                subtask.id,
+                                task.organizationId,
+                                task.clientId,
+                                projectId,
+                                String(step.id),
+                                dependencies.now(),
+                            );
+                            if (stepLinkError) return json({ error: stepLinkError }, 500);
+                        }
+                    }
                 }
                 return json({ success: Boolean(created), todoId: created?.id });
             }

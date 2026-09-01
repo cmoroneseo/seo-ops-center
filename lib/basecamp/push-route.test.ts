@@ -44,6 +44,7 @@ const canonicalTask = {
     configuredTodolistId: '44',
     syncEnabled: true,
     assigneePersonIds: [9],
+    completionSubscriberPersonIds: [12],
 };
 
 const externalSource = () => ({
@@ -280,6 +281,99 @@ test('create push uses canonical project and task content after verified list se
             description: 'Canonical description',
             dueOn: '2026-08-31',
             assigneePersonIds: [9],
+            completionSubscriberPersonIds: [12],
         },
     });
+});
+
+test('create push maps canonical SEO PM subtasks to Basecamp steps after creating the parent', async () => {
+    const { createBasecampPushPost } = await loadRouteModule();
+    const task = { ...canonicalTask, basecampTodoId: null, basecampProjectId: null, status: 'todo' };
+    const createdSteps: Array<{ parentId: string; title: string }> = [];
+    const linked: Array<{ taskId: string; recordingId: string }> = [];
+    const post = createBasecampPushPost({
+        authorizeTask: async () => authorized,
+        createStore: () => ({
+            getTask: async () => task,
+            listSubtasks: async () => [
+                { id: 'child-1', title: 'Draft metadata', basecampTodoId: null },
+                { id: 'child-2', title: 'QA the page', basecampTodoId: null },
+            ],
+            updateTaskLink: async (taskId, _organizationId, _clientId, _projectId, recordingId) => {
+                linked.push({ taskId, recordingId });
+                return null;
+            },
+            markTaskSynced: async () => null,
+        }),
+        createAccessSource: () => externalSource(),
+        provider: {
+            isConfigured: () => true,
+            getTodo: async () => null,
+            listTodolists: async () => [{ id: 44 }],
+            createTodo: async () => ({ id: 77, appUrl: 'https://3.basecamp.test/task/77' }),
+            createStep: async (_projectId, parentId, title) => {
+                createdSteps.push({ parentId, title });
+                return { id: 100 + createdSteps.length };
+            },
+            completeTodo: async () => false,
+            reopenTodo: async () => false,
+            createComment: async () => null,
+            updateTodoDueDate: async () => false,
+            updateTodoAssignees: async () => false,
+        },
+        now: () => '2026-08-20T00:00:00.000Z',
+    });
+
+    const response = await post(request({ action: 'create_todo', taskId: 'task-a' }));
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(createdSteps, [
+        { parentId: '77', title: 'Draft metadata' },
+        { parentId: '77', title: 'QA the page' },
+    ]);
+    assert.deepEqual(linked, [
+        { taskId: 'task-a', recordingId: '77' },
+        { taskId: 'child-1', recordingId: '101' },
+        { taskId: 'child-2', recordingId: '102' },
+    ]);
+});
+
+test('retrying a partial create reuses the linked parent and skips already-linked steps', async () => {
+    const { createBasecampPushPost } = await loadRouteModule();
+    const createdSteps: string[] = [];
+    const post = createBasecampPushPost({
+        authorizeTask: async () => authorized,
+        createStore: () => ({
+            getTask: async () => canonicalTask,
+            listSubtasks: async () => [
+                { id: 'child-1', title: 'Already synced', basecampTodoId: '101' },
+                { id: 'child-2', title: 'Retry this step', basecampTodoId: null },
+            ],
+            updateTaskLink: async () => null,
+            markTaskSynced: async () => null,
+        }),
+        createAccessSource: () => externalSource(),
+        provider: {
+            isConfigured: () => true,
+            getTodo: async (_projectId, todoId) => ({ id: todoId }),
+            listTodolists: async () => [{ id: 44 }],
+            createTodo: async () => { throw new Error('must not duplicate the linked parent'); },
+            createStep: async (_projectId, parentId, title) => {
+                assert.equal(parentId, '77');
+                createdSteps.push(title);
+                return { id: 102 };
+            },
+            completeTodo: async () => false,
+            reopenTodo: async () => false,
+            createComment: async () => null,
+            updateTodoDueDate: async () => false,
+            updateTodoAssignees: async () => false,
+        },
+        now: () => '2026-08-20T00:00:00.000Z',
+    });
+
+    const response = await post(request({ action: 'create_todo', taskId: 'task-a' }));
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(createdSteps, ['Retry this step']);
 });

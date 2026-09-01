@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Plus, LayoutTemplate, UserCircle2 } from 'lucide-react';
+import { X, Plus, LayoutTemplate, UserCircle2, Bell, ListChecks, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Task, TaskPriority, TaskStatus, TaskCategory, TaskTemplate } from '@/lib/types';
 import { createTaskFromTemplate, createTask } from '@/lib/supabase/tasks';
@@ -24,6 +24,9 @@ interface CreateTaskModalProps {
     defaultDueDate?: string;
     /** Pre-fill the title (e.g., handed over from the planner's quick-create) */
     defaultTitle?: string;
+    /** Pre-fill notes when creating a task from another work item. */
+    defaultDescription?: string;
+    defaultAssigneeIds?: string[];
     /** Pre-fill the scheduled block when opened from the planner grid */
     defaultStartDate?: string;
     defaultScheduledMinutes?: number;
@@ -58,6 +61,8 @@ export function CreateTaskModal({
     defaultProjectId,
     defaultDueDate,
     defaultTitle,
+    defaultDescription,
+    defaultAssigneeIds,
     defaultStartDate,
     defaultScheduledMinutes,
     templatePrefill,
@@ -66,6 +71,9 @@ export function CreateTaskModal({
 
     const [orgMembers, setOrgMembers] = useState<{ id: string; name: string }[]>([]);
     const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+    const [watcherIds, setWatcherIds] = useState<string[]>([]);
+    const [subtaskTitles, setSubtaskTitles] = useState<string[]>([]);
+    const [subtaskInput, setSubtaskInput] = useState('');
 
     // Fetch org members once per modal session
     useEffect(() => {
@@ -97,7 +105,10 @@ export function CreateTaskModal({
     useEffect(() => {
         if (isOpen) {
             setDueDate(defaultDueDate ?? '');
-            setAssigneeIds([]);
+            setAssigneeIds(defaultAssigneeIds ?? []);
+            setWatcherIds([]);
+            setSubtaskTitles([]);
+            setSubtaskInput('');
             if (templatePrefill) {
                 setTitle(templatePrefill.name);
                 setDescription(templatePrefill.description ?? '');
@@ -106,13 +117,20 @@ export function CreateTaskModal({
                 setRecurrence(templatePrefill.recurrence);
             } else {
                 setTitle(defaultTitle ?? '');
-                setDescription('');
+                setDescription(defaultDescription ?? '');
                 setPriority('medium');
                 setCategory('');
                 setRecurrence(undefined);
             }
         }
-    }, [isOpen, defaultDueDate, defaultTitle, templatePrefill]);
+    }, [isOpen, defaultAssigneeIds, defaultDescription, defaultDueDate, defaultTitle, templatePrefill]);
+
+    const addSubtask = () => {
+        const title = subtaskInput.trim();
+        if (!title) return;
+        setSubtaskTitles(current => [...current, title]);
+        setSubtaskInput('');
+    };
 
     // Check if the selected client has Basecamp sync enabled (project required, todolist optional)
     useEffect(() => {
@@ -195,6 +213,8 @@ export function CreateTaskModal({
             createdBy: currentUserId,
             actorName: orgMembers.find(m => m.id === currentUserId)?.name,
             assigneeIds: assigneeIds.length > 0 ? assigneeIds : undefined,
+            watcherIds: watcherIds.length > 0 ? watcherIds : undefined,
+            subtaskTitles: subtaskTitles.length > 0 ? subtaskTitles : undefined,
             recurrence: recurrence || undefined,
             syncToBasecamp: clientHasBasecamp ? syncToBasecamp : false,
             basecampTodolistId: (clientHasBasecamp && syncToBasecamp && bcTodolistId) ? bcTodolistId : undefined,
@@ -219,7 +239,7 @@ export function CreateTaskModal({
         <>
             <div className="fixed inset-0 z-[130] bg-background/80 backdrop-blur-sm" onClick={onClose} />
             <div className="fixed z-[140] inset-0 flex items-center justify-center p-4">
-                <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md">
+                <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
                     {/* Header */}
                     <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                         <h3 className="font-bold text-foreground flex items-center gap-2">
@@ -241,7 +261,7 @@ export function CreateTaskModal({
                         </button>
                     </div>
 
-                    <form onSubmit={handleSubmit} className="p-5 space-y-4">
+                    <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto p-5">
                         {/* Title */}
                         <div>
                             <input
@@ -321,6 +341,39 @@ export function CreateTaskModal({
                             </div>
                         )}
 
+                        {/* Completion notifications map to Basecamp's "When done" field. */}
+                        {orgMembers.length > 0 && (
+                            <div>
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                                    <Bell className="h-3 w-3" /> When Done — Notify
+                                </label>
+                                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                    {orgMembers.map(m => {
+                                        const selected = watcherIds.includes(m.id);
+                                        return (
+                                            <button
+                                                key={m.id}
+                                                type="button"
+                                                onClick={() => setWatcherIds(previous => (
+                                                    selected
+                                                        ? previous.filter(id => id !== m.id)
+                                                        : [...previous, m.id]
+                                                ))}
+                                                className={cn(
+                                                    'px-2.5 py-1 rounded-full text-xs border transition-all',
+                                                    selected
+                                                        ? 'bg-primary text-primary-foreground border-primary font-medium'
+                                                        : 'bg-muted/30 text-muted-foreground border-border hover:border-primary/40 hover:text-foreground',
+                                                )}
+                                            >
+                                                {m.name.split(' ')[0]}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Due Date */}
                         <div>
                             <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Due Date</label>
@@ -336,6 +389,52 @@ export function CreateTaskModal({
                         <div>
                             <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-2">Recurrence</label>
                             <RecurrenceSelector value={recurrence} onChange={setRecurrence} />
+                        </div>
+
+                        <div>
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                                <ListChecks className="h-3 w-3" /> Subtasks
+                            </label>
+                            {subtaskTitles.length > 0 && (
+                                <div className="mt-1.5 space-y-1">
+                                    {subtaskTitles.map((subtask, index) => (
+                                        <div key={`${subtask}-${index}`} className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 px-2 py-1.5 text-xs">
+                                            <span className="min-w-0 flex-1 truncate">{subtask}</span>
+                                            <button
+                                                type="button"
+                                                aria-label={`Remove subtask ${subtask}`}
+                                                onClick={() => setSubtaskTitles(current => current.filter((_, itemIndex) => itemIndex !== index))}
+                                                className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                            >
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            <div className="mt-1.5 flex gap-2">
+                                <input
+                                    type="text"
+                                    value={subtaskInput}
+                                    onChange={event => setSubtaskInput(event.target.value)}
+                                    onKeyDown={event => {
+                                        if (event.key === 'Enter') {
+                                            event.preventDefault();
+                                            addSubtask();
+                                        }
+                                    }}
+                                    placeholder="Add a subtask…"
+                                    className="min-w-0 flex-1 rounded-lg border border-border bg-muted/30 p-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={addSubtask}
+                                    disabled={!subtaskInput.trim()}
+                                    className="rounded-lg border border-border px-3 text-xs font-medium hover:bg-muted disabled:opacity-40"
+                                >
+                                    Add
+                                </button>
+                            </div>
                         </div>
 
                         {/* Basecamp sync — only shown when client has Basecamp enabled */}

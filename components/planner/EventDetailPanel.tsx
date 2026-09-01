@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import {
     X, Trash2, MapPin, Users, Building2, Clock, Check, AlertCircle, ExternalLink,
     Pause, Play, Square,
-    CalendarMinus,
+    CalendarMinus, MoreHorizontal, ListPlus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PlannerEvent, Task, TimeLog, TimerAttempt } from '@/lib/types';
@@ -51,12 +51,13 @@ interface EventDetailPanelProps {
     onTimerAction?: (action: PlannerTimerAction, item: PlannerItem) => void;
     canControlTimer?: boolean;
     onUnscheduleTask?: (taskId: string) => Promise<boolean>;
+    onCreateTaskFromEvent?: (event: PlannerEvent) => void;
 }
 
 export function EventDetailPanel({
     item, members, organizationId, userId, recentProjects = [], onProjectUsed,
     onClose, onChanged, onDeleted, restoreFocusRef, onTimerAction,
-    canControlTimer = false, onUnscheduleTask,
+    canControlTimer = false, onUnscheduleTask, onCreateTaskFromEvent,
 }: EventDetailPanelProps) {
     const dialogRef = useRef<HTMLElement>(null);
     const surface = usePlannerSurfaceBehavior('detail');
@@ -98,7 +99,55 @@ export function EventDetailPanel({
     const [completionError, setCompletionError] = useState<string | null>(null);
     const [isUnscheduling, setIsUnscheduling] = useState(false);
     const [unscheduleError, setUnscheduleError] = useState<string | null>(null);
+    const [showEventActions, setShowEventActions] = useState(false);
+    const eventActionsRef = useRef<HTMLDivElement>(null);
+    const eventActionsTriggerRef = useRef<HTMLButtonElement>(null);
+    const eventActionsMenuRef = useRef<HTMLDivElement>(null);
     const completionOperationId = useRef<string | null>(null);
+
+    useEffect(() => {
+        if (!showEventActions) return;
+        const closeOnOutsideClick = (pointerEvent: PointerEvent) => {
+            if (!eventActionsRef.current?.contains(pointerEvent.target as Node)) {
+                setShowEventActions(false);
+            }
+        };
+        const closeOnEscape = (keyboardEvent: KeyboardEvent) => {
+            if (keyboardEvent.key === 'Escape') {
+                setShowEventActions(false);
+                eventActionsTriggerRef.current?.focus();
+            }
+        };
+        document.addEventListener('pointerdown', closeOnOutsideClick);
+        document.addEventListener('keydown', closeOnEscape);
+        return () => {
+            document.removeEventListener('pointerdown', closeOnOutsideClick);
+            document.removeEventListener('keydown', closeOnEscape);
+        };
+    }, [showEventActions]);
+
+    useEffect(() => {
+        if (!showEventActions) return;
+        eventActionsMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    }, [showEventActions]);
+
+    const navigateEventActions = (keyboardEvent: React.KeyboardEvent<HTMLDivElement>) => {
+        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(keyboardEvent.key)) return;
+        const items = Array.from(
+            eventActionsMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [],
+        );
+        if (items.length === 0) return;
+        keyboardEvent.preventDefault();
+        const activeIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+        const nextIndex = keyboardEvent.key === 'Home'
+            ? 0
+            : keyboardEvent.key === 'End'
+                ? items.length - 1
+                : keyboardEvent.key === 'ArrowUp'
+                    ? (activeIndex - 1 + items.length) % items.length
+                    : (activeIndex + 1) % items.length;
+        items[nextIndex]?.focus();
+    };
 
     useEffect(() => {
         setInternalProject(undefined);
@@ -387,15 +436,79 @@ export function EventDetailPanel({
                 <span className="text-xs font-medium text-muted-foreground">
                     {plannerSourceLabel(item)}
                 </span>
-                <button
-                    type="button"
-                    data-dialog-autofocus
-                    onClick={() => requestClose('dismiss')}
-                    aria-label="Close details"
-                    className="ml-auto flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                >
-                    <X className="h-4 w-4" />
-                </button>
+                <div className="ml-auto flex items-center gap-1">
+                    {isEvent && event && (
+                        <div ref={eventActionsRef} className="relative">
+                            <button
+                                ref={eventActionsTriggerRef}
+                                type="button"
+                                aria-label="Event actions"
+                                aria-haspopup="menu"
+                                aria-expanded={showEventActions}
+                                onClick={() => setShowEventActions(open => !open)}
+                                onKeyDown={keyboardEvent => {
+                                    if (keyboardEvent.key === 'ArrowDown') {
+                                        keyboardEvent.preventDefault();
+                                        setShowEventActions(true);
+                                    }
+                                }}
+                                className="flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            >
+                                <MoreHorizontal className="h-4 w-4" />
+                            </button>
+                            {showEventActions && (
+                                <div
+                                    ref={eventActionsMenuRef}
+                                    role="menu"
+                                    onKeyDown={navigateEventActions}
+                                    className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-border bg-popover p-1 shadow-xl"
+                                >
+                                    {onCreateTaskFromEvent && (
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            onClick={() => {
+                                                setShowEventActions(false);
+                                                onCreateTaskFromEvent({
+                                                    ...event,
+                                                    title: title.trim() || event.title,
+                                                    description: description.trim() || undefined,
+                                                });
+                                            }}
+                                            className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                        >
+                                            <ListPlus className="h-4 w-4" />
+                                            Create task from event…
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={async () => {
+                                            setShowEventActions(false);
+                                            if (!confirm('Delete this event?')) return;
+                                            const ok = await deletePlannerEvent(event.id);
+                                            if (ok) onDeleted();
+                                        }}
+                                        className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                        Delete event
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    <button
+                        type="button"
+                        data-dialog-autofocus
+                        onClick={() => requestClose('dismiss')}
+                        aria-label="Close details"
+                        className="flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                        <X className="h-4 w-4" />
+                    </button>
+                </div>
             </div>
 
             <div className="space-y-4 px-4 py-4">
@@ -796,20 +909,6 @@ export function EventDetailPanel({
                     </div>
                 )}
             </div>
-
-            {isEvent && event && (
-                <button
-                    type="button"
-                    onClick={async () => {
-                        if (!confirm('Delete this event?')) return;
-                        const ok = await deletePlannerEvent(event.id);
-                        if (ok) onDeleted();
-                    }}
-                    className="mx-4 mb-4 mt-auto flex min-h-11 items-center justify-center gap-2 rounded-md border border-destructive/30 px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
-                >
-                    <Trash2 className="h-3.5 w-3.5" /> Delete event
-                </button>
-            )}
 
             {showCompletion && task && (
                 <TaskCompletionDrawer

@@ -10,6 +10,7 @@ import {
     createBasecampComment,
     updateBasecampTodoAssignees,
     updateBasecampTodoDueDate,
+    createBasecampTodoStep,
 } from '@/lib/basecamp/api';
 import { createBasecampPushPost } from '@/lib/basecamp/push-route';
 import { createSupabaseBasecampProjectAccessSource } from '@/lib/basecamp/supabase-project-access-source';
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
                 async getTask(taskId, organizationId, clientId) {
                     const { data, error } = await admin
                         .from('tasks')
-                        .select('id, organization_id, client_id, title, description, due_date, status, assignee_ids, basecamp_todo_id, basecamp_project_id, clients(custom_fields)')
+                        .select('id, organization_id, client_id, title, description, due_date, status, assignee_ids, watcher_ids, basecamp_todo_id, basecamp_project_id, clients(custom_fields)')
                         .eq('id', taskId)
                         .eq('organization_id', organizationId)
                         .eq('client_id', clientId)
@@ -41,17 +42,33 @@ export async function POST(req: NextRequest) {
                     const assigneeIds = Array.isArray(data.assignee_ids)
                         ? data.assignee_ids.filter((id): id is string => typeof id === 'string')
                         : [];
+                    const watcherIds = Array.isArray(data.watcher_ids)
+                        ? data.watcher_ids.filter((id): id is string => typeof id === 'string')
+                        : [];
                     let assigneePersonIds: number[] = [];
-                    if (assigneeIds.length > 0) {
+                    let completionSubscriberPersonIds: number[] = [];
+                    const relevantUserIds = Array.from(new Set([...assigneeIds, ...watcherIds]));
+                    if (relevantUserIds.length > 0) {
                         const { data: members, error: memberError } = await admin
                             .from('organization_members')
                             .select('user_id, basecamp_person_id')
                             .eq('organization_id', organizationId)
-                            .in('user_id', assigneeIds);
+                            .in('user_id', relevantUserIds);
                         if (memberError) throw memberError;
-                        assigneePersonIds = (members ?? [])
-                            .map(member => Number(member.basecamp_person_id))
-                            .filter(id => Number.isSafeInteger(id) && id > 0);
+                        const personIdByUserId = new Map((members ?? []).map(member => [
+                            member.user_id,
+                            Number(member.basecamp_person_id),
+                        ]));
+                        assigneePersonIds = assigneeIds
+                            .map(id => personIdByUserId.get(id))
+                            .filter((id): id is number => (
+                                typeof id === 'number' && Number.isSafeInteger(id) && id > 0
+                            ));
+                        completionSubscriberPersonIds = watcherIds
+                            .map(id => personIdByUserId.get(id))
+                            .filter((id): id is number => (
+                                typeof id === 'number' && Number.isSafeInteger(id) && id > 0
+                            ));
                     }
 
                     return {
@@ -68,7 +85,23 @@ export async function POST(req: NextRequest) {
                         configuredTodolistId: customFields.basecamp_todolist_id as string | number | null | undefined,
                         syncEnabled: customFields.basecamp_sync_enabled === true,
                         assigneePersonIds,
+                        completionSubscriberPersonIds,
                     };
+                },
+                async listSubtasks(taskId, organizationId, clientId) {
+                    const { data, error } = await admin
+                        .from('tasks')
+                        .select('id, title, basecamp_todo_id')
+                        .eq('parent_task_id', taskId)
+                        .eq('organization_id', organizationId)
+                        .eq('client_id', clientId)
+                        .order('sort_order', { ascending: true });
+                    if (error) throw error;
+                    return (data ?? []).map(subtask => ({
+                        id: subtask.id,
+                        title: subtask.title,
+                        basecampTodoId: subtask.basecamp_todo_id,
+                    }));
                 },
                 async updateTaskLink(taskId, organizationId, clientId, projectId, todoId, syncedAt) {
                     const { error } = await admin
@@ -101,6 +134,9 @@ export async function POST(req: NextRequest) {
             listTodolists: projectId => listBasecampTodolists(projectId),
             createTodo: (projectId, todolistId, params) => (
                 createBasecampTodo(projectId, todolistId, params)
+            ),
+            createStep: (projectId, parentTodoId, title) => (
+                createBasecampTodoStep(projectId, parentTodoId, title)
             ),
             completeTodo: (projectId, todoId) => completeBasecampTodo(projectId, todoId),
             reopenTodo: (projectId, todoId) => reopenBasecampTodo(projectId, todoId),

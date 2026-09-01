@@ -53,6 +53,7 @@ import { localDateForInstant, parseLocalDate } from '@/lib/planner/local-date';
 import { buildMonthDays } from '@/lib/planner/month-range';
 import { clampOverlayAnchor } from '@/lib/planner/responsive';
 import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
+import { eventToTaskDraft, type EventTaskDraft } from '@/lib/planner/event-to-task';
 
 export default function PlannerPage() {
     const { organization } = useOrganization();
@@ -100,6 +101,7 @@ export default function PlannerPage() {
     const [reviewAttemptId, setReviewAttemptId] = useState<string | null>(null);
     // Set when the quick-create popover hands off to the full task editor.
     const [fullTaskDraft, setFullTaskDraft] = useState<FullTaskDraft | null>(null);
+    const [eventTaskDraft, setEventTaskDraft] = useState<EventTaskDraft | null>(null);
     const { clients } = useClients({ statuses: ['Active'] });
     // Read on mount rather than in useState so server and client render alike.
     const [prefs, setPrefs] = useState<PlannerPreferences>(DEFAULT_PREFERENCES);
@@ -630,6 +632,11 @@ export default function PlannerPage() {
                     onTimerAction={handleTimerAction}
                     canControlTimer={canControlTimer(selectedItem)}
                     onUnscheduleTask={taskId => handleUnschedule(taskId, 'backlog')}
+                    onCreateTaskFromEvent={event => {
+                        const clientName = clients.find(client => client.id === event.clientId)?.clientName;
+                        setEventTaskDraft(eventToTaskDraft(event, clientName));
+                        setSelected(null);
+                    }}
                 />
             )}
 
@@ -704,6 +711,22 @@ export default function PlannerPage() {
                     )}
                     onClose={() => setFullTaskDraft(null)}
                     onCreated={() => { setFullTaskDraft(null); void reloadAll(); }}
+                />
+            )}
+
+            {eventTaskDraft && organization?.id && (
+                <CreateTaskModal
+                    isOpen
+                    organizationId={organization.id}
+                    currentUserId={userId}
+                    defaultTitle={eventTaskDraft.title}
+                    defaultDescription={eventTaskDraft.description}
+                    defaultClientId={eventTaskDraft.clientId}
+                    defaultClientName={eventTaskDraft.clientName}
+                    defaultDueDate={eventTaskDraft.dueDate}
+                    defaultAssigneeIds={eventTaskDraft.assigneeIds}
+                    onClose={() => setEventTaskDraft(null)}
+                    onCreated={() => { setEventTaskDraft(null); void reloadAll(); }}
                 />
             )}
         </div>
