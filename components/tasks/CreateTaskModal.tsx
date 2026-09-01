@@ -1,14 +1,34 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Plus, LayoutTemplate, UserCircle2, Bell, ListChecks, Trash2 } from 'lucide-react';
+import {
+    X, Plus, LayoutTemplate, UserCircle2, Bell, ListChecks, Trash2,
+    CheckCircle2, AlertCircle, RotateCcw,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Task, TaskPriority, TaskStatus, TaskCategory, TaskTemplate } from '@/lib/types';
-import { createTaskFromTemplate, createTask } from '@/lib/supabase/tasks';
+import { Task, TaskPriority, TaskStatus, TaskCategory, TaskTemplate, ClientProject } from '@/lib/types';
+import { createTaskFromTemplate, createTask, type TaskInsert } from '@/lib/supabase/tasks';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { RecurrenceSelector } from './RecurrenceSelector';
-import { useOrganization } from '@/components/providers/organization-provider';
 import { createClient } from '@/lib/supabase/client';
+import {
+    createTimeLog,
+    getTimeLogForPlannerEvent,
+    reconcilePlannerEventTimeLog,
+} from '@/lib/supabase/time-logs';
+import { updatePlannerEvent } from '@/lib/supabase/planner-events';
+import {
+    convertPlannerEventToTask,
+    type EventTaskConversionResult,
+} from '@/lib/planner/event-task-conversion';
+import {
+    requestTaskBasecampSync,
+    requestTimeLogBasecampSync,
+} from '@/lib/basecamp/client-sync';
+import { EventConversionFields } from './EventConversionFields';
+
+type ClientOption = Pick<ClientProject, 'id' | 'clientName'>;
+const EMPTY_CLIENT_OPTIONS: ClientOption[] = [];
 
 interface CreateTaskModalProps {
     isOpen: boolean;
@@ -32,6 +52,16 @@ interface CreateTaskModalProps {
     defaultScheduledMinutes?: number;
     /** Pre-fill all fields from a template */
     templatePrefill?: TaskTemplate;
+    /** Available only when a source flow needs a client to finish conversion. */
+    clients?: ClientOption[];
+    /** Original event context used to link the task and optionally log its block. */
+    eventConversion?: {
+        id: string;
+        userId: string;
+        title: string;
+        startsAt: string;
+        endsAt: string;
+    };
 }
 
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
@@ -66,9 +96,10 @@ export function CreateTaskModal({
     defaultStartDate,
     defaultScheduledMinutes,
     templatePrefill,
+    clients = EMPTY_CLIENT_OPTIONS,
+    eventConversion,
 }: CreateTaskModalProps) {
-    const { organization } = useOrganization();
-
+    const hasEventConversion = Boolean(eventConversion?.id);
     const [orgMembers, setOrgMembers] = useState<{ id: string; name: string }[]>([]);
     const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
     const [watcherIds, setWatcherIds] = useState<string[]>([]);
@@ -84,7 +115,7 @@ export function CreateTaskModal({
                 name: (m.user as any)?.fullName || (m.user as any)?.email || 'Team member',
             })));
         }).catch(() => {});
-    }, [isOpen, organizationId]);
+    }, [isOpen, organizationId, orgMembers.length]);
 
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
@@ -100,6 +131,12 @@ export function CreateTaskModal({
     const [bcTodolistId, setBcTodolistId] = useState('');
     const [bcTodolists, setBcTodolists] = useState<{ id: number; title: string; name: string }[]>([]);
     const [bcLoadingLists, setBcLoadingLists] = useState(false);
+    const [selectedClientId, setSelectedClientId] = useState(defaultClientId ?? '');
+    const [clientSearch, setClientSearch] = useState(defaultClientName ?? '');
+    const [logEventTime, setLogEventTime] = useState(hasEventConversion);
+    const [countsTowardBudget, setCountsTowardBudget] = useState(true);
+    const [syncTimeToBasecamp, setSyncTimeToBasecamp] = useState(hasEventConversion);
+    const [conversionResult, setConversionResult] = useState<EventTaskConversionResult | null>(null);
 
     // Sync fields when modal opens or template/date changes
     useEffect(() => {
@@ -109,6 +146,13 @@ export function CreateTaskModal({
             setWatcherIds([]);
             setSubtaskTitles([]);
             setSubtaskInput('');
+            setSelectedClientId(defaultClientId ?? '');
+            setClientSearch(defaultClientName ?? '');
+            setLogEventTime(hasEventConversion);
+            setCountsTowardBudget(true);
+            setSyncTimeToBasecamp(hasEventConversion);
+            setConversionResult(null);
+            setError('');
             if (templatePrefill) {
                 setTitle(templatePrefill.name);
                 setDescription(templatePrefill.description ?? '');
@@ -123,7 +167,17 @@ export function CreateTaskModal({
                 setRecurrence(undefined);
             }
         }
-    }, [isOpen, defaultAssigneeIds, defaultDescription, defaultDueDate, defaultTitle, templatePrefill]);
+    }, [
+        isOpen,
+        defaultAssigneeIds,
+        defaultClientId,
+        defaultClientName,
+        defaultDescription,
+        defaultDueDate,
+        defaultTitle,
+        hasEventConversion,
+        templatePrefill,
+    ]);
 
     const addSubtask = () => {
         const title = subtaskInput.trim();
@@ -134,23 +188,25 @@ export function CreateTaskModal({
 
     // Check if the selected client has Basecamp sync enabled (project required, todolist optional)
     useEffect(() => {
-        if (!defaultClientId) {
+        let cancelled = false;
+        if (!selectedClientId) {
             setClientHasBasecamp(false);
             setSyncToBasecamp(false);
             setBcProjectId('');
             setBcDefaultTodolistId('');
             setBcTodolistId('');
             setBcTodolists([]);
-            return;
+            return () => { cancelled = true; };
         }
         const supabase = createClient();
         if (!supabase) return;
         supabase
             .from('clients')
             .select('custom_fields')
-            .eq('id', defaultClientId)
+            .eq('id', selectedClientId)
             .single()
             .then(({ data }: { data: any }) => {
+                if (cancelled) return;
                 const cf = (data?.custom_fields as Record<string, unknown>) ?? {};
                 const enabled = !!(cf.basecamp_sync_enabled && cf.basecamp_project_id);
                 setClientHasBasecamp(enabled);
@@ -160,6 +216,7 @@ export function CreateTaskModal({
                     setBcProjectId(projectId);
                     setBcDefaultTodolistId(defaultListId);
                     setBcTodolistId(defaultListId);
+                    if (hasEventConversion) setSyncToBasecamp(true);
                 } else {
                     setSyncToBasecamp(false);
                     setBcProjectId('');
@@ -169,10 +226,12 @@ export function CreateTaskModal({
                 }
             })
             .catch(() => {
+                if (cancelled) return;
                 setClientHasBasecamp(false);
                 setSyncToBasecamp(false);
             });
-    }, [defaultClientId]);
+        return () => { cancelled = true; };
+    }, [hasEventConversion, selectedClientId]);
 
     function handleSyncToggle() {
         const next = !syncToBasecamp;
@@ -189,18 +248,36 @@ export function CreateTaskModal({
 
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+    const selectedClientName = clients.find(client => client.id === selectedClientId)?.clientName
+        ?? (selectedClientId === defaultClientId ? defaultClientName : undefined);
+    const eventDurationMinutes = eventConversion
+        ? Math.max(1, Math.round(
+            (new Date(eventConversion.endsAt).getTime() - new Date(eventConversion.startsAt).getTime()) / 60_000,
+        ))
+        : 0;
+
+    function handleClientSearchChange(value: string) {
+        setClientSearch(value);
+        const normalized = value.trim().toLocaleLowerCase();
+        const match = clients.find(client => client.clientName.toLocaleLowerCase() === normalized);
+        setSelectedClientId(match?.id ?? '');
+    }
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!title.trim()) { setError('Title is required'); return; }
         if (!organizationId) { setError('Organization not found'); return; }
+        if (eventConversion && !selectedClientId) {
+            setError('Select a client before creating this task.');
+            return;
+        }
         setSaving(true);
         setError('');
 
-        const overrides = {
+        const overrides: TaskInsert = {
             organizationId,
             projectId: defaultProjectId,
-            clientId: defaultClientId,
+            clientId: selectedClientId || undefined,
             title: title.trim(),
             description: description.trim() || undefined,
             priority,
@@ -220,18 +297,104 @@ export function CreateTaskModal({
             basecampTodolistId: (clientHasBasecamp && syncToBasecamp && bcTodolistId) ? bcTodolistId : undefined,
         };
 
+        if (eventConversion) {
+            let createdTask: Task | undefined;
+            const conversion = await convertPlannerEventToTask({
+                event: {
+                    id: eventConversion.id,
+                    organizationId,
+                    userId: currentUserId || eventConversion.userId,
+                    title: eventConversion.title,
+                    startsAt: eventConversion.startsAt,
+                    endsAt: eventConversion.endsAt,
+                },
+                task: overrides,
+                clientName: selectedClientName ?? '',
+                syncTaskToBasecamp: clientHasBasecamp && syncToBasecamp,
+                logEventTime,
+                countsTowardBudget,
+                syncTimeToBasecamp: clientHasBasecamp && syncTimeToBasecamp,
+                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+            }, {
+                createTask: async taskInput => {
+                    const result = await createTask(taskInput as TaskInsert);
+                    createdTask = result.data;
+                    return result;
+                },
+                linkEvent: async (eventId, patch) => Boolean(await updatePlannerEvent(eventId, patch)),
+                findEventTimeLog: getTimeLogForPlannerEvent,
+                reconcileEventTimeLog: (timeLogId, patch) => reconcilePlannerEventTimeLog(
+                    timeLogId,
+                    patch as Parameters<typeof reconcilePlannerEventTimeLog>[1],
+                ),
+                syncTimeLog: requestTimeLogBasecampSync,
+                createTimeLog: (log, options) => createTimeLog(
+                    log as Parameters<typeof createTimeLog>[0],
+                    options,
+                ),
+            });
+
+            setSaving(false);
+            if (conversion.status === 'failed' || !createdTask) {
+                setError(conversion.status === 'failed' ? conversion.error : 'Failed to create task.');
+                return;
+            }
+            onCreated({ ...createdTask, clientName: selectedClientName ?? createdTask.clientName });
+            setConversionResult(conversion);
+            return;
+        }
+
         const result = templatePrefill
             ? await createTaskFromTemplate(templatePrefill.id, overrides)
             : await createTask(overrides);
 
         setSaving(false);
         if (result.success && result.data) {
-            onCreated({ ...result.data, clientName: defaultClientName ?? result.data.clientName });
+            onCreated({ ...result.data, clientName: selectedClientName ?? result.data.clientName });
             onClose();
         } else {
             setError(result.error ?? 'Failed to create task');
         }
     };
+
+    async function retryConversionSync() {
+        if (!conversionResult || conversionResult.status === 'failed') return;
+        setSaving(true);
+        let taskBasecampSynced = conversionResult.taskBasecampSynced;
+        let taskBasecampError = conversionResult.taskBasecampError;
+        let eventLinked = conversionResult.eventLinked;
+        let timeBasecampSynced = conversionResult.timeBasecampSynced;
+        let timeError = conversionResult.timeError;
+
+        if (syncToBasecamp && !taskBasecampSynced) {
+            const result = await requestTaskBasecampSync(conversionResult.taskId);
+            taskBasecampSynced = result.success;
+            taskBasecampError = result.error;
+        }
+        if (!eventLinked && eventConversion && selectedClientId) {
+            eventLinked = Boolean(await updatePlannerEvent(eventConversion.id, {
+                clientId: selectedClientId,
+                taskId: conversionResult.taskId,
+            }));
+        }
+        if (syncTimeToBasecamp && conversionResult.timeLogId && !timeBasecampSynced) {
+            const result = await requestTimeLogBasecampSync(conversionResult.timeLogId);
+            timeBasecampSynced = result.success;
+            timeError = result.error;
+        }
+
+        const partial = !taskBasecampSynced || !eventLinked || Boolean(timeError);
+        setConversionResult({
+            ...conversionResult,
+            status: partial ? 'partial' : 'complete',
+            taskBasecampSynced,
+            taskBasecampError,
+            eventLinked,
+            timeBasecampSynced,
+            timeError,
+        });
+        setSaving(false);
+    }
 
     if (!isOpen) return null;
 
@@ -252,8 +415,8 @@ export function CreateTaskModal({
                                     {templatePrefill.name}
                                 </span>
                             )}
-                            {defaultClientName && (
-                                <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-full">{defaultClientName}</span>
+                            {selectedClientName && (
+                                <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-full">{selectedClientName}</span>
                             )}
                         </div>
                         <button onClick={onClose} className="p-1.5 hover:bg-muted rounded-lg text-muted-foreground">
@@ -261,6 +424,66 @@ export function CreateTaskModal({
                         </button>
                     </div>
 
+                    {conversionResult && conversionResult.status !== 'failed' ? (
+                        <div className="space-y-4 overflow-y-auto p-5">
+                            <div className={cn(
+                                'rounded-xl border p-4',
+                                conversionResult.status === 'complete'
+                                    ? 'border-emerald-500/30 bg-emerald-500/5'
+                                    : 'border-amber-500/30 bg-amber-500/5',
+                            )}>
+                                <div className="flex items-start gap-3">
+                                    {conversionResult.status === 'complete' ? (
+                                        <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" />
+                                    ) : (
+                                        <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+                                    )}
+                                    <div className="space-y-1">
+                                        <h4 className="text-sm font-semibold">
+                                            {conversionResult.status === 'complete'
+                                                ? `Task created for ${selectedClientName}`
+                                                : `Task created for ${selectedClientName}, with follow-up needed`}
+                                        </h4>
+                                        <p className="text-xs text-muted-foreground">
+                                            {conversionResult.taskBasecampSynced
+                                                ? 'Task synced to the client’s Basecamp to-do list.'
+                                                : conversionResult.taskBasecampError ?? 'Task was not synced to Basecamp.'}
+                                        </p>
+                                        {logEventTime && (
+                                            <p className="text-xs text-muted-foreground">
+                                                {conversionResult.timeLogged || conversionResult.timeAlreadyLogged
+                                                    ? `${eventDurationMinutes} minutes logged${conversionResult.timeBasecampSynced ? ' and synced to the Basecamp timesheet' : ''}.`
+                                                    : conversionResult.timeError ?? 'The event time was not logged.'}
+                                            </p>
+                                        )}
+                                        {!conversionResult.eventLinked && (
+                                            <p className="text-xs text-destructive">The event still needs to be linked to the task.</p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex justify-end gap-3">
+                                {conversionResult.status === 'partial' && (
+                                    <button
+                                        type="button"
+                                        onClick={() => void retryConversionSync()}
+                                        disabled={saving}
+                                        className="flex min-h-10 items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
+                                    >
+                                        <RotateCcw className="h-4 w-4" />
+                                        {saving ? 'Retrying…' : 'Retry Basecamp sync'}
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    className="min-h-10 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+                                >
+                                    Done
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
                     <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto p-5">
                         {/* Title */}
                         <div>
@@ -284,6 +507,22 @@ export function CreateTaskModal({
                                 className="w-full text-sm bg-muted/30 border border-border rounded-lg p-3 focus:outline-none focus:ring-1 focus:ring-primary resize-none placeholder:text-muted-foreground/50"
                             />
                         </div>
+
+                        {eventConversion && (
+                            <EventConversionFields
+                                clients={clients}
+                                clientSearch={clientSearch}
+                                selectedClientId={selectedClientId}
+                                durationMinutes={eventDurationMinutes}
+                                logEventTime={logEventTime}
+                                countsTowardBudget={countsTowardBudget}
+                                syncTimeToBasecamp={syncTimeToBasecamp}
+                                onClientSearchChange={handleClientSearchChange}
+                                onLogEventTimeChange={setLogEventTime}
+                                onCountsTowardBudgetChange={setCountsTowardBudget}
+                                onSyncTimeToBasecampChange={setSyncTimeToBasecamp}
+                            />
+                        )}
 
                         {/* Priority + Category row */}
                         <div className="grid grid-cols-2 gap-3">
@@ -468,8 +707,16 @@ export function CreateTaskModal({
                                         )} />
                                     </button>
                                 </div>
-                                {/* Todolist picker — shown when sync is ON */}
-                                {syncToBasecamp && (
+                                {/* Existing task flows may choose a list. Event
+                                    conversion intentionally uses the client's
+                                    protected default so the task cannot drift
+                                    into another client's Basecamp scope. */}
+                                {syncToBasecamp && eventConversion && (
+                                    <div className="border-t border-border/50 bg-muted/10 px-3 py-2.5 text-xs text-muted-foreground">
+                                        Uses {selectedClientName ?? 'the client'}’s configured default Basecamp to-do list.
+                                    </div>
+                                )}
+                                {syncToBasecamp && !eventConversion && (
                                     <div className="px-3 py-2.5 border-t border-border/50 bg-muted/10">
                                         <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Todolist</label>
                                         {bcLoadingLists ? (
@@ -506,13 +753,18 @@ export function CreateTaskModal({
                             </button>
                             <button
                                 type="submit"
-                                disabled={!title.trim() || saving}
+                                disabled={!title.trim() || saving || Boolean(eventConversion && !selectedClientId)}
                                 className="px-4 py-2 text-sm font-bold rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
                             >
-                                {saving ? 'Creating…' : 'Create Task'}
+                                {saving
+                                    ? 'Creating and syncing…'
+                                    : eventConversion && logEventTime
+                                        ? 'Create Task & Log Time'
+                                        : 'Create Task'}
                             </button>
                         </div>
                     </form>
+                    )}
                 </div>
             </div>
         </>

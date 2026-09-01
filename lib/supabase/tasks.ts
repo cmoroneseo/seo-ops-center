@@ -11,6 +11,10 @@ import {
     TaskTemplate,
 } from '../types';
 import { getNextDueDate } from '../utils/recurrence';
+import {
+    requestTaskBasecampSync,
+    type ClientBasecampSyncResult,
+} from '../basecamp/client-sync';
 
 // ---------------------------------------------------------------------------
 // Basecamp integration helpers (fire-and-forget, server-side only)
@@ -99,7 +103,7 @@ function rowToComment(row: any): TaskComment {
     };
 }
 
-type TaskInsert = {
+export type TaskInsert = {
     organizationId: string;
     projectId?: string;
     clientId?: string;
@@ -125,6 +129,8 @@ type TaskInsert = {
     recurrence?: Task['recurrence'];
     /** If true, pushes this task to Basecamp on create (requires client Basecamp config). */
     syncToBasecamp?: boolean;
+    /** Wait for the provider result when the caller must report confirmed sync status. */
+    waitForBasecampSync?: boolean;
     /** Override the client's default todolist for this specific task. */
     basecampTodolistId?: string;
     /** Display name of the creator — used in activity log entries. */
@@ -266,7 +272,12 @@ export async function getTask(taskId: string): Promise<{
 
 export async function createTask(
     t: TaskInsert,
-): Promise<{ success: boolean; data?: Task; error?: string }> {
+): Promise<{
+    success: boolean;
+    data?: Task;
+    error?: string;
+    basecampSync?: ClientBasecampSyncResult;
+}> {
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
@@ -318,35 +329,21 @@ export async function createTask(
             });
         }
 
-        // Basecamp push — fire-and-forget via API route (works from browser)
-        // Only fires when the user explicitly opted in via the "Sync to Basecamp" toggle.
+        // Most task creation flows keep the established background behavior.
+        // Event conversion waits so it can distinguish "task saved" from
+        // "Basecamp confirmed" without trusting caller-supplied project IDs.
+        let basecampSync: ClientBasecampSyncResult | undefined;
         if (t.syncToBasecamp && t.clientId && t.organizationId) {
-            Promise.all([
-                getClientBasecampConfig(t.clientId),
-                import('./organizations').then(m => m.getOrganizationMembers(t.organizationId!)),
-            ]).then(([bc, members]) => {
-                if (!bc) return;
-                const todolistId = t.basecampTodolistId || bc.todolistId;
-                if (!todolistId) return;
-                const assigneePersonIds = (t.assigneeIds ?? [])
-                    .map(uid => members.find(m => m.userId === uid)?.basecampPersonId)
-                    .filter((id): id is string => !!id)
-                    .map(Number);
-                fetch('/api/integrations/basecamp/push', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'create_todo',
-                        taskId: task.id,
-                        projectId: bc.projectId,
-                        todolistId,
-                        content: task.title,
-                        dueOn: task.dueDate,
-                        description: task.description,
-                        assigneePersonIds: assigneePersonIds.length ? assigneePersonIds : undefined,
-                    }),
-                }).catch(err => console.error('[Basecamp] createTask push error:', err));
-            });
+            const push = requestTaskBasecampSync(task.id);
+            if (t.waitForBasecampSync) {
+                basecampSync = await push;
+            } else {
+                void push.then(result => {
+                    if (!result.success) {
+                        console.error('[Basecamp] createTask push error:', result.error);
+                    }
+                });
+            }
         }
 
         // Log task creation to the client activity feed (server derives actor/org).
@@ -371,7 +368,7 @@ export async function createTask(
             });
         }
 
-        return { success: true, data: task };
+        return { success: true, data: task, ...(basecampSync ? { basecampSync } : {}) };
     } catch (err: any) {
         console.error('Error creating task:', err);
         return { success: false, error: err.message };

@@ -23,6 +23,10 @@ const event: PlannerEvent = {
 
 test('event conversion preserves work context but creates an unscheduled task draft', () => {
     assert.deepEqual(eventToTaskDraft(event, 'Ecoworkz', 'America/Los_Angeles'), {
+        eventId: 'event-1',
+        eventUserId: 'user-1',
+        startsAt: '2026-08-31T17:30:00.000Z',
+        endsAt: '2026-08-31T20:30:00.000Z',
         title: 'Ecoworkz SEO (Content Optimization)',
         description: 'Optimize the priority service pages.',
         clientId: 'client-1',

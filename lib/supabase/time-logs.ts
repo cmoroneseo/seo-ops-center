@@ -7,6 +7,10 @@ import {
 } from '../time-budget-logic';
 import { deleteTimeLogAcrossSystems } from '../time-log-deletion';
 import {
+    requestTimeLogBasecampSync,
+    type ClientBasecampSyncResult,
+} from '../basecamp/client-sync';
+import {
     timerAttemptFromRow,
     timerStateFromRows,
     type TimerMutationRequest,
@@ -41,12 +45,27 @@ function rowToTimeLog(row: any): TimeLog {
  * Server-side no-op unless the client has timesheet sync enabled;
  * only creates a new Basecamp entry when createIfMissing is true.
  */
-export function pushTimeLogToBasecamp(timeLogId: string, createIfMissing = false): void {
-    fetch('/api/integrations/basecamp/timesheet', {
+export function pushTimeLogToBasecamp(
+    timeLogId: string,
+    createIfMissing = false,
+): Promise<ClientBasecampSyncResult> {
+    if (createIfMissing) return requestTimeLogBasecampSync(timeLogId);
+    return fetch('/api/integrations/basecamp/timesheet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'sync', timeLogId, createIfMissing }),
-    }).catch(err => console.error('[Basecamp timesheet] push failed:', err));
+        body: JSON.stringify({ action: 'sync', timeLogId, createIfMissing: false }),
+    }).then(async response => {
+        const payload = await response.json().catch(() => null) as {
+            success?: boolean;
+            error?: string;
+        } | null;
+        return response.ok && payload?.success === true
+            ? { success: true }
+            : { success: false, error: payload?.error || `Basecamp sync failed (${response.status})` };
+    }).catch(error => ({
+        success: false,
+        error: error instanceof Error ? error.message : 'Basecamp sync failed',
+    }));
 }
 
 /** True when this client's time entries should offer "Send to Basecamp". */
@@ -221,8 +240,13 @@ export async function createTimeLog(
     log: Partial<TimeLog> & { organizationId: string; hours: number },
     // Basecamp push is independent of counts_toward_budget: a client meeting is
     // excluded from SEO budget but still belongs on their Basecamp timesheet.
-    opts: { syncToBasecamp?: boolean } = {},
-): Promise<{ success: boolean; data?: TimeLog; error?: string }> {
+    opts: { syncToBasecamp?: boolean; waitForBasecampSync?: boolean } = {},
+): Promise<{
+    success: boolean;
+    data?: TimeLog;
+    error?: string;
+    basecampSync?: ClientBasecampSyncResult;
+}> {
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
@@ -255,8 +279,24 @@ export async function createTimeLog(
             .select()
             .single();
         if (error) throw error;
-        if (opts.syncToBasecamp) pushTimeLogToBasecamp(data.id, true);
-        return { success: true, data: rowToTimeLog(data) };
+        let basecampSync: ClientBasecampSyncResult | undefined;
+        if (opts.syncToBasecamp) {
+            const push = pushTimeLogToBasecamp(data.id, true);
+            if (opts.waitForBasecampSync) {
+                basecampSync = await push;
+            } else {
+                void push.then(result => {
+                    if (!result.success) {
+                        console.error('[Basecamp timesheet] push failed:', result.error);
+                    }
+                });
+            }
+        }
+        return {
+            success: true,
+            data: rowToTimeLog(data),
+            ...(basecampSync ? { basecampSync } : {}),
+        };
     } catch (err: any) {
         console.error('Error creating time log:', err);
         return { success: false, error: err.message };
@@ -313,6 +353,49 @@ export async function getTimeLogForPlannerEvent(eventId: string): Promise<TimeLo
     } catch (err) {
         console.error('[time-logs] planner event lookup error:', err);
         return null;
+    }
+}
+
+/** Reattach an existing event-derived entry after its original task/client choice was corrected. */
+export async function reconcilePlannerEventTimeLog(
+    id: string,
+    patch: Pick<TimeLog,
+        | 'clientId'
+        | 'taskId'
+        | 'date'
+        | 'hours'
+        | 'description'
+        | 'billable'
+        | 'countsTowardBudget'
+        | 'plannedStartsAt'
+        | 'plannedMinutes'
+    >,
+): Promise<{ success: boolean; data?: TimeLog; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
+    try {
+        const { data, error } = await supabase
+            .from('time_logs')
+            .update({
+                client_id: patch.clientId,
+                task_id: patch.taskId,
+                date: patch.date,
+                hours: patch.hours,
+                description: patch.description,
+                billable: patch.billable,
+                counts_toward_budget: patch.countsTowardBudget,
+                planned_starts_at: patch.plannedStartsAt,
+                planned_minutes: patch.plannedMinutes,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', id)
+            .select('*, clients(name), tasks(title)')
+            .single();
+        if (error) throw error;
+        return { success: true, data: rowToTimeLog(data) };
+    } catch (error: any) {
+        console.error('[time-logs] planner event reconcile error:', error);
+        return { success: false, error: error.message };
     }
 }
 

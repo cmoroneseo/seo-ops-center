@@ -725,8 +725,16 @@ export default function PlannerPage() {
                     defaultClientName={eventTaskDraft.clientName}
                     defaultDueDate={eventTaskDraft.dueDate}
                     defaultAssigneeIds={eventTaskDraft.assigneeIds}
+                    clients={clients}
+                    eventConversion={{
+                        id: eventTaskDraft.eventId,
+                        userId: eventTaskDraft.eventUserId,
+                        title: eventTaskDraft.title,
+                        startsAt: eventTaskDraft.startsAt,
+                        endsAt: eventTaskDraft.endsAt,
+                    }}
                     onClose={() => setEventTaskDraft(null)}
-                    onCreated={() => { setEventTaskDraft(null); void reloadAll(); }}
+                    onCreated={() => { void reloadAll(); }}
                 />
             )}
         </div>

@@ -1,6 +1,10 @@
 import type { PlannerEvent } from '../types';
 
 export interface EventTaskDraft {
+    eventId: string;
+    eventUserId: string;
+    startsAt: string;
+    endsAt: string;
     title: string;
     description?: string;
     clientId?: string;
@@ -30,6 +34,10 @@ export function eventToTaskDraft(
     );
 
     return {
+        eventId: event.id,
+        eventUserId: event.userId,
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
         title: event.title,
         ...(event.description ? { description: event.description } : {}),
         ...(event.clientId ? { clientId: event.clientId } : {}),
