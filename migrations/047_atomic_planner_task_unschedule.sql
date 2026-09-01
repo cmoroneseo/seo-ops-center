@@ -2,23 +2,6 @@
 -- 047: Atomic planner task unscheduling and optional prioritization
 -- =============================================================================
 
--- Keep the earliest existing linked priority before enforcing one priority per
--- task for each user. Free-text priorities are intentionally unaffected.
-with ranked_task_priorities as (
-  select
-    id,
-    row_number() over (
-      partition by organization_id, user_id, task_id
-      order by sort_order, created_at, id
-    ) as duplicate_rank
-  from public.planner_priorities
-  where task_id is not null
-)
-delete from public.planner_priorities as priorities
-using ranked_task_priorities as ranked
-where priorities.id = ranked.id
-  and ranked.duplicate_rank > 1;
-
 create unique index if not exists planner_priorities_org_user_task_uniq
   on public.planner_priorities (organization_id, user_id, task_id)
   where task_id is not null;

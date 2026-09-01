@@ -9,6 +9,11 @@ test('planner task unscheduling is atomic, authenticated, and retry-safe', () =>
     assert.equal(existsSync(migrationUrl), true, 'migration 047 must exist');
     const migration = readFileSync(migrationUrl, 'utf8');
 
+    assert.doesNotMatch(
+        migration,
+        /delete\s+from\s+public\.planner_priorities/i,
+        'the migration must never delete existing priority rows',
+    );
     assert.match(migration, /create unique index[^;]+planner_priorities[^;]+task_id/is);
     assert.match(migration, /create or replace function public\.unschedule_planner_task\(/i);
     assert.match(migration, /security invoker/i);
