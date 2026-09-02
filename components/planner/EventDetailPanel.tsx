@@ -27,6 +27,9 @@ import { durationMinutes } from '@/lib/planner/layout';
 import {
     formatBlockDuration, parseDurationInput, taskBlockLogInput,
 } from '@/lib/planner/task-block-log';
+import {
+    backdatedStartFromTime, defaultBackdatedStartTime, formatBackdatedElapsed,
+} from '@/lib/timer/backdated-start';
 import { TASK_STATUS_LABELS, taskStatusLabel } from '@/lib/tasks/status-labels';
 import { TeamMember } from './MeetWithFilter';
 import { BasecampProjectPicker, type BasecampProject } from './BasecampProjectPicker';
@@ -48,8 +51,13 @@ interface EventDetailPanelProps {
     onChanged: () => void;
     onDeleted: () => void;
     restoreFocusRef?: RefObject<HTMLElement | null>;
-    onTimerAction?: (action: PlannerTimerAction, item: PlannerItem) => void;
+    onTimerAction?: (
+        action: PlannerTimerAction,
+        item: PlannerItem,
+        options?: { startedAt?: string },
+    ) => void;
     canControlTimer?: boolean;
+    canStartEarlier?: boolean;
     onUnscheduleTask?: (taskId: string) => Promise<boolean>;
     onCreateTaskFromEvent?: (event: PlannerEvent) => void;
 }
@@ -57,7 +65,7 @@ interface EventDetailPanelProps {
 export function EventDetailPanel({
     item, members, organizationId, userId, recentProjects = [], onProjectUsed,
     onClose, onChanged, onDeleted, restoreFocusRef, onTimerAction,
-    canControlTimer = false, onUnscheduleTask, onCreateTaskFromEvent,
+    canControlTimer = false, canStartEarlier = true, onUnscheduleTask, onCreateTaskFromEvent,
 }: EventDetailPanelProps) {
     const dialogRef = useRef<HTMLElement>(null);
     const surface = usePlannerSurfaceBehavior('detail');
@@ -100,10 +108,46 @@ export function EventDetailPanel({
     const [isUnscheduling, setIsUnscheduling] = useState(false);
     const [unscheduleError, setUnscheduleError] = useState<string | null>(null);
     const [showEventActions, setShowEventActions] = useState(false);
+    const [showEarlierStart, setShowEarlierStart] = useState(false);
+    const [earlierStartTime, setEarlierStartTime] = useState('');
+    const [earlierStartPreview, setEarlierStartPreview] = useState<string | null>(null);
+    const [earlierStartError, setEarlierStartError] = useState<string | null>(null);
     const eventActionsRef = useRef<HTMLDivElement>(null);
     const eventActionsTriggerRef = useRef<HTMLButtonElement>(null);
     const eventActionsMenuRef = useRef<HTMLDivElement>(null);
     const completionOperationId = useRef<string | null>(null);
+
+    const openEarlierStart = () => {
+        if (!canStartEarlier) return;
+        const now = new Date();
+        const defaultTime = defaultBackdatedStartTime(now);
+        const result = backdatedStartFromTime(defaultTime, now);
+        setEarlierStartTime(defaultTime);
+        setEarlierStartPreview('elapsedMinutes' in result
+            ? formatBackdatedElapsed(result.elapsedMinutes)
+            : null);
+        setEarlierStartError('error' in result ? result.error : null);
+        setShowEarlierStart(true);
+    };
+
+    const updateEarlierStart = (value: string) => {
+        const result = backdatedStartFromTime(value, new Date());
+        setEarlierStartTime(value);
+        setEarlierStartPreview('elapsedMinutes' in result
+            ? formatBackdatedElapsed(result.elapsedMinutes)
+            : null);
+        setEarlierStartError('error' in result ? result.error : null);
+    };
+
+    const startEarlier = () => {
+        const result = backdatedStartFromTime(earlierStartTime, new Date());
+        if ('error' in result) {
+            setEarlierStartError(result.error);
+            setEarlierStartPreview(null);
+            return;
+        }
+        onTimerAction?.('start', item, { startedAt: result.startedAt });
+    };
 
     useEffect(() => {
         if (!showEventActions) return;
@@ -576,7 +620,92 @@ export function EventDetailPanel({
                     </dl>
                 )}
 
-                {timerActions.length > 0 && (
+                {timerActions.includes('start') ? (
+                    <div className="grid grid-cols-2 gap-2" aria-label="Timer controls">
+                        <button
+                            type="button"
+                            onPointerDown={e => e.stopPropagation()}
+                            onClick={e => {
+                                e.stopPropagation();
+                                onTimerAction?.('start', item);
+                            }}
+                            className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                            <Play className="h-3.5 w-3.5" />
+                            Start Now
+                        </button>
+                        <button
+                            type="button"
+                            disabled={!canStartEarlier}
+                            aria-expanded={showEarlierStart}
+                            aria-describedby={!canStartEarlier ? 'planner-earlier-start-unavailable' : undefined}
+                            title={canStartEarlier ? undefined : 'Pause or stop the current timer first.'}
+                            onPointerDown={e => e.stopPropagation()}
+                            onClick={e => {
+                                e.stopPropagation();
+                                openEarlierStart();
+                            }}
+                            className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                            <Clock className="h-3.5 w-3.5" />
+                            Started Earlier
+                        </button>
+
+                        {!canStartEarlier && (
+                            <p
+                                id="planner-earlier-start-unavailable"
+                                className="col-span-2 text-[11px] text-muted-foreground"
+                            >
+                                Pause or stop the current timer first.
+                            </p>
+                        )}
+
+                        {showEarlierStart && (
+                            <div className="col-span-2 space-y-3 rounded-xl border border-border bg-muted/30 p-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <label htmlFor="planner-earlier-start" className="text-xs font-medium">
+                                        Actual start time
+                                    </label>
+                                    {earlierStartPreview && (
+                                        <span className="text-[11px] text-primary" aria-live="polite">
+                                            {earlierStartPreview}
+                                        </span>
+                                    )}
+                                </div>
+                                <input
+                                    id="planner-earlier-start"
+                                    type="time"
+                                    value={earlierStartTime}
+                                    onInput={event => updateEarlierStart(event.currentTarget.value)}
+                                    aria-describedby={earlierStartError ? 'planner-earlier-start-error' : undefined}
+                                    className="min-h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                />
+                                {earlierStartError && (
+                                    <p id="planner-earlier-start-error" role="alert" className="text-[11px] text-destructive">
+                                        {earlierStartError}
+                                    </p>
+                                )}
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowEarlierStart(false)}
+                                        className="min-h-11 rounded-lg border border-border bg-background px-3 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={Boolean(earlierStartError)}
+                                        onClick={startEarlier}
+                                        className="min-h-11 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-45"
+                                    >
+                                        Start timer
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                ) : timerActions.length > 0 ? (
                     <div className="flex flex-wrap gap-2" aria-label="Timer controls">
                         {timerActions.map(action => {
                             const Icon = action === 'pause' ? Pause : action === 'stop' ? Square : Play;
@@ -604,7 +733,7 @@ export function EventDetailPanel({
                             );
                         })}
                     </div>
-                )}
+                ) : null}
 
                 {task && (
                     <div className="rounded-lg border border-border p-3">

@@ -68,7 +68,9 @@ test('start accepts intent only and delegates tenant resolution to start_task_ti
         action: 'start',
         taskId: 'task-1',
         now: '2026-08-20T20:00:00.000Z',
+        timeZone: 'America/Los_Angeles',
     }), dependencies({
+        now: () => new Date('2026-08-20T20:30:00.000Z'),
         mutateRpc: async (name, args) => {
             calls.push([name, args]);
         },
@@ -87,6 +89,40 @@ test('start accepts intent only and delegates tenant resolution to start_task_ti
         clientId: 'client-attacker',
     }), dependencies());
     assert.equal(spoofed.status, 400);
+});
+
+test('backdated start rejects current, future, and prior-local-day timestamps before RPC', async () => {
+    const clock = new Date('2026-09-03T06:30:45.000Z'); // Sep 2, 11:30:45 PM PDT
+    for (const now of [
+        '2026-09-03T06:30:00.000Z',
+        '2026-09-03T06:45:00.000Z',
+        '2026-09-02T06:00:00.000Z',
+    ]) {
+        let mutated = false;
+        const response = await handleTimerMutation(request({
+            action: 'start',
+            taskId: 'task-1',
+            now,
+            timeZone: 'America/Los_Angeles',
+        }), dependencies({
+            now: () => clock,
+            mutateRpc: async () => { mutated = true; },
+        }));
+
+        assert.equal(response.status, 400, now);
+        assert.equal(mutated, false, now);
+    }
+});
+
+test('backdated start requires a valid timezone whenever an explicit instant is supplied', async () => {
+    for (const input of [
+        { action: 'start', taskId: 'task-1', now: '2026-09-03T06:00:00.000Z' },
+        { action: 'start', taskId: 'task-1', now: '2026-09-03T06:00:00.000Z', timeZone: 'Mars/Olympus' },
+        { action: 'start', taskId: 'task-1', timeZone: 'America/Los_Angeles' },
+    ]) {
+        const response = await handleTimerMutation(request(input), dependencies());
+        assert.equal(response.status, 400);
+    }
 });
 
 test('maps an inaccessible time log RPC rejection to 403', async () => {

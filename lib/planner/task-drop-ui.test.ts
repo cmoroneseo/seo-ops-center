@@ -80,6 +80,49 @@ test('a scheduled task offers a non-destructive Remove from calendar action', ()
     assert.doesNotMatch(html, />Delete task</);
 });
 
+test('a controllable task offers equal-width Start Now and Started Earlier actions', () => {
+    const scheduled = task();
+    const item = taskToItem(scheduled);
+    assert.ok(item);
+    const html = renderToStaticMarkup(createElement(EventDetailPanel, {
+        item,
+        members: [],
+        organizationId: 'org-1',
+        userId: 'user-1',
+        onClose: () => undefined,
+        onChanged: () => undefined,
+        onDeleted: () => undefined,
+        onTimerAction: () => undefined,
+        canControlTimer: true,
+    } as Parameters<typeof EventDetailPanel>[0]));
+
+    assert.match(html, /class="grid grid-cols-2 gap-2" aria-label="Timer controls"/);
+    assert.match(html, />Start Now</);
+    assert.match(html, />Started Earlier</);
+    assert.doesNotMatch(html, />Start Timer</);
+});
+
+test('Started Earlier explains why it is unavailable while another timer runs', () => {
+    const scheduled = task();
+    const item = taskToItem(scheduled);
+    assert.ok(item);
+    const html = renderToStaticMarkup(createElement(EventDetailPanel, {
+        item,
+        members: [],
+        organizationId: 'org-1',
+        userId: 'user-1',
+        onClose: () => undefined,
+        onChanged: () => undefined,
+        onDeleted: () => undefined,
+        onTimerAction: () => undefined,
+        canControlTimer: true,
+        canStartEarlier: false,
+    } as Parameters<typeof EventDetailPanel>[0]));
+
+    assert.match(html, /aria-describedby="planner-earlier-start-unavailable"/);
+    assert.match(html, /id="planner-earlier-start-unavailable"[^>]*>Pause or stop the current timer first\.</);
+});
+
 test('an unscheduled task does not offer Remove from calendar', () => {
     const unscheduled = task({ startDate: undefined, scheduledMinutes: undefined });
     const html = renderToStaticMarkup(createElement(EventDetailPanel, {

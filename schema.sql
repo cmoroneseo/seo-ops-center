@@ -1494,6 +1494,36 @@ create index if not exists time_log_segments_attempt_idx
 create index if not exists time_log_segments_owner_idx
   on public.time_log_segments (organization_id, user_id, started_at);
 
+-- Backdated live timers are limited to the current local day by the API. This
+-- database guard prevents direct RPC calls from inserting a future or
+-- excessively old open segment.
+create or replace function public.guard_open_timer_segment_start()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+begin
+  if new.ended_at is null and new.started_at > clock_timestamp() then
+    raise exception 'open timer cannot start in the future' using errcode = '22023';
+  end if;
+
+  if new.ended_at is null
+     and new.started_at < clock_timestamp() - interval '24 hours' then
+    raise exception 'open timer cannot start more than 24 hours ago' using errcode = '22023';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.guard_open_timer_segment_start()
+  from public, anon, authenticated;
+
+drop trigger if exists guard_open_timer_segment_start on public.time_log_segments;
+create trigger guard_open_timer_segment_start
+  before insert or update of started_at, ended_at on public.time_log_segments
+  for each row execute function public.guard_open_timer_segment_start();
+
 alter table public.time_log_segments enable row level security;
 
 create policy "Org members can view time log segments"

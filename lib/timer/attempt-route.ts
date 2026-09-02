@@ -22,6 +22,8 @@ export interface AttemptRouteDeps {
     mutateRpc(name: string, args: Record<string, unknown>): Promise<unknown>;
     loadAttempts(userId: string): Promise<TimerStateResponse>;
     finalizeOwnedAttempt(input: FinalizeAttemptInput): Promise<FinalizeResult>;
+    /** Injectable wall clock for validating explicit backdated starts. */
+    now?(): Date;
     /** Must authorize a finalized, user-owned local log before provider work. */
     syncBasecamp(
         timeLogId: string,
@@ -106,7 +108,7 @@ export async function completeFinalizedTask(
 type JsonObject = Record<string, unknown>;
 
 const actionFields: Record<TimerMutationRequest['action'], readonly string[]> = {
-    start: ['action', 'taskId', 'now'],
+    start: ['action', 'taskId', 'now', 'timeZone'],
     pause: ['action', 'timeLogId', 'now'],
     resume: ['action', 'timeLogId', 'now'],
     switch: ['action', 'fromTimeLogId', 'toTimeLogId', 'toTaskId', 'now'],
@@ -142,6 +144,34 @@ function isOptionalInstant(value: unknown): value is string | undefined {
         || (isNonEmptyString(value) && Number.isFinite(Date.parse(value)));
 }
 
+function isValidTimeZone(value: unknown): value is string {
+    if (!isNonEmptyString(value)) return false;
+    try {
+        new Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date(0));
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function localDateKey(instant: Date, timeZone: string): string {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(instant);
+}
+
+function isAllowedBackdatedStart(startedAt: string, timeZone: string, now: Date): boolean {
+    const start = new Date(startedAt);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(now.getTime())) return false;
+    const currentMinute = new Date(now);
+    currentMinute.setSeconds(0, 0);
+    return start.getTime() < currentMinute.getTime()
+        && localDateKey(start, timeZone) === localDateKey(now, timeZone);
+}
+
 function hasOnlyFields(body: JsonObject, fields: readonly string[]): boolean {
     const allowed = new Set(fields);
     return Object.keys(body).every(key => allowed.has(key));
@@ -155,9 +185,19 @@ function parseTimerRequest(value: unknown): TimerMutationRequest | null {
     if (!hasOnlyFields(value, actionFields[action])) return null;
 
     if (action === 'start') {
-        return isNonEmptyString(value.taskId) && isOptionalInstant(value.now)
-            ? { action, taskId: value.taskId, ...(value.now ? { now: value.now } : {}) }
-            : null;
+        const hasExplicitInstant = value.now !== undefined;
+        const hasTimeZone = value.timeZone !== undefined;
+        if (
+            !isNonEmptyString(value.taskId)
+            || !isOptionalInstant(value.now)
+            || hasExplicitInstant !== hasTimeZone
+            || (hasTimeZone && !isValidTimeZone(value.timeZone))
+        ) return null;
+        return {
+            action,
+            taskId: value.taskId,
+            ...(value.now ? { now: value.now, timeZone: value.timeZone as string } : {}),
+        };
     }
     if (action === 'pause' || action === 'resume' || action === 'begin_stop') {
         return isNonEmptyString(value.timeLogId) && isOptionalInstant(value.now)
@@ -310,6 +350,18 @@ export async function handleTimerMutation(
     try {
         const user = await deps.getUser();
         if (!user) return json({ error: 'Unauthorized' }, 401);
+
+        if (
+            input.action === 'start'
+            && input.now
+            && (!input.timeZone || !isAllowedBackdatedStart(
+                input.now,
+                input.timeZone,
+                deps.now?.() ?? new Date(),
+            ))
+        ) {
+            return json({ error: 'Start time must be earlier today' }, 400);
+        }
 
         if (input.action === 'finalize') {
             const finalized = await deps.finalizeOwnedAttempt({

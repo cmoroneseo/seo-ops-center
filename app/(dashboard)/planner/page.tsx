@@ -470,6 +470,7 @@ export default function PlannerPage() {
     const handleTimerAction = useCallback(async (
         action: PlannerTimerAction,
         item: PlannerItem,
+        options?: { startedAt?: string },
     ) => {
         try {
             if (action === 'start') {
@@ -481,6 +482,7 @@ export default function PlannerPage() {
                     taskTitle: task.title,
                     clientId: task.clientId,
                     clientName: task.clientName ?? 'Internal work',
+                    startedAt: options?.startedAt,
                 });
                 if (changed) announceTimer(`Timer started for ${task.title}.`);
                 return;
@@ -631,6 +633,7 @@ export default function PlannerPage() {
                     restoreFocusRef={plannerSurfaceRef}
                     onTimerAction={handleTimerAction}
                     canControlTimer={canControlTimer(selectedItem)}
+                    canStartEarlier={!runningTimer}
                     onUnscheduleTask={taskId => handleUnschedule(taskId, 'backlog')}
                     onCreateTaskFromEvent={event => {
                         const clientName = clients.find(client => client.id === event.clientId)?.clientName;

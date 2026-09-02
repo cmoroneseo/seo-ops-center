@@ -5,6 +5,7 @@ import { useOrganization } from './organization-provider';
 import { getOpenTimerAttempts, mutateTimer, updateSessionNotes } from '@/lib/supabase/time-logs';
 import type { SessionNote, TimerAttempt } from '@/lib/types';
 import type { TimerMutationRequest, TimerStateResponse } from '@/lib/timer/contracts';
+import { startTimerMutation } from '@/lib/timer/backdated-start';
 import { updateTask } from '@/lib/supabase/tasks';
 import { trackedBlockMinutes } from '@/lib/planner/timer-sync';
 import {
@@ -27,6 +28,8 @@ export interface StartTaskOptions {
     taskTitle?: string;
     plannerEventId?: string;
     countsTowardBudget?: boolean;
+    /** Optional ISO instant for a timer that began earlier today. */
+    startedAt?: string;
 }
 
 export interface FinalizeTimerOptions {
@@ -158,9 +161,16 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     const startTask = useCallback(async (options: StartTaskOptions, confirmSwitch?: TimerSwitchConfirmation) => {
         if (!options.taskId) return false;
         if (runningTimer) {
+            if (options.startedAt) {
+                throw new Error('Pause or stop the current timer before starting from an earlier time.');
+            }
             return switchToTask({ taskId: options.taskId, title: options.taskTitle ?? options.clientName }, confirmSwitch);
         }
-        await mutate({ action: 'start', taskId: options.taskId });
+        await mutate(startTimerMutation(
+            options.taskId,
+            options.startedAt,
+            Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        ));
         return true;
     }, [mutate, runningTimer, switchToTask]);
 
