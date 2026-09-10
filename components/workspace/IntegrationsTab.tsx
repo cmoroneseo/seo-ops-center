@@ -723,7 +723,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
 
             <div className="rounded-xl border border-border/30 bg-muted/20 p-4 text-xs text-muted-foreground space-y-1">
                 <p className="font-medium text-foreground/60">How it works</p>
-                <p>GA4 + GSC share a single Google login — click once to authorize both. GBP requires a separate Google authorization. Ahrefs uses a single API key across all clients — enter it once per client or set a global key in org settings (coming soon).</p>
+                <p>Connect GA4, Search Console, and Google Business Profile separately. Choose one primary Search Console property per client; reconnecting one service preserves the others. Ahrefs uses a single API key across all clients — enter it once per client or set a global key in org settings (coming soon).</p>
                 <p>Data syncs nightly. You can trigger a manual sync from the Analytics page once connected.</p>
             </div>
 
