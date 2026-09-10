@@ -35,7 +35,12 @@ interface WeekGridProps {
     onTimerAction?: (action: PlannerTimerAction, item: PlannerItem) => void;
     canControlTimer?: (item: PlannerItem) => boolean;
     onCommit?: (commit: DragCommit) => void | Promise<void>;
-    onCreate?: (dayIndex: number, startMin: number, endMin: number) => void;
+    onCreate?: (
+        dayIndex: number,
+        startMin: number,
+        endMin: number,
+        releasedAt: { x: number; y: number },
+    ) => void;
     onUnschedule?: (itemId: string, target: PlannerTaskDropTarget) => void | Promise<unknown>;
     onDropTargetChange?: (target: PlannerTaskDropTarget | null) => void;
     /**

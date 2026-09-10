@@ -13,6 +13,7 @@ import {
     plannerGridAccessibility,
     plannerTimerActionPlacement,
     plannerSurfaceBehavior,
+    quickCreateAnchor,
     quickCreateTypeButtonProps,
     resolveMonthAgendaDay,
     selectPlannerFocusTarget,
@@ -72,6 +73,36 @@ test('overlay anchors stay inside narrow and desktop viewports', () => {
     assert.equal(clampOverlayAnchor(-40, 320), 12);
     assert.equal(clampOverlayAnchor(300, 375), 23);
     assert.equal(clampOverlayAnchor(420, 1280), 420);
+});
+
+test('quick-create hangs from the release point while there is room below it', () => {
+    const at = quickCreateAnchor({ x: 500, y: 200 }, { width: 1440, height: 900 });
+    // Pinned by its top-left corner exactly where the drag ended, so the
+    // scale-in reads as growing out of the block that was just drawn.
+    assert.deepEqual(at, { x: 500, y: 200, from: 'top' });
+});
+
+test('quick-create flips above the release point instead of drifting off the fold', () => {
+    // 700 + 520 + 12 overruns a 900px viewport, but there is room going up.
+    const at = quickCreateAnchor({ x: 500, y: 700 }, { width: 1440, height: 900 });
+    assert.equal(at.from, 'bottom');
+    // Measured from the bottom edge, so the popover's bottom sits on the release
+    // point without anyone having to know its rendered height.
+    assert.equal(at.y, 200);
+    assert.equal(at.x, 500);
+});
+
+test('quick-create clamps rather than flipping when neither direction fits', () => {
+    const at = quickCreateAnchor({ x: 500, y: 300 }, { width: 1440, height: 600 });
+    assert.equal(at.from, 'top');
+    assert.equal(at.y, 68); // 600 - 520 - 12
+});
+
+test('quick-create keeps the popover on screen near the right and top edges', () => {
+    const at = quickCreateAnchor({ x: 1430, y: -50 }, { width: 1440, height: 900 });
+    assert.equal(at.x, 1088); // 1440 - 340 - 12
+    assert.equal(at.y, 12);
+    assert.equal(at.from, 'top');
 });
 
 test('priority button ordering moves one step and stops at list boundaries', () => {
