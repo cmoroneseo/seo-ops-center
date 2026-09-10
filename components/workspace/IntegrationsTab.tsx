@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CheckCircle2, AlertCircle, Unlink, ExternalLink, RefreshCw, Key, Settings2, ToggleLeft, ToggleRight, Download } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Unlink, ExternalLink, RefreshCw, Key, Settings2, X, ToggleLeft, ToggleRight, Download } from 'lucide-react';
 import { ClientIntegration, IntegrationService } from '@/lib/types';
+import { IntegrationGrid, IntegrationIcon, IntegrationCardId, IntegrationCardItem } from './IntegrationGrid';
 import { GscPropertySelector } from './GscPropertySelector';
 import { GscConnectionCard } from './GscConnectionCard';
 import { GooglePropertyPicker } from './GooglePropertyPicker';
@@ -105,6 +106,9 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
     const [showPropertyPicker, setShowPropertyPicker] = useState<'ga4-gsc' | 'gbp' | null>(null);
     const [showGscPicker, setShowGscPicker] = useState(false);
     const [toast, setToast] = useState('');
+    const [selectedService, setSelectedService] = useState<IntegrationCardId | null>(null);
+
+    useEffect(() => { setSelectedService(null); }, [clientId]);
 
     const orgId = organization?.id;
 
@@ -125,10 +129,13 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
             getClientIntegrations(clientId, orgId).then(setIntegrations).catch(() => {});
             // Both groups need a location/property picker before they're fully active
             if (success === 'gsc') {
+                setSelectedService('gsc');
                 setShowGscPicker(true);
             } else if (success === 'ga4-gsc' || success === 'ga4') {
+                setSelectedService('ga4');
                 setShowPropertyPicker('ga4-gsc');
             } else if (success === 'gbp') {
+                setSelectedService('gbp');
                 setShowPropertyPicker('gbp');
             }
             // Strip query param
@@ -354,12 +361,29 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
         }
     }
 
+    const cards: IntegrationCardItem[] = ['gsc', 'ga4', 'gbp', 'ahrefs'].map(service => {
+        const cfg = SERVICES.find(item => item.service === service)!;
+        const integration = getIntegration(cfg.service);
+        const attention = integration?.syncStatus === 'error' || isPendingSetup(cfg.service) || integration?.needsPropertySetup || (service === 'gsc' && integration?.syncStatus === 'active' && !integration.selectedProperty);
+        const connected = isConnected(cfg.service) && !attention;
+        return { id: service as IntegrationCardId, name: cfg.label, description: cfg.description,
+            tone: attention ? 'attention' : connected ? 'connected' : 'neutral',
+            status: integration?.syncStatus === 'error' ? 'Needs attention' : attention ? 'Complete setup' : connected ? 'Connected' : 'Click to set up' };
+    });
+    cards.push({ id: 'basecamp', name: 'Basecamp', description: 'Sync client tasks and time entries', tone: bcSyncEnabled && bcProjectId ? 'connected' : 'neutral', status: bcSyncEnabled && bcProjectId ? 'Sync enabled' : 'Click to set up' });
+
+    function closePanel() {
+        const current = selectedService;
+        setSelectedService(null);
+        if (current) document.getElementById(`integration-card-${current}`)?.focus();
+    }
+
     if (loading) {
         return <div className="text-sm text-muted-foreground p-4">Loading integrations...</div>;
     }
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-6">
             {showPropertyPicker && orgId && (
                 <GooglePropertyPicker
                     clientId={clientId}
@@ -386,8 +410,12 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                 </div>
             )}
 
+            <div><h2 className="text-xl font-semibold tracking-tight">Integrations</h2><p className="mt-1 text-sm text-muted-foreground">Connect your tools for {clientName || 'this client'}. Select a service to manage its settings.</p></div>
+            <div className="rounded-3xl border border-border/70 bg-muted/10 p-4 sm:p-6 space-y-6">
+            <IntegrationGrid items={cards} selected={selectedService} onSelect={id => setSelectedService(current => current === id ? null : id)} />
+            {selectedService && <div className="flex items-center justify-between gap-4"><h3 className="font-semibold">{cards.find(card => card.id === selectedService)?.name} settings</h3><button type="button" onClick={closePanel} aria-label="Close integration settings" className="rounded-lg p-2 text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary"><X className="h-5 w-5" /></button></div>}
             <div className="space-y-3">
-                <GscConnectionCard integration={getIntegration('gsc')} onSelect={() => setShowGscPicker(true)} onConnect={() => connectGoogle('gsc')} />
+                <div hidden={selectedService !== 'gsc'} id="integration-panel-gsc" role="region" aria-labelledby="integration-card-gsc"><GscConnectionCard integration={getIntegration('gsc')} onSelect={() => setShowGscPicker(true)} onConnect={() => connectGoogle('gsc')} /></div>
                 {SERVICES.filter(cfg => cfg.service !== 'gsc').map((cfg) => {
                     const integration = getIntegration(cfg.service);
                     const connected = isConnected(cfg.service);
@@ -402,8 +430,12 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                     return (
                         <div
                             key={cfg.service}
+                            hidden={selectedService !== cfg.service}
+                            id={`integration-panel-${cfg.service}`}
+                            role="region" aria-labelledby={`integration-card-${cfg.service}`}
                             className={cn(
-                                'flex flex-wrap items-start justify-between rounded-xl border p-4 gap-4',
+                                'flex flex-wrap items-start justify-between rounded-2xl border p-5 gap-5 sm:p-6',
+                                selectedService !== cfg.service && 'hidden',
                                 (pendingSetup || needsPropertySetup) ? 'border-yellow-500/20 bg-yellow-500/5' :
                                 connected ? 'border-green-500/20 bg-green-500/5' :
                                 hasError ? 'border-red-500/20 bg-red-500/5' :
@@ -411,7 +443,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                             )}
                         >
                             <div className="flex items-start gap-3 min-w-0">
-                                <span className="text-xl mt-0.5">{cfg.icon}</span>
+                                <IntegrationIcon service={cfg.service as IntegrationCardId} />
                                 <div className="min-w-0">
                                     <div className="flex items-center gap-2 flex-wrap">
                                         <span className="font-medium text-sm">{cfg.label}</span>
@@ -453,7 +485,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                             </div>
 
                             {/* Action column */}
-                            <div className="shrink-0 flex flex-col items-end gap-2">
+                            <div className="flex flex-col items-start gap-2 max-w-full">
                                 {cfg.service === 'ahrefs' ? (
                                     connected ? (
                                         <button
@@ -489,7 +521,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                                         </div>
                                     )
                                 ) : (
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex flex-wrap items-center gap-2">
                                         {(connected || hasError || pendingSetup || needsPropertySetup) && (
                                             <button
                                                 onClick={() => disconnect(cfg.service)}
@@ -587,10 +619,10 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
             </div>
 
             {/* Basecamp Sync */}
-            <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
+            <div hidden={selectedService !== 'basecamp'} id="integration-panel-basecamp" role="region" aria-labelledby="integration-card-basecamp" className="rounded-2xl border border-border/50 bg-card p-5 sm:p-6 space-y-5">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <span className="text-xl">🏕️</span>
+                        <IntegrationIcon service="basecamp" />
                         <div>
                             <div className="flex items-center gap-2">
                                 <span className="font-medium text-sm">Basecamp</span>
@@ -719,6 +751,8 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                         </div>
                     </div>
                 )}
+            </div>
+
             </div>
 
             <div className="rounded-xl border border-border/30 bg-muted/20 p-4 text-xs text-muted-foreground space-y-1">
