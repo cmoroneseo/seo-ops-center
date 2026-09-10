@@ -13,7 +13,9 @@ import { localDateForInstant } from '@/lib/planner/local-date';
 import { resolveQuickCreateSave } from '@/lib/planner/quick-create-save';
 import { usePlannerDialogFocus } from './usePlannerDialogFocus';
 import { usePlannerSurfaceBehavior } from './usePlannerSurfaceBehavior';
-import { quickCreateTypeButtonProps } from '@/lib/planner/responsive';
+import {
+    quickCreateTypeButtonProps, type QuickCreateAnchor,
+} from '@/lib/planner/responsive';
 import {
     isNonWorkTab, quickCreateTitle, quickCreateClientId,
 } from '@/lib/planner/quick-create-kinds';
@@ -81,7 +83,7 @@ export interface FullTaskDraft {
 interface QuickCreatePopoverProps {
     organizationId: string;
     userId: string;
-    anchor: { x: number; y: number };
+    anchor: QuickCreateAnchor;
     draft: { startsAt: string; endsAt: string };
     clients: ClientProject[];
     members: TeamMember[];
@@ -404,19 +406,24 @@ export function QuickCreatePopover({
         )}
         <div
             ref={ref}
-            style={{ left: anchor.x, top: anchor.y }}
+            style={anchor.from === 'bottom'
+                ? { left: anchor.x, bottom: anchor.y }
+                : { left: anchor.x, top: anchor.y }}
             role={surface.role}
             aria-modal={surface.modal || undefined}
             aria-labelledby="quick-create-heading"
             tabIndex={-1}
             className={cn(
                 'fixed z-[70] w-[340px] rounded-xl border border-border bg-popover p-3 shadow-xl',
-                // The element is already positioned at the pointer, so its own
-                // top-left corner *is* the anchor — no measurement needed.
-                // Below lg it is a bottom sheet instead, so it rises from that
-                // edge rather than scaling from a corner it no longer has.
-                'origin-top-left transition-[opacity,translate,scale] duration-200 ease-out',
+                // Grow from the corner that is pinned to where the drag ended, so
+                // the entrance reads as coming out of the block just drawn. Which
+                // corner that is depends on whether the popover hangs down from
+                // the release point or flipped up above it.
+                // Below lg it is a bottom sheet with its own fixed position, so it
+                // rises from the bottom edge regardless of the anchor.
+                'transition-[opacity,translate,scale] duration-200 ease-out',
                 'motion-reduce:transition-opacity max-lg:origin-bottom',
+                anchor.from === 'bottom' ? 'origin-bottom-left' : 'origin-top-left',
                 entered
                     ? 'translate-y-0 scale-100 opacity-100'
                     : 'scale-[0.98] opacity-0 max-lg:translate-y-2 max-lg:scale-100',

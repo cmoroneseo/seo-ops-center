@@ -51,7 +51,7 @@ import {
 } from '@/lib/planner/preferences';
 import { localDateForInstant, parseLocalDate } from '@/lib/planner/local-date';
 import { buildMonthDays } from '@/lib/planner/month-range';
-import { clampOverlayAnchor } from '@/lib/planner/responsive';
+import { quickCreateAnchor, type QuickCreateAnchor } from '@/lib/planner/responsive';
 import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
 import { eventToTaskDraft, type EventTaskDraft } from '@/lib/planner/event-to-task';
 
@@ -83,7 +83,7 @@ export default function PlannerPage() {
     const [clockNow, setClockNow] = useState(() => Date.now());
     const [isLoading, setIsLoading] = useState(true);
     const [quickCreate, setQuickCreate] = useState<{
-        anchor: { x: number; y: number };
+        anchor: QuickCreateAnchor;
         startsAt: string;
         endsAt: string;
         // Mirrors the popover's selected tab so the block on the grid recolours.
@@ -381,7 +381,12 @@ export default function PlannerPage() {
         return true;
     }, [loadPriorities, loadWork, organization?.id, priorities, tasks, userId]);
 
-    const handleCreate = useCallback((dayIndex: number, startMin: number, endMin: number) => {
+    const handleCreate = useCallback((
+        dayIndex: number,
+        startMin: number,
+        endMin: number,
+        releasedAt: { x: number; y: number },
+    ) => {
         const day = days[dayIndex];
         if (!day) return;
         const at = (minutes: number) => {
@@ -391,10 +396,10 @@ export default function PlannerPage() {
             return d.toISOString();
         };
         setQuickCreate({
-            anchor: {
-                x: clampOverlayAnchor(window.innerWidth / 2, window.innerWidth),
-                y: clampOverlayAnchor(160, window.innerHeight, 520),
-            },
+            anchor: quickCreateAnchor(releasedAt, {
+                width: window.innerWidth,
+                height: window.innerHeight,
+            }),
             startsAt: at(startMin),
             endsAt: at(endMin),
             kind: 'event',

@@ -54,7 +54,17 @@ interface Options {
     days: Date[];
     startHour: number;
     onCommit: (commit: DragCommit) => void | Promise<void>;
-    onCreate?: (dayIndex: number, startMin: number, endMin: number) => void;
+    /**
+     * `releasedAt` is the viewport point the gesture ended on. The quick-create
+     * popover opens from it, so the surface grows out of the block you just drew
+     * rather than materialising somewhere else on screen.
+     */
+    onCreate?: (
+        dayIndex: number,
+        startMin: number,
+        endMin: number,
+        releasedAt: { x: number; y: number },
+    ) => void;
     /** A scheduled task dropped on an explicit rail target leaves the grid. */
     onUnschedule?: (itemId: string, target: PlannerTaskDropTarget) => void | Promise<unknown>;
     onDropTargetChange?: (target: PlannerTaskDropTarget | null) => void;
@@ -309,7 +319,10 @@ export function usePlannerDrag({
                 // A drag shorter than the snap increment reads as a click.
                 const span = Math.max(current.endMin - current.startMin, 0);
                 const endMin = span < MIN_EVENT_MINUTES ? current.startMin + 60 : current.endMin;
-                onCreate?.(current.dayIndex, current.startMin, clampMinutes(endMin));
+                onCreate?.(current.dayIndex, current.startMin, clampMinutes(endMin), {
+                    x: e.clientX,
+                    y: e.clientY,
+                });
                 return;
             }
 

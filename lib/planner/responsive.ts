@@ -34,6 +34,49 @@ export function clampOverlayAnchor(
     return Math.max(gutter, Math.min(preferredX, furthestSafeLeft));
 }
 
+export interface QuickCreateAnchor {
+    x: number;
+    /** CSS offset from the edge named by `from`, in px. */
+    y: number;
+    /** Which edge `y` is measured from — also which corner the popover grows out of. */
+    from: 'top' | 'bottom';
+}
+
+export const QUICK_CREATE_OVERLAY = { width: 340, height: 520 };
+
+/**
+ * Where the quick-create popover should sit for a gesture released at
+ * `releasedAt`, so that it grows out of the block that was just drawn.
+ *
+ * The popover is pinned by the corner nearest the release point, which is what
+ * makes its scale-in read as coming *from* that point. Below the fold there is
+ * no room to hang downwards, so it flips and hangs upwards from its bottom edge
+ * instead — pinning by `bottom` rather than `top` avoids having to measure a
+ * height that changes with the selected tab. A viewport too short for either
+ * direction falls back to a plain clamp; the entrance is then just an entrance.
+ */
+export function quickCreateAnchor(
+    releasedAt: { x: number; y: number },
+    viewport: { width: number; height: number },
+    overlay = QUICK_CREATE_OVERLAY,
+    gutter = 12,
+): QuickCreateAnchor {
+    const x = clampOverlayAnchor(releasedAt.x, viewport.width, overlay.width, gutter);
+    const fitsBelow = releasedAt.y + overlay.height + gutter <= viewport.height;
+    if (fitsBelow) {
+        return { x, y: Math.max(gutter, releasedAt.y), from: 'top' };
+    }
+    const fitsAbove = releasedAt.y - overlay.height - gutter >= 0;
+    if (fitsAbove) {
+        return { x, y: viewport.height - releasedAt.y, from: 'bottom' };
+    }
+    return {
+        x,
+        y: clampOverlayAnchor(releasedAt.y, viewport.height, overlay.height, gutter),
+        from: 'top',
+    };
+}
+
 export function movePriorityId(
     orderedIds: string[],
     id: string,
