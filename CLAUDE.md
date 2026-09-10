@@ -21,7 +21,9 @@ https://seo-ops-center.vercel.app
 ## Key files
 - `lib/types.ts` — all shared TypeScript interfaces
 - `lib/seo-ops-logic.ts` — pure business logic (onTrackStatus, proratedQuantity, fulfillmentStatus)
-- `lib/seo-ops-logic.test.ts` — unit tests (run: `node --test lib/*.test.ts` — NOT vitest; files use node:test)
+- `lib/seo-ops-logic.test.ts` — unit tests. **Run the whole suite with `npm test`** (→ `scripts/run-tests.mjs`). Files use `node:test`, NOT vitest.
+  - Do **not** reach for a bare `node --test lib/*.test.ts`. That glob matches only 9 of the 108 test files under `lib/` (it never descends into `lib/planner/`, `lib/timesheets/`, `lib/theme/`, …), and it cannot load the 6 test files that import `.tsx` components — Node's type stripping handles `.ts` but not JSX, so those die with `ERR_UNKNOWN_FILE_EXTENSION`. The runner passes `--import tsx`, which covers both JSX and the `@/*` path alias.
+  - A single leaf file is fine directly (`node --test lib/theme/palette.test.ts`) **as long as it imports no `.tsx`**. When in doubt use `npm test`.
 - `lib/supabase/client.ts` — Supabase client (SSR-safe)
 - `lib/supabase/deliverables.ts` — deliverables CRUD + row mapper
 - `lib/supabase/commitments.ts` — commitment CRUD + syncClientBlogCadence bridge
@@ -116,7 +118,7 @@ https://seo-ops-center.vercel.app
   - `planner_events` — org-readable / owner-writable (this is what makes the "Meet with" teammate filter possible), `visibility` `default`/`private`; `planner_priorities` — strictly personal
   - The grid overlays **three sources** normalized to one `PlannerItem` shape (`lib/planner/items.ts`): `planner_events`, tasks with a `start_date` (sized by `estimated_hours`, default 1h), and pending reminders as all-day chips
   - Dragging a backlog task writes `tasks.start_date` — no duplicate record, no sync problem
-  - `lib/planner/layout.ts` — pure geometry (interval-graph overlap packing, minute↔pixel, 15-min snap). Only planner module with tests: `node --test lib/planner/layout.test.ts` (15 tests)
+  - `lib/planner/layout.ts` — pure geometry (interval-graph overlap packing, minute↔pixel, 15-min snap). `node --test lib/planner/layout.test.ts` (37 tests). Most of `lib/planner/` is covered now, not just layout — `responsive`, `task-drop-ui` and `event-task-conversion-ui` among them render real components, so reach those through `npm test`
   - `lib/planner/use-planner-drag.ts` — ONE pointer-event hook, one `DragState` union for move/resize/create/schedule; optimistic commits that reload on failure. Hand-rolled, no dnd library
   - Day/Week/Month views; `Cmd+/` command bar (`Cmd+K` and `Cmd+Shift+T` stay with `TopNav`)
   - `components/tasks/TaskCalendarView.tsx` is deliberately untouched — the Tasks page month grid is separate code
