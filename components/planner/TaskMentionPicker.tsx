@@ -57,7 +57,9 @@ export function TaskMentionPicker({
             className={cn(
                 'absolute inset-x-0 top-full z-20 mt-1 origin-top overflow-hidden rounded-xl border border-border',
                 'bg-popover/95 shadow-xl backdrop-blur-xl',
-                'transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-opacity',
+                // Tailwind v4 emits `scale`/`translate` as their own properties,
+                // not as `transform` — naming transform here animated nothing.
+                'transition-[opacity,translate,scale] duration-200 ease-out motion-reduce:transition-opacity',
                 mounted ? 'scale-100 opacity-100' : 'scale-[0.98] opacity-0',
             )}
         >
