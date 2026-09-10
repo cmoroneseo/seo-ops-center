@@ -43,3 +43,10 @@ test('catalog returns current selection without token credentials', async () => 
     assert.equal(body.selectedSiteUrl, 'sc-domain:old.com');
     assert.equal(JSON.stringify(body).includes('secret'), false);
 });
+
+test('logo lookup failure never blocks the authorized property catalog', async () => {
+    const { handler } = setup({ branding: async () => { throw new Error('logo lookup unavailable'); } });
+    const response = await handler.GET(new Request('https://app.test/api?clientId=c'));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).sites[0].siteUrl, 'sc-domain:new.com');
+});

@@ -1,5 +1,6 @@
 'use client';
-import { Globe2, CheckCircle2, AlertCircle, Settings2, RefreshCw } from 'lucide-react';
+import Image from 'next/image';
+import { CheckCircle2, AlertCircle, Settings2, RefreshCw } from 'lucide-react';
 import { ClientIntegration } from '@/lib/types';
 import { describeProperty } from '@/lib/google/gsc-properties';
 
@@ -10,7 +11,7 @@ export function GscConnectionCard({ integration, onSelect, onConnect }: { integr
     const property = integration?.selectedProperty ? describeProperty(integration.selectedProperty) : null;
     return <section aria-label="Google Search Console connection" className="rounded-xl border bg-card p-5 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="flex gap-3"><div className="rounded-xl border bg-muted/40 p-2.5 h-fit"><Globe2 className="h-6 w-6 text-primary" /></div><div><h3 className="font-semibold">Google Search Console</h3><p className="text-sm text-muted-foreground mt-1">Connect the search property that represents this client.</p></div></div>
+            <div className="flex gap-3"><div className="rounded-xl border bg-white p-2.5 h-fit"><Image src="/integrations/google-search-console.png" width={28} height={28} alt="" /></div><div><h3 className="font-semibold">Google Search Console</h3><p className="text-sm text-muted-foreground mt-1">Connect the search property that represents this client.</p></div></div>
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">{configured ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> : <AlertCircle className="h-3.5 w-3.5" />}{configured ? 'Connected' : error ? 'Connection needs attention' : authorized ? 'Select or confirm property' : 'Not connected'}</span>
         </div>
         {property && <div className="rounded-lg border bg-muted/20 px-4 py-3"><p className="text-xs text-muted-foreground mb-1">Primary property · {property.type}</p><p className="text-sm font-medium break-all">{property.scope}</p></div>}
