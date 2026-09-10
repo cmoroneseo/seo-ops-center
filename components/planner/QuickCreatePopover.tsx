@@ -198,6 +198,15 @@ export function QuickCreatePopover({
         restoreFocusRef,
     });
 
+    // Grow from the point that was clicked rather than appearing fully formed.
+    // Same pattern as TaskMentionPicker: one rAF so the browser paints the
+    // pre-state before the class flips, otherwise there is nothing to interpolate.
+    const [entered, setEntered] = useState(false);
+    useEffect(() => {
+        const id = requestAnimationFrame(() => setEntered(true));
+        return () => cancelAnimationFrame(id);
+    }, []);
+
     const [clientId, setClientId] = useState('');
     const [assigneeId, setAssigneeId] = useState(userId);
     const [priority, setPriority] = useState<TaskPriority>('medium');
@@ -385,7 +394,10 @@ export function QuickCreatePopover({
         <>
         {surface.backdrop && (
             <div
-                className="fixed inset-0 z-[60] bg-black/35"
+                className={cn(
+                    'fixed inset-0 z-[60] bg-black/35 transition-opacity duration-200 ease-out',
+                    entered ? 'opacity-100' : 'opacity-0',
+                )}
                 onClick={() => requestClose('dismiss')}
                 aria-hidden="true"
             />
@@ -397,7 +409,19 @@ export function QuickCreatePopover({
             aria-modal={surface.modal || undefined}
             aria-labelledby="quick-create-heading"
             tabIndex={-1}
-            className="fixed z-[70] w-[340px] rounded-xl border border-border bg-popover p-3 shadow-xl max-lg:!inset-x-3 max-lg:!bottom-3 max-lg:!top-auto max-lg:!max-h-[calc(100dvh-1.5rem)] max-lg:!w-auto max-lg:overflow-y-auto"
+            className={cn(
+                'fixed z-[70] w-[340px] rounded-xl border border-border bg-popover p-3 shadow-xl',
+                // The element is already positioned at the pointer, so its own
+                // top-left corner *is* the anchor — no measurement needed.
+                // Below lg it is a bottom sheet instead, so it rises from that
+                // edge rather than scaling from a corner it no longer has.
+                'origin-top-left transition-[opacity,translate,scale] duration-200 ease-out',
+                'motion-reduce:transition-opacity max-lg:origin-bottom',
+                entered
+                    ? 'translate-y-0 scale-100 opacity-100'
+                    : 'scale-[0.98] opacity-0 max-lg:translate-y-2 max-lg:scale-100',
+                'max-lg:!inset-x-3 max-lg:!bottom-3 max-lg:!top-auto max-lg:!max-h-[calc(100dvh-1.5rem)] max-lg:!w-auto max-lg:overflow-y-auto',
+            )}
         >
             <h2 id="quick-create-heading" className="sr-only">Create planner item</h2>
             <div className="mb-3 flex items-center gap-1" role="group" aria-label="Item type">

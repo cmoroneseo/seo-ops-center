@@ -722,6 +722,10 @@ export function EventDetailPanel({
                                     }}
                                     className={cn(
                                         'flex min-h-11 flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                                        // Same press acknowledgement as the card-level
+                                        // timer buttons; 95% here because these are
+                                        // 44px targets, matching MobileNav.
+                                        'transition-transform duration-100 ease-out active:scale-95 motion-reduce:transition-none',
                                         action === 'start' || action === 'resume'
                                             ? 'bg-primary text-primary-foreground hover:bg-primary/90'
                                             : 'border border-border bg-background hover:bg-muted',

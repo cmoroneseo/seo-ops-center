@@ -193,7 +193,10 @@ export function EventCard({
                                     e.stopPropagation();
                                     onTimerAction?.(action, item);
                                 }}
-                                className="flex h-6 w-6 items-center justify-center rounded-md border border-black/10 bg-card/95 text-foreground shadow-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                // active:scale acknowledges the press before the
+                                // timer RPC returns. Deliberately fast — these get
+                                // hit many times a day and must not feel delayed.
+                                className="flex h-6 w-6 items-center justify-center rounded-md border border-black/10 bg-card/95 text-foreground shadow-sm transition-transform duration-100 ease-out hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active:scale-90 motion-reduce:transition-none"
                             >
                                 <Icon className="h-3 w-3" />
                             </button>
