@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { reconnectCredentials } from '@/lib/google/gsc-properties';
 import { upsertIntegration } from '@/lib/supabase/integrations';
 import { verifyGoogleOAuthState } from '@/lib/security/oauth-state';
 import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
@@ -77,18 +79,23 @@ export async function GET(req: NextRequest) {
         return redirectWithIntegrationError(origin, 'token_exchange', state.clientId);
     }
 
-    const services = state.group === 'ga4-gsc' ? ['ga4', 'gsc'] as const : ['gbp'] as const;
+    const services = state.group === 'ga4-gsc' ? ['ga4', 'gsc'] as const : state.group === 'ga4' ? ['ga4'] as const : state.group === 'gsc' ? ['gsc'] as const : ['gbp'] as const;
     const syncStatus = 'pending_setup';
 
+    const admin = createAdminClient();
     for (const service of services) {
-        await upsertIntegration({
+        const { data: previous, error: readError } = await admin.from('client_integrations').select('credentials')
+            .eq('client_id', authorization.clientId).eq('service', service).maybeSingle();
+        if (readError) return redirectWithIntegrationError(origin, 'configuration_read_failed', state.clientId);
+        const result = await upsertIntegration({
             organizationId: authorization.organizationId,
             clientId: authorization.clientId,
             service,
-            credentials: tokens,
+            credentials: reconnectCredentials(previous?.credentials ?? {}, tokens),
             connectedBy: authorization.userId,
             syncStatus,
         });
+        if (!result.success) return redirectWithIntegrationError(origin, 'configuration_save_failed', state.clientId);
     }
 
     return NextResponse.redirect(`${origin}/workspace/${authorization.clientId}?integrationSuccess=${state.group}`);

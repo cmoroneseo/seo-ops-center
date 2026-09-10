@@ -43,6 +43,11 @@ export default function ClientDetailPage() {
     const [showEditPanel, setShowEditPanel] = useState(false);
     const [activityRefreshKey, setActivityRefreshKey] = useState(0);
     const [activeTab, setActiveTab] = useState<Tab>('overview');
+
+    useEffect(() => {
+        const query = new URLSearchParams(window.location.search);
+        if (query.has('integrationSuccess') || query.has('integrationError')) setActiveTab('integrations');
+    }, [id]);
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
     const [loggedHours, setLoggedHours] = useState<number | undefined>(undefined);
     const [tasksLoading, setTasksLoading] = useState(false);
@@ -340,6 +345,8 @@ export default function ClientDetailPage() {
                     <IntegrationsTab
                         key={`${organization.id}:${client.id}`}
                         clientId={client.id}
+                        clientName={client.clientName}
+                        website={client.domain}
                     />
                 </Suspense>
             )}

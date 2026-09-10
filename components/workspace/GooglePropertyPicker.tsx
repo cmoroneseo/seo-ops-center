@@ -9,11 +9,6 @@ interface GA4Property {
     account: string;
 }
 
-interface GSCSite {
-    siteUrl: string;
-    permissionLevel: string;
-}
-
 interface GBPLocation {
     name: string;
     title: string;
@@ -78,10 +73,8 @@ export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCan
 
     // GA4 + GSC state
     const [ga4Properties, setGa4Properties] = useState<GA4Property[]>([]);
-    const [gscSites, setGscSites] = useState<GSCSite[]>([]);
     const [selectedGA4, setSelectedGA4] = useState('');
     const [selectedGA4Name, setSelectedGA4Name] = useState('');
-    const [selectedGSC, setSelectedGSC] = useState('');
 
     // GBP state
     const [gbpLocations, setGbpLocations] = useState<GBPLocation[]>([]);
@@ -95,12 +88,10 @@ export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCan
                 if (data.error) throw new Error(data.error);
                 if (group === 'ga4-gsc') {
                     setGa4Properties(data.ga4Properties ?? []);
-                    setGscSites(data.gscSites ?? []);
                     if (data.ga4Properties?.length === 1) {
                         setSelectedGA4(data.ga4Properties[0].id);
                         setSelectedGA4Name(data.ga4Properties[0].displayName);
                     }
-                    if (data.gscSites?.length === 1) setSelectedGSC(data.gscSites[0].siteUrl);
                 } else {
                     setGbpLocations(data.gbpLocations ?? []);
                     if (data.gbpLocations?.length === 1) {
@@ -115,7 +106,7 @@ export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCan
     }, [clientId, group]);
 
     const canSave = group === 'ga4-gsc'
-        ? Boolean(selectedGA4 && selectedGSC)
+        ? Boolean(selectedGA4)
         : Boolean(selectedGBP);
 
     async function handleSave() {
@@ -123,7 +114,7 @@ export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCan
         setSaving(true);
         try {
             const body = group === 'ga4-gsc'
-                ? { clientId, orgId, ga4PropertyId: selectedGA4, ga4DisplayName: selectedGA4Name, gscSiteUrl: selectedGSC }
+                ? { clientId, orgId, ga4PropertyId: selectedGA4, ga4DisplayName: selectedGA4Name }
                 : { clientId, orgId, gbpLocationName: selectedGBP, gbpTitle: selectedGBPMeta.title, gbpAddress: selectedGBPMeta.address };
 
             const res = await fetch('/api/integrations/google/configure', {
@@ -140,9 +131,9 @@ export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCan
         }
     }
 
-    const title = group === 'ga4-gsc' ? 'Select Google Properties' : 'Select Business Location';
+    const title = group === 'ga4-gsc' ? 'Select Analytics Property' : 'Select Business Location';
     const subtitle = group === 'ga4-gsc'
-        ? 'Choose which GA4 property and Search Console site belong to this client.'
+        ? 'Choose which Google Analytics property belongs to this client.'
         : 'Choose which Google Business Profile location belongs to this client.';
 
     return (
@@ -188,21 +179,7 @@ export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCan
                             />
                         </div>
 
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Search Console Site</label>
-                            <PickerList
-                                items={gscSites}
-                                selected={selectedGSC}
-                                onSelect={setSelectedGSC}
-                                getKey={(s) => s.siteUrl}
-                                renderItem={(s) => (
-                                    <>
-                                        <div className="font-medium text-foreground">{s.siteUrl}</div>
-                                        <div className="text-xs text-muted-foreground capitalize">{s.permissionLevel.replace('s', 'S')}</div>
-                                    </>
-                                )}
-                            />
-                        </div>
+                        <p className="text-xs text-muted-foreground">Select Search Console separately from its integration card.</p>
                     </div>
                 )}
 

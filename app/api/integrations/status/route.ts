@@ -24,6 +24,7 @@ function toSafeIntegration(row: any): ClientIntegration {
         lastSyncedAt: row.last_synced_at ?? undefined,
         syncStatus: row.sync_status,
         errorMessage: row.error_message ?? undefined,
+        selectedProperty: service === 'gsc' && row.sync_status !== 'disconnected' && typeof credentials.site_url === 'string' ? credentials.site_url : undefined,
         needsPropertySetup: propertyField
             ? row.sync_status === 'active' && !credentials[propertyField]
             : false,

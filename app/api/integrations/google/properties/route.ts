@@ -44,7 +44,7 @@ async function getAccessToken(admin: any, clientId: string, service: string) {
 /**
  * GET /api/integrations/google/properties?clientId=...&group=ga4-gsc|gbp
  *
- * ga4-gsc: returns { ga4Properties, gscSites }
+ * ga4-gsc: legacy group name; returns { ga4Properties } (GSC uses /google/gsc)
  * gbp:     returns { gbpLocations }
  */
 export async function GET(req: NextRequest) {
@@ -139,11 +139,9 @@ export async function GET(req: NextRequest) {
 
     const headers = { Authorization: `Bearer ${accessToken}` };
 
-    const [ga4Res, gscRes] = await Promise.all([
-        fetch('https://analyticsadmin.googleapis.com/v1beta/accountSummaries', { headers }),
-        fetch('https://www.googleapis.com/webmasters/v3/sites', { headers }),
-    ]);
-    const [ga4Data, gscData] = await Promise.all([ga4Res.json(), gscRes.json()]);
+    const ga4Res = await fetch('https://analyticsadmin.googleapis.com/v1beta/accountSummaries', { headers });
+    const ga4Data = await ga4Res.json();
+    if (!ga4Res.ok) return NextResponse.json({ error: 'Unable to list Analytics properties. Check Google access or reconnect.' }, { status: ga4Res.status === 401 || ga4Res.status === 403 ? ga4Res.status : 502 });
 
     const ga4Properties: { id: string; displayName: string; account: string }[] = [];
     for (const account of ga4Data.accountSummaries ?? []) {
@@ -156,11 +154,5 @@ export async function GET(req: NextRequest) {
         }
     }
 
-    const gscSites: { siteUrl: string; permissionLevel: string }[] =
-        (gscData.siteEntry ?? []).map((s: any) => ({
-            siteUrl: s.siteUrl,
-            permissionLevel: s.permissionLevel,
-        }));
-
-    return NextResponse.json({ ga4Properties, gscSites });
+    return NextResponse.json({ ga4Properties });
 }

@@ -8,13 +8,15 @@ const SCOPES: Record<string, string[]> = {
         'https://www.googleapis.com/auth/analytics.readonly',
         'https://www.googleapis.com/auth/webmasters.readonly',
     ],
+    'ga4': ['https://www.googleapis.com/auth/analytics.readonly'],
+    'gsc': ['https://www.googleapis.com/auth/webmasters.readonly'],
     'gbp': [
         'https://www.googleapis.com/auth/business.manage',
     ],
 };
 
 /**
- * GET /api/integrations/google/connect?clientId=...&orgId=...&group=ga4-gsc|gbp
+ * GET /api/integrations/google/connect?clientId=...&orgId=...&group=ga4|gsc|gbp|ga4-gsc
  *
  * Redirects the AM to Google's OAuth consent screen. The `group` param controls
  * which scopes are requested: 'ga4-gsc' covers GA4 + GSC in a single auth,
@@ -24,7 +26,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = req.nextUrl;
     const clientId = searchParams.get('clientId');
     const orgId = searchParams.get('orgId');
-    const group = searchParams.get('group') as 'ga4-gsc' | 'gbp' | null;
+    const group = searchParams.get('group') as 'ga4-gsc' | 'ga4' | 'gsc' | 'gbp' | null;
 
     if (!clientId || !orgId || !group || !SCOPES[group]) {
         return NextResponse.json({ error: 'Missing or invalid params' }, { status: 400 });
