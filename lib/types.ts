@@ -368,6 +368,8 @@ export interface ClientIntegration {
     errorMessage?: string;
     // True when tokens exist but the property/location hasn't been selected yet
     needsPropertySetup?: boolean;
+    /** Public resource identifier only; never an OAuth credential. */
+    selectedProperty?: string;
     // Ahrefs only — true when a Rank Tracker project ID is saved
     hasRankTrackerProjectId?: boolean;
 }

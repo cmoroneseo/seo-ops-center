@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle2, AlertCircle, Unlink, ExternalLink, RefreshCw, Key, Settings2, ToggleLeft, ToggleRight, Download } from 'lucide-react';
 import { ClientIntegration, IntegrationService } from '@/lib/types';
+import { GscPropertySelector } from './GscPropertySelector';
+import { GscConnectionCard } from './GscConnectionCard';
 import { GooglePropertyPicker } from './GooglePropertyPicker';
 import { BasecampImportModal } from './BasecampImportModal';
 import { useOrganization } from '@/components/providers/organization-provider';
@@ -16,6 +18,8 @@ import {
 
 interface Props {
     clientId: string;
+    clientName?: string;
+    website?: string;
 }
 
 interface ServiceConfig {
@@ -73,7 +77,7 @@ async function getClientIntegrations(clientId: string, orgId?: string): Promise<
     return Array.isArray(data.integrations) ? data.integrations : [];
 }
 
-export function IntegrationsTab({ clientId }: Props) {
+export function IntegrationsTab({ clientId, clientName, website }: Props) {
     const { organization } = useOrganization();
     const searchParams = useSearchParams();
     const router = useRouter();
@@ -99,6 +103,7 @@ export function IntegrationsTab({ clientId }: Props) {
     const [rankTrackerError, setRankTrackerError] = useState('');
     const [disconnecting, setDisconnecting] = useState<IntegrationService | null>(null);
     const [showPropertyPicker, setShowPropertyPicker] = useState<'ga4-gsc' | 'gbp' | null>(null);
+    const [showGscPicker, setShowGscPicker] = useState(false);
     const [toast, setToast] = useState('');
 
     const orgId = organization?.id;
@@ -119,7 +124,9 @@ export function IntegrationsTab({ clientId }: Props) {
             // Refresh integrations list
             getClientIntegrations(clientId, orgId).then(setIntegrations).catch(() => {});
             // Both groups need a location/property picker before they're fully active
-            if (success === 'ga4-gsc') {
+            if (success === 'gsc') {
+                setShowGscPicker(true);
+            } else if (success === 'ga4-gsc' || success === 'ga4') {
                 setShowPropertyPicker('ga4-gsc');
             } else if (success === 'gbp') {
                 setShowPropertyPicker('gbp');
@@ -156,9 +163,9 @@ export function IntegrationsTab({ clientId }: Props) {
         return (i?.syncStatus as string) === 'pending_setup';
     }
 
-    function connectGoogle(group: 'ga4-gsc' | 'gbp') {
+    function connectGoogle(group: 'ga4-gsc' | 'gsc' | 'gbp') {
         if (!orgId) return;
-        const url = `/api/integrations/google/connect?clientId=${clientId}&orgId=${orgId}&group=${group}`;
+        const url = `/api/integrations/google/connect?clientId=${clientId}&orgId=${orgId}&group=${group === 'ga4-gsc' ? 'ga4' : group}`;
         window.location.href = url;
     }
 
@@ -359,7 +366,7 @@ export function IntegrationsTab({ clientId }: Props) {
                     orgId={orgId}
                     group={showPropertyPicker}
                     onComplete={async () => {
-                        const label = showPropertyPicker === 'ga4-gsc' ? 'GA4 + GSC' : 'Google Business Profile';
+                        const label = showPropertyPicker === 'ga4-gsc' ? 'Google Analytics' : 'Google Business Profile';
                         setShowPropertyPicker(null);
                         setToast(`${label} connected successfully`);
                         const updated = await getClientIntegrations(clientId, orgId);
@@ -368,6 +375,9 @@ export function IntegrationsTab({ clientId }: Props) {
                     onCancel={() => setShowPropertyPicker(null)}
                 />
             )}
+            {showGscPicker && <GscPropertySelector key={clientId} clientId={clientId} clientName={clientName} website={website}
+                onClose={() => setShowGscPicker(false)} onReconnect={() => connectGoogle('gsc')}
+                onSaved={() => { setShowGscPicker(false); setToast('Search Console property saved'); getClientIntegrations(clientId, orgId).then(setIntegrations).catch(() => setToast('Property saved. Reload to refresh connection status.')); }} />}
             {/* Toast */}
             {toast && (
                 <div className="fixed bottom-6 right-6 z-50 bg-card border border-border rounded-lg px-4 py-3 text-sm shadow-lg flex items-center gap-2">
@@ -377,7 +387,8 @@ export function IntegrationsTab({ clientId }: Props) {
             )}
 
             <div className="space-y-3">
-                {SERVICES.map((cfg) => {
+                <GscConnectionCard integration={getIntegration('gsc')} onSelect={() => setShowGscPicker(true)} onConnect={() => connectGoogle('gsc')} />
+                {SERVICES.filter(cfg => cfg.service !== 'gsc').map((cfg) => {
                     const integration = getIntegration(cfg.service);
                     const connected = isConnected(cfg.service);
                     const pendingSetup = isPendingSetup(cfg.service);
@@ -387,8 +398,6 @@ export function IntegrationsTab({ clientId }: Props) {
                     // back to 'active' after a successful run) — an error status
                     // doesn't mean the key needs re-entering.
                     const hasCredentials = !!integration && integration.syncStatus !== 'disconnected';
-                    // GA4 and GSC share one connect button — show the button on GA4, hide on GSC
-                    const isGscShared = cfg.service === 'gsc';
 
                     return (
                         <div
@@ -406,9 +415,6 @@ export function IntegrationsTab({ clientId }: Props) {
                                 <div className="min-w-0">
                                     <div className="flex items-center gap-2 flex-wrap">
                                         <span className="font-medium text-sm">{cfg.label}</span>
-                                        {isGscShared && connected && (
-                                            <span className="text-xs text-muted-foreground">(shared with GA4 auth)</span>
-                                        )}
                                         {connected && !needsPropertySetup && (
                                             <span className="flex items-center gap-1 text-xs text-green-500">
                                                 <CheckCircle2 className="h-3 w-3" />
@@ -482,9 +488,6 @@ export function IntegrationsTab({ clientId }: Props) {
                                             </button>
                                         </div>
                                     )
-                                ) : isGscShared ? (
-                                    // GSC shares auth with GA4 — no separate button
-                                    null
                                 ) : (
                                     <div className="flex items-center gap-2">
                                         {(connected || hasError || pendingSetup || needsPropertySetup) && (
@@ -503,7 +506,7 @@ export function IntegrationsTab({ clientId }: Props) {
                                                 className="flex items-center gap-1.5 text-xs bg-yellow-500 text-white rounded-md px-2.5 py-1.5 hover:bg-yellow-500/90 transition-colors"
                                             >
                                                 <Settings2 className="h-3.5 w-3.5" />
-                                                Select Properties
+                                                Select Property
                                             </button>
                                         )}
                                         {(pendingSetup || needsPropertySetup) && cfg.service === 'gbp' && (
@@ -542,7 +545,7 @@ export function IntegrationsTab({ clientId }: Props) {
                                             ) : (
                                                 <>
                                                     <ExternalLink className="h-3.5 w-3.5" />
-                                                    {cfg.group === 'ga4-gsc' ? 'Connect GA4 + GSC' : 'Connect GBP'}
+                                                    {cfg.group === 'ga4-gsc' ? 'Connect GA4' : 'Connect GBP'}
                                                 </>
                                             )}
                                         </button>}

@@ -17,7 +17,7 @@ async function readJsonBody(req: NextRequest) {
  * Merges the selected property/location into stored credentials and
  * flips sync_status from 'pending_setup' -> 'active'.
  *
- * GA4+GSC body: { clientId, orgId?, ga4PropertyId, ga4DisplayName, gscSiteUrl }
+ * GA4 body: { clientId, orgId?, ga4PropertyId, ga4DisplayName }
  * GBP body:     { clientId, orgId?, gbpLocationName, gbpTitle, gbpAddress }
  */
 export async function POST(req: NextRequest) {
@@ -30,6 +30,10 @@ export async function POST(req: NextRequest) {
     const authorization = await requireClientIntegrationManager(clientId, orgId);
     if (!authorization.ok) {
         return NextResponse.json({ error: authorization.error }, { status: authorization.status });
+    }
+
+    if ('gscSiteUrl' in body) {
+        return NextResponse.json({ error: 'Use the Search Console property selector to validate and save this property.' }, { status: 400 });
     }
 
     const admin = createAdminClient();
@@ -66,38 +70,6 @@ export async function POST(req: NextRequest) {
                     display_name: (body as any).ga4DisplayName,
                     property_id: (body as any).ga4PropertyId,
                     ...(isReconfigure && { old_property_id: row.credentials.property_id }),
-                },
-            });
-        }
-    }
-
-    // GSC
-    if ((body as any).gscSiteUrl) {
-        const { data: row } = await admin
-            .from('client_integrations')
-            .select('credentials, sync_status')
-            .eq('client_id', authorization.clientId)
-            .eq('service', 'gsc')
-            .maybeSingle();
-
-        if (row) {
-            const isReconfigure = row.sync_status === 'active' && row.credentials?.site_url;
-            updates.push(
-                admin.from('client_integrations').update({
-                    credentials: { ...row.credentials, site_url: (body as any).gscSiteUrl },
-                    sync_status: 'active',
-                }).eq('client_id', authorization.clientId).eq('service', 'gsc'),
-            );
-            activityEvents.push({
-                organizationId: authorization.organizationId,
-                clientId: authorization.clientId,
-                eventType: isReconfigure ? 'integration.reconfigured' : 'integration.connected',
-                actorId: authorization.userId,
-                actorName: authorization.actorName,
-                metadata: {
-                    service: 'gsc',
-                    display_name: (body as any).gscSiteUrl,
-                    ...(isReconfigure && { old_display_name: row.credentials.site_url }),
                 },
             });
         }
@@ -145,10 +117,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Nothing to configure' }, { status: 400 });
     }
 
-    await Promise.all([
-        ...updates,
-        ...activityEvents.map(logClientActivity),
-    ]);
+    const results = await Promise.all(updates);
+    if (results.some(result => result.error)) {
+        return NextResponse.json({ error: 'Unable to save configuration. Please try again.' }, { status: 500 });
+    }
+    await Promise.all(activityEvents.map(logClientActivity));
 
     return NextResponse.json({ success: true });
 }
