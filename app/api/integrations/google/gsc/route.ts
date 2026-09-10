@@ -3,6 +3,7 @@ import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
 import { logClientActivity } from '@/lib/supabase/client-activity';
 import { createGscHandlers } from '@/lib/google/gsc-route';
 import { GscError, readGscSites } from '@/lib/google/gsc-properties';
+import { withPropertyLogos } from '@/lib/google/property-branding';
 
 const handlers = createGscHandlers({
     authorize: requireClientIntegrationManager,
@@ -35,6 +36,20 @@ const handlers = createGscHandlers({
         return { token: token as string, credentials };
     },
     catalog: readGscSites,
+    async branding(auth, sites) {
+        const admin = createAdminClient();
+        const { data: clients, error } = await admin.from('clients').select('id, domain, logo_url')
+            .eq('organization_id', auth.organizationId).not('logo_url', 'is', null);
+        if (error || !clients?.length) return sites;
+        // Read only the saved identifier, never other clients' OAuth credentials.
+        const { data: connections } = await admin.from('client_integrations').select('client_id, site_url:credentials->>site_url')
+            .eq('organization_id', auth.organizationId).eq('service', 'gsc').neq('sync_status', 'disconnected')
+            .in('client_id', clients.map(client => client.id));
+        const properties = new Map((connections ?? []).map(row => [row.client_id, row.site_url]));
+        return withPropertyLogos(sites, clients.map(client => ({
+            domain: client.domain, logoUrl: client.logo_url, savedProperty: properties.get(client.id),
+        })));
+    },
     async save(auth, site, credentials) {
         const changed = credentials.site_url !== site.siteUrl;
         const { error } = await createAdminClient().from('client_integrations').update({

@@ -6,6 +6,7 @@ export interface GscDependencies {
     authorize: (clientId: unknown) => Promise<Authorization>;
     load: (auth: Authorized) => Promise<{ token: string; credentials: Record<string, unknown> }>;
     catalog: (token: string) => Promise<GscSite[]>;
+    branding?: (auth: Authorized, sites: GscSite[]) => Promise<GscSite[]>;
     save: (auth: Authorized, site: GscSite, credentials: Record<string, unknown>) => Promise<void>;
     activity: (auth: Authorized, site: GscSite, previous: unknown) => Promise<void>;
 }
@@ -21,7 +22,9 @@ export function createGscHandlers(deps: GscDependencies) {
                 if (!auth.ok) return json({ error: auth.error }, auth.status);
                 const connection = await deps.load(auth);
                 const sites = await deps.catalog(connection.token);
-                return json({ sites, selectedSiteUrl: typeof connection.credentials.site_url === 'string' ? connection.credentials.site_url : null });
+                // Branding is optional: a logo lookup must never block property setup.
+                const brandedSites = deps.branding ? await deps.branding(auth, sites).catch(() => sites) : sites;
+                return json({ sites: brandedSites, selectedSiteUrl: typeof connection.credentials.site_url === 'string' ? connection.credentials.site_url : null });
             } catch (error) { return failure(error); }
         },
         async POST(request: Request) {

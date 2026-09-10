@@ -1,5 +1,5 @@
 /** Exact Google property identifiers are retained; display labels are never keys. */
-export interface GscSite { siteUrl: string; permissionLevel: string }
+export interface GscSite { siteUrl: string; permissionLevel: string; logoUrl?: string }
 
 export function describeProperty(scope: string) {
     const domain = scope.startsWith('sc-domain:');

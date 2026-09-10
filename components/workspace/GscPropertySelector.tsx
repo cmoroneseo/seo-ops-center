@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Check, Globe2, Link2, Loader2, RefreshCw, Search, AlertCircle } from 'lucide-react';
+import { Check, Globe2, Loader2, RefreshCw, Search, AlertCircle } from 'lucide-react';
+import { PropertyLogo } from './PropertyLogo';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { describeProperty, filterProperties, isClientMatch, permissionLabel, selectGscProperty, type GscSite } from '@/lib/google/gsc-properties';
 import { cn } from '@/lib/utils';
@@ -107,9 +108,8 @@ export function GscPropertySelector({ clientId, clientName, website, onClose, on
                                 {visible.map(site => {
                                     const info = describeProperty(site.siteUrl); const active = selected === site.siteUrl;
                                     const available = !!selectGscProperty([site], site.siteUrl);
-                                    const Icon = info.type === 'Domain property' ? Globe2 : Link2;
                                     return <label key={site.siteUrl} className={cn('relative flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition-colors hover:bg-muted/50 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring', active ? 'border-primary bg-primary/5' : 'border-border bg-card', !available && 'opacity-60 cursor-not-allowed')}>
-                                        <span className="rounded-lg border bg-background p-2 shrink-0"><Icon className="h-5 w-5 text-muted-foreground" /></span>
+                                        <PropertyLogo key={`${site.siteUrl}:${site.logoUrl ?? ''}`} siteUrl={site.siteUrl} logoUrl={site.logoUrl} />
                                         <span className="min-w-0 flex-1"><span className="block font-medium text-sm break-all">{info.label}</span><span className="block text-xs text-muted-foreground mt-0.5">{info.type} · {permissionLabel(site.permissionLevel)}</span><span className="block text-xs text-muted-foreground break-all mt-2">{site.siteUrl}</span><span className="flex flex-wrap gap-2 mt-2 text-xs">{current === site.siteUrl && <span className="text-primary">Currently selected</span>}{isClientMatch(site.siteUrl, website) && <span className="text-muted-foreground">Matches client domain</span>}</span></span>
                                         <input type="radio" name="gsc-property" aria-label={`${site.siteUrl}, ${info.type}`} checked={active} onChange={() => setSelected(site.siteUrl)} disabled={!available} className="mt-1 h-4 w-4 accent-current shrink-0" />
                                     </label>;
