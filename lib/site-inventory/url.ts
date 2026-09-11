@@ -34,7 +34,15 @@ export function normalizeSiteUrl(input: string) {
 }
 
 export function configuredSiteScope(input: string): SiteScope {
-    const candidate = /^[a-z][a-z\d+.-]*:/i.test(input.trim()) ? input.trim() : `https://${input.trim()}`;
+    const trimmed = input.trim();
+    const gscDomain = trimmed.toLowerCase().startsWith('sc-domain:')
+        ? trimmed.slice('sc-domain:'.length).trim()
+        : undefined;
+    if (gscDomain !== undefined && (!gscDomain || !/^[a-z\d.-]+$/i.test(gscDomain))) {
+        throw new Error('GSC domain property must contain only a host');
+    }
+    const site = gscDomain ?? trimmed;
+    const candidate = /^[a-z][a-z\d+.-]*:/i.test(site) ? site : `https://${site}`;
     const seedUrl = normalizeSiteUrl(candidate);
     const configuredHost = new URL(seedUrl).hostname.toLowerCase();
     const allowedHosts = configuredHost.startsWith('www.')
