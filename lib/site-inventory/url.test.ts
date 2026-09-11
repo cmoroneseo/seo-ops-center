@@ -33,6 +33,20 @@ test('configured domain produces a safe HTTPS seed', () => {
     assert.equal(configuredSiteScope('https://www.ecoworkz.net/services').seedUrl, 'https://www.ecoworkz.net/services');
 });
 
+test('a selected GSC domain property produces the same safe site scope', () => {
+    assert.deepEqual(configuredSiteScope('sc-domain:ecoworkz.net'), {
+        seedUrl: 'https://ecoworkz.net/',
+        configuredHost: 'ecoworkz.net',
+        allowedHosts: ['ecoworkz.net', 'www.ecoworkz.net'],
+    });
+});
+
+test('GSC domain properties cannot smuggle a path, credentials, or port into crawl scope', () => {
+    assert.throws(() => configuredSiteScope('sc-domain:ecoworkz.net/private'), /host/i);
+    assert.throws(() => configuredSiteScope('sc-domain:user@ecoworkz.net'), /host/i);
+    assert.throws(() => configuredSiteScope('sc-domain:ecoworkz.net:8080'), /host/i);
+});
+
 test('scope permits only the configured host and its apex/www counterpart', () => {
     const scope = configuredSiteScope('https://www.ecoworkz.net/');
     assert.equal(isUrlInSiteScope('https://www.ecoworkz.net/a', scope), true);

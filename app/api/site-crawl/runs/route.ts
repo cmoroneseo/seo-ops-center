@@ -17,9 +17,20 @@ export async function POST(request: Request) {
     const admin = createAdminClient();
     const { data: client, error } = await admin.from('clients').select('domain').eq('id', auth.clientId).eq('organization_id', auth.organizationId).single();
     if (error) return Response.json({ error: 'Unable to read client website' }, { status: 500 });
-    if (!client?.domain) return Response.json({ error: 'Add a client website before starting a crawl' }, { status: 400 });
+    let site = typeof client?.domain === 'string' && client.domain.trim() ? client.domain.trim() : undefined;
+    if (!site) {
+        const { data: connection, error: connectionError } = await admin.from('client_integrations')
+            .select('site_url:credentials->>site_url')
+            .eq('organization_id', auth.organizationId)
+            .eq('client_id', auth.clientId)
+            .eq('service', 'gsc')
+            .maybeSingle();
+        if (connectionError) return Response.json({ error: 'Unable to read selected GSC property' }, { status: 500 });
+        site = typeof connection?.site_url === 'string' && connection.site_url.trim() ? connection.site_url.trim() : undefined;
+    }
+    if (!site) return Response.json({ error: 'Add a client website or select a primary GSC property before starting a crawl' }, { status: 400 });
     try {
-        const run = await startSiteCrawl(admin, { ...auth, domain: client.domain, urlLimit });
+        const run = await startSiteCrawl(admin, { ...auth, domain: site, urlLimit });
         return Response.json({ run });
     } catch {
         console.error('[site-crawl] start failed');
