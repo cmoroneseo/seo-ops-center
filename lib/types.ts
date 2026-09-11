@@ -271,6 +271,76 @@ export interface Task {
     createdBy?: string;
 }
 
+export type SearchInvestigationKind = 'query_page' | 'page' | 'overlap';
+export type SearchEvidenceCategory =
+    | 'near_page_one'
+    | 'deeper_visibility'
+    | 'page_visibility'
+    | 'overlapping_urls';
+export type SearchInvestigationStatus = 'open' | 'dismissed' | 'task_created';
+export type SearchDismissalReason =
+    | 'not_relevant'
+    | 'branded_or_navigational'
+    | 'wrong_or_unsafe_url'
+    | 'already_addressed'
+    | 'insufficient_evidence'
+    | 'no_action_warranted'
+    | 'duplicate_investigation';
+
+export interface SearchInvestigationEvidenceSnapshot {
+    version: 1;
+    category: SearchEvidenceCategory;
+    property: string;
+    start: string;
+    end: string;
+    query?: string;
+    page?: string;
+    clicks: number;
+    impressions: number;
+    ctr: number;
+    position: number;
+    observedDays: number;
+    pages?: Array<{
+        page: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        position: number;
+        observedDays: number;
+    }>;
+    limitations: string[];
+}
+
+export interface SearchInvestigationStatusHistoryEntry {
+    version: 1;
+    status: SearchInvestigationStatus;
+    reason?: SearchDismissalReason;
+    note?: string;
+    event?: 'decision' | 'linked_task_deleted';
+    actorId?: string;
+    at: string;
+}
+
+export interface SearchInvestigation {
+    id: string;
+    organizationId: string;
+    clientId: string;
+    property: string;
+    kind: SearchInvestigationKind;
+    identityKey: string;
+    query?: string;
+    page?: string;
+    status: SearchInvestigationStatus;
+    taskId?: string;
+    linkedTask?: { id: string; title: string; status: TaskStatus };
+    dismissalReason?: SearchDismissalReason;
+    dismissalNote?: string;
+    evidenceSnapshot: SearchInvestigationEvidenceSnapshot;
+    statusHistory: SearchInvestigationStatusHistoryEntry[];
+    createdAt: string;
+    updatedAt: string;
+}
+
 export interface ClientProject {
     id: string;
     organizationId: string;
