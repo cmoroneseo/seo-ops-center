@@ -136,7 +136,31 @@ export type TaskInsert = {
     /** Display name of the creator — used in activity log entries. */
     actorName?: string;
     campaignPhaseId?: string;
+    /** Routes parent creation through the atomic Search Insights workflow. */
+    sourceInvestigationId?: string;
 };
+
+export function taskInsertToRpcPayload(t: TaskInsert): Record<string, unknown> {
+    return {
+        title: t.title,
+        ...(t.description !== undefined && { description: t.description }),
+        ...(t.assigneeIds !== undefined && { assigneeIds: t.assigneeIds }),
+        ...(t.watcherIds !== undefined && { watcherIds: t.watcherIds }),
+        ...(t.dueDate !== undefined && { dueDate: t.dueDate }),
+        ...(t.startDate !== undefined && { startDate: t.startDate }),
+        ...(t.priority !== undefined && { priority: t.priority }),
+        ...(t.status !== undefined && { status: t.status }),
+        ...(t.category !== undefined && { category: t.category }),
+        ...(t.tags !== undefined && { tags: t.tags }),
+        ...(t.estimatedHours !== undefined && { estimatedHours: t.estimatedHours }),
+        ...(t.scheduledMinutes !== undefined && { scheduledMinutes: t.scheduledMinutes }),
+        ...(t.deliverableId !== undefined && { deliverableId: t.deliverableId }),
+        ...(t.sortOrder !== undefined && { sortOrder: t.sortOrder }),
+        ...(t.templateId !== undefined && { templateId: t.templateId }),
+        ...(t.recurrence !== undefined && { recurrence: t.recurrence }),
+        ...(t.campaignPhaseId !== undefined && { campaignPhaseId: t.campaignPhaseId }),
+    };
+}
 
 function taskToRow(t: Partial<TaskInsert>) {
     return {
@@ -281,11 +305,24 @@ export async function createTask(
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
-        const row = {
-            ...taskToRow(t),
-            status_history: [{ status: t.status ?? 'todo', at: new Date().toISOString(), by: t.createdBy }],
-        };
-        const { data, error } = await supabase.from('tasks').insert([row]).select('*, clients(name)').single();
+        let data: any;
+        let error: any;
+        if (t.sourceInvestigationId) {
+            const result = await supabase.rpc('create_task_from_search_investigation', {
+                p_investigation_id: t.sourceInvestigationId,
+                p_task: taskInsertToRpcPayload(t),
+            });
+            data = Array.isArray(result.data) ? result.data[0] : result.data;
+            error = result.error;
+        } else {
+            const row = {
+                ...taskToRow(t),
+                status_history: [{ status: t.status ?? 'todo', at: new Date().toISOString(), by: t.createdBy }],
+            };
+            const result = await supabase.from('tasks').insert([row]).select('*, clients(name)').single();
+            data = result.data;
+            error = result.error;
+        }
         if (error) throw error;
         const task = rowToTask(data);
 
@@ -294,9 +331,9 @@ export async function createTask(
             const now = new Date().toISOString();
             const { error: subtaskError } = await supabase.from('tasks').insert(
                 subtaskTitles.map((title, index) => ({
-                    organization_id: t.organizationId,
-                    project_id: t.projectId,
-                    client_id: t.clientId,
+                    organization_id: task.organizationId,
+                    project_id: task.projectId,
+                    client_id: task.clientId,
                     title,
                     description: null,
                     assignee_ids: [],
@@ -317,7 +354,7 @@ export async function createTask(
         if (t.assigneeIds && t.assigneeIds.length > 0) {
             t.assigneeIds.forEach((recipientId) => {
                 createNotification({
-                    organizationId: t.organizationId,
+                    organizationId: task.organizationId,
                     userId: recipientId,
                     type: 'task_assigned',
                     title: 'You were assigned a task',
@@ -333,7 +370,7 @@ export async function createTask(
         // Event conversion waits so it can distinguish "task saved" from
         // "Basecamp confirmed" without trusting caller-supplied project IDs.
         let basecampSync: ClientBasecampSyncResult | undefined;
-        if (t.syncToBasecamp && t.clientId && t.organizationId) {
+        if (t.syncToBasecamp && task.clientId && task.organizationId) {
             const push = requestTaskBasecampSync(task.id);
             if (t.waitForBasecampSync) {
                 basecampSync = await push;
@@ -348,7 +385,7 @@ export async function createTask(
 
         // Log task creation to the client activity feed (server derives actor/org).
         // Subtasks carry their parent so the feed reads "created subtask X in Y".
-        if (t.clientId) {
+        if (task.clientId) {
             let parentTitle: string | undefined;
             if (t.parentTaskId) {
                 const { data: parent } = await supabase
@@ -356,7 +393,7 @@ export async function createTask(
                 parentTitle = parent?.title ?? undefined;
             }
             logActivity({
-                clientId: t.clientId,
+                clientId: task.clientId,
                 eventType: 'task.created',
                 metadata: {
                     taskId: task.id,

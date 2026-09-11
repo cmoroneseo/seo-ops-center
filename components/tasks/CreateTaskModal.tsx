@@ -46,6 +46,9 @@ interface CreateTaskModalProps {
     defaultTitle?: string;
     /** Pre-fill notes when creating a task from another work item. */
     defaultDescription?: string;
+    defaultCategory?: TaskCategory;
+    defaultPriority?: TaskPriority;
+    defaultTags?: string[];
     defaultAssigneeIds?: string[];
     /** Pre-fill the scheduled block when opened from the planner grid */
     defaultStartDate?: string;
@@ -62,6 +65,8 @@ interface CreateTaskModalProps {
         startsAt: string;
         endsAt: string;
     };
+    /** Atomically links the created task to this Search Insights investigation. */
+    sourceInvestigationId?: string;
 }
 
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
@@ -76,6 +81,7 @@ const CATEGORY_OPTIONS: { value: TaskCategory; label: string }[] = [
     { value: 'technical', label: 'Technical SEO' },
     { value: 'local', label: 'Local SEO' },
     { value: 'links', label: 'Link Building' },
+    { value: 'strategy', label: 'Strategy' },
     { value: 'reporting', label: 'Reporting' },
     { value: 'admin', label: 'Admin' },
 ];
@@ -92,12 +98,16 @@ export function CreateTaskModal({
     defaultDueDate,
     defaultTitle,
     defaultDescription,
+    defaultCategory,
+    defaultPriority,
+    defaultTags,
     defaultAssigneeIds,
     defaultStartDate,
     defaultScheduledMinutes,
     templatePrefill,
     clients = EMPTY_CLIENT_OPTIONS,
     eventConversion,
+    sourceInvestigationId,
 }: CreateTaskModalProps) {
     const hasEventConversion = Boolean(eventConversion?.id);
     const [orgMembers, setOrgMembers] = useState<{ id: string; name: string }[]>([]);
@@ -162,8 +172,8 @@ export function CreateTaskModal({
             } else {
                 setTitle(defaultTitle ?? '');
                 setDescription(defaultDescription ?? '');
-                setPriority('medium');
-                setCategory('');
+                setPriority(defaultPriority ?? 'medium');
+                setCategory(defaultCategory ?? '');
                 setRecurrence(undefined);
             }
         }
@@ -172,8 +182,10 @@ export function CreateTaskModal({
         defaultAssigneeIds,
         defaultClientId,
         defaultClientName,
+        defaultCategory,
         defaultDescription,
         defaultDueDate,
+        defaultPriority,
         defaultTitle,
         hasEventConversion,
         templatePrefill,
@@ -283,6 +295,7 @@ export function CreateTaskModal({
             priority,
             status,
             category: category as TaskCategory || undefined,
+            tags: defaultTags,
             dueDate: dueDate || undefined,
             // Carried over when the planner hands a drafted time block to this modal.
             startDate: defaultStartDate || undefined,
@@ -293,6 +306,7 @@ export function CreateTaskModal({
             watcherIds: watcherIds.length > 0 ? watcherIds : undefined,
             subtaskTitles: subtaskTitles.length > 0 ? subtaskTitles : undefined,
             recurrence: recurrence || undefined,
+            sourceInvestigationId,
             syncToBasecamp: clientHasBasecamp ? syncToBasecamp : false,
             basecampTodolistId: (clientHasBasecamp && syncToBasecamp && bcTodolistId) ? bcTodolistId : undefined,
         };
