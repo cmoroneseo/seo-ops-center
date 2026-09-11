@@ -44,6 +44,20 @@ function comparableAddress(address: string) {
     return unscoped.startsWith('::ffff:') ? unscoped.slice(7) : unscoped;
 }
 
+export function createPinnedLookup(address: ResolvedAddress) {
+    return (
+        _hostname: string,
+        lookupOptions: { all?: boolean },
+        callback: (...args: unknown[]) => void,
+    ) => {
+        if (lookupOptions?.all) {
+            callback(null, [{ address: address.address, family: address.family }]);
+            return;
+        }
+        callback(null, address.address, address.family);
+    };
+}
+
 async function nodeRequest(
     url: URL,
     address: ResolvedAddress,
@@ -64,9 +78,7 @@ async function nodeRequest(
                 'accept-encoding': 'identity',
                 'user-agent': options.userAgent,
             },
-            lookup: ((_hostname: string, _lookupOptions: unknown, callback: (...args: unknown[]) => void) => {
-                callback(null, address.address, address.family);
-            }) as never,
+            lookup: createPinnedLookup(address) as never,
             ...(url.protocol === 'https:' ? { servername: url.hostname } : {}),
         }, response => {
             const remoteAddress = response.socket.remoteAddress ?? '';
