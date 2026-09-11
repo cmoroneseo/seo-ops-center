@@ -5,6 +5,7 @@ import { authorizeSyncRequest, SyncRequestError } from '@/lib/sync/request';
 import { markIntegrationSynced } from '@/lib/sync/token';
 import { fetchGA4 } from '@/lib/sync/fetchGA4';
 import { fetchGSC } from '@/lib/sync/fetchGSC';
+import { syncGscHistory } from '@/lib/supabase/gsc-history';
 import { fetchGBP } from '@/lib/sync/fetchGBP';
 import { fetchAhrefs } from '@/lib/sync/fetchAhrefs';
 import { upsertMetric } from '@/lib/sync/upsertMetric';
@@ -109,6 +110,10 @@ export async function POST(req: NextRequest) {
                     await markIntegrationSynced(client.id, 'gsc');
                     clientSourcesUpdated++;
                     sourcesUpdated++;
+                    // Enable only after migration 049. Manual report sync keeps its original scope.
+                    if (process.env.GSC_HISTORY_ENABLED === 'true' && !scope.organizationId) {
+                        await syncGscHistory(org.id, client.id);
+                    }
                 }
             } catch (e: any) {
                 clientErrors.push(`gsc: ${e.message}`);
