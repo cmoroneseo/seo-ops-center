@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { safeSiteFetch, type SafeFetchDependencies } from './safe-fetch.ts';
+import { createPinnedLookup, safeSiteFetch, type SafeFetchDependencies } from './safe-fetch.ts';
 import { configuredSiteScope } from './url.ts';
 
 function dependencies(responses: Array<{
@@ -27,6 +27,15 @@ function dependencies(responses: Array<{
     };
     return { deps, requests };
 }
+
+test('pinned DNS lookup supports the Node 24 all-address callback shape', () => {
+    const lookup = createPinnedLookup({ address: '8.8.8.8', family: 4 });
+    let result: unknown;
+    lookup('example.com', { all: true }, (...args: unknown[]) => { result = args; });
+    assert.deepEqual(result, [null, [{ address: '8.8.8.8', family: 4 }]]);
+    lookup('example.com', { all: false }, (...args: unknown[]) => { result = args; });
+    assert.deepEqual(result, [null, '8.8.8.8', 4]);
+});
 
 test('pins the request to a DNS-vetted public address', async () => {
     const { deps, requests } = dependencies();
