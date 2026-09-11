@@ -217,8 +217,8 @@ export function SearchInsightsTab({ organizationId, clientId, clientName, onConn
             }
             replaceDecision(result.data);
             return result.data;
-        } catch (reason) {
-            console.error('Unable to prepare investigation evidence:', reason);
+        } catch {
+            console.error('Unable to prepare investigation evidence.');
             setItemErrors(current => ({ ...current, [key]: 'Unable to save this investigation decision.' }));
             return undefined;
         } finally {

@@ -100,8 +100,8 @@ export async function getSearchInvestigations(
             success: true,
             data: ((data ?? []) as SearchInvestigationRow[]).map(rowToSearchInvestigation),
         };
-    } catch (error) {
-        console.error('Error fetching search investigations:', error);
+    } catch {
+        console.error('Unable to fetch search investigations.');
         return { success: false, data: [], error: 'Unable to load investigation decisions.' };
     }
 }
@@ -129,8 +129,8 @@ export async function setSearchInvestigationDecision(
         if (error) throw error;
         if (!data) throw new Error('Decision RPC returned no investigation.');
         return { success: true, data: rowToSearchInvestigation(data as SearchInvestigationRow) };
-    } catch (error) {
-        console.error('Error saving search investigation decision:', error);
+    } catch {
+        console.error('Unable to save a search investigation decision.');
         return { success: false, data: undefined, error: 'Unable to save this investigation decision.' };
     }
 }
