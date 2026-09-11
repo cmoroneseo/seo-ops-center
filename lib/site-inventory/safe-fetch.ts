@@ -61,6 +61,7 @@ async function nodeRequest(
             method: 'GET',
             headers: {
                 accept: 'text/html,application/xhtml+xml,application/xml,text/xml,text/plain;q=0.9,*/*;q=0.1',
+                'accept-encoding': 'identity',
                 'user-agent': options.userAgent,
             },
             lookup: ((_hostname: string, _lookupOptions: unknown, callback: (...args: unknown[]) => void) => {
@@ -127,6 +128,7 @@ export async function safeSiteFetch(
     const requestedUrl = normalizeSiteUrl(input);
     let current = requestedUrl;
     const redirects: string[] = [];
+    const deadline = Date.now() + settings.timeoutMs;
 
     for (;;) {
         if (!isUrlInSiteScope(current, scope)) throw new Error('URL is outside the configured site scope');
@@ -134,7 +136,9 @@ export async function safeSiteFetch(
         const addresses = await dependencies.resolve(url.hostname);
         assertPublicAddress(addresses.map(item => item.address));
         const selected = addresses[0];
-        const response = await dependencies.request(url, selected, settings);
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) throw new Error('Request timed out');
+        const response = await dependencies.request(url, selected, { ...settings, timeoutMs: remainingMs });
         if (!isPublicAddress(response.remoteAddress) || comparableAddress(response.remoteAddress) !== comparableAddress(selected.address)) {
             throw new Error('Connected remote address did not match the vetted public address');
         }

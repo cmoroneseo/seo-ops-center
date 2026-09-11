@@ -50,6 +50,8 @@ create table public.site_crawl_runs (
   robots_url text check (robots_url is null or length(robots_url) <= 8192),
   robots_fetched_at timestamptz,
   robots_status integer,
+  robots_rules jsonb check (robots_rules is null or (jsonb_typeof(robots_rules) = 'object' and pg_column_size(robots_rules) <= 262144)),
+  sitemap_count integer not null default 0 check (sitemap_count between 0 and 50),
   started_at timestamptz,
   completed_at timestamptz,
   created_by uuid references public.users(id) on delete set null,
@@ -181,6 +183,66 @@ $$;
 create trigger site_page_snapshots_immutable before update or delete on public.site_page_snapshots
   for each row execute function public.guard_site_page_snapshot_immutable();
 
+create or replace function public.ensure_site_page_url(
+  p_organization_id uuid, p_client_id uuid, p_raw_url text, p_normalized_url text,
+  p_sources text[], p_is_primary boolean default true
+)
+returns public.site_page_urls
+language plpgsql security invoker set search_path = pg_catalog, public as $$
+declare v_url public.site_page_urls%rowtype; v_page_id uuid;
+begin
+  if length(p_raw_url) not between 1 and 8192 or length(p_normalized_url) not between 1 and 8192 then
+    raise exception 'Invalid site page URL';
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_client_id::text || chr(31) || p_normalized_url, 0));
+  select * into v_url from public.site_page_urls
+  where organization_id = p_organization_id and client_id = p_client_id and normalized_url = p_normalized_url
+  for update;
+  if found then
+    update public.site_page_urls
+    set raw_url = p_raw_url,
+        discovery_sources = (select array_agg(distinct source order by source) from unnest(discovery_sources || p_sources) source),
+        last_observed_at = timezone('utc', now()), updated_at = timezone('utc', now())
+    where id = v_url.id returning * into v_url;
+    return v_url;
+  end if;
+  insert into public.site_pages(organization_id, client_id) values (p_organization_id, p_client_id) returning id into v_page_id;
+  insert into public.site_page_urls(organization_id, client_id, site_page_id, raw_url, normalized_url, discovery_sources, is_primary)
+  values (p_organization_id, p_client_id, v_page_id, p_raw_url, p_normalized_url, p_sources, p_is_primary)
+  returning * into v_url;
+  return v_url;
+end;
+$$;
+
+create or replace function public.enqueue_site_crawl_target(
+  p_run_id uuid, p_raw_url text, p_normalized_url text, p_sources text[], p_depth integer
+)
+returns boolean
+language plpgsql security invoker set search_path = pg_catalog, public as $$
+declare v_run public.site_crawl_runs%rowtype; v_existing uuid;
+begin
+  select * into v_run from public.site_crawl_runs where id = p_run_id for update;
+  if not found or v_run.status not in ('queued','running','paused') then raise exception 'Crawl run is not active'; end if;
+  if p_depth < 0 or p_depth > 50 then raise exception 'Invalid crawl depth'; end if;
+  select id into v_existing from public.site_crawl_targets where run_id = p_run_id and normalized_url = p_normalized_url for update;
+  if found then
+    update public.site_crawl_targets
+    set discovery_sources = (select array_agg(distinct source order by source) from unnest(discovery_sources || p_sources) source),
+        depth = least(depth, p_depth), updated_at = timezone('utc', now())
+    where id = v_existing;
+    return true;
+  end if;
+  if (select count(*) from public.site_crawl_targets where run_id = p_run_id) >= v_run.url_limit then
+    update public.site_crawl_runs set cap_reached = true, updated_at = timezone('utc', now()) where id = p_run_id;
+    return false;
+  end if;
+  insert into public.site_crawl_targets(organization_id, client_id, run_id, raw_url, normalized_url, discovery_sources, depth)
+  values (v_run.organization_id, v_run.client_id, p_run_id, p_raw_url, p_normalized_url, p_sources, p_depth);
+  update public.site_crawl_runs set discovered_count = discovered_count + 1, updated_at = timezone('utc', now()) where id = p_run_id;
+  return true;
+end;
+$$;
+
 create or replace function public.claim_site_crawl_targets(p_run_id uuid, p_lease_token uuid, p_limit integer default 5)
 returns setof public.site_crawl_targets
 language plpgsql security invoker set search_path = pg_catalog, public as $$
@@ -237,6 +299,10 @@ grant usage, select on sequence public.site_link_observations_id_seq to service_
 revoke all on function public.guard_site_inventory_client_scope() from public, anon, authenticated;
 revoke all on function public.guard_site_page_snapshot_immutable() from public, anon, authenticated;
 revoke all on function public.claim_site_crawl_targets(uuid, uuid, integer) from public, anon, authenticated;
+revoke all on function public.ensure_site_page_url(uuid, uuid, text, text, text[], boolean) from public, anon, authenticated;
+revoke all on function public.enqueue_site_crawl_target(uuid, text, text, text[], integer) from public, anon, authenticated;
 grant execute on function public.guard_site_inventory_client_scope() to service_role;
 grant execute on function public.guard_site_page_snapshot_immutable() to service_role;
 grant execute on function public.claim_site_crawl_targets(uuid, uuid, integer) to service_role;
+grant execute on function public.ensure_site_page_url(uuid, uuid, text, text, text[], boolean) to service_role;
+grant execute on function public.enqueue_site_crawl_target(uuid, text, text, text[], integer) to service_role;

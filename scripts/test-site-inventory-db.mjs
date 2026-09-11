@@ -43,6 +43,13 @@ assert.equal(secondClaim.length, 1);
 const page = (await db.query(`insert into public.site_pages(organization_id,client_id) values ($1,$2) returning *`, [org, client])).rows[0];
 const alias = (await db.query(`insert into public.site_page_urls(organization_id,client_id,site_page_id,raw_url,normalized_url,discovery_sources,is_primary)
 values ($1,$2,$3,'HTTPS://ECOWORKZ.NET/','https://ecoworkz.net/',array['seed'],true) returning *`, [org, client, page.id])).rows[0];
+const ensured = (await db.query(`select (public.ensure_site_page_url($1,$2,'https://ecoworkz.net/','https://ecoworkz.net/',array['gsc'],true)).*`, [org, client])).rows[0];
+assert.equal(ensured.id, alias.id);
+assert.deepEqual(ensured.discovery_sources, ['gsc', 'seed']);
+await assert.rejects(db.query(`select public.ensure_site_page_url($1,$2,'https://ecoworkz.net/','https://ecoworkz.net/',array['gsc'],true)`, [otherOrg, client]), /scope/i);
+assert.equal((await db.query('select count(*)::int as count from public.site_pages')).rows[0].count, 1);
+assert.equal((await db.query(`select public.enqueue_site_crawl_target($1,'https://ecoworkz.net/about','https://ecoworkz.net/about',array['gsc'],1) as accepted`, [run.id])).rows[0].accepted, true);
+assert.equal((await db.query('select count(*)::int as count from public.site_crawl_targets where run_id=$1', [run.id])).rows[0].count, 2);
 await assert.rejects(db.query(`insert into public.site_page_urls(organization_id,client_id,site_page_id,raw_url,normalized_url,discovery_sources)
 values ($1,$2,$3,'https://ecoworkz.net/#x','https://ecoworkz.net/',array['internal'])`, [org, client, page.id]), /unique/i);
 
