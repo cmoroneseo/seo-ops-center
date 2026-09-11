@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight, RefreshCw, Search, ShieldCheck } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { insightsRange, loadHistory, rankingCandidates, safePageUrl, summarizePerformance } from '@/lib/gsc/insights';
+import { filterRankingCandidates, insightsRange, loadHistory, loadSearchInsights, safePageUrl, summarizePerformance } from '@/lib/gsc/insights';
 import { historyDates } from '@/lib/gsc/history';
 
 type LoadedHistory = Awaited<ReturnType<typeof loadHistory>>;
+type LoadedInsights = Awaited<ReturnType<typeof loadSearchInsights>>;
 const number = new Intl.NumberFormat('en-US');
 const percent = (value: number | null) => value === null ? '—' : `${(value * 100).toFixed(2)}%`;
 
@@ -14,7 +15,7 @@ export function SearchInsightsTab({ clientId, clientName, onConnections }: { cli
     const [period, setPeriod] = useState<7 | 28>(28);
     const [revision, setRevision] = useState(0);
     const [property, setProperty] = useState<LoadedHistory | null>(null);
-    const [queries, setQueries] = useState<LoadedHistory | null>(null);
+    const [queries, setQueries] = useState<LoadedInsights | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [queryError, setQueryError] = useState('');
@@ -29,14 +30,14 @@ export function SearchInsightsTab({ clientId, clientName, onConnections }: { cli
         // Property totals stay useful even if query evidence cannot be loaded.
         Promise.all([
             loadHistory(clientId, range, 'property', controller.signal).then(data => { if (!controller.signal.aborted) setProperty(data); }).catch(reason => { if (!controller.signal.aborted) setError(reason.message); }),
-            loadHistory(clientId, range, 'query_page', controller.signal).then(data => { if (!controller.signal.aborted) setQueries(data); }).catch(reason => { if (!controller.signal.aborted) setQueryError(reason.message); }),
+            loadSearchInsights(clientId, range, controller.signal).then(data => { if (!controller.signal.aborted) setQueries(data); }).catch(reason => { if (!controller.signal.aborted) setQueryError(reason.message); }),
         ]).finally(() => { if (!controller.signal.aborted) setLoading(false); });
         return () => controller.abort();
     }, [clientId, period, revision]);
 
     const totals = useMemo(() => summarizePerformance(property?.rows ?? []), [property]);
-    const complete = !!property && !!queries && !property.missingDates.length && !queries.missingDates.length && !queries.truncated && !queries.days.some(day => day.queryLimited) && property.property === queries.property && JSON.stringify(property.days) === JSON.stringify(queries.days);
-    const candidates = useMemo(() => complete ? rankingCandidates(queries!.rows, clientName) : [], [complete, queries, clientName]);
+    const complete = !!property && !!queries && !property.missingDates.length && !queries.missingDates.length && !queries.days.some(day => day.queryLimited) && property.property === queries.property && JSON.stringify(property.days) === JSON.stringify(queries.days);
+    const candidates = useMemo(() => complete ? filterRankingCandidates(queries!.queryPageRollups, clientName) : [], [complete, queries, clientName]);
     const filtered = candidates.filter(item => `${item.query} ${item.page}`.toLowerCase().includes(filter.toLowerCase()));
     const chart = useMemo(() => {
         if (!property) return [];
