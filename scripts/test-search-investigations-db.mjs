@@ -65,6 +65,7 @@ create table public.tasks(
   recurrence jsonb,
   campaign_phase_id uuid,
   custom_fields jsonb not null default '{}'::jsonb,
+  status_history jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -217,6 +218,8 @@ const taskPayload = {
 const task = (await createTask(taskPayload)).rows[0];
 const retriedTask = (await createTask(taskPayload)).rows[0];
 assert.equal(retriedTask.id, task.id);
+assert.equal(task.status_history.length, 1);
+assert.equal(task.status_history[0].status, 'todo');
 assert.equal((await db.query('select count(*)::int as count from public.tasks where custom_fields->>\'search_investigation_id\'=$1', [opened.id])).rows[0].count, 1);
 assert.equal((await db.query('select status, task_id from public.search_investigations where id=$1::uuid', [opened.id])).rows[0].status, 'task_created');
 

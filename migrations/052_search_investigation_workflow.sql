@@ -457,7 +457,7 @@ begin
     organization_id, client_id, title, description, status, priority, category,
     tags, assignee_ids, watcher_ids, due_date, start_date, estimated_hours,
     scheduled_minutes, deliverable_id, sort_order, created_by, template_id,
-    recurrence, campaign_phase_id, custom_fields
+    recurrence, campaign_phase_id, custom_fields, status_history
   ) values (
     v_investigation.organization_id,
     v_investigation.client_id,
@@ -482,7 +482,12 @@ begin
     jsonb_build_object(
       'search_investigation_id', v_investigation.id,
       'search_investigation_source', 'gsc'
-    )
+    ),
+    jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+      'status', v_status,
+      'at', timezone('utc', now()),
+      'by', auth.uid()
+    )))
   )
   returning * into v_task;
 
