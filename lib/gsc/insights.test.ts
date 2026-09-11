@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { insightsRange, loadHistory, rankingCandidates, safePageUrl, summarizePerformance, type HistoryRow } from './insights';
+import { filterRankingCandidates, insightsRange, loadHistory, loadSearchInsights, parseSearchInsightsAggregate, rankingCandidates, safePageUrl, summarizePerformance, type Candidate, type HistoryRow } from './insights';
 const rows = (query = 'backyard putting green', page = 'https://example.com/service'): HistoryRow[] => [1, 2, 3].map(id => ({ id, dayId: String(id), query, page, clicks: 1, impressions: 50, position: 8 }));
 test('performance weights position by impressions and handles zero demand', () => {
     assert.deepEqual(summarizePerformance([]), { clicks: 0, impressions: 0, ctr: null, position: null });
@@ -39,4 +39,45 @@ test('loader marks bounded reads partial and rejects repeated rows', async () =>
     const result = await loadHistory('client', { start: '', end: '' }, 'query_page', new AbortController().signal, async () => Response.json({ property: 'same', days: [], rows: [{ ...rows()[0], id: ++calls }], nextOffset: calls * 500 }));
     assert.equal(calls, 40); assert.equal(result.truncated, true);
     await assert.rejects(loadHistory('client', { start: '', end: '' }, 'query_page', new AbortController().signal, async () => Response.json({ property: 'same', days: [], rows: [rows()[0]], nextOffset: 500 })), /changed/);
+});
+
+test('Search Insights loader gets the complete server aggregate in one request', async () => {
+    const urls: string[] = [];
+    const payload = {
+        property: 'sc-domain:example.com', start: '2026-09-01', end: '2026-09-07',
+        days: [], missingDates: [], propertyRows: [], queryPageRollups: [],
+        coverageNote: 'Observed top rows only.',
+    };
+    const result = await loadSearchInsights('client', { start: payload.start, end: payload.end }, new AbortController().signal, async url => {
+        urls.push(String(url));
+        return Response.json(payload);
+    });
+    assert.deepEqual(result, payload);
+    assert.deepEqual(urls, ['/api/integrations/google/gsc/insights?clientId=client&start=2026-09-01&end=2026-09-07']);
+});
+
+test('Search Insights loader preserves session and API failure states', async () => {
+    const signal = new AbortController().signal;
+    await assert.rejects(loadSearchInsights('client', { start: '', end: '' }, signal, async () => new Response('<html>login</html>')), /session has expired/);
+    await assert.rejects(loadSearchInsights('client', { start: '', end: '' }, signal, async () => Response.json({ error: 'Unable to aggregate evidence' }, { status: 500 })), /Unable to aggregate evidence/);
+});
+
+test('server rollups still receive client-specific brand and utility filtering', () => {
+    const candidate = (query: string, page: string, impressions: number): Candidate => ({ query, page, impressions, clicks: 1, position: 8, ctr: 0.01, observedDays: 3 });
+    const result = filterRankingCandidates([
+        candidate('patio contractor', 'https://example.com/patios', 120),
+        candidate('Eco Workz landscaping', 'https://example.com/', 400),
+        candidate('legal page', 'https://example.com/privacy-policy', 500),
+        candidate('invalid URL', 'javascript:alert(1)', 600),
+        candidate('putting green', 'https://example.com/greens', 300),
+    ], 'Ecoworkz');
+    assert.deepEqual(result.map(item => item.query), ['putting green', 'patio contractor']);
+});
+
+test('database aggregate payload fails closed when its shape is invalid', () => {
+    const valid = { days: [], propertyRows: [], queryPageRollups: [] };
+    assert.deepEqual(parseSearchInsightsAggregate(valid), valid);
+    assert.throws(() => parseSearchInsightsAggregate({ days: [], propertyRows: [] }), /Invalid Search Insights aggregate/);
+    assert.throws(() => parseSearchInsightsAggregate({ days: [{}], propertyRows: [], queryPageRollups: [] }), /Invalid Search Insights aggregate/);
+    assert.throws(() => parseSearchInsightsAggregate({ days: [], propertyRows: [], queryPageRollups: [{ query: 'x', page: 'https://example.com', clicks: 1, impressions: -1, position: 8, ctr: 0, observedDays: 3 }] }), /Invalid Search Insights aggregate/);
 });
