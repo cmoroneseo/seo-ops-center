@@ -7,16 +7,29 @@ export interface HistoryResponse {
     missingDates: string[]; rows: HistoryRow[]; nextOffset: number | null; coverageNote: string;
 }
 export interface Candidate { query: string; page: string; clicks: number; impressions: number; position: number; ctr: number; observedDays: number }
+export interface PageCandidate { page: string; clicks: number; impressions: number; position: number; ctr: number; observedDays: number }
+export interface OverlapCandidate { query: string; clicks: number; impressions: number; position: number; ctr: number; observedDays: number; pages: Candidate[] }
 export interface SearchInsightsResponse {
     property: string; start: string; end: string; days: HistoryDay[]; missingDates: string[];
-    propertyRows: HistoryRow[]; queryPageRollups: Candidate[]; coverageNote: string;
+    propertyRows: HistoryRow[]; queryPageRollups: Candidate[]; pageRollups: PageCandidate[];
+    visibilityRollups: Candidate[]; overlapRollups: OverlapCandidate[]; expandedEvidenceAvailable: boolean; coverageNote: string;
 }
-export type SearchInsightsAggregate = Pick<SearchInsightsResponse, 'days' | 'propertyRows' | 'queryPageRollups'>;
+export type SearchInsightsAggregate = Pick<SearchInsightsResponse, 'days' | 'propertyRows' | 'queryPageRollups' | 'pageRollups' | 'visibilityRollups' | 'overlapRollups' | 'expandedEvidenceAvailable'>;
 
 export function parseSearchInsightsAggregate(value: unknown): SearchInsightsAggregate {
     if (!value || typeof value !== 'object') throw new Error('Invalid Search Insights aggregate');
     const aggregate = value as Record<string, unknown>;
     if (!Array.isArray(aggregate.days) || !Array.isArray(aggregate.propertyRows) || !Array.isArray(aggregate.queryPageRollups)) throw new Error('Invalid Search Insights aggregate');
+    const expandedArrays = [aggregate.pageRollups, aggregate.visibilityRollups, aggregate.overlapRollups];
+    const expandedCount = expandedArrays.filter(Array.isArray).length;
+    if (expandedCount !== 0 && expandedCount !== expandedArrays.length) throw new Error('Invalid Search Insights aggregate');
+    const normalized = {
+        ...aggregate,
+        pageRollups: Array.isArray(aggregate.pageRollups) ? aggregate.pageRollups : [],
+        visibilityRollups: Array.isArray(aggregate.visibilityRollups) ? aggregate.visibilityRollups : [],
+        overlapRollups: Array.isArray(aggregate.overlapRollups) ? aggregate.overlapRollups : [],
+        expandedEvidenceAvailable: expandedCount === expandedArrays.length,
+    };
     const finite = (number: unknown) => typeof number === 'number' && Number.isFinite(number) && number >= 0;
     const integer = (number: unknown) => finite(number) && Number.isInteger(number);
     const text = (item: Record<string, unknown>, key: string) => typeof item[key] === 'string' && item[key].length > 0;
@@ -30,13 +43,24 @@ export function parseSearchInsightsAggregate(value: unknown): SearchInsightsAggr
         const row = value as Record<string, unknown>;
         return integer(row.id) && text(row, 'dayId') && typeof row.page === 'string' && typeof row.query === 'string' && integer(row.clicks) && integer(row.impressions) && finite(row.position);
     });
-    const validRollups = aggregate.queryPageRollups.every(value => {
+    const validCandidate = (value: unknown) => {
         if (!value || typeof value !== 'object') return false;
         const row = value as Record<string, unknown>;
         return text(row, 'query') && text(row, 'page') && integer(row.clicks) && integer(row.impressions) && finite(row.position) && finite(row.ctr) && integer(row.observedDays);
-    });
+    };
+    const validPage = (value: unknown) => {
+        if (!value || typeof value !== 'object') return false;
+        const row = value as Record<string, unknown>;
+        return text(row, 'page') && integer(row.clicks) && integer(row.impressions) && finite(row.position) && finite(row.ctr) && integer(row.observedDays);
+    };
+    const validOverlap = (value: unknown) => {
+        if (!value || typeof value !== 'object') return false;
+        const row = value as Record<string, unknown>;
+        return text(row, 'query') && integer(row.clicks) && integer(row.impressions) && finite(row.position) && finite(row.ctr) && integer(row.observedDays) && Array.isArray(row.pages) && row.pages.every(validCandidate);
+    };
+    const validRollups = aggregate.queryPageRollups.every(validCandidate) && normalized.pageRollups.every(validPage) && normalized.visibilityRollups.every(validCandidate) && normalized.overlapRollups.every(validOverlap);
     if (!validDays || !validPropertyRows || !validRollups) throw new Error('Invalid Search Insights aggregate');
-    return aggregate as unknown as SearchInsightsAggregate;
+    return normalized as unknown as SearchInsightsAggregate;
 }
 
 export async function loadSearchInsights(clientId: string, range: {start: string; end: string}, signal: AbortSignal, request: typeof fetch = fetch): Promise<SearchInsightsResponse> {
@@ -53,10 +77,42 @@ export function filterRankingCandidates(rows: Candidate[], brand: string): Candi
         .sort((a, b) => b.impressions - a.impressions || a.query.localeCompare(b.query) || a.page.localeCompare(b.page));
 }
 
+export function filterPageCandidates(rows: PageCandidate[]): PageCandidate[] {
+    return rows.filter(row => !isExcludedPage(row.page))
+        .sort((a, b) => b.impressions - a.impressions || a.page.localeCompare(b.page));
+}
+
+export function filterVisibilityCandidates(rows: Candidate[], brand: string): Candidate[] {
+    return filterRankingCandidates(rows, brand);
+}
+
+export function filterOverlapCandidates(rows: OverlapCandidate[], brand: string): OverlapCandidate[] {
+    return rows.flatMap(row => {
+        if (isBrandQuery(row.query, brand)) return [];
+        const pages = row.pages.filter(page => !isExcludedPage(page.page))
+            .sort((a, b) => b.impressions - a.impressions || a.page.localeCompare(b.page));
+        const impressions = pages.reduce((sum, page) => sum + page.impressions, 0);
+        if (pages.length < 2 || impressions < 100) return [];
+        const clicks = pages.reduce((sum, page) => sum + page.clicks, 0);
+        const position = pages.reduce((sum, page) => sum + page.position * page.impressions, 0) / impressions;
+        const observedDays = Math.max(...pages.map(page => page.observedDays));
+        return [{ ...row, pages, clicks, impressions, position, ctr: clicks / impressions, observedDays }];
+    }).sort((a, b) => b.impressions - a.impressions || a.query.localeCompare(b.query));
+}
+
 function isExcludedCandidate(query: string, page: string, brand: string) {
-    if (!safePageUrl(page)) return true;
-    const path = new URL(page).pathname;
-    if (/(?:^|\/)(?:terms(?:[-/]|$)|privacy(?:[-/]|$)|author(?:\/|$)|tag(?:\/|$)|wp-admin(?:\/|$)|login(?:\/|$))/.test(path.toLowerCase())) return true;
+    if (isExcludedPage(page)) return true;
+    return isBrandQuery(query, brand);
+}
+
+function isExcludedPage(page: string) {
+    const safe = safePageUrl(page);
+    if (!safe) return true;
+    const path = new URL(safe).pathname;
+    return /(?:^|\/)(?:terms(?:[-/]|$)|privacy(?:[-/]|$)|author(?:\/|$)|tag(?:\/|$)|wp-admin(?:\/|$)|login(?:\/|$))/.test(path.toLowerCase());
+}
+
+function isBrandQuery(query: string, brand: string) {
     const normalize = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
     const normalizedBrand = normalize(brand);
     return !!normalizedBrand && normalize(query).includes(normalizedBrand);
@@ -65,6 +121,9 @@ function isExcludedCandidate(query: string, page: string, brand: string) {
 export function insightsRange(days: 7 | 28, now = new Date()) {
     const { end } = historyWindow(now);
     return { start: dateOffset(end, 1 - days), end };
+}
+export function evidenceIsComplete(days: HistoryDay[], missingDates: string[], grain: 'page' | 'query') {
+    return missingDates.length === 0 && !days.some(day => grain === 'page' ? day.pageLimited : day.queryLimited);
 }
 export function summarizePerformance(rows: HistoryRow[]) {
     const clicks = rows.reduce((sum, row) => sum + row.clicks, 0);

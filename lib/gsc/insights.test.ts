@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterRankingCandidates, insightsRange, loadHistory, loadSearchInsights, parseSearchInsightsAggregate, rankingCandidates, safePageUrl, summarizePerformance, type Candidate, type HistoryRow } from './insights';
+import { evidenceIsComplete, filterOverlapCandidates, filterPageCandidates, filterRankingCandidates, filterVisibilityCandidates, insightsRange, loadHistory, loadSearchInsights, parseSearchInsightsAggregate, rankingCandidates, safePageUrl, summarizePerformance, type Candidate, type HistoryDay, type HistoryRow, type OverlapCandidate, type PageCandidate } from './insights';
 const rows = (query = 'backyard putting green', page = 'https://example.com/service'): HistoryRow[] => [1, 2, 3].map(id => ({ id, dayId: String(id), query, page, clicks: 1, impressions: 50, position: 8 }));
 test('performance weights position by impressions and handles zero demand', () => {
     assert.deepEqual(summarizePerformance([]), { clicks: 0, impressions: 0, ctr: null, position: null });
@@ -45,7 +45,8 @@ test('Search Insights loader gets the complete server aggregate in one request',
     const urls: string[] = [];
     const payload = {
         property: 'sc-domain:example.com', start: '2026-09-01', end: '2026-09-07',
-        days: [], missingDates: [], propertyRows: [], queryPageRollups: [],
+        days: [], missingDates: [], propertyRows: [], queryPageRollups: [], pageRollups: [], visibilityRollups: [], overlapRollups: [],
+        expandedEvidenceAvailable: true,
         coverageNote: 'Observed top rows only.',
     };
     const result = await loadSearchInsights('client', { start: payload.start, end: payload.end }, new AbortController().signal, async url => {
@@ -75,9 +76,65 @@ test('server rollups still receive client-specific brand and utility filtering',
 });
 
 test('database aggregate payload fails closed when its shape is invalid', () => {
-    const valid = { days: [], propertyRows: [], queryPageRollups: [] };
-    assert.deepEqual(parseSearchInsightsAggregate(valid), valid);
+    const valid = { days: [], propertyRows: [], queryPageRollups: [], pageRollups: [], visibilityRollups: [], overlapRollups: [] };
+    assert.deepEqual(parseSearchInsightsAggregate(valid), { ...valid, expandedEvidenceAvailable: true });
     assert.throws(() => parseSearchInsightsAggregate({ days: [], propertyRows: [] }), /Invalid Search Insights aggregate/);
-    assert.throws(() => parseSearchInsightsAggregate({ days: [{}], propertyRows: [], queryPageRollups: [] }), /Invalid Search Insights aggregate/);
-    assert.throws(() => parseSearchInsightsAggregate({ days: [], propertyRows: [], queryPageRollups: [{ query: 'x', page: 'https://example.com', clicks: 1, impressions: -1, position: 8, ctr: 0, observedDays: 3 }] }), /Invalid Search Insights aggregate/);
+    assert.deepEqual(parseSearchInsightsAggregate({ days: [], propertyRows: [], queryPageRollups: [] }), {
+        days: [], propertyRows: [], queryPageRollups: [], pageRollups: [], visibilityRollups: [], overlapRollups: [], expandedEvidenceAvailable: false,
+    });
+    assert.throws(() => parseSearchInsightsAggregate({ ...valid, overlapRollups: undefined }), /Invalid Search Insights aggregate/);
+    assert.throws(() => parseSearchInsightsAggregate({ ...valid, days: [{}] }), /Invalid Search Insights aggregate/);
+    assert.throws(() => parseSearchInsightsAggregate({ ...valid, queryPageRollups: [{ query: 'x', page: 'https://example.com', clicks: 1, impressions: -1, position: 8, ctr: 0, observedDays: 3 }] }), /Invalid Search Insights aggregate/);
+});
+
+test('page evidence excludes unsafe and utility URLs and orders observed demand', () => {
+    const page = (url: string, impressions: number): PageCandidate => ({ page: url, impressions, clicks: 2, position: 18, ctr: 0.02, observedDays: 4 });
+    const result = filterPageCandidates([
+        page('https://example.com/services/patios', 300),
+        page('javascript:alert(1)', 900),
+        page('https://example.com/privacy-policy', 800),
+        page('https://example.com/services/putting-greens', 600),
+    ]);
+    assert.deepEqual(result.map(item => item.page), [
+        'https://example.com/services/putting-greens',
+        'https://example.com/services/patios',
+    ]);
+});
+
+test('deeper visibility evidence keeps only safe nonbrand query and page pairs', () => {
+    const candidate = (query: string, page: string, impressions: number): Candidate => ({ query, page, impressions, clicks: 1, position: 28, ctr: 0.01, observedDays: 3 });
+    const result = filterVisibilityCandidates([
+        candidate('putting green installer', 'https://example.com/greens', 120),
+        candidate('Ecoworkz landscaping', 'https://example.com/', 500),
+        candidate('patio contractor', 'https://example.com/terms-of-use', 400),
+        candidate('landscape design', 'https://example.com/design', 300),
+    ], 'Ecoworkz');
+    assert.deepEqual(result.map(item => item.query), ['landscape design', 'putting green installer']);
+});
+
+test('overlap evidence requires two retained URLs and recomputes totals after exclusions', () => {
+    const page = (url: string, impressions: number, clicks = 1, observedDays = 3): Candidate => ({ query: 'landscape design', page: url, impressions, clicks, position: 24, ctr: clicks / impressions, observedDays });
+    const overlap: OverlapCandidate = {
+        query: 'landscape design', clicks: 8, impressions: 250, position: 24, ctr: 8 / 250, observedDays: 8,
+        pages: [page('https://example.com/design', 80, 3), page('https://example.com/landscaping', 70, 4), page('https://example.com/privacy-policy', 100, 1, 8)],
+    };
+    const result = filterOverlapCandidates([
+        overlap,
+        { ...overlap, query: 'Ecoworkz landscaping' },
+        { ...overlap, query: 'single safe page', pages: [page('https://example.com/design', 80), page('javascript:alert(1)', 200)] },
+    ], 'Ecoworkz');
+    assert.equal(result.length, 1);
+    assert.deepEqual(result[0], {
+        query: 'landscape design', clicks: 7, impressions: 150, position: 24, ctr: 7 / 150, observedDays: 3,
+        pages: [page('https://example.com/design', 80, 3), page('https://example.com/landscaping', 70, 4)],
+    });
+});
+
+test('page and query evidence honor their own import caps', () => {
+    const day = (pageLimited: boolean, queryLimited: boolean): HistoryDay => ({ id: 'day', date: '2026-09-01', importedAt: '2026-09-05T00:00:00Z', pageLimited, queryLimited });
+    assert.equal(evidenceIsComplete([day(false, false)], [], 'page'), true);
+    assert.equal(evidenceIsComplete([day(true, false)], [], 'page'), false);
+    assert.equal(evidenceIsComplete([day(false, true)], [], 'query'), false);
+    assert.equal(evidenceIsComplete([day(true, false)], [], 'query'), true);
+    assert.equal(evidenceIsComplete([day(false, false)], ['2026-09-02'], 'page'), false);
 });

@@ -16,6 +16,7 @@ insert into clients values('${client}','${org}');
 insert into client_integrations values('${client}','${org}','gsc','active','{"site_url":"sc-domain:example.com"}');`);
 await db.exec(readFileSync('migrations/049_gsc_performance_history.sql','utf8'));
 await db.exec(readFileSync('migrations/050_gsc_search_insights_aggregation.sql','utf8'));
+await db.exec(readFileSync('migrations/051_expand_gsc_search_insights_evidence.sql','utf8'));
 const fact={grain:'query_page',query:'test',page:'https://example.com/a',clicks:1,impressions:10,position:2};
 const save=async(facts=[fact],property='sc-domain:example.com',fetched='2024-01-10T00:00:00Z',organization=org,date='2024-01-01',queryLimited=false)=>db.query('select public.replace_gsc_history_day($1,$2,$3,$4,$5,$6,$7,$8) as saved',[organization,client,property,date,fetched,false,queryLimited,JSON.stringify(facts)]);
 await db.exec('set role service_role');
@@ -40,7 +41,11 @@ await assert.rejects(db.query('select * from gsc_history_days'),/permission deni
 await db.exec('reset role; set role service_role');
 const dailyFacts=(position)=>[
  {grain:'property',query:'',page:'',clicks:3,impressions:100,position},
+ {grain:'page',query:'',page:'https://example.com/service',clicks:3,impressions:100,position},
  {grain:'query_page',query:'qualified query',page:'https://example.com/service',clicks:2,impressions:50,position},
+ {grain:'query_page',query:'deeper query',page:'https://example.com/service',clicks:1,impressions:50,position:28},
+ {grain:'query_page',query:'overlap query',page:'https://example.com/first',clicks:1,impressions:25,position:18},
+ {grain:'query_page',query:'overlap query',page:'https://example.com/second',clicks:2,impressions:20,position:22},
  {grain:'query_page',query:'too little evidence',page:'https://example.com/other',clicks:0,impressions:10,position:9},
 ];
 await save(dailyFacts(6),'sc-domain:example.com','2024-01-12T00:00:00Z',org,'2024-01-01');
@@ -52,6 +57,15 @@ assert.equal(aggregate.days.length,3);
 assert.equal(aggregate.days[1].queryLimited,true);
 assert.equal(aggregate.propertyRows.length,3);
 assert.deepEqual(aggregate.queryPageRollups,[{query:'qualified query',page:'https://example.com/service',clicks:6,impressions:150,position:8,ctr:0.04,observedDays:3}]);
+assert.deepEqual(aggregate.pageRollups,[{page:'https://example.com/service',clicks:9,impressions:300,position:8,ctr:0.03,observedDays:3}]);
+assert.deepEqual(aggregate.visibilityRollups,[{query:'deeper query',page:'https://example.com/service',clicks:3,impressions:150,position:28,ctr:0.02,observedDays:3}]);
+assert.deepEqual(aggregate.overlapRollups,[{
+ query:'overlap query',clicks:9,impressions:135,position:178/9,ctr:1/15,observedDays:3,
+ pages:[
+  {query:'overlap query',page:'https://example.com/first',clicks:3,impressions:75,position:18,ctr:0.04,observedDays:3},
+  {query:'overlap query',page:'https://example.com/second',clicks:6,impressions:60,position:22,ctr:0.1,observedDays:3},
+ ],
+}]);
 const wrongScope=(await db.query(`select public.get_gsc_search_insights('${other}','${client}','sc-domain:example.com','2024-01-01','2024-01-03') as result`)).rows[0].result;
 assert.equal((typeof wrongScope==='string'?JSON.parse(wrongScope):wrongScope).days.length,0);
 const shortWindow=(await db.query(`select public.get_gsc_search_insights('${org}','${client}','sc-domain:example.com','2024-01-01','2024-01-02') as result`)).rows[0].result;
