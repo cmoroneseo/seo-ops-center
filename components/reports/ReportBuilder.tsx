@@ -181,7 +181,7 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
             });
             const data = await res.json();
             setSyncResult(res.ok
-                ? `Sync complete — ${data.errors === 0 ? 'all sources updated' : `${data.errors} source(s) had errors`}`
+                ? `Sync complete — ${data.sourcesUpdated ?? 0} source(s) updated${data.errors ? `; ${data.errors} source(s) had errors` : ''}`
                 : `Sync failed: ${data.error}`);
             if (res.ok) onDataChanged?.();
         } catch (e: any) {

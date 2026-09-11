@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
+import { authorizeSyncRequest, SyncRequestError } from '@/lib/sync/request';
+import { markIntegrationSynced } from '@/lib/sync/token';
 import { fetchGA4 } from '@/lib/sync/fetchGA4';
 import { fetchGSC } from '@/lib/sync/fetchGSC';
 import { fetchGBP } from '@/lib/sync/fetchGBP';
@@ -19,60 +20,35 @@ export const maxDuration = 300; // Vercel max for Pro plan
  * Headers: { Authorization: 'Bearer <CRON_SECRET>' }
  * Body (optional): { clientId: string, month: string } — sync a single client/month
  */
-/** Allow either the cron secret (machine) or a logged-in user (manual "Sync Now"). */
-async function isAuthorized(req: NextRequest): Promise<boolean> {
-    const secret = process.env.CRON_SECRET;
-    if (secret && req.headers.get('authorization') === `Bearer ${secret}`) return true;
-
-    // Fall back to an authenticated dashboard session — no secret needed in the browser.
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                get(name: string) { return cookieStore.get(name)?.value; },
-                set(name: string, value: string, options: CookieOptions) { cookieStore.set({ name, value, ...options }); },
-                remove(name: string, options: CookieOptions) { cookieStore.set({ name, value: '', ...options }); },
-            },
-        },
-    );
-    const { data: { user } } = await supabase.auth.getUser();
-    return !!user;
-}
-
 export async function POST(req: NextRequest) {
-    if (!(await isAuthorized(req))) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const admin = createAdminClient();
-    const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-
-    // Parse optional body for manual single-client sync
-    let singleClientId: string | null = null;
-    let targetMonth = currentMonth;
+    let scope;
     try {
-        const body = await req.json().catch(() => ({}));
-        singleClientId = body.clientId ?? null;
-        targetMonth = body.month ?? currentMonth;
-    } catch { /* no body */ }
-
-    // Fetch all active organizations
-    const { data: orgs } = await admin.from('organizations').select('id').order('id');
+        scope = await authorizeSyncRequest(req, process.env.CRON_SECRET, requireClientIntegrationManager);
+    } catch (error) {
+        return NextResponse.json({ error: error instanceof SyncRequestError ? error.message : 'Unable to authorize sync' }, { status: error instanceof SyncRequestError ? error.status : 500 });
+    }
+    const admin = createAdminClient();
+    const singleClientId = scope.clientId;
+    const targetMonth = scope.month;
+    let orgQuery = admin.from('organizations').select('id').order('id');
+    if (scope.organizationId) orgQuery = orgQuery.eq('id', scope.organizationId);
+    const { data: orgs, error: orgError } = await orgQuery;
+    if (orgError) return NextResponse.json({ error: 'Unable to load sync organizations' }, { status: 500 });
     if (!orgs?.length) return NextResponse.json({ synced: 0 });
 
     const errors: { clientId: string; service: string; message: string }[] = [];
     let totalSynced = 0;
+    let sourcesUpdated = 0;
 
     for (const org of orgs) {
+        const orgErrors: typeof errors = [];
         // Create a sync_run record for this org
-        const { data: runRow } = await admin.from('sync_runs').insert({
+        const { data: runRow, error: runError } = await admin.from('sync_runs').insert({
             organization_id: org.id,
             status: 'running',
         }).select('id').single();
-        const syncRunId = runRow?.id;
+        if (runError || !runRow) return NextResponse.json({ error: 'Unable to start sync run' }, { status: 500 });
+        const syncRunId = runRow.id;
 
         // Get all active clients for this org (or just the one requested)
         let clientQuery = admin
@@ -83,7 +59,11 @@ export async function POST(req: NextRequest) {
 
         if (singleClientId) clientQuery = clientQuery.eq('id', singleClientId);
 
-        const { data: clients } = await clientQuery;
+        const { data: clients, error: clientsError } = await clientQuery;
+        if (clientsError) {
+            await admin.from('sync_runs').update({ status: 'failed', finished_at: new Date().toISOString() }).eq('id', syncRunId);
+            return NextResponse.json({ error: 'Unable to load sync clients' }, { status: 500 });
+        }
         if (!clients?.length) {
             await admin.from('sync_runs').update({
                 status: 'completed', finished_at: new Date().toISOString(),
@@ -96,6 +76,7 @@ export async function POST(req: NextRequest) {
 
         for (const client of clients) {
             const clientErrors: string[] = [];
+            let clientSourcesUpdated = 0;
 
             // ── GA4 ──────────────────────────────────────────────────────────
             try {
@@ -107,6 +88,8 @@ export async function POST(req: NextRequest) {
                         data: ga4Data, syncRunId,
                     });
                     if (!r.success) throw new Error(`upsert failed: ${r.error}`);
+                    clientSourcesUpdated++;
+                    sourcesUpdated++;
                 }
             } catch (e: any) {
                 clientErrors.push(`ga4: ${e.message}`);
@@ -123,6 +106,9 @@ export async function POST(req: NextRequest) {
                         data: gscData, syncRunId,
                     });
                     if (!r.success) throw new Error(`upsert failed: ${r.error}`);
+                    await markIntegrationSynced(client.id, 'gsc');
+                    clientSourcesUpdated++;
+                    sourcesUpdated++;
                 }
             } catch (e: any) {
                 clientErrors.push(`gsc: ${e.message}`);
@@ -139,6 +125,8 @@ export async function POST(req: NextRequest) {
                         data: gbpData, syncRunId,
                     });
                     if (!r.success) throw new Error(`upsert failed: ${r.error}`);
+                    clientSourcesUpdated++;
+                    sourcesUpdated++;
                 }
             } catch (e: any) {
                 // GBP failures are non-fatal — don't mark as client error
@@ -155,14 +143,17 @@ export async function POST(req: NextRequest) {
                         data: ahrefsData, syncRunId,
                     });
                     if (!r.success) throw new Error(`upsert failed: ${r.error}`);
+                    clientSourcesUpdated++;
+                    sourcesUpdated++;
                 }
             } catch (e: any) {
                 clientErrors.push(`ahrefs: ${e.message}`);
                 errors.push({ clientId: client.id, service: 'ahrefs', message: e.message });
             }
 
-            if (clientErrors.length === 0) orgSynced++;
-            else orgErrored++;
+            orgErrors.push(...errors.filter(error => error.clientId === client.id));
+            if (clientErrors.length > 0) orgErrored++;
+            else if (clientSourcesUpdated > 0) orgSynced++;
 
             totalSynced++;
         }
@@ -173,7 +164,7 @@ export async function POST(req: NextRequest) {
             finished_at: new Date().toISOString(),
             clients_synced: orgSynced,
             clients_errored: orgErrored,
-            error_summary: errors,
+            error_summary: orgErrors,
         }).eq('id', syncRunId);
     }
 
@@ -181,6 +172,7 @@ export async function POST(req: NextRequest) {
         ok: true,
         month: targetMonth,
         clients: totalSynced,
+        sourcesUpdated,
         errors: errors.length,
         errorDetail: errors.length ? errors : undefined,
     });

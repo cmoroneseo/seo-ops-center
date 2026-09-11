@@ -2,6 +2,9 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+    // The metrics handler validates the cron secret or client-scoped session itself.
+    if (request.nextUrl.pathname === '/api/sync/metrics') return NextResponse.next();
+
     let response = NextResponse.next({
         request: {
             headers: request.headers,
