@@ -341,6 +341,74 @@ export interface SearchInvestigation {
     updatedAt: string;
 }
 
+export type SiteCrawlRunStatus = 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+export type SiteCrawlFetchStatus = 'success' | 'failed' | 'blocked' | 'unsupported' | 'oversized' | 'js_unresolved';
+export type SiteDiscoverySource = 'seed' | 'sitemap' | 'gsc' | 'internal' | 'redirect';
+
+export interface SiteCrawlRun {
+    id: string;
+    organizationId: string;
+    clientId: string;
+    seedUrl: string;
+    configuredHost: string;
+    urlLimit: number;
+    status: SiteCrawlRunStatus;
+    discoveredCount: number;
+    processedCount: number;
+    failedCount: number;
+    blockedCount: number;
+    capReached: boolean;
+    stopReason?: string;
+    errorSummary?: string;
+    startedAt?: string;
+    completedAt?: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface SitePageObservation {
+    snapshotId: string;
+    pageId: string;
+    pageUrlId: string;
+    requestedUrl: string;
+    finalUrl?: string;
+    normalizedUrl: string;
+    isHomepage: boolean;
+    discoverySources: SiteDiscoverySource[];
+    observedAt: string;
+    fetchStatus: SiteCrawlFetchStatus;
+    statusCode?: number;
+    contentType?: string;
+    responseBytes?: number;
+    redirectHops: string[];
+    robotsAllowed?: boolean;
+    robotsDirectives: string[];
+    canonicalUrl?: string;
+    canonicalIssue?: 'none' | 'missing' | 'malformed' | 'off_scope' | 'conflicting' | 'cycle' | 'target_failed' | 'target_redirect';
+    title?: string;
+    metaDescription?: string;
+    h1s: string[];
+    wordCount?: number;
+    inboundInternalLinks: number;
+    outboundInternalLinks: number;
+    limitationFlags: string[];
+    history?: Array<{
+        snapshotId: string;
+        observedAt: string;
+        fetchStatus: SiteCrawlFetchStatus;
+        statusCode?: number;
+        title?: string;
+    }>;
+}
+
+export interface SiteInventoryPayload {
+    activeRun?: SiteCrawlRun;
+    latestCompletedRun?: SiteCrawlRun;
+    previousRuns: SiteCrawlRun[];
+    pages: SitePageObservation[];
+    health: import('./site-inventory/health').CrawlHealthResult;
+}
+
 export interface ClientProject {
     id: string;
     organizationId: string;

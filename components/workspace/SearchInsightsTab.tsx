@@ -97,7 +97,7 @@ export function InvestigationEvidenceCard({
     </details>;
 }
 
-export function SearchInsightsTab({ organizationId, clientId, clientName, onConnections }: { organizationId: string; clientId: string; clientName: string; onConnections: () => void }) {
+export function SearchInsightsTab({ organizationId, clientId, clientName, onConnections, onSiteInventory }: { organizationId: string; clientId: string; clientName: string; onConnections: () => void; onSiteInventory?: () => void }) {
     const [period, setPeriod] = useState<7 | 28>(28);
     const [revision, setRevision] = useState(0);
     const [property, setProperty] = useState<LoadedHistory | null>(null);
@@ -250,6 +250,7 @@ export function SearchInsightsTab({ organizationId, clientId, clientName, onConn
         <div className="flex flex-wrap items-start justify-between gap-4">
             <div><p className="text-xs uppercase tracking-widest text-primary">Search performance</p><h2 className="mt-1 text-2xl font-semibold">Search Insights</h2><p className="mt-1 text-sm text-muted-foreground">Find work worth investigating for {clientName}.</p></div>
             <div className="flex flex-wrap items-center gap-2">
+                {onSiteInventory && <button onClick={onSiteInventory} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"><ShieldCheck className="h-4 w-4" />Site inventory</button>}
                 <div className="flex rounded-lg border border-border p-1" aria-label="Reporting period">{([7, 28] as const).map(days => <button key={days} aria-pressed={period === days} onClick={() => setPeriod(days)} className={`rounded-md px-3 py-1.5 text-sm ${period === days ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}>{days} days</button>)}</div>
                 <button onClick={() => setRevision(value => value + 1)} disabled={loading} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Reload saved data</button>
             </div>
