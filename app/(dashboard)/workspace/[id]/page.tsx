@@ -14,6 +14,7 @@ import { AlertTriangle } from 'lucide-react';
 import { EngagementOverview } from '@/components/workspace/EngagementOverview';
 import { ClientDeliverablesTab } from '@/components/deliverables/ClientDeliverablesTab';
 import { MonthlyPlannerCard } from '@/components/workspace/MonthlyPlannerCard';
+import { SearchInsightsTab } from '@/components/workspace/SearchInsightsTab';
 import { IntegrationsTab } from '@/components/workspace/IntegrationsTab';
 import { ClientOverviewWidget } from '@/components/workspace/ClientOverviewWidget';
 import { EditClientPanel, ClientAvatar } from '@/components/workspace/EditClientPanel';
@@ -31,7 +32,7 @@ import { getLoggedHoursByClient } from '@/lib/supabase/time-logs';
 import { Task } from '@/lib/types';
 import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
 
-type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations';
+type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights';
 
 export default function ClientDetailPage() {
     const params = useParams();
@@ -223,7 +224,7 @@ export default function ClientDetailPage() {
             )}
 
             {/* Tab bar */}
-            <div className="flex items-center gap-1 border-b border-border/50">
+            <div className="flex items-center gap-1 overflow-x-auto border-b border-border/50">
                 <button
                     onClick={() => setActiveTab('overview')}
                     className={cn(
@@ -264,6 +265,10 @@ export default function ClientDetailPage() {
                         </span>
                     )}
                 </button>
+                <button
+                    onClick={() => setActiveTab('insights')}
+                    className={cn('shrink-0 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'insights' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
+                >Search Insights</button>
                 <button
                     onClick={() => setActiveTab('integrations')}
                     className={cn(
@@ -337,6 +342,10 @@ export default function ClientDetailPage() {
                         defaultClientName={client.clientName}
                     />
                 </div>
+            )}
+
+            {activeTab === 'insights' && client.organizationId === organization?.id && (
+                <SearchInsightsTab key={`${organization.id}:${client.id}`} clientId={client.id} clientName={client.clientName} onConnections={() => setActiveTab('integrations')} />
             )}
 
             {/* Integrations tab */}
