@@ -130,3 +130,24 @@ test('overlap evidence requires at least two retained pages', () => {
         },
     }), /two retained pages/i);
 });
+
+test('task prefill never exceeds the task title boundary', () => {
+    const query = 'q'.repeat(600);
+    const snapshot = buildInvestigationSnapshot({
+        category: 'deeper_visibility',
+        property: 'sc-domain:ecoworkz.net',
+        start: '2026-09-01',
+        end: '2026-09-07',
+        evidence: {
+            query,
+            page: 'https://www.ecoworkz.net/long-query/',
+            clicks: 0,
+            impressions: 120,
+            ctr: 0,
+            position: 30,
+            observedDays: 4,
+        },
+    });
+
+    assert.ok(taskPrefillForInvestigation(snapshot, 'Ecoworkz').title.length <= 500);
+});

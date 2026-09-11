@@ -155,11 +155,12 @@ export function taskPrefillForInvestigation(
     clientName: string,
 ): InvestigationTaskPrefill {
     const subject = snapshot.query ?? snapshot.page ?? 'search evidence';
-    const title = snapshot.category === 'overlapping_urls'
+    const rawTitle = snapshot.category === 'overlapping_urls'
         ? `Investigate overlapping URLs for ${subject}`
         : snapshot.category === 'page_visibility'
             ? `Investigate page visibility: ${subject}`
             : `Investigate search evidence: ${subject}`;
+    const title = rawTitle.length > 500 ? `${rawTitle.slice(0, 499).trimEnd()}…` : rawTitle;
     const pageEvidence = snapshot.pages?.length
         ? `\nObserved URLs:\n${snapshot.pages.map(item => `- ${item.page}: ${item.impressions} impressions, average position ${item.position.toFixed(1)}, ${item.observedDays} observed days`).join('\n')}`
         : snapshot.page ? `\nPage: ${snapshot.page}` : '';

@@ -345,7 +345,7 @@ export default function ClientDetailPage() {
             )}
 
             {activeTab === 'insights' && client.organizationId === organization?.id && (
-                <SearchInsightsTab key={`${organization.id}:${client.id}`} clientId={client.id} clientName={client.clientName} onConnections={() => setActiveTab('integrations')} />
+                <SearchInsightsTab key={`${organization.id}:${client.id}`} organizationId={organization.id} clientId={client.id} clientName={client.clientName} onConnections={() => setActiveTab('integrations')} />
             )}
 
             {/* Integrations tab */}

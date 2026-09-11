@@ -48,6 +48,7 @@ interface CreateTaskModalProps {
     defaultDescription?: string;
     defaultCategory?: TaskCategory;
     defaultPriority?: TaskPriority;
+    defaultTags?: string[];
     defaultAssigneeIds?: string[];
     /** Pre-fill the scheduled block when opened from the planner grid */
     defaultStartDate?: string;
@@ -99,6 +100,7 @@ export function CreateTaskModal({
     defaultDescription,
     defaultCategory,
     defaultPriority,
+    defaultTags,
     defaultAssigneeIds,
     defaultStartDate,
     defaultScheduledMinutes,
@@ -293,6 +295,7 @@ export function CreateTaskModal({
             priority,
             status,
             category: category as TaskCategory || undefined,
+            tags: defaultTags,
             dueDate: dueDate || undefined,
             // Carried over when the planner hands a drafted time block to this modal.
             startDate: defaultStartDate || undefined,
