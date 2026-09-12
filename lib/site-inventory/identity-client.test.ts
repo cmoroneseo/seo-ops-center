@@ -2,15 +2,41 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { processIdentityDecisionResponse } from './identity-client.ts';
+import {
+    identityDecisionFormReducer,
+    type IdentityDecisionFormState,
+} from './identity-review-form.ts';
 
 test('invalidates a 409 decision before refreshing current identity state', async () => {
     const events: string[] = [];
+    let form: IdentityDecisionFormState = {
+        confirmOpen: true,
+        selectedCandidateId: 'page-stale-target',
+        decisionKind: 'claim_into',
+        reasonCode: 'redirect_alias',
+        note: 'Stale reviewer note',
+        saveError: 'Stale save error',
+    };
 
     const result = await processIdentityDecisionResponse(
         Response.json({ error: 'The identity decision conflicts with the current review state.' }, { status: 409 }),
         {
-            invalidateConflict() { events.push('invalidate'); },
-            async refresh() { events.push('refresh'); return true; },
+            invalidateConflict() {
+                events.push('invalidate');
+                form = identityDecisionFormReducer(form, { type: 'conflict_reset' });
+            },
+            async refresh() {
+                events.push('refresh');
+                assert.deepEqual(form, {
+                    confirmOpen: false,
+                    selectedCandidateId: '',
+                    decisionKind: undefined,
+                    reasonCode: '',
+                    note: '',
+                    saveError: '',
+                });
+                return true;
+            },
         },
     );
 

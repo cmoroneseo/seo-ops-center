@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
     AlertTriangle,
     ArrowRight,
@@ -25,6 +25,10 @@ import {
 } from '@/components/ui/dialog';
 import { reasonCodesFor, validateIdentityReason } from '@/lib/site-inventory/identity';
 import { processIdentityDecisionResponse } from '@/lib/site-inventory/identity-client';
+import {
+    identityDecisionFormReducer,
+    initialIdentityDecisionFormState,
+} from '@/lib/site-inventory/identity-review-form';
 import { claimDirectionForCandidate, identityViewState } from '@/lib/site-inventory/identity-view';
 import type {
     SiteIdentityCandidate,
@@ -126,14 +130,20 @@ export function SiteIdentityReview({
     const [payload, setPayload] = useState<SiteIdentityReviewPayload>();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [saveError, setSaveError] = useState('');
     const [conflictNotice, setConflictNotice] = useState('');
     const [saving, setSaving] = useState(false);
-    const [decisionKind, setDecisionKind] = useState<Exclude<SiteIdentityDecisionKind, 'reopen'>>();
-    const [reasonCode, setReasonCode] = useState<SiteIdentityReasonCode | ''>('');
-    const [note, setNote] = useState('');
-    const [selectedCandidateId, setSelectedCandidateId] = useState('');
-    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [form, dispatchForm] = useReducer(
+        identityDecisionFormReducer,
+        initialIdentityDecisionFormState,
+    );
+    const {
+        confirmOpen,
+        selectedCandidateId,
+        decisionKind,
+        reasonCode,
+        note,
+        saveError,
+    } = form;
     const savingRef = useRef(false);
 
     const loadReview = useCallback(async (signal?: AbortSignal) => {
@@ -168,14 +178,11 @@ export function SiteIdentityReview({
             candidate.page.snapshotId && claimDirectionForCandidate(candidate)
         ))
             ?? payload?.candidates[0];
-        setSelectedCandidateId(current => payload?.candidates.some(candidate => candidate.page.pageId === current)
-            ? current
-            : firstCandidate?.page.pageId ?? '');
+        dispatchForm({ type: 'select_candidate', candidateId: firstCandidate?.page.pageId ?? '' });
     }, [payload]);
 
     const view = identityViewState(payload, { loading, error, selectedSnapshotId: snapshotId });
-    const selectedCandidate = payload?.candidates.find(candidate => candidate.page.pageId === selectedCandidateId)
-        ?? payload?.candidates[0];
+    const selectedCandidate = payload?.candidates.find(candidate => candidate.page.pageId === selectedCandidateId);
     const selectedClaimDirection = selectedCandidate
         ? claimDirectionForCandidate(selectedCandidate)
         : undefined;
@@ -204,10 +211,7 @@ export function SiteIdentityReview({
         : undefined;
 
     const chooseDecision = (kind: Exclude<SiteIdentityDecisionKind, 'reopen'>) => {
-        setDecisionKind(kind);
-        setReasonCode('');
-        setNote('');
-        setSaveError('');
+        dispatchForm({ type: 'choose_decision', decisionKind: kind });
         setConflictNotice('');
     };
 
@@ -215,7 +219,7 @@ export function SiteIdentityReview({
         if (!payload || !currentDecisionKind || !reasonCode || !canSubmit || savingRef.current) return;
         savingRef.current = true;
         setSaving(true);
-        setSaveError('');
+        dispatchForm({ type: 'set_save_error', message: '' });
         setConflictNotice('');
         try {
             const response = await fetch('/api/site-inventory/identity/decisions', {
@@ -239,17 +243,12 @@ export function SiteIdentityReview({
             });
             const result = await processIdentityDecisionResponse(response, {
                 invalidateConflict() {
-                    setConfirmOpen(false);
-                    setDecisionKind(undefined);
-                    setReasonCode('');
-                    setNote('');
-                    setSelectedCandidateId('');
-                    setSaveError('');
+                    dispatchForm({ type: 'conflict_reset' });
                 },
                 refresh: loadReview,
             });
             if (result.kind === 'failed') {
-                setSaveError(result.message);
+                dispatchForm({ type: 'set_save_error', message: result.message });
                 return;
             }
             if (result.kind === 'conflict_refreshed') {
@@ -260,12 +259,12 @@ export function SiteIdentityReview({
                 setConflictNotice('');
                 return;
             }
-            setConfirmOpen(false);
-            setDecisionKind(undefined);
-            setReasonCode('');
-            setNote('');
+            dispatchForm({ type: 'saved_reset' });
         } catch (reason) {
-            setSaveError(reason instanceof Error ? reason.message : 'Unable to save the site identity decision.');
+            dispatchForm({
+                type: 'set_save_error',
+                message: reason instanceof Error ? reason.message : 'Unable to save the site identity decision.',
+            });
         } finally {
             savingRef.current = false;
             setSaving(false);
@@ -340,7 +339,7 @@ export function SiteIdentityReview({
                         type="button"
                         aria-pressed={candidate.page.pageId === selectedCandidate?.page.pageId}
                         aria-label={`View candidate ${index + 1}: ${candidate.page.primaryUrl}`}
-                        onClick={() => setSelectedCandidateId(candidate.page.pageId)}
+                        onClick={() => dispatchForm({ type: 'select_candidate', candidateId: candidate.page.pageId })}
                         className={`rounded-lg border px-2.5 py-1.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${candidate.page.pageId === selectedCandidate?.page.pageId ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}`}
                     >Candidate {index + 1}</button>)}
                 </div>
@@ -370,7 +369,7 @@ export function SiteIdentityReview({
                     <select
                         id={`identity-reason-${pageId}`}
                         value={reasonCode}
-                        onChange={event => { setReasonCode(event.target.value as SiteIdentityReasonCode | ''); setSaveError(''); }}
+                        onChange={event => dispatchForm({ type: 'set_reason', reasonCode: event.target.value as SiteIdentityReasonCode | '' })}
                         className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                     >
                         <option value="">Select a reviewer reason</option>
@@ -380,7 +379,7 @@ export function SiteIdentityReview({
                     <textarea
                         id={`identity-note-${pageId}`}
                         value={note}
-                        onChange={event => { setNote(event.target.value); setSaveError(''); }}
+                        onChange={event => dispatchForm({ type: 'set_note', note: event.target.value })}
                         maxLength={2000}
                         rows={3}
                         className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
@@ -388,7 +387,7 @@ export function SiteIdentityReview({
                     />
                     {reasonCode === 'other' && reasonError && <p className="text-[11px] text-red-500" role="alert">{reasonError}</p>}
                     {saveError && <p className="flex items-start gap-2 text-[11px] text-red-500" role="alert"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{saveError}</p>}
-                    <Button type="button" size="sm" onClick={() => setConfirmOpen(true)} disabled={!canSubmit} className="w-full">
+                    <Button type="button" size="sm" onClick={() => dispatchForm({ type: 'set_confirmation', open: true })} disabled={!canSubmit} className="w-full">
                         {saving ? <Loader2 className="animate-spin" /> : currentDecisionKind === 'reopen' ? <RotateCcw /> : <CheckCircle2 />}
                         Review {decisionLabels[currentDecisionKind].toLowerCase()}
                     </Button>
@@ -407,7 +406,7 @@ export function SiteIdentityReview({
             </details>}
         </>}
 
-        <Dialog open={confirmOpen} onOpenChange={open => { if (!saving) setConfirmOpen(open); }}>
+        <Dialog open={confirmOpen} onOpenChange={open => { if (!saving) dispatchForm({ type: 'set_confirmation', open }); }}>
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>Confirm reviewer decision</DialogTitle>
@@ -419,7 +418,7 @@ export function SiteIdentityReview({
                 </div>
                 {saveError && <p role="alert" className="text-sm text-red-500">{saveError}</p>}
                 <DialogFooter>
-                    <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)} disabled={saving}>Cancel</Button>
+                    <Button type="button" variant="outline" onClick={() => dispatchForm({ type: 'set_confirmation', open: false })} disabled={saving}>Cancel</Button>
                     <Button type="button" onClick={() => void saveDecision()} disabled={!canSubmit}>
                         {saving && <Loader2 className="animate-spin" />}
                         Confirm decision
