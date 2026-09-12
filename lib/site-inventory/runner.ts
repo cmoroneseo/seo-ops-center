@@ -162,7 +162,7 @@ export async function processSiteCrawlBatch(admin: SupabaseClient, input: {
     const robots = await initializeRobotsAndSitemaps(admin, run);
     const leaseToken = crypto.randomUUID();
     const { data: targets, error: claimError } = await admin.rpc('claim_site_crawl_targets', {
-        p_run_id: input.runId, p_lease_token: leaseToken, p_limit: Math.max(1, Math.min(5, input.batchSize ?? 3)),
+        p_run_id: input.runId, p_lease_token: leaseToken, p_limit: normalizeSiteCrawlBatchSize(input.batchSize),
     });
     if (claimError) throw claimError;
 
@@ -273,4 +273,8 @@ export async function processSiteCrawlBatch(admin: SupabaseClient, input: {
     const { data: updated, error: updateError } = await admin.from('site_crawl_runs').update(update).eq('id', input.runId).select('*').single();
     if (updateError || !updated) throw updateError ?? new Error('Unable to update crawl run');
     return { run: rowToSiteCrawlRun(updated), processed: (targets ?? []).length };
+}
+
+export function normalizeSiteCrawlBatchSize(batchSize?: number) {
+    return Math.max(1, Math.min(5, batchSize ?? 1));
 }
