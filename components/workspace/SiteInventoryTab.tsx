@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronRight, CircleGauge, ExternalLink, FileSearch, Loader2, Play, RefreshCw, Search, ShieldCheck } from 'lucide-react';
 
+import { SiteIdentityReview } from '@/components/workspace/SiteIdentityReview';
 import type { HealthCategoryKey } from '@/lib/site-inventory/health';
 import type { SiteCrawlRun, SiteInventoryPayload, SitePageObservation } from '@/lib/types';
 
@@ -181,6 +182,12 @@ export function SiteInventoryTab({ clientId, clientName }: { clientId: string; c
                     {selected.limitationFlags.length > 0 && <div className="mt-4 flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs"><AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" /><span>{selected.limitationFlags.map(flag => flag.replaceAll('_', ' ')).join(' · ')}</span></div>}
                     <details className="mt-4 rounded-lg border border-border p-3 text-xs"><summary className="cursor-pointer font-medium">Observation history ({selected.history?.length ?? 1})</summary><ol className="mt-3 space-y-2">{(selected.history ?? [{ snapshotId: selected.snapshotId, observedAt: selected.observedAt, fetchStatus: selected.fetchStatus, statusCode: selected.statusCode }]).map(item => <li key={item.snapshotId} className="flex items-center justify-between gap-3 text-muted-foreground"><span>{new Date(item.observedAt).toLocaleString()}</span><span>{item.fetchStatus.replaceAll('_', ' ')} · {item.statusCode ?? '—'}</span></li>)}</ol></details>
                     <p className="mt-4 border-t border-border pt-4 text-xs text-muted-foreground">This is observed crawl evidence, not a recommendation or proof that a change is warranted.</p>
+                    <SiteIdentityReview
+                        key={selected.snapshotId}
+                        clientId={clientId}
+                        pageId={selected.pageId}
+                        snapshotId={selected.snapshotId}
+                    />
                 </> : <div className="py-10 text-center text-sm text-muted-foreground"><CircleGauge className="mx-auto mb-3 h-6 w-6" />Select a page to inspect its evidence.</div>}
             </aside>
         </div>}
