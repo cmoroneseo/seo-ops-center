@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { calculateCrawlHealth } from '@/lib/site-inventory/health';
 import type { SiteCrawlRun, SiteCrawlRunStatus, SiteDiscoverySource, SiteInventoryPayload, SitePageObservation } from '@/lib/types';
 
-export function rowToSiteCrawlRun(row: Record<string, unknown>): SiteCrawlRun {
+export function rowToSiteCrawlRun(row: Record<string, unknown>, excludedAssetCount = 0): SiteCrawlRun {
     return {
         id: String(row.id),
         organizationId: String(row.organization_id),
@@ -16,7 +16,9 @@ export function rowToSiteCrawlRun(row: Record<string, unknown>): SiteCrawlRun {
         processedCount: Number(row.processed_count),
         failedCount: Number(row.failed_count),
         blockedCount: Number(row.blocked_count),
+        excludedAssetCount,
         capReached: Boolean(row.cap_reached),
+        assetExclusionCapReached: Boolean(row.asset_exclusion_cap_reached),
         ...(row.stop_reason ? { stopReason: String(row.stop_reason) } : {}),
         ...(row.error_summary ? { errorSummary: String(row.error_summary) } : {}),
         ...(row.started_at ? { startedAt: String(row.started_at) } : {}),
@@ -79,7 +81,19 @@ export async function getSiteInventory(
     const { data: runRows, error: runsError } = await admin.from('site_crawl_runs').select('*')
         .eq('organization_id', organizationId).eq('client_id', clientId).order('created_at', { ascending: false }).limit(10);
     if (runsError) throw runsError;
-    const runs = (runRows ?? []).map(rowToSiteCrawlRun);
+    const runIds = (runRows ?? []).map(row => String(row.id));
+    const excludedByRun = new Map<string, number>();
+    if (runIds.length > 0) {
+        const { data: excludedRows, error: excludedError } = await admin.from('site_crawl_targets').select('run_id')
+            .eq('organization_id', organizationId).eq('client_id', clientId).in('run_id', runIds)
+            .eq('status', 'skipped').eq('terminal_classification', 'known_non_page_asset');
+        if (excludedError) throw excludedError;
+        for (const row of excludedRows ?? []) {
+            const runId = String(row.run_id);
+            excludedByRun.set(runId, (excludedByRun.get(runId) ?? 0) + 1);
+        }
+    }
+    const runs = (runRows ?? []).map(row => rowToSiteCrawlRun(row, excludedByRun.get(String(row.id)) ?? 0));
     const activeRun = runs.find(run => ['queued', 'running', 'paused'].includes(run.status));
     const latestCompletedRun = runs.find(run => run.status === 'completed');
     if (!latestCompletedRun) {
@@ -87,7 +101,13 @@ export async function getSiteInventory(
             ...(activeRun ? { activeRun } : {}),
             previousRuns: runs,
             pages: [],
-            health: calculateCrawlHealth({ status: activeRun?.status ?? 'queued', capped: false, observations: [] }),
+            health: calculateCrawlHealth({
+                status: activeRun?.status ?? 'queued',
+                capped: false,
+                excludedAssetCount: activeRun?.excludedAssetCount,
+                assetExclusionCapReached: activeRun?.assetExclusionCapReached,
+                observations: [],
+            }),
         };
     }
 
@@ -124,6 +144,8 @@ export async function getSiteInventory(
     const health = calculateCrawlHealth({
         status: 'completed',
         capped: latestCompletedRun.capReached,
+        excludedAssetCount: latestCompletedRun.excludedAssetCount,
+        assetExclusionCapReached: latestCompletedRun.assetExclusionCapReached,
         observations: pages.map(page => ({
             pageId: page.pageId,
             url: page.normalizedUrl,

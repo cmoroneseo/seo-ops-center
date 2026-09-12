@@ -123,6 +123,8 @@ const rounded = (value: number) => Math.round(value * 10) / 10;
 export function calculateCrawlHealth(input: {
     status: CrawlRunHealthStatus;
     capped: boolean;
+    excludedAssetCount?: number;
+    assetExclusionCapReached?: boolean;
     observations: CrawlHealthObservation[];
 }): CrawlHealthResult {
     const categories = definitions.map(definition => {
@@ -138,6 +140,8 @@ export function calculateCrawlHealth(input: {
 
     const limitations: string[] = [];
     if (input.capped) limitations.push('The crawl reached its URL cap; undiscovered pages may exist.');
+    if ((input.excludedAssetCount ?? 0) > 0) limitations.push(`${input.excludedAssetCount} known non-page asset URLs were excluded before fetching so they did not consume the page cap.`);
+    if (input.assetExclusionCapReached) limitations.push('The asset-exclusion reporting cap was reached; additional asset URLs may exist.');
     if (input.observations.some(item => item.fetchStatus === 'blocked')) limitations.push('Some URLs were blocked by robots.txt and could not be fetched.');
     if (input.observations.some(item => item.fetchStatus === 'failed')) limitations.push('Some URLs could not be fetched.');
     if (input.observations.some(item => item.fetchStatus === 'unsupported')) limitations.push('Some responses used unsupported content types.');

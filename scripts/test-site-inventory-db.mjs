@@ -2,7 +2,7 @@
 // PGlite is an isolated test dependency and never connects to production.
 const { PGlite } = await import(process.argv[2] ?? '@electric-sql/pglite');
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const db = new PGlite();
 const org = '11111111-1111-1111-1111-111111111111';
@@ -24,6 +24,9 @@ insert into public.clients values ('${client}', '${org}', 'Ecoworkz', 'ecoworkz.
 `);
 
 await db.exec(readFileSync('migrations/053_site_inventory_foundation.sql', 'utf8'));
+if (existsSync('migrations/054_filter_site_crawl_assets.sql')) {
+  await db.exec(readFileSync('migrations/054_filter_site_crawl_assets.sql', 'utf8'));
+}
 
 await db.exec('set role service_role');
 const run = (await db.query(`insert into public.site_crawl_runs(organization_id,client_id,seed_url,configured_host,url_limit,status)
@@ -50,6 +53,21 @@ await assert.rejects(db.query(`select public.ensure_site_page_url($1,$2,'https:/
 assert.equal((await db.query('select count(*)::int as count from public.site_pages')).rows[0].count, 1);
 assert.equal((await db.query(`select public.enqueue_site_crawl_target($1,'https://ecoworkz.net/about','https://ecoworkz.net/about',array['gsc'],1) as accepted`, [run.id])).rows[0].accepted, true);
 assert.equal((await db.query('select count(*)::int as count from public.site_crawl_targets where run_id=$1', [run.id])).rows[0].count, 2);
+assert.equal((await db.query(`select public.record_site_crawl_asset_exclusion($1,'https://ecoworkz.net/photo.webp','https://ecoworkz.net/photo.webp',array['internal'],1) as recorded`, [run.id])).rows[0].recorded, true);
+assert.equal((await db.query(`select public.record_site_crawl_asset_exclusion($1,'https://ecoworkz.net/photo.webp','https://ecoworkz.net/photo.webp',array['sitemap'],0) as recorded`, [run.id])).rows[0].recorded, false);
+const excluded = (await db.query(`select status,terminal_classification,discovery_sources,depth from public.site_crawl_targets where run_id=$1 and normalized_url='https://ecoworkz.net/photo.webp'`, [run.id])).rows[0];
+assert.equal(excluded.status, 'skipped');
+assert.equal(excluded.terminal_classification, 'known_non_page_asset');
+assert.deepEqual(excluded.discovery_sources, ['internal', 'sitemap']);
+assert.equal(excluded.depth, 0);
+assert.equal((await db.query('select count(*)::int as count from public.site_crawl_targets where run_id=$1 and status<>\'skipped\'', [run.id])).rows[0].count, 2);
+const boundedRun = (await db.query(`insert into public.site_crawl_runs(organization_id,client_id,seed_url,configured_host,url_limit,status)
+values ($1,$2,'https://other.test/','other.test',10,'queued') returning *`, [otherOrg, otherClient])).rows[0];
+for (let index = 0; index < 10; index += 1) {
+  assert.equal((await db.query(`select public.record_site_crawl_asset_exclusion($1,$2,$2,array['sitemap'],0) as recorded`, [boundedRun.id, `https://other.test/image-${index}.webp`])).rows[0].recorded, true);
+}
+assert.equal((await db.query(`select public.record_site_crawl_asset_exclusion($1,'https://other.test/overflow.webp','https://other.test/overflow.webp',array['sitemap'],0) as recorded`, [boundedRun.id])).rows[0].recorded, false);
+assert.equal((await db.query('select asset_exclusion_cap_reached from public.site_crawl_runs where id=$1', [boundedRun.id])).rows[0].asset_exclusion_cap_reached, true);
 await assert.rejects(db.query(`insert into public.site_page_urls(organization_id,client_id,site_page_id,raw_url,normalized_url,discovery_sources)
 values ($1,$2,$3,'https://ecoworkz.net/#x','https://ecoworkz.net/',array['internal'])`, [org, client, page.id]), /unique/i);
 
@@ -74,7 +92,7 @@ await assert.rejects(db.query(`insert into public.site_pages(organization_id,cli
 
 await db.exec(`set "test.org"='${otherOrg}'`);
 assert.equal((await db.query('select count(*)::int as count from public.site_pages')).rows[0].count, 0);
-assert.equal((await db.query('select count(*)::int as count from public.site_crawl_runs')).rows[0].count, 0);
+assert.equal((await db.query('select count(*)::int as count from public.site_crawl_runs where id=$1', [run.id])).rows[0].count, 0);
 
 await db.exec('reset role; set role anon');
 await assert.rejects(db.query('select * from public.site_pages'), /permission denied/i);

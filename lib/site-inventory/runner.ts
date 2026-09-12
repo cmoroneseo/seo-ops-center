@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { extractHtmlEvidence, extractSitemapLocations } from './extract';
 import { parseRobots, robotsAllows, type ParsedRobots } from './robots';
 import { safeSiteFetch } from './safe-fetch';
-import { configuredSiteScope, isUrlInSiteScope, normalizeSiteUrl } from './url';
+import { configuredSiteScope, isKnownNonPageAssetUrl, isUrlInSiteScope, normalizeSiteUrl } from './url';
 import { rowToSiteCrawlRun } from '@/lib/supabase/site-inventory';
 import type { SiteCrawlRun, SiteDiscoverySource } from '@/lib/types';
 
@@ -12,7 +12,8 @@ const MAX_SITEMAPS = 3;
 
 async function enqueue(admin: SupabaseClient, runId: string, rawUrl: string, sources: SiteDiscoverySource[], depth: number) {
     const normalizedUrl = normalizeSiteUrl(rawUrl);
-    const { data, error } = await admin.rpc('enqueue_site_crawl_target', {
+    const procedure = isKnownNonPageAssetUrl(normalizedUrl) ? 'record_site_crawl_asset_exclusion' : 'enqueue_site_crawl_target';
+    const { data, error } = await admin.rpc(procedure, {
         p_run_id: runId, p_raw_url: rawUrl, p_normalized_url: normalizedUrl, p_sources: sources, p_depth: depth,
     });
     if (error) throw error;
@@ -201,7 +202,8 @@ export async function processSiteCrawlBatch(admin: SupabaseClient, input: {
                     const evidence = extractHtmlEvidence(html, response.finalUrl);
                     const jsUnresolved = evidence.wordCount < 20 && /<script\b/i.test(html);
                     const canonicalIssue = !evidence.canonicalUrl ? 'missing' : !isUrlInSiteScope(evidence.canonicalUrl, scope) ? 'off_scope' : 'none';
-                    const internalLinks = evidence.links.filter(link => isUrlInSiteScope(link.url, scope));
+                    const internalLinks = evidence.links.filter(link => isUrlInSiteScope(link.url, scope) && !isKnownNonPageAssetUrl(link.url));
+                    const excludedAssetLinks = evidence.links.filter(link => isUrlInSiteScope(link.url, scope) && isKnownNonPageAssetUrl(link.url));
                     const snapshot = await insertSnapshot(admin, {
                         ...common, final_url: response.finalUrl, fetch_status: jsUnresolved ? 'js_unresolved' : 'success', status_code: response.status,
                         content_type: contentType, response_bytes: response.body.length, redirect_hops: response.redirects, robots_allowed: true,
@@ -215,6 +217,14 @@ export async function processSiteCrawlBatch(admin: SupabaseClient, input: {
                         const key = `${normalized}\u001f${link.anchorText}\u001f${link.nofollow}`;
                         const current = grouped.get(key);
                         grouped.set(key, { raw: link.url, normalized, anchor: link.anchorText.slice(0, 2000), nofollow: link.nofollow, count: (current?.count ?? 0) + 1 });
+                    }
+                    for (const link of excludedAssetLinks) {
+                        try {
+                            await enqueue(admin, input.runId, link.url, ['internal'], Number(target.depth) + 1);
+                        } catch {
+                            console.error('[site-crawl] asset exclusion failed');
+                            await admin.from('site_crawl_runs').update({ error_summary: 'Some non-page asset exclusions could not be stored', updated_at: new Date().toISOString() }).eq('id', input.runId);
+                        }
                     }
                     for (const link of grouped.values()) {
                         try {
@@ -234,8 +244,12 @@ export async function processSiteCrawlBatch(admin: SupabaseClient, input: {
                     }
                     if (response.finalUrl !== target.normalized_url) {
                         try {
-                            await ensurePage(admin, { organizationId: input.organizationId, clientId: input.clientId, rawUrl: response.finalUrl, sources: ['redirect'] });
-                            await enqueue(admin, input.runId, response.finalUrl, ['redirect'], Number(target.depth));
+                            if (isKnownNonPageAssetUrl(response.finalUrl)) {
+                                await enqueue(admin, input.runId, response.finalUrl, ['redirect'], Number(target.depth));
+                            } else {
+                                await ensurePage(admin, { organizationId: input.organizationId, clientId: input.clientId, rawUrl: response.finalUrl, sources: ['redirect'] });
+                                await enqueue(admin, input.runId, response.finalUrl, ['redirect'], Number(target.depth));
+                            }
                         } catch {
                             console.error('[site-crawl] redirect identity failed');
                             await admin.from('site_crawl_runs').update({ error_summary: 'Some redirect identities could not be stored', updated_at: new Date().toISOString() }).eq('id', input.runId);
@@ -258,7 +272,7 @@ export async function processSiteCrawlBatch(admin: SupabaseClient, input: {
     if (targetsError) throw targetsError;
     const statuses = allTargets ?? [];
     const queued = statuses.filter(item => item.status === 'queued' || item.status === 'processing').length;
-    const processed = statuses.filter(item => ['completed', 'failed', 'skipped'].includes(item.status)).length;
+    const processed = statuses.filter(item => ['completed', 'failed'].includes(item.status)).length;
     const failed = statuses.filter(item => item.status === 'failed').length;
     const { count: blocked = 0 } = await admin.from('site_page_snapshots').select('*', { count: 'exact', head: true }).eq('run_id', input.runId).eq('fetch_status', 'blocked');
     const { data: currentRun } = await admin.from('site_crawl_runs').select('cap_reached').eq('id', input.runId).single();

@@ -7,11 +7,11 @@ test('maps snake-case crawl runs without inventing optional timestamps', () => {
     assert.deepEqual(rowToSiteCrawlRun({
         id: 'run', organization_id: 'org', client_id: 'client', seed_url: 'https://example.com/', configured_host: 'example.com',
         url_limit: 200, status: 'completed', discovered_count: 2, processed_count: 2, failed_count: 0, blocked_count: 0,
-        cap_reached: false, stop_reason: null, error_summary: null, started_at: 'start', completed_at: 'end', created_at: 'created', updated_at: 'updated',
-    }), {
+        cap_reached: false, asset_exclusion_cap_reached: true, stop_reason: null, error_summary: null, started_at: 'start', completed_at: 'end', created_at: 'created', updated_at: 'updated',
+    }, 7), {
         id: 'run', organizationId: 'org', clientId: 'client', seedUrl: 'https://example.com/', configuredHost: 'example.com',
-        urlLimit: 200, status: 'completed', discoveredCount: 2, processedCount: 2, failedCount: 0, blockedCount: 0,
-        capReached: false, startedAt: 'start', completedAt: 'end', createdAt: 'created', updatedAt: 'updated',
+        urlLimit: 200, status: 'completed', discoveredCount: 2, processedCount: 2, failedCount: 0, blockedCount: 0, excludedAssetCount: 7,
+        capReached: false, assetExclusionCapReached: true, startedAt: 'start', completedAt: 'end', createdAt: 'created', updatedAt: 'updated',
     });
 });
 

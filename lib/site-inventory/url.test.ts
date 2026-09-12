@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
     configuredSiteScope,
+    isKnownNonPageAssetUrl,
     isUrlInSiteScope,
     normalizeSiteUrl,
 } from './url.ts';
@@ -59,4 +60,30 @@ test('non-www subdomains do not gain access to their parent domain', () => {
     const scope = configuredSiteScope('https://staging.example.com/');
     assert.deepEqual(scope.allowedHosts, ['staging.example.com']);
     assert.equal(isUrlInSiteScope('https://example.com/', scope), false);
+});
+
+test('known static assets are excluded without hiding potentially indexable documents or pages', () => {
+    for (const url of [
+        'https://example.com/photo.JPG',
+        'https://example.com/image.webp?size=large',
+        'https://example.com/fonts/site.woff2?v=2',
+        'https://example.com/app.js',
+        'https://example.com/app.js.map',
+        'https://example.com/video.mp4',
+        'https://example.com/archive.zip',
+        'https://example.com/image%2Epng',
+    ]) {
+        assert.equal(isKnownNonPageAssetUrl(url), true, url);
+    }
+
+    for (const url of [
+        'https://example.com/services/artificial-grass',
+        'https://example.com/gallery/',
+        'https://example.com/download/report.pdf',
+        'https://example.com/feed.xml',
+        'https://example.com/page.php?id=10',
+        'https://example.com/image.jpg/installation-guide',
+    ]) {
+        assert.equal(isKnownNonPageAssetUrl(url), false, url);
+    }
 });
