@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { SiteIdentityReviewPayload } from '../types.ts';
-import { claimDirectionForCandidate, identityViewState } from './identity-view.ts';
+import { claimDirectionForCandidate, historyNoteClassName, identityViewState } from './identity-view.ts';
 
 const source = {
     pageId: 'page-source',
@@ -188,6 +188,35 @@ test('offers reopen only for an active source claim and names its observed targe
     assert.equal(state.canClaim, false);
     assert.equal(state.canKeepSeparate, false);
     assert.equal(state.canMarkNeedsResearch, false);
+});
+
+test('acknowledges reopen when an active claim has no current signal', () => {
+    const state = identityViewState({
+        ...candidatePayload,
+        candidates: [],
+        unmatchedSignals: [],
+        activeClaim: {
+            sourcePageId: source.pageId,
+            targetPageId: target.pageId,
+            decisionId: 'decision-claim',
+        },
+        resolution: {
+            requestedPageId: source.pageId,
+            resolvedPageId: target.pageId,
+            path: [source.pageId, target.pageId],
+            claimed: true,
+        },
+    });
+
+    assert.equal(state.evidenceState, 'no_signal');
+    assert.equal(state.canReopen, true);
+    assert.match(state.notice, /active reviewer claim/i);
+    assert.match(state.notice, /reopen/i);
+    assert.doesNotMatch(state.notice, /no reviewer identity action is available/i);
+});
+
+test('uses a token-breaking class for unbroken reviewer history notes', () => {
+    assert.match(historyNoteClassName, /\bbreak-all\b/);
 });
 
 test('distinguishes a reopened identity from a root page and orders reviewer history chronologically', () => {

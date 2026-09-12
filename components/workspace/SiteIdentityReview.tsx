@@ -29,7 +29,7 @@ import {
     identityDecisionFormReducer,
     initialIdentityDecisionFormState,
 } from '@/lib/site-inventory/identity-review-form';
-import { claimDirectionForCandidate, identityViewState } from '@/lib/site-inventory/identity-view';
+import { claimDirectionForCandidate, historyNoteClassName, identityViewState } from '@/lib/site-inventory/identity-view';
 import type {
     SiteIdentityCandidate,
     SiteIdentityDecisionKind,
@@ -400,7 +400,7 @@ export function SiteIdentityReview({
                     {view.history.map(decision => <li key={decision.id} className="relative before:absolute before:-left-[19px] before:top-1 before:h-2 before:w-2 before:rounded-full before:bg-primary">
                         <p className="font-medium">{decisionLabels[decision.decisionKind]} · {reasonLabels[decision.reasonCode]}</p>
                         <p className="mt-1 text-[11px] text-muted-foreground">{displayDate(decision.createdAt)}{decision.createdBy ? ` · Reviewer ${decision.createdBy}` : ''}</p>
-                        {decision.note && <p className="mt-1 whitespace-pre-wrap text-[11px] text-muted-foreground">{decision.note}</p>}
+                        {decision.note && <p className={historyNoteClassName}>{decision.note}</p>}
                     </li>)}
                 </ol>
             </details>}

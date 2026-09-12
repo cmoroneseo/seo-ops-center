@@ -41,6 +41,8 @@ export interface IdentityClaimDirection {
     chained: boolean;
 }
 
+export const historyNoteClassName = 'mt-1 whitespace-pre-wrap break-all text-[11px] text-muted-foreground';
+
 export function claimDirectionForCandidate(
     candidate: SiteIdentityReviewCandidate,
 ): IdentityClaimDirection | undefined {
@@ -147,6 +149,9 @@ export function identityViewState(
         candidate.page.snapshotId && claimDirectionForCandidate(candidate)
     )));
     const copy = evidenceCopy(evidenceState);
+    const notice = activeClaim && evidenceState === 'no_signal'
+        ? 'No current redirect or canonical target is observed. An active reviewer claim remains recorded and can be reopened if it no longer reflects the page identity.'
+        : copy.notice;
     const activeTargetPrimaryUrl = activeClaim
         ? payload?.candidates.find(candidate => candidate.page.pageId === activeClaim.targetPageId)?.page.primaryUrl
         : undefined;
@@ -160,6 +165,7 @@ export function identityViewState(
                 ? 'Reviewer claim reopened'
                 : 'Current primary page',
         ...copy,
+        notice,
         canClaim: actionable && exactCandidate && sourceSnapshotAvailable && targetSnapshotAvailable,
         canKeepSeparate: actionable && sourceSnapshotAvailable && exactCandidate,
         canMarkNeedsResearch: actionable && sourceSnapshotAvailable
