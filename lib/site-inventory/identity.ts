@@ -65,11 +65,6 @@ export function findExactIdentityCandidates(input: {
     canonicalUrl?: string;
     sameClientUrlIndex: ReadonlyMap<string, SiteIdentityPageEvidence>;
 }): { candidates: SiteIdentityCandidate[]; unmatchedSignals: SiteIdentitySignal[] } {
-    const normalizedIndex = new Map<string, SiteIdentityPageEvidence>();
-    for (const [url, page] of input.sameClientUrlIndex) {
-        normalizedIndex.set(normalizeSiteUrl(url), page);
-    }
-
     const storedSignals: Array<Pick<SiteIdentitySignal, 'kind' | 'url'>> = [
         ...input.redirectHops.map(url => ({ kind: 'redirect' as const, url })),
         ...(input.canonicalUrl ? [{ kind: 'canonical' as const, url: input.canonicalUrl }] : []),
@@ -79,7 +74,7 @@ export function findExactIdentityCandidates(input: {
 
     for (const storedSignal of storedSignals) {
         const url = normalizeSiteUrl(storedSignal.url);
-        const page = normalizedIndex.get(url);
+        const page = input.sameClientUrlIndex.get(url);
         if (!page) {
             unmatchedSignals.push({ kind: storedSignal.kind, url });
             continue;
@@ -103,12 +98,13 @@ export function resolveSitePageClaim(
     claims: SitePageClaim[],
     maxDepth = 32,
 ): SiteIdentityResolution {
+    const depthLimit = Math.min(Number.isFinite(maxDepth) ? maxDepth : 32, 32);
     const bySource = new Map(claims.map(claim => [claim.sourcePageId, claim.targetPageId]));
     const path = [pageId];
     const seen = new Set(path);
     let current = pageId;
     while (bySource.has(current)) {
-        if (path.length > maxDepth) throw new Error('Identity claim depth exceeded');
+        if (path.length > depthLimit) throw new Error('Identity claim depth exceeded');
         current = bySource.get(current)!;
         if (seen.has(current)) throw new Error('Identity claim cycle detected');
         seen.add(current);

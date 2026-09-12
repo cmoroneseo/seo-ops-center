@@ -103,6 +103,16 @@ test('allows 32 claim edges and rejects the 33rd', () => {
     assert.throws(() => resolveSitePageClaim('page-0', claims), /depth/i);
 });
 
+test('enforces the hard 32-edge cap when a caller requests a higher maximum', () => {
+    const claims = Array.from({ length: 33 }, (_, index) => ({
+        sourcePageId: `page-${index}`,
+        targetPageId: `page-${index + 1}`,
+    }));
+
+    assert.throws(() => resolveSitePageClaim('page-0', claims, 33), /depth/i);
+    assert.throws(() => resolveSitePageClaim('page-0', claims.slice(0, 3), 2), /depth/i);
+});
+
 test('groups exact redirect and canonical matches while suppressing self matches', () => {
     const source = page('source', 'https://example.com/source');
     const target = page('target', 'https://example.com/target');
@@ -115,8 +125,8 @@ test('groups exact redirect and canonical matches while suppressing self matches
         ],
         canonicalUrl: 'HTTPS://EXAMPLE.COM:443/target#canonical-fragment',
         sameClientUrlIndex: new Map([
-            ['HTTPS://EXAMPLE.COM:443/source', source],
-            ['HTTPS://EXAMPLE.COM:443/target', target],
+            ['https://example.com/source', source],
+            ['https://example.com/target', target],
         ]),
     });
 
@@ -155,4 +165,29 @@ test('does not infer identity from titles, trailing slashes, or query variants',
         { kind: 'redirect', url: 'https://example.com/offers?b=2&a=1' },
         { kind: 'canonical', url: 'https://example.com/service' },
     ]);
+});
+
+test('queries the supplied normalized URL index without normalizing or collapsing its keys', () => {
+    const normalizedTarget = page('normalized-target', 'https://example.com/target');
+    const nonNormalizedShadow = page('shadow-target', 'HTTPS://EXAMPLE.COM:443/target#shadow');
+    const result = findExactIdentityCandidates({
+        sourcePageId: 'source',
+        redirectHops: ['HTTPS://EXAMPLE.COM:443/target#signal'],
+        sameClientUrlIndex: new Map([
+            ['https://example.com/target', normalizedTarget],
+            ['HTTPS://EXAMPLE.COM:443/target#shadow', nonNormalizedShadow],
+        ]),
+    });
+
+    assert.deepEqual(result, {
+        candidates: [{
+            page: normalizedTarget,
+            signals: [{
+                kind: 'redirect',
+                url: 'https://example.com/target',
+                matchedPageId: 'normalized-target',
+            }],
+        }],
+        unmatchedSignals: [],
+    });
 });
