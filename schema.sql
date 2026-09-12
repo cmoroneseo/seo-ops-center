@@ -5104,6 +5104,7 @@ create table public.site_crawl_runs (
   failed_count integer not null default 0 check (failed_count >= 0),
   blocked_count integer not null default 0 check (blocked_count >= 0),
   cap_reached boolean not null default false,
+  asset_exclusion_cap_reached boolean not null default false,
   stop_reason text check (stop_reason is null or length(stop_reason) <= 500),
   error_summary text check (error_summary is null or length(error_summary) <= 1000),
   robots_url text check (robots_url is null or length(robots_url) <= 8192),
@@ -5278,26 +5279,57 @@ create or replace function public.enqueue_site_crawl_target(
 )
 returns boolean
 language plpgsql security invoker set search_path = pg_catalog, public as $$
-declare v_run public.site_crawl_runs%rowtype; v_existing uuid;
+declare v_run public.site_crawl_runs%rowtype; v_existing public.site_crawl_targets%rowtype;
 begin
   select * into v_run from public.site_crawl_runs where id = p_run_id for update;
   if not found or v_run.status not in ('queued','running','paused') then raise exception 'Crawl run is not active'; end if;
   if p_depth < 0 or p_depth > 50 then raise exception 'Invalid crawl depth'; end if;
-  select id into v_existing from public.site_crawl_targets where run_id = p_run_id and normalized_url = p_normalized_url for update;
+  select * into v_existing from public.site_crawl_targets where run_id = p_run_id and normalized_url = p_normalized_url for update;
   if found then
     update public.site_crawl_targets
     set discovery_sources = (select array_agg(distinct source order by source) from unnest(discovery_sources || p_sources) source),
         depth = least(depth, p_depth), updated_at = timezone('utc', now())
-    where id = v_existing;
-    return true;
+    where id = v_existing.id;
+    return v_existing.status <> 'skipped';
   end if;
-  if (select count(*) from public.site_crawl_targets where run_id = p_run_id) >= v_run.url_limit then
+  if (select count(*) from public.site_crawl_targets where run_id = p_run_id and status <> 'skipped') >= v_run.url_limit then
     update public.site_crawl_runs set cap_reached = true, updated_at = timezone('utc', now()) where id = p_run_id;
     return false;
   end if;
   insert into public.site_crawl_targets(organization_id, client_id, run_id, raw_url, normalized_url, discovery_sources, depth)
   values (v_run.organization_id, v_run.client_id, p_run_id, p_raw_url, p_normalized_url, p_sources, p_depth);
   update public.site_crawl_runs set discovered_count = discovered_count + 1, updated_at = timezone('utc', now()) where id = p_run_id;
+  return true;
+end;
+$$;
+
+create or replace function public.record_site_crawl_asset_exclusion(
+  p_run_id uuid, p_raw_url text, p_normalized_url text, p_sources text[], p_depth integer
+)
+returns boolean
+language plpgsql security invoker set search_path = pg_catalog, public as $$
+declare v_run public.site_crawl_runs%rowtype; v_existing public.site_crawl_targets%rowtype;
+begin
+  select * into v_run from public.site_crawl_runs where id = p_run_id for update;
+  if not found or v_run.status not in ('queued','running','paused') then raise exception 'Crawl run is not active'; end if;
+  if p_depth < 0 or p_depth > 50 then raise exception 'Invalid crawl depth'; end if;
+  select * into v_existing from public.site_crawl_targets where run_id = p_run_id and normalized_url = p_normalized_url for update;
+  if found then
+    update public.site_crawl_targets
+    set discovery_sources = (select array_agg(distinct source order by source) from unnest(discovery_sources || p_sources) source),
+        depth = least(depth, p_depth), updated_at = timezone('utc', now())
+    where id = v_existing.id and status = 'skipped';
+    return false;
+  end if;
+  if (select count(*) from public.site_crawl_targets where run_id = p_run_id and status = 'skipped') >= v_run.url_limit then
+    update public.site_crawl_runs set asset_exclusion_cap_reached = true, updated_at = timezone('utc', now()) where id = p_run_id;
+    return false;
+  end if;
+  insert into public.site_crawl_targets(
+    organization_id, client_id, run_id, raw_url, normalized_url, discovery_sources, depth, status, terminal_classification
+  ) values (
+    v_run.organization_id, v_run.client_id, p_run_id, p_raw_url, p_normalized_url, p_sources, p_depth, 'skipped', 'known_non_page_asset'
+  );
   return true;
 end;
 $$;
@@ -5360,8 +5392,10 @@ revoke all on function public.guard_site_page_snapshot_immutable() from public, 
 revoke all on function public.claim_site_crawl_targets(uuid, uuid, integer) from public, anon, authenticated;
 revoke all on function public.ensure_site_page_url(uuid, uuid, text, text, text[], boolean) from public, anon, authenticated;
 revoke all on function public.enqueue_site_crawl_target(uuid, text, text, text[], integer) from public, anon, authenticated;
+revoke all on function public.record_site_crawl_asset_exclusion(uuid, text, text, text[], integer) from public, anon, authenticated;
 grant execute on function public.guard_site_inventory_client_scope() to service_role;
 grant execute on function public.guard_site_page_snapshot_immutable() to service_role;
 grant execute on function public.claim_site_crawl_targets(uuid, uuid, integer) to service_role;
 grant execute on function public.ensure_site_page_url(uuid, uuid, text, text, text[], boolean) to service_role;
 grant execute on function public.enqueue_site_crawl_target(uuid, text, text, text[], integer) to service_role;
+grant execute on function public.record_site_crawl_asset_exclusion(uuid, text, text, text[], integer) to service_role;

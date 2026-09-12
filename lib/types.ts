@@ -357,7 +357,9 @@ export interface SiteCrawlRun {
     processedCount: number;
     failedCount: number;
     blockedCount: number;
+    excludedAssetCount: number;
     capReached: boolean;
+    assetExclusionCapReached: boolean;
     stopReason?: string;
     errorSummary?: string;
     startedAt?: string;

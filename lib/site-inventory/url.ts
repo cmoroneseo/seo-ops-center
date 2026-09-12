@@ -4,6 +4,8 @@ export interface SiteScope {
     allowedHosts: string[];
 }
 
+const NON_PAGE_ASSET_EXTENSION = /\.(?:avif|bmp|css|eot|gif|ico|jpe?g|js|m4a|m4v|map|mov|mp3|mp4|mpeg|oga|ogg|ogv|otf|png|rar|svg|tar|tif?f|ttf|wav|webm|webp|woff2?|zip)$/i;
+
 function parseAbsoluteHttpUrl(input: string) {
     if (typeof input !== 'string' || input.trim().length === 0) {
         throw new Error('Site URL must be an absolute HTTP URL');
@@ -31,6 +33,15 @@ export function normalizeSiteUrl(input: string) {
     const parsed = parseAbsoluteHttpUrl(input);
     parsed.hash = '';
     return parsed.toString();
+}
+
+export function isKnownNonPageAssetUrl(input: string) {
+    try {
+        const pathname = decodeURIComponent(parseAbsoluteHttpUrl(input).pathname);
+        return NON_PAGE_ASSET_EXTENSION.test(pathname);
+    } catch {
+        return false;
+    }
 }
 
 export function configuredSiteScope(input: string): SiteScope {

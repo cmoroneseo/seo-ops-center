@@ -120,9 +120,10 @@ export function SiteInventoryTab({ clientId, clientName }: { clientId: string; c
 
         {error && <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-sm"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" /><div><p className="font-medium">Site inventory needs attention</p><p className="mt-1 text-muted-foreground">{error}</p></div></div>}
         {inventory?.activeRun && <div role="status" className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm">
-            <div className="flex items-center justify-between gap-4"><span className="font-medium">Crawl {inventory.activeRun.status}</span><span className="tabular-nums text-muted-foreground">{inventory.activeRun.processedCount} / {inventory.activeRun.discoveredCount} observed</span></div>
+            <div className="flex items-center justify-between gap-4"><span className="font-medium">Crawl {inventory.activeRun.status}</span><span className="tabular-nums text-muted-foreground">{inventory.activeRun.processedCount} / {inventory.activeRun.discoveredCount} pages observed</span></div>
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${Math.min(100, 100 * inventory.activeRun.processedCount / Math.max(1, inventory.activeRun.discoveredCount))}%` }} /></div>
             <p className="mt-2 text-xs text-muted-foreground">The crawl is resumable. Closing this page does not discard stored observations.</p>
+            {inventory.activeRun.excludedAssetCount > 0 && <p className="mt-1 text-xs text-muted-foreground">{number.format(inventory.activeRun.excludedAssetCount)} known non-page asset URL{inventory.activeRun.excludedAssetCount === 1 ? '' : 's'} excluded from the page cap.</p>}
             {inventory.activeRun.errorSummary && <p className="mt-2 text-xs text-amber-600">Evidence limitation: {inventory.activeRun.errorSummary}</p>}
         </div>}
 
@@ -133,7 +134,7 @@ export function SiteInventoryTab({ clientId, clientName }: { clientId: string; c
                 <ScoreRing score={score} provisional={inventory!.health.provisional} />
                 <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2"><ShieldCheck className="h-5 w-5 text-primary" /><h3 className="text-lg font-semibold">Crawl Health overview</h3><span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">Latest completed crawl</span></div>
-                    <p className="mt-2 text-sm text-muted-foreground">{completed.processedCount} of {completed.discoveredCount} discovered URLs classified · {new Date(completed.completedAt ?? completed.updatedAt).toLocaleString()}</p>
+                    <p className="mt-2 text-sm text-muted-foreground">{completed.processedCount} of {completed.discoveredCount} discovered page URLs classified · {number.format(completed.excludedAssetCount)} known non-page assets excluded · {new Date(completed.completedAt ?? completed.updatedAt).toLocaleString()}</p>
                     <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
                         {inventory!.health.categories.map(item => <button key={item.key} onClick={() => setCategory(current => current === item.key ? undefined : item.key)} aria-pressed={category === item.key} className={`rounded-xl border p-3 text-left transition-colors ${category === item.key ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}`}>
                             <div className="flex items-center justify-between gap-2"><span className="text-xs text-muted-foreground">{item.label}</span><ChevronRight className="h-3.5 w-3.5" /></div>

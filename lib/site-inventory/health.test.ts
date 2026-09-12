@@ -84,3 +84,17 @@ test('empty categories are provisional and limitations remain explicit', () => {
     assert.match(result.limitations.join(' '), /blocked/i);
     assert.ok(result.categories.some(category => category.eligibleUrls === 0));
 });
+
+test('reports excluded asset URLs as a coverage boundary without deducting score', () => {
+    const result = calculateCrawlHealth({
+        status: 'completed',
+        capped: false,
+        excludedAssetCount: 12,
+        assetExclusionCapReached: true,
+        observations: [base()],
+    });
+    assert.equal(result.score, 100);
+    assert.match(result.limitations.join(' '), /12 known non-page asset URLs were excluded/i);
+    assert.match(result.limitations.join(' '), /additional asset URLs may exist/i);
+    assert.equal(result.provisional, true);
+});
