@@ -403,6 +403,72 @@ export interface SitePageObservation {
     }>;
 }
 
+export type SiteIdentityDecisionKind = 'claim_into' | 'keep_separate' | 'needs_research' | 'reopen';
+export type SiteIdentityReasonCode =
+    | 'redirect_alias' | 'canonical_alias' | 'protocol_or_host_variant' | 'duplicate_page' | 'historical_url'
+    | 'distinct_intent' | 'distinct_location' | 'distinct_language' | 'intentional_variant' | 'different_content'
+    | 'content_purpose_unknown' | 'conflicting_signals' | 'target_unfetched' | 'ownership_unknown'
+    | 'incorrect_decision' | 'new_evidence' | 'site_changed' | 'other';
+
+export interface SitePageClaim {
+    sourcePageId: string;
+    targetPageId: string;
+    decisionId?: string;
+}
+
+export interface SiteIdentitySignal {
+    kind: 'redirect' | 'canonical';
+    url: string;
+    matchedPageId?: string;
+}
+
+export interface SiteIdentityPageEvidence {
+    pageId: string;
+    primaryUrl: string;
+    snapshotId?: string;
+    observedAt?: string;
+    title?: string;
+    fetchStatus?: SitePageObservation['fetchStatus'];
+    statusCode?: number;
+    canonicalUrl?: string;
+    canonicalIssue?: SitePageObservation['canonicalIssue'];
+    redirectHops: string[];
+    discoverySources: SiteDiscoverySource[];
+    limitationFlags: string[];
+}
+
+export interface SiteIdentityCandidate {
+    page: SiteIdentityPageEvidence;
+    signals: SiteIdentitySignal[];
+}
+
+export interface SiteIdentityResolution {
+    requestedPageId: string;
+    resolvedPageId: string;
+    path: string[];
+    claimed: boolean;
+}
+
+export interface SiteIdentityDecision {
+    id: string;
+    sourcePageId: string;
+    targetPageId?: string;
+    decisionKind: SiteIdentityDecisionKind;
+    reasonCode: SiteIdentityReasonCode;
+    note?: string;
+    createdBy?: string;
+    createdAt: string;
+}
+
+export interface SiteIdentityReviewPayload {
+    source: SiteIdentityPageEvidence;
+    candidates: SiteIdentityCandidate[];
+    unmatchedSignals: SiteIdentitySignal[];
+    resolution: SiteIdentityResolution;
+    activeClaim?: SitePageClaim;
+    decisions: SiteIdentityDecision[];
+}
+
 export interface SiteInventoryPayload {
     activeRun?: SiteCrawlRun;
     latestCompletedRun?: SiteCrawlRun;
