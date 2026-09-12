@@ -25,6 +25,7 @@ class FakeQuery implements PromiseLike<QueryResult> {
     private filters: Array<[string, unknown]> = [];
     private orders: Array<[string, boolean]> = [];
     private rowLimit?: number;
+    private rowRange?: [number, number];
     private cardinality: 'many' | 'maybeSingle' | 'single' = 'many';
 
     constructor(private client: FakeClient, private table: string) {}
@@ -43,6 +44,11 @@ class FakeQuery implements PromiseLike<QueryResult> {
 
     limit(value: number) {
         this.rowLimit = value;
+        return this;
+    }
+
+    range(from: number, to: number) {
+        this.rowRange = [from, to];
         return this;
     }
 
@@ -68,7 +74,12 @@ class FakeQuery implements PromiseLike<QueryResult> {
             assert.ok(this.filters.some(([column]) => column === 'organization_id'), `${this.table} omitted organization_id scope`);
             assert.ok(this.filters.some(([column]) => column === 'client_id'), `${this.table} omitted client_id scope`);
         }
-        this.client.queryCalls.push({ table: this.table, filters: [...this.filters], orders: [...this.orders] });
+        this.client.queryCalls.push({
+            table: this.table,
+            filters: [...this.filters],
+            orders: [...this.orders],
+            range: this.rowRange,
+        });
         const error = this.client.tableErrors[this.table];
         if (error) return { data: null, error };
 
@@ -83,7 +94,14 @@ class FakeQuery implements PromiseLike<QueryResult> {
                 return 0;
             });
         }
+        if (this.rowRange) {
+            const from = this.rowRange[0] > 0 && this.client.repeatBoundaryTables.has(this.table)
+                ? this.rowRange[0] - 1
+                : this.rowRange[0];
+            rows = rows.slice(from, this.rowRange[1] + 1);
+        }
         if (this.rowLimit !== undefined) rows = rows.slice(0, this.rowLimit);
+        if (this.client.serverResponseCap !== undefined) rows = rows.slice(0, this.client.serverResponseCap);
         if (this.cardinality === 'maybeSingle') {
             return { data: rows[0] ?? null, error: null };
         }
@@ -97,11 +115,18 @@ class FakeQuery implements PromiseLike<QueryResult> {
 }
 
 class FakeClient {
-    queryCalls: Array<{ table: string; filters: Array<[string, unknown]>; orders: Array<[string, boolean]> }> = [];
+    queryCalls: Array<{
+        table: string;
+        filters: Array<[string, unknown]>;
+        orders: Array<[string, boolean]>;
+        range?: [number, number];
+    }> = [];
     rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
     tableErrors: Record<string, unknown> = {};
     rpcResult: QueryResult = { data: null, error: null };
     rpcThrown?: unknown;
+    serverResponseCap?: number;
+    repeatBoundaryTables = new Set<string>();
 
     constructor(public tables: Record<string, Row[]>) {}
 
@@ -220,6 +245,56 @@ test('builds exact candidates from the latest completed run and maps current rev
         createdBy: 'user-a',
         createdAt: '2026-09-10T13:00:00Z',
     }]);
+});
+
+test('paginates the complete URL index and active claims under a capped server response', async () => {
+    const fake = fixture();
+    fake.serverResponseCap = 2;
+    const sourceSnapshot = fake.tables.site_page_snapshots.find(snapshot => snapshot.id === 'snapshot-source');
+    assert.ok(sourceSnapshot);
+    sourceSnapshot.redirect_hops = ['https://example.com/target-alias'];
+    sourceSnapshot.canonical_url = null;
+    fake.tables.site_page_claims.push(
+        row({ source_site_page_id: 'page-target', target_site_page_id: 'page-mid', decision_id: 'decision-mid' }),
+        row({ source_site_page_id: 'page-mid', target_site_page_id: 'page-root', decision_id: 'decision-root' }),
+    );
+
+    const review = await getSiteIdentityReview(asSupabase(fake), 'org-a', 'client-a', 'page-source');
+
+    assert.equal(review.candidates[0].page.pageId, 'page-target');
+    assert.deepEqual(review.resolution, {
+        requestedPageId: 'page-source',
+        resolvedPageId: 'page-root',
+        path: ['page-source', 'page-target', 'page-mid', 'page-root'],
+        claimed: true,
+    });
+    for (const table of ['site_page_urls', 'site_page_claims']) {
+        const calls = fake.queryCalls.filter(call => call.table === table);
+        assert.ok(calls.length > 1, `${table} was not paginated`);
+        assert.ok(calls.every(call => call.range !== undefined), `${table} omitted range pagination`);
+        assert.deepEqual(calls[0].orders, [[table === 'site_page_urls' ? 'id' : 'source_site_page_id', true]]);
+    }
+});
+
+test('rejects a malformed pagination key instead of accepting an incomplete URL index', async () => {
+    const fake = fixture();
+    fake.tables.site_page_urls[0].id = null;
+
+    await assert.rejects(
+        getSiteIdentityReview(asSupabase(fake), 'org-a', 'client-a', 'page-source'),
+        (error: unknown) => error instanceof SiteIdentityError && error.code === 'read_failed',
+    );
+});
+
+test('rejects a repeated pagination boundary instead of accumulating duplicate claims', async () => {
+    const fake = fixture();
+    fake.serverResponseCap = 2;
+    fake.repeatBoundaryTables.add('site_page_claims');
+
+    await assert.rejects(
+        getSiteIdentityReview(asSupabase(fake), 'org-a', 'client-a', 'page-source'),
+        (error: unknown) => error instanceof SiteIdentityError && error.code === 'read_failed',
+    );
 });
 
 test('freezes claim evidence exclusively from scoped stored rows', async () => {

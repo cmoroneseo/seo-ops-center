@@ -44,6 +44,7 @@ export class SiteIdentityError extends Error {
 }
 
 type Row = Record<string, unknown>;
+const PAGINATION_RANGE_SIZE = 1000;
 
 interface ScopedIdentityRows {
     sourcePage: Row;
@@ -196,6 +197,38 @@ async function readScopedPage(
     return data as Row | undefined;
 }
 
+async function readAllScopedRows(
+    admin: SupabaseClient,
+    table: 'site_page_urls' | 'site_page_claims',
+    orderColumn: 'id' | 'source_site_page_id',
+    organizationId: string,
+    clientId: string,
+): Promise<Row[]> {
+    const rows: Row[] = [];
+    const seenKeys = new Set<string>();
+    let from = 0;
+    while (true) {
+        const { data, error } = await admin.from(table).select('*')
+            .eq('organization_id', organizationId)
+            .eq('client_id', clientId)
+            .order(orderColumn, { ascending: true })
+            .range(from, from + PAGINATION_RANGE_SIZE - 1);
+        if (error) throw error;
+        if (!Array.isArray(data)) throw new Error('Invalid paginated site identity rows');
+        if (data.length === 0) return rows;
+        for (const value of data) {
+            const row = value as Row;
+            const key = row[orderColumn];
+            if (typeof key !== 'string' || !key || seenKeys.has(key)) {
+                throw new Error('Invalid paginated site identity rows');
+            }
+            seenKeys.add(key);
+            rows.push(row);
+        }
+        from += data.length;
+    }
+}
+
 async function readEvidenceState(
     admin: SupabaseClient,
     organizationId: string,
@@ -216,22 +249,17 @@ async function readEvidenceState(
             .order('observed_at', { ascending: false })
             .order('id', { ascending: false })
         : Promise.resolve({ data: [], error: null });
-    const [urlsResult, snapshotsResult, claimsResult] = await Promise.all([
-        admin.from('site_page_urls').select('*')
-            .eq('organization_id', organizationId)
-            .eq('client_id', clientId),
+    const [urls, snapshotsResult, claims] = await Promise.all([
+        readAllScopedRows(admin, 'site_page_urls', 'id', organizationId, clientId),
         snapshotsQuery,
-        admin.from('site_page_claims').select('*')
-            .eq('organization_id', organizationId)
-            .eq('client_id', clientId),
+        readAllScopedRows(admin, 'site_page_claims', 'source_site_page_id', organizationId, clientId),
     ]);
-    const error = urlsResult.error ?? snapshotsResult.error ?? claimsResult.error;
-    if (error) throw error;
+    if (snapshotsResult.error) throw snapshotsResult.error;
     return buildEvidenceState({
         sourcePage,
-        urls: (urlsResult.data ?? []) as Row[],
+        urls,
         snapshots: (snapshotsResult.data ?? []) as Row[],
-        claims: (claimsResult.data ?? []) as Row[],
+        claims,
     });
 }
 
