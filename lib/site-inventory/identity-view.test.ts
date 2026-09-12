@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { SiteIdentityReviewPayload } from '../types.ts';
-import { identityViewState } from './identity-view.ts';
+import { claimDirectionForCandidate, identityViewState } from './identity-view.ts';
 
 const source = {
     pageId: 'page-source',
@@ -39,6 +39,13 @@ const candidatePayload: SiteIdentityReviewPayload = {
     candidates: [{
         page: target,
         signals: [{ kind: 'redirect', url: target.primaryUrl, matchedPageId: target.pageId }],
+        resolution: {
+            requestedPageId: target.pageId,
+            resolvedPageId: target.pageId,
+            path: [target.pageId],
+            claimed: false,
+        },
+        resolvedPage: target,
     }],
     unmatchedSignals: [],
     resolution: {
@@ -98,6 +105,44 @@ test('allows claiming only when exact source and target snapshots are available'
     assert.equal(fresh.canKeepSeparate, true);
     assert.equal(fresh.canMarkNeedsResearch, true);
     assert.equal(unfetchedTarget.canClaim, false);
+});
+
+test('names the immediate target and actual surviving root for a chained claim', () => {
+    const root = {
+        ...target,
+        pageId: 'page-root',
+        primaryUrl: 'https://example.com/surviving-page',
+        snapshotId: 'snapshot-root',
+        title: 'Surviving page',
+    };
+    const chainedCandidate = {
+        ...candidatePayload.candidates[0],
+        resolution: {
+            requestedPageId: target.pageId,
+            resolvedPageId: root.pageId,
+            path: [target.pageId, root.pageId],
+            claimed: true,
+        },
+        resolvedPage: root,
+    };
+
+    assert.deepEqual(claimDirectionForCandidate(chainedCandidate), {
+        immediateTargetUrl: 'https://example.com/main-page',
+        survivingPrimaryUrl: 'https://example.com/surviving-page',
+        chained: true,
+    });
+});
+
+test('fails claim actions closed when resolved root evidence is unavailable', () => {
+    const state = identityViewState({
+        ...candidatePayload,
+        candidates: [{
+            ...candidatePayload.candidates[0],
+            resolvedPage: undefined,
+        }],
+    });
+
+    assert.equal(state.canClaim, false);
 });
 
 test('withholds every reviewer write when the source snapshot is unavailable', () => {

@@ -1,5 +1,6 @@
 import type {
     SiteIdentityDecision,
+    SiteIdentityReviewCandidate,
     SiteIdentityReviewPayload,
 } from '../types.ts';
 
@@ -32,6 +33,30 @@ interface IdentityViewContext {
     loading?: boolean;
     error?: string;
     selectedSnapshotId?: string;
+}
+
+export interface IdentityClaimDirection {
+    immediateTargetUrl: string;
+    survivingPrimaryUrl: string;
+    chained: boolean;
+}
+
+export function claimDirectionForCandidate(
+    candidate: SiteIdentityReviewCandidate,
+): IdentityClaimDirection | undefined {
+    const { page, resolution, resolvedPage } = candidate;
+    if (!resolvedPage
+        || resolution.requestedPageId !== page.pageId
+        || resolution.resolvedPageId !== resolvedPage.pageId
+        || resolution.path[0] !== page.pageId
+        || resolution.path.at(-1) !== resolvedPage.pageId) {
+        return undefined;
+    }
+    return {
+        immediateTargetUrl: page.primaryUrl,
+        survivingPrimaryUrl: resolvedPage.primaryUrl,
+        chained: page.pageId !== resolvedPage.pageId,
+    };
 }
 
 function evidenceCopy(state: IdentityEvidenceViewState) {
@@ -118,7 +143,9 @@ export function identityViewState(
         && evidenceState !== 'stale_evidence';
     const exactCandidate = evidenceState === 'exact_candidate';
     const sourceSnapshotAvailable = Boolean(payload?.source.snapshotId);
-    const targetSnapshotAvailable = Boolean(payload?.candidates.some(candidate => candidate.page.snapshotId));
+    const targetSnapshotAvailable = Boolean(payload?.candidates.some(candidate => (
+        candidate.page.snapshotId && claimDirectionForCandidate(candidate)
+    )));
     const copy = evidenceCopy(evidenceState);
     const activeTargetPrimaryUrl = activeClaim
         ? payload?.candidates.find(candidate => candidate.page.pageId === activeClaim.targetPageId)?.page.primaryUrl

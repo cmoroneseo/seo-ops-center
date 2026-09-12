@@ -247,6 +247,48 @@ test('builds exact candidates from the latest completed run and maps current rev
     }]);
 });
 
+test('enriches an exact candidate with its current claim-chain root evidence', async () => {
+    const fake = fixture();
+    fake.tables.site_pages.push(row({ id: 'page-root' }));
+    fake.tables.site_page_urls.push(row({
+        id: 'url-root',
+        site_page_id: 'page-root',
+        normalized_url: 'https://example.com/surviving-page',
+        is_primary: true,
+        discovery_sources: ['internal'],
+    }));
+    fake.tables.site_page_snapshots.push(row({
+        id: 'snapshot-root',
+        run_id: 'run-z',
+        site_page_id: 'page-root',
+        site_page_url_id: 'url-root',
+        observed_at: '2026-09-10T10:30:00Z',
+        fetch_status: 'success',
+        status_code: 200,
+        redirect_hops: [],
+        canonical_url: 'https://example.com/surviving-page',
+        canonical_issue: 'none',
+        title: 'Surviving page',
+        limitation_flags: [],
+    }));
+    fake.tables.site_page_claims.push(row({
+        source_site_page_id: 'page-target',
+        target_site_page_id: 'page-root',
+        decision_id: 'decision-target-root',
+    }));
+
+    const review = await getSiteIdentityReview(asSupabase(fake), 'org-a', 'client-a', 'page-source');
+
+    assert.deepEqual(review.candidates[0].resolution, {
+        requestedPageId: 'page-target',
+        resolvedPageId: 'page-root',
+        path: ['page-target', 'page-root'],
+        claimed: true,
+    });
+    assert.equal(review.candidates[0].resolvedPage?.pageId, 'page-root');
+    assert.equal(review.candidates[0].resolvedPage?.primaryUrl, 'https://example.com/surviving-page');
+});
+
 test('paginates the complete URL index and active claims under a capped server response', async () => {
     const fake = fixture();
     fake.serverResponseCap = 2;

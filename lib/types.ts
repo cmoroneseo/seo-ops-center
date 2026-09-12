@@ -442,6 +442,11 @@ export interface SiteIdentityCandidate {
     signals: SiteIdentitySignal[];
 }
 
+export interface SiteIdentityReviewCandidate extends SiteIdentityCandidate {
+    resolution: SiteIdentityResolution;
+    resolvedPage?: SiteIdentityPageEvidence;
+}
+
 export interface SiteIdentityResolution {
     requestedPageId: string;
     resolvedPageId: string;
@@ -462,7 +467,7 @@ export interface SiteIdentityDecision {
 
 export interface SiteIdentityReviewPayload {
     source: SiteIdentityPageEvidence;
-    candidates: SiteIdentityCandidate[];
+    candidates: SiteIdentityReviewCandidate[];
     unmatchedSignals: SiteIdentitySignal[];
     resolution: SiteIdentityResolution;
     activeClaim?: SitePageClaim;

@@ -24,7 +24,8 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { reasonCodesFor, validateIdentityReason } from '@/lib/site-inventory/identity';
-import { identityViewState } from '@/lib/site-inventory/identity-view';
+import { processIdentityDecisionResponse } from '@/lib/site-inventory/identity-client';
+import { claimDirectionForCandidate, identityViewState } from '@/lib/site-inventory/identity-view';
 import type {
     SiteIdentityCandidate,
     SiteIdentityDecisionKind,
@@ -126,6 +127,7 @@ export function SiteIdentityReview({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [saveError, setSaveError] = useState('');
+    const [conflictNotice, setConflictNotice] = useState('');
     const [saving, setSaving] = useState(false);
     const [decisionKind, setDecisionKind] = useState<Exclude<SiteIdentityDecisionKind, 'reopen'>>();
     const [reasonCode, setReasonCode] = useState<SiteIdentityReasonCode | ''>('');
@@ -145,9 +147,11 @@ export function SiteIdentityReview({
             if (!response.ok) throw new Error(body.error || 'Unable to load the site identity review.');
             setPayload(body);
             setError('');
+            return true;
         } catch (reason) {
-            if (reason instanceof DOMException && reason.name === 'AbortError') return;
+            if (reason instanceof DOMException && reason.name === 'AbortError') return false;
             setError(reason instanceof Error ? reason.message : 'Unable to load the site identity review.');
+            return false;
         } finally {
             if (!signal?.aborted) setLoading(false);
         }
@@ -160,7 +164,9 @@ export function SiteIdentityReview({
     }, [loadReview]);
 
     useEffect(() => {
-        const firstCandidate = payload?.candidates.find(candidate => candidate.page.snapshotId)
+        const firstCandidate = payload?.candidates.find(candidate => (
+            candidate.page.snapshotId && claimDirectionForCandidate(candidate)
+        ))
             ?? payload?.candidates[0];
         setSelectedCandidateId(current => payload?.candidates.some(candidate => candidate.page.pageId === current)
             ? current
@@ -170,6 +176,9 @@ export function SiteIdentityReview({
     const view = identityViewState(payload, { loading, error, selectedSnapshotId: snapshotId });
     const selectedCandidate = payload?.candidates.find(candidate => candidate.page.pageId === selectedCandidateId)
         ?? payload?.candidates[0];
+    const selectedClaimDirection = selectedCandidate
+        ? claimDirectionForCandidate(selectedCandidate)
+        : undefined;
     const currentDecisionKind: SiteIdentityDecisionKind | undefined = view.reviewState === 'active_claim'
         ? 'reopen'
         : decisionKind;
@@ -177,7 +186,7 @@ export function SiteIdentityReview({
         ? validateIdentityReason(currentDecisionKind, reasonCode, note)
         : 'Select a reason before continuing.';
     const actionAllowed = currentDecisionKind === 'claim_into'
-        ? view.canClaim && Boolean(selectedCandidate?.page.snapshotId)
+        ? view.canClaim && Boolean(selectedCandidate?.page.snapshotId) && Boolean(selectedClaimDirection)
         : currentDecisionKind === 'keep_separate'
             ? view.canKeepSeparate
             : currentDecisionKind === 'needs_research'
@@ -187,8 +196,11 @@ export function SiteIdentityReview({
                     : false;
     const canSubmit = actionAllowed && !reasonError && !saving;
     const reasonOptions = currentDecisionKind ? reasonCodesFor(currentDecisionKind) : [];
-    const activeTarget = payload?.activeClaim
-        ? payload.candidates.find(candidate => candidate.page.pageId === payload.activeClaim?.targetPageId)?.page
+    const activeCandidate = payload?.activeClaim
+        ? payload.candidates.find(candidate => candidate.page.pageId === payload.activeClaim?.targetPageId)
+        : undefined;
+    const activeClaimDirection = activeCandidate
+        ? claimDirectionForCandidate(activeCandidate)
         : undefined;
 
     const chooseDecision = (kind: Exclude<SiteIdentityDecisionKind, 'reopen'>) => {
@@ -196,6 +208,7 @@ export function SiteIdentityReview({
         setReasonCode('');
         setNote('');
         setSaveError('');
+        setConflictNotice('');
     };
 
     const saveDecision = async () => {
@@ -203,6 +216,7 @@ export function SiteIdentityReview({
         savingRef.current = true;
         setSaving(true);
         setSaveError('');
+        setConflictNotice('');
         try {
             const response = await fetch('/api/site-inventory/identity/decisions', {
                 method: 'POST',
@@ -218,18 +232,38 @@ export function SiteIdentityReview({
                         targetPageId: selectedCandidate.page.pageId,
                         expectedTargetSnapshotId: selectedCandidate.page.snapshotId,
                     } : {}),
-                    ...(currentDecisionKind === 'reopen' && activeTarget?.snapshotId ? {
-                        expectedTargetSnapshotId: activeTarget.snapshotId,
+                    ...(currentDecisionKind === 'reopen' && activeCandidate?.page.snapshotId ? {
+                        expectedTargetSnapshotId: activeCandidate.page.snapshotId,
                     } : {}),
                 }),
             });
-            const body = await response.json().catch(() => ({})) as { error?: string };
-            if (!response.ok) throw new Error(body.error || 'Unable to save the site identity decision.');
+            const result = await processIdentityDecisionResponse(response, {
+                invalidateConflict() {
+                    setConfirmOpen(false);
+                    setDecisionKind(undefined);
+                    setReasonCode('');
+                    setNote('');
+                    setSelectedCandidateId('');
+                    setSaveError('');
+                },
+                refresh: loadReview,
+            });
+            if (result.kind === 'failed') {
+                setSaveError(result.message);
+                return;
+            }
+            if (result.kind === 'conflict_refreshed') {
+                setConflictNotice(result.message);
+                return;
+            }
+            if (result.kind === 'conflict_refresh_failed') {
+                setConflictNotice('');
+                return;
+            }
             setConfirmOpen(false);
             setDecisionKind(undefined);
             setReasonCode('');
             setNote('');
-            await loadReview();
         } catch (reason) {
             setSaveError(reason instanceof Error ? reason.message : 'Unable to save the site identity decision.');
         } finally {
@@ -240,17 +274,22 @@ export function SiteIdentityReview({
 
     const confirmationDescription = useMemo(() => {
         if (!payload || !currentDecisionKind) return '';
-        if (currentDecisionKind === 'claim_into' && selectedCandidate) {
-            return `Confirm the reviewer claim from ${payload.source.primaryUrl} into the surviving primary URL ${selectedCandidate.page.primaryUrl}. This records a reviewer decision and does not change crawl evidence or site behavior.`;
+        if (currentDecisionKind === 'claim_into' && selectedClaimDirection) {
+            return `Confirm the reviewer claim from ${payload.source.primaryUrl} into immediate target ${selectedClaimDirection.immediateTargetUrl}. That target currently resolves to the surviving primary URL ${selectedClaimDirection.survivingPrimaryUrl}. This records a reviewer decision and does not change crawl evidence or site behavior.`;
         }
         if (currentDecisionKind === 'reopen') {
-            return `Confirm reopening the active source claim from ${payload.source.primaryUrl} into ${view.activeTargetPrimaryUrl ?? payload.activeClaim?.targetPageId ?? 'the recorded target'}. Crawl evidence and reviewer history remain unchanged.`;
+            const immediateTarget = activeClaimDirection?.immediateTargetUrl
+                ?? view.activeTargetPrimaryUrl
+                ?? payload.activeClaim?.targetPageId
+                ?? 'the recorded target';
+            const survivingTarget = activeClaimDirection?.survivingPrimaryUrl ?? immediateTarget;
+            return `Confirm reopening the active source claim from ${payload.source.primaryUrl} into immediate target ${immediateTarget}, currently resolving to surviving primary URL ${survivingTarget}. Crawl evidence and reviewer history remain unchanged.`;
         }
         if (currentDecisionKind === 'keep_separate') {
             return `Confirm the reviewer decision to keep ${payload.source.primaryUrl} and ${selectedCandidate?.page.primaryUrl ?? 'the observed target'} as separate page identities.`;
         }
         return `Confirm that ${payload.source.primaryUrl} needs further identity research. This records reviewer judgment without creating a page claim.`;
-    }, [currentDecisionKind, payload, selectedCandidate, view.activeTargetPrimaryUrl]);
+    }, [activeClaimDirection, currentDecisionKind, payload, selectedCandidate, selectedClaimDirection, view.activeTargetPrimaryUrl]);
 
     return <section className="mt-5 border-t border-border pt-5" aria-labelledby="identity-review-title">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -269,6 +308,8 @@ export function SiteIdentityReview({
             {view.evidenceState === 'read_failure' && <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => void loadReview()} disabled={loading}><RefreshCw />Retry identity review</Button>}
         </div>
 
+        {conflictNotice && !error && <div role="status" className="mt-3 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs"><RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" /><div><p className="font-medium">Review state refreshed</p><p className="mt-1 text-muted-foreground">{conflictNotice}</p></div></div>}
+
         {payload && <>
             <div
                 className="mt-4 grid gap-3"
@@ -277,10 +318,19 @@ export function SiteIdentityReview({
                 <EvidenceCard evidence={payload.source} label="Selected source" />
                 {selectedCandidate && <EvidenceCard
                     evidence={selectedCandidate.page}
-                    label="Exact candidate"
+                    label="Immediate exact target"
                     signals={selectedCandidate.signals}
                 />}
+                {selectedClaimDirection?.chained && selectedCandidate?.resolvedPage && <EvidenceCard
+                    evidence={selectedCandidate.resolvedPage}
+                    label="Surviving primary page"
+                />}
             </div>
+
+            {selectedClaimDirection && <dl className="mt-3 grid gap-2 rounded-xl border border-border bg-muted/20 p-3 text-[11px]">
+                <div><dt className="font-medium">Immediate target</dt><dd className="mt-1 break-all font-mono text-muted-foreground">{selectedClaimDirection.immediateTargetUrl}</dd></div>
+                <div><dt className="font-medium">Surviving primary URL</dt><dd className="mt-1 break-all font-mono text-muted-foreground">{selectedClaimDirection.survivingPrimaryUrl}</dd></div>
+            </dl>}
 
             {payload.candidates.length > 1 && <fieldset className="mt-3">
                 <legend className="text-[11px] font-medium">Exact candidate pages</legend>
@@ -302,7 +352,7 @@ export function SiteIdentityReview({
             </div>}
 
             {view.reviewState === 'active_claim' && payload.activeClaim && <div className="mt-4 rounded-xl border border-primary/30 bg-primary/5 p-3 text-xs">
-                <div className="flex items-start gap-2"><ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-primary" /><div><p className="font-medium">Active reviewer claim</p><p className="mt-1 break-all text-muted-foreground">{payload.source.primaryUrl} → {view.activeTargetPrimaryUrl ?? payload.activeClaim.targetPageId}</p></div></div>
+                <div className="flex items-start gap-2"><ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-primary" /><div><p className="font-medium">Active reviewer claim</p><p className="mt-1 break-all text-muted-foreground">{payload.source.primaryUrl} → {activeClaimDirection?.immediateTargetUrl ?? view.activeTargetPrimaryUrl ?? payload.activeClaim.targetPageId}{activeClaimDirection?.chained ? ` → ${activeClaimDirection.survivingPrimaryUrl}` : ''}</p></div></div>
             </div>}
 
             {(view.canClaim || view.canKeepSeparate || view.canMarkNeedsResearch || view.canReopen) && <div className="mt-4 rounded-xl border border-border bg-background p-3">

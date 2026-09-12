@@ -290,15 +290,25 @@ export async function getSiteIdentityReview(
                 .order('id', { ascending: false }),
         ]);
         if (decisionsResult.error) throw decisionsResult.error;
-        const candidates = findExactIdentityCandidates({
+        const exactCandidates = findExactIdentityCandidates({
             sourcePageId: pageId,
             redirectHops: state.source.redirectHops,
             canonicalUrl: state.source.canonicalUrl,
             sameClientUrlIndex: state.urlIndex,
         });
+        const candidates = exactCandidates.candidates.map(candidate => {
+            const resolution = resolveSitePageClaim(candidate.page.pageId, state.mappedClaims);
+            const resolvedPage = state.evidenceByPageId.get(resolution.resolvedPageId);
+            return {
+                ...candidate,
+                resolution,
+                ...(resolvedPage ? { resolvedPage } : {}),
+            };
+        });
         return {
             source: state.source,
-            ...candidates,
+            candidates,
+            unmatchedSignals: exactCandidates.unmatchedSignals,
             resolution: resolveSitePageClaim(pageId, state.mappedClaims),
             ...(state.mappedClaims.find(claim => claim.sourcePageId === pageId) ? {
                 activeClaim: state.mappedClaims.find(claim => claim.sourcePageId === pageId),
