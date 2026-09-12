@@ -1,8 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { findExactIdentityCandidates, resolveSitePageClaim } from '@/lib/site-inventory/identity';
+import { findExactIdentityCandidates, resolveSitePageClaim, sameSiteIdentityClaimState, siteIdentityClaimState } from '@/lib/site-inventory/identity';
 import type {
     SiteDiscoverySource,
+    SiteIdentityActiveClaimsPayload,
+    SiteIdentityClaimState,
     SiteIdentityDecision,
     SiteIdentityDecisionKind,
     SiteIdentityPageEvidence,
@@ -24,6 +26,8 @@ export interface SetSiteIdentityDecisionInput {
     note?: string;
     expectedSourceSnapshotId: string;
     expectedTargetSnapshotId?: string;
+    expectedActiveDecisionId: string | null;
+    expectedTargetResolution: SiteIdentityClaimState | null;
 }
 
 export type SiteIdentityErrorCode = 'not_found' | 'stale' | 'conflict' | 'read_failed' | 'write_failed';
@@ -58,6 +62,7 @@ interface EvidenceState extends ScopedIdentityRows {
     evidenceByPageId: Map<string, SiteIdentityPageEvidence>;
     urlIndex: Map<string, SiteIdentityPageEvidence>;
     mappedClaims: SitePageClaim[];
+    sourceOmitted?: boolean;
 }
 
 export function rowToSitePageClaim(row: Row): SitePageClaim {
@@ -99,7 +104,7 @@ function rowToPageEvidence(input: {
         discoverySources: asStringArray(snapshotUrlRow?.discovery_sources ?? primaryUrlRow.discovery_sources) as SiteDiscoverySource[],
         limitationFlags: asStringArray(snapshot?.limitation_flags),
     };
-    if (!snapshot) return evidence;
+    if (!snapshot) return { ...evidence, limitationFlags: ['omitted_from_latest_completed_crawl'] };
     return {
         ...evidence,
         snapshotId: String(snapshot.id),
@@ -241,29 +246,60 @@ async function readEvidenceState(
     ]);
     if (!sourcePage) throw new SiteIdentityError('not_found');
 
-    const snapshotsQuery = runId
-        ? admin.from('site_page_snapshots').select('*')
-            .eq('organization_id', organizationId)
-            .eq('client_id', clientId)
-            .eq('run_id', runId)
-            .order('observed_at', { ascending: false })
-            .order('id', { ascending: false })
-        : Promise.resolve({ data: [], error: null });
-    const [urls, snapshotsResult, claims] = await Promise.all([
+    const snapshotsQuery = async () => {
+        if (!runId) return [];
+        const snapshots: Row[] = [];
+        const seen = new Set<string>();
+        while (true) {
+            const { data, error } = await admin.from('site_page_snapshots').select('*')
+                .eq('organization_id', organizationId).eq('client_id', clientId).eq('run_id', runId)
+                .order('observed_at', { ascending: false }).order('id', { ascending: false })
+                .range(snapshots.length, snapshots.length + PAGINATION_RANGE_SIZE - 1);
+            if (error) throw error;
+            if (!Array.isArray(data)) throw new SiteIdentityError('read_failed');
+            if (!data.length) return snapshots;
+            for (const row of data) {
+                if (typeof row.id !== 'string' || seen.has(row.id)) throw new SiteIdentityError('read_failed');
+                seen.add(row.id);
+                snapshots.push(row);
+            }
+        }
+    };
+    const [urls, snapshots, claims] = await Promise.all([
         readAllScopedRows(admin, 'site_page_urls', 'id', organizationId, clientId),
-        snapshotsQuery,
+        snapshotsQuery(),
         readAllScopedRows(admin, 'site_page_claims', 'source_site_page_id', organizationId, clientId),
     ]);
-    if (snapshotsResult.error) throw snapshotsResult.error;
-    return buildEvidenceState({
+    const state = buildEvidenceState({
         sourcePage,
         urls,
-        snapshots: (snapshotsResult.data ?? []) as Row[],
+        snapshots,
         claims,
     });
+    const active = state.mappedClaims.find(claim => claim.sourcePageId === sourcePageId);
+    if (!state.source.snapshotId && active?.decisionId) {
+        const { data: decision, error } = await admin.from('site_page_identity_decisions').select('evidence_snapshot')
+            .eq('organization_id', organizationId).eq('client_id', clientId)
+            .eq('source_site_page_id', sourcePageId).eq('id', active.decisionId).maybeSingle();
+        if (error) throw error;
+        const retainedId = decision?.evidence_snapshot?.source?.snapshotId;
+        if (typeof retainedId !== 'string') throw new SiteIdentityError('read_failed');
+        const { data: snapshot, error: snapshotError } = await admin.from('site_page_snapshots').select('*')
+            .eq('organization_id', organizationId).eq('client_id', clientId)
+            .eq('site_page_id', sourcePageId).eq('id', retainedId).maybeSingle();
+        if (snapshotError || !snapshot) throw new SiteIdentityError('read_failed');
+        const primaryUrlRow = urls.find(url => url.site_page_id === sourcePageId && url.is_primary === true)
+            ?? urls.find(url => url.site_page_id === sourcePageId)!;
+        state.source = rowToPageEvidence({ pageId: sourcePageId, primaryUrlRow, snapshot,
+            snapshotUrlRow: urls.find(url => url.id === snapshot.site_page_url_id) });
+        state.source.limitationFlags = [...state.source.limitationFlags, 'omitted_from_latest_completed_crawl', 'historical_claim_evidence'];
+        state.sourceOmitted = true;
+    }
+    return state;
 }
 
 function signalsForSource(state: EvidenceState): SiteIdentitySignal[] {
+    if (state.sourceOmitted) return [];
     const { candidates, unmatchedSignals } = findExactIdentityCandidates({
         sourcePageId: state.source.pageId,
         redirectHops: state.source.redirectHops,
@@ -271,6 +307,28 @@ function signalsForSource(state: EvidenceState): SiteIdentitySignal[] {
         sameClientUrlIndex: state.urlIndex,
     });
     return [...candidates.flatMap(candidate => candidate.signals), ...unmatchedSignals];
+}
+
+export async function getSiteIdentityActiveClaims(
+    admin: SupabaseClient, organizationId: string, clientId: string, cursor?: string,
+): Promise<SiteIdentityActiveClaimsPayload> {
+    try {
+        const [rows, urls] = await Promise.all([
+            readAllScopedRows(admin, 'site_page_claims', 'source_site_page_id', organizationId, clientId),
+            readAllScopedRows(admin, 'site_page_urls', 'id', organizationId, clientId),
+        ]);
+        const remaining = rows.filter(row => !cursor || String(row.source_site_page_id) > cursor);
+        const page = remaining.slice(0, 50);
+        const primaryUrl = (id: string) => String((urls.find(url => url.site_page_id === id && url.is_primary === true)
+            ?? urls.find(url => url.site_page_id === id))?.normalized_url ?? id);
+        return {
+            claims: page.map(row => {
+                const claim = rowToSitePageClaim(row);
+                return { ...claim, sourcePrimaryUrl: primaryUrl(claim.sourcePageId), targetPrimaryUrl: primaryUrl(claim.targetPageId) };
+            }),
+            ...(remaining.length > page.length ? { nextCursor: String(page.at(-1)!.source_site_page_id) } : {}),
+        };
+    } catch { throw new SiteIdentityError('read_failed'); }
 }
 
 export async function getSiteIdentityReview(
@@ -292,8 +350,8 @@ export async function getSiteIdentityReview(
         if (decisionsResult.error) throw decisionsResult.error;
         const exactCandidates = findExactIdentityCandidates({
             sourcePageId: pageId,
-            redirectHops: state.source.redirectHops,
-            canonicalUrl: state.source.canonicalUrl,
+            redirectHops: state.sourceOmitted ? [] : state.source.redirectHops,
+            canonicalUrl: state.sourceOmitted ? undefined : state.source.canonicalUrl,
             sameClientUrlIndex: state.urlIndex,
         });
         const candidates = exactCandidates.candidates.map(candidate => {
@@ -302,17 +360,24 @@ export async function getSiteIdentityReview(
             return {
                 ...candidate,
                 resolution,
+                claimState: siteIdentityClaimState(candidate.page.pageId, state.mappedClaims),
                 ...(resolvedPage ? { resolvedPage } : {}),
             };
         });
+        const activeClaim = state.mappedClaims.find(claim => claim.sourcePageId === pageId);
+        const activeTarget = activeClaim && state.evidenceByPageId.get(activeClaim.targetPageId);
+        const targetResolution = activeClaim && resolveSitePageClaim(activeClaim.targetPageId, state.mappedClaims);
         return {
             source: state.source,
             candidates,
             unmatchedSignals: exactCandidates.unmatchedSignals,
             resolution: resolveSitePageClaim(pageId, state.mappedClaims),
-            ...(state.mappedClaims.find(claim => claim.sourcePageId === pageId) ? {
-                activeClaim: state.mappedClaims.find(claim => claim.sourcePageId === pageId),
-            } : {}),
+            ...(activeClaim ? { activeClaim } : {}),
+            ...(activeTarget && targetResolution ? { activeClaimTarget: {
+                page: activeTarget, resolution: targetResolution,
+                claimState: siteIdentityClaimState(activeTarget.pageId, state.mappedClaims),
+                resolvedPage: state.evidenceByPageId.get(targetResolution.resolvedPageId),
+            } } : {}),
             decisions: ((decisionsResult.data ?? []) as Row[]).map(rowToSiteIdentityDecision),
         };
     } catch (error) {
@@ -330,7 +395,8 @@ function persistenceError(error: unknown): SiteIdentityError {
     }
     if (message.includes('scope mismatch')) return new SiteIdentityError('not_found');
     if (
-        message.includes('active claim')
+        message.includes('identity state conflict')
+        || message.includes('active claim')
         || message.includes('self-claim')
         || message.includes('claim cycle')
         || message.includes('claim depth')
@@ -354,26 +420,33 @@ export async function setSiteIdentityDecision(
     }
 
     const activeClaim = state.mappedClaims.find(claim => claim.sourcePageId === input.sourcePageId);
+    if ((activeClaim?.decisionId ?? null) !== input.expectedActiveDecisionId) throw new SiteIdentityError('conflict');
     if (input.decisionKind === 'reopen') {
         if (input.targetPageId || !activeClaim) throw new SiteIdentityError('conflict');
     } else if (activeClaim) {
         throw new SiteIdentityError('conflict');
     }
-    if (input.decisionKind === 'claim_into') {
+    if (input.decisionKind === 'claim_into' || input.decisionKind === 'keep_separate') {
         if (!input.targetPageId || input.targetPageId === input.sourcePageId) throw new SiteIdentityError('conflict');
-    } else if (input.targetPageId) {
-        throw new SiteIdentityError('conflict');
     }
 
     if (!state.source.snapshotId || state.source.snapshotId !== input.expectedSourceSnapshotId) {
         throw new SiteIdentityError('stale');
     }
 
-    const evidenceTargetPageId = input.decisionKind === 'claim_into'
-        ? input.targetPageId
-        : input.decisionKind === 'reopen'
-            ? activeClaim?.targetPageId
-            : undefined;
+    let signals: SiteIdentitySignal[];
+    try { signals = signalsForSource(state); }
+    catch { throw new SiteIdentityError('write_failed'); }
+    if (input.targetPageId && !signals.some(signal => signal.matchedPageId === input.targetPageId)) {
+        throw new SiteIdentityError('conflict');
+    }
+    if (input.decisionKind === 'needs_research' && !input.targetPageId
+        && !signals.some(signal => !signal.matchedPageId)) throw new SiteIdentityError('conflict');
+    const evidenceTargetPageId = input.decisionKind === 'reopen' ? activeClaim?.targetPageId : input.targetPageId;
+    let targetResolution: SiteIdentityClaimState | null;
+    try { targetResolution = evidenceTargetPageId ? siteIdentityClaimState(evidenceTargetPageId, state.mappedClaims) : null; }
+    catch { throw new SiteIdentityError('conflict'); }
+    if (!sameSiteIdentityClaimState(input.expectedTargetResolution, targetResolution)) throw new SiteIdentityError('conflict');
     let target: SiteIdentityPageEvidence | undefined;
     if (evidenceTargetPageId) {
         try {
@@ -391,7 +464,7 @@ export async function setSiteIdentityDecision(
         if (!input.expectedTargetSnapshotId || target?.snapshotId !== input.expectedTargetSnapshotId) {
             throw new SiteIdentityError('stale');
         }
-    } else if (input.expectedTargetSnapshotId && target?.snapshotId !== input.expectedTargetSnapshotId) {
+    } else if (target?.snapshotId !== input.expectedTargetSnapshotId) {
         throw new SiteIdentityError('stale');
     }
 
@@ -405,8 +478,8 @@ export async function setSiteIdentityDecision(
         evidenceSnapshot = {
             version: 1,
             source: state.source,
-            ...(target?.snapshotId ? { target } : {}),
-            signals: signalsForSource(state),
+            ...(target ? { target } : {}),
+            signals,
         };
         if (new TextEncoder().encode(JSON.stringify(evidenceSnapshot)).byteLength >= 262144) {
             throw new SiteIdentityError('write_failed');
@@ -422,11 +495,13 @@ export async function setSiteIdentityDecision(
             p_client_id: input.clientId,
             p_created_by: input.createdBy,
             p_source_site_page_id: input.sourcePageId,
-            p_target_site_page_id: input.decisionKind === 'claim_into' ? input.targetPageId : null,
+            p_target_site_page_id: input.targetPageId ?? null,
             p_decision_kind: input.decisionKind,
             p_reason_code: input.reasonCode,
             p_note: input.note ?? null,
             p_evidence_snapshot: evidenceSnapshot,
+            p_expected_active_decision_id: input.expectedActiveDecisionId,
+            p_expected_target_resolution: input.expectedTargetResolution,
         });
         if (error) throw persistenceError(error);
         if (!data) throw new SiteIdentityError('write_failed');

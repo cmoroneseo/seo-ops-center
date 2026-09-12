@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronRight, CircleGauge, ExternalLink, FileSearch, Loader2, Play, RefreshCw, Search, ShieldCheck } from 'lucide-react';
 
 import { SiteIdentityReview } from '@/components/workspace/SiteIdentityReview';
+import { SiteIdentityActiveClaims } from '@/components/workspace/SiteIdentityActiveClaims';
 import type { HealthCategoryKey } from '@/lib/site-inventory/health';
 import type { SiteCrawlRun, SiteInventoryPayload, SitePageObservation } from '@/lib/types';
 
@@ -118,6 +119,7 @@ export function SiteInventoryTab({ clientId, clientName }: { clientId: string; c
                 </button>
             </div>
         </header>
+        <SiteIdentityActiveClaims key={clientId} clientId={clientId} />
 
         {error && <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-sm"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" /><div><p className="font-medium">Site inventory needs attention</p><p className="mt-1 text-muted-foreground">{error}</p></div></div>}
         {inventory?.activeRun && <div role="status" className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm">

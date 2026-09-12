@@ -5,9 +5,23 @@ import {
     findExactIdentityCandidates,
     reasonCodesFor,
     resolveSitePageClaim,
+    siteIdentityClaimState,
+    sameSiteIdentityClaimState,
     validateIdentityReason,
 } from './identity.ts';
 import type { SiteIdentityPageEvidence } from '@/lib/types';
+
+test('confirmed target state includes every edge decision and detects replacement along the same path', () => {
+    const confirmed = siteIdentityClaimState('a', [
+        { sourcePageId: 'a', targetPageId: 'b', decisionId: 'first' },
+        { sourcePageId: 'b', targetPageId: 'c', decisionId: 'second' },
+    ]);
+    assert.deepEqual(confirmed, { path: ['a', 'b', 'c'], decisionIds: ['first', 'second'] });
+    assert.equal(sameSiteIdentityClaimState(confirmed, { path: ['a', 'b', 'c'], decisionIds: ['replacement', 'second'] }), false);
+    assert.equal(sameSiteIdentityClaimState(confirmed, { path: ['a', 'b', 'c'], decisionIds: ['first', 'second'] }), true);
+    assert.equal(sameSiteIdentityClaimState(null, { path: ['a'], decisionIds: [] }), false);
+    assert.throws(() => siteIdentityClaimState('a', [{ sourcePageId: 'a', targetPageId: 'b' }]), /decision/i);
+});
 
 function page(
     pageId: string,

@@ -1,5 +1,6 @@
 import type {
     SiteIdentityCandidate,
+    SiteIdentityClaimState,
     SiteIdentityDecisionKind,
     SiteIdentityPageEvidence,
     SiteIdentityReasonCode,
@@ -111,4 +112,22 @@ export function resolveSitePageClaim(
         path.push(current);
     }
     return { requestedPageId: pageId, resolvedPageId: current, path, claimed: path.length > 1 };
+}
+
+export function siteIdentityClaimState(pageId: string, claims: SitePageClaim[]): SiteIdentityClaimState {
+    const { path } = resolveSitePageClaim(pageId, claims);
+    const bySource = new Map(claims.map(claim => [claim.sourcePageId, claim]));
+    const decisionIds = path.slice(0, -1).map(id => {
+        const decisionId = bySource.get(id)?.decisionId;
+        if (!decisionId) throw new Error('Identity claim decision is unavailable');
+        return decisionId;
+    });
+    return { path, decisionIds };
+}
+
+export function sameSiteIdentityClaimState(left: SiteIdentityClaimState | null, right: SiteIdentityClaimState | null) {
+    return left === null || right === null ? left === right
+        : left.path.length === right.path.length && left.decisionIds.length === right.decisionIds.length
+            && left.path.every((id, index) => id === right.path[index])
+            && left.decisionIds.every((id, index) => id === right.decisionIds[index]);
 }

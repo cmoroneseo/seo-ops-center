@@ -1,6 +1,6 @@
 import type {
     SiteIdentityDecision,
-    SiteIdentityReviewCandidate,
+    SiteIdentityResolvedEvidence,
     SiteIdentityReviewPayload,
 } from '../types.ts';
 
@@ -26,6 +26,7 @@ export interface IdentityViewState {
     canMarkNeedsResearch: boolean;
     canReopen: boolean;
     activeTargetPrimaryUrl?: string;
+    activeSurvivingPrimaryUrl?: string;
     history: SiteIdentityDecision[];
 }
 
@@ -44,7 +45,7 @@ export interface IdentityClaimDirection {
 export const historyNoteClassName = 'mt-1 whitespace-pre-wrap break-all text-[11px] text-muted-foreground';
 
 export function claimDirectionForCandidate(
-    candidate: SiteIdentityReviewCandidate,
+    candidate: SiteIdentityResolvedEvidence,
 ): IdentityClaimDirection | undefined {
     const { page, resolution, resolvedPage } = candidate;
     if (!resolvedPage
@@ -149,12 +150,14 @@ export function identityViewState(
         candidate.page.snapshotId && claimDirectionForCandidate(candidate)
     )));
     const copy = evidenceCopy(evidenceState);
-    const notice = activeClaim && evidenceState === 'no_signal'
+    const notice = activeClaim && payload?.source.limitationFlags.includes('historical_claim_evidence')
+        ? 'This source was omitted from the latest completed crawl. Historical evidence retained with the active claim is shown only to reopen that specific decision; it does not establish current crawl conditions or new candidates.'
+        : activeClaim && evidenceState === 'no_signal'
         ? 'No current redirect or canonical target is observed. An active reviewer claim remains recorded and can be reopened if it no longer reflects the page identity.'
         : copy.notice;
-    const activeTargetPrimaryUrl = activeClaim
-        ? payload?.candidates.find(candidate => candidate.page.pageId === activeClaim.targetPageId)?.page.primaryUrl
-        : undefined;
+    const activeDirection = activeClaim && payload?.activeClaimTarget
+        && payload.activeClaimTarget.page.pageId === activeClaim.targetPageId
+        ? claimDirectionForCandidate(payload.activeClaimTarget) : undefined;
 
     return {
         evidenceState,
@@ -170,11 +173,12 @@ export function identityViewState(
         canKeepSeparate: actionable && sourceSnapshotAvailable && exactCandidate,
         canMarkNeedsResearch: actionable && sourceSnapshotAvailable
             && (exactCandidate || evidenceState === 'unmatched_signal'),
-        canReopen: Boolean(activeClaim) && sourceSnapshotAvailable
+        canReopen: Boolean(activeClaim?.decisionId && activeDirection) && sourceSnapshotAvailable
             && evidenceState !== 'loading'
             && evidenceState !== 'read_failure'
             && evidenceState !== 'stale_evidence',
-        ...(activeTargetPrimaryUrl ? { activeTargetPrimaryUrl } : {}),
+        ...(activeDirection ? { activeTargetPrimaryUrl: activeDirection.immediateTargetUrl,
+            activeSurvivingPrimaryUrl: activeDirection.survivingPrimaryUrl } : {}),
         history,
     };
 }

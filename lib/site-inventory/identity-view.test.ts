@@ -46,6 +46,7 @@ const candidatePayload: SiteIdentityReviewPayload = {
             claimed: false,
         },
         resolvedPage: target,
+        claimState: { path: [target.pageId], decisionIds: [] },
     }],
     unmatchedSignals: [],
     resolution: {
@@ -169,6 +170,7 @@ test('withholds every reviewer write when the source snapshot is unavailable', (
 test('offers reopen only for an active source claim and names its observed target when available', () => {
     const state = identityViewState({
         ...candidatePayload,
+        activeClaimTarget: candidatePayload.candidates[0],
         activeClaim: {
             sourcePageId: source.pageId,
             targetPageId: target.pageId,
@@ -193,6 +195,7 @@ test('offers reopen only for an active source claim and names its observed targe
 test('acknowledges reopen when an active claim has no current signal', () => {
     const state = identityViewState({
         ...candidatePayload,
+        activeClaimTarget: candidatePayload.candidates[0],
         candidates: [],
         unmatchedSignals: [],
         activeClaim: {
@@ -245,4 +248,24 @@ test('distinguishes a reopened identity from a root page and orders reviewer his
     assert.equal(root.reviewState, 'root_page');
     assert.equal(reopened.reviewState, 'reopened_identity');
     assert.deepEqual(reopened.history.map(item => item.id), ['decision-claim', 'decision-reopen']);
+});
+
+test('reopen uses active chain evidence when candidate signals disappear, including an omitted source', () => {
+    const state = identityViewState({
+        ...candidatePayload,
+        source: { ...source, limitationFlags: ['omitted_from_latest_completed_crawl', 'historical_claim_evidence'] },
+        candidates: [],
+        activeClaim: { sourcePageId: source.pageId, targetPageId: target.pageId, decisionId: 'decision-claim' },
+        activeClaimTarget: {
+            page: target,
+            resolvedPage: { ...target, pageId: 'root', primaryUrl: 'https://example.com/root' },
+            resolution: { requestedPageId: target.pageId, resolvedPageId: 'root', path: [target.pageId, 'root'], claimed: true },
+            claimState: { path: [target.pageId, 'root'], decisionIds: ['decision-root'] },
+        },
+    });
+    assert.equal(state.activeTargetPrimaryUrl, target.primaryUrl);
+    assert.equal(state.activeSurvivingPrimaryUrl, 'https://example.com/root');
+    assert.equal(state.canReopen, true);
+    assert.match(state.notice, /omitted|historical/i);
+    assert.equal(state.canClaim, false);
 });

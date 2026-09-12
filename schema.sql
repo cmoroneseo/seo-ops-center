@@ -5418,8 +5418,8 @@ create table public.site_page_identity_decisions (
   foreign key (target_site_page_id, organization_id, client_id)
     references public.site_pages(id, organization_id, client_id) on delete restrict,
   check (source_site_page_id <> target_site_page_id),
-  check ((decision_kind in ('claim_into','reopen') and target_site_page_id is not null)
-    or (decision_kind in ('keep_separate','needs_research') and target_site_page_id is null)),
+  check ((decision_kind in ('claim_into','keep_separate','reopen') and target_site_page_id is not null)
+    or decision_kind = 'needs_research'),
   check (case decision_kind
     when 'claim_into' then reason_code in ('redirect_alias','canonical_alias','protocol_or_host_variant','duplicate_page','historical_url','other')
     when 'keep_separate' then reason_code in ('distinct_intent','distinct_location','distinct_language','intentional_variant','different_content','other')
@@ -5464,7 +5464,8 @@ create trigger site_page_identity_decisions_immutable before update or delete on
 create or replace function public.set_site_page_identity_decision(
   p_organization_id uuid, p_client_id uuid, p_created_by uuid,
   p_source_site_page_id uuid, p_target_site_page_id uuid,
-  p_decision_kind text, p_reason_code text, p_note text, p_evidence_snapshot jsonb
+  p_decision_kind text, p_reason_code text, p_note text, p_evidence_snapshot jsonb,
+  p_expected_active_decision_id uuid, p_expected_target_resolution jsonb
 )
 returns public.site_page_identity_decisions
 language plpgsql security invoker set search_path = pg_catalog, public as $$
@@ -5479,6 +5480,9 @@ declare
   v_path uuid[];
   v_target_depth integer := 0;
   v_incoming_depth integer;
+  v_decision_ids uuid[];
+  v_next_decision uuid;
+  v_retained_snapshot uuid;
 begin
   -- All decisions for a client share this lock, including independent sources.
   -- This prevents write-skew cycles and ancestor-chain overflows. Claims have
@@ -5495,6 +5499,9 @@ begin
   if not found then raise exception 'Source page scope mismatch'; end if;
   select * into v_claim from public.site_page_claims where source_site_page_id = p_source_site_page_id
     and organization_id = p_organization_id and client_id = p_client_id;
+  if v_claim.decision_id is distinct from p_expected_active_decision_id then
+    raise exception 'Identity state conflict';
+  end if;
 
   if p_decision_kind is null or p_decision_kind not in ('claim_into','keep_separate','needs_research','reopen') then
     raise exception 'Invalid identity decision kind';
@@ -5509,25 +5516,41 @@ begin
     raise exception 'Invalid identity note';
   end if;
 
-  if p_decision_kind = 'claim_into' then
-    if p_target_site_page_id is null then raise exception 'Claim target is required'; end if;
-    if p_target_site_page_id = p_source_site_page_id then raise exception 'Cannot self-claim'; end if;
-    if v_claim.source_site_page_id is not null then raise exception 'Source already has an active claim'; end if;
-    v_target := p_target_site_page_id;
+  if p_decision_kind = 'reopen' then
+    if p_target_site_page_id is not null then raise exception 'Reopen cannot nominate a target'; end if;
+    if v_claim.source_site_page_id is null then raise exception 'Independent source has no active claim to reopen'; end if;
+    v_target := v_claim.target_site_page_id;
   else
-    if p_target_site_page_id is not null then raise exception 'This decision cannot nominate a target'; end if;
-    if p_decision_kind = 'reopen' then
-      if v_claim.source_site_page_id is null then raise exception 'Independent source has no active claim to reopen'; end if;
-      v_target := v_claim.target_site_page_id;
-    elsif v_claim.source_site_page_id is not null then
-      raise exception 'Reopen the active claim before recording this decision';
+    if v_claim.source_site_page_id is not null then raise exception 'Reopen the active claim before recording this decision'; end if;
+    if p_decision_kind in ('claim_into','keep_separate') and p_target_site_page_id is null then
+      raise exception 'Identity target is required';
     end if;
+    if p_target_site_page_id = p_source_site_page_id then raise exception 'Cannot self-claim'; end if;
+    v_target := p_target_site_page_id;
   end if;
 
   if v_target is not null then
     perform 1 from public.site_pages where id = v_target
       and organization_id = p_organization_id and client_id = p_client_id for update;
     if not found then raise exception 'Target page scope mismatch'; end if;
+    v_current := v_target;
+    v_path := array[v_target];
+    v_decision_ids := array[]::uuid[];
+    loop
+      select target_site_page_id, decision_id into v_next, v_next_decision from public.site_page_claims
+        where source_site_page_id = v_current and organization_id = p_organization_id and client_id = p_client_id;
+      exit when not found;
+      if v_next = any(v_path) then raise exception 'Identity claim cycle detected'; end if;
+      if cardinality(v_path) >= 33 then raise exception 'Identity claim depth exceeds 32 edges'; end if;
+      v_path := array_append(v_path, v_next);
+      v_decision_ids := array_append(v_decision_ids, v_next_decision);
+      v_current := v_next;
+    end loop;
+    if p_expected_target_resolution is distinct from jsonb_build_object('path', v_path, 'decisionIds', v_decision_ids) then
+      raise exception 'Identity state conflict';
+    end if;
+  elsif coalesce(p_expected_target_resolution, 'null'::jsonb) <> 'null'::jsonb then
+    raise exception 'Identity state conflict';
   end if;
 
   if p_evidence_snapshot is null or jsonb_typeof(p_evidence_snapshot) is distinct from 'object'
@@ -5546,11 +5569,28 @@ begin
     where organization_id = p_organization_id and client_id = p_client_id
       and run_id = v_run and site_page_id = p_source_site_page_id
     order by observed_at desc, id desc limit 1;
+  -- Only reopen can retain the confirmed active decision's original observation
+  -- when the latest completed crawl omitted the source. This creates no candidate.
+  if v_snapshot is null and p_decision_kind = 'reopen' then
+    select s.id into v_retained_snapshot
+      from public.site_page_identity_decisions d
+      join public.site_page_snapshots s on s.id::text = d.evidence_snapshot#>>'{source,snapshotId}'
+      where d.id = p_expected_active_decision_id and d.id = v_claim.decision_id
+        and d.source_site_page_id = p_source_site_page_id
+        and d.organization_id = p_organization_id and d.client_id = p_client_id
+        and s.site_page_id = p_source_site_page_id
+        and s.organization_id = p_organization_id and s.client_id = p_client_id;
+    if not (coalesce(p_evidence_snapshot#>'{source,limitationFlags}', '[]'::jsonb)
+      @> '["omitted_from_latest_completed_crawl","historical_claim_evidence"]'::jsonb) then
+      raise exception 'Source snapshot is stale or outside review scope';
+    end if;
+    v_snapshot := v_retained_snapshot;
+  end if;
   if v_snapshot is null or p_evidence_snapshot#>>'{source,snapshotId}' is distinct from v_snapshot::text then
     raise exception 'Source snapshot is stale or outside review scope';
   end if;
 
-  if p_decision_kind = 'claim_into' or p_evidence_snapshot ? 'target' then
+  if v_target is not null or p_evidence_snapshot ? 'target' then
     if v_target is null or jsonb_typeof(p_evidence_snapshot->'target') is distinct from 'object'
       or p_evidence_snapshot#>>'{target,pageId}' is distinct from v_target::text then
       raise exception 'Target evidence scope mismatch';
@@ -5559,7 +5599,8 @@ begin
       where organization_id = p_organization_id and client_id = p_client_id
         and run_id = v_run and site_page_id = v_target
       order by observed_at desc, id desc limit 1;
-    if v_snapshot is null or p_evidence_snapshot#>>'{target,snapshotId}' is distinct from v_snapshot::text then
+    if (v_snapshot is null and p_decision_kind = 'claim_into')
+      or p_evidence_snapshot#>>'{target,snapshotId}' is distinct from v_snapshot::text then
       raise exception 'Target snapshot is stale or outside review scope';
     end if;
   end if;
@@ -5601,7 +5642,8 @@ begin
       values (p_source_site_page_id, p_organization_id, p_client_id, v_target, v_decision.id);
   elsif p_decision_kind = 'reopen' then
     delete from public.site_page_claims where source_site_page_id = p_source_site_page_id
-      and organization_id = p_organization_id and client_id = p_client_id;
+      and organization_id = p_organization_id and client_id = p_client_id
+      and decision_id = p_expected_active_decision_id;
   end if;
   return v_decision;
 end;
@@ -5619,6 +5661,6 @@ grant select, insert on public.site_page_identity_decisions to service_role;
 grant select, insert, delete on public.site_page_claims to service_role;
 
 revoke all on function public.guard_site_page_identity_decision_immutable() from public, anon, authenticated;
-revoke all on function public.set_site_page_identity_decision(uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb) from public, anon, authenticated;
+revoke all on function public.set_site_page_identity_decision(uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb,uuid,jsonb) from public, anon, authenticated;
 grant execute on function public.guard_site_page_identity_decision_immutable() to service_role;
-grant execute on function public.set_site_page_identity_decision(uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb) to service_role;
+grant execute on function public.set_site_page_identity_decision(uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb,uuid,jsonb) to service_role;

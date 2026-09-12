@@ -40,6 +40,7 @@ function setup(overrides: Partial<SiteIdentityRouteDependencies> = {}) {
     const calls: Calls = { authorizedClientIds: [], adminCount: 0, reads: [], writes: [] };
     const admin = { boundary: 'admin' } as unknown as SupabaseClient;
     const dependencies: SiteIdentityRouteDependencies = {
+        async getActiveClaims(...args) { calls.reads.push(args); return { claims: [] }; },
         async authorize(clientId) {
             calls.authorizedClientIds.push(clientId);
             return authorized();
@@ -97,6 +98,8 @@ const claimBody = {
     note: '  Reviewed redirect evidence.  ',
     expectedSourceSnapshotId: IDS.sourceSnapshot,
     expectedTargetSnapshotId: IDS.targetSnapshot,
+    expectedActiveDecisionId: null,
+    expectedTargetResolution: { path: [IDS.target], decisionIds: [] },
 };
 
 test('GET authorizes the requested client before loading its review with canonical tenant scope', async () => {
@@ -186,6 +189,8 @@ test('POST derives tenant and actor fields from authorization and ignores browse
         note: 'Reviewed redirect evidence.',
         expectedSourceSnapshotId: IDS.sourceSnapshot,
         expectedTargetSnapshotId: IDS.targetSnapshot,
+        expectedActiveDecisionId: null,
+        expectedTargetResolution: { path: [IDS.target], decisionIds: [] },
     }]);
     assert.equal((calls.writes[0] as Record<string, unknown>).evidenceSnapshot, undefined);
     assert.equal((await response.json()).decisionKind, 'claim_into');
@@ -204,7 +209,10 @@ test('POST rejects invalid decision fields before admin construction', async () 
         ['note over 2000 characters', { ...claimBody, note: 'x'.repeat(2001) }],
         ['claim without target', { ...claimBody, targetPageId: null }],
         ['claim without target snapshot', { ...claimBody, expectedTargetSnapshotId: null }],
-        ['keep separate with target', { ...claimBody, decisionKind: 'keep_separate', reasonCode: 'distinct_intent' }],
+        ['keep separate without target', { ...claimBody, targetPageId: null, decisionKind: 'keep_separate', reasonCode: 'distinct_intent' }],
+        ['missing active state', { ...claimBody, expectedActiveDecisionId: undefined }],
+        ['missing target path', { ...claimBody, expectedTargetResolution: null }],
+        ['malformed target path', { ...claimBody, expectedTargetResolution: { path: [IDS.target], decisionIds: [IDS.user] } }],
         ['research with target snapshot', { ...claimBody, targetPageId: null, decisionKind: 'needs_research', reasonCode: 'ownership_unknown' }],
         ['reopen with target', { ...claimBody, decisionKind: 'reopen', reasonCode: 'new_evidence' }],
     ];
@@ -218,18 +226,14 @@ test('POST rejects invalid decision fields before admin construction', async () 
     }
 });
 
-test('targetless decisions accept nullable browser fields and reopen may check the derived target snapshot', async () => {
+test('targetless research accepts nullable fields and reopen checks the specifically confirmed claim', async () => {
     const cases = [
         {
-            body: { ...claimBody, targetPageId: null, expectedTargetSnapshotId: null, decisionKind: 'keep_separate', reasonCode: 'distinct_intent' },
-            expected: { decisionKind: 'keep_separate', reasonCode: 'distinct_intent' },
-        },
-        {
-            body: { ...claimBody, targetPageId: null, expectedTargetSnapshotId: null, decisionKind: 'needs_research', reasonCode: 'ownership_unknown' },
+            body: { ...claimBody, targetPageId: null, expectedTargetSnapshotId: null, expectedTargetResolution: null, decisionKind: 'needs_research', reasonCode: 'ownership_unknown' },
             expected: { decisionKind: 'needs_research', reasonCode: 'ownership_unknown' },
         },
         {
-            body: { ...claimBody, targetPageId: null, decisionKind: 'reopen', reasonCode: 'new_evidence' },
+            body: { ...claimBody, targetPageId: null, expectedActiveDecisionId: IDS.user, decisionKind: 'reopen', reasonCode: 'new_evidence' },
             expected: { decisionKind: 'reopen', reasonCode: 'new_evidence', expectedTargetSnapshotId: IDS.targetSnapshot },
         },
     ];
@@ -244,6 +248,27 @@ test('targetless decisions accept nullable browser fields and reopen may check t
         assert.equal(write.reasonCode, expected.reasonCode);
         assert.equal(write.expectedTargetSnapshotId, expected.expectedTargetSnapshotId);
     }
+});
+
+test('paired keep-separate and research decisions retain the selected target and confirmed state', async () => {
+    for (const [decisionKind, reasonCode] of [['keep_separate', 'distinct_intent'], ['needs_research', 'conflicting_signals']]) {
+        const { handlers, calls } = setup();
+        assert.equal((await handlers.POST(decisionRequest({ ...claimBody, decisionKind, reasonCode }))).status, 200);
+        const write = calls.writes[0] as Record<string, unknown>;
+        assert.equal(write.targetPageId, IDS.target);
+        assert.equal(write.expectedTargetSnapshotId, IDS.targetSnapshot);
+        assert.deepEqual(write.expectedTargetResolution, { path: [IDS.target], decisionIds: [] });
+    }
+});
+
+test('active-claim listing authorizes scope even without a selected crawl page', async () => {
+    const { handlers, calls, admin } = setup();
+    const response = await handlers.GET(getRequest(`clientId=${IDS.client}&view=active_claims&cursor=${IDS.source}`));
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls.reads, [[admin, IDS.organization, IDS.canonicalClient, IDS.source]]);
+    const denied = setup({ authorize: async () => ({ ok: false, status: 403, error: 'Forbidden' }) });
+    assert.equal((await denied.handlers.GET(getRequest(`clientId=${IDS.client}&view=active_claims`))).status, 403);
+    assert.equal(denied.calls.adminCount, 0);
 });
 
 test('stable persistence failures map to safe HTTP statuses', async () => {

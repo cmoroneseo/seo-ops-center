@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
     getSiteIdentityReview,
+    getSiteIdentityActiveClaims,
     setSiteIdentityDecision,
     SiteIdentityError,
 } from './site-identity.ts';
@@ -362,6 +363,8 @@ test('freezes claim evidence exclusively from scoped stored rows', async () => {
         note: 'Reviewed',
         expectedSourceSnapshotId: 'snapshot-source',
         expectedTargetSnapshotId: 'snapshot-target',
+        expectedActiveDecisionId: null,
+        expectedTargetResolution: { path: ['page-target'], decisionIds: [] },
         evidenceSnapshot: { browserControlled: 'must-not-survive' },
     } as Parameters<typeof setSiteIdentityDecision>[1] & { evidenceSnapshot: unknown });
 
@@ -412,6 +415,8 @@ test('freezes claim evidence exclusively from scoped stored rows', async () => {
                     { kind: 'canonical', url: 'https://example.com/unseen' },
                 ],
             },
+            p_expected_active_decision_id: null,
+            p_expected_target_resolution: { path: ['page-target'], decisionIds: [] },
         },
     }]);
 });
@@ -426,6 +431,8 @@ test('rejects stale source or required target evidence before calling the RPC', 
             sourcePageId: 'page-source', targetPageId: 'page-target', decisionKind: 'claim_into',
             reasonCode: 'redirect_alias', expectedSourceSnapshotId: 'snapshot-source-old',
             expectedTargetSnapshotId: 'snapshot-target',
+            expectedActiveDecisionId: null,
+            expectedTargetResolution: { path: ['page-target'], decisionIds: [] },
         }),
         (error: unknown) => error instanceof SiteIdentityError && error.code === 'stale',
     );
@@ -434,6 +441,8 @@ test('rejects stale source or required target evidence before calling the RPC', 
             organizationId: 'org-a', clientId: 'client-a', createdBy: 'user-a',
             sourcePageId: 'page-source', targetPageId: 'page-target', decisionKind: 'claim_into',
             reasonCode: 'redirect_alias', expectedSourceSnapshotId: 'snapshot-source',
+            expectedActiveDecisionId: null,
+            expectedTargetResolution: { path: ['page-target'], decisionIds: [] },
         }),
         (error: unknown) => error instanceof SiteIdentityError && error.code === 'stale',
     );
@@ -455,6 +464,9 @@ test('derives the active target for reopen while passing no nominated RPC target
         organizationId: 'org-a', clientId: 'client-a', createdBy: 'user-a',
         sourcePageId: 'page-source', decisionKind: 'reopen', reasonCode: 'new_evidence',
         expectedSourceSnapshotId: 'snapshot-source',
+        expectedTargetSnapshotId: 'snapshot-target',
+        expectedActiveDecisionId: 'decision-active',
+        expectedTargetResolution: { path: ['page-target'], decisionIds: [] },
     });
 
     const args = fake.rpcCalls[0].args;
@@ -491,6 +503,8 @@ test('keeps targetless decisions targetless and freezes only source evidence', a
         organizationId: 'org-a', clientId: 'client-a', createdBy: 'user-a',
         sourcePageId: 'page-source', decisionKind: 'needs_research', reasonCode: 'conflicting_signals',
         expectedSourceSnapshotId: 'snapshot-source',
+        expectedActiveDecisionId: null,
+        expectedTargetResolution: null,
     });
 
     const args = fake.rpcCalls[0].args;
@@ -515,6 +529,9 @@ test('translates raw read and persistence failures into stable safe application 
             organizationId: 'org-a', clientId: 'client-a', createdBy: 'user-a',
             sourcePageId: 'page-source', decisionKind: 'reopen', reasonCode: 'new_evidence',
             expectedSourceSnapshotId: 'snapshot-source',
+            expectedTargetSnapshotId: 'snapshot-target',
+            expectedActiveDecisionId: 'decision-active',
+            expectedTargetResolution: { path: ['page-target'], decisionIds: [] },
         }),
         (error: unknown) => error instanceof SiteIdentityError
             && error.code === 'conflict'
@@ -528,6 +545,9 @@ test('translates raw read and persistence failures into stable safe application 
             organizationId: 'org-a', clientId: 'client-a', createdBy: 'user-a',
             sourcePageId: 'page-source', decisionKind: 'reopen', reasonCode: 'new_evidence',
             expectedSourceSnapshotId: 'snapshot-source',
+            expectedTargetSnapshotId: 'snapshot-target',
+            expectedActiveDecisionId: 'decision-active',
+            expectedTargetResolution: { path: ['page-target'], decisionIds: [] },
         }),
         (error: unknown) => error instanceof SiteIdentityError
             && error.code === 'write_failed'
@@ -544,6 +564,9 @@ test('translates raw read and persistence failures into stable safe application 
             organizationId: 'org-a', clientId: 'client-a', createdBy: 'user-a',
             sourcePageId: 'page-source', decisionKind: 'reopen', reasonCode: 'new_evidence',
             expectedSourceSnapshotId: 'snapshot-source',
+            expectedTargetSnapshotId: 'snapshot-target',
+            expectedActiveDecisionId: 'decision-active',
+            expectedTargetResolution: { path: ['page-target'], decisionIds: [] },
         }),
         (error: unknown) => error instanceof SiteIdentityError
             && error.code === 'write_failed'
@@ -556,4 +579,126 @@ test('returns a stable not-found error for a page outside the scoped client', as
         getSiteIdentityReview(asSupabase(fixture()), 'org-a', 'client-a', 'page-foreign'),
         (error: unknown) => error instanceof SiteIdentityError && error.code === 'not_found',
     );
+});
+
+function mutationInput(overrides: Record<string, unknown> = {}) {
+    return {
+        organizationId: 'org-a', clientId: 'client-a', createdBy: 'user-a',
+        sourcePageId: 'page-source', targetPageId: 'page-target', decisionKind: 'claim_into',
+        reasonCode: 'redirect_alias', expectedSourceSnapshotId: 'snapshot-source',
+        expectedTargetSnapshotId: 'snapshot-target', expectedActiveDecisionId: null,
+        expectedTargetResolution: { path: ['page-target'], decisionIds: [] },
+        ...overrides,
+    } as Parameters<typeof setSiteIdentityDecision>[1];
+}
+
+function successfulWrite(fake: FakeClient) {
+    fake.rpcResult = { data: fake.tables.site_page_identity_decisions[0], error: null };
+}
+
+test('rejects an unrelated same-client target before the RPC even with fresh snapshots', async () => {
+    const fake = fixture();
+    fake.tables.site_page_claims = [];
+    for (const snapshot of fake.tables.site_page_snapshots) {
+        if (snapshot.site_page_id === 'page-source') snapshot.redirect_hops = [];
+    }
+    successfulWrite(fake);
+    await assert.rejects(setSiteIdentityDecision(asSupabase(fake), mutationInput()),
+        (error: unknown) => error instanceof SiteIdentityError && error.code === 'conflict');
+    assert.equal(fake.rpcCalls.length, 0);
+});
+
+test('keeps the selected exact pair and target evidence with multiple candidates', async () => {
+    const fake = fixture();
+    fake.tables.site_page_claims = [];
+    fake.tables.site_page_urls.push(row({ id: 'url-other', site_page_id: 'page-other', normalized_url: 'https://example.com/unseen', is_primary: true }));
+    fake.tables.site_pages.push(row({ id: 'page-other' }));
+    fake.tables.site_page_snapshots.push(row({ id: 'snapshot-other', site_page_id: 'page-other', site_page_url_id: 'url-other',
+        run_id: 'run-z', observed_at: '2026-09-10T11:00:00Z' }));
+    successfulWrite(fake);
+    for (const decisionKind of ['keep_separate', 'needs_research']) {
+        await setSiteIdentityDecision(asSupabase(fake), mutationInput({ decisionKind,
+            targetPageId: 'page-other', expectedTargetSnapshotId: 'snapshot-other',
+            expectedTargetResolution: { path: ['page-other'], decisionIds: [] },
+            reasonCode: decisionKind === 'keep_separate' ? 'distinct_intent' : 'conflicting_signals' }));
+        const args = fake.rpcCalls.at(-1)!.args;
+        assert.equal(args.p_target_site_page_id, 'page-other');
+        assert.equal(((args.p_evidence_snapshot as Row).target as Row).snapshotId, 'snapshot-other');
+        assert.equal(((args.p_evidence_snapshot as Row).target as Row).pageId, 'page-other');
+    }
+});
+
+test('rejects reopen after the expected active claim has been replaced without a new snapshot', async () => {
+    const fake = fixture();
+    successfulWrite(fake);
+    await assert.rejects(setSiteIdentityDecision(asSupabase(fake), mutationInput({
+        targetPageId: undefined, decisionKind: 'reopen', reasonCode: 'new_evidence',
+        expectedActiveDecisionId: 'decision-replaced',
+    })), (error: unknown) => error instanceof SiteIdentityError && error.code === 'conflict');
+    assert.equal(fake.rpcCalls.length, 0);
+});
+
+test('rejects a changed target root without requiring newer crawl snapshots', async () => {
+    const fake = fixture();
+    fake.tables.site_page_claims = [row({ source_site_page_id: 'page-target', target_site_page_id: 'page-root', decision_id: 'decision-root' })];
+    successfulWrite(fake);
+    await assert.rejects(setSiteIdentityDecision(asSupabase(fake), mutationInput()),
+        (error: unknown) => error instanceof SiteIdentityError && error.code === 'conflict');
+    assert.equal(fake.rpcCalls.length, 0);
+});
+
+test('retains omitted-source claim evidence for specifically expected reopen without nominating candidates', async () => {
+    const fake = fixture();
+    fake.tables.site_page_identity_decisions[0].evidence_snapshot = {
+        version: 1, source: { pageId: 'page-source', snapshotId: 'snapshot-source' }, signals: [],
+    };
+    fake.tables.site_crawl_runs.push(row({ id: 'run-later', status: 'completed', created_at: '2026-09-12T00:00:00Z' }));
+    successfulWrite(fake);
+    const review = await getSiteIdentityReview(asSupabase(fake), 'org-a', 'client-a', 'page-source');
+    assert.equal(review.source.snapshotId, 'snapshot-source');
+    assert.ok(review.source.limitationFlags.includes('omitted_from_latest_completed_crawl'));
+    assert.deepEqual(review.candidates, []);
+    await setSiteIdentityDecision(asSupabase(fake), mutationInput({ targetPageId: undefined,
+        decisionKind: 'reopen', reasonCode: 'site_changed', expectedActiveDecisionId: 'decision-active',
+        expectedTargetSnapshotId: undefined,
+    }));
+    assert.equal(fake.rpcCalls[0].args.p_expected_active_decision_id, 'decision-active');
+    assert.equal(((fake.rpcCalls[0].args.p_evidence_snapshot as Row).source as Row).snapshotId, 'snapshot-source');
+});
+
+test('returns active immediate-target and resolved-root evidence after all current source signals disappear', async () => {
+    const fake = fixture();
+    for (const snapshot of fake.tables.site_page_snapshots) {
+        if (snapshot.site_page_id === 'page-source') { snapshot.redirect_hops = []; snapshot.canonical_url = null; }
+    }
+    fake.tables.site_page_urls.push(row({ id: 'url-root', site_page_id: 'page-root', normalized_url: 'https://example.com/root', is_primary: true }));
+    fake.tables.site_page_claims.push(row({ source_site_page_id: 'page-target', target_site_page_id: 'page-root', decision_id: 'decision-root' }));
+    const review = await getSiteIdentityReview(asSupabase(fake), 'org-a', 'client-a', 'page-source');
+    assert.deepEqual(review.candidates, []);
+    assert.equal(review.activeClaimTarget?.page.primaryUrl, 'https://example.com/target');
+    assert.equal(review.activeClaimTarget?.resolvedPage?.primaryUrl, 'https://example.com/root');
+    assert.deepEqual(review.activeClaimTarget?.claimState, { path: ['page-target', 'page-root'], decisionIds: ['decision-root'] });
+});
+
+test('lists omitted active sources in bounded cursor pages independently of crawl snapshots', async () => {
+    const fake = fixture();
+    fake.tables.site_page_snapshots = [];
+    fake.tables.site_page_claims = Array.from({ length: 53 }, (_, index) => row({
+        source_site_page_id: `source-${String(index).padStart(3, '0')}`, target_site_page_id: 'page-target', decision_id: `claim-${index}`,
+    }));
+    const first = await getSiteIdentityActiveClaims(asSupabase(fake), 'org-a', 'client-a');
+    assert.equal(first.claims.length, 50);
+    assert.equal(first.nextCursor, 'source-049');
+    const next = await getSiteIdentityActiveClaims(asSupabase(fake), 'org-a', 'client-a', first.nextCursor);
+    assert.deepEqual(next.claims.map(claim => claim.sourcePageId), ['source-050', 'source-051', 'source-052']);
+    assert.equal(next.nextCursor, undefined);
+    assert.ok(first.claims.every(claim => claim.targetPrimaryUrl === 'https://example.com/target'));
+});
+
+test('maps transaction expectation drift to conflict with safe details', async () => {
+    const fake = fixture();
+    fake.tables.site_page_claims = [];
+    fake.rpcResult = { data: null, error: { message: 'Identity state conflict: private graph detail' } };
+    await assert.rejects(setSiteIdentityDecision(asSupabase(fake), mutationInput()),
+        (error: unknown) => error instanceof SiteIdentityError && error.code === 'conflict' && !error.message.includes('private'));
 });

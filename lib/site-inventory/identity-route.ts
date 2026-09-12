@@ -7,6 +7,8 @@ import {
 } from '../supabase/site-identity.ts';
 import type {
     SiteIdentityDecision,
+    SiteIdentityActiveClaimsPayload,
+    SiteIdentityClaimState,
     SiteIdentityDecisionKind,
     SiteIdentityReasonCode,
     SiteIdentityReviewPayload,
@@ -61,6 +63,7 @@ export interface SiteIdentityRouteDependencies {
         pageId: string,
     ): Promise<SiteIdentityReviewPayload>;
     setDecision(admin: SupabaseClient, input: SetSiteIdentityDecisionInput): Promise<SiteIdentityDecision>;
+    getActiveClaims(admin: SupabaseClient, organizationId: string, clientId: string, cursor?: string): Promise<SiteIdentityActiveClaimsPayload>;
 }
 
 function json(body: unknown, status = 200) {
@@ -105,6 +108,18 @@ function parseDecision(input: Record<string, unknown>): ParsedDecision | null {
     }
 
     const decisionKind = input.decisionKind as SiteIdentityDecisionKind;
+    if (input.expectedActiveDecisionId !== null && !isSiteIdentityUuid(input.expectedActiveDecisionId)) return null;
+    const expectedActiveDecisionId = input.expectedActiveDecisionId as string | null;
+    const value = input.expectedTargetResolution;
+    let expectedTargetResolution: SiteIdentityClaimState | null = null;
+    if (value !== null) {
+        if (!isRecord(value) || !Array.isArray(value.path) || !Array.isArray(value.decisionIds)
+            || value.path.length < 1 || value.path.length > 33
+            || value.decisionIds.length !== value.path.length - 1
+            || !value.path.every(isSiteIdentityUuid) || !value.decisionIds.every(isSiteIdentityUuid)
+            || new Set(value.path).size !== value.path.length) return null;
+        expectedTargetResolution = { path: value.path, decisionIds: value.decisionIds };
+    }
     const reasonCode = input.reasonCode as SiteIdentityReasonCode;
     const targetPageId = input.targetPageId === null || input.targetPageId === undefined
         ? undefined
@@ -121,14 +136,14 @@ function parseDecision(input: Record<string, unknown>): ParsedDecision | null {
     const note = rawNote.trim();
     if (validateIdentityReason(decisionKind, reasonCode, note)) return null;
 
-    if (decisionKind === 'claim_into') {
-        if (!targetPageId || targetPageId === input.pageId || !expectedTargetSnapshotId) return null;
-    } else if (targetPageId) {
-        return null;
-    }
-    if ((decisionKind === 'keep_separate' || decisionKind === 'needs_research')
-        && expectedTargetSnapshotId) {
-        return null;
+    if ((decisionKind === 'claim_into' || decisionKind === 'keep_separate') && !targetPageId) return null;
+    if (decisionKind === 'claim_into' && !expectedTargetSnapshotId) return null;
+    if (targetPageId === input.pageId) return null;
+    if (decisionKind === 'reopen') {
+        if (targetPageId || !expectedActiveDecisionId || !expectedTargetResolution) return null;
+    } else {
+        if (expectedActiveDecisionId !== null) return null;
+        if (targetPageId ? expectedTargetResolution?.path[0] !== targetPageId : expectedTargetResolution !== null || expectedTargetSnapshotId) return null;
     }
 
     return {
@@ -138,6 +153,8 @@ function parseDecision(input: Record<string, unknown>): ParsedDecision | null {
         reasonCode,
         ...(note ? { note } : {}),
         expectedSourceSnapshotId: input.expectedSourceSnapshotId,
+        expectedActiveDecisionId,
+        expectedTargetResolution,
         ...(expectedTargetSnapshotId ? { expectedTargetSnapshotId } : {}),
     };
 }
@@ -150,7 +167,10 @@ export function createSiteIdentityHandlers(
             const params = new URL(request.url).searchParams;
             const clientId = params.get('clientId');
             const pageId = params.get('pageId');
-            if (!isSiteIdentityUuid(clientId) || !isSiteIdentityUuid(pageId)) {
+            const activeClaims = params.get('view') === 'active_claims';
+            const cursor = params.get('cursor');
+            if (!isSiteIdentityUuid(clientId) || (!activeClaims && !isSiteIdentityUuid(pageId))
+                || (cursor !== null && !isSiteIdentityUuid(cursor))) {
                 return json({ error: 'Valid clientId and pageId are required' }, 400);
             }
 
@@ -166,11 +186,12 @@ export function createSiteIdentityHandlers(
 
             try {
                 const admin = dependencies.createAdmin();
+                if (activeClaims) return json(await dependencies.getActiveClaims(admin, authorization.organizationId, authorization.clientId, cursor ?? undefined));
                 return json(await dependencies.getReview(
                     admin,
                     authorization.organizationId,
                     authorization.clientId,
-                    pageId,
+                    pageId!,
                 ));
             } catch (error) {
                 return persistenceFailure(error, 'read');

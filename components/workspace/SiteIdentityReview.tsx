@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import {
     AlertTriangle,
     ArrowRight,
@@ -122,11 +122,14 @@ export function SiteIdentityReview({
     clientId,
     pageId,
     snapshotId,
+    onSaved,
 }: {
     clientId: string;
     pageId: string;
-    snapshotId: string;
+    snapshotId?: string;
+    onSaved?: () => void;
 }) {
+    const reviewId = useId();
     const [payload, setPayload] = useState<SiteIdentityReviewPayload>();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -203,9 +206,7 @@ export function SiteIdentityReview({
                     : false;
     const canSubmit = actionAllowed && !reasonError && !saving;
     const reasonOptions = currentDecisionKind ? reasonCodesFor(currentDecisionKind) : [];
-    const activeCandidate = payload?.activeClaim
-        ? payload.candidates.find(candidate => candidate.page.pageId === payload.activeClaim?.targetPageId)
-        : undefined;
+    const activeCandidate = payload?.activeClaimTarget;
     const activeClaimDirection = activeCandidate
         ? claimDirectionForCandidate(activeCandidate)
         : undefined;
@@ -232,7 +233,10 @@ export function SiteIdentityReview({
                     reasonCode,
                     ...(note.trim() ? { note: note.trim() } : {}),
                     expectedSourceSnapshotId: payload.source.snapshotId,
-                    ...(currentDecisionKind === 'claim_into' && selectedCandidate ? {
+                    expectedActiveDecisionId: payload.activeClaim?.decisionId ?? null,
+                    expectedTargetResolution: currentDecisionKind === 'reopen'
+                        ? activeCandidate?.claimState ?? null : selectedCandidate?.claimState ?? null,
+                    ...(currentDecisionKind !== 'reopen' && selectedCandidate ? {
                         targetPageId: selectedCandidate.page.pageId,
                         expectedTargetSnapshotId: selectedCandidate.page.snapshotId,
                     } : {}),
@@ -260,6 +264,7 @@ export function SiteIdentityReview({
                 return;
             }
             dispatchForm({ type: 'saved_reset' });
+            onSaved?.();
         } catch (reason) {
             dispatchForm({
                 type: 'set_save_error',
@@ -278,23 +283,23 @@ export function SiteIdentityReview({
         }
         if (currentDecisionKind === 'reopen') {
             const immediateTarget = activeClaimDirection?.immediateTargetUrl
-                ?? view.activeTargetPrimaryUrl
-                ?? payload.activeClaim?.targetPageId
-                ?? 'the recorded target';
-            const survivingTarget = activeClaimDirection?.survivingPrimaryUrl ?? immediateTarget;
-            return `Confirm reopening the active source claim from ${payload.source.primaryUrl} into immediate target ${immediateTarget}, currently resolving to surviving primary URL ${survivingTarget}. Crawl evidence and reviewer history remain unchanged.`;
+                ?? 'unavailable';
+            const survivingTarget = activeClaimDirection?.survivingPrimaryUrl ?? 'unavailable';
+            const limitation = payload.source.limitationFlags.includes('historical_claim_evidence')
+                ? ' The source was omitted from the latest completed crawl; the displayed source evidence is historical.' : '';
+            return `Confirm reopening decision ${payload.activeClaim?.decisionId} from ${payload.source.primaryUrl} into immediate target ${immediateTarget}, currently resolving to surviving primary URL ${survivingTarget}. The source becomes independent again. Crawl evidence and reviewer history remain unchanged.${limitation}`;
         }
         if (currentDecisionKind === 'keep_separate') {
             return `Confirm the reviewer decision to keep ${payload.source.primaryUrl} and ${selectedCandidate?.page.primaryUrl ?? 'the observed target'} as separate page identities.`;
         }
-        return `Confirm that ${payload.source.primaryUrl} needs further identity research. This records reviewer judgment without creating a page claim.`;
-    }, [activeClaimDirection, currentDecisionKind, payload, selectedCandidate, selectedClaimDirection, view.activeTargetPrimaryUrl]);
+        return `Confirm that ${payload.source.primaryUrl}${selectedCandidate ? ` and selected target ${selectedCandidate.page.primaryUrl}` : ''} need further identity research. This records reviewer judgment without creating a page claim.`;
+    }, [activeClaimDirection, currentDecisionKind, payload, selectedCandidate, selectedClaimDirection]);
 
-    return <section className="mt-5 border-t border-border pt-5" aria-labelledby="identity-review-title">
+    return <section className="mt-5 border-t border-border pt-5" aria-labelledby={`identity-review-title-${reviewId}`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Reviewer identity layer</p>
-                <h4 id="identity-review-title" className="mt-1 font-semibold">Page identity review</h4>
+                <h4 id={`identity-review-title-${reviewId}`} className="mt-1 font-semibold">Page identity review</h4>
             </div>
             <span className="rounded-full border border-border bg-muted/30 px-2 py-1 text-[10px] font-medium text-muted-foreground">{view.statusLabel}</span>
         </div>
@@ -315,18 +320,18 @@ export function SiteIdentityReview({
                 style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 14rem), 1fr))' }}
             >
                 <EvidenceCard evidence={payload.source} label="Selected source" />
-                {selectedCandidate && <EvidenceCard
+                {activeCandidate ? <EvidenceCard evidence={activeCandidate.page} label="Active immediate target" /> : selectedCandidate && <EvidenceCard
                     evidence={selectedCandidate.page}
                     label="Immediate exact target"
                     signals={selectedCandidate.signals}
                 />}
-                {selectedClaimDirection?.chained && selectedCandidate?.resolvedPage && <EvidenceCard
+                {activeClaimDirection?.chained && activeCandidate?.resolvedPage ? <EvidenceCard evidence={activeCandidate.resolvedPage} label="Active surviving primary page" /> : !activeCandidate && selectedClaimDirection?.chained && selectedCandidate?.resolvedPage && <EvidenceCard
                     evidence={selectedCandidate.resolvedPage}
                     label="Surviving primary page"
                 />}
             </div>
 
-            {selectedClaimDirection && <dl className="mt-3 grid gap-2 rounded-xl border border-border bg-muted/20 p-3 text-[11px]">
+            {!activeCandidate && selectedClaimDirection && <dl className="mt-3 grid gap-2 rounded-xl border border-border bg-muted/20 p-3 text-[11px]">
                 <div><dt className="font-medium">Immediate target</dt><dd className="mt-1 break-all font-mono text-muted-foreground">{selectedClaimDirection.immediateTargetUrl}</dd></div>
                 <div><dt className="font-medium">Surviving primary URL</dt><dd className="mt-1 break-all font-mono text-muted-foreground">{selectedClaimDirection.survivingPrimaryUrl}</dd></div>
             </dl>}
@@ -365,9 +370,9 @@ export function SiteIdentityReview({
                 </fieldset>}
 
                 {currentDecisionKind && <div className="mt-3 space-y-3 border-t border-border pt-3">
-                    <label className="block text-[11px] font-medium" htmlFor={`identity-reason-${pageId}`}>Structured reason</label>
+                    <label className="block text-[11px] font-medium" htmlFor={`identity-reason-${reviewId}`}>Structured reason</label>
                     <select
-                        id={`identity-reason-${pageId}`}
+                        id={`identity-reason-${reviewId}`}
                         value={reasonCode}
                         onChange={event => dispatchForm({ type: 'set_reason', reasonCode: event.target.value as SiteIdentityReasonCode | '' })}
                         className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
@@ -375,9 +380,9 @@ export function SiteIdentityReview({
                         <option value="">Select a reviewer reason</option>
                         {reasonOptions.map(code => <option key={code} value={code}>{reasonLabels[code]}</option>)}
                     </select>
-                    <label className="block text-[11px] font-medium" htmlFor={`identity-note-${pageId}`}>Reviewer note <span className="font-normal text-muted-foreground">{reasonCode === 'other' ? '(required)' : '(optional)'}</span></label>
+                    <label className="block text-[11px] font-medium" htmlFor={`identity-note-${reviewId}`}>Reviewer note <span className="font-normal text-muted-foreground">{reasonCode === 'other' ? '(required)' : '(optional)'}</span></label>
                     <textarea
-                        id={`identity-note-${pageId}`}
+                        id={`identity-note-${reviewId}`}
                         value={note}
                         onChange={event => dispatchForm({ type: 'set_note', note: event.target.value })}
                         maxLength={2000}

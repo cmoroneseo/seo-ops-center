@@ -77,11 +77,27 @@ function evidenceFor(source, snapshot, target, targetSnapshot) {
     ...(target ? { target: { pageId: target.id, snapshotId: targetSnapshot.id } } : {}), signals: [] };
 }
 const evidence = evidenceFor(source, sourceSnapshot, target, targetSnapshot);
+async function expectedState(sourceId, targetId, kind) {
+  const claims = (await db.query('select * from public.site_page_claims')).rows;
+  const active = claims.find(claim => claim.source_site_page_id === sourceId);
+  let current = kind === 'reopen' ? active?.target_site_page_id : targetId;
+  const path = [], decisionIds = [];
+  while (current && !path.includes(current) && path.length < 34) {
+    path.push(current);
+    const edge = claims.find(claim => claim.source_site_page_id === current);
+    if (!edge) break;
+    decisionIds.push(edge.decision_id);
+    current = edge.target_site_page_id;
+  }
+  return { active: active?.decision_id ?? null, target: path.length ? { path, decisionIds } : null };
+}
 async function decide({ sourceId = source.id, targetId = target.id, kind = 'claim_into', reason = 'redirect_alias', note = null,
-  snapshot = evidence, organizationId = org, clientId = client, reviewerId = reviewer } = {}) {
+  snapshot = evidence, organizationId = org, clientId = client, reviewerId = reviewer, expected } = {}) {
+  const confirmed = expected ?? await expectedState(sourceId, targetId, kind);
   // FROM evaluates the volatile, composite-returning RPC exactly once.
-  return (await db.query('select * from public.set_site_page_identity_decision($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-    [organizationId, clientId, reviewerId, sourceId, targetId, kind, reason, note, JSON.stringify(snapshot)])).rows[0];
+  const params = [organizationId, clientId, reviewerId, sourceId, targetId, kind, reason, note, JSON.stringify(snapshot)];
+  params.push(confirmed.active, JSON.stringify(confirmed.target));
+  return (await db.query(`select * from public.set_site_page_identity_decision(${params.map((_, i) => '$' + (i + 1)).join(',')})`, params)).rows[0];
 }
 async function state() {
   return (await db.query(`select
@@ -93,6 +109,60 @@ async function rejectsUnchanged(input, message) {
   await assert.rejects(decide(input), message);
   assert.deepEqual(await state(), before, 'failed decisions must leave both tables unchanged');
 }
+
+const regressionFailures = [];
+for (const regression of ['pair', 'replacement', 'root', 'omitted']) {
+  try {
+    const isolatedClient = '12345678-1234-4234-8234-' + String(['pair', 'replacement', 'root', 'omitted'].indexOf(regression) + 1).padStart(12, '0');
+    await db.exec('reset role');
+    await db.query("insert into public.clients values ($1,$2,'Identity regression')", [isolatedClient, org]);
+    await db.exec('set role service_role');
+    const isolatedRun = await crawl(org, isolatedClient);
+    const a = await page(org, isolatedClient), b = await page(org, isolatedClient), c = await page(org, isolatedClient);
+    const sa = await observe(a, '2026-09-11T10:00:00Z', isolatedRun);
+    const sb = await observe(b, '2026-09-11T10:00:00Z', isolatedRun);
+    const sc = await observe(c, '2026-09-11T10:00:00Z', isolatedRun);
+    const ab = { clientId: isolatedClient, sourceId: a.id, targetId: b.id, snapshot: evidenceFor(a, sa, b, sb) };
+    if (regression === 'pair') {
+      const decision = await decide({ ...ab, kind: 'keep_separate', reason: 'distinct_intent' });
+      assert.equal(decision.target_site_page_id, b.id);
+      assert.equal(decision.evidence_snapshot.target.snapshotId, sb.id);
+      assert.equal((await db.query('select count(*)::int n from public.site_page_claims where client_id=$1', [isolatedClient])).rows[0].n, 0);
+    } else if (regression === 'replacement') {
+      await decide(ab);
+      const old = await expectedState(a.id, null, 'reopen');
+      const reopen = { ...ab, targetId: null, kind: 'reopen', reason: 'new_evidence' };
+      await decide(reopen);
+      const replacement = await decide(ab);
+      await rejectsUnchanged({ ...reopen, expected: old }, /identity state conflict/i);
+      assert.equal((await db.query('select decision_id from public.site_page_claims where source_site_page_id=$1', [a.id])).rows[0].decision_id, replacement.id);
+    } else if (regression === 'root') {
+      const old = await expectedState(a.id, b.id, 'claim_into');
+      const bc = { clientId: isolatedClient, sourceId: b.id, targetId: c.id, snapshot: evidenceFor(b, sb, c, sc) };
+      await decide(bc);
+      await rejectsUnchanged({ ...ab, expected: old }, /identity state conflict/i);
+      const samePath = await expectedState(a.id, b.id, 'claim_into');
+      await decide({ ...bc, targetId: null, kind: 'reopen', reason: 'new_evidence' });
+      await decide(bc);
+      await rejectsUnchanged({ ...ab, expected: samePath }, /identity state conflict/i);
+    } else {
+      const claim = await decide(ab);
+      await crawl(org, isolatedClient, '2026-09-12T00:00:00Z');
+      await rejectsUnchanged({ ...ab, targetId: null, kind: 'reopen', reason: 'site_changed' }, /snapshot/i);
+      const reopened = await decide({ ...ab, targetId: null, kind: 'reopen', reason: 'site_changed',
+        snapshot: { ...ab.snapshot,
+          source: { ...ab.snapshot.source, limitationFlags: ['omitted_from_latest_completed_crawl', 'historical_claim_evidence'] },
+          target: { pageId: b.id, limitationFlags: ['omitted_from_latest_completed_crawl'] },
+        }, expected: { active: claim.id, target: { path: [b.id], decisionIds: [] } } });
+      assert.equal(reopened.target_site_page_id, b.id);
+      assert.equal(reopened.evidence_snapshot.source.snapshotId, sa.id);
+    }
+    console.log('PASS final regression:', regression);
+  } catch (error) {
+    regressionFailures.push(regression + ': ' + error.message);
+  }
+}
+assert.deepEqual(regressionFailures, [], 'final identity transaction regressions');
 
 // Incorrect reviewer/tenant/page scope or evidence must fail before appending history.
 await rejectsUnchanged({ reviewerId: otherReviewer }, /member/i);
@@ -142,7 +212,7 @@ for (const [kind, reason] of [['keep_separate', 'distinct_intent'], ['needs_rese
 await decide({ sourceId: target.id, targetId: third.id, snapshot: evidenceFor(target, targetSnapshot, third, thirdSnapshot) });
 await rejectsUnchanged({ sourceId: third.id, targetId: source.id, snapshot: evidenceFor(third, thirdSnapshot, source, sourceSnapshot) }, /cycle/i);
 await rejectsUnchanged({ kind: 'reopen', reason: 'new_evidence' }, /target/i);
-const reopened = await decide({ kind: 'reopen', reason: 'new_evidence', targetId: null, snapshot: evidenceFor(source, sourceSnapshot) });
+const reopened = await decide({ kind: 'reopen', reason: 'new_evidence', targetId: null, snapshot: evidenceFor(source, sourceSnapshot, target, targetSnapshot) });
 assert.equal(reopened.target_site_page_id, target.id, 'reopen must retain the removed target in history');
 assert.equal((await db.query('select count(*)::int as count from public.site_page_claims where source_site_page_id=$1', [source.id])).rows[0].count, 0);
 assert.equal((await db.query('select target_site_page_id from public.site_page_claims where source_site_page_id=$1', [target.id])).rows[0].target_site_page_id, third.id);
@@ -159,18 +229,19 @@ const reasons = {
   reopen: ['incorrect_decision','new_evidence','site_changed','other'],
 };
 for (const kind of ['keep_separate', 'needs_research']) {
-  await rejectsUnchanged({ kind, reason: reasons[kind][0] }, /target/i);
+  if (kind === 'keep_separate') await rejectsUnchanged({ kind, targetId: null, reason: reasons[kind][0] }, /target/i);
   for (const reason of reasons[kind]) {
-    assert.equal((await decide({ kind, reason, targetId: null, note: 'Reviewed.', snapshot: evidenceFor(source, sourceSnapshot) })).reason_code, reason);
+    assert.equal((await decide({ kind, reason, targetId: kind === 'keep_separate' ? target.id : null, note: 'Reviewed.',
+      snapshot: kind === 'keep_separate' ? evidence : evidenceFor(source, sourceSnapshot) })).reason_code, reason);
   }
 }
 for (const reason of reasons.claim_into) {
   await decide({ reason, note: 'Reviewed.' });
-  await decide({ kind: 'reopen', reason: 'new_evidence', targetId: null, snapshot: evidenceFor(source, sourceSnapshot) });
+  await decide({ kind: 'reopen', reason: 'new_evidence', targetId: null, snapshot: evidenceFor(source, sourceSnapshot, target, targetSnapshot) });
 }
 for (const reason of reasons.reopen) {
   await decide();
-  await decide({ kind: 'reopen', reason, note: 'Reviewed.', targetId: null, snapshot: evidenceFor(source, sourceSnapshot) });
+  await decide({ kind: 'reopen', reason, note: 'Reviewed.', targetId: null, snapshot: evidenceFor(source, sourceSnapshot, target, targetSnapshot) });
 }
 
 // A failure in the active-state write must also roll back the preceding ledger insert.
@@ -202,7 +273,7 @@ for (let index = 0; index < 34; index++) {
 const chainDecision = (from, to) => ({ sourceId: chain[from].page.id, targetId: chain[to].page.id,
   snapshot: evidenceFor(chain[from].page, chain[from].snapshot, chain[to].page, chain[to].snapshot) });
 for (let index = 31; index >= 0; index--) await decide(chainDecision(index, index + 1));
-assert.equal((await db.query('select count(*)::int as count from public.site_page_claims')).rows[0].count, 33);
+assert.equal((await db.query('select count(*)::int as count from public.site_page_claims where client_id=$1', [client])).rows[0].count, 33);
 await rejectsUnchanged(chainDecision(33, 0), /depth|32/i);
 await rejectsUnchanged(chainDecision(32, 33), /depth|32/i);
 
@@ -213,7 +284,7 @@ const laterRun = await crawl(org, client, '2026-09-11T12:00:00Z');
 await rejectsUnchanged({ sourceId: third.id, targetId: null, kind: 'needs_research', reason: 'conflicting_signals', snapshot: evidenceFor(third, thirdSnapshot) }, /stale|snapshot/i);
 const latestSource = await observe(source, '2026-09-11T13:00:00Z', laterRun);
 await rejectsUnchanged({ snapshot: evidenceFor(source, latestSource, target, targetSnapshot) }, /stale|snapshot/i);
-await decide({ targetId: null, kind: 'keep_separate', reason: 'distinct_intent', snapshot: evidenceFor(source, latestSource) });
+await decide({ kind: 'keep_separate', reason: 'distinct_intent', snapshot: { ...evidenceFor(source, latestSource), target: { pageId: target.id } } });
 await decide({ organizationId: otherOrg, clientId: otherClient, reviewerId: otherReviewer, sourceId: foreignPage.id,
   targetId: null, kind: 'needs_research', reason: 'conflicting_signals', snapshot: evidenceFor(foreignPage, foreignSnapshot) });
 
@@ -229,9 +300,10 @@ await assert.rejects(db.query('delete from public.site_page_snapshots where id=$
 
 // Authenticated membership reads both tables, but no browser role can mutate or invoke.
 const ownCount = (await db.query('select count(*)::int as count from public.site_page_identity_decisions where organization_id=$1', [org])).rows[0].count;
+const ownClaimCount = (await db.query('select count(*)::int as count from public.site_page_claims where organization_id=$1', [org])).rows[0].count;
 await db.exec(`set role authenticated; set "test.uid"='${reviewer}'`);
 assert.equal((await db.query('select count(*)::int as count from public.site_page_identity_decisions')).rows[0].count, ownCount);
-assert.equal((await db.query('select count(*)::int as count from public.site_page_claims')).rows[0].count, 33);
+assert.equal((await db.query('select count(*)::int as count from public.site_page_claims')).rows[0].count, ownClaimCount);
 await db.exec(`set "test.uid"='${otherReviewer}'`);
 assert.equal((await db.query('select count(*)::int as count from public.site_page_identity_decisions')).rows[0].count, 1);
 assert.equal((await db.query('select count(*)::int as count from public.site_page_claims')).rows[0].count, 0);
@@ -260,7 +332,7 @@ const functions = (await db.query(`select proname,prosecdef,proconfig from pg_pr
 assert.equal(functions.length, 2);
 assert.ok(functions.every(fn => !fn.prosecdef && fn.proconfig.includes('search_path=pg_catalog, public')));
 for (const fn of functions) {
-  const signature = fn.proname === 'set_site_page_identity_decision' ? '(uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb)' : '()';
+  const signature = fn.proname === 'set_site_page_identity_decision' ? '(uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb,uuid,jsonb)' : '()';
   for (const role of ['anon','authenticated','service_role']) {
     assert.equal((await db.query('select has_function_privilege($1,$2,\'EXECUTE\') as allowed', [role, `public.${fn.proname}${signature}`])).rows[0].allowed, role === 'service_role');
   }

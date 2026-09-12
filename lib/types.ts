@@ -442,10 +442,19 @@ export interface SiteIdentityCandidate {
     signals: SiteIdentitySignal[];
 }
 
-export interface SiteIdentityReviewCandidate extends SiteIdentityCandidate {
+export interface SiteIdentityClaimState {
+    path: string[];
+    decisionIds: string[];
+}
+
+export interface SiteIdentityResolvedEvidence {
+    page: SiteIdentityPageEvidence;
     resolution: SiteIdentityResolution;
     resolvedPage?: SiteIdentityPageEvidence;
+    claimState: SiteIdentityClaimState;
 }
+
+export interface SiteIdentityReviewCandidate extends SiteIdentityCandidate, SiteIdentityResolvedEvidence {}
 
 export interface SiteIdentityResolution {
     requestedPageId: string;
@@ -471,7 +480,13 @@ export interface SiteIdentityReviewPayload {
     unmatchedSignals: SiteIdentitySignal[];
     resolution: SiteIdentityResolution;
     activeClaim?: SitePageClaim;
+    activeClaimTarget?: SiteIdentityResolvedEvidence;
     decisions: SiteIdentityDecision[];
+}
+
+export interface SiteIdentityActiveClaimsPayload {
+    claims: Array<SitePageClaim & { sourcePrimaryUrl: string; targetPrimaryUrl: string }>;
+    nextCursor?: string;
 }
 
 export interface SiteInventoryPayload {
