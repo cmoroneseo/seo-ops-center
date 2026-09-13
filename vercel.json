@@ -21,6 +21,14 @@
         {
             "path": "/api/cron/reconcile-timesheets",
             "schedule": "0 5 * * *"
+        },
+        {
+            "path": "/api/cron/attribution-queries",
+            "schedule": "0 9 * * *"
+        },
+        {
+            "path": "/api/cron/attribution-cleanup",
+            "schedule": "0 10 * * *"
         }
     ],
     "headers": [
