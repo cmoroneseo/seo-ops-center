@@ -64,7 +64,7 @@ create policy "Org members can read attribution_events"
 -- explicitly so no authenticated-user role can write cross-tenant rows.
 revoke all on table public.attribution_events from public, anon, authenticated;
 grant select on table public.attribution_events to authenticated;
-grant select, insert on table public.attribution_events to service_role;
+grant select, insert, delete on table public.attribution_events to service_role;
 
 -- 4. Attribution conversions (permanent records)
 create table public.attribution_conversions (

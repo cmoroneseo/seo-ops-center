@@ -84,7 +84,7 @@ function rowToConversion(row: any): AttributionConversion {
         pageUrl: row.page_url,
         likelyQueries: row.likely_queries ?? [],
         hdyhauResponse: row.hdyhau_response ?? undefined,
-        month: row.month,
+        month: typeof row.month === 'string' ? row.month.slice(0, 7) : row.month,
         createdAt: row.created_at,
     };
 }
@@ -308,4 +308,55 @@ export async function matchQueries(
     }));
 
     return rankQueries(facts, landingPage);
+}
+
+// --- Attribution dashboard queries ---
+
+export async function getEventCountsBySource(
+    clientId: string,
+    month: string,
+): Promise<{ sourceCategory: string; count: number }[]> {
+    const supabase = createClient();
+    if (!supabase) return [];
+    const { data } = await supabase
+        .from('attribution_conversions')
+        .select('source_category')
+        .eq('client_id', clientId)
+        .eq('month', month + '-01');
+    if (!data) return [];
+    const counts = new Map<string, number>();
+    for (const row of data) {
+        counts.set(row.source_category, (counts.get(row.source_category) ?? 0) + 1);
+    }
+    return Array.from(counts, ([sourceCategory, count]) => ({ sourceCategory, count }))
+        .sort((a, b) => b.count - a.count);
+}
+
+export async function getLandingPagePerformance(
+    clientId: string,
+    month: string,
+): Promise<{ landingPage: string; count: number; topQuery: string; organicPct: number }[]> {
+    const supabase = createClient();
+    if (!supabase) return [];
+    const { data } = await supabase
+        .from('attribution_conversions')
+        .select('landing_page, source_category, likely_queries')
+        .eq('client_id', clientId)
+        .eq('month', month + '-01');
+    if (!data) return [];
+    const pages = new Map<string, { total: number; organic: number; topQuery: string }>();
+    for (const row of data) {
+        const page = row.landing_page || '/';
+        const entry = pages.get(page) ?? { total: 0, organic: 0, topQuery: '' };
+        entry.total++;
+        if (row.source_category.startsWith('organic_') || row.source_category.startsWith('ai_')) entry.organic++;
+        if (!entry.topQuery && row.likely_queries?.[0]?.query) entry.topQuery = row.likely_queries[0].query;
+        pages.set(page, entry);
+    }
+    return Array.from(pages, ([landingPage, v]) => ({
+        landingPage,
+        count: v.total,
+        topQuery: v.topQuery,
+        organicPct: v.total > 0 ? Math.round((v.organic / v.total) * 100) : 0,
+    })).sort((a, b) => b.count - a.count);
 }
