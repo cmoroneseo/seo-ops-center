@@ -368,6 +368,7 @@ export default function ClientDetailPage() {
                     organizationId={organization.id}
                     clientId={client.id}
                     client={client}
+                    onClientUpdated={setClient}
                 />
             )}
 

@@ -15,7 +15,7 @@ interface AttributionSetupProps {
     client: ClientProject;
     site: AttributionSite | null;
     onSiteCreated: (site: AttributionSite) => void;
-    onAvgDealValueSaved: (value: number) => void;
+    onClientUpdated: (client: ClientProject) => void;
 }
 
 const productionOrigin = 'https://seo-ops-center.vercel.app';
@@ -29,7 +29,7 @@ export function AttributionSetup({
     client,
     site,
     onSiteCreated,
-    onAvgDealValueSaved,
+    onClientUpdated,
 }: AttributionSetupProps) {
     const [domain, setDomain] = useState(site?.domain ?? client.domain ?? '');
     const [avgDealValue, setAvgDealValue] = useState(
@@ -47,6 +47,10 @@ export function AttributionSetup({
     useEffect(() => {
         setScriptOrigin(window.location.origin);
     }, []);
+
+    useEffect(() => {
+        setAvgDealValue(client.avgDealValue != null ? String(client.avgDealValue) : '');
+    }, [client.avgDealValue]);
 
     const siteId = site?.id ?? '(create site first)';
     const scriptSnippet = `<script defer src="${scriptOrigin}/api/attribution/s.js" data-site="${siteId}"></script>`;
@@ -116,8 +120,8 @@ export function AttributionSetup({
         setSuccess('');
         try {
             const result = await updateClientProject(client.id, { avgDealValue: value });
-            if (!result.success) throw new Error(result.error || 'Unable to save average deal value.');
-            onAvgDealValueSaved(value);
+            if (!result.success || !result.data) throw new Error(result.error || 'Unable to save average deal value.');
+            onClientUpdated(result.data);
             setSuccess('Average deal value saved.');
         } catch (reason) {
             setError(reason instanceof Error ? reason.message : 'Unable to save average deal value.');

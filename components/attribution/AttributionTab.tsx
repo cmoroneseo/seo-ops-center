@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { AlertTriangle, Loader2, Settings2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -23,12 +23,13 @@ interface AttributionTabProps {
     organizationId: string;
     clientId: string;
     client: ClientProject;
+    onClientUpdated?: (client: ClientProject) => void;
 }
 
 type SourceCount = { sourceCategory: string; count: number };
 type PagePerformance = { landingPage: string; count: number; topQuery: string; organicPct: number };
 
-export function AttributionTab({ organizationId, clientId, client }: AttributionTabProps) {
+export function AttributionTab({ organizationId, clientId, client, onClientUpdated }: AttributionTabProps) {
     const [site, setSite] = useState<AttributionSite | null>();
     const [conversions, setConversions] = useState<AttributionConversion[]>([]);
     const [sourceCounts, setSourceCounts] = useState<SourceCount[]>([]);
@@ -37,12 +38,18 @@ export function AttributionTab({ organizationId, clientId, client }: Attribution
     const [loadingDashboard, setLoadingDashboard] = useState(true);
     const [error, setError] = useState('');
     const [revision, setRevision] = useState(0);
+    const [showSettings, setShowSettings] = useState(false);
 
     const month = new Date().toISOString().slice(0, 7);
 
     useEffect(() => {
         setAvgDealValue(client.avgDealValue);
     }, [client.avgDealValue, clientId]);
+
+    const handleClientUpdated = (updated: ClientProject) => {
+        setAvgDealValue(updated.avgDealValue);
+        onClientUpdated?.(updated);
+    };
 
     useEffect(() => {
         let active = true;
@@ -114,7 +121,7 @@ export function AttributionTab({ organizationId, clientId, client }: Attribution
                 client={client}
                 site={site}
                 onSiteCreated={setSite}
-                onAvgDealValueSaved={setAvgDealValue}
+                onClientUpdated={handleClientUpdated}
             />
         );
     }
@@ -149,6 +156,27 @@ export function AttributionTab({ organizationId, clientId, client }: Attribution
 
     return (
         <section className="space-y-6" aria-label="Attribution dashboard">
+            <header className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <h2 className="text-2xl font-semibold">Attribution</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">First-party conversion reporting for the current month.</p>
+                </div>
+                <Button type="button" variant="outline" onClick={() => setShowSettings(value => !value)} aria-expanded={showSettings}>
+                    <Settings2 />
+                    {showSettings ? 'Hide Setup' : 'Attribution Setup'}
+                </Button>
+            </header>
+
+            {showSettings ? (
+                <AttributionSetup
+                    organizationId={organizationId}
+                    client={client}
+                    site={site}
+                    onSiteCreated={setSite}
+                    onClientUpdated={handleClientUpdated}
+                />
+            ) : null}
+
             <RoiCard conversions={totalConversions} avgDealValue={avgDealValue} monthlyRetainer={monthlyRetainer} />
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
