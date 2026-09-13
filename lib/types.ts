@@ -517,6 +517,7 @@ export interface ClientProject {
 
     // Legacy/Derived fields (keeping some for compatibility or UI display)
     seoHours: number; // derived from config
+    avgDealValue?: number;
     deliverables: string; // display string
     blogsDuePerMonth: number; // derived from config
     campaignTotalBlogs?: number;

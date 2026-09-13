@@ -48,6 +48,7 @@ function rowToClientProject(row: any): ClientProject {
         tier: (row.tier as Tier) || 1,
         engagementModel,
         seoHours: Number(row.seo_hours) || 0,
+        avgDealValue: row.avg_deal_value != null ? Number(row.avg_deal_value) : undefined,
         deliverables: row.deliverables_spec || '',
         blogsDuePerMonth: Number(row.blogs_due_per_month) || 0,
         blogProgress: {
