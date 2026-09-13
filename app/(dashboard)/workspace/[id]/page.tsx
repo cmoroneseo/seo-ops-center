@@ -32,8 +32,9 @@ import { getTasksByClient } from '@/lib/supabase/tasks';
 import { getLoggedHoursByClient } from '@/lib/supabase/time-logs';
 import { Task } from '@/lib/types';
 import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
+import { AttributionTab } from '@/components/attribution/AttributionTab';
 
-type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'inventory';
+type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'inventory' | 'attribution';
 
 export default function ClientDetailPage() {
     const params = useParams();
@@ -275,6 +276,10 @@ export default function ClientDetailPage() {
                     className={cn('flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'inventory' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
                 ><ScanSearch className="h-3.5 w-3.5" />Site Inventory</button>
                 <button
+                    onClick={() => setActiveTab('attribution')}
+                    className={cn('flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'attribution' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
+                >Attribution</button>
+                <button
                     onClick={() => setActiveTab('integrations')}
                     className={cn(
                         'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
@@ -355,6 +360,15 @@ export default function ClientDetailPage() {
 
             {activeTab === 'inventory' && client.organizationId === organization?.id && (
                 <SiteInventoryTab key={`${organization.id}:${client.id}`} clientId={client.id} clientName={client.clientName} />
+            )}
+
+            {activeTab === 'attribution' && client.organizationId === organization?.id && (
+                <AttributionTab
+                    key={`${organization.id}:${client.id}`}
+                    organizationId={organization.id}
+                    clientId={client.id}
+                    client={client}
+                />
             )}
 
             {/* Integrations tab */}

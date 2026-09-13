@@ -87,6 +87,7 @@ function clientProjectToRow(client: Partial<ClientProject>) {
         tier: client.tier,
         logo_url: client.logoUrl,
         domain: client.domain ?? undefined,
+        avg_deal_value: client.avgDealValue,
     };
 }
 
