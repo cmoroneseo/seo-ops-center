@@ -5699,7 +5699,7 @@ create policy "Org members can manage attribution_sites"
 -- 3. Attribution events (high volume, 90-day retention on pageviews)
 create table public.attribution_events (
   id uuid primary key default gen_random_uuid(),
-  organization_id uuid not null,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
   site_id uuid not null references public.attribution_sites(id) on delete cascade,
   event_type text not null check (event_type in ('pageview', 'form_submit', 'tel_click')),
   session_id text not null,
@@ -5727,15 +5727,17 @@ create policy "Org members can read attribution_events"
   on public.attribution_events for select
   using (organization_id in (select get_user_org_ids()));
 
--- Service role inserts (events come from the unauthenticated collection endpoint)
-create policy "Service role can insert attribution_events"
-  on public.attribution_events for insert
-  with check (true);
+-- Events come from the unauthenticated collection endpoint, written with the
+-- service-role key (which bypasses RLS). Revoke default grants and grant
+-- explicitly so no authenticated-user role can write cross-tenant rows.
+revoke all on table public.attribution_events from public, anon, authenticated;
+grant select on table public.attribution_events to authenticated;
+grant select, insert on table public.attribution_events to service_role;
 
 -- 4. Attribution conversions (permanent records)
 create table public.attribution_conversions (
   id uuid primary key default gen_random_uuid(),
-  organization_id uuid not null,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
   site_id uuid not null references public.attribution_sites(id) on delete cascade,
   client_id uuid not null references public.clients(id) on delete cascade,
   event_id uuid not null references public.attribution_events(id) on delete cascade,
@@ -5759,11 +5761,9 @@ create policy "Org members can read attribution_conversions"
   on public.attribution_conversions for select
   using (organization_id in (select get_user_org_ids()));
 
-create policy "Service role can insert attribution_conversions"
-  on public.attribution_conversions for insert
-  with check (true);
-
-create policy "Service role can update attribution_conversions"
-  on public.attribution_conversions for update
-  using (true)
-  with check (true);
+-- Conversions are written server-side with the service-role key (bypasses
+-- RLS). Revoke default grants and grant explicitly so no authenticated-user
+-- role can write cross-tenant rows.
+revoke all on table public.attribution_conversions from public, anon, authenticated;
+grant select on table public.attribution_conversions to authenticated;
+grant select, insert, update on table public.attribution_conversions to service_role;
