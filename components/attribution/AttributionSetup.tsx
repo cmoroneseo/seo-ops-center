@@ -6,7 +6,8 @@ import { CheckCircle2, Clipboard, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createAttributionSite, updateAttributionSite } from '@/lib/supabase/attribution';
+import { createAttributionSite, updateAttributionSite, verifyAttributionSite } from '@/lib/supabase/attribution';
+import { normalizeDomain } from '@/lib/attribution/domain';
 import { updateClientProject } from '@/lib/supabase/clients';
 import type { AttributionSite, ClientProject } from '@/lib/types';
 
@@ -19,10 +20,6 @@ interface AttributionSetupProps {
 }
 
 const productionOrigin = 'https://seo-ops-center.vercel.app';
-
-function normalizeDomain(value: string) {
-    return value.trim().replace(/^https?:\/\//i, '').split('/')[0];
-}
 
 export function AttributionSetup({
     organizationId,
@@ -39,7 +36,7 @@ export function AttributionSetup({
     const [savingDomain, setSavingDomain] = useState(false);
     const [savingDealValue, setSavingDealValue] = useState(false);
     const [verifying, setVerifying] = useState(false);
-    const [verified, setVerified] = useState(Boolean(site?.verifiedAt));
+    const verified = Boolean(site?.verifiedAt);
     const [copied, setCopied] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
@@ -97,12 +94,9 @@ export function AttributionSetup({
         setError('');
         setSuccess('');
         try {
-            await fetch(`https://${site.domain}`, { mode: 'no-cors' });
-            const updated = await updateAttributionSite(site.id, { verifiedAt: new Date().toISOString() });
-            setVerified(true);
+            const updated = await verifyAttributionSite(site.id);
             onSiteCreated(updated);
         } catch (reason) {
-            setVerified(false);
             setError(reason instanceof Error ? reason.message : 'Unable to verify the installation.');
         } finally {
             setVerifying(false);
@@ -153,6 +147,7 @@ export function AttributionSetup({
                         placeholder="www.clientsite.com"
                         autoCapitalize="none"
                         autoCorrect="off"
+                        aria-invalid={Boolean(domain.trim() && !normalizedDomain)}
                     />
                     {!site || domainChanged ? (
                         <Button type="button" onClick={() => void handleDomainSave()} disabled={savingDomain || !normalizedDomain}>
@@ -161,6 +156,7 @@ export function AttributionSetup({
                         </Button>
                     ) : null}
                 </div>
+                {domain.trim() && !normalizedDomain ? <p className="text-xs text-destructive">Enter a valid website domain, such as example.com.</p> : null}
             </div>
 
             {site ? (
@@ -187,6 +183,7 @@ export function AttributionSetup({
                             </span>
                         ) : null}
                     </div>
+                    <p className="text-xs text-muted-foreground">Open your website after installing the script. Verification confirms that a tracking event reached this workspace.</p>
 
                     <div className="space-y-2">
                         <Label htmlFor="attribution-deal-value">Average Deal Value ($)</Label>

@@ -1,9 +1,43 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifySource } from './source-classifier.ts';
+import { classifySource, countSeoConversions, isSourceCategory, resolveSessionAttribution } from './source-classifier.ts';
 
 test('classifySource: google.com → organic_google', () => {
     assert.equal(classifySource('https://www.google.com/', null, 'client.com'), 'organic_google');
+});
+
+test('first-touch direct, organic, paid and AI inputs survive later internal navigation', () => {
+    for (const [initial_referrer, initial_utm_medium, expected] of [
+        ['', '', 'direct'], ['https://google.com/', '', 'organic_google'],
+        ['https://google.com/', 'cpc', 'paid'], ['https://chatgpt.com/', '', 'ai_chatgpt'],
+    ]) {
+        const result = resolveSessionAttribution({ initial_referrer, initial_utm_medium,
+            initial_utm_source: 'initial-source', initial_utm_campaign: 'initial-campaign',
+            referrer: 'https://client.com/inside', utm_medium: 'organic', utm_source: 'later-source',
+            session_source: 'https://forged.example/' }, 'client.com');
+        assert.equal(result.sourceCategory, expected);
+        assert.equal(result.referrer, initial_referrer);
+        assert.equal(result.utmSource, 'initial-source');
+        assert.equal(result.utmCampaign, 'initial-campaign');
+    }
+});
+
+test('legacy session_source is classified or validated and never stored as a raw category', () => {
+    for (const [session_source, expected] of [['', 'direct'], ['https://google.com/', 'organic_google'],
+        ['paid', 'paid'], ['same_site', 'direct'], ['untrusted-category', 'direct']]) {
+        assert.equal(resolveSessionAttribution({ referrer: 'https://client.com/contact', session_source }, 'client.com').sourceCategory, expected);
+    }
+    assert.equal(isSourceCategory('https://google.com/'), false);
+    assert.equal(isSourceCategory('organic_made_up'), false);
+});
+
+test('SEO ROI credits only the six explicit organic and AI categories', () => {
+    const sources = ['organic_google', 'organic_bing', 'organic_other', 'ai_chatgpt', 'ai_perplexity', 'ai_google_aio',
+        'paid', 'direct', 'social', 'referral', 'same_site', 'organic_forged', 'ai_forged'].map(sourceCategory => ({ sourceCategory, count: 2 }));
+    const leads = countSeoConversions(sources);
+    assert.equal(leads, 12);
+    assert.equal(leads * 4500, 54000);
+    assert.equal(sources.reduce((sum, source) => sum + source.count, 0), 26);
 });
 
 test('classifySource: google.co.uk → organic_google', () => {

@@ -1,6 +1,28 @@
 import type { SourceCategory } from '@/lib/types';
+import { normalizeDomain } from './domain';
 
 export type { SourceCategory };
+
+export const SOURCE_CATEGORIES: readonly SourceCategory[] = [
+    'organic_google', 'organic_bing', 'organic_other', 'ai_chatgpt',
+    'ai_perplexity', 'ai_google_aio', 'social', 'paid', 'direct', 'referral', 'same_site',
+];
+
+export function isSourceCategory(value: unknown): value is SourceCategory {
+    return typeof value === 'string' && SOURCE_CATEGORIES.includes(value as SourceCategory);
+}
+
+const SEO_SOURCES = new Set<SourceCategory>([
+    'organic_google', 'organic_bing', 'organic_other', 'ai_chatgpt', 'ai_perplexity', 'ai_google_aio',
+]);
+
+export function isSeoSource(value: string): boolean {
+    return isSourceCategory(value) && SEO_SOURCES.has(value);
+}
+
+export function countSeoConversions(sources: { sourceCategory: string; count: number }[]): number {
+    return sources.reduce((total, source) => total + (isSeoSource(source.sourceCategory) ? source.count : 0), 0);
+}
 
 const SOCIAL_DOMAINS = [
     'facebook.com',
@@ -51,7 +73,7 @@ export function classifySource(
     const domain = extractDomain(referrer);
     if (!domain) return 'direct';
 
-    const normalizedSite = siteDomain.replace(/^www\./, '');
+    const normalizedSite = normalizeDomain(siteDomain) ?? siteDomain;
     if (matchesDomain(domain, normalizedSite)) return 'same_site';
 
     if (domain === 'chatgpt.com' || domain === 'chat.openai.com') return 'ai_chatgpt';
@@ -67,4 +89,27 @@ export function classifySource(
     if (SOCIAL_DOMAINS.some((sd) => matchesDomain(domain, sd))) return 'social';
 
     return 'referral';
+}
+
+/** Classify first-touch inputs on the server; never persist an arbitrary browser category. */
+export function resolveSessionAttribution(event: Record<string, unknown>, siteDomain: string) {
+    const text = (value: unknown) => typeof value === 'string' ? value : '';
+    const hasFirstTouch = typeof event.initial_referrer === 'string';
+    const utmSource = text(hasFirstTouch ? event.initial_utm_source : event.utm_source);
+    const utmMedium = text(hasFirstTouch ? event.initial_utm_medium : event.utm_medium);
+    const utmCampaign = text(hasFirstTouch ? event.initial_utm_campaign : event.utm_campaign);
+    let referrer = text(hasFirstTouch ? event.initial_referrer : event.referrer);
+    let sourceCategory = classifySource(referrer, utmMedium, siteDomain);
+    // Compatibility with already-cached v1 scripts, which called their raw
+    // initial referrer session_source. V2 always sends explicit initial inputs.
+    if (!hasFirstTouch && sourceCategory === 'same_site') {
+        const previous = event.session_source;
+        if (isSourceCategory(previous)) sourceCategory = previous;
+        else {
+            referrer = text(previous);
+            sourceCategory = classifySource(referrer, utmMedium, siteDomain);
+        }
+    }
+    if (sourceCategory === 'same_site') sourceCategory = 'direct';
+    return { sourceCategory, referrer, utmSource, utmMedium, utmCampaign };
 }

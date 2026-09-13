@@ -19,7 +19,7 @@ export function RoiCard({ conversions, avgDealValue, monthlyRetainer }: RoiCardP
                 <p className="text-sm text-muted-foreground">
                     {!avgDealValue
                         ? 'Set an average deal value in Attribution Setup to see ROI calculations.'
-                        : 'No conversions this month yet.'}
+                        : 'No organic or AI search conversions this month yet.'}
                 </p>
             </div>
         );

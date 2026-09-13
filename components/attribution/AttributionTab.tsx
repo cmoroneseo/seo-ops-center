@@ -11,6 +11,7 @@ import {
     getLandingPagePerformance,
 } from '@/lib/supabase/attribution';
 import type { AttributionConversion, AttributionSite, ClientProject } from '@/lib/types';
+import { countSeoConversions } from '@/lib/attribution/source-classifier';
 
 import { AttributionSetup } from './AttributionSetup';
 import { ConversionLog } from './ConversionLog';
@@ -151,7 +152,7 @@ export function AttributionTab({ organizationId, clientId, client, onClientUpdat
         );
     }
 
-    const totalConversions = sourceCounts.reduce((sum, source) => sum + source.count, 0);
+    const seoConversions = countSeoConversions(sourceCounts);
     const monthlyRetainer = (client.seoHours ?? 0) * 150;
 
     return (
@@ -177,7 +178,7 @@ export function AttributionTab({ organizationId, clientId, client, onClientUpdat
                 />
             ) : null}
 
-            <RoiCard conversions={totalConversions} avgDealValue={avgDealValue} monthlyRetainer={monthlyRetainer} />
+            <RoiCard conversions={seoConversions} avgDealValue={avgDealValue} monthlyRetainer={monthlyRetainer} />
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                 <div className="rounded-xl border border-border/50 bg-card p-4">

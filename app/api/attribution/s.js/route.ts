@@ -8,17 +8,18 @@ const SCRIPT = `(function(){
   if(!siteId)return;
   var origin=el.src.replace(/\\/api\\/attribution\\/s\\.js.*/,'');
 
-  var S=sessionStorage;
-  var SK='_attr';
+  var S;
+  var SK='_attr_v2_'+siteId;
   var sess;
-  try{sess=JSON.parse(S.getItem(SK));}catch(e){}
+  try{S=sessionStorage;sess=JSON.parse(S.getItem(SK));}catch(e){}
 
   function utmParam(n){try{return new URLSearchParams(location.search).get(n)||'';}catch(e){return '';}}
   function devType(){return /Mobi|Android/i.test(navigator.userAgent)?'mobile':/Tablet|iPad/i.test(navigator.userAgent)?'tablet':'desktop';}
   function uuid(){return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16);});}
 
-  if(!sess){
-    sess={sid:uuid(),src:document.referrer,lp:location.pathname};
+  if(!sess||typeof sess.sid!=='string'||typeof sess.ref!=='string'){
+    sess={sid:uuid(),ref:document.referrer,lp:location.origin+location.pathname,
+      us:utmParam('utm_source'),um:utmParam('utm_medium'),uc:utmParam('utm_campaign')};
     try{S.setItem(SK,JSON.stringify(sess));}catch(e){}
   }
 
@@ -26,14 +27,17 @@ const SCRIPT = `(function(){
   function push(type,extra){
     queue.push(Object.assign({
       event_type:type,
-      page_url:location.pathname,
+      page_url:location.origin+location.pathname,
       referrer:document.referrer,
       session_id:sess.sid,
       landing_page:sess.lp,
-      session_source:sess.src,
-      utm_source:utmParam('utm_source'),
-      utm_medium:utmParam('utm_medium'),
-      utm_campaign:utmParam('utm_campaign'),
+      initial_referrer:sess.ref,
+      initial_utm_source:sess.us,
+      initial_utm_medium:sess.um,
+      initial_utm_campaign:sess.uc,
+      utm_source:sess.us,
+      utm_medium:sess.um,
+      utm_campaign:sess.uc,
       device_type:devType(),
       timestamp:new Date().toISOString()
     },extra||{}));
@@ -43,14 +47,14 @@ const SCRIPT = `(function(){
     if(!queue.length)return;
     var batch=queue.splice(0);
     var body=JSON.stringify({site_id:siteId,events:batch});
-    if(navigator.sendBeacon){navigator.sendBeacon(origin+ENDPOINT,new Blob([body],{type:'application/json'}));}
-    else{try{var x=new XMLHttpRequest();x.open('POST',origin+ENDPOINT,false);x.setRequestHeader('Content-Type','application/json');x.send(body);}catch(e){}}
+    try{fetch(origin+ENDPOINT,{method:'POST',mode:'cors',credentials:'omit',keepalive:true,
+      headers:{'Content-Type':'application/json'},body:body}).catch(function(){});}catch(e){}
   }
 
   push('pageview');
 
   function findHdyhau(form){
-    var sels=form.querySelectorAll('select,input[type=radio]');
+    var sels=form.querySelectorAll('select,input[type=radio]:checked');
     for(var i=0;i<sels.length;i++){
       var n=(sels[i].name||sels[i].id||'').toLowerCase();
       if(/hear|found|source|referral|how_did/.test(n)){

@@ -25,9 +25,9 @@ export async function POST(req: NextRequest) {
     for (const conv of conversions) {
         try {
             const monthDate = typeof conv.month === 'string' ? conv.month.slice(0, 7) : new Date(conv.month).toISOString().slice(0, 7);
-            const queries = await matchQueries(conv.clientId, conv.landingPage, monthDate);
+            const queries = await matchQueries(conv.clientId, conv.landingPage, monthDate, conv);
             if (queries.length > 0) {
-                await updateConversionQueries(conv.id, queries);
+                await updateConversionQueries(conv.id, queries, conv);
                 matched++;
             }
         } catch (err) {
@@ -43,3 +43,5 @@ export async function POST(req: NextRequest) {
         timestamp: new Date().toISOString(),
     });
 }
+
+export const GET = POST;
