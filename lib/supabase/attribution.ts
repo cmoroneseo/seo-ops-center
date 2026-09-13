@@ -103,7 +103,7 @@ function conversionToRow(
         page_url: c.pageUrl,
         likely_queries: c.likelyQueries ?? null,
         hdyhau_response: c.hdyhauResponse,
-        month: c.month,
+        month: c.month.length === 7 ? c.month + '-01' : c.month,
     };
 }
 
