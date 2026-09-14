@@ -25,8 +25,11 @@ const SCRIPT = `(function(){
   }
 
   var queue=[];
+  var disabled=false;
   function push(type,extra){
+    if(disabled)return;
     queue.push(Object.assign({
+      client_event_id:uuid(),
       event_type:type,
       page_url:location.origin+location.pathname,
       referrer:document.referrer,
@@ -45,11 +48,12 @@ const SCRIPT = `(function(){
   }
 
   function flush(){
-    if(!queue.length)return;
+    if(disabled||!queue.length)return;
     var batch=queue.splice(0);
     var body=JSON.stringify({site_id:siteId,events:batch});
     try{fetch(origin+ENDPOINT,{method:'POST',mode:'cors',credentials:'omit',keepalive:true,
       headers:{'Content-Type':'text/plain;charset=UTF-8'},body:body}).then(function(res){
+        if(res.status===400||res.status===403||res.status===404){disabled=true;queue=[];return;}
         if(!res.ok)throw new Error('collector rejected batch');
       }).catch(function(){queue=batch.concat(queue);});}catch(e){queue=batch.concat(queue);}
   }
@@ -58,9 +62,10 @@ const SCRIPT = `(function(){
 
   function findHdyhau(form){
     var sels=form.querySelectorAll('select,input[type=radio]:checked');
+    var allowed=['how_did_you_hear','how_did_you_hear_about_us','how-did-you-hear','howdidyouhear','lead_source','referral_source'];
     for(var i=0;i<sels.length;i++){
       var n=(sels[i].name||sels[i].id||'').toLowerCase();
-      if(/hear|found|source|referral|how_did/.test(n)){
+      if(allowed.indexOf(n)!==-1){
         return sels[i].value||'';
       }
     }

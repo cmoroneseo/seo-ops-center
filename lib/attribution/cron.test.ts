@@ -16,6 +16,9 @@ test('both Vercel GET cron handlers preserve secret auth and execute their sched
             const request = new Request(input, init);
             const url = new URL(request.url);
             calls.push(`${request.method} ${url.pathname}`);
+            if (url.pathname.endsWith('/attribution_enabled_organizations')) {
+                return Response.json([{ organization_id: 'org-a' }]);
+            }
             if (request.method === 'DELETE') {
                 if (url.pathname.endsWith('/attribution_rate_limits')) {
                     assert.ok(url.searchParams.get('window_start')?.startsWith('lt.'));
@@ -49,6 +52,7 @@ test('both Vercel GET cron handlers preserve secret auth and execute their sched
             else assert.equal(result.total, 0);
         }
         assert.deepEqual(calls, [
+            'GET /rest/v1/attribution_enabled_organizations',
             'GET /rest/v1/attribution_conversions',
             'DELETE /rest/v1/attribution_events',
             'DELETE /rest/v1/attribution_rate_limits',

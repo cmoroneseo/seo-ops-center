@@ -13,7 +13,7 @@ const MAX_BODY_BYTES = 128 * 1024;
 const CORS_HEADERS = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' };
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: CORS_HEADERS });
 const EVENT_TYPES: readonly AttributionEventType[] = ['pageview', 'form_submit', 'tel_click'];
-const TEXT_FIELDS = ['page_url', 'landing_page', 'referrer', 'session_id', 'session_source', 'hdyhau_value',
+const TEXT_FIELDS = ['client_event_id', 'page_url', 'landing_page', 'referrer', 'session_id', 'session_source', 'hdyhau_value',
     'utm_source', 'utm_medium', 'utm_campaign', 'initial_referrer', 'initial_utm_source',
     'initial_utm_medium', 'initial_utm_campaign', 'device_type'];
 
@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
         if (typeof site_id !== 'string' || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(site_id) ||
             !Array.isArray(events) || events.length === 0 || events.length > 50 ||
             events.some(evt => !evt || typeof evt !== 'object' || !EVENT_TYPES.includes(evt.event_type) ||
+                typeof evt.client_event_id !== 'string' || !/^[a-zA-Z0-9._:-]{8,128}$/.test(evt.client_event_id) ||
                 TEXT_FIELDS.some(key => evt[key] != null && (typeof evt[key] !== 'string' || evt[key].length > 2048)))) {
             return json({ error: 'invalid_payload' }, 400);
         }
@@ -44,6 +45,14 @@ export async function POST(req: NextRequest) {
         if (!site || !site.is_active) {
             return json({ error: 'invalid_site' }, 404);
         }
+
+        const { data: enabled, error: enabledError } = await admin
+            .from('attribution_enabled_organizations')
+            .select('organization_id')
+            .eq('organization_id', site.organization_id)
+            .maybeSingle();
+        if (enabledError) throw enabledError;
+        if (!enabled) return json({ error: 'invalid_site' }, 404);
 
         const origin = req.headers.get('origin') || req.headers.get('referer') || '';
         const originUrl = (() => {
@@ -88,6 +97,7 @@ export async function POST(req: NextRequest) {
             } catch { return json({ error: 'invalid_page' }, 400); }
 
             const row: Omit<AttributionEvent, 'id' | 'createdAt'> = {
+                clientEventId: evt.client_event_id,
                 organizationId: site.organization_id,
                 siteId: site.id,
                 siteDomain: site.domain,

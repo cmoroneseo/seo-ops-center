@@ -1,6 +1,6 @@
 # Attribution Phase 1 (Core MVP) — Implementation Plan
 
-> **Hardening amendment (2026-09-13):** Production implementation uses distributed event quotas, site-scoped HMAC identifiers, canary organization gating, Google-organic-only GSC matching, consent guidance, and “estimated attributed pipeline” language. Earlier illustrative snippets below are historical task scaffolding and may not reflect these final safeguards.
+> **Hardening amendment (2026-09-13):** Production implementation uses database-enforced canary organization gating, idempotent client event IDs, distributed per-IP and per-site minute/hour/day quotas, site-scoped HMAC identifiers, Google-organic-only GSC matching, strict HDYHAU field names, permanent-rejection retry shutdown, consent guidance, and “estimated attributed pipeline” language. Earlier illustrative snippets below are historical task scaffolding and may not reflect these final safeguards.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

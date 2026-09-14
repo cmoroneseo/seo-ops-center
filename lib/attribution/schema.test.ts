@@ -13,6 +13,8 @@ const site = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const otherSite = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 const migration = readFileSync('migrations/056_attribution.sql', 'utf8');
 const hardeningMigration = readFileSync('migrations/057_attribution_hardening.sql', 'utf8');
+const canaryMigration = readFileSync('migrations/058_attribution_canary_integrity.sql', 'utf8');
+const advisorMigration = readFileSync('migrations/059_attribution_advisor_fixes.sql', 'utf8');
 
 before(async () => {
     await db.exec(`
@@ -27,6 +29,9 @@ before(async () => {
     `);
     await db.exec(migration);
     await db.exec(hardeningMigration);
+    await db.exec(canaryMigration);
+    await db.exec(advisorMigration);
+    await db.query('insert into attribution_enabled_organizations(organization_id) values ($1)', [org]);
     await db.query(`insert into attribution_sites(id, organization_id, client_id, domain)
         values ($1, $2, $3, 'example.com'), ($4, $5, $6, 'other.com')`, [site, org, client, otherSite, otherOrg, otherClient]);
 });
@@ -38,8 +43,8 @@ async function role(value = 'service_role', organization = org) {
 
 function insertEvent(id: string, type = 'form_submit', source = 'organic_google', domain = 'example.com', page = '/contact') {
     return db.query(`insert into attribution_events
-        (id, organization_id, site_id, site_domain, event_type, session_id, visitor_id, source_category, landing_page, page_url)
-        values ($1,$2,$3,$4,$5,'same-session','same-visitor',$6,'https://example.com/services',$7)`,
+        (id, client_event_id, organization_id, site_id, site_domain, event_type, session_id, visitor_id, source_category, landing_page, page_url)
+        values ($1::uuid,$1::text,$2,$3,$4,$5,'same-session','same-visitor',$6,'https://example.com/services',$7)`,
     [id, org, site, domain, type, source, `https://${domain}${page}`]);
 }
 
@@ -48,7 +53,11 @@ test('migration 056 is mirrored exactly in schema.sql', () => {
     const end = '-- 057 attribution hardening';
     const schema = readFileSync('schema.sql', 'utf8');
     assert.equal(schema.slice(schema.indexOf(start), schema.indexOf(end)).trim(), migration.slice(migration.indexOf(start)).trim());
-    assert.equal(schema.slice(schema.indexOf(end)).trim(), hardeningMigration.slice(hardeningMigration.indexOf(end)).trim());
+    const canaryStart = '-- 058 attribution canary integrity';
+    const advisorStart = '-- 059 attribution advisor fixes';
+    assert.equal(schema.slice(schema.indexOf(end), schema.indexOf(canaryStart)).trim(), hardeningMigration.slice(hardeningMigration.indexOf(end)).trim());
+    assert.equal(schema.slice(schema.indexOf(canaryStart), schema.indexOf(advisorStart)).trim(), canaryMigration.slice(canaryMigration.indexOf(canaryStart)).trim());
+    assert.equal(schema.slice(schema.indexOf(advisorStart)).trim(), advisorMigration.slice(advisorMigration.indexOf(advisorStart)).trim());
 });
 
 test('distributed limiter counts events per IP and site in atomic minute buckets', async () => {
@@ -56,11 +65,32 @@ test('distributed limiter counts events per IP and site in atomic minute buckets
     assert.equal((await db.query("select check_attribution_rate_limit($1,$2,$3)", [site, 'ip-a', 50])).rows[0].check_attribution_rate_limit, true);
     assert.equal((await db.query("select check_attribution_rate_limit($1,$2,$3)", [site, 'ip-a', 50])).rows[0].check_attribution_rate_limit, true);
     assert.equal((await db.query("select check_attribution_rate_limit($1,$2,$3)", [site, 'ip-a', 1])).rows[0].check_attribution_rate_limit, false);
-    for (let index = 0; index < 17; index++) {
+    for (let index = 0; index < 8; index++) {
         assert.equal((await db.query("select check_attribution_rate_limit($1,$2,$3)", [site, `ip-${index}`, 50])).rows[0].check_attribution_rate_limit, true);
     }
-    assert.equal((await db.query("select check_attribution_rate_limit($1,$2,$3)", [site, 'ip-final', 49])).rows[0].check_attribution_rate_limit, true);
     assert.equal((await db.query("select check_attribution_rate_limit($1,$2,$3)", [site, 'ip-over-site-limit', 1])).rows[0].check_attribution_rate_limit, false);
+});
+
+test('canary policy blocks attribution site creation outside enabled organizations', async () => {
+    await role('authenticated', otherOrg);
+    assert.equal((await db.query('select organization_id from attribution_enabled_organizations')).rows.length, 0);
+    await assert.rejects(db.query(`insert into attribution_sites(organization_id, client_id, domain)
+        values ($1,$2,'disabled.example')`, [otherOrg, untrackedClient]), /row-level security policy/);
+    await role('authenticated', org);
+    assert.equal((await db.query('select organization_id from attribution_enabled_organizations')).rows.length, 1);
+});
+
+test('client event ids make ambiguous retries idempotent', async () => {
+    await role();
+    const eventId = '00000000-0000-4000-8000-000000000090';
+    await insertEvent(eventId);
+    await db.query(`insert into attribution_events
+        (id, client_event_id, organization_id, site_id, site_domain, event_type, session_id, visitor_id, source_category, landing_page, page_url)
+        values ('00000000-0000-4000-8000-000000000091',$1,$2,$3,'example.com','form_submit','same-session','same-visitor','organic_google','https://example.com/services','https://example.com/contact')
+        on conflict (site_id, client_event_id) do nothing`, [eventId, org, site]);
+    assert.equal((await db.query('select count(*)::int as count from attribution_events where client_event_id=$1', [eventId])).rows[0].count, 1);
+    assert.equal((await db.query('select count(*)::int as count from attribution_conversions c join attribution_events e on e.id=c.event_id where e.client_event_id=$1', [eventId])).rows[0].count, 1);
+    await db.query('delete from attribution_events where client_event_id=$1', [eventId]);
 });
 
 test('tenant ownership is enforced structurally for site inserts, updates, and client reassignment', async () => {
@@ -89,8 +119,8 @@ test('domain and category constraints reject invalid direct database writes', as
     }
     await assert.rejects(insertEvent('00000000-0000-4000-8000-000000000002', 'form_submit', 'https://google.com/'), /check constraint/);
     await assert.rejects(db.query(`insert into attribution_events
-        (organization_id,site_id,site_domain,event_type,session_id,visitor_id,source_category,page_url)
-        values ($1,$2,'example.com','pageview','s','v','direct','/')`, [otherOrg, site]), /foreign key constraint/);
+        (client_event_id,organization_id,site_id,site_domain,event_type,session_id,visitor_id,source_category,page_url)
+        values ('wrong-org',$1,$2,'example.com','pageview','s','v','direct','/')`, [otherOrg, site]), /foreign key constraint/);
 });
 
 test('concurrent same-visitor receipts materialize only their own exact events and enforce uniqueness', async () => {
@@ -127,9 +157,9 @@ test('a failed conversion rolls back the complete event batch and verification',
     await role();
     try {
         await assert.rejects(db.query(`insert into attribution_events
-            (organization_id,site_id,site_domain,event_type,session_id,visitor_id,source_category,page_url)
-            values ($1,$2,'example.com','form_submit','rollback','v','direct','/okay'),
-                   ($1,$2,'example.com','form_submit','rollback','v','direct','/reject')`, [org, site]), /test conversion failure/);
+            (client_event_id,organization_id,site_id,site_domain,event_type,session_id,visitor_id,source_category,page_url)
+            values ('rollback-okay',$1,$2,'example.com','form_submit','rollback','v','direct','/okay'),
+                   ('rollback-reject',$1,$2,'example.com','form_submit','rollback','v','direct','/reject')`, [org, site]), /test conversion failure/);
         assert.equal((await db.query(`select id from attribution_events where session_id='rollback'`)).rows.length, 0);
         assert.equal((await db.query(`select id from attribution_conversions where page_url in ('/okay','/reject')`)).rows.length, 0);
         assert.equal((await db.query('select verified_at from attribution_sites where id=$1', [site])).rows[0].verified_at, null);

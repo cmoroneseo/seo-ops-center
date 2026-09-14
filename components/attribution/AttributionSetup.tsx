@@ -141,7 +141,9 @@ export function AttributionSetup({
                 },
             });
             onSiteCreated(saved);
-            setSuccess(params.isActive === undefined ? 'Tracking options saved.' : params.isActive ? 'Collection resumed.' : 'Collection paused.');
+            setSuccess(params.isActive === undefined
+                ? 'Tracking option saved. Replace the installed snippet with the updated version below.'
+                : params.isActive ? 'Collection resumed.' : 'Collection paused.');
         } catch (reason) {
             setError(reason instanceof Error ? reason.message : 'Unable to update tracking settings.');
         } finally {
@@ -230,7 +232,7 @@ export function AttributionSetup({
                             />
                             <span>
                                 Track phone-link clicks
-                                <span className="block text-xs text-muted-foreground">Records clicks on links beginning with tel:. These are interaction events, not confirmed calls.</span>
+                                <span className="block text-xs text-muted-foreground">Records clicks on links beginning with tel:. These are interaction events, not confirmed calls. After changing this option, replace the installed snippet with the updated version above.</span>
                             </span>
                         </label>
                     </div>

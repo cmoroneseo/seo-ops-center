@@ -1135,6 +1135,7 @@ export interface AttributionSite {
 
 export interface AttributionEvent {
     id: string;
+    clientEventId: string;
     organizationId: string;
     siteId: string;
     siteDomain: string; // Canonical site domain at receipt; rejects stale in-flight batches after a domain edit.

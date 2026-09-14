@@ -26,6 +26,7 @@ async function readAllById<T extends { id: string | number }>(
 function eventToRow(event: Omit<AttributionEvent, 'id' | 'createdAt'>) {
     if (!isSourceCategory(event.sourceCategory)) throw new Error('Invalid attribution source');
     return {
+        client_event_id: event.clientEventId,
         organization_id: event.organizationId,
         site_id: event.siteId,
         site_domain: event.siteDomain,
@@ -67,7 +68,10 @@ function conversionToRow(
 export async function insertEvents(rows: Omit<AttributionEvent, 'id' | 'createdAt'>[]): Promise<void> {
     if (rows.length === 0) return;
     const admin = createAdminClient();
-    const { error } = await admin.from('attribution_events').insert(rows.map(eventToRow));
+    const { error } = await admin.from('attribution_events').upsert(rows.map(eventToRow), {
+        onConflict: 'site_id,client_event_id',
+        ignoreDuplicates: true,
+    });
     if (error) throw error;
 }
 
@@ -86,11 +90,18 @@ export async function getConversionsMissingQueries(
     lookbackDays = 7,
 ): Promise<(ConversionQueryScope & { id: string; landingPage: string; month: string })[]> {
     const admin = createAdminClient();
+    const { data: enabledOrganizations, error: enabledError } = await admin
+        .from('attribution_enabled_organizations')
+        .select('organization_id');
+    if (enabledError) throw enabledError;
+    const enabledIds = (enabledOrganizations ?? []).map(row => row.organization_id);
+    if (enabledIds.length === 0) return [];
     const since = new Date(Date.now() - lookbackDays * 86400000).toISOString();
     const data = await readAllById<any>(after => {
         let query = admin.from('attribution_conversions')
             .select('id, organization_id, site_id, client_id, landing_page, month')
             .eq('source_category', 'organic_google')
+            .in('organization_id', enabledIds)
             .is('likely_queries', null).gte('created_at', since).order('id').limit(PAGE_SIZE);
         if (after !== undefined) query = query.gt('id', after);
         return query;

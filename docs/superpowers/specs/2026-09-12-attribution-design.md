@@ -40,16 +40,16 @@ One line added to each client's website:
 |--------|--------|---------|
 | Page view | Fires on every page load | Visit volume by source |
 | Traffic source | `document.referrer` + UTM params | Organic vs Direct vs Referral vs Paid vs AI Search |
-| AI Search detection | Referrer pattern matching | Detect ChatGPT, Perplexity, Google AIO referrals |
+| AI Search detection | Referrer pattern matching | Detect observable ChatGPT and Perplexity referrals; Google AIO is not reliably distinguishable from Google organic referrers |
 | Form submission | Global `submit` event listener on all `<form>` elements | Conversion tracking without per-form config |
-| HDYHAU capture | Scans forms for select/radio fields matching patterns (`hear`, `found`, `source`, `referral`, `how_did`) | Self-reported attribution |
+| HDYHAU capture | Reads select/radio values only for an explicit normalized field-name allowlist | Self-reported attribution without broad substring matching |
 | HDYHAU injection | Opt-in per site; appends styled `<select>` to forms | For clients whose forms lack the field |
 | Click-to-call | `tel:` link click listener | Phone lead attribution without CallRail |
 
 ### What It Does NOT Do
 
 - No cookies or localStorage; the server derives a secret-protected, site-scoped daily pseudonymous identifier from request metadata
-- No PII captured — does not read form field values except HDYHAU fields
+- Designed not to capture direct identifiers; it reads only allowlisted HDYHAU select/radio values, which must be validated on each enabled form
 - No cross-site tracking
 - Load through the client consent manager where consent is required; document collection, purpose, retention, and processors in the privacy notice
 
@@ -85,6 +85,7 @@ Served from `/api/attribution/s.js` (Vercel serverless function):
   "site_id": "uuid",
   "events": [
     {
+      "client_event_id": "stable-random-uuid-for-retries",
       "event_type": "pageview | form_submit | tel_click",
       "page_url": "/services/plumbing",
       "referrer": "https://www.google.com/",
@@ -294,13 +295,13 @@ Ship the end-to-end loop:
 
 - Migration: `attribution_sites`, `attribution_events`, `attribution_conversions` tables + `avg_deal_value` on clients
 - Tracking script (`s.js`): pageviews, source classification, session tracking (sessionStorage), form listener, tel click listener
-- Collection endpoint (`/api/attribution/collect`): ingestion, server-side visitor hash, domain validation, rate limiting
+- Collection endpoint (`/api/attribution/collect`): idempotent ingestion, server-side visitor hash, registered-origin checks, and per-IP/per-site minute/hour/day quotas
 - GSC query cross-reference cron job
 - Event retention cleanup cron job
 - Workspace Attribution tab: setup card, source donut, conversion timeline, conversion log with likely queries, landing page performance, ROI card
 - Row mappers and types in `lib/types.ts`, CRUD in `lib/supabase/attribution.ts`
 
-**Rollout:** Deploy to Sandbox Client A first, validate data flows end-to-end, then enable for 2-3 real clients, then agency-wide.
+**Rollout:** Database-enforced Sandbox organization canary first. Browser events are unverified directional telemetry because non-browser callers can forge public requests. Validate data quality and operational cost before explicitly enabling any additional organization; authoritative financial reporting requires server-side form/CRM/call integrations.
 
 ### Phase 2 — HDYHAU Injection + Reporting
 

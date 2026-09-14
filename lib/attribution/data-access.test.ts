@@ -143,11 +143,15 @@ test('reporting and cron selection paginate all conversions and retain source/si
     }));
     globalThis.fetch = async (input, init) => {
         const url = new URL(new Request(input, init).url);
+        if (url.pathname.endsWith('/attribution_enabled_organizations')) {
+            return Response.json([{ organization_id: scope.organizationId }]);
+        }
         const after = url.searchParams.get('id')?.replace('gt.', '') ?? '';
         assert.equal(url.searchParams.get('order'), 'id.asc');
         if (url.searchParams.has('likely_queries')) {
             assert.match(url.searchParams.get('select') ?? '', /organization_id,site_id,client_id/);
             requireFilter(url, 'source_category', 'organic_google');
+            assert.equal(url.searchParams.get('organization_id'), 'in.(org-a)');
         } else {
             requireFilter(url, 'client_id', scope.clientId);
             requireFilter(url, 'month', '2026-09-01');

@@ -42,7 +42,7 @@ test('the exact script and collector paths bypass session middleware for anonymo
     }
 });
 
-async function trackingPage(storage: Map<string, string>, referrer: string, path: string, search = '', storageBlocked = false, trackTel = true, failFetch = false) {
+async function trackingPage(storage: Map<string, string>, referrer: string, path: string, search = '', storageBlocked = false, trackTel = true, failFetch = false, responseStatus = 200) {
     const posted: { url: string; options: RequestInit; events: Record<string, unknown>[] }[] = [];
     const listeners: Record<string, (event?: unknown) => void> = {};
     const windowListeners: Record<string, () => void> = {};
@@ -68,7 +68,7 @@ async function trackingPage(storage: Map<string, string>, referrer: string, path
         fetch: async (url: string, options: RequestInit) => {
             posted.push({ url, options, events: JSON.parse(options.body as string).events });
             if (shouldFailFetch) throw new Error('offline');
-            return new Response('{}');
+            return new Response('{}', { status: responseStatus });
         },
     };
     runInNewContext(script, context);
@@ -85,6 +85,8 @@ test('the real script uses a CORS-simple anonymous keepalive request without a J
     assert.equal(page.posted[0].options.mode, 'cors');
     assert.equal(page.posted[0].options.keepalive, true);
     assert.equal((page.posted[0].options.headers as Record<string, string>)['Content-Type'], 'text/plain;charset=UTF-8');
+    assert.equal(typeof page.posted[0].events[0].client_event_id, 'string');
+    assert.match(String(page.posted[0].events[0].client_event_id), /^[a-zA-Z0-9._:-]{8,128}$/);
     const preflight = await OPTIONS();
     assert.equal(preflight.status, 204);
     assert.equal(preflight.headers.get('access-control-allow-origin'), '*');
@@ -107,6 +109,24 @@ test('the real script restores failed batches for the next live-page retry', asy
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(page.posted.length, 2);
     assert.deepEqual(page.posted[1].events, page.posted[0].events);
+});
+
+test('the real script stops retrying after a permanent collector rejection', async () => {
+    const page = await trackingPage(new Map(), '', '/', '', false, true, false, 403);
+    page.windowListeners.pagehide();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    page.listeners.click({ target: { tagName: 'A', href: 'tel:+15555550100' } });
+    page.intervals[0]();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(page.posted.length, 1);
+});
+
+test('HDYHAU capture ignores unrelated fields containing source as a substring', async () => {
+    const page = await trackingPage(new Map(), '', '/');
+    page.listeners.submit({ target: { tagName: 'FORM', querySelectorAll: () => [
+        { name: 'resource_type', id: '', value: 'confidential-resource' },
+    ] } });
+    assert.equal(page.posted[0].events[1].hdyhau_value, null);
 });
 
 test('visitor identifiers are secret-derived and isolated by attribution site', () => {
@@ -148,7 +168,10 @@ test('direct sessions stay explicitly direct and blocked sessionStorage does not
 });
 
 function collectorRequest(events: unknown[], headers: Record<string, string> = { origin: 'https://example.com' }) {
-    return new NextRequest('https://app.test/api/attribution/collect', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ site_id: siteId, events }) });
+    const withIds = events.map((event, index) => event && typeof event === 'object' && !Object.hasOwn(event, 'client_event_id')
+        ? { ...event, client_event_id: `test-event-${index}` }
+        : event);
+    return new NextRequest('https://app.test/api/attribution/collect', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ site_id: siteId, events: withIds }) });
 }
 
 test('collector sends one atomic exact event batch with server-derived org and first-touch categories', async () => {
@@ -157,6 +180,7 @@ test('collector sends one atomic exact event batch with server-derived org and f
         const request = new Request(input, init);
         const url = new URL(request.url);
         if (url.pathname.endsWith('/attribution_sites') && request.method === 'GET') return Response.json(site);
+        if (url.pathname.endsWith('/attribution_enabled_organizations')) return Response.json({ organization_id: 'org-a' });
         if (url.pathname.endsWith('/rpc/check_attribution_rate_limit')) {
             const body = await request.json();
             assert.match(String(body.p_bucket_key), /^[0-9a-f]{32}$/);
@@ -166,6 +190,8 @@ test('collector sends one atomic exact event batch with server-derived org and f
         }
         assert.equal(request.method, 'POST');
         assert.ok(url.pathname.endsWith('/attribution_events'), 'No conversion lookup by visitor or separate conversion writes');
+        assert.equal(url.searchParams.get('on_conflict'), 'site_id,client_event_id');
+        assert.match(request.headers.get('prefer') ?? '', /resolution=ignore-duplicates/);
         writes.push(await request.json());
         return new Response(null, { status: 201 });
     };
@@ -184,6 +210,7 @@ test('collector sends one atomic exact event batch with server-derived org and f
     ]);
     assert.equal(writes[0][0].utm_campaign, 'original');
     assert.equal(writes[0][0].referrer_domain, 'google.com');
+    assert.equal(writes[0][0].client_event_id, 'test-event-0');
 });
 
 test('collector rejects oversized bodies and distributed-limit denials before event storage', async () => {
@@ -192,6 +219,7 @@ test('collector rejects oversized bodies and distributed-limit denials before ev
         const request = new Request(input, init);
         const url = new URL(request.url);
         if (url.pathname.endsWith('/attribution_sites')) return Response.json(site);
+        if (url.pathname.endsWith('/attribution_enabled_organizations')) return Response.json({ organization_id: 'org-a' });
         if (url.pathname.endsWith('/rpc/check_attribution_rate_limit')) return Response.json(false);
         eventWrites++;
         return new Response(null, { status: 201 });
@@ -212,7 +240,8 @@ test('collector fails closed on missing/foreign origins, foreign landing hosts, 
     globalThis.fetch = async (input, init) => {
         const request = new Request(input, init);
         const url = new URL(request.url);
-        if (request.method === 'GET') return Response.json(site);
+        if (url.pathname.endsWith('/attribution_sites')) return Response.json(site);
+        if (url.pathname.endsWith('/attribution_enabled_organizations')) return Response.json({ organization_id: 'org-a' });
         if (url.pathname.endsWith('/rpc/check_attribution_rate_limit')) {
             rateChecks++;
             return Response.json(true);
@@ -234,4 +263,19 @@ test('collector fails closed on missing/foreign origins, foreign landing hosts, 
     assert.equal(failure.status, 500);
     assert.equal(failure.headers.get('access-control-allow-origin'), '*');
     assert.equal(writes, 1);
+});
+
+test('collector rejects an active site outside the server-enforced canary', async () => {
+    let rateChecks = 0;
+    globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        const url = new URL(request.url);
+        if (url.pathname.endsWith('/attribution_sites')) return Response.json({ ...site, organization_id: 'org-disabled' });
+        if (url.pathname.endsWith('/attribution_enabled_organizations')) return Response.json(null);
+        if (url.pathname.endsWith('/rpc/check_attribution_rate_limit')) rateChecks++;
+        return Response.json(true);
+    };
+    const response = await collect(collectorRequest([{ event_type: 'pageview', page_url: '/' }]));
+    assert.equal(response.status, 404);
+    assert.equal(rateChecks, 0);
 });
