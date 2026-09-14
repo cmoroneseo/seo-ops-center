@@ -47,6 +47,26 @@ const OTHER_SEARCH_ENGINES = [
     'yandex.ru',
 ];
 
+// Keep this explicit: matching arbitrary `google.*` hostnames would allow domains
+// such as google.evil.example to be credited as organic Google traffic.
+const GOOGLE_SEARCH_DOMAINS = [
+    'google.com',
+    'google.ca',
+    'google.com.mx',
+    'google.co.uk',
+    'google.com.au',
+    'google.co.nz',
+    'google.ie',
+    'google.de',
+    'google.fr',
+    'google.es',
+    'google.it',
+    'google.nl',
+    'google.co.in',
+    'google.co.jp',
+    'google.com.br',
+];
+
 const PAID_UTM_MEDIUMS = ['cpc', 'ppc'];
 
 function extractDomain(url: string): string {
@@ -79,7 +99,7 @@ export function classifySource(
     if (domain === 'chatgpt.com' || domain === 'chat.openai.com') return 'ai_chatgpt';
     if (matchesDomain(domain, 'perplexity.ai')) return 'ai_perplexity';
 
-    if (/^google\./i.test(domain) || /\.google\./i.test(domain) || /\.google$/i.test(domain)) {
+    if (GOOGLE_SEARCH_DOMAINS.some((googleDomain) => matchesDomain(domain, googleDomain))) {
         return 'organic_google';
     }
     if (matchesDomain(domain, 'bing.com')) return 'organic_bing';

@@ -1,5 +1,7 @@
 # Attribution Phase 1 (Core MVP) — Implementation Plan
 
+> **Hardening amendment (2026-09-13):** Production implementation uses distributed event quotas, site-scoped HMAC identifiers, canary organization gating, Google-organic-only GSC matching, consent guidance, and “estimated attributed pipeline” language. Earlier illustrative snippets below are historical task scaffolding and may not reflect these final safeguards.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the end-to-end attribution loop — a tracking script installed on client websites captures visits by source, form submissions, and tel clicks; a collection endpoint ingests events into Supabase; a daily cron cross-references conversions with GSC query data; and a workspace Attribution tab displays source breakdowns, conversion logs with likely queries, and an ROI card.

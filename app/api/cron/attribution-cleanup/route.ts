@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { deleteOldPageviews } from '@/lib/supabase/attribution';
+import { deleteOldAttributionRateLimits, deleteOldPageviews } from '@/lib/supabase/attribution-admin';
 
 export const maxDuration = 300;
 
@@ -19,9 +19,11 @@ export async function POST(req: NextRequest) {
     }
 
     const deleted = await deleteOldPageviews(90);
+    const rateLimitBucketsDeleted = await deleteOldAttributionRateLimits(24);
 
     return NextResponse.json({
         deleted,
+        rateLimitBucketsDeleted,
         timestamp: new Date().toISOString(),
     });
 }

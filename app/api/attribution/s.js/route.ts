@@ -6,6 +6,7 @@ const SCRIPT = `(function(){
   if(!el)return;
   var siteId=el.getAttribute('data-site');
   if(!siteId)return;
+  var trackTel=el.getAttribute('data-track-tel')!=='false';
   var origin=el.src.replace(/\\/api\\/attribution\\/s\\.js.*/,'');
 
   var S;
@@ -48,7 +49,9 @@ const SCRIPT = `(function(){
     var batch=queue.splice(0);
     var body=JSON.stringify({site_id:siteId,events:batch});
     try{fetch(origin+ENDPOINT,{method:'POST',mode:'cors',credentials:'omit',keepalive:true,
-      headers:{'Content-Type':'application/json'},body:body}).catch(function(){});}catch(e){}
+      headers:{'Content-Type':'text/plain;charset=UTF-8'},body:body}).then(function(res){
+        if(!res.ok)throw new Error('collector rejected batch');
+      }).catch(function(){queue=batch.concat(queue);});}catch(e){queue=batch.concat(queue);}
   }
 
   push('pageview');
@@ -72,14 +75,16 @@ const SCRIPT = `(function(){
     flush();
   },true);
 
-  document.addEventListener('click',function(e){
-    var a=e.target;
-    while(a&&a.tagName!=='A')a=a.parentElement;
-    if(a&&a.href&&a.href.indexOf('tel:')===0){
-      push('tel_click');
-      flush();
-    }
-  },true);
+  if(trackTel){
+    document.addEventListener('click',function(e){
+      var a=e.target;
+      while(a&&a.tagName!=='A')a=a.parentElement;
+      if(a&&a.href&&a.href.indexOf('tel:')===0){
+        push('tel_click');
+        flush();
+      }
+    },true);
+  }
 
   var timer;
   document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')flush();});

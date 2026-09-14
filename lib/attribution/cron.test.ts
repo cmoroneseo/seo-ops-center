@@ -17,6 +17,10 @@ test('both Vercel GET cron handlers preserve secret auth and execute their sched
             const url = new URL(request.url);
             calls.push(`${request.method} ${url.pathname}`);
             if (request.method === 'DELETE') {
+                if (url.pathname.endsWith('/attribution_rate_limits')) {
+                    assert.ok(url.searchParams.get('window_start')?.startsWith('lt.'));
+                    return Response.json([{ site_id: 'expired-bucket' }]);
+                }
                 assert.equal(url.searchParams.get('event_type'), 'eq.pageview');
                 assert.ok(url.searchParams.get('created_at')?.startsWith('lt.'));
                 return Response.json([{ id: 'expired-pageview' }]);
@@ -38,10 +42,17 @@ test('both Vercel GET cron handlers preserve secret auth and execute their sched
             const response = await route.GET(new NextRequest(url, { headers: { authorization: 'Bearer test-cron-secret' } }));
             assert.equal(response.status, 200);
             const result = await response.json();
-            if (name === 'attribution-cleanup') assert.equal(result.deleted, 1);
+            if (name === 'attribution-cleanup') {
+                assert.equal(result.deleted, 1);
+                assert.equal(result.rateLimitBucketsDeleted, 1);
+            }
             else assert.equal(result.total, 0);
         }
-        assert.deepEqual(calls, ['GET /rest/v1/attribution_conversions', 'DELETE /rest/v1/attribution_events']);
+        assert.deepEqual(calls, [
+            'GET /rest/v1/attribution_conversions',
+            'DELETE /rest/v1/attribution_events',
+            'DELETE /rest/v1/attribution_rate_limits',
+        ]);
     } finally {
         globalThis.fetch = originalFetch;
         for (const key of ['CRON_SECRET', 'NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']) {

@@ -33,6 +33,7 @@ import { getLoggedHoursByClient } from '@/lib/supabase/time-logs';
 import { Task } from '@/lib/types';
 import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
 import { AttributionTab } from '@/components/attribution/AttributionTab';
+import { isAttributionEnabledForOrganization } from '@/lib/attribution/rollout';
 
 type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'inventory' | 'attribution';
 
@@ -120,6 +121,7 @@ export default function ClientDetailPage() {
     }
 
     const atRisk = isClientAtRisk(client);
+    const attributionEnabled = isAttributionEnabledForOrganization(organization?.id ?? '');
 
     return (
         <div className="space-y-6">
@@ -275,10 +277,12 @@ export default function ClientDetailPage() {
                     onClick={() => setActiveTab('inventory')}
                     className={cn('flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'inventory' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
                 ><ScanSearch className="h-3.5 w-3.5" />Site Inventory</button>
-                <button
-                    onClick={() => setActiveTab('attribution')}
-                    className={cn('flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'attribution' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
-                >Attribution</button>
+                {attributionEnabled ? (
+                    <button
+                        onClick={() => setActiveTab('attribution')}
+                        className={cn('flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'attribution' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
+                    >Attribution</button>
+                ) : null}
                 <button
                     onClick={() => setActiveTab('integrations')}
                     className={cn(
@@ -362,7 +366,7 @@ export default function ClientDetailPage() {
                 <SiteInventoryTab key={`${organization.id}:${client.id}`} clientId={client.id} clientName={client.clientName} />
             )}
 
-            {activeTab === 'attribution' && client.organizationId === organization?.id && (
+            {attributionEnabled && activeTab === 'attribution' && client.organizationId === organization?.id && (
                 <AttributionTab
                     key={`${organization.id}:${client.id}`}
                     organizationId={organization.id}

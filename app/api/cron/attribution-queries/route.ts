@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getConversionsMissingQueries, matchQueries, updateConversionQueries } from '@/lib/supabase/attribution';
+import { getConversionsMissingQueries, matchQueries, updateConversionQueries } from '@/lib/supabase/attribution-admin';
 
 export const maxDuration = 300;
 
@@ -30,9 +30,9 @@ export async function POST(req: NextRequest) {
                 await updateConversionQueries(conv.id, queries, conv);
                 matched++;
             }
-        } catch (err) {
+        } catch {
             errors++;
-            console.error(`attribution-queries: failed for conversion ${conv.id}:`, err);
+            console.error('attribution-queries: conversion enrichment failed');
         }
     }
 

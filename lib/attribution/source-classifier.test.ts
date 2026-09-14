@@ -44,6 +44,11 @@ test('classifySource: google.co.uk → organic_google', () => {
     assert.equal(classifySource('https://www.google.co.uk/search?q=test', null, 'client.com'), 'organic_google');
 });
 
+test('classifySource: Google-looking attacker domains remain referrals', () => {
+    assert.equal(classifySource('https://google.evil.example/', null, 'client.com'), 'referral');
+    assert.equal(classifySource('https://foo.google.example/', null, 'client.com'), 'referral');
+});
+
 test('classifySource: bing.com → organic_bing', () => {
     assert.equal(classifySource('https://www.bing.com/search?q=test', null, 'client.com'), 'organic_bing');
 });

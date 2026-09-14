@@ -5,6 +5,7 @@ import { NextRequest } from 'next/server';
 import { middleware } from '../../middleware.ts';
 import { GET as scriptGet } from '../../app/api/attribution/s.js/route.ts';
 import { POST as collect, OPTIONS } from '../../app/api/attribution/collect/route.ts';
+import { makeVisitorId } from './visitor-id.ts';
 
 const originalFetch = globalThis.fetch;
 const env = { ...process.env };
@@ -41,14 +42,16 @@ test('the exact script and collector paths bypass session middleware for anonymo
     }
 });
 
-async function trackingPage(storage: Map<string, string>, referrer: string, path: string, search = '', storageBlocked = false) {
+async function trackingPage(storage: Map<string, string>, referrer: string, path: string, search = '', storageBlocked = false, trackTel = true, failFetch = false) {
     const posted: { url: string; options: RequestInit; events: Record<string, unknown>[] }[] = [];
     const listeners: Record<string, (event?: unknown) => void> = {};
     const windowListeners: Record<string, () => void> = {};
+    const intervals: (() => void)[] = [];
+    let shouldFailFetch = failFetch;
     const script = await (await scriptGet()).text();
     const context = {
         document: {
-            currentScript: { src: 'https://app.test/api/attribution/s.js', getAttribute: () => siteId },
+            currentScript: { src: 'https://app.test/api/attribution/s.js', getAttribute: (name: string) => name === 'data-site' ? siteId : name === 'data-track-tel' ? String(trackTel) : null },
             referrer,
             visibilityState: 'hidden',
             addEventListener: (name: string, callback: (event?: unknown) => void) => { listeners[name] = callback; },
@@ -61,17 +64,18 @@ async function trackingPage(storage: Map<string, string>, referrer: string, path
             if (storageBlocked) throw new Error('Storage disabled');
             return { getItem: (key: string) => storage.get(key), setItem: (key: string, value: string) => storage.set(key, value) };
         },
-        setInterval: () => 1,
+        setInterval: (callback: () => void) => { intervals.push(callback); return 1; },
         fetch: async (url: string, options: RequestInit) => {
             posted.push({ url, options, events: JSON.parse(options.body as string).events });
+            if (shouldFailFetch) throw new Error('offline');
             return new Response('{}');
         },
     };
     runInNewContext(script, context);
-    return { posted, listeners, windowListeners };
+    return { posted, listeners, windowListeners, intervals, setFetchFailure: (value: boolean) => { shouldFailFetch = value; } };
 }
 
-test('the real script uses anonymous keepalive fetch and its JSON preflight is accepted', async () => {
+test('the real script uses a CORS-simple anonymous keepalive request without a JSON preflight', async () => {
     const page = await trackingPage(new Map(), 'https://google.com/', '/services');
     page.listeners.visibilitychange();
     assert.equal(page.posted.length, 1);
@@ -80,12 +84,36 @@ test('the real script uses anonymous keepalive fetch and its JSON preflight is a
     assert.equal(page.posted[0].options.credentials, 'omit');
     assert.equal(page.posted[0].options.mode, 'cors');
     assert.equal(page.posted[0].options.keepalive, true);
+    assert.equal((page.posted[0].options.headers as Record<string, string>)['Content-Type'], 'text/plain;charset=UTF-8');
     const preflight = await OPTIONS();
     assert.equal(preflight.status, 204);
     assert.equal(preflight.headers.get('access-control-allow-origin'), '*');
     assert.match(preflight.headers.get('access-control-allow-methods') ?? '', /POST/);
     assert.match(preflight.headers.get('access-control-allow-headers') ?? '', /Content-Type/);
     assert.equal(preflight.headers.get('access-control-allow-credentials'), null);
+});
+
+test('the real script honors disabled telephone tracking', async () => {
+    const page = await trackingPage(new Map(), '', '/', '', false, false);
+    assert.equal(page.listeners.click, undefined);
+});
+
+test('the real script restores failed batches for the next live-page retry', async () => {
+    const page = await trackingPage(new Map(), '', '/', '', false, true, true);
+    page.windowListeners.pagehide();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    page.setFetchFailure(false);
+    page.intervals[0]();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(page.posted.length, 2);
+    assert.deepEqual(page.posted[1].events, page.posted[0].events);
+});
+
+test('visitor identifiers are secret-derived and isolated by attribution site', () => {
+    const first = makeVisitorId('203.0.113.4', 'Browser A', 'site-a', 'secret-a', '2026-09-14');
+    assert.equal(first, makeVisitorId('203.0.113.4', 'Browser A', 'site-a', 'secret-a', '2026-09-14'));
+    assert.notEqual(first, makeVisitorId('203.0.113.4', 'Browser A', 'site-b', 'secret-a', '2026-09-14'));
+    assert.notEqual(first, makeVisitorId('203.0.113.4', 'Browser A', 'site-a', 'secret-b', '2026-09-14'));
 });
 
 test('real script navigation preserves the initial paid UTMs, landing page and selected HDYHAU radio', async () => {
@@ -129,6 +157,13 @@ test('collector sends one atomic exact event batch with server-derived org and f
         const request = new Request(input, init);
         const url = new URL(request.url);
         if (url.pathname.endsWith('/attribution_sites') && request.method === 'GET') return Response.json(site);
+        if (url.pathname.endsWith('/rpc/check_attribution_rate_limit')) {
+            const body = await request.json();
+            assert.match(String(body.p_bucket_key), /^[0-9a-f]{32}$/);
+            assert.equal(body.p_event_count, 2);
+            assert.equal(body.p_site_id, siteId);
+            return Response.json(true);
+        }
         assert.equal(request.method, 'POST');
         assert.ok(url.pathname.endsWith('/attribution_events'), 'No conversion lookup by visitor or separate conversion writes');
         writes.push(await request.json());
@@ -151,11 +186,37 @@ test('collector sends one atomic exact event batch with server-derived org and f
     assert.equal(writes[0][0].referrer_domain, 'google.com');
 });
 
-test('collector fails closed on missing/foreign origins, foreign landing hosts, invalid events and failed storage', async () => {
-    let writes = 0;
+test('collector rejects oversized bodies and distributed-limit denials before event storage', async () => {
+    let eventWrites = 0;
     globalThis.fetch = async (input, init) => {
         const request = new Request(input, init);
+        const url = new URL(request.url);
+        if (url.pathname.endsWith('/attribution_sites')) return Response.json(site);
+        if (url.pathname.endsWith('/rpc/check_attribution_rate_limit')) return Response.json(false);
+        eventWrites++;
+        return new Response(null, { status: 201 });
+    };
+    const oversized = new NextRequest('https://app.test/api/attribution/collect', {
+        method: 'POST', headers: { origin: 'https://example.com', 'content-type': 'text/plain' },
+        body: 'x'.repeat(128 * 1024 + 1),
+    });
+    assert.equal((await collect(oversized)).status, 413);
+    const denied = await collect(collectorRequest([{ event_type: 'form_submit', page_url: '/contact' }]));
+    assert.equal(denied.status, 429);
+    assert.equal(eventWrites, 0);
+});
+
+test('collector fails closed on missing/foreign origins, foreign landing hosts, invalid events and failed storage', async () => {
+    let writes = 0;
+    let rateChecks = 0;
+    globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        const url = new URL(request.url);
         if (request.method === 'GET') return Response.json(site);
+        if (url.pathname.endsWith('/rpc/check_attribution_rate_limit')) {
+            rateChecks++;
+            return Response.json(true);
+        }
         writes++;
         return Response.json({ message: 'database rejected event batch', code: 'P0001' }, { status: 400 });
     };
@@ -164,6 +225,7 @@ test('collector fails closed on missing/foreign origins, foreign landing hosts, 
         assert.equal(response.status, 403);
         assert.equal(response.headers.get('access-control-allow-origin'), '*');
     }
+    assert.equal(rateChecks, 0, 'invalid origins must not consume a site quota');
     assert.equal((await collect(collectorRequest([{ event_type: 'form_submit', landing_page: 'https://other.test/a' }]))).status, 400);
     assert.equal((await collect(collectorRequest([{ event_type: 'attacker' }]))).status, 400);
     assert.equal((await collect(collectorRequest([{ event_type: 'pageview', initial_referrer: {} }]))).status, 400);

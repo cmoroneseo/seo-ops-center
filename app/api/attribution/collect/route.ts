@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { resolveSessionAttribution } from '@/lib/attribution/source-classifier';
 import { matchesSiteDomain } from '@/lib/attribution/domain';
-import { insertEvents } from '@/lib/supabase/attribution';
+import { makeVisitorId } from '@/lib/attribution/visitor-id';
+import { insertEvents } from '@/lib/supabase/attribution-admin';
 import type { AttributionEvent, AttributionEventType } from '@/lib/types';
-import { createHash } from 'crypto';
+import { createHmac } from 'crypto';
 
 export const maxDuration = 30;
 
-const RATE_LIMIT = new Map<string, { count: number; resetAt: number }>();
+const MAX_BODY_BYTES = 128 * 1024;
 const CORS_HEADERS = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' };
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: CORS_HEADERS });
 const EVENT_TYPES: readonly AttributionEventType[] = ['pageview', 'form_submit', 'tel_click'];
@@ -16,32 +17,14 @@ const TEXT_FIELDS = ['page_url', 'landing_page', 'referrer', 'session_id', 'sess
     'utm_source', 'utm_medium', 'utm_campaign', 'initial_referrer', 'initial_utm_source',
     'initial_utm_medium', 'initial_utm_campaign', 'device_type'];
 
-function isRateLimited(ip: string): boolean {
-    const now = Date.now();
-    for (const [key, value] of RATE_LIMIT) if (value.resetAt <= now) RATE_LIMIT.delete(key);
-    const entry = RATE_LIMIT.get(ip);
-    if (!entry || now > entry.resetAt) {
-        RATE_LIMIT.set(ip, { count: 1, resetAt: now + 60_000 });
-        return false;
-    }
-    entry.count++;
-    return entry.count > 100;
-}
-
-function makeVisitorId(ip: string, ua: string): string {
-    const salt = new Date().toISOString().slice(0, 10);
-    return createHash('sha256').update(`${ip}:${ua}:${salt}`).digest('hex').slice(0, 16);
-}
-
 export async function POST(req: NextRequest) {
     try {
-        const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
-        if (isRateLimited(ip)) {
-            return json({ error: 'rate_limited' }, 429);
-        }
-
+        const declaredLength = Number(req.headers.get('content-length') ?? 0);
+        if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) return json({ error: 'payload_too_large' }, 413);
+        const rawBody = await req.text();
+        if (Buffer.byteLength(rawBody, 'utf8') > MAX_BODY_BYTES) return json({ error: 'payload_too_large' }, 413);
         let body;
-        try { body = await req.json(); } catch { return json({ error: 'invalid_payload' }, 400); }
+        try { body = JSON.parse(rawBody); } catch { return json({ error: 'invalid_payload' }, 400); }
         const { site_id, events } = body ?? {};
         if (typeof site_id !== 'string' || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(site_id) ||
             !Array.isArray(events) || events.length === 0 || events.length > 50 ||
@@ -70,6 +53,18 @@ export async function POST(req: NextRequest) {
             return json({ error: 'domain_mismatch' }, 403);
         }
 
+        const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+        const hashSecret = process.env.ATTRIBUTION_HASH_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
+        if (!hashSecret) throw new Error('Missing attribution hash secret');
+        const bucketKey = createHmac('sha256', hashSecret).update(`${site.id}:${ip}`).digest('hex').slice(0, 32);
+        const { data: allowed, error: rateError } = await admin.rpc('check_attribution_rate_limit', {
+            p_site_id: site.id,
+            p_bucket_key: bucketKey,
+            p_event_count: events.length,
+        });
+        if (rateError) throw rateError;
+        if (!allowed) return json({ error: 'rate_limited' }, 429);
+
         const pageUrl = (raw: unknown) => {
             const url = new URL(typeof raw === 'string' && raw ? raw : '/', originUrl.origin);
             if (!['http:', 'https:'].includes(url.protocol) || !matchesSiteDomain(url.hostname, site.domain) || url.username || url.password) {
@@ -79,7 +74,7 @@ export async function POST(req: NextRequest) {
         };
 
         const ua = req.headers.get('user-agent') ?? '';
-        const visitorId = makeVisitorId(ip, ua);
+        const visitorId = makeVisitorId(ip, ua, site.id, hashSecret);
         const countryCode = req.headers.get('x-vercel-ip-country') ?? undefined;
 
         const eventRows: Omit<AttributionEvent, 'id' | 'createdAt'>[] = [];
@@ -120,9 +115,8 @@ export async function POST(req: NextRequest) {
         await insertEvents(eventRows);
 
         return json({ ok: true });
-    } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error('[attribution/collect]', message);
+    } catch {
+        console.error('[attribution/collect] request failed');
         return json({ error: 'server_error' }, 500);
     }
 }

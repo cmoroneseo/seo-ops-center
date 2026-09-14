@@ -10,6 +10,7 @@ import { createAttributionSite, updateAttributionSite, verifyAttributionSite } f
 import { normalizeDomain } from '@/lib/attribution/domain';
 import { updateClientProject } from '@/lib/supabase/clients';
 import type { AttributionSite, ClientProject } from '@/lib/types';
+import { buildTrackingSnippet, trackingScriptOrigin } from '@/lib/attribution/install';
 
 interface AttributionSetupProps {
     organizationId: string;
@@ -19,7 +20,7 @@ interface AttributionSetupProps {
     onClientUpdated: (client: ClientProject) => void;
 }
 
-const productionOrigin = 'https://seo-ops-center.vercel.app';
+const productionOrigin = trackingScriptOrigin('https://seo-ops-center.vercel.app');
 
 export function AttributionSetup({
     organizationId,
@@ -35,6 +36,7 @@ export function AttributionSetup({
     const [scriptOrigin, setScriptOrigin] = useState(productionOrigin);
     const [savingDomain, setSavingDomain] = useState(false);
     const [savingDealValue, setSavingDealValue] = useState(false);
+    const [savingTracking, setSavingTracking] = useState(false);
     const [verifying, setVerifying] = useState(false);
     const verified = Boolean(site?.verifiedAt);
     const [copied, setCopied] = useState(false);
@@ -42,7 +44,7 @@ export function AttributionSetup({
     const [success, setSuccess] = useState('');
 
     useEffect(() => {
-        setScriptOrigin(window.location.origin);
+        setScriptOrigin(trackingScriptOrigin(window.location.origin));
     }, []);
 
     useEffect(() => {
@@ -50,7 +52,8 @@ export function AttributionSetup({
     }, [client.avgDealValue]);
 
     const siteId = site?.id ?? '(create site first)';
-    const scriptSnippet = `<script defer src="${scriptOrigin}/api/attribution/s.js" data-site="${siteId}"></script>`;
+    const trackTelClicks = site?.scriptConfig.track_tel_clicks ?? true;
+    const scriptSnippet = buildTrackingSnippet(scriptOrigin, siteId, trackTelClicks);
     const normalizedDomain = normalizeDomain(domain);
     const domainChanged = Boolean(site && normalizedDomain !== site.domain);
 
@@ -124,12 +127,34 @@ export function AttributionSetup({
         }
     };
 
+    const handleTrackingUpdate = async (params: { trackTelClicks?: boolean; isActive?: boolean }) => {
+        if (!site) return;
+        setSavingTracking(true);
+        setError('');
+        setSuccess('');
+        try {
+            const saved = await updateAttributionSite(site.id, {
+                isActive: params.isActive,
+                scriptConfig: params.trackTelClicks === undefined ? undefined : {
+                    ...site.scriptConfig,
+                    track_tel_clicks: params.trackTelClicks,
+                },
+            });
+            onSiteCreated(saved);
+            setSuccess(params.isActive === undefined ? 'Tracking options saved.' : params.isActive ? 'Collection resumed.' : 'Collection paused.');
+        } catch (reason) {
+            setError(reason instanceof Error ? reason.message : 'Unable to update tracking settings.');
+        } finally {
+            setSavingTracking(false);
+        }
+    };
+
     return (
         <section className="space-y-5 rounded-xl border border-border/50 bg-card p-5 md:p-6" aria-labelledby="attribution-setup-title">
             <div>
                 <h2 id="attribution-setup-title" className="text-lg font-semibold">Attribution Setup</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                    Connect {client.clientName}&apos;s website to begin collecting first-party conversion data.
+                    Connect {client.clientName}&apos;s website to begin collecting browser-recorded conversion activity.
                 </p>
             </div>
 
@@ -185,6 +210,41 @@ export function AttributionSetup({
                     </div>
                     <p className="text-xs text-muted-foreground">Open your website after installing the script. Verification confirms that a tracking event reached this workspace.</p>
 
+                    <div className="space-y-3 rounded-lg border border-border/50 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <p className="text-sm font-medium">Collection status</p>
+                                <p className="text-xs text-muted-foreground">Pause collection without removing the installed script.</p>
+                            </div>
+                            <Button type="button" variant="outline" size="sm" disabled={savingTracking} onClick={() => void handleTrackingUpdate({ isActive: !site.isActive })}>
+                                {site.isActive ? 'Pause Collection' : 'Resume Collection'}
+                            </Button>
+                        </div>
+                        <label className="flex items-start gap-3 text-sm">
+                            <input
+                                type="checkbox"
+                                checked={trackTelClicks}
+                                disabled={savingTracking}
+                                onChange={event => void handleTrackingUpdate({ trackTelClicks: event.target.checked })}
+                                className="mt-0.5 h-4 w-4 rounded border-border"
+                            />
+                            <span>
+                                Track phone-link clicks
+                                <span className="block text-xs text-muted-foreground">Records clicks on links beginning with tel:. These are interaction events, not confirmed calls.</span>
+                            </span>
+                        </label>
+                    </div>
+
+                    <div className="space-y-1 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground">Content Security Policy</p>
+                        <p>Add <code className="font-mono">{scriptOrigin}</code> to both your site&apos;s <code className="font-mono">script-src</code> and <code className="font-mono">connect-src</code> directives.</p>
+                    </div>
+
+                    <div className="space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground">Privacy and consent</p>
+                        <p>Document this tracking in the client&apos;s privacy notice. Where consent is required, configure the consent manager to load this script only after the visitor opts in.</p>
+                    </div>
+
                     <div className="space-y-2">
                         <Label htmlFor="attribution-deal-value">Average Deal Value ($)</Label>
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -203,7 +263,7 @@ export function AttributionSetup({
                                 {savingDealValue ? 'Saving…' : 'Save Value'}
                             </Button>
                         </div>
-                        <p className="text-xs text-muted-foreground">Used to estimate pipeline ROI from organic conversions.</p>
+                        <p className="text-xs text-muted-foreground">Used to estimate attributed pipeline potential from SEO and AI conversion events.</p>
                     </div>
                 </>
             ) : null}

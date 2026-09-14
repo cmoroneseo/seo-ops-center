@@ -1,9 +1,10 @@
 'use client';
 
+import React from 'react';
+
 interface RoiCardProps {
     conversions: number;
     avgDealValue: number | undefined;
-    monthlyRetainer: number;
 }
 
 const currency = new Intl.NumberFormat('en-US', {
@@ -12,13 +13,13 @@ const currency = new Intl.NumberFormat('en-US', {
     maximumFractionDigits: 0,
 });
 
-export function RoiCard({ conversions, avgDealValue, monthlyRetainer }: RoiCardProps) {
+export function RoiCard({ conversions, avgDealValue }: RoiCardProps) {
     if (!avgDealValue || conversions === 0) {
         return (
             <div className="rounded-xl border border-border/50 bg-card p-5">
                 <p className="text-sm text-muted-foreground">
                     {!avgDealValue
-                        ? 'Set an average deal value in Attribution Setup to see ROI calculations.'
+                        ? 'Set an average deal value in Attribution Setup to see estimated pipeline calculations.'
                         : 'No organic or AI search conversions this month yet.'}
                 </p>
             </div>
@@ -26,22 +27,15 @@ export function RoiCard({ conversions, avgDealValue, monthlyRetainer }: RoiCardP
     }
 
     const pipeline = conversions * avgDealValue;
-    const roi = monthlyRetainer > 0 ? Math.round((pipeline / monthlyRetainer) * 10) / 10 : 0;
-
     return (
         <div className="space-y-1 rounded-xl border border-border/50 bg-card p-5">
-            <div className="text-sm text-muted-foreground">Estimated Pipeline</div>
+            <div className="text-sm text-muted-foreground">Estimated Attributed Pipeline</div>
             <div className="text-2xl font-bold">
-                SEO drove <span className="text-primary">{conversions} leads</span> ×{' '}
+                <span className="text-primary">{conversions} SEO/AI conversion events</span> ×{' '}
                 {currency.format(avgDealValue)} avg ={' '}
                 <span className="text-emerald-500">{currency.format(pipeline)}</span>
             </div>
-            {monthlyRetainer > 0 ? (
-                <div className="text-sm text-muted-foreground">
-                    Retainer: {currency.format(monthlyRetainer)} →{' '}
-                    <span className="font-semibold text-emerald-500">{roi}x ROI</span>
-                </div>
-            ) : null}
+            <p className="text-xs text-muted-foreground">Directional estimate from browser-recorded form submissions and phone-link clicks; not realized revenue or financial ROI.</p>
         </div>
     );
 }

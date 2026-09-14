@@ -12,6 +12,7 @@ const untrackedClient = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbc';
 const site = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const otherSite = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 const migration = readFileSync('migrations/056_attribution.sql', 'utf8');
+const hardeningMigration = readFileSync('migrations/057_attribution_hardening.sql', 'utf8');
 
 before(async () => {
     await db.exec(`
@@ -25,6 +26,7 @@ before(async () => {
         insert into clients values ('${client}', '${org}'), ('${otherClient}', '${otherOrg}'), ('${untrackedClient}', '${otherOrg}');
     `);
     await db.exec(migration);
+    await db.exec(hardeningMigration);
     await db.query(`insert into attribution_sites(id, organization_id, client_id, domain)
         values ($1, $2, $3, 'example.com'), ($4, $5, $6, 'other.com')`, [site, org, client, otherSite, otherOrg, otherClient]);
 });
@@ -43,8 +45,22 @@ function insertEvent(id: string, type = 'form_submit', source = 'organic_google'
 
 test('migration 056 is mirrored exactly in schema.sql', () => {
     const start = '-- 1. Add avg_deal_value to clients';
+    const end = '-- 057 attribution hardening';
     const schema = readFileSync('schema.sql', 'utf8');
-    assert.equal(schema.slice(schema.indexOf(start)).trim(), migration.slice(migration.indexOf(start)).trim());
+    assert.equal(schema.slice(schema.indexOf(start), schema.indexOf(end)).trim(), migration.slice(migration.indexOf(start)).trim());
+    assert.equal(schema.slice(schema.indexOf(end)).trim(), hardeningMigration.slice(hardeningMigration.indexOf(end)).trim());
+});
+
+test('distributed limiter counts events per IP and site in atomic minute buckets', async () => {
+    await role();
+    assert.equal((await db.query("select check_attribution_rate_limit($1,$2,$3)", [site, 'ip-a', 50])).rows[0].check_attribution_rate_limit, true);
+    assert.equal((await db.query("select check_attribution_rate_limit($1,$2,$3)", [site, 'ip-a', 50])).rows[0].check_attribution_rate_limit, true);
+    assert.equal((await db.query("select check_attribution_rate_limit($1,$2,$3)", [site, 'ip-a', 1])).rows[0].check_attribution_rate_limit, false);
+    for (let index = 0; index < 17; index++) {
+        assert.equal((await db.query("select check_attribution_rate_limit($1,$2,$3)", [site, `ip-${index}`, 50])).rows[0].check_attribution_rate_limit, true);
+    }
+    assert.equal((await db.query("select check_attribution_rate_limit($1,$2,$3)", [site, 'ip-final', 49])).rows[0].check_attribution_rate_limit, true);
+    assert.equal((await db.query("select check_attribution_rate_limit($1,$2,$3)", [site, 'ip-over-site-limit', 1])).rows[0].check_attribution_rate_limit, false);
 });
 
 test('tenant ownership is enforced structurally for site inserts, updates, and client reassignment', async () => {

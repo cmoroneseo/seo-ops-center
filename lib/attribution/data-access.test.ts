@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
     createAttributionSite, updateAttributionSite, verifyAttributionSite,
-    getConversions, getConversionsMissingQueries, updateConversionQueries, matchQueries,
-    getEventCountsBySource, getLandingPagePerformance,
+    getConversions, getEventCountsBySource, getLandingPagePerformance,
 } from '../supabase/attribution.ts';
+import { getConversionsMissingQueries, updateConversionQueries, matchQueries } from '../supabase/attribution-admin.ts';
 
 const originalFetch = globalThis.fetch;
 const env = { ...process.env };
@@ -147,11 +147,14 @@ test('reporting and cron selection paginate all conversions and retain source/si
         assert.equal(url.searchParams.get('order'), 'id.asc');
         if (url.searchParams.has('likely_queries')) {
             assert.match(url.searchParams.get('select') ?? '', /organization_id,site_id,client_id/);
+            requireFilter(url, 'source_category', 'organic_google');
         } else {
             requireFilter(url, 'client_id', scope.clientId);
             requireFilter(url, 'month', '2026-09-01');
         }
-        return Response.json(rows.filter(row => row.id > after).slice(0, 1000));
+        return Response.json(rows.filter(row => row.id > after)
+            .filter(row => !url.searchParams.has('likely_queries') || row.source_category === 'organic_google')
+            .slice(0, 1000));
     };
     assert.equal((await getConversions(scope.clientId, { month: '2026-09' })).length, 1002);
     assert.deepEqual(await getEventCountsBySource(scope.clientId, '2026-09'), [
@@ -159,7 +162,7 @@ test('reporting and cron selection paginate all conversions and retain source/si
     ]);
     assert.equal((await getLandingPagePerformance(scope.clientId, '2026-09'))[0].count, 1002);
     const pending = await getConversionsMissingQueries();
-    assert.equal(pending.length, 1002);
+    assert.equal(pending.length, 2);
     assert.equal(pending[0].organizationId, scope.organizationId);
     assert.equal(pending[0].siteId, scope.siteId);
 });

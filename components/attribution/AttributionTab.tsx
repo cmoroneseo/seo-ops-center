@@ -153,8 +153,6 @@ export function AttributionTab({ organizationId, clientId, client, onClientUpdat
     }
 
     const seoConversions = countSeoConversions(sourceCounts);
-    const monthlyRetainer = (client.seoHours ?? 0) * 150;
-
     return (
         <section className="space-y-6" aria-label="Attribution dashboard">
             <header className="flex flex-wrap items-start justify-between gap-4">
@@ -178,7 +176,7 @@ export function AttributionTab({ organizationId, clientId, client, onClientUpdat
                 />
             ) : null}
 
-            <RoiCard conversions={seoConversions} avgDealValue={avgDealValue} monthlyRetainer={monthlyRetainer} />
+            <RoiCard conversions={seoConversions} avgDealValue={avgDealValue} />
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                 <div className="rounded-xl border border-border/50 bg-card p-4">

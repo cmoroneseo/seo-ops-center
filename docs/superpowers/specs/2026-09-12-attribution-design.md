@@ -14,12 +14,12 @@ AI search is accelerating the problem — Google AI Overviews appear on 47-64% o
 
 A lightweight, cookieless JavaScript tracking script installed on client websites that captures visits by source, form submissions, phone link clicks, and self-reported "how did you hear about us" responses. Combined with GSC query data already synced nightly, this produces a probabilistic query-to-conversion mapping that no other agency tool offers.
 
-The Attribution tab on each client's workspace shows: which traffic sources drive conversions, which pages convert, which search queries likely led to each conversion, and the ROI calculation (leads × avg deal value vs retainer cost).
+The Attribution tab on each client's workspace shows: which traffic sources are associated with browser-recorded conversion events, which pages convert, which search queries may be associated with each organic Google conversion, and estimated attributed pipeline potential.
 
 ## Design Decisions
 
-- **Own script over GA4 integration.** Full control, no consent banner needed, no sampling, no dependency on per-client GA4 configuration quality. First-party data becomes a product differentiator.
-- **Cookieless, privacy-first.** No cookies, no localStorage for tracking, no fingerprinting. Uses `sessionStorage` for same-tab session continuity (dies on tab close). GDPR/CCPA compliant without consent banners.
+- **Own script over GA4 integration.** Full control, no sampling, and no dependency on per-client GA4 configuration quality. The script still requires privacy disclosure and consent gating where applicable.
+- **Cookieless, privacy-conscious.** No cookies or localStorage. Uses `sessionStorage` for same-tab continuity and a secret-derived, site-scoped daily pseudonymous identifier. Applicability of consent and privacy requirements depends on the client, purpose, and visitor jurisdiction.
 - **Compute-on-read for revenue.** `avg_deal_value` stored on `clients` table, revenue calculated at query time (`COUNT(conversions) × avg_deal_value`). Matches existing pattern in `seo-ops-logic.ts`. Per-conversion value overrides deferred to future phase.
 - **Workspace tab first.** Attribution data lives primarily in `workspace/[id]` as a tab alongside Deliverables, Marketing Plan, etc. Agency-wide `/attribution` rollup page deferred to Phase 3 — most daily usage happens in the client workspace.
 - **Probabilistic query matching over exact queries.** Google encrypts organic search queries ("not provided" since 2011). We cross-reference each conversion's landing page with GSC click data for that page to produce "likely queries" with confidence scores. This leverages GSC data we already sync nightly.
@@ -48,14 +48,14 @@ One line added to each client's website:
 
 ### What It Does NOT Do
 
-- No cookies, no localStorage (for tracking), no fingerprinting
+- No cookies or localStorage; the server derives a secret-protected, site-scoped daily pseudonymous identifier from request metadata
 - No PII captured — does not read form field values except HDYHAU fields
 - No cross-site tracking
-- No consent banner needed
+- Load through the client consent manager where consent is required; document collection, purpose, retention, and processors in the privacy notice
 
 ### Session Tracking
 
-Uses `sessionStorage` (not a cookie, dies on tab close, no consent required):
+Uses `sessionStorage` (not a cookie, dies on tab close; still consent-gated where applicable):
 - On first pageview: generates a random `session_id`, stores `{session_id, source_category, landing_page}`
 - All subsequent events in that tab inherit the original traffic source
 - Prevents misattribution when visitors navigate internally (form submission on `/contact` correctly credits the original organic landing on `/services`)
@@ -251,13 +251,13 @@ Shown when no `attribution_site` exists for this client, or when the script is n
 4. **Configuration toggles:**
    - Enable HDYHAU injection (default: off)
    - Enable tel click tracking (default: on)
-5. **Average deal value input** — stored on `clients.avg_deal_value`, used for ROI calculation
+5. **Average deal value input** — stored on `clients.avg_deal_value`, used for a directional attributed-pipeline estimate
 
 ### Attribution Dashboard (after setup)
 
-**ROI Card** (if `avg_deal_value` set):
-> SEO drove **23 leads** × $4,500 avg = **$103,500 pipeline** this month
-> Retainer: $3,000 → **34.5x ROI**
+**Estimated Pipeline Card** (if `avg_deal_value` set):
+> **23 SEO/AI conversion events** × $4,500 avg = **$103,500 estimated attributed pipeline** this month
+> Directional browser telemetry; not realized revenue or financial ROI.
 
 **Source Breakdown Donut Chart:**
 Organic Google | AI Search | Direct | Referral | Social | Paid — sized by conversion count
