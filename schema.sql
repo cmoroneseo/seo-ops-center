@@ -5664,3 +5664,402 @@ revoke all on function public.guard_site_page_identity_decision_immutable() from
 revoke all on function public.set_site_page_identity_decision(uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb,uuid,jsonb) from public, anon, authenticated;
 grant execute on function public.guard_site_page_identity_decision_immutable() to service_role;
 grant execute on function public.set_site_page_identity_decision(uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb,uuid,jsonb) to service_role;
+
+-- =====================================================================
+-- 056 — Attribution tracking
+-- =====================================================================
+
+-- 1. Add avg_deal_value to clients
+alter table public.clients
+  add column if not exists avg_deal_value numeric;
+
+-- Composite ownership keys protect the service-role path as well as RLS.
+alter table public.clients add constraint clients_id_organization_id_key unique (id, organization_id);
+
+-- 2. Attribution sites (one per tracked client website)
+create table public.attribution_sites (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  client_id uuid not null,
+  domain text not null check (
+    length(domain) <= 253 and domain = lower(domain) and domain !~ '^www\.' and
+    domain ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$' and
+    domain !~ '^[0-9]+(\.[0-9]+){3}$'
+  ),
+  script_config jsonb not null default '{"hdyhau_inject": false, "hdyhau_field_patterns": [], "track_tel_clicks": true}'::jsonb,
+  is_active boolean not null default true,
+  verified_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  foreign key (client_id, organization_id) references public.clients(id, organization_id) on delete cascade,
+  unique(client_id),
+  unique(id, organization_id),
+  unique(id, organization_id, client_id)
+);
+
+create index attribution_sites_org_idx on public.attribution_sites(organization_id);
+
+alter table public.attribution_sites enable row level security;
+
+create policy "Org members can manage attribution_sites"
+  on public.attribution_sites for all
+  using      (organization_id in (select get_user_org_ids()))
+  with check (organization_id in (select get_user_org_ids()));
+
+-- Only accepted collection events can verify a site. Members may edit setup
+-- fields, but cannot forge verification or move a site to another client/org.
+revoke all on table public.attribution_sites from public, anon, authenticated, service_role;
+grant select, delete on table public.attribution_sites to authenticated;
+grant insert (organization_id, client_id, domain, script_config, is_active) on public.attribution_sites to authenticated;
+grant update (domain, script_config, is_active, updated_at) on public.attribution_sites to authenticated;
+grant select, insert, update, delete on table public.attribution_sites to service_role;
+
+create function public.invalidate_attribution_verification()
+returns trigger language plpgsql security invoker set search_path = pg_catalog, public as $$
+begin
+  if new.domain is distinct from old.domain then new.verified_at := null; end if;
+  new.updated_at := now();
+  return new;
+end;
+$$;
+create trigger attribution_site_domain_changed before update on public.attribution_sites
+for each row execute function public.invalidate_attribution_verification();
+revoke all on function public.invalidate_attribution_verification() from public, anon, authenticated;
+
+-- 3. Attribution events (high volume, 90-day retention on pageviews)
+create table public.attribution_events (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  site_id uuid not null,
+  site_domain text not null,
+  event_type text not null check (event_type in ('pageview', 'form_submit', 'tel_click')),
+  session_id text not null,
+  visitor_id text not null,
+  source_category text not null check (source_category in ('organic_google', 'organic_bing', 'organic_other', 'ai_chatgpt', 'ai_perplexity', 'ai_google_aio', 'social', 'paid', 'direct', 'referral', 'same_site')),
+  referrer_domain text,
+  landing_page text not null default '',
+  page_url text not null,
+  hdyhau_response text,
+  utm_source text,
+  utm_medium text,
+  utm_campaign text,
+  country_code text,
+  device_type text,
+  created_at timestamptz not null default now(),
+  foreign key (site_id, organization_id) references public.attribution_sites(id, organization_id) on delete cascade,
+  unique(id, site_id, organization_id)
+);
+
+create index attribution_events_site_created_idx on public.attribution_events(site_id, created_at);
+create index attribution_events_site_type_created_idx on public.attribution_events(site_id, event_type, created_at);
+create index attribution_events_org_idx on public.attribution_events(organization_id);
+
+alter table public.attribution_events enable row level security;
+
+create policy "Org members can read attribution_events"
+  on public.attribution_events for select
+  using (organization_id in (select get_user_org_ids()));
+
+-- Events come from the unauthenticated collection endpoint, written with the
+-- service-role key (which bypasses RLS). Revoke default grants and grant
+-- explicitly so no authenticated-user role can write cross-tenant rows.
+revoke all on table public.attribution_events from public, anon, authenticated;
+grant select on table public.attribution_events to authenticated;
+grant select, insert, delete on table public.attribution_events to service_role;
+
+-- 4. Attribution conversions (permanent records)
+create table public.attribution_conversions (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  site_id uuid not null,
+  client_id uuid not null,
+  event_id uuid not null unique,
+  conversion_type text not null check (conversion_type in ('form', 'phone', 'chat')),
+  source_category text not null check (source_category in ('organic_google', 'organic_bing', 'organic_other', 'ai_chatgpt', 'ai_perplexity', 'ai_google_aio', 'social', 'paid', 'direct', 'referral', 'same_site')),
+  landing_page text not null default '',
+  page_url text not null,
+  likely_queries jsonb,
+  hdyhau_response text,
+  month date not null check (extract(day from month) = 1),
+  created_at timestamptz not null default now(),
+  foreign key (site_id, organization_id, client_id)
+    references public.attribution_sites(id, organization_id, client_id) on delete cascade,
+  foreign key (event_id, site_id, organization_id)
+    references public.attribution_events(id, site_id, organization_id) on delete cascade
+);
+
+create index attribution_conversions_client_month_idx on public.attribution_conversions(client_id, month);
+create index attribution_conversions_site_created_idx on public.attribution_conversions(site_id, created_at);
+create index attribution_conversions_org_idx on public.attribution_conversions(organization_id);
+
+alter table public.attribution_conversions enable row level security;
+
+create policy "Org members can read attribution_conversions"
+  on public.attribution_conversions for select
+  using (organization_id in (select get_user_org_ids()));
+
+-- Conversions are written server-side with the service-role key (bypasses
+-- RLS). Revoke default grants and grant explicitly so no authenticated-user
+-- role can write cross-tenant rows.
+revoke all on table public.attribution_conversions from public, anon, authenticated;
+grant select on table public.attribution_conversions to authenticated;
+grant select, insert, update on table public.attribution_conversions to service_role;
+
+-- Each insert statement is atomic: NEW is the exact event being materialized.
+-- Any conversion failure rolls back the event batch and its verification too.
+-- Locking the site serializes receipt with domain edits so old queued batches
+-- cannot verify a newly configured domain.
+-- NO KEY UPDATE remains compatible with the FK key-share locks acquired by
+-- concurrent inserts, avoiding a lock-upgrade deadlock on the same site.
+create function public.materialize_attribution_event()
+returns trigger language plpgsql security invoker set search_path = pg_catalog, public as $$
+declare v_site public.attribution_sites%rowtype;
+begin
+  select * into v_site from public.attribution_sites
+    where id = new.site_id and organization_id = new.organization_id for no key update;
+  if not found or not v_site.is_active or v_site.domain <> new.site_domain then
+    raise exception 'Attribution site changed; reload the tracking page';
+  end if;
+
+  if new.event_type in ('form_submit', 'tel_click') then
+    insert into public.attribution_conversions (
+      organization_id, site_id, client_id, event_id, conversion_type,
+      source_category, landing_page, page_url, hdyhau_response, month, created_at
+    ) values (
+      new.organization_id, new.site_id, v_site.client_id, new.id,
+      case when new.event_type = 'form_submit' then 'form' else 'phone' end,
+      new.source_category, new.landing_page, new.page_url, new.hdyhau_response,
+      date_trunc('month', new.created_at at time zone 'UTC')::date, new.created_at
+    );
+  end if;
+
+  if v_site.verified_at is null then
+    update public.attribution_sites set verified_at = now()
+      where id = v_site.id and organization_id = v_site.organization_id;
+  end if;
+  return new;
+end;
+$$;
+create trigger attribution_event_received after insert on public.attribution_events
+for each row execute function public.materialize_attribution_event();
+revoke all on function public.materialize_attribution_event() from public, anon, authenticated;
+grant execute on function public.materialize_attribution_event() to service_role;
+
+-- 057 attribution hardening
+-- Durable ingestion quotas and supporting constraints/indexes.
+
+alter table public.clients
+  add constraint clients_avg_deal_value_valid
+  check (avg_deal_value is null or (avg_deal_value > 0 and avg_deal_value <= 1000000000));
+
+create table public.attribution_rate_limits (
+  site_id uuid not null references public.attribution_sites(id) on delete cascade,
+  bucket_key text not null check (length(bucket_key) between 1 and 64),
+  window_start timestamptz not null,
+  event_count integer not null check (event_count >= 0),
+  primary key (site_id, bucket_key, window_start)
+);
+
+create index attribution_rate_limits_site_window_idx
+  on public.attribution_rate_limits(site_id, window_start);
+
+create index attribution_events_pageview_cleanup_idx
+  on public.attribution_events(created_at)
+  where event_type = 'pageview';
+
+alter table public.attribution_rate_limits enable row level security;
+revoke all on table public.attribution_rate_limits from public, anon, authenticated, service_role;
+grant select, insert, update, delete on table public.attribution_rate_limits to service_role;
+
+create function public.check_attribution_rate_limit(
+  p_site_id uuid,
+  p_bucket_key text,
+  p_event_count integer
+) returns boolean
+language plpgsql
+security invoker
+set search_path = pg_catalog, public
+as $$
+declare
+  v_window timestamptz := date_trunc('minute', clock_timestamp());
+  v_site_count integer;
+  v_ip_count integer;
+begin
+  if p_event_count < 1 or p_event_count > 50 or length(p_bucket_key) not between 1 and 64 then
+    return false;
+  end if;
+
+  insert into public.attribution_rate_limits(site_id, bucket_key, window_start, event_count)
+  values (p_site_id, '__site__', v_window, p_event_count)
+  on conflict (site_id, bucket_key, window_start) do update
+    set event_count = public.attribution_rate_limits.event_count + excluded.event_count
+  returning event_count into v_site_count;
+
+  if v_site_count > 1000 then
+    return false;
+  end if;
+
+  insert into public.attribution_rate_limits(site_id, bucket_key, window_start, event_count)
+  values (p_site_id, p_bucket_key, v_window, p_event_count)
+  on conflict (site_id, bucket_key, window_start) do update
+    set event_count = public.attribution_rate_limits.event_count + excluded.event_count
+  returning event_count into v_ip_count;
+
+  return v_ip_count <= 100;
+end;
+$$;
+
+revoke all on function public.check_attribution_rate_limit(uuid, text, integer)
+  from public, anon, authenticated;
+grant execute on function public.check_attribution_rate_limit(uuid, text, integer)
+  to service_role;
+
+-- 058 attribution canary integrity
+-- Enforce the rollout boundary, make retries idempotent, and prevent rejected
+-- traffic from consuming accepted-event quotas.
+
+create table public.attribution_enabled_organizations (
+  organization_id uuid primary key references public.organizations(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+insert into public.attribution_enabled_organizations(organization_id)
+select id from public.organizations
+where id = '06e536b9-beac-49bc-8c96-1df021102590'
+on conflict do nothing;
+
+alter table public.attribution_enabled_organizations enable row level security;
+revoke all on table public.attribution_enabled_organizations from public, anon, authenticated, service_role;
+grant select, insert, delete on table public.attribution_enabled_organizations to service_role;
+
+create function public.is_attribution_enabled(p_organization_id uuid)
+returns boolean language sql stable security definer set search_path = pg_catalog, public as $$
+  select exists (
+    select 1 from public.attribution_enabled_organizations
+    where organization_id = p_organization_id
+  )
+$$;
+revoke all on function public.is_attribution_enabled(uuid) from public, anon;
+grant execute on function public.is_attribution_enabled(uuid) to authenticated, service_role;
+
+drop policy "Org members can manage attribution_sites" on public.attribution_sites;
+create policy "Enabled org members can manage attribution_sites"
+  on public.attribution_sites for all
+  using (
+    organization_id in (select get_user_org_ids())
+    and public.is_attribution_enabled(organization_id)
+  )
+  with check (
+    organization_id in (select get_user_org_ids())
+    and public.is_attribution_enabled(organization_id)
+  );
+
+alter table public.attribution_events add column client_event_id text;
+update public.attribution_events set client_event_id = id::text where client_event_id is null;
+alter table public.attribution_events alter column client_event_id set not null;
+alter table public.attribution_events
+  add constraint attribution_events_client_event_id_valid
+  check (length(client_event_id) between 1 and 128);
+alter table public.attribution_events
+  add constraint attribution_events_site_client_event_id_key unique (site_id, client_event_id);
+
+create or replace function public.check_attribution_rate_limit(
+  p_site_id uuid,
+  p_bucket_key text,
+  p_event_count integer
+) returns boolean
+language plpgsql
+security invoker
+set search_path = pg_catalog, public
+as $$
+declare
+  v_minute timestamptz := date_trunc('minute', clock_timestamp());
+  v_hour timestamptz := date_trunc('hour', clock_timestamp());
+  v_day timestamptz := date_trunc('day', clock_timestamp());
+  v_ip_count integer;
+  v_minute_count integer;
+  v_hour_count integer;
+  v_day_count integer;
+begin
+  if p_event_count < 1 or p_event_count > 50 or length(p_bucket_key) not between 1 and 64 then
+    return false;
+  end if;
+
+  perform 1 from public.attribution_sites site
+    join public.attribution_enabled_organizations enabled on enabled.organization_id = site.organization_id
+    where site.id = p_site_id and site.is_active
+    for update of site;
+  if not found then return false; end if;
+
+  select coalesce(max(event_count), 0) into v_ip_count
+    from public.attribution_rate_limits where site_id = p_site_id and bucket_key = p_bucket_key and window_start = v_minute;
+  select coalesce(max(event_count), 0) into v_minute_count
+    from public.attribution_rate_limits where site_id = p_site_id and bucket_key = '__site_minute__' and window_start = v_minute;
+  select coalesce(max(event_count), 0) into v_hour_count
+    from public.attribution_rate_limits where site_id = p_site_id and bucket_key = '__site_hour__' and window_start = v_hour;
+  select coalesce(max(event_count), 0) into v_day_count
+    from public.attribution_rate_limits where site_id = p_site_id and bucket_key = '__site_day__' and window_start = v_day;
+
+  if v_ip_count + p_event_count > 100
+    or v_minute_count + p_event_count > 500
+    or v_hour_count + p_event_count > 2000
+    or v_day_count + p_event_count > 10000 then
+    return false;
+  end if;
+
+  insert into public.attribution_rate_limits(site_id, bucket_key, window_start, event_count)
+  values
+    (p_site_id, p_bucket_key, v_minute, p_event_count),
+    (p_site_id, '__site_minute__', v_minute, p_event_count),
+    (p_site_id, '__site_hour__', v_hour, p_event_count),
+    (p_site_id, '__site_day__', v_day, p_event_count)
+  on conflict (site_id, bucket_key, window_start) do update
+    set event_count = public.attribution_rate_limits.event_count + excluded.event_count;
+
+  return true;
+end;
+$$;
+
+revoke all on function public.check_attribution_rate_limit(uuid, text, integer)
+  from public, anon, authenticated;
+grant execute on function public.check_attribution_rate_limit(uuid, text, integer)
+  to service_role;
+
+-- 059 attribution advisor fixes
+-- Keep the canary allowlist readable only within a member's own organization
+-- without exposing an authenticated SECURITY DEFINER RPC.
+
+grant select on table public.attribution_enabled_organizations to authenticated;
+create policy "Org members can read attribution rollout"
+  on public.attribution_enabled_organizations for select
+  using (organization_id in (select get_user_org_ids()));
+
+drop policy "Enabled org members can manage attribution_sites" on public.attribution_sites;
+create policy "Enabled org members can manage attribution_sites"
+  on public.attribution_sites for all
+  using (
+    organization_id in (select get_user_org_ids())
+    and exists (
+      select 1 from public.attribution_enabled_organizations enabled
+      where enabled.organization_id = attribution_sites.organization_id
+    )
+  )
+  with check (
+    organization_id in (select get_user_org_ids())
+    and exists (
+      select 1 from public.attribution_enabled_organizations enabled
+      where enabled.organization_id = attribution_sites.organization_id
+    )
+  );
+
+revoke all on function public.is_attribution_enabled(uuid) from authenticated, service_role;
+drop function public.is_attribution_enabled(uuid);
+
+create index attribution_sites_client_org_fk_idx
+  on public.attribution_sites(client_id, organization_id);
+create index attribution_events_site_org_fk_idx
+  on public.attribution_events(site_id, organization_id);
+create index attribution_conversions_site_org_client_fk_idx
+  on public.attribution_conversions(site_id, organization_id, client_id);
+create index attribution_conversions_event_site_org_fk_idx
+  on public.attribution_conversions(event_id, site_id, organization_id);

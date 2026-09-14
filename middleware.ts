@@ -2,6 +2,11 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+    // Public, cross-origin attribution requests authenticate their site in the
+    // collector. Bypass session refresh for these exact paths, including OPTIONS.
+    if (request.nextUrl.pathname === '/api/attribution/s.js' ||
+        request.nextUrl.pathname === '/api/attribution/collect') return NextResponse.next();
+
     // The metrics handler validates the cron secret or client-scoped session itself.
     if (request.nextUrl.pathname === '/api/sync/metrics') return NextResponse.next();
 

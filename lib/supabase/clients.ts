@@ -48,6 +48,7 @@ function rowToClientProject(row: any): ClientProject {
         tier: (row.tier as Tier) || 1,
         engagementModel,
         seoHours: Number(row.seo_hours) || 0,
+        avgDealValue: row.avg_deal_value != null ? Number(row.avg_deal_value) : undefined,
         deliverables: row.deliverables_spec || '',
         blogsDuePerMonth: Number(row.blogs_due_per_month) || 0,
         blogProgress: {
@@ -71,21 +72,23 @@ function rowToClientProject(row: any): ClientProject {
 
 /** Map a partial ClientProject to a Supabase clients insert/update payload. */
 function clientProjectToRow(client: Partial<ClientProject>) {
+    const has = (key: keyof ClientProject) => Object.prototype.hasOwnProperty.call(client, key);
     return {
         organization_id: client.organizationId,
         name: client.clientName,
-        launch_date: client.launchDate || null,
+        launch_date: has('launchDate') ? client.launchDate || null : undefined,
         seo_hours: client.seoHours,
         engagement_model: client.engagementModel,
         deliverables_spec: client.deliverables,
         blogs_due_per_month: client.blogsDuePerMonth,
         account_manager_name: client.accountManager,
-        account_manager_id: client.accountManagerId ?? null,
-        campaign_total_blogs: client.campaignTotalBlogs ?? null,
+        account_manager_id: has('accountManagerId') ? client.accountManagerId ?? null : undefined,
+        campaign_total_blogs: has('campaignTotalBlogs') ? client.campaignTotalBlogs ?? null : undefined,
         status: client.status ? APP_TO_DB_STATUS[client.status] : undefined,
         tier: client.tier,
-        logo_url: client.logoUrl,
-        domain: client.domain ?? undefined,
+        logo_url: has('logoUrl') ? client.logoUrl ?? null : undefined,
+        domain: has('domain') ? client.domain ?? null : undefined,
+        avg_deal_value: has('avgDealValue') ? client.avgDealValue ?? null : undefined,
     };
 }
 

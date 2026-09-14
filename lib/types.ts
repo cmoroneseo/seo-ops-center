@@ -517,6 +517,7 @@ export interface ClientProject {
 
     // Legacy/Derived fields (keeping some for compatibility or UI display)
     seoHours: number; // derived from config
+    avgDealValue?: number;
     deliverables: string; // display string
     blogsDuePerMonth: number; // derived from config
     campaignTotalBlogs?: number;
@@ -1105,5 +1106,73 @@ export interface PlannerPriority {
     taskId?: string;
     label?: string;
     sortOrder: number;
+    createdAt: string;
+}
+
+// --- Attribution ---
+
+export type SourceCategory = 'organic_google' | 'organic_bing' | 'organic_other' | 'ai_chatgpt' | 'ai_perplexity' | 'ai_google_aio' | 'social' | 'paid' | 'direct' | 'referral' | 'same_site';
+export type AttributionEventType = 'pageview' | 'form_submit' | 'tel_click';
+export type ConversionType = 'form' | 'phone' | 'chat';
+
+export interface ScriptConfig {
+    hdyhau_inject: boolean;
+    hdyhau_field_patterns: string[];
+    track_tel_clicks: boolean;
+}
+
+export interface AttributionSite {
+    id: string;
+    organizationId: string;
+    clientId: string;
+    domain: string;
+    scriptConfig: ScriptConfig;
+    isActive: boolean;
+    verifiedAt?: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface AttributionEvent {
+    id: string;
+    clientEventId: string;
+    organizationId: string;
+    siteId: string;
+    siteDomain: string; // Canonical site domain at receipt; rejects stale in-flight batches after a domain edit.
+    eventType: AttributionEventType;
+    sessionId: string;
+    visitorId: string;
+    sourceCategory: SourceCategory;
+    referrerDomain?: string;
+    landingPage: string;
+    pageUrl: string;
+    hdyhauResponse?: string;
+    utmSource?: string;
+    utmMedium?: string;
+    utmCampaign?: string;
+    countryCode?: string;
+    deviceType?: string;
+    createdAt: string;
+}
+
+export interface LikelyQuery {
+    query: string;
+    clicks: number;
+    confidence: number;
+}
+
+export interface AttributionConversion {
+    id: string;
+    organizationId: string;
+    siteId: string;
+    clientId: string;
+    eventId: string;
+    conversionType: ConversionType;
+    sourceCategory: SourceCategory;
+    landingPage: string;
+    pageUrl: string;
+    likelyQueries: LikelyQuery[];
+    hdyhauResponse?: string;
+    month: string;
     createdAt: string;
 }
