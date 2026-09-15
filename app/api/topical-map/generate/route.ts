@@ -31,16 +31,23 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'clientId and organizationId required' }, { status: 400 });
     }
 
-    const admin = createAdminClient();
-
-    // Stage 1: Profile
-    const { data: clientRow } = await admin
+    // Verify the authenticated user actually belongs to this client's organization
+    // by querying through the RLS-respecting client. If RLS blocks the row, the
+    // user has no access — do this BEFORE touching the admin (service-role) client.
+    const { data: clientCheck } = await supabase
         .from('clients')
-        .select('custom_fields, website')
+        .select('id, organization_id, custom_fields, domain')
         .eq('id', clientId)
         .single();
 
-    const profileData = (clientRow?.custom_fields as Record<string, unknown>)?.topical_map_profile as Record<string, unknown> | undefined;
+    if (!clientCheck || clientCheck.organization_id !== organizationId) {
+        return NextResponse.json({ error: 'Client not found or access denied' }, { status: 403 });
+    }
+
+    const admin = createAdminClient();
+
+    // Stage 1: Profile
+    const profileData = (clientCheck.custom_fields as Record<string, unknown>)?.topical_map_profile as Record<string, unknown> | undefined;
     if (!profileData) {
         return NextResponse.json({ error: 'Business profile not configured' }, { status: 400 });
     }
@@ -99,12 +106,14 @@ export async function POST(req: NextRequest) {
         .from('site_page_snapshots')
         .select('site_page_id, requested_url, title, h1s, word_count')
         .eq('organization_id', organizationId)
+        .eq('client_id', clientId)
         .order('observed_at', { ascending: false });
 
     const { data: pageUrls } = await admin
         .from('site_page_urls')
         .select('id, normalized_url, site_page_id')
-        .eq('organization_id', organizationId);
+        .eq('organization_id', organizationId)
+        .eq('client_id', clientId);
 
     const urlMap = new Map((pageUrls ?? []).map(u => [String(u.site_page_id), String(u.normalized_url)]));
     const existingPages = (pageSnapshots ?? []).map(s => ({
@@ -135,7 +144,7 @@ export async function POST(req: NextRequest) {
             impressions: Number(r.impressions),
             position: Number(r.position),
         })),
-        clientDomain: String(clientRow?.website ?? ''),
+        clientDomain: String(clientCheck.domain ?? ''),
     };
 
     const aiResponse = await anthropic.messages.create({
