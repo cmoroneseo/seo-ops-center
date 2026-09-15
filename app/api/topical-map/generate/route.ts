@@ -8,6 +8,7 @@ import { reconcileRecord } from '@/lib/topical-map/reconcile';
 import type { TopicalMapProfile } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
     const cookieStore = await cookies();

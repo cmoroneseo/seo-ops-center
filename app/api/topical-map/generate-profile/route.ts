@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import Anthropic from '@anthropic-ai/sdk';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
     const cookieStore = await cookies();
