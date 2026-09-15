@@ -38,6 +38,7 @@ export function MapProgressCard({ clientId, clientName, onComplete }: MapProgres
     const startedAtRef = useRef(Date.now());
     const onCompleteRef = useRef(onComplete);
     onCompleteRef.current = onComplete;
+    const architectFiredRef = useRef(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -47,8 +48,23 @@ export function MapProgressCard({ clientId, clientName, onComplete }: MapProgres
             if (cancelled) return;
             setMap(result.map);
             setElapsedSeconds(Math.round((Date.now() - startedAtRef.current) / 1000));
+
             if (result.map && stagesOf(result.map).includes('complete')) {
                 onCompleteRef.current({ map: result.map, silos: result.silos, records: result.records });
+                return;
+            }
+
+            // Trigger architect stage when data gathering is done
+            const stages = stagesOf(result.map);
+            if (result.map && stages.includes('your_pages') && !stages.includes('architect') && !architectFiredRef.current) {
+                architectFiredRef.current = true;
+                fetch('/api/topical-map/generate-architect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mapId: result.map.id }),
+                }).catch(() => {
+                    architectFiredRef.current = false;
+                });
             }
         };
 
