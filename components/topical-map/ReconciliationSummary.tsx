@@ -2,14 +2,8 @@
 
 import { ExternalLink, LinkIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { MapRecordAction, TopicalMapRecord } from '@/lib/types';
-
-const ACTION_STYLES: Record<MapRecordAction, string> = {
-    create: 'border-sky-500/30 bg-sky-500/10 text-sky-600',
-    replace: 'border-red-500/30 bg-red-500/10 text-red-500',
-    improve: 'border-amber-500/30 bg-amber-500/10 text-amber-600',
-    keep: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600',
-};
+import type { TopicalMapRecord } from '@/lib/types';
+import { ACTION_STYLES } from './constants';
 
 interface ReconciliationSummaryProps {
     records: TopicalMapRecord[];

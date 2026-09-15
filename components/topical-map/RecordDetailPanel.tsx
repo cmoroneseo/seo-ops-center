@@ -15,6 +15,8 @@ const PAGE_TYPES: PageType[] = [
 ];
 const ACTIONS: MapRecordAction[] = ['create', 'replace', 'improve', 'keep'];
 
+const inputClasses = 'mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm';
+
 interface RecordDetailPanelProps {
     record: TopicalMapRecord | null;
     silos: TopicalMapSilo[];
@@ -116,7 +118,7 @@ export function RecordDetailPanel({
                             <select
                                 value={draft.siloId}
                                 onChange={e => patch({ siloId: e.target.value })}
-                                className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                                className={inputClasses}
                             >
                                 {silos.map(s => (
                                     <option key={s.id} value={s.id}>{s.name}</option>
@@ -128,7 +130,7 @@ export function RecordDetailPanel({
                             <select
                                 value={draft.pageType}
                                 onChange={e => patch({ pageType: e.target.value as PageType })}
-                                className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                                className={inputClasses}
                             >
                                 {PAGE_TYPES.map(pt => (
                                     <option key={pt} value={pt}>{pt.replaceAll('_', ' ')}</option>
@@ -143,7 +145,7 @@ export function RecordDetailPanel({
                             <select
                                 value={draft.action}
                                 onChange={e => patch({ action: e.target.value as MapRecordAction })}
-                                className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                                className={inputClasses}
                             >
                                 {ACTIONS.map(a => (
                                     <option key={a} value={a}>{a}</option>
@@ -156,7 +158,7 @@ export function RecordDetailPanel({
                                 value={draft.contentCategory ?? ''}
                                 onChange={e => setDraft({ ...draft, contentCategory: e.target.value })}
                                 onBlur={() => patch({ contentCategory: draft.contentCategory || undefined })}
-                                className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                                className={inputClasses}
                             />
                         </div>
                     </div>
@@ -167,7 +169,7 @@ export function RecordDetailPanel({
                             value={draft.targetQuery}
                             onChange={e => setDraft({ ...draft, targetQuery: e.target.value })}
                             onBlur={() => draft.targetQuery !== record.targetQuery && patch({ targetQuery: draft.targetQuery })}
-                            className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                            className={inputClasses}
                         />
                     </div>
 
@@ -179,7 +181,7 @@ export function RecordDetailPanel({
                                 value={numberField(draft.wordCountMin)}
                                 onChange={e => setDraft({ ...draft, wordCountMin: Number(e.target.value) })}
                                 onBlur={() => patch({ wordCountMin: draft.wordCountMin })}
-                                className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                                className={inputClasses}
                             />
                         </div>
                         <div>
@@ -189,7 +191,7 @@ export function RecordDetailPanel({
                                 value={numberField(draft.wordCountMax)}
                                 onChange={e => setDraft({ ...draft, wordCountMax: Number(e.target.value) })}
                                 onBlur={() => patch({ wordCountMax: draft.wordCountMax })}
-                                className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                                className={inputClasses}
                             />
                         </div>
                     </div>
@@ -202,7 +204,7 @@ export function RecordDetailPanel({
                                 value={numberField(draft.buildPhase)}
                                 onChange={e => setDraft({ ...draft, buildPhase: Number(e.target.value) })}
                                 onBlur={() => patch({ buildPhase: draft.buildPhase })}
-                                className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                                className={inputClasses}
                             />
                         </div>
                         <div>
@@ -212,7 +214,7 @@ export function RecordDetailPanel({
                                 value={numberField(draft.refreshIntervalDays)}
                                 onChange={e => setDraft({ ...draft, refreshIntervalDays: e.target.value ? Number(e.target.value) : undefined })}
                                 onBlur={() => patch({ refreshIntervalDays: draft.refreshIntervalDays })}
-                                className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                                className={inputClasses}
                             />
                         </div>
                     </div>
@@ -225,7 +227,7 @@ export function RecordDetailPanel({
                                 value={numberField(draft.searchVolumeMonthly)}
                                 onChange={e => setDraft({ ...draft, searchVolumeMonthly: e.target.value ? Number(e.target.value) : undefined })}
                                 onBlur={() => patch({ searchVolumeMonthly: draft.searchVolumeMonthly })}
-                                className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                                className={inputClasses}
                             />
                         </div>
                         <div>
@@ -237,7 +239,7 @@ export function RecordDetailPanel({
                                 value={numberField(draft.keywordDifficulty)}
                                 onChange={e => setDraft({ ...draft, keywordDifficulty: e.target.value ? Number(e.target.value) : undefined })}
                                 onBlur={() => patch({ keywordDifficulty: draft.keywordDifficulty })}
-                                className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                                className={inputClasses}
                             />
                         </div>
                     </div>
@@ -294,7 +296,7 @@ export function RecordDetailPanel({
                             onChange={e => setNotesDraft(e.target.value)}
                             onBlur={() => notesDraft !== (draft.reviewerNotes ?? '') && patch({ reviewerNotes: notesDraft || undefined })}
                             rows={3}
-                            className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                            className={inputClasses}
                         />
                     </div>
                 </div>

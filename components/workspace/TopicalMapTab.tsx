@@ -180,13 +180,34 @@ function TopicalMapReady({
     selectedRecord, setSelectedRecord, detailOpen, setDetailOpen,
     wizardOpen, setWizardOpen, onReload, setLoaded,
 }: TopicalMapReadyProps) {
-    const filteredRecords = useMemo(() => records.filter(r => {
-        if (activeSiloId !== 'all' && r.siloId !== activeSiloId) return false;
-        if (filters.action !== 'all' && r.action !== filters.action) return false;
-        if (filters.pageType !== 'all' && r.pageType !== filters.pageType) return false;
-        if (filters.status !== 'all' && r.status !== filters.status) return false;
-        return true;
-    }), [records, activeSiloId, filters]);
+    const filteredRecords = useMemo(() => {
+        const matched = records.filter(r => {
+            if (activeSiloId !== 'all' && r.siloId !== activeSiloId) return false;
+            if (filters.action !== 'all' && r.action !== filters.action) return false;
+            if (filters.pageType !== 'all' && r.pageType !== filters.pageType) return false;
+            if (filters.status !== 'all' && r.status !== filters.status) return false;
+            return true;
+        });
+
+        // A child record can pass the filter while its parent doesn't — e.g. filtering
+        // by status=approved keeps an approved child under a still-pending parent. The
+        // accordion only renders children under a surviving top-level parent, so an
+        // orphaned child would silently vanish. Add the missing parent back (unfiltered)
+        // so it still provides context; it is not itself subject to the active filters.
+        const matchedIds = new Set(matched.map(r => r.id));
+        const restoredParents: TopicalMapRecord[] = [];
+        for (const r of matched) {
+            if (r.parentRecordId && !matchedIds.has(r.parentRecordId)) {
+                const parent = records.find(rec => rec.id === r.parentRecordId);
+                if (parent && !matchedIds.has(parent.id)) {
+                    matchedIds.add(parent.id);
+                    restoredParents.push(parent);
+                }
+            }
+        }
+
+        return restoredParents.length > 0 ? [...matched, ...restoredParents] : matched;
+    }, [records, activeSiloId, filters]);
 
     const visibleSilos = useMemo(
         () => silos.filter(s => filteredRecords.some(r => r.siloId === s.id)),

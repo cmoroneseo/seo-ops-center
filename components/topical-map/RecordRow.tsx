@@ -1,19 +1,13 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import type { MapRecordAction, MapRecordStatus, TopicalMapRecord } from '@/lib/types';
+import type { MapRecordStatus, TopicalMapRecord } from '@/lib/types';
+import { ACTION_STYLES } from './constants';
 
 const STATUS_DOT: Record<MapRecordStatus, string> = {
     pending: 'bg-muted-foreground/40',
     approved: 'bg-emerald-500',
     declined: 'bg-red-500',
-};
-
-const ACTION_STYLES: Record<MapRecordAction, string> = {
-    create: 'border-sky-500/30 bg-sky-500/10 text-sky-600',
-    replace: 'border-red-500/30 bg-red-500/10 text-red-500',
-    improve: 'border-amber-500/30 bg-amber-500/10 text-amber-600',
-    keep: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600',
 };
 
 function actionLabel(record: TopicalMapRecord): { label: string; className: string } {
