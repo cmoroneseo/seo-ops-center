@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
+    try {
     const cookieStore = await cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -246,4 +247,9 @@ export async function POST(req: NextRequest) {
     }).eq('id', mapId);
 
     return NextResponse.json({ success: true, mapId });
+    } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        console.error('generate-architect failed:', message);
+        return NextResponse.json({ error: message }, { status: 500 });
+    }
 }

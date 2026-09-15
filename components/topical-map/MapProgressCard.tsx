@@ -62,6 +62,12 @@ export function MapProgressCard({ clientId, clientName, onComplete }: MapProgres
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ mapId: result.map.id }),
+                }).then(async (res) => {
+                    if (!res.ok) {
+                        const body = await res.json().catch(() => ({}));
+                        console.error('Architect failed:', res.status, body);
+                        architectFiredRef.current = false;
+                    }
                 }).catch(() => {
                     architectFiredRef.current = false;
                 });
