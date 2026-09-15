@@ -1107,3 +1107,95 @@ export interface PlannerPriority {
     sortOrder: number;
     createdAt: string;
 }
+
+// ─── Topical Map ────────────────────────────────────────────────────────────
+
+export type TopicalMapStatus = 'draft' | 'review' | 'active' | 'archived';
+export type PageType =
+    | 'pillar' | 'service' | 'landing' | 'product' | 'collection' | 'city'
+    | 'blog_post' | 'guide' | 'faq' | 'resource_center' | 'knowledge_base'
+    | 'homepage' | 'comparison' | 'case_study' | 'other';
+export type MapRecordAction = 'create' | 'replace' | 'improve' | 'keep';
+export type MapRecordStatus = 'pending' | 'approved' | 'declined';
+export type SearchIntent = 'transactional' | 'commercial' | 'informational' | 'navigational';
+
+export interface TopicalMap {
+    id: string;
+    organizationId: string;
+    clientId: string;
+    version: number;
+    status: TopicalMapStatus;
+    title: string;
+    architectureSummary?: string;
+    seedInput: { rivals: string[]; focusTopics: string[]; notes?: string };
+    generationMetadata: {
+        model?: string;
+        tokensUsed?: number;
+        stagesCompleted?: string[];
+        durationMs?: number;
+        generatedAt?: string;
+    };
+    createdBy?: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface TopicalMapSilo {
+    id: string;
+    mapId: string;
+    organizationId: string;
+    name: string;
+    description?: string;
+    hubUrl?: string;
+    searchIntent: SearchIntent;
+    sortOrder: number;
+}
+
+export interface TopicalMapRecord {
+    id: string;
+    siloId: string;
+    mapId: string;
+    organizationId: string;
+    parentRecordId?: string;
+    pageType: PageType;
+    contentCategory?: string;
+    action: MapRecordAction;
+    title: string;
+    targetQuery: string;
+    wordCountMin: number;
+    wordCountMax: number;
+    buildPhase: number;
+    refreshIntervalDays?: number;
+    searchVolumeMonthly?: number;
+    keywordDifficulty?: number;
+    scopeExclusions: MapScopeExclusion[];
+    outgoingLinks: MapOutgoingLink[];
+    status: MapRecordStatus;
+    sitePageId?: string;
+    matchedUrl?: string;
+    taskId?: string;
+    reviewerNotes?: string;
+    sortOrder: number;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface MapScopeExclusion {
+    url: string;
+    reason?: string;
+}
+
+export interface MapOutgoingLink {
+    anchorText: string;
+    destinationUrl: string;
+    destinationRecordId?: string;
+}
+
+export interface TopicalMapProfile {
+    brandName: string;
+    businessDescription: string;
+    contentLanguage: string;
+    focusTopics: string[];
+    rivals: string[];
+    profileGeneratedAt?: string;
+}
