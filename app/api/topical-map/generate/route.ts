@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
     // Stage 2: Search Demand (GSC)
     const { data: gscRows } = await admin
         .from('gsc_search_performance')
-        .select('query, clicks, impressions, position')
+        .select('query, clicks, impressions, position, page')
         .eq('client_id', clientId)
         .order('clicks', { ascending: false })
         .limit(200);
@@ -177,7 +177,7 @@ export async function POST(req: NextRequest) {
     }).eq('id', mapId);
 
     // Stage 5: Reconciliation — insert silos and records
-    const gscEvidence = (gscRows ?? []).map(r => ({ query: String(r.query), pageUrl: '' }));
+    const gscEvidence = (gscRows ?? []).map(r => ({ query: String(r.query), pageUrl: String(r.page ?? '') }));
 
     for (let siloIdx = 0; siloIdx < parsed.silos.length; siloIdx++) {
         const silo = parsed.silos[siloIdx] as Record<string, unknown>;

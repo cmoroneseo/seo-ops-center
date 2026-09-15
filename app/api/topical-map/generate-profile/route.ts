@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
         .from('site_page_snapshots')
         .select('requested_url, title, meta_description, h1s, word_count')
         .eq('organization_id', clientRow.organization_id)
+        .eq('client_id', clientId)
         .limit(10);
 
     const pageContext = (snapshots ?? []).map(s =>

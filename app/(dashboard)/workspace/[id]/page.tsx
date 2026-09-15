@@ -362,7 +362,7 @@ export default function ClientDetailPage() {
                 <SiteInventoryTab key={`${organization.id}:${client.id}`} clientId={client.id} clientName={client.clientName} />
             )}
 
-            {activeTab === 'topical-map' && (
+            {activeTab === 'topical-map' && client.organizationId === organization?.id && (
                 <TopicalMapTab
                     organizationId={organization?.id ?? ''}
                     clientId={client.id}
