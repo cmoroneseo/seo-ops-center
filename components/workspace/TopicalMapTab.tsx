@@ -48,6 +48,7 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
     const [filters, setFilters] = useState<SiloFilters>({ action: 'all', pageType: 'all', status: 'all' });
     const [selectedRecord, setSelectedRecord] = useState<TopicalMapRecord | null>(null);
     const [detailOpen, setDetailOpen] = useState(false);
+    const [awaitingMapRow, setAwaitingMapRow] = useState(false);
 
     const load = useCallback(async () => {
         try {
@@ -62,6 +63,18 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
     }, [clientId]);
 
     useEffect(() => { void load(); }, [load]);
+
+    useEffect(() => {
+        if (!awaitingMapRow) return;
+        const interval = setInterval(async () => {
+            const result = await getTopicalMapByClient(clientId);
+            if (result.map) {
+                setLoaded(result);
+                setAwaitingMapRow(false);
+            }
+        }, 2000);
+        return () => clearInterval(interval);
+    }, [awaitingMapRow, clientId]);
 
     if (loading) {
         return (
@@ -78,6 +91,14 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
 
     // Empty state — no map exists for this client yet.
     if (!map) {
+        if (awaitingMapRow) {
+            return (
+                <div role="status" className="flex items-center justify-center gap-2 rounded-xl border border-border p-10 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Starting generation…
+                </div>
+            );
+        }
         return (
             <section className="space-y-5" aria-label="Topical Map">
                 <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
@@ -109,6 +130,7 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
                         onClose={() => setWizardOpen(false)}
                         onGenerated={() => {
                             setWizardOpen(false);
+                            setAwaitingMapRow(true);
                             void load();
                         }}
                     />
