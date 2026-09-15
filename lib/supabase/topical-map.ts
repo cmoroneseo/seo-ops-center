@@ -79,6 +79,69 @@ export function rowToRecord(row: Record<string, unknown>): TopicalMapRecord {
 
 // ─── CRUD ───────────────────────────────────────────────────────────────────
 
+export async function getTopicalMap(mapId: string): Promise<TopicalMap | null> {
+    const supabase = createClient();
+    if (!supabase) return null;
+
+    const { data } = await supabase
+        .from('topical_maps')
+        .select('*')
+        .eq('id', mapId)
+        .maybeSingle();
+
+    return data ? rowToTopicalMap(data) : null;
+}
+
+export async function upsertTopicalMap(
+    map: Partial<TopicalMap> & { organizationId: string; clientId: string },
+): Promise<{ data: TopicalMap | null; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { data: null, error: 'Supabase not initialized' };
+
+    const row: Record<string, unknown> = {
+        organization_id: map.organizationId,
+        client_id: map.clientId,
+    };
+    if (map.id !== undefined) row.id = map.id;
+    if (map.version !== undefined) row.version = map.version;
+    if (map.status !== undefined) row.status = map.status;
+    if (map.title !== undefined) row.title = map.title;
+    if (map.architectureSummary !== undefined) row.architecture_summary = map.architectureSummary;
+    if (map.seedInput !== undefined) row.seed_input = map.seedInput;
+    if (map.generationMetadata !== undefined) row.generation_metadata = map.generationMetadata;
+    if (map.createdBy !== undefined) row.created_by = map.createdBy;
+    row.updated_at = new Date().toISOString();
+
+    const { data, error } = await supabase
+        .from('topical_maps')
+        .upsert(row)
+        .select()
+        .single();
+
+    if (error) return { data: null, error: error.message };
+    return { data: rowToTopicalMap(data) };
+}
+
+export async function createSilosAndRecords(
+    silos: Array<Record<string, unknown>>,
+    records: Array<Record<string, unknown>>,
+): Promise<{ success: boolean; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
+
+    if (silos.length > 0) {
+        const { error: siloError } = await supabase.from('topical_map_silos').insert(silos);
+        if (siloError) return { success: false, error: siloError.message };
+    }
+
+    if (records.length > 0) {
+        const { error: recordError } = await supabase.from('topical_map_records').insert(records);
+        if (recordError) return { success: false, error: recordError.message };
+    }
+
+    return { success: true };
+}
+
 export async function getTopicalMapByClient(
     clientId: string,
 ): Promise<{ map: TopicalMap | null; silos: TopicalMapSilo[]; records: TopicalMapRecord[] }> {
