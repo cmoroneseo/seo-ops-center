@@ -110,6 +110,8 @@ export async function POST(req: NextRequest) {
         wordCount: s.word_count != null ? Number(s.word_count) : undefined,
     }));
 
+    console.log('architect checkpoint: data loaded, pages:', existingPages.length, 'gsc:', (gscRows ?? []).length);
+
     // Stage 4: Architect (AI call)
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -249,7 +251,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, mapId });
     } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
-        console.error('generate-architect failed:', message);
-        return NextResponse.json({ error: message }, { status: 500 });
+        const stack = err instanceof Error ? err.stack : '';
+        console.error('generate-architect failed:', message, stack);
+        return NextResponse.json({ error: message, stack }, { status: 500 });
     }
 }
