@@ -1,11 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Loader2, Map, Sparkles } from 'lucide-react';
 
 import { getTopicalMapByClient } from '@/lib/supabase/topical-map';
 import { MapGenerationWizard } from '@/components/topical-map/MapGenerationWizard';
 import { MapProgressCard } from '@/components/topical-map/MapProgressCard';
+import { TopicalMapHeader } from '@/components/topical-map/TopicalMapHeader';
+import { SiloTabBar, type SiloFilters } from '@/components/topical-map/SiloTabBar';
+import { SiloAccordion } from '@/components/topical-map/SiloAccordion';
+import { RecordDetailPanel } from '@/components/topical-map/RecordDetailPanel';
+import { ReconciliationSummary } from '@/components/topical-map/ReconciliationSummary';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import type { TopicalMap, TopicalMapRecord, TopicalMapSilo } from '@/lib/types';
 
 interface LoadedMap {
@@ -33,10 +39,15 @@ interface TopicalMapTabProps {
 }
 
 export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalMapTabProps) {
+    const { userId } = useCurrentMember();
     const [loading, setLoading] = useState(true);
     const [loaded, setLoaded] = useState<LoadedMap>({ map: null, silos: [], records: [] });
     const [wizardOpen, setWizardOpen] = useState(false);
     const [error, setError] = useState('');
+    const [activeSiloId, setActiveSiloId] = useState<string | 'all'>('all');
+    const [filters, setFilters] = useState<SiloFilters>({ action: 'all', pageType: 'all', status: 'all' });
+    const [selectedRecord, setSelectedRecord] = useState<TopicalMapRecord | null>(null);
+    const [detailOpen, setDetailOpen] = useState(false);
 
     const load = useCallback(async () => {
         try {
@@ -117,24 +128,144 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
         );
     }
 
-    // Ready state — placeholder until Task 7 adds the full map workspace.
+    // Ready state — full silo/record workspace.
+    return <TopicalMapReady
+        organizationId={organizationId}
+        clientId={clientId}
+        clientName={clientName}
+        map={map}
+        silos={silos}
+        records={records}
+        userId={userId}
+        activeSiloId={activeSiloId}
+        setActiveSiloId={setActiveSiloId}
+        filters={filters}
+        setFilters={setFilters}
+        selectedRecord={selectedRecord}
+        setSelectedRecord={setSelectedRecord}
+        detailOpen={detailOpen}
+        setDetailOpen={setDetailOpen}
+        wizardOpen={wizardOpen}
+        setWizardOpen={setWizardOpen}
+        onReload={load}
+        setLoaded={setLoaded}
+    />;
+}
+
+interface TopicalMapReadyProps {
+    organizationId: string;
+    clientId: string;
+    clientName: string;
+    map: TopicalMap;
+    silos: TopicalMapSilo[];
+    records: TopicalMapRecord[];
+    userId?: string;
+    activeSiloId: string | 'all';
+    setActiveSiloId: (id: string | 'all') => void;
+    filters: SiloFilters;
+    setFilters: (f: SiloFilters) => void;
+    selectedRecord: TopicalMapRecord | null;
+    setSelectedRecord: (r: TopicalMapRecord | null) => void;
+    detailOpen: boolean;
+    setDetailOpen: (open: boolean) => void;
+    wizardOpen: boolean;
+    setWizardOpen: (open: boolean) => void;
+    onReload: () => Promise<void>;
+    setLoaded: (l: LoadedMap) => void;
+}
+
+function TopicalMapReady({
+    organizationId, clientId, clientName, map, silos, records, userId,
+    activeSiloId, setActiveSiloId, filters, setFilters,
+    selectedRecord, setSelectedRecord, detailOpen, setDetailOpen,
+    wizardOpen, setWizardOpen, onReload, setLoaded,
+}: TopicalMapReadyProps) {
+    const filteredRecords = useMemo(() => records.filter(r => {
+        if (activeSiloId !== 'all' && r.siloId !== activeSiloId) return false;
+        if (filters.action !== 'all' && r.action !== filters.action) return false;
+        if (filters.pageType !== 'all' && r.pageType !== filters.pageType) return false;
+        if (filters.status !== 'all' && r.status !== filters.status) return false;
+        return true;
+    }), [records, activeSiloId, filters]);
+
+    const visibleSilos = useMemo(
+        () => silos.filter(s => filteredRecords.some(r => r.siloId === s.id)),
+        [silos, filteredRecords],
+    );
+
+    const handleSelectRecord = (record: TopicalMapRecord) => {
+        setSelectedRecord(record);
+        setDetailOpen(true);
+    };
+
+    const handleRecordUpdated = (updated: TopicalMapRecord) => {
+        setSelectedRecord(updated);
+        setLoaded({
+            map,
+            silos,
+            records: records.map(r => (r.id === updated.id ? updated : r)),
+        });
+    };
+
     return (
         <section className="space-y-5" aria-label="Topical Map">
-            <div className="rounded-2xl border border-border bg-card p-8">
-                <div className="flex items-center gap-2 text-primary">
-                    <Map className="h-5 w-5" />
-                    <h3 className="text-lg font-semibold text-foreground">Map ready</h3>
-                </div>
-                <p className="mt-2 text-sm text-muted-foreground">
-                    {map.title} — {silos.length} silo{silos.length === 1 ? '' : 's'}, {records.length} record{records.length === 1 ? '' : 's'}.
-                </p>
-                {map.architectureSummary && (
-                    <p className="mt-3 text-sm text-muted-foreground">{map.architectureSummary}</p>
+            <TopicalMapHeader
+                map={map}
+                records={records}
+                onEditProfile={() => setWizardOpen(true)}
+                onRegenerate={() => setWizardOpen(true)}
+            />
+
+            <SiloTabBar
+                silos={silos}
+                records={records}
+                activeSiloId={activeSiloId}
+                onSelectSilo={setActiveSiloId}
+                filters={filters}
+                onFiltersChange={setFilters}
+            />
+
+            <div className="space-y-3">
+                {visibleSilos.length === 0 && (
+                    <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
+                        No records match the current filters.
+                    </div>
                 )}
-                <p className="mt-4 text-xs text-muted-foreground">
-                    The full silo/record workspace is not built yet — this is a placeholder confirming generation completed.
-                </p>
+                {visibleSilos.map(silo => (
+                    <SiloAccordion
+                        key={silo.id}
+                        silo={silo}
+                        records={filteredRecords}
+                        onSelectRecord={handleSelectRecord}
+                    />
+                ))}
             </div>
+
+            <ReconciliationSummary records={records} />
+
+            <RecordDetailPanel
+                record={selectedRecord}
+                silos={silos}
+                isOpen={detailOpen}
+                onClose={() => setDetailOpen(false)}
+                onUpdated={handleRecordUpdated}
+                organizationId={organizationId}
+                clientId={clientId}
+                userId={userId}
+            />
+
+            {wizardOpen && (
+                <MapGenerationWizard
+                    organizationId={organizationId}
+                    clientId={clientId}
+                    clientName={clientName}
+                    onClose={() => setWizardOpen(false)}
+                    onGenerated={() => {
+                        setWizardOpen(false);
+                        void onReload();
+                    }}
+                />
+            )}
         </section>
     );
 }
