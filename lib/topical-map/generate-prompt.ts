@@ -32,20 +32,20 @@ Group pages into silos. Each silo should have:
 - hub_url: existing or suggested hub page URL
 - search_intent: transactional, commercial, informational, or navigational
 
-Generate 30-60 records across 4-8 silos. Prioritize pages that will move the needle for the business. Be concise — short titles, no verbose descriptions.
+Generate 15-30 records across 3-5 silos. Prioritize pages that will move the needle for the business. Be concise — short titles, no verbose descriptions. Keep outgoing_links to at most 2 per record.
 
 Respond with valid JSON matching the schema provided.`;
 }
 
 export function buildUserMessage(ctx: GenerationContext): string {
     const existingSummary = ctx.existingPages.length > 0
-        ? `\n\nExisting pages (${ctx.existingPages.length} total):\n${ctx.existingPages.slice(0, 50).map(p =>
+        ? `\n\nExisting pages (${ctx.existingPages.length} total):\n${ctx.existingPages.slice(0, 25).map(p =>
             `- ${p.url} | "${p.title ?? 'no title'}" | ${p.wordCount ?? 0} words`
         ).join('\n')}`
         : '\n\nNo existing pages crawled yet.';
 
     const gscSummary = ctx.gscQueries.length > 0
-        ? `\n\nTop GSC queries (${ctx.gscQueries.length} total):\n${ctx.gscQueries.slice(0, 50).map(q =>
+        ? `\n\nTop GSC queries (${ctx.gscQueries.length} total):\n${ctx.gscQueries.slice(0, 25).map(q =>
             `- "${q.query}" | ${q.clicks} clicks | ${q.impressions} impressions | pos ${q.position.toFixed(1)}`
         ).join('\n')}`
         : '\n\nNo GSC data available.';

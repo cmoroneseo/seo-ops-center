@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
         .select('query, clicks, impressions, position, page')
         .eq('client_id', clientId)
         .order('clicks', { ascending: false })
-        .limit(100);
+        .limit(50);
 
     await admin.from('topical_maps').update({
         generation_metadata: { stages_completed: ['profile', 'search_demand'] },
@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
 
     const aiResponse = await anthropic.messages.create({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 4096,
+        max_tokens: 2048,
         system: buildSystemPrompt(),
         messages: [{ role: 'user', content: buildUserMessage(ctx) }],
     });
