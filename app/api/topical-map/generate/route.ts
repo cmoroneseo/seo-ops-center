@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
         .select('query, clicks, impressions, position, page')
         .eq('client_id', clientId)
         .order('clicks', { ascending: false })
-        .limit(200);
+        .limit(100);
 
     await admin.from('topical_maps').update({
         generation_metadata: { stages_completed: ['profile', 'search_demand'] },
@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
 
     const aiResponse = await anthropic.messages.create({
         model: 'claude-sonnet-4-6',
-        max_tokens: 8192,
+        max_tokens: 4096,
         system: buildSystemPrompt(),
         messages: [{ role: 'user', content: buildUserMessage(ctx) }],
     });

@@ -32,7 +32,7 @@ Group pages into silos. Each silo should have:
 - hub_url: existing or suggested hub page URL
 - search_intent: transactional, commercial, informational, or navigational
 
-Generate 50-150 records across 5-15 silos. Prioritize pages that will move the needle for the business.
+Generate 30-60 records across 4-8 silos. Prioritize pages that will move the needle for the business. Be concise — short titles, no verbose descriptions.
 
 Respond with valid JSON matching the schema provided.`;
 }
@@ -45,7 +45,7 @@ export function buildUserMessage(ctx: GenerationContext): string {
         : '\n\nNo existing pages crawled yet.';
 
     const gscSummary = ctx.gscQueries.length > 0
-        ? `\n\nTop GSC queries (${ctx.gscQueries.length} total):\n${ctx.gscQueries.slice(0, 100).map(q =>
+        ? `\n\nTop GSC queries (${ctx.gscQueries.length} total):\n${ctx.gscQueries.slice(0, 50).map(q =>
             `- "${q.query}" | ${q.clicks} clicks | ${q.impressions} impressions | pos ${q.position.toFixed(1)}`
         ).join('\n')}`
         : '\n\nNo GSC data available.';
