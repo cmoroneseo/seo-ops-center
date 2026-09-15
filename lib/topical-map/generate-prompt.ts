@@ -13,28 +13,21 @@ export function buildSystemPrompt(): string {
 A topical map organizes all the content a website should have into silos (topic clusters). Each silo has a hub page and supporting pages/posts.
 
 For each record, specify:
-- page_type: one of pillar, service, landing, product, collection, city, blog_post, guide, faq, resource_center, knowledge_base, homepage, comparison, case_study, other
-- content_category: a short industry-specific label in lowercase (e.g., "roofing", "personal injury", "crm")
+- page_type: one of pillar, service, landing, product, blog_post, guide, faq, other
 - target_query: the primary keyword this page should rank for
-- title: the full page title / H1
+- title: a short page title / H1
 - word_count_min and word_count_max: recommended word count range
-- build_phase: 1 = most important, build first; 2 = second wave; 3 = nice to have
-- search_volume_monthly: estimated monthly search volume (your best estimate)
-- keyword_difficulty: 0-100 difficulty score (your best estimate)
-- scope_exclusions: URLs this page should NOT compete with (cannibalization prevention)
-- outgoing_links: internal links this page should contain (anchor_text + destination page title)
-- suggested_url: recommended URL path for this page
-- parent_title: if this is a supporting page, the title of its parent page (for nesting)
+- build_phase: 1, 2, or 3 (priority order)
+- suggested_url: URL path for this page
 
 Group pages into silos. Each silo should have:
 - name: the topic cluster name
 - description: one-line purpose
-- hub_url: existing or suggested hub page URL
 - search_intent: transactional, commercial, informational, or navigational
 
-Generate 15-30 records across 3-5 silos. Prioritize pages that will move the needle for the business. Be concise — short titles, no verbose descriptions. Keep outgoing_links to at most 2 per record.
+Generate 15-25 records across 3-5 silos. Be concise.
 
-Respond with valid JSON matching the schema provided.`;
+Respond ONLY with valid JSON, no markdown fencing.`;
 }
 
 export function buildUserMessage(ctx: GenerationContext): string {
@@ -73,7 +66,6 @@ export const GENERATION_SCHEMA = {
                 properties: {
                     name: { type: 'string' as const },
                     description: { type: 'string' as const },
-                    hub_url: { type: 'string' as const },
                     search_intent: { type: 'string' as const, enum: ['transactional', 'commercial', 'informational', 'navigational'] },
                     records: {
                         type: 'array' as const,
@@ -81,20 +73,14 @@ export const GENERATION_SCHEMA = {
                             type: 'object' as const,
                             properties: {
                                 page_type: { type: 'string' as const },
-                                content_category: { type: 'string' as const },
                                 title: { type: 'string' as const },
                                 target_query: { type: 'string' as const },
                                 word_count_min: { type: 'number' as const },
                                 word_count_max: { type: 'number' as const },
                                 build_phase: { type: 'number' as const },
-                                search_volume_monthly: { type: 'number' as const },
-                                keyword_difficulty: { type: 'number' as const },
                                 suggested_url: { type: 'string' as const },
-                                parent_title: { type: 'string' as const },
-                                scope_exclusions: { type: 'array' as const, items: { type: 'object' as const, properties: { url: { type: 'string' as const }, reason: { type: 'string' as const } } } },
-                                outgoing_links: { type: 'array' as const, items: { type: 'object' as const, properties: { anchor_text: { type: 'string' as const }, destination_title: { type: 'string' as const } } } },
                             },
-                            required: ['page_type', 'title', 'target_query', 'word_count_min', 'word_count_max', 'build_phase'],
+                            required: ['page_type', 'title', 'target_query', 'build_phase'],
                         },
                     },
                 },
