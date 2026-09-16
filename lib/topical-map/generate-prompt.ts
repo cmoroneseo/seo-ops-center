@@ -12,22 +12,36 @@ export function buildSystemPrompt(): string {
 
 A topical map organizes all the content a website should have into silos (topic clusters). Each silo has a hub page and supporting pages/posts.
 
-For each record, specify:
-- page_type: one of pillar, service, landing, product, blog_post, guide, faq, other
-- target_query: the primary keyword this page should rank for
-- title: a short page title / H1
-- word_count_min and word_count_max: recommended word count range
-- build_phase: 1, 2, or 3 (priority order)
-- suggested_url: URL path for this page
+Generate 15-25 records across 3-5 silos. Respond ONLY with valid JSON matching this exact structure:
 
-Group pages into silos. Each silo should have:
-- name: the topic cluster name
-- description: one-line purpose
-- search_intent: transactional, commercial, informational, or navigational
+{
+  "architecture_summary": "2-3 sentence overview of the content strategy",
+  "silos": [
+    {
+      "name": "Topic Cluster Name",
+      "description": "One-line purpose",
+      "search_intent": "commercial",
+      "records": [
+        {
+          "page_type": "pillar",
+          "title": "Page Title / H1",
+          "target_query": "primary keyword",
+          "word_count_min": 1500,
+          "word_count_max": 2500,
+          "build_phase": 1,
+          "suggested_url": "/url-path"
+        }
+      ]
+    }
+  ]
+}
 
-Generate 15-25 records across 3-5 silos. Be concise.
+Field values:
+- page_type: pillar | service | landing | product | blog_post | guide | faq | other
+- search_intent: transactional | commercial | informational | navigational
+- build_phase: 1 (highest priority), 2, or 3
 
-Respond ONLY with valid JSON, no markdown fencing.`;
+No markdown fencing. No text outside the JSON object.`;
 }
 
 export function buildUserMessage(ctx: GenerationContext): string {

@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
 
     for (let siloIdx = 0; siloIdx < parsed.silos.length; siloIdx++) {
         const silo = parsed.silos[siloIdx] as Record<string, unknown>;
-        const records = (silo.records ?? []) as Array<Record<string, unknown>>;
+        const records = (silo.records ?? silo.pages ?? []) as Array<Record<string, unknown>>;
 
         const { data: siloRow } = await admin
             .from('topical_map_silos')
