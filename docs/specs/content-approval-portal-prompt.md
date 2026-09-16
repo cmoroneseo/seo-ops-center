@@ -437,6 +437,22 @@ Ship 1–5 as one branch, 6–9 as a second. Never more than ~2 branches on this
 - A document cannot be added to a batch without a linked deliverable.
 - `npm test` passes; `npx tsc --noEmit` clean; usable one-handed on a phone.
 
+## Deployment prerequisites — none of this runs until these are done
+
+1. **Apply migration `057_content_approval_portal.sql`** in the Supabase SQL editor.
+   Nothing works before this; the portal resolves every link to "not found" because the
+   tables do not exist. Note the sandbox tenant shares the production database, so it
+   will not rehearse this migration for you.
+2. **Create the `approval-content` Storage bucket** — public, image types, alongside
+   `client-logos` and `campaign-screenshots`. Imported Doc images are re-hosted here.
+3. **Create a Google service account**, download its credentials JSON, and set
+   `GOOGLE_SERVICE_ACCOUNT_JSON` on Vercel to the whole JSON string.
+4. **Share the Drive content folder** with that service account's email address. For a
+   Shared Drive, add the service account as a member of the drive instead.
+
+Verify with: import the Kentina doc into a batch, publish it, mint a link, open it in a
+private window.
+
 ## Explicitly deferred (do not build in v1)
 
 Each of these is a real feature with a real reason to wait. Don't let scope creep pull them

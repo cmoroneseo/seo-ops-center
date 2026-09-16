@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useParams } from 'next/navigation';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck, Plug, Target, ScanSearch, Map } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck, Plug, Target, ScanSearch, Map, FileCheck2 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { ClientNotesPanel } from '@/components/workspace/ClientNotesPanel';
@@ -33,8 +33,9 @@ import { getTasksByClient } from '@/lib/supabase/tasks';
 import { getLoggedHoursByClient } from '@/lib/supabase/time-logs';
 import { Task } from '@/lib/types';
 import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
+import { ClientApprovalsTab } from '@/components/approvals/ClientApprovalsTab';
 
-type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'inventory' | 'topical-map';
+type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'inventory' | 'topical-map' | 'approvals';
 
 export default function ClientDetailPage() {
     const params = useParams();
@@ -280,6 +281,10 @@ export default function ClientDetailPage() {
                     className={cn('flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'topical-map' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
                 ><Map className="h-3.5 w-3.5" />Topical Map</button>
                 <button
+                    onClick={() => setActiveTab('approvals')}
+                    className={cn('flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'approvals' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
+                ><FileCheck2 className="h-3.5 w-3.5" />Approvals</button>
+                <button
                     onClick={() => setActiveTab('integrations')}
                     className={cn(
                         'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
@@ -367,6 +372,13 @@ export default function ClientDetailPage() {
                     organizationId={organization?.id ?? ''}
                     clientId={client.id}
                     clientName={client.clientName}
+                />
+            )}
+
+            {activeTab === 'approvals' && client.organizationId === organization?.id && (
+                <ClientApprovalsTab
+                    clientId={client.id}
+                    organizationId={organization?.id ?? ''}
                 />
             )}
 
