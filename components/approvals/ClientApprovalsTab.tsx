@@ -13,6 +13,7 @@ import {
     createBatch, listBatchesForClient, listDocsForBatch, publishVersion, setReviewLock,
 } from '@/lib/supabase/content-approvals';
 import { getDeliverables } from '@/lib/supabase/deliverables';
+import { DocReviewPanel } from '@/components/approvals/DocReviewPanel';
 import type { ContentApprovalBatch, ContentApprovalDoc, Deliverable } from '@/lib/types';
 
 interface Props {
@@ -149,6 +150,7 @@ function BatchDetail({ batch, clientId, organizationId, onBack }: {
     onBack: () => void;
 }) {
     const [docs, setDocs] = useState<ContentApprovalDoc[]>([]);
+    const [openDoc, setOpenDoc] = useState<ContentApprovalDoc | null>(null);
     const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
     const [url, setUrl] = useState('');
     const [deliverableId, setDeliverableId] = useState('');
@@ -229,6 +231,22 @@ function BatchDetail({ batch, clientId, organizationId, onBack }: {
         await load();
         setBusy(false);
     };
+
+    if (openDoc) {
+        // Re-read from the refreshed list so the panel never renders a stale draft after
+        // suggestions were applied.
+        const current = docs.find((d) => d.id === openDoc.id) ?? openDoc;
+        return (
+            <DocReviewPanel
+                key={current.id}
+                doc={current}
+                clientId={clientId}
+                organizationId={organizationId}
+                onBack={() => { setOpenDoc(null); void load(); }}
+                onChanged={load}
+            />
+        );
+    }
 
     const rollup = rollUpBatch(docs.map((d) => ({ id: d.id, status: d.status, archivedAt: d.archivedAt })));
     const unpublished = docs.filter((d) => !d.archivedAt && !d.currentVersionId);
@@ -324,10 +342,11 @@ function BatchDetail({ batch, clientId, organizationId, onBack }: {
                     <li key={doc.id} className="rounded-lg border border-border bg-card p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="min-w-0">
-                                <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+                                <button type="button" onClick={() => setOpenDoc(doc)}
+                                    className="flex items-center gap-1.5 truncate text-left text-sm font-medium hover:underline">
                                     {doc.reviewLocked && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />}
                                     {doc.title}
-                                </p>
+                                </button>
                                 <p className="text-xs text-muted-foreground">
                                     {doc.currentVersionId ? 'Published' : 'Draft — not visible to the client'}
                                     {' · '}{doc.status.replace(/_/g, ' ')}
