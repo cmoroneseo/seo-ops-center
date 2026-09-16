@@ -65,7 +65,7 @@ export function MapProgressCard({ clientId, clientName, onComplete }: MapProgres
                 }).then(async (res) => {
                     if (!res.ok) {
                         const body = await res.json().catch(() => ({}));
-                        console.error('Architect failed:', res.status, JSON.stringify(body));
+                        console.error('Architect failed:', res.status, body?.error ?? body);
                         architectFiredRef.current = false;
                     }
                 }).catch(() => {

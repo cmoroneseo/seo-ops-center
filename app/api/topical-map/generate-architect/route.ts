@@ -110,8 +110,6 @@ export async function POST(req: NextRequest) {
         wordCount: s.word_count != null ? Number(s.word_count) : undefined,
     }));
 
-    console.log('architect checkpoint: data loaded, pages:', existingPages.length, 'gsc:', (gscRows ?? []).length);
-
     // Stage 4: Architect (AI call)
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
