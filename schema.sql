@@ -5936,6 +5936,9 @@ create table public.content_comments (
     resolved_by uuid references public.users(id),
     resolved_at timestamptz,
     task_id uuid references public.tasks(id) on delete set null,
+    -- Which share link this came in through. FK added after content_share_links below.
+    -- Provenance for client-submitted content, and what the portal rate limit counts.
+    portal_link_id uuid,
     edited_at timestamptz,
     created_at timestamptz not null default now(),
     -- A thread root carries the anchor; replies never do.
@@ -5947,6 +5950,10 @@ create index content_comments_doc_idx on public.content_comments (doc_id, status
 create index content_comments_thread_idx on public.content_comments (thread_root_id);
 create index content_comments_task_idx on public.content_comments (task_id)
     where task_id is not null;
+-- Serves the portal rate-limit lookup (writes per link per minute).
+create index content_comments_portal_link_idx
+    on public.content_comments (portal_link_id, created_at)
+    where portal_link_id is not null;
 
 alter table public.content_comments enable row level security;
 create policy content_comments_auth on public.content_comments
@@ -5969,6 +5976,7 @@ create table public.content_suggestions (
     payload text not null default '',
     origin text not null default 'client' check (origin in ('client', 'internal', 'ai')),
     author_label text not null,
+    portal_link_id uuid,
     status text not null default 'pending'
         check (status in ('pending', 'accepted', 'rejected')),
     decided_by uuid references public.users(id),
@@ -6014,6 +6022,14 @@ create policy content_share_links_auth on public.content_share_links
     using (organization_id in (select public.get_user_org_ids()))
     with check (organization_id in (select public.get_user_org_ids()));
 grant all on public.content_share_links to service_role;
+
+alter table public.content_comments
+    add constraint content_comments_portal_link_fk
+    foreign key (portal_link_id) references public.content_share_links(id) on delete set null;
+
+alter table public.content_suggestions
+    add constraint content_suggestions_portal_link_fk
+    foreign key (portal_link_id) references public.content_share_links(id) on delete set null;
 
 -- ─── content_share_reviewers ────────────────────────────────────────────────
 -- "Who's reviewing?" — a label for attribution, not an account.
