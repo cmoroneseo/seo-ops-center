@@ -228,6 +228,80 @@ export async function updateBatch(
     return { data: rowToBatch(data) };
 }
 
+/**
+ * Delete a batch outright. Cascades to its documents, versions, comments, suggestions
+ * and share links (verified against the database).
+ *
+ * Only for batches that were never sent — see lib/approvals/removal.ts. Once a client
+ * has seen it, the approvals are a record and `archiveBatch` is the right call.
+ */
+export async function deleteBatch(batchId: string): Promise<{ ok: boolean; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { ok: false, error: 'Supabase not initialized' };
+
+    const { data: batch } = await supabase
+        .from('content_approval_batches')
+        .select('sent_at')
+        .eq('id', batchId)
+        .maybeSingle();
+
+    if (!batch) return { ok: false, error: 'Batch not found' };
+    if (batch.sent_at) {
+        return {
+            ok: false,
+            error: 'This batch has already gone to the client. Archive it instead — the approvals are a record.',
+        };
+    }
+
+    const { error } = await supabase.from('content_approval_batches').delete().eq('id', batchId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+}
+
+/** Hide a batch without destroying its approvals, and revoke any live link. */
+export async function archiveBatch(batchId: string): Promise<{ ok: boolean; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { ok: false, error: 'Supabase not initialized' };
+
+    const now = new Date().toISOString();
+
+    // Revoke first: an archived batch a client can still open is worse than either state.
+    await supabase
+        .from('content_share_links')
+        .update({ revoked_at: now })
+        .eq('batch_id', batchId)
+        .is('revoked_at', null);
+
+    const { error } = await supabase
+        .from('content_approval_batches')
+        .update({ status: 'archived', updated_at: now })
+        .eq('id', batchId);
+
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+}
+
+/** Remove an undecided document. A decided one must be archived instead. */
+export async function deleteApprovalDoc(docId: string): Promise<{ ok: boolean; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { ok: false, error: 'Supabase not initialized' };
+
+    const { data: doc } = await supabase
+        .from('content_approval_docs')
+        .select('status')
+        .eq('id', docId)
+        .maybeSingle();
+
+    if (!doc) return { ok: false, error: 'Document not found' };
+    if (doc.status !== 'pending') {
+        return { ok: false, error: 'The client has already decided on this document. Archive it instead.' };
+    }
+
+    const { error } = await supabase.from('content_approval_docs').delete().eq('id', docId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+}
+
 // ─── Documents ──────────────────────────────────────────────────────────────
 
 export async function listDocsForBatch(batchId: string): Promise<ContentApprovalDoc[]> {
