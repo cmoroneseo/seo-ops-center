@@ -133,8 +133,8 @@ export async function POST(req: NextRequest) {
     const startTime = Date.now();
 
     const aiResponse = await anthropic.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2048,
+        model: 'claude-opus-4-6',
+        max_tokens: 4096,
         system: buildSystemPrompt(),
         messages: [{ role: 'user', content: buildUserMessage(ctx) }],
     });
@@ -146,9 +146,18 @@ export async function POST(req: NextRequest) {
 
     let parsed: { architecture_summary: string; silos: Array<Record<string, unknown>> };
     try {
-        const cleaned = textBlock.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        parsed = JSON.parse(cleaned);
-    } catch {
+        const raw = textBlock.text;
+        const jsonStart = raw.indexOf('{');
+        const jsonEnd = raw.lastIndexOf('}');
+        if (jsonStart === -1 || jsonEnd === -1) {
+            console.error('architect: no JSON braces found in AI response, first 500 chars:', raw.slice(0, 500));
+            return NextResponse.json({ error: 'AI returned no JSON object' }, { status: 500 });
+        }
+        const jsonStr = raw.slice(jsonStart, jsonEnd + 1);
+        parsed = JSON.parse(jsonStr);
+    } catch (parseErr) {
+        console.error('architect: JSON parse failed:', parseErr instanceof Error ? parseErr.message : parseErr);
+        console.error('architect: raw AI text (first 500 chars):', textBlock.text.slice(0, 500));
         return NextResponse.json({ error: 'AI returned invalid JSON' }, { status: 500 });
     }
 
