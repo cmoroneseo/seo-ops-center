@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ArrowLeft, Check, CheckCircle2, ExternalLink, ListTodo, Loader2, Lock,
     MessageSquare, Unlock, UploadCloud, X,
@@ -10,6 +10,10 @@ import { cn } from '@/lib/utils';
 import { ContentDocView } from '@/components/approvals/ContentDocView';
 import type { AnchoredItem } from '@/lib/approvals/comment-highlight';
 import { countWords, type TiptapNode } from '@/lib/approvals/gdocs-to-tiptap';
+import {
+    AUTOSAVE_DEBOUNCE_MS, beginDraftSave, draftStatusLabel, hasUnsavedWork,
+    IDLE_AUTOSAVE, queueDraftChange, resolveDraftSave, type AutosaveState,
+} from '@/lib/approvals/draft-autosave';
 import {
     listComments, listSuggestions, publishVersion, saveWorkingDraft, setCommentStatus, setReviewLock,
 } from '@/lib/supabase/content-approvals';
@@ -32,7 +36,38 @@ export function DocReviewPanel({ doc, clientId, organizationId, onBack, onChange
     const [activeId, setActiveId] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [notice, setNotice] = useState<string | null>(null);
-    const [dirty, setDirty] = useState(false);
+    const [autosave, setAutosave] = useState<AutosaveState>(IDLE_AUTOSAVE);
+
+    // Mirrored into refs so the unmount flush can read the latest values without
+    // re-running the effect on every keystroke.
+    const autosaveRef = useRef<AutosaveState>(IDLE_AUTOSAVE);
+    const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => { autosaveRef.current = autosave; }, [autosave]);
+
+    const flushDraft = useCallback(async () => {
+        const pending = autosaveRef.current.pending;
+        if (!pending) return;
+        setAutosave((s) => beginDraftSave(s));
+        const result = await saveWorkingDraft(doc.id, pending);
+        setAutosave((s) => resolveDraftSave(s, result.ok, pending));
+    }, [doc.id]);
+
+    const queueDraft = useCallback((json: Record<string, unknown>) => {
+        setAutosave((s) => queueDraftChange(s, json, { locked }));
+        if (locked) return;
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        saveTimer.current = setTimeout(() => { void flushDraft(); }, AUTOSAVE_DEBOUNCE_MS);
+    }, [flushDraft, locked]);
+
+    // Flush on unmount. Without this, clicking "Back to batch" mid-debounce silently
+    // discards the edit — and since revisions only happen in the app, that is the only
+    // copy of the writing.
+    useEffect(() => () => {
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        const pending = autosaveRef.current.pending;
+        // No setState here: the component is going away.
+        if (pending) void saveWorkingDraft(doc.id, pending);
+    }, [doc.id]);
 
     const load = useCallback(async () => {
         const [c, s] = await Promise.all([listComments(doc.id), listSuggestions(doc.id)]);
@@ -42,6 +77,7 @@ export function DocReviewPanel({ doc, clientId, organizationId, onBack, onChange
 
     useEffect(() => { void load(); }, [load]);
 
+    const saveLabel = draftStatusLabel(autosave);
     const pending = useMemo(() => suggestions.filter((s) => s.status === 'pending'), [suggestions]);
     const openThreads = useMemo(
         () => comments.filter((c) => !c.parentId && c.status !== 'resolved'), [comments],
@@ -76,7 +112,8 @@ export function DocReviewPanel({ doc, clientId, organizationId, onBack, onChange
                 const fresh = await import('@/lib/supabase/content-approvals')
                     .then((m) => m.listDocsForBatch(doc.batchId));
                 const updated = fresh.find((d) => d.id === doc.id);
-                if (updated) setContent(updated.workingJson);
+                // Server-side result, already persisted — reset rather than queue it.
+                if (updated) { setContent(updated.workingJson); setAutosave(IDLE_AUTOSAVE); }
             }
             await load();
             onChanged();
@@ -95,14 +132,15 @@ export function DocReviewPanel({ doc, clientId, organizationId, onBack, onChange
 
     const publish = async () => {
         setBusy(true);
-        if (dirty) await saveWorkingDraft(doc.id, content);
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        // Flush first: a version published mid-debounce would miss the last keystrokes.
+        if (hasUnsavedWork(autosaveRef.current)) await flushDraft();
         await publishVersion({
             docId: doc.id,
             organizationId,
             contentJson: content,
             wordCount: countWords(content as unknown as TiptapNode),
         });
-        setDirty(false);
         setNotice('Published. The client now sees this version.');
         setBusy(false);
         onChanged();
@@ -144,6 +182,11 @@ export function DocReviewPanel({ doc, clientId, organizationId, onBack, onChange
                     <p className="text-xs text-muted-foreground">
                         {openThreads.length} open thread{openThreads.length === 1 ? '' : 's'} · {pending.length} pending suggestion{pending.length === 1 ? '' : 's'}
                         {locked && ' · locked while the client reviews'}
+                        {saveLabel && (
+                            <span className={cn('ml-1', autosave.status === 'error' && 'text-destructive')}>
+                                · {saveLabel}
+                            </span>
+                        )}
                     </p>
                 </div>
                 <div className="flex shrink-0 gap-1.5">
@@ -181,7 +224,7 @@ export function DocReviewPanel({ doc, clientId, organizationId, onBack, onChange
                         items={items}
                         activeId={activeId}
                         onActivate={setActiveId}
-                        onChange={(json) => { setContent(json); setDirty(true); }}
+                        onChange={(json) => { setContent(json); queueDraft(json); }}
                     />
                 </section>
 
