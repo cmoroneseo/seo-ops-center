@@ -33,9 +33,15 @@ Create a comprehensive topical map organized into silos (topic clusters). Each s
 
 7. **Estimate search metrics.** Provide your best estimate for search_volume_monthly and keyword_difficulty (0-100) based on the keyword. These are rough estimates to help prioritize — don't leave them null.
 
-## Target volume
+## HARD REQUIREMENTS (non-negotiable)
 
-Generate **40-70 records** across **4-7 silos**. Aim for 8-15 records per silo. Quality over quantity, but a real topical authority map needs depth.
+1. Generate MINIMUM 45 records. Fewer than 45 = failure. Aim for 50-65.
+2. Use 5-7 silos with 8-12 records each.
+3. EVERY record MUST have search_volume_monthly (integer > 0) and keyword_difficulty (0-100). Never null.
+4. EVERY record MUST have content_category. Never null.
+5. At least 30% of records MUST have a parent_title pointing to another record in the same silo.
+6. At least 50% of records MUST have 1-2 outgoing_links to other records (by exact title).
+7. Use all build phases: ~40% phase 1, ~35% phase 2, ~25% phase 3.
 
 ## JSON structure
 
@@ -59,11 +65,27 @@ Respond ONLY with valid JSON, no markdown fencing, no text outside the JSON:
           "word_count_max": 2500,
           "build_phase": 1,
           "content_category": "evergreen",
-          "search_volume_monthly": 1200,
-          "keyword_difficulty": 45,
+          "search_volume_monthly": 2400,
+          "keyword_difficulty": 52,
           "parent_title": null,
           "outgoing_links": [
-            {"anchor_text": "link text", "destination_title": "Title of Target Page"}
+            {"anchor_text": "learn about local SEO", "destination_title": "Local SEO Services: Dominate Your City's Search Results"}
+          ]
+        },
+        {
+          "page_type": "service",
+          "title": "Local SEO Services: Dominate Your City's Search Results",
+          "target_query": "local SEO services",
+          "suggested_url": "/local-seo-services",
+          "word_count_min": 1200,
+          "word_count_max": 1800,
+          "build_phase": 1,
+          "content_category": "evergreen",
+          "search_volume_monthly": 1600,
+          "keyword_difficulty": 41,
+          "parent_title": "Specific, Non-Generic Page Title",
+          "outgoing_links": [
+            {"anchor_text": "SEO pricing", "destination_title": "SEO Pricing: What Does SEO Cost in 2026?"}
           ]
         }
       ]
@@ -71,16 +93,16 @@ Respond ONLY with valid JSON, no markdown fencing, no text outside the JSON:
   ]
 }
 
-## Field reference
+## Field values
 
 - page_type: pillar | service | landing | product | blog_post | guide | faq | other
 - search_intent: transactional | commercial | informational | navigational
-- content_category: evergreen | seasonal | news | comparison | case_study
+- content_category: evergreen | seasonal | comparison | case_study | tutorial (REQUIRED on every record)
 - build_phase: 1 (launch priority) | 2 (month 2-3) | 3 (month 4+)
-- parent_title: exact title of the parent record in the same silo, or null
-- outgoing_links: array of internal links to other records (by title)
-- search_volume_monthly: estimated monthly search volume (integer)
-- keyword_difficulty: 0-100 difficulty score estimate`;
+- parent_title: exact title of the parent record in the same silo, or null for top-level pages
+- outgoing_links: array of internal links to other records by their exact title
+- search_volume_monthly: REQUIRED integer > 0 — your best estimate of monthly US search volume
+- keyword_difficulty: REQUIRED integer 0-100 — your best estimate of ranking difficulty`;
 }
 
 export function buildUserMessage(ctx: GenerationContext): string {
