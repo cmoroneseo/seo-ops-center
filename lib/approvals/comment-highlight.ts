@@ -39,8 +39,53 @@ interface HighlightState {
 
 export const commentHighlightKey = new PluginKey<HighlightState>('approvalCommentHighlight');
 
+const WORD_CHAR = /[\p{L}\p{N}'’-]/u;
+
+/**
+ * Grow a selection out to whole words.
+ *
+ * A drag that stops mid-word is easy to make and, for a suggestion, produces genuinely
+ * broken copy: selecting "ual drop-in visit. It is a p" and replacing it leaves
+ * "This is not a casprivate… It is alanned". Found exactly that way in testing. Google
+ * Docs snaps for the same reason.
+ *
+ * Applied to comments too — a thread quoting "ual drop-in" reads worse in the sidebar
+ * than one quoting "casual drop-in visit", and the anchor is more recognisable if it ever
+ * has to be re-matched.
+ */
+export function snapToWordBoundaries(doc: PMNode, from: number, to: number): { from: number; to: number } {
+    const size = doc.content.size;
+    let start = Math.max(0, Math.min(from, size));
+    let end = Math.max(start, Math.min(to, size));
+
+    // A collapsed selection is an insertion point, not a word. Growing it would turn
+    // "insert here" into "replace this word", which is a different edit entirely.
+    if (start === end) return { from: start, to: end };
+
+    // Walk left while the character before the start is part of a word.
+    while (start > 0) {
+        const before = doc.textBetween(start - 1, start, '', '');
+        if (!before || !WORD_CHAR.test(before)) break;
+        const first = doc.textBetween(start, Math.min(start + 1, size), '', '');
+        if (!first || !WORD_CHAR.test(first)) break;
+        start -= 1;
+    }
+
+    // Walk right while the character at the end continues the word.
+    while (end < size) {
+        const after = doc.textBetween(end, end + 1, '', '');
+        if (!after || !WORD_CHAR.test(after)) break;
+        const last = doc.textBetween(Math.max(end - 1, 0), end, '', '');
+        if (!last || !WORD_CHAR.test(last)) break;
+        end += 1;
+    }
+
+    return { from: start, to: end };
+}
+
 /** Read the plain text of a range, so an anchor's repair kit matches what the user sees. */
-export function anchorFromSelection(doc: PMNode, from: number, to: number): ContentAnchor {
+export function anchorFromSelection(doc: PMNode, rawFrom: number, rawTo: number): ContentAnchor {
+    const { from, to } = snapToWordBoundaries(doc, rawFrom, rawTo);
     return {
         from,
         to,
