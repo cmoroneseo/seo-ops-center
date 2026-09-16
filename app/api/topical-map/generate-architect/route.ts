@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
 
     const aiResponse = await anthropic.messages.create({
         model: 'claude-opus-4-6',
-        max_tokens: 4096,
+        max_tokens: 8192,
         system: buildSystemPrompt(),
         messages: [{ role: 'user', content: buildUserMessage(ctx) }],
     });
