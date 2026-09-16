@@ -1199,3 +1199,161 @@ export interface TopicalMapProfile {
     rivals: string[];
     profileGeneratedAt?: string;
 }
+
+// ─── Content Approval Portal (migration 057) ────────────────────────────────
+
+export type ApprovalBatchStatus = 'draft' | 'in_review' | 'completed' | 'archived';
+
+/**
+ * Per-document decision. `approved_with_edits` exists because clients routinely say
+ * "fine, just fix the two comments" — forcing that into a binary manufactures a fake
+ * extra review round. It still counts as delivered; the outstanding edits become Tasks.
+ */
+export type ApprovalDocStatus =
+    | 'pending'
+    | 'approved'
+    | 'approved_with_edits'
+    | 'changes_requested';
+
+export type CommentAuthorType = 'internal' | 'client';
+export type CommentStatus = 'open' | 'resolved' | 'orphaned';
+export type SuggestionKind = 'insert' | 'delete' | 'replace';
+export type SuggestionOrigin = 'client' | 'internal' | 'ai';
+export type SuggestionStatus = 'pending' | 'accepted' | 'rejected';
+
+/**
+ * Where a comment or suggestion attaches. `from`/`to` are live ProseMirror positions
+ * carried forward through `tr.mapping`; the text fields are the repair kit used to
+ * detect and report orphaning. See lib/approvals/anchoring.ts.
+ */
+export interface ContentAnchor {
+    from: number;
+    to: number;
+    quotedText: string;
+    prefix?: string;
+    suffix?: string;
+}
+
+export interface ContentApprovalBatch {
+    id: string;
+    organizationId: string;
+    clientId: string;
+    name: string;
+    status: ApprovalBatchStatus;
+    dueDate?: string;
+    createdBy?: string;
+    sentAt?: string;
+    completedAt?: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface ContentApprovalDoc {
+    id: string;
+    batchId: string;
+    organizationId: string;
+    /** Required — a document with no deliverable is invisible to the fulfillment matrix. */
+    deliverableId: string;
+    title: string;
+    subtype?: DeliverableSubtype;
+    position: number;
+    /** The live internal draft. Clients never see this — only published versions. */
+    workingJson: Record<string, unknown>;
+    currentVersionId?: string;
+    /** True while a review round is open; the internal editor is read-only. */
+    reviewLocked: boolean;
+    status: ApprovalDocStatus;
+    decidedAt?: string;
+    decidedByLabel?: string;
+    seoMeta: ContentSeoMeta;
+    gdocDocumentId?: string;
+    gdocRevisionId?: string;
+    gdocImportedAt?: string;
+    archivedAt?: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface ContentSeoMeta {
+    targetKeyword?: string;
+    metaTitle?: string;
+    metaDescription?: string;
+    slug?: string;
+    internalLinkTargets?: string[];
+}
+
+export interface ContentDocVersion {
+    id: string;
+    docId: string;
+    organizationId: string;
+    versionNo: number;
+    contentJson: Record<string, unknown>;
+    contentHtml?: string;
+    wordCount: number;
+    publishedBy?: string;
+    createdAt: string;
+}
+
+export interface ContentComment {
+    id: string;
+    docId: string;
+    organizationId: string;
+    versionId?: string;
+    threadRootId?: string;
+    parentId?: string;
+    authorType: CommentAuthorType;
+    authorUserId?: string;
+    authorLabel: string;
+    body: string;
+    anchor?: ContentAnchor;
+    status: CommentStatus;
+    resolvedBy?: string;
+    resolvedAt?: string;
+    taskId?: string;
+    editedAt?: string;
+    createdAt: string;
+}
+
+export interface ContentSuggestion {
+    id: string;
+    docId: string;
+    organizationId: string;
+    versionId?: string;
+    commentId?: string;
+    kind: SuggestionKind;
+    anchor: ContentAnchor;
+    payload: string;
+    origin: SuggestionOrigin;
+    authorLabel: string;
+    status: SuggestionStatus;
+    decidedBy?: string;
+    decidedAt?: string;
+    appliedInVersionId?: string;
+    createdAt: string;
+}
+
+export interface ContentShareLink {
+    id: string;
+    batchId: string;
+    organizationId: string;
+    /** sha-256 of the token. The raw token is shown once and never stored. */
+    tokenHash: string;
+    allowComments: boolean;
+    expiresAt?: string;
+    revokedAt?: string;
+    firstViewedAt?: string;
+    lastViewedAt?: string;
+    viewCount: number;
+    createdBy?: string;
+    createdAt: string;
+}
+
+export interface ContentShareReviewer {
+    id: string;
+    shareLinkId: string;
+    organizationId: string;
+    name: string;
+    email?: string;
+    firstSeenAt: string;
+    lastSeenAt: string;
+}
