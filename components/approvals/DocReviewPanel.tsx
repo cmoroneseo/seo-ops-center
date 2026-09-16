@@ -170,7 +170,10 @@ export function DocReviewPanel({ doc, clientId, organizationId, onBack, onChange
                 <p className="rounded-md border border-border bg-muted/40 p-2 text-xs">{notice}</p>
             )}
 
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+            {/* grid-cols-1 for the same reason as the client portal: without an explicit
+                column the implicit one is `auto`, which sizes to max-content and lets a
+                wide table in the imported document stretch the page sideways. */}
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
                 <section className="min-w-0 rounded-lg border border-border bg-card p-4 sm:p-6">
                     <ContentDocView
                         content={content}

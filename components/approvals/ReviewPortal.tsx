@@ -230,6 +230,40 @@ export function ReviewPortal({ payload, token }: { payload: PortalPayload; token
         );
     }
 
+    const composer = draft && (
+        <div className="rounded-lg border border-primary/40 bg-card p-3">
+            <div className="mb-2 flex gap-1">
+                {(['comment', 'suggest'] as const).map((mode) => (
+                    <button key={mode} type="button"
+                        onClick={() => setDraft({ ...draft, mode })}
+                        className={cn('rounded px-2.5 py-1.5 text-xs font-medium',
+                            draft.mode === mode ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted')}>
+                        {mode === 'comment' ? 'Comment' : 'Suggest edit'}
+                    </button>
+                ))}
+                <button type="button" onClick={() => setDraft(null)}
+                    className="ml-auto rounded p-1.5 text-muted-foreground hover:bg-muted" aria-label="Cancel">
+                    <X className="h-4 w-4" />
+                </button>
+            </div>
+            <blockquote className="mb-2 border-l-2 border-border pl-2 text-xs italic text-muted-foreground line-clamp-3">
+                {draft.anchor.quotedText}
+            </blockquote>
+            <textarea
+                autoFocus rows={3} value={draft.text}
+                onChange={(e) => setDraft({ ...draft, text: e.target.value })}
+                placeholder={draft.mode === 'suggest' ? 'Replace it with…' : 'What should change?'}
+                className="mb-2 w-full resize-none rounded-md border border-input bg-background px-2.5 py-2 text-base lg:text-xs"
+            />
+            <button type="button" onClick={submitDraft} disabled={busy || !draft.text.trim()}
+                className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-50 lg:min-h-0 lg:py-2">
+                {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                {draft.mode === 'suggest' ? 'Suggest' : 'Comment'}
+            </button>
+            {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+        </div>
+    );
+
     return (
         <main className="min-h-screen bg-background">
             {needsName && (
@@ -245,13 +279,13 @@ export function ReviewPortal({ payload, token }: { payload: PortalPayload; token
                             onChange={(e) => setNameInput(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') submitName(); }}
                             placeholder="Your name"
-                            className="mb-3 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            className="mb-3 w-full rounded-md border border-input bg-background px-3 py-2.5 text-base lg:text-sm"
                         />
                         <button
                             type="button"
                             onClick={submitName}
                             disabled={busy || !nameInput.trim()}
-                            className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                            className="min-h-11 w-full rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50"
                         >
                             {busy ? 'Saving…' : 'Start reviewing'}
                         </button>
@@ -274,17 +308,25 @@ export function ReviewPortal({ payload, token }: { payload: PortalPayload; token
                 </div>
             </header>
 
-            <div className="mx-auto grid max-w-[1600px] gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[200px_minmax(0,1fr)_320px]">
+            {/* grid-cols-1 is load-bearing on phones: without an explicit column the
+                implicit one is `auto`, which sizes to max-content — the horizontally
+                scrolling document rail then stretches the whole page past the viewport
+                and every paragraph gets clipped at the right edge. */}
+            <div className={cn(
+                'mx-auto grid max-w-[1600px] grid-cols-1 gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[200px_minmax(0,1fr)_320px]',
+                // Room for the mobile sheet, so it never covers the approval buttons.
+                draft && 'pb-[60vh] lg:pb-6',
+            )}>
                 {/* Document rail */}
-                <nav className="lg:sticky lg:top-20 lg:self-start">
-                    <ul className="flex gap-2 overflow-x-auto lg:block lg:space-y-1 lg:overflow-visible">
+                <nav className="min-w-0 lg:sticky lg:top-20 lg:self-start">
+                    <ul className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:block lg:space-y-1 lg:overflow-visible lg:px-0">
                         {documents.map((doc) => (
                             <li key={doc.id} className="shrink-0 lg:shrink">
                                 <button
                                     type="button"
                                     onClick={() => { setActiveDocId(doc.id); setActiveThreadId(null); setDraft(null); }}
                                     className={cn(
-                                        'w-full rounded-md px-3 py-2 text-left text-xs transition-colors',
+                                        'min-h-11 w-full rounded-md px-3 py-2 text-left text-xs transition-colors',
                                         doc.id === activeDoc?.id ? 'bg-accent text-accent-foreground' : 'hover:bg-muted',
                                     )}
                                 >
@@ -325,15 +367,15 @@ export function ReviewPortal({ payload, token }: { payload: PortalPayload; token
                                         </p>
                                         <div className="flex flex-col gap-2 sm:flex-row">
                                             <button type="button" disabled={busy} onClick={() => decide('approved')}
-                                                className="flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+                                                className="flex min-h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">
                                                 <Check className="h-4 w-4" /> Approve
                                             </button>
                                             <button type="button" disabled={busy} onClick={() => decide('approved_with_edits')}
-                                                className="flex items-center justify-center gap-2 rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50">
+                                                className="flex min-h-11 items-center justify-center gap-2 rounded-md border border-border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50">
                                                 <CheckCheck className="h-4 w-4" /> Approve with my edits
                                             </button>
                                             <button type="button" disabled={busy} onClick={() => decide('changes_requested')}
-                                                className="flex items-center justify-center gap-2 rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50">
+                                                className="flex min-h-11 items-center justify-center gap-2 rounded-md border border-border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50">
                                                 <PenLine className="h-4 w-4" /> Request changes
                                             </button>
                                         </div>
@@ -353,39 +395,12 @@ export function ReviewPortal({ payload, token }: { payload: PortalPayload; token
                 </section>
 
                 {/* Threads — a bottom sheet on phones, a rail on desktop */}
-                <aside className="lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto">
-                    {draft && (
-                        <div className="mb-3 rounded-lg border border-primary/40 bg-card p-3">
-                            <div className="mb-2 flex gap-1">
-                                {(['comment', 'suggest'] as const).map((mode) => (
-                                    <button key={mode} type="button"
-                                        onClick={() => setDraft({ ...draft, mode })}
-                                        className={cn('rounded px-2 py-1 text-xs font-medium',
-                                            draft.mode === mode ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted')}>
-                                        {mode === 'comment' ? 'Comment' : 'Suggest edit'}
-                                    </button>
-                                ))}
-                                <button type="button" onClick={() => setDraft(null)}
-                                    className="ml-auto rounded p-1 text-muted-foreground hover:bg-muted" aria-label="Cancel">
-                                    <X className="h-3.5 w-3.5" />
-                                </button>
-                            </div>
-                            <blockquote className="mb-2 border-l-2 border-border pl-2 text-xs italic text-muted-foreground line-clamp-3">
-                                {draft.anchor.quotedText}
-                            </blockquote>
-                            <textarea
-                                autoFocus rows={3} value={draft.text}
-                                onChange={(e) => setDraft({ ...draft, text: e.target.value })}
-                                placeholder={draft.mode === 'suggest' ? 'Replace it with…' : 'What should change?'}
-                                className="mb-2 w-full resize-none rounded-md border border-input bg-background px-2 py-1.5 text-xs"
-                            />
-                            <button type="button" onClick={submitDraft} disabled={busy || !draft.text.trim()}
-                                className="flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">
-                                {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-                                {draft.mode === 'suggest' ? 'Suggest' : 'Comment'}
-                            </button>
-                        </div>
-                    )}
+                <aside className="min-w-0 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto">
+                    {/* On phones the composer lives in the bottom sheet below, not here —
+                        this column sits after a document that can run to 13,000px, so an
+                        autofocused field here scrolls the reviewer away from the very text
+                        they just selected. */}
+                    <div className="mb-3 hidden lg:block">{composer}</div>
 
                     {threads.length === 0 && !draft && (
                         <p className="rounded-lg border border-dashed border-border p-4 text-xs text-muted-foreground">
@@ -422,10 +437,10 @@ export function ReviewPortal({ payload, token }: { payload: PortalPayload; token
                                             onChange={(e) => setReplyText(e.target.value)}
                                             onKeyDown={(e) => { if (e.key === 'Enter') submitReply(root.id); }}
                                             placeholder="Reply…"
-                                            className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+                                            className="min-h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-base lg:min-h-0 lg:py-1.5 lg:text-xs"
                                         />
                                         <button type="button" onClick={() => submitReply(root.id)} disabled={busy || !replyText.trim()}
-                                            className="rounded-md bg-primary px-2.5 text-primary-foreground disabled:opacity-50" aria-label="Send reply">
+                                            className="flex min-h-11 min-w-11 items-center justify-center rounded-md bg-primary px-2.5 text-primary-foreground disabled:opacity-50 lg:min-h-0 lg:min-w-0" aria-label="Send reply">
                                             <Send className="h-3 w-3" />
                                         </button>
                                     </div>
@@ -435,6 +450,16 @@ export function ReviewPortal({ payload, token }: { payload: PortalPayload; token
                     </ul>
                 </aside>
             </div>
+
+            {/* Mobile: the composer is a bottom sheet over the document, so the reviewer
+                keeps sight of the text they selected. The desktop sidebar is beside the
+                content and needs none of this. */}
+            {draft && (
+                <div className="fixed inset-x-0 bottom-0 z-40 max-h-[70vh] overflow-y-auto border-t border-border bg-background p-4 shadow-[0_-8px_24px_rgba(0,0,0,0.35)] lg:hidden"
+                    style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
+                    {composer}
+                </div>
+            )}
         </main>
     );
 }
