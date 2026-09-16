@@ -35,8 +35,8 @@ Create a comprehensive topical map organized into silos (topic clusters). Each s
 
 ## HARD REQUIREMENTS (non-negotiable)
 
-1. Generate MINIMUM 45 records. Fewer than 45 = failure. Aim for 50-65.
-2. Use 5-7 silos with 8-12 records each.
+1. Generate MINIMUM 30 records. Aim for 35-50. Do NOT exceed 50 — quality over quantity.
+2. Use 4-6 silos with 6-10 records each.
 3. EVERY record MUST have search_volume_monthly (integer > 0) and keyword_difficulty (0-100). Never null.
 4. EVERY record MUST have content_category. Never null.
 5. At least 30% of records MUST have a parent_title pointing to another record in the same silo.

@@ -142,6 +142,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'AI returned no text' }, { status: 500 });
     }
 
+    if (aiResponse.stop_reason === 'max_tokens') {
+        console.error('architect: AI response truncated (hit max_tokens). Output tokens:', aiResponse.usage?.output_tokens);
+        return NextResponse.json({ error: 'AI response was truncated — try regenerating' }, { status: 500 });
+    }
+
     let parsed: { architecture_summary: string; silos: Array<Record<string, unknown>> };
     try {
         const raw = textBlock.text;
@@ -156,6 +161,8 @@ export async function POST(req: NextRequest) {
     } catch (parseErr) {
         console.error('architect: JSON parse failed:', parseErr instanceof Error ? parseErr.message : parseErr);
         console.error('architect: raw AI text (first 500 chars):', textBlock.text.slice(0, 500));
+        console.error('architect: raw AI text (last 500 chars):', textBlock.text.slice(-500));
+        console.error('architect: stop_reason:', aiResponse.stop_reason, 'output_tokens:', aiResponse.usage?.output_tokens);
         return NextResponse.json({ error: 'AI returned invalid JSON' }, { status: 500 });
     }
 
