@@ -7,11 +7,15 @@ import {
     IMPORT_SUGGESTIONS_VIEW_MODE,
 } from './docs.ts';
 
-test('imports always pass suggestionsViewMode explicitly', () => {
-    // The API default is SUGGESTIONS_INLINE. Relying on a default that folds un-accepted
-    // suggestions into the text is how a client ends up reviewing copy nobody approved,
-    // so the value is pinned here and asserted.
-    assert.equal(IMPORT_SUGGESTIONS_VIEW_MODE, 'SUGGESTIONS_INLINE');
+test('imports use the one view mode that is both safe and read-only compatible', () => {
+    // Verified live against the Docs API: with a Viewer grant, SUGGESTIONS_INLINE and
+    // PREVIEW_SUGGESTIONS_ACCEPTED both return
+    //   403 "You do not have permission to access the document suggestions"
+    // while PREVIEW_WITHOUT_SUGGESTIONS returns 200. Requesting either of the first two
+    // would force the service account to hold write access on every client document
+    // just to read it. PREVIEW_WITHOUT_SUGGESTIONS also excludes un-accepted suggested
+    // text, which is the property we actually needed.
+    assert.equal(IMPORT_SUGGESTIONS_VIEW_MODE, 'PREVIEW_WITHOUT_SUGGESTIONS');
 });
 
 test('403 explains the actual fix — sharing with the service account', () => {
@@ -19,6 +23,42 @@ test('403 explains the actual fix — sharing with the service account', () => {
     assert.match(message, /Access denied/);
     assert.match(hint, /service account/i);
     assert.match(hint, /Shared Drive/i);
+});
+
+test('a disabled Docs API is not reported as a sharing problem', () => {
+    // Both arrive as 403 PERMISSION_DENIED, and the fixes are unrelated. This exact
+    // payload came back from a freshly created project during live setup, where the old
+    // handler told the user to share a document that was never the problem.
+    const body = {
+        error: {
+            status: 'PERMISSION_DENIED',
+            message: 'Google Docs API has not been used in project 1061002382886 before or it is disabled. Enable it by visiting ... then retry.',
+            details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'SERVICE_DISABLED' }],
+        },
+    };
+    const { message, hint } = describeDocsFailure(403, 'abc123', body);
+    assert.match(message, /not enabled/i);
+    assert.match(hint, /Enable the Google Docs API/i);
+    assert.doesNotMatch(hint, /Share the document/i, 'must not send the user to fix sharing');
+});
+
+test('SERVICE_DISABLED is detected from the message alone when details are absent', () => {
+    const { message } = describeDocsFailure(403, 'abc', {
+        error: { message: 'Google Docs API has not been used in project 123 before or it is disabled.' },
+    });
+    assert.match(message, /not enabled/i);
+});
+
+test('a genuine sharing 403 still reads as a sharing problem', () => {
+    const body = {
+        error: {
+            status: 'PERMISSION_DENIED',
+            message: 'The caller does not have permission',
+            details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT' }],
+        },
+    };
+    const { hint } = describeDocsFailure(403, 'abc', body);
+    assert.match(hint, /Share the document/i);
 });
 
 test('401 points at the env var, which is where this actually goes wrong', () => {

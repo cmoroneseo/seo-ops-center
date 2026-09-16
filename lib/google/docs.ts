@@ -1,19 +1,24 @@
-import type { GoogleDoc } from '../approvals/gdocs-to-tiptap';
+import { hasPendingSuggestions, type GoogleDoc } from '../approvals/gdocs-to-tiptap';
 import { DOCS_SCOPES, getAccessToken, type ServiceAccountCredentials } from './service-account';
 
 /**
  * Google Docs REST reads.
  *
- * `suggestionsViewMode` is ALWAYS passed explicitly. The API default is
- * SUGGESTIONS_INLINE, which folds pending, un-accepted Google Docs suggestions into the
- * text — importing that would send a client content nobody approved.
+ * `suggestionsViewMode` is ALWAYS passed explicitly. The API default folds pending,
+ * un-accepted Google Docs suggestions into the text — importing that would send a client
+ * content nobody approved.
  *
- * We deliberately request SUGGESTIONS_INLINE rather than PREVIEW_WITHOUT_SUGGESTIONS, and
- * then refuse the import when suggestions are present. One call does both jobs: if the
- * document has no pending suggestions the two modes return identical content, and if it
- * does, we want to stop rather than silently pick a side.
+ * We request PREVIEW_WITHOUT_SUGGESTIONS, which is the only mode that both excludes
+ * suggested text AND works with read-only access. SUGGESTIONS_INLINE and
+ * PREVIEW_SUGGESTIONS_ACCEPTED both require commenter or editor rights — verified live: a
+ * service account with Viewer gets `403 You do not have permission to access the document
+ * suggestions`. Requesting those would force us to hold write access on every client
+ * document just to read it, which is not a trade worth making.
  */
-export const IMPORT_SUGGESTIONS_VIEW_MODE = 'SUGGESTIONS_INLINE';
+export const IMPORT_SUGGESTIONS_VIEW_MODE = 'PREVIEW_WITHOUT_SUGGESTIONS';
+
+/** The mode that exposes suggestion metadata — needs more than read access. */
+const SUGGESTION_PROBE_VIEW_MODE = 'SUGGESTIONS_INLINE';
 
 const DOCS_ENDPOINT = 'https://docs.googleapis.com/v1/documents';
 
@@ -28,8 +33,40 @@ export class GoogleDocsError extends Error {
     }
 }
 
-/** Turn Google's status codes into something a user can act on. */
-export function describeDocsFailure(status: number, documentId: string): { message: string; hint: string } {
+/** The shape Google returns on failure. Only the parts we branch on. */
+export interface DocsErrorBody {
+    error?: {
+        status?: string;
+        message?: string;
+        details?: Array<{ '@type'?: string; reason?: string }>;
+    };
+}
+
+/**
+ * Turn Google's status codes into something a user can act on.
+ *
+ * A 403 is genuinely ambiguous and the two causes have nothing to do with each other:
+ * the Docs API not being enabled on the project, versus the document not being shared
+ * with the service account. Both arrive as PERMISSION_DENIED. Telling someone to share a
+ * document when the real problem is a disabled API sends them down a dead end — verified
+ * live against a fresh project, which is exactly how this was found.
+ */
+export function describeDocsFailure(
+    status: number,
+    documentId: string,
+    body?: DocsErrorBody,
+): { message: string; hint: string } {
+    const reasons = (body?.error?.details ?? []).map((d) => d.reason).filter(Boolean);
+    const serviceDisabled = reasons.includes('SERVICE_DISABLED')
+        || /has not been used in project|is disabled/i.test(body?.error?.message ?? '');
+
+    if (serviceDisabled) {
+        return {
+            message: 'The Google Docs API is not enabled on this Google Cloud project.',
+            hint: 'Enable the Google Docs API (and the Google Drive API) in the project that owns the service account, then wait a minute and retry.',
+        };
+    }
+
     if (status === 404) {
         return {
             message: `Google Doc ${documentId} was not found.`,
@@ -64,11 +101,35 @@ export async function fetchGoogleDoc(
     const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
 
     if (!response.ok) {
-        const { message, hint } = describeDocsFailure(response.status, documentId);
+        const body = (await response.json().catch(() => undefined)) as DocsErrorBody | undefined;
+        const { message, hint } = describeDocsFailure(response.status, documentId, body);
         throw new GoogleDocsError(message, response.status, hint);
     }
 
     return (await response.json()) as GoogleDoc;
+}
+
+/**
+ * Can we see that the document has un-accepted suggestions in it?
+ *
+ * Returns true/false when we could check, and **null when we could not** — a read-only
+ * grant cannot see suggestions at all. Null is not a failure: the imported content came
+ * from PREVIEW_WITHOUT_SUGGESTIONS, so suggested text was already excluded. What we lose
+ * is only the ability to warn that the writer left suggestions unresolved.
+ */
+export async function probePendingSuggestions(
+    credentials: ServiceAccountCredentials,
+    documentId: string,
+): Promise<boolean | null> {
+    const token = await getAccessToken(credentials, DOCS_SCOPES);
+    const url = `${DOCS_ENDPOINT}/${encodeURIComponent(documentId)}?suggestionsViewMode=${SUGGESTION_PROBE_VIEW_MODE}`;
+
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (response.status === 403) return null; // read-only access — cannot see suggestions
+    if (!response.ok) return null;
+
+    const doc = await response.json().catch(() => null);
+    return doc ? hasPendingSuggestions(doc) : null;
 }
 
 /**

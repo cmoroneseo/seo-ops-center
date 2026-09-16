@@ -102,14 +102,35 @@ service account as a member of that drive. Credentials JSON goes in a Vercel env
   (The fixture has none; blogs will.)
 - Plus `horizontalRule`, `sectionBreak`, and embedded video URLs.
 
-### The `suggestionsViewMode` trap
+### The `suggestionsViewMode` trap (two traps, actually)
 
 `documents.get` defaults to `SUGGESTIONS_INLINE` — the fixture came back exactly that way.
 Import with the default and **pending, un-accepted Google Docs suggestions get folded into
-the content you send the client.** Always pass it explicitly
-(`PREVIEW_WITHOUT_SUGGESTIONS`), and **refuse the import with a clear message** when the
-doc has unresolved suggestions — the writer resolves them in Docs first. Ignore native
-Google Docs comments; this portal replaces them.
+the content you send the client.** So always pass the mode explicitly.
+
+The second trap only shows up against a real read-only grant, which is how this is
+actually deployed. **Verified live:** with the service account holding Viewer,
+
+| mode | reader | writer |
+|---|---|---|
+| *(omitted)* | 200 | 200 |
+| `DEFAULT_FOR_CURRENT_ACCESS` | 200 | 200 |
+| `SUGGESTIONS_INLINE` | **403** | 200 |
+| `PREVIEW_SUGGESTIONS_ACCEPTED` | **403** | 200 |
+| `PREVIEW_WITHOUT_SUGGESTIONS` | 200 | 200 |
+
+The 403 reads *"You do not have permission to access the document suggestions."* So the
+appealing design — request `SUGGESTIONS_INLINE` once, use it for both the content and the
+pending-suggestion check — quietly requires **write access on every client document just
+to read it**. Not a trade worth making.
+
+Use `PREVIEW_WITHOUT_SUGGESTIONS` for the content: it is the only mode that both excludes
+un-accepted suggested text and works read-only. Then probe separately with
+`SUGGESTIONS_INLINE` and treat a 403 as **unknown, not an error** — the content is already
+safe, and all that is lost is the ability to warn that the writer left suggestions
+unresolved. When the probe does succeed and finds pending suggestions, refuse the import.
+
+Ignore native Google Docs comments; this portal replaces them.
 
 ### Import UX and the drift guard
 

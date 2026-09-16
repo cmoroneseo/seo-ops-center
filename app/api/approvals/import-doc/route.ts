@@ -6,13 +6,13 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import {
     convertGoogleDoc,
     extractDocumentId,
-    hasPendingSuggestions,
 } from '@/lib/approvals/gdocs-to-tiptap';
 import {
     extensionForContentType,
     fetchGoogleDoc,
     fetchImageBytes,
     GoogleDocsError,
+    probePendingSuggestions,
 } from '@/lib/google/docs';
 import { loadServiceAccountFromEnv } from '@/lib/google/service-account';
 
@@ -93,13 +93,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Failed to read the Google Doc.' }, { status: 502 });
     }
 
-    // Refuse rather than guess. With pending suggestions the document has un-accepted
-    // edits in it, and importing either version would send the client copy nobody signed
-    // off on.
-    if (hasPendingSuggestions(doc)) {
+    // The fetch above used PREVIEW_WITHOUT_SUGGESTIONS, so suggested text is already
+    // excluded from what we imported. This probe only adds a warning when the writer left
+    // suggestions unresolved — and it returns null under a read-only grant, which cannot
+    // see suggestions at all.
+    const pendingSuggestions = await probePendingSuggestions(credentials, documentId).catch(() => null);
+    if (pendingSuggestions === true) {
         return NextResponse.json({
             error: 'This Google Doc has unresolved suggestions.',
-            hint: 'Accept or reject the pending suggestions in Google Docs, then import again.',
+            hint: 'Accept or reject the pending suggestions in Google Docs, then import again — otherwise the imported copy silently excludes them.',
         }, { status: 409 });
     }
 
@@ -130,6 +132,13 @@ export async function POST(req: NextRequest) {
     const converted = convertGoogleDoc(doc, {
         resolveImage: (objectId) => imageUrls.get(objectId) ?? null,
     });
+
+    const warnings = [...converted.warnings];
+    if (pendingSuggestions === null) {
+        warnings.push(
+            'Could not check for unresolved Google Docs suggestions (read-only access). Any suggested text was excluded from this import.',
+        );
+    }
 
     const { data: lastDoc } = await supabase
         .from('content_approval_docs')
@@ -164,7 +173,7 @@ export async function POST(req: NextRequest) {
         title: inserted.title,
         wordCount: converted.wordCount,
         imageCount: imageUrls.size,
-        warnings: converted.warnings,
+        warnings,
         revisionId: doc.revisionId ?? null,
     });
 }
