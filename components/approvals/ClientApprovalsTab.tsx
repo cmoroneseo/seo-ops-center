@@ -2,24 +2,15 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-    Archive, ArrowLeft, Check, Copy, ExternalLink, FileText, Loader2, Lock,
-    Plus, Send, Trash2, Unlock, Upload,
+    ArrowLeft, Check, Copy, ExternalLink, FileText, Loader2, Lock,
+    Plus, Send, Unlock, Upload,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { countWords, type TiptapNode } from '@/lib/approvals/gdocs-to-tiptap';
 import { rollUpBatch } from '@/lib/approvals/batch-status';
-import { batchNameHint, batchNameIssue, canUseBatchName } from '@/lib/approvals/batch-name';
 import {
-    archiveBatch, deleteApprovalDoc, deleteBatch,
-} from '@/lib/supabase/content-approvals';
-import {
-    batchRemovalConfirm, batchRemovalLabel, batchRemovalMode,
-    docRemovalConfirm, docRemovalMode,
-} from '@/lib/approvals/removal';
-import {
-    archiveApprovalDoc, createBatch, listBatchesForClient, listDocsForBatch,
-    publishVersion, setReviewLock,
+    createBatch, listBatchesForClient, listDocsForBatch, publishVersion, setReviewLock,
 } from '@/lib/supabase/content-approvals';
 import { getDeliverables } from '@/lib/supabase/deliverables';
 import { DocReviewPanel } from '@/components/approvals/DocReviewPanel';
@@ -80,11 +71,8 @@ function BatchList({ batches, clientId, organizationId, onOpen, onCreated }: {
     const [creating, setCreating] = useState(false);
     const [busy, setBusy] = useState(false);
 
-    const nameHint = batchNameHint(batchNameIssue(name));
-    const nameUsable = canUseBatchName(name);
-
     const create = async () => {
-        if (!nameUsable) return;
+        if (!name.trim()) return;
         setBusy(true);
         const { data } = await createBatch({ organizationId, clientId, name: name.trim() });
         setBusy(false);
@@ -107,30 +95,17 @@ function BatchList({ batches, clientId, organizationId, onOpen, onCreated }: {
             </div>
 
             {creating && (
-                <div className="rounded-lg border border-border bg-card p-3">
-                    <div className="flex gap-2">
-                        <input autoFocus value={name} onChange={(e) => setName(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') create(); if (e.key === 'Escape') setCreating(false); }}
-                            placeholder="e.g. October Content"
-                            aria-invalid={nameHint ? true : undefined}
-                            aria-describedby={nameHint ? 'batch-name-hint' : undefined}
-                            className={cn(
-                                'flex-1 rounded-md border bg-background px-2.5 py-1.5 text-sm',
-                                nameHint ? 'border-destructive' : 'border-input',
-                            )} />
-                        <button type="button" onClick={create} disabled={busy || !nameUsable}
-                            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">
-                            {busy ? 'Creating…' : 'Create'}
-                        </button>
-                        <button type="button" onClick={() => setCreating(false)}
-                            className="rounded-md border border-border px-3 py-1.5 text-xs">Cancel</button>
-                    </div>
-                    {nameHint && (
-                        <p id="batch-name-hint" className="mt-2 text-xs text-destructive">{nameHint}</p>
-                    )}
-                    <p className="mt-1.5 text-[11px] text-muted-foreground">
-                        The client sees this at the top of their review.
-                    </p>
+                <div className="flex gap-2 rounded-lg border border-border bg-card p-3">
+                    <input autoFocus value={name} onChange={(e) => setName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') create(); if (e.key === 'Escape') setCreating(false); }}
+                        placeholder="e.g. October Content"
+                        className="flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-sm" />
+                    <button type="button" onClick={create} disabled={busy || !name.trim()}
+                        className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">
+                        {busy ? 'Creating…' : 'Create'}
+                    </button>
+                    <button type="button" onClick={() => setCreating(false)}
+                        className="rounded-md border border-border px-3 py-1.5 text-xs">Cancel</button>
                 </div>
             )}
 
@@ -145,42 +120,22 @@ function BatchList({ batches, clientId, organizationId, onOpen, onCreated }: {
             )}
 
             <ul className="space-y-2">
-                {batches.map((batch) => {
-                    const mode = batchRemovalMode(batch);
-                    return (
-                        <li key={batch.id}
-                            className="flex items-center gap-2 rounded-lg border border-border bg-card p-3 hover:border-foreground/30">
-                            <button type="button" onClick={() => onOpen(batch)}
-                                className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left">
-                                <div className="min-w-0">
-                                    <p className="truncate text-sm font-medium">{batch.name}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                        {batch.sentAt ? `Sent ${new Date(batch.sentAt).toLocaleDateString()}` : 'Not sent yet'}
-                                    </p>
-                                </div>
-                                <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] capitalize text-muted-foreground">
-                                    {batch.status.replace('_', ' ')}
-                                </span>
-                            </button>
-                            <button type="button" disabled={busy}
-                                aria-label={`${batchRemovalLabel(mode)} ${batch.name}`}
-                                title={batchRemovalLabel(mode)}
-                                onClick={async () => {
-                                    if (!window.confirm(batchRemovalConfirm(mode, batch.name))) return;
-                                    setBusy(true);
-                                    const result = mode === 'delete'
-                                        ? await deleteBatch(batch.id)
-                                        : await archiveBatch(batch.id);
-                                    setBusy(false);
-                                    if (!result.ok) { window.alert(result.error); return; }
-                                    onCreated();
-                                }}
-                                className="shrink-0 rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-destructive disabled:opacity-50">
-                                {mode === 'delete' ? <Trash2 className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
-                            </button>
-                        </li>
-                    );
-                })}
+                {batches.map((batch) => (
+                    <li key={batch.id}>
+                        <button type="button" onClick={() => onOpen(batch)}
+                            className="flex w-full items-center justify-between rounded-lg border border-border bg-card p-3 text-left hover:border-foreground/30">
+                            <div className="min-w-0">
+                                <p className="truncate text-sm font-medium">{batch.name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                    {batch.sentAt ? `Sent ${new Date(batch.sentAt).toLocaleDateString()}` : 'Not sent yet'}
+                                </p>
+                            </div>
+                            <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] capitalize text-muted-foreground">
+                                {batch.status.replace('_', ' ')}
+                            </span>
+                        </button>
+                    </li>
+                ))}
             </ul>
         </div>
     );
@@ -418,23 +373,6 @@ function BatchDetail({ batch, clientId, organizationId, onBack }: {
                                         <Unlock className="h-3 w-3" /> Unlock to edit
                                     </button>
                                 )}
-                                <button type="button" disabled={busy}
-                                    aria-label={`Remove ${doc.title}`}
-                                    title={docRemovalMode(doc) === 'delete' ? 'Remove from batch' : 'Archive'}
-                                    onClick={async () => {
-                                        const mode = docRemovalMode(doc);
-                                        if (!window.confirm(docRemovalConfirm(mode, doc.title))) return;
-                                        setBusy(true);
-                                        const result = mode === 'delete'
-                                            ? await deleteApprovalDoc(doc.id)
-                                            : await archiveApprovalDoc(doc.id);
-                                        setBusy(false);
-                                        if (!result.ok) { setError(result.error ?? 'Could not remove it.'); return; }
-                                        await load();
-                                    }}
-                                    className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive disabled:opacity-50">
-                                    {docRemovalMode(doc) === 'delete' ? <Trash2 className="h-3 w-3" /> : <Archive className="h-3 w-3" />}
-                                </button>
                             </div>
                         </div>
                     </li>

@@ -37,6 +37,32 @@ test('a name that merely mentions a domain is not a link', () => {
         'only a real document URL should trip the check');
 });
 
+test('the host must actually be docs.google.com, not merely appear in the string', () => {
+    // CodeQL caught the original unanchored regex (js/regex/missing-regexp-anchor):
+    // it matched any URL that merely contained the host anywhere.
+    assert.equal(
+        batchNameIssue('https://evil.example.com/?x=docs.google.com/document/d/abc'),
+        'url',
+        'a foreign host must not read as a Google Doc link',
+    );
+    assert.equal(
+        batchNameIssue('https://docs.google.com.evil.example.com/document/d/abc'),
+        'url',
+        'a lookalike subdomain suffix must not read as a Google Doc link',
+    );
+    assert.equal(batchNameIssue('https://docs.google.com/spreadsheets/d/abc'), 'url',
+        'a Sheets link is a URL, but not a document link');
+});
+
+test('a document link without a protocol is still caught', () => {
+    assert.equal(batchNameIssue('docs.google.com/document/d/abc/edit'), 'document_link');
+});
+
+test('a one-word name is not mistaken for a host', () => {
+    assert.equal(batchNameIssue('Newsletter'), null);
+    assert.equal(batchNameIssue('October'), null);
+});
+
 test('surrounding whitespace does not hide a pasted link', () => {
     assert.equal(batchNameIssue('  https://docs.google.com/document/d/abc/edit  '), 'document_link');
 });
