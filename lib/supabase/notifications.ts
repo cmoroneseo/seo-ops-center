@@ -12,8 +12,21 @@ export type NotificationType =
   | 'deliverable_overdue'
   | 'deliverable_at_risk'
   | 'deliverable_status'
-  | 'reminder_due';
-export type EntityType = 'task' | 'task_comment' | 'client_note' | 'deliverable' | 'reminder';
+  | 'reminder_due'
+  // Content Approval Portal (migration 058)
+  | 'approval_opened'
+  | 'approval_comment'
+  | 'approval_decision'
+  | 'approval_batch_done'
+  | 'approval_doc_drifted';
+export type EntityType =
+  | 'task'
+  | 'task_comment'
+  | 'client_note'
+  | 'deliverable'
+  | 'reminder'
+  | 'content_approval_batch'
+  | 'content_approval_doc';
 
 export interface AppNotification {
   id: string;

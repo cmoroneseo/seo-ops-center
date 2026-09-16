@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { hashToken, shareLinkDenial } from '@/lib/approvals/token';
 import { deliverableStatusFor } from '@/lib/approvals/batch-status';
+import { decisionTitle, notifyApproval } from '@/lib/approvals/notify';
 import type { ApprovalDocStatus, ContentAnchor } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -181,6 +182,16 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
             await admin.from('content_comments').update({ thread_root_id: data.id }).eq('id', data.id);
         }
 
+        void notifyApproval({
+            organizationId: link.organizationId,
+            batchId: link.batchId,
+            type: 'approval_comment',
+            title: `${authorLabel} commented on client content`,
+            body: text.slice(0, 200),
+            entityType: 'content_approval_doc',
+            entityId: docId,
+        });
+
         return NextResponse.json({ commentId: data.id });
     }
 
@@ -219,6 +230,17 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
             .single();
 
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+        void notifyApproval({
+            organizationId: link.organizationId,
+            batchId: link.batchId,
+            type: 'approval_comment',
+            title: `${authorLabel} suggested an edit`,
+            body: payload.slice(0, 200),
+            entityType: 'content_approval_doc',
+            entityId: docId,
+        });
+
         return NextResponse.json({ suggestionId: data.id });
     }
 
@@ -289,6 +311,32 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
                 updated_at: now,
             })
             .eq('id', link.batchId);
+
+        const { data: decided } = await admin
+            .from('content_approval_docs')
+            .select('title')
+            .eq('id', docId)
+            .maybeSingle();
+
+        void notifyApproval({
+            organizationId: link.organizationId,
+            batchId: link.batchId,
+            type: 'approval_decision',
+            title: decisionTitle(decided?.title ?? 'a document', status),
+            body: `by ${authorLabel}`,
+            entityType: 'content_approval_doc',
+            entityId: docId,
+        });
+
+        if (allAccepted) {
+            void notifyApproval({
+                organizationId: link.organizationId,
+                batchId: link.batchId,
+                type: 'approval_batch_done',
+                title: 'Every document in this batch is approved',
+                body: `Signed off by ${authorLabel}`,
+            });
+        }
 
         return NextResponse.json({ ok: true, batchComplete: allAccepted });
     }

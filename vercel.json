@@ -21,6 +21,10 @@
         {
             "path": "/api/cron/reconcile-timesheets",
             "schedule": "0 5 * * *"
+        },
+        {
+            "path": "/api/cron/check-doc-drift",
+            "schedule": "0 4 * * *"
         }
     ],
     "headers": [

@@ -2,6 +2,7 @@ import 'server-only';
 
 import { createAdminClient } from '../supabase/admin';
 import { hashToken, shareLinkDenial, type ShareLinkDenial } from './token';
+import { notifyApproval } from './notify';
 import type {
     ApprovalDocStatus,
     ContentAnchor,
@@ -208,16 +209,29 @@ export async function recordPortalView(linkId: string): Promise<void> {
 
     const { data: link } = await admin
         .from('content_share_links')
-        .select('first_viewed_at, view_count')
+        .select('first_viewed_at, view_count, batch_id, organization_id')
         .eq('id', linkId)
         .maybeSingle();
+
+    if (!link) return;
 
     await admin
         .from('content_share_links')
         .update({
-            first_viewed_at: link?.first_viewed_at ?? now,
+            first_viewed_at: link.first_viewed_at ?? now,
             last_viewed_at: now,
-            view_count: (link?.view_count ?? 0) + 1,
+            view_count: (link.view_count ?? 0) + 1,
         })
         .eq('id', linkId);
+
+    // Only the FIRST open is worth a bell. "The client has looked at it" is news once;
+    // every refresh after that is noise.
+    if (!link.first_viewed_at) {
+        await notifyApproval({
+            organizationId: link.organization_id,
+            batchId: link.batch_id,
+            type: 'approval_opened',
+            title: 'The client opened the review link',
+        });
+    }
 }
