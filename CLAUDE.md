@@ -195,6 +195,7 @@ https://seo-ops-center.vercel.app
 037: basecamp_webhook_deliveries (service-only webhook delivery receipts)
 039: organizations.theme (brand theming) — applied Aug 25, 2026 (verified live: a custom theme saved from the Appearance tab survives a localStorage wipe and reload)
 038: timesheet ledger provenance + client-month approvals (applied Aug 24, 2026 — verified against the DB: all 7 `time_logs` provenance columns, both partial unique indexes, both approval tables, and the `protect_time_log_import_provenance` trigger are present)
+057: content approval portal — 7 `content_*` tables (applied Sep 16, 2026 via the Supabase connector). Verified live against production: all 7 tables have RLS enabled with one org-scoped policy each; `deliverable_id NOT NULL` rejects an unlinked document; `content_doc_versions` rejects UPDATE with 42501 (immutability trigger); duplicate `version_no` per doc and duplicate `token_hash` both rejected; a root comment without an anchor is rejected by CHECK; deleting a batch cascades docs, versions, comments and links; and `anon` sees 0 rows in `content_share_links` / `content_approval_batches` and cannot insert a comment (42501).
 
 To re-check migration 038 directly, run in the Supabase SQL editor:
 
@@ -229,6 +230,7 @@ order by tgname;
 ## Supabase Storage buckets
 - `client-logos` — public, 1MB max, image types
 - `campaign-screenshots` — public, 50MB max, image types (needs INSERT/SELECT/DELETE policies on storage.objects)
+- `approval-content` — public, 25MB max, jpeg/png/webp/gif (created Sep 16, 2026). Holds images re-hosted out of imported Google Docs, because Google's inline-object `contentUri` is short-lived and a client reviewing days later would otherwise see broken images. **No INSERT policy on purpose** — uploads only happen server-side through the service-role client during import, so nothing in the browser can put files in a client-facing bucket. SVG is excluded deliberately (Docs returns raster formats; an inline SVG from a public bucket is a script-execution vector for no benefit).
 
 ## Test / sandbox environment (Aug 2026)
 A self-contained tenant for testing features against production **without touching real client data**. Everything below already exists — don't recreate it.
