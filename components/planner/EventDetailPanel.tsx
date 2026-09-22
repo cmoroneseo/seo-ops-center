@@ -79,6 +79,8 @@ export function EventDetailPanel({
     const event = isEvent ? (item.raw as PlannerEvent) : null;
     const task = isTask ? (item.raw as Task) : null;
     const attempt = isActual ? (item.raw as TimerAttempt) : null;
+    const clientName = item.clientName ?? task?.clientName;
+    const clientId = task?.clientId ?? attempt?.clientId ?? event?.clientId;
     const timerActions = canControlTimer ? timerActionsForItem(item) : [];
 
     const [title, setTitle] = useState(task?.title ?? item.title);
@@ -566,10 +568,19 @@ export function EventDetailPanel({
                     className="w-full rounded-md bg-transparent text-base font-semibold outline-none focus:bg-muted focus:px-2 focus:py-1"
                 />
 
-                {task?.clientName && (
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <Building2 className="h-3.5 w-3.5" />
-                        <span>{task.clientName}</span>
+                {clientName && (
+                    <div className="flex items-start gap-1.5 text-sm font-medium text-foreground">
+                        <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        {clientId ? (
+                            <Link
+                                href={`/workspace/${clientId}`}
+                                className="min-w-0 break-words rounded-sm underline decoration-border underline-offset-4 hover:text-primary hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            >
+                                {clientName}
+                            </Link>
+                        ) : (
+                            <span className="min-w-0 break-words">{clientName}</span>
+                        )}
                     </div>
                 )}
 
@@ -890,13 +901,6 @@ export function EventDetailPanel({
                     <div className="flex items-center gap-2 text-xs">
                         <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
                         {event.location}
-                    </div>
-                )}
-
-                {item.clientName && !task && (
-                    <div className="flex items-center gap-2 text-xs">
-                        <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                        {item.clientName}
                     </div>
                 )}
 
