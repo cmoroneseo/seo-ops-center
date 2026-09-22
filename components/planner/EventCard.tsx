@@ -95,6 +95,35 @@ export function EventCard({
     const { stateLabel } = presentation;
     const timerActions = presentation.actions;
 
+    const fullLabel = `${item.title}${item.clientName ? `, ${item.clientName}` : ''}, ${timeLabel}${stateLabel ? `, ${stateLabel}` : ''}`;
+    const cardContent = isCompact ? (
+        <div className="flex items-baseline gap-1 overflow-hidden whitespace-nowrap pl-1">
+            <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight">{item.title}</span>
+            {item.clientName && (
+                <span className="min-w-0 flex-1 truncate text-[10px] font-medium opacity-90">{item.clientName}</span>
+            )}
+            <span className="shrink-0 text-[10px] opacity-70">
+                {format(new Date(item.startsAt), 'h:mma').toLowerCase()}
+                {stateLabel && ` · ${stateLabel}`}
+            </span>
+        </div>
+    ) : (
+        <>
+            <div className="truncate text-[11px] font-semibold leading-tight">{item.title}</div>
+            <div className={cn(height < 56 && 'flex items-baseline gap-1.5')}>
+                {item.clientName && (
+                    <div className="min-w-0 flex-1 truncate text-[10px] font-medium leading-tight opacity-90">{item.clientName}</div>
+                )}
+                <div className="truncate text-[10px] leading-tight opacity-75">
+                    {format(new Date(item.startsAt), 'h:mm')} – {format(new Date(item.endsAt), 'h:mm a')}
+                </div>
+            </div>
+            {stateLabel && (
+                <div className="truncate text-[10px] font-medium leading-tight">{stateLabel}</div>
+            )}
+        </>
+    );
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
@@ -131,46 +160,18 @@ export function EventCard({
                     type="button"
                     onClick={() => onClick?.(item)}
                     onKeyDown={handleKeyDown}
-                    aria-label={item.source === 'actual_time'
-                        ? presentation.accessibleName
-                        : `${item.title}${item.clientName ? `, ${item.clientName}` : ''}, ${timeLabel}`}
+                    aria-label={fullLabel}
+                    title={fullLabel}
                     className={cn(
                         'absolute inset-0 w-full overflow-hidden text-left focus:outline-none',
                         isCompact ? 'px-1.5 py-0.5' : 'px-2 py-1',
                     )}
                 >
-                    {isCompact ? (
-                        <div className="flex items-baseline gap-1.5 overflow-hidden whitespace-nowrap pl-1">
-                            <span className="truncate text-[11px] font-semibold leading-tight">{item.title}</span>
-                            <span className="shrink-0 text-[10px] opacity-70">
-                                {format(new Date(item.startsAt), 'h:mma').toLowerCase()}
-                                {stateLabel && ` · ${stateLabel}`}
-                            </span>
-                        </div>
-                    ) : (
-                        <>
-                            <div className="truncate text-[11px] font-semibold leading-tight">{item.title}</div>
-                            {item.source === 'task' && item.clientName && (
-                                <div className="truncate text-[10px] opacity-70">{item.clientName}</div>
-                            )}
-                            <div className="truncate text-[10px] opacity-75">
-                                {format(new Date(item.startsAt), 'h:mm')} – {format(new Date(item.endsAt), 'h:mm a')}
-                            </div>
-                            {stateLabel && (
-                                <div className="truncate text-[10px] font-medium">{stateLabel}</div>
-                            )}
-                        </>
-                    )}
+                    {cardContent}
                 </button>
             ) : (
                 <div className={isCompact ? 'px-1.5 py-0.5' : 'px-2 py-1'}>
-                    <div className="truncate text-[11px] font-semibold leading-tight">{item.title}</div>
-                    {!isCompact && item.source === 'task' && item.clientName && (
-                        <div className="truncate text-[10px] opacity-70">{item.clientName}</div>
-                    )}
-                    <div className="truncate text-[10px] opacity-75">
-                        {format(new Date(item.startsAt), 'h:mm')} – {format(new Date(item.endsAt), 'h:mm a')}
-                    </div>
+                    {cardContent}
                 </div>
             )}
 
