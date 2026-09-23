@@ -4,14 +4,12 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const router = useRouter();
     const supabase = createClient();
 
     // Check for missing environment variables on mount
@@ -23,37 +21,59 @@ export default function LoginPage() {
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!supabase) return;
+        if (!supabase) {
+            setError('System configuration error: Missing Supabase environment variables.');
+            return;
+        }
 
         setIsLoading(true);
         setError(null);
 
-        const { error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-        });
+        try {
+            const { error } = await supabase.auth.signInWithPassword({
+                email,
+                password,
+            });
 
-        if (error) {
-            setError(error.message);
+            if (error) {
+                setError(error.message);
+                setIsLoading(false);
+                return;
+            }
+
+            // Full-page navigation instead of router.push: the auth cookie is
+            // written by the browser client as this resolves, and a soft
+            // client navigation can race that write — middleware then sees no
+            // session and the user is stranded on /login with the spinner up.
+            window.location.assign('/dashboard');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
             setIsLoading(false);
-        } else {
-            router.push('/dashboard');
         }
     };
 
     const handleGoogleLogin = async () => {
-        if (!supabase) return;
+        if (!supabase) {
+            setError('System configuration error: Missing Supabase environment variables.');
+            return;
+        }
 
         setIsLoading(true);
-        const { error } = await supabase.auth.signInWithOAuth({
-            provider: 'google',
-            options: {
-                redirectTo: `${window.location.origin}/auth/callback`,
-            },
-        });
+        setError(null);
+        try {
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                    redirectTo: `${window.location.origin}/auth/callback`,
+                },
+            });
 
-        if (error) {
-            setError(error.message);
+            if (error) {
+                setError(error.message);
+                setIsLoading(false);
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
             setIsLoading(false);
         }
     };
