@@ -114,14 +114,25 @@ function addDays(date: string, days: number): string {
     return formatLocalDate(parsed);
 }
 
-/** Snap any local date to the Sunday that opens its week. */
+/**
+ * Snap any local date to the Monday that opens its week.
+ *
+ * This was the only part of the app opening its week on Sunday. `AgencyWidgets`
+ * already did its own Monday arithmetic (`getDay() === 0 ? 6 : getDay() - 1`),
+ * so the two disagreed about which week a Sunday's work belonged to.
+ *
+ * Safe to change because nothing persists a weekly key: weeks are computed on
+ * read, and `timesheet_client_approvals` snapshots client *months*, whose totals
+ * are unaffected. Only which days group together in the grid moves.
+ */
 export function weekStartFor(date: string): string {
     const parsed = parseLocalDate(date);
     if (!parsed) throw new RangeError(`Invalid ledger date: ${date}`);
-    return addDays(date, -parsed.getDay());
+    // getDay(): 0 = Sunday, which closes the week that opened six days earlier.
+    return addDays(date, -((parsed.getDay() + 6) % 7));
 }
 
-/** The seven local dates of a week, Sunday-first. */
+/** The seven local dates of a week, Monday-first. */
 export function weekDays(weekStart: string): string[] {
     return Array.from({ length: DAYS_IN_WEEK }, (_, index) => addDays(weekStart, index));
 }

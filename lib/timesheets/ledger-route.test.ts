@@ -66,7 +66,7 @@ test('a member gets their own week without asking for it', async () => {
 
     assert.equal(response.status, 200);
     const payload = await body(response);
-    assert.equal(payload.ledger.weekStart, '2026-08-23');
+    assert.equal(payload.ledger.weekStart, '2026-08-24');
     assert.equal(payload.userId, 'user-carlos');
     assert.equal(queried[0].userId, 'user-carlos');
 });
@@ -104,13 +104,13 @@ test('a member asking for the team scope is refused', async () => {
     assert.deepEqual(queried, []);
 });
 
-test('an explicit week is honored and snapped to its Sunday', async () => {
+test('an explicit week is honored and snapped to its Monday', async () => {
     const { get, queried } = harness();
     const response = await get(url({ weekStart: '2026-08-26' }));
 
-    assert.equal((await body(response)).ledger.weekStart, '2026-08-23');
-    assert.equal(queried[0].from, '2026-08-23');
-    assert.equal(queried[0].to, '2026-08-29');
+    assert.equal((await body(response)).ledger.weekStart, '2026-08-24');
+    assert.equal(queried[0].from, '2026-08-24');
+    assert.equal(queried[0].to, '2026-08-30');
 });
 
 test('a malformed week is rejected rather than silently defaulted', async () => {
@@ -122,13 +122,13 @@ test('a malformed week is rejected rather than silently defaulted', async () => 
 
 test('the query window never exceeds the requested week', async () => {
     const { get, queried } = harness();
-    await get(url({ weekStart: '2026-08-23' }));
+    await get(url({ weekStart: '2026-08-24' }));
 
     assert.deepEqual(queried[0], {
         organizationId: 'org-1',
         userId: 'user-carlos',
-        from: '2026-08-23',
-        to: '2026-08-29',
+        from: '2026-08-24',
+        to: '2026-08-30',
     });
 });
 

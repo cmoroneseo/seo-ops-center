@@ -21,23 +21,30 @@ function log(overrides: Partial<LedgerLog> & { id: string; date: string }): Ledg
     };
 }
 
-test('weekStartFor snaps any day to its containing Sunday', () => {
-    assert.equal(weekStartFor('2026-08-24'), '2026-08-23'); // Monday -> Sunday
-    assert.equal(weekStartFor('2026-08-23'), '2026-08-23'); // Sunday stays
-    assert.equal(weekStartFor('2026-08-29'), '2026-08-23'); // Saturday
+test('weekStartFor snaps any day to its containing Monday', () => {
+    assert.equal(weekStartFor('2026-08-24'), '2026-08-24'); // Monday stays
+    assert.equal(weekStartFor('2026-08-29'), '2026-08-24'); // Saturday
+    assert.equal(weekStartFor('2026-08-30'), '2026-08-24'); // Sunday closes that week
 });
 
-test('weekDays returns seven consecutive local dates', () => {
-    assert.deepEqual(weekDays('2026-08-23'), [
-        '2026-08-23', '2026-08-24', '2026-08-25', '2026-08-26',
-        '2026-08-27', '2026-08-28', '2026-08-29',
+test('Sunday closes the week that opened six days earlier, not the next one', () => {
+    // The whole content of the Sunday -> Monday change. Getting it backwards
+    // moves a day of work into the neighbouring week, in one direction only.
+    assert.equal(weekStartFor('2026-08-23'), '2026-08-17'); // Sunday
+    assert.equal(weekStartFor('2026-08-24'), '2026-08-24'); // the Monday after it
+});
+
+test('weekDays returns seven consecutive local dates, Monday first', () => {
+    assert.deepEqual(weekDays('2026-08-24'), [
+        '2026-08-24', '2026-08-25', '2026-08-26', '2026-08-27',
+        '2026-08-28', '2026-08-29', '2026-08-30',
     ]);
 });
 
 test('weekDays crosses a month boundary without drifting', () => {
-    assert.deepEqual(weekDays('2026-08-30'), [
-        '2026-08-30', '2026-08-31', '2026-09-01', '2026-09-02',
-        '2026-09-03', '2026-09-04', '2026-09-05',
+    assert.deepEqual(weekDays('2026-08-31'), [
+        '2026-08-31', '2026-09-01', '2026-09-02', '2026-09-03',
+        '2026-09-04', '2026-09-05', '2026-09-06',
     ]);
 });
 

@@ -58,7 +58,7 @@ function url(params: Record<string, string> = {}) {
 
 test('a manager gets every member row for the week', async () => {
     const { get } = harness();
-    const response = await get(url({ weekStart: '2026-08-23' }));
+    const response = await get(url({ weekStart: '2026-08-24' }));
 
     assert.equal(response.status, 200);
     const payload = await response.json();
@@ -82,13 +82,13 @@ test('a viewer is refused the team view', async () => {
 
 test('the team query is org-scoped and never filtered to one user', async () => {
     const { get, queried } = harness();
-    await get(url({ weekStart: '2026-08-23' }));
+    await get(url({ weekStart: '2026-08-24' }));
 
     assert.deepEqual(queried[0], {
         organizationId: 'org-1',
         userId: null,
-        from: '2026-08-23',
-        to: '2026-08-29',
+        from: '2026-08-24',
+        to: '2026-08-30',
     });
 });
 
