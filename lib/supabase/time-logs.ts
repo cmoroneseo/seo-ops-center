@@ -143,6 +143,9 @@ export async function getTaskTimeLogs(taskId: string): Promise<TimerAttempt[]> {
             .select('*, clients(name), tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(*)')
             .eq('task_id', taskId)
             .eq('status', 'logged')
+            // Voided and still-in-review imports are not time the task has
+            // consumed; the timesheet already excludes them.
+            .eq('import_status', COUNTABLE_IMPORT_STATUS)
             .order('date', { ascending: false });
         if (error) throw error;
         return (data || []).map(timerAttemptFromRow);
@@ -185,6 +188,10 @@ export async function getTimerAttemptsForRange(
                 .select(selection)
                 .eq('organization_id', organizationId)
                 .eq('status', 'logged')
+                // Without this the calendar keeps drawing a block for a log
+                // that was voided at Basecamp, while the timesheet (rightly)
+                // stops counting it — the two views then disagree about a day.
+                .eq('import_status', COUNTABLE_IMPORT_STATUS)
                 .gte('date', localDateKey(rangeStart))
                 .lte('date', localDateKey(lastVisibleInstant)),
             supabase

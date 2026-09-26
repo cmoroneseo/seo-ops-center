@@ -7,6 +7,7 @@ import {
     getBasecampProjectTimesheetEnabled,
     findProjectTimesheetRecordingId,
     getBasecampProjectTimesheetEntry,
+    getBasecampTimesheetEntryState,
     listBasecampProjectTimesheetEntries,
     getBasecampTodo,
     createBasecampTimesheetEntry,
@@ -15,6 +16,7 @@ import {
     createBasecampComment,
 } from '@/lib/basecamp/api';
 import { timeLogCommentBody, commentTargetFor } from '@/lib/basecamp/time-log-comment';
+import { stampPushedEntryIdentity } from '@/lib/basecamp/timesheet-push-identity';
 import {
     refuseProviderCreate, PROVIDER_CREATE_REFUSAL_MESSAGE,
 } from '@/lib/basecamp/provider-origin';
@@ -193,6 +195,10 @@ export async function POST(req: NextRequest) {
                         basecamp_recording_id: null,
                         basecamp_synced_at: null,
                         basecamp_sync_error: null,
+                        // The entry is gone, so the identity it was recognized
+                        // by is too. Only for work authored here: an imported
+                        // row keeps its fingerprint as proof of provider origin.
+                        ...(log.source === 'basecamp' ? {} : { import_fingerprint: null }),
                     }).eq('id', log.id).eq('organization_id', log.organizationId);
                 }
                 return NextResponse.json({ success: ok });
@@ -209,6 +215,16 @@ export async function POST(req: NextRequest) {
                 return NextResponse.json({ success: false, error: message });
             };
             const projectId = context.projectId!;
+            const stampIdentity = (entryId: string | number) => stampPushedEntryIdentity({
+                readEntry: (pid, eid) => getBasecampTimesheetEntryState(pid, eid),
+                async writeFingerprint(fingerprint) {
+                    const { error } = await admin.from('time_logs')
+                        .update({ import_fingerprint: fingerprint })
+                        .eq('id', log.id)
+                        .eq('organization_id', log.organizationId);
+                    return error ? (error.code ?? 'error') : null;
+                },
+            }, String(projectId), String(entryId));
             const entryFields = {
                 date: log.date.slice(0, 10),
                 hours: log.hours,
@@ -224,6 +240,8 @@ export async function POST(req: NextRequest) {
                         basecamp_synced_at: new Date().toISOString(),
                         basecamp_sync_error: null,
                     }).eq('id', log.id).eq('organization_id', log.organizationId);
+                    // An edit here changes the date or hours the fingerprint hashes.
+                    await stampIdentity(log.basecampEntryId);
                     return NextResponse.json({ success: true, entryId: log.basecampEntryId });
                 }
                 if (result === 'error') {
@@ -292,6 +310,7 @@ export async function POST(req: NextRequest) {
                 basecamp_synced_at: new Date().toISOString(),
                 basecamp_sync_error: null,
             }).eq('id', log.id).eq('organization_id', log.organizationId);
+            await stampIdentity(created.id);
 
             // The note goes on the task's own to-do, where the people reading
             // it are. Only on CREATE — a re-sync of an existing entry would
