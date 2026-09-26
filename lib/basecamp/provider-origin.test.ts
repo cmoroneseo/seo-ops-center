@@ -36,3 +36,10 @@ test('origin is about where the work came from, not whether it synced', () => {
     assert.equal(isProviderOriginated({ source: 'seo_pm' }), false);
     assert.equal(isProviderOriginated({}), false);
 });
+
+test('work authored here stays creatable even after it was fingerprinted', () => {
+    // A push stamps the entry's fingerprint so a CSV import can recognize it.
+    // If the entry is later removed from Basecamp and re-sent, that stamp must
+    // not be mistaken for provider origin.
+    assert.equal(refuseProviderCreate({ source: 'seo_pm', importFingerprint: 'abc' }), null);
+});

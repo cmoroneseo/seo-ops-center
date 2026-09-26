@@ -68,10 +68,21 @@ async function writeImportedEntry(input: ImportedEntryInput): Promise<'created' 
     );
 
     if (existing.data) {
-        const { error } = await admin
+        let { error } = await admin
             .from('time_logs')
             .update(row)
             .eq('id', existing.data.id);
+        const previousFingerprint = existing.data.import_fingerprint ?? null;
+        if (error?.code === '23505' && row.import_fingerprint !== previousFingerprint) {
+            // Another row already holds the refreshed identity — a CSV import
+            // that ran while ours was stale, i.e. a duplicate. Keep our old
+            // identity rather than fail the delivery; the duplicate stays
+            // visible in the review queue instead of being silently merged.
+            ({ error } = await admin
+                .from('time_logs')
+                .update({ ...row, import_fingerprint: previousFingerprint })
+                .eq('id', existing.data.id));
+        }
         if (error) throw error;
         return 'updated';
     }

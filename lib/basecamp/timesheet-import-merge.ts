@@ -125,7 +125,15 @@ export function mergeImportedEntry(
         // passes an empty `basecampEntryId`. Overwriting unconditionally would
         // blank the id a webhook had stamped on, undoing the adoption — and the
         // next delivery would then miss the row and insert a duplicate.
-        import_fingerprint: existing?.importFingerprint ?? incoming.importFingerprint,
+        //
+        // Except when this is a verified provider read (it carries an entry
+        // id): that describes the entry as it is NOW. The fingerprint hashes
+        // date and hours, so one frozen at first sight goes stale the moment
+        // the entry is edited, and the next CSV run — which hashes current
+        // values — no longer recognizes the row and imports it again.
+        import_fingerprint: (entryId !== null && incoming.importFingerprint)
+            ? incoming.importFingerprint
+            : existing?.importFingerprint ?? incoming.importFingerprint,
         basecamp_entry_id: entryId ?? existing?.basecampEntryId ?? null,
         basecamp_project_id: numberOrNull(incoming.basecampProjectId),
         basecamp_recording_id: numberOrNull(incoming.basecampRecordingId),

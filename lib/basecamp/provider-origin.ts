@@ -29,7 +29,10 @@ export type ProviderCreateRefusal = 'imported-entry-not-identified';
 
 /** True when this log came from the provider rather than being authored here. */
 export function isProviderOriginated(log: ProviderOriginLog): boolean {
-    if (log.source && log.source !== 'seo_pm') return true;
+    // An explicit source is authoritative. Work authored here also carries a
+    // fingerprint once it has been pushed (so a CSV import recognizes it), and
+    // that must not make it look imported if its entry id is ever cleared.
+    if (log.source) return log.source !== 'seo_pm';
     return Boolean(log.importFingerprint);
 }
 

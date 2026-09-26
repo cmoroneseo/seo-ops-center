@@ -343,3 +343,33 @@ test('an incoming entry id still wins over a stale stored one', () => {
 
     assert.equal(merged.basecamp_entry_id, 9002);
 });
+
+test('a verified provider read refreshes a stale fingerprint', () => {
+    // The CIPO entry of Sep 24: fingerprinted when it arrived dated Sep 25,
+    // then corrected in Basecamp. The CSV hashes the corrected date, so a
+    // frozen fingerprint made the next backfill import it a second time.
+    const merged = mergeImportedEntry(
+        existing({ importFingerprint: 'dated-sep-25', basecampEntryId: 9001 }),
+        incoming({ basecampEntryId: '9001', importFingerprint: 'dated-sep-24' }),
+    );
+
+    assert.equal(merged.import_fingerprint, 'dated-sep-24');
+});
+
+test('a provider read that cannot fingerprint keeps the identity we had', () => {
+    const merged = mergeImportedEntry(
+        existing({ importFingerprint: 'abc123', basecampEntryId: 9001 }),
+        incoming({ basecampEntryId: '9001', importFingerprint: null }),
+    );
+
+    assert.equal(merged.import_fingerprint, 'abc123');
+});
+
+test('a CSV row never replaces the identity a provider read established', () => {
+    const merged = mergeImportedEntry(
+        existing({ importFingerprint: 'from-provider', basecampEntryId: 9001 }),
+        incoming({ basecampEntryId: '', importFingerprint: 'from-csv' }),
+    );
+
+    assert.equal(merged.import_fingerprint, 'from-provider');
+});
