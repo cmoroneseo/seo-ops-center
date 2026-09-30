@@ -40,6 +40,15 @@ export async function GET(request: Request) {
             });
             return !error && data === true;
         },
+        async consumePortalInvite(token, user) {
+            const tokenHash = createHash('sha256').update(token).digest('hex');
+            const { data, error } = await createAdminClient().rpc('consume_client_portal_invite', {
+                p_token_hash: tokenHash,
+                p_user_id: user.id,
+                p_email: user.email.toLowerCase(),
+            });
+            return !error && data === true;
+        },
         appOrigin,
     })(request);
 }
