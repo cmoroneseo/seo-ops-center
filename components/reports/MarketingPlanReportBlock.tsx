@@ -5,7 +5,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Block } from '@/lib/reports/blocks';
-import type { ClientProject, MarketingPlan } from '@/lib/types';
+import type { ClientProject, MarketingPlan, MarketingPlanItem } from '@/lib/types';
 import { SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import {
     fulfillmentCounts, planEngagementAnchor, planFulfillmentBuckets, readPlanReportView,
@@ -32,6 +32,7 @@ export function MarketingPlanReportBlock({ block, ctx }: { block: Block; ctx: Pl
     const clientId = ctx.client?.id ?? null;
     const [loaded, setLoaded] = useState<LoadState>({ status: 'loading' });
     const [openState, setOpenState] = useState<{ signature: string; key: string | null } | null>(null);
+    const [expandedFor, setExpandedFor] = useState<string | null>(null);
 
     useEffect(() => {
         if (!clientId) return;
@@ -110,33 +111,43 @@ export function MarketingPlanReportBlock({ block, ctx }: { block: Block; ctx: Pl
             counts={counts}
             buckets={buckets}
             openKey={openKey}
+            expanded={expandedFor === signature}
             editable={!!ctx.onEditText}
             monthNote={view === 'month'
                 ? 'Month 1 is the launch month (launch-date override, then launch date, then the day the plan was created). An item uses its due date, or the linked task\'s due date when the checklist item has none. Undated items are Unscheduled.'
                 : null}
             onChangeView={next => ctx.onEditText?.(block.id, { planView: next })}
-            onToggleBucket={key => setOpenState({
-                signature,
-                key: openKey === key ? null : key,
-            })}
+            onToggleBucket={key => setOpenState({ signature, key })}
+            onToggleExpanded={() => setExpandedFor(expandedFor === signature ? null : signature)}
         />
     );
 }
 
+function reportItems(bucket: FulfillmentBucket): MarketingPlanItem[] {
+    return bucket.items.filter(item => item.status !== 'ignored');
+}
+
 export function MarketingPlanReportBody({
-    view, counts, buckets, openKey, editable, monthNote, onChangeView, onToggleBucket,
+    view, counts, buckets, openKey, expanded = false, editable, monthNote, onChangeView, onToggleBucket, onToggleExpanded,
 }: {
     view: PlanReportView;
     counts: FulfillmentCounts;
     buckets: FulfillmentBucket[];
     openKey: string | null;
+    /** Screen-only. Print always renders every group, ignoring this flag. */
+    expanded?: boolean;
     editable: boolean;
     monthNote: string | null;
     onChangeView: (view: PlanReportView) => void;
     onToggleBucket: (key: string) => void;
+    onToggleExpanded?: () => void;
 }) {
-    const open = buckets.find(bucket => bucket.key === openKey) ?? null;
-    const openItems = (open?.items ?? []).filter(item => item.status !== 'ignored');
+    const open = buckets.find(bucket => bucket.key === openKey) ?? buckets[0] ?? null;
+    const openItems = open ? reportItems(open) : [];
+    const previewItem = openItems[0];
+    const listedCount = buckets.reduce((sum, bucket) => sum + reportItems(bucket).length, 0);
+    const showToggle = listedCount > (previewItem ? 1 : 0)
+        || Boolean(previewItem?.description?.trim());
 
     return (
         <SectionFrame view={view} editable={editable} onChangeView={onChangeView}>
@@ -173,30 +184,88 @@ export function MarketingPlanReportBody({
                 <p className="print-hidden mt-3 text-[11px] leading-snug" style={{ color: '#6b7280' }}>{monthNote}</p>
             )}
 
-            {open && (
-                <div className="mt-4 pt-3 border-t" style={{ borderColor: '#e5e7eb' }}>
-                    <div className="flex items-center justify-between gap-3 text-sm font-medium mb-2" style={{ color: '#111827' }}>
-                        <span>{open.label}</span>
-                        <span style={{ color: '#16a34a' }}>{open.done}/{open.total}</span>
-                    </div>
-                    {openItems.length === 0 ? (
-                        <Note text="No checklist items in this group." />
+            {!expanded && open && (
+                <div data-plan-checklist="preview" className="print-hidden mt-4 pt-3 border-t" style={{ borderColor: '#e5e7eb' }}>
+                    <GroupHeading bucket={open} />
+                    {previewItem ? (
+                        <ul><ChecklistItem item={previewItem} showDescription={false} /></ul>
                     ) : (
-                        <ul className="space-y-1">
-                            {openItems.map(item => {
-                                const done = item.status === 'done';
-                                return (
-                                    <li key={item.id} className="flex items-start gap-2 text-sm py-0.5">
-                                        <span aria-hidden="true" style={{ color: done ? '#16a34a' : '#9ca3af' }}>{done ? '✓' : '○'}</span>
-                                        <span style={{ color: done ? '#6b7280' : '#111827' }}>{item.title}</span>
-                                    </li>
-                                );
-                            })}
-                        </ul>
+                        <Note text="No checklist items in this group." />
                     )}
+                    {showToggle && <ChecklistToggle expanded={false} onClick={() => onToggleExpanded?.()} />}
                 </div>
             )}
+
+            {/* Collapsed on screen this node is display:none via .print-only, then
+                display:block inside @media print. Expanded, it is the on-screen list
+                and still prints. The toggle itself is always print-hidden. */}
+            <div
+                data-plan-checklist="full"
+                className={expanded ? 'mt-4 border-t' : 'print-only mt-4 border-t'}
+                style={{ borderColor: '#e5e7eb' }}
+            >
+                {buckets.map(bucket => (
+                    <GroupChecklist key={bucket.key} bucket={bucket} />
+                ))}
+                {expanded && showToggle && <ChecklistToggle expanded onClick={() => onToggleExpanded?.()} />}
+            </div>
         </SectionFrame>
+    );
+}
+
+function GroupHeading({ bucket }: { bucket: FulfillmentBucket }) {
+    return (
+        <div className="flex items-center justify-between gap-3 text-sm font-medium mb-2" style={{ color: '#111827' }}>
+            <span>{bucket.label}</span>
+            <span style={{ color: '#16a34a' }}>{bucket.done}/{bucket.total}</span>
+        </div>
+    );
+}
+
+function GroupChecklist({ bucket }: { bucket: FulfillmentBucket }) {
+    const items = reportItems(bucket);
+    return (
+        <section className="pt-3">
+            <GroupHeading bucket={bucket} />
+            {items.length === 0 ? (
+                <Note text="No checklist items in this group." />
+            ) : (
+                <ul>
+                    {items.map(item => <ChecklistItem key={item.id} item={item} showDescription />)}
+                </ul>
+            )}
+        </section>
+    );
+}
+
+function ChecklistItem({ item, showDescription }: { item: MarketingPlanItem; showDescription: boolean }) {
+    const done = item.status === 'done';
+    return (
+        <li className="flex items-start gap-2 text-sm py-2 border-b" style={{ borderColor: '#f3f4f6' }}>
+            <span aria-hidden="true" className="mt-0.5" style={{ color: done ? '#16a34a' : '#9ca3af' }}>{done ? '✓' : '☐'}</span>
+            <div className="min-w-0">
+                <div className="font-medium" style={{ color: done ? '#6b7280' : '#111827' }}>{item.title}</div>
+                {showDescription && item.description?.trim() && (
+                    <p className="mt-1 text-[13px] leading-snug" style={{ color: '#6b7280' }}>{item.description}</p>
+                )}
+            </div>
+        </li>
+    );
+}
+
+function ChecklistToggle({ expanded, onClick }: { expanded: boolean; onClick: () => void }) {
+    return (
+        <div className="print-hidden flex justify-center py-4">
+            <button
+                type="button"
+                onClick={onClick}
+                aria-expanded={expanded}
+                className="text-[11px] font-semibold uppercase tracking-wide px-4 py-2 rounded-md border"
+                style={{ borderColor: '#d1d5db', color: '#374151', background: '#fff' }}
+            >
+                {expanded ? 'Show less' : 'Show more'}
+            </button>
+        </div>
     );
 }
 
