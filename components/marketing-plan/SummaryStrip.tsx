@@ -12,7 +12,7 @@ export function SummaryStrip({ summary }: { summary: PlanSummary }) {
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Plan Progress</div>
                 <div className="flex items-baseline gap-1">
                     <span className="text-2xl font-bold text-primary">{s.done}</span>
-                    <span className="text-lg text-muted-foreground">/{s.total}</span>
+                    <span className="text-lg text-muted-foreground">/{s.total - s.ignored}</span>
                 </div>
                 <div className="flex items-center gap-2">
                     <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">

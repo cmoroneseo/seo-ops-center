@@ -287,18 +287,18 @@ export function planEngagementAnchor(input: {
 
 /**
  * Date that places an item in an engagement month.
- * The checklist due date wins. A linked task's due date is used only when the
- * item itself has none (the task is the live copy after generation).
+ * Linked task dates are authoritative, including cleared dates.
+ * The item date is used when no linked task date has been loaded.
  */
 export function schedulingDateForItem(
     item: Pick<MarketingPlanItem, 'dueDate' | 'taskId'>,
     taskDueDates?: Readonly<Record<string, string | null | undefined>>,
 ): string | null {
-    const own = item.dueDate?.trim();
-    if (own) return own;
-    if (!item.taskId || !taskDueDates) return null;
-    const linked = taskDueDates[item.taskId]?.trim();
-    return linked || null;
+    // An explicit null means the task's date was cleared; never revive a stale item date.
+    if (item.taskId && taskDueDates && Object.prototype.hasOwnProperty.call(taskDueDates, item.taskId)) {
+        return taskDueDates[item.taskId]?.trim() || null;
+    }
+    return item.dueDate?.trim() || null;
 }
 
 export interface MonthFulfillmentOptions {

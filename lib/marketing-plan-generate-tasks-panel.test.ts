@@ -58,5 +58,6 @@ test('item row shows a task chip only after the item is linked', () => {
         onChanged: () => {},
     }));
     assert.match(linked, /href="\/tasks\?task=task-1"/);
-    assert.match(linked, /checked/);
+    assert.doesNotMatch(linked, /type="checkbox"/);
+    assert.match(linked, /Open task/);
 });

@@ -63,15 +63,17 @@ export function ClientOverviewWidget({ client, organizationId }: ClientOverviewW
     const enabled = process.env.NEXT_PUBLIC_WORKSPACE_OVERVIEW === 'true';
     const [overview, setOverview] = useState<ClientOverview | null>(null);
     const [loading, setLoading] = useState(enabled);
+    const [loadError, setLoadError] = useState(false);
 
     useEffect(() => {
         if (!enabled || !organizationId) return;
         let active = true;
-        setLoading(true);
+        setLoading(true); setLoadError(false);
         getClientOverview(client, organizationId)
             .then((data) => {
                 if (active) setOverview(data);
             })
+            .catch(() => { if (active) setLoadError(true); })
             .finally(() => {
                 if (active) setLoading(false);
             });
@@ -92,6 +94,7 @@ export function ClientOverviewWidget({ client, organizationId }: ClientOverviewW
         );
     }
 
+    if (loadError) return <p role="alert" className="text-sm text-destructive">Client overview could not be loaded. Refresh to retry.</p>;
     if (!overview) return null;
 
     const primaryAction = overview.nextBestActions[0];
@@ -177,7 +180,7 @@ export function ClientOverviewWidget({ client, organizationId }: ClientOverviewW
             />
             <OverviewCard
                 icon={<Target className="h-4 w-4 text-primary" />}
-                label="Campaign Plan"
+                label="SEO Plan"
                 value={overview.campaignPlan.exists ? 'Ready' : 'Missing'}
                 badge={overview.campaignPlan.exists ? (
                     <CheckCircle2 className="h-5 w-5 text-green-500" />

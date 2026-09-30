@@ -1016,12 +1016,14 @@ export interface MarketingPlanItem {
     sortOrder: number;
     comments: MarketingPlanItemComment[];
     taskId?: string; // set when promoted to a real Task
+    linkedTask?: Task; // authoritative execution state, populated on read
     isCustom: boolean;
     createdAt: string;
     updatedAt: string;
 }
 
 export interface MarketingPlan {
+    goal?: string;
     id: string;
     organizationId: string;
     clientId: string;

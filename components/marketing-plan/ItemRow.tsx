@@ -5,9 +5,10 @@ import {
     ChevronDown, ChevronUp, MoreVertical, User, Clock,
     MessageSquare, ArrowUpRight, Trash2, EyeOff, Eye,
 } from 'lucide-react';
+import { TASK_STATUS_LABELS } from '@/lib/marketing-plan-execution';
 import { cn } from '@/lib/utils';
 import {
-    MarketingPlanItem, MarketingPlanItemPriority,
+    MarketingPlanItem, MarketingPlanItemPriority, Task,
 } from '@/lib/types';
 import {
     updateMarketingPlanItem, addItemComment,
@@ -32,12 +33,14 @@ interface ItemRowProps {
     members: MemberOption[];
     currentUser: { id?: string; name: string };
     onChanged: () => void;
+    onOpenTask?: (task: Task) => void;
 }
 
-export function ItemRow({ item, members, currentUser, onChanged }: ItemRowProps) {
+export function ItemRow({ item, members, currentUser, onChanged, onOpenTask }: ItemRowProps) {
     const [expanded, setExpanded] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
     const [commentDraft, setCommentDraft] = useState('');
+    const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
     const [toggling, setToggling] = useState(false);
 
@@ -45,57 +48,36 @@ export function ItemRow({ item, members, currentUser, onChanged }: ItemRowProps)
     const isIgnored = item.status === 'ignored';
     const assignee = members.find(m => m.userId === item.assigneeId);
 
-    // Linked items: checking marks the task done, and migration 059 checks the
-    // item. Unchecking reopens a done/approved task only — an in-progress task
-    // is left alone and just the item is unchecked. See checklistTogglePlan.
+    const saveItem = async (patch: Parameters<typeof updateMarketingPlanItem>[1]) => {
+        setError('');
+        const res = await updateMarketingPlanItem(item.id, patch);
+        if (!res.success) setError(res.error ?? 'Could not save changes');
+        onChanged();
+    };
+
     const toggleDone = async () => {
-        if (toggling || isIgnored) return;
-        setToggling(true);
-        try {
-            let taskStatus: string | null | undefined;
-            if (item.taskId && isDone) {
-                const loaded = await getTask(item.taskId);
-                taskStatus = loaded.task?.status ?? null;
-            }
-            const plan = checklistTogglePlan({
-                itemStatus: item.status,
-                taskId: item.taskId,
-                taskStatus,
-            });
-            if (plan.write === 'item') {
-                const res = await updateMarketingPlanItem(item.id, { status: plan.status });
-                if (!res.success) alert(res.error ?? 'Could not update the item');
-            } else if (item.taskId) {
-                const res = await updateTask(item.taskId, {
-                    status: plan.status,
-                    updatedBy: currentUser.id,
-                });
-                if (!res.success) alert(res.error ?? 'Could not update the linked task');
-            }
-            onChanged();
-        } finally {
-            setToggling(false);
-        }
+        await saveItem({ status: isDone ? 'todo' : 'done' });
+        onChanged();
     };
 
     const setPriority = async (p: MarketingPlanItemPriority) => {
-        await updateMarketingPlanItem(item.id, { priority: p });
+        await saveItem({ priority: p });
         onChanged();
     };
 
     const setAssignee = async (userId: string) => {
-        await updateMarketingPlanItem(item.id, { assigneeId: userId || null });
+        await saveItem({ assigneeId: userId || null });
         onChanged();
     };
 
     const setDueDate = async (date: string) => {
-        await updateMarketingPlanItem(item.id, { dueDate: date || null });
+        await saveItem({ dueDate: date || null });
         onChanged();
     };
 
     const toggleIgnored = async () => {
         setMenuOpen(false);
-        await updateMarketingPlanItem(item.id, { status: isIgnored ? 'todo' : 'ignored' });
+        await saveItem({ status: isIgnored ? 'todo' : 'ignored' });
         onChanged();
     };
 
@@ -153,14 +135,22 @@ export function ItemRow({ item, members, currentUser, onChanged }: ItemRowProps)
         });
     };
 
+    if (item.taskId) return <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/40 py-4 last:border-b-0">
+        <div><p className="text-sm font-medium">{item.title}</p><p className="mt-1 text-xs text-muted-foreground">{isIgnored ? 'Excluded from plan' : item.linkedTask ? TASK_STATUS_LABELS[item.linkedTask.status] : isDone ? 'Done' : 'Linked task'} · {item.dueDate ?? 'No due date'} · Shared with Tasks</p></div>
+        <div className="flex gap-2"><button className="min-h-10 rounded-lg px-3 text-xs text-muted-foreground hover:bg-muted" onClick={toggleIgnored}>{isIgnored ? 'Include in plan' : 'Exclude from plan'}</button>{item.linkedTask && onOpenTask ? <button className="min-h-10 shrink-0 rounded-lg border border-border px-3 text-sm text-primary hover:bg-muted" onClick={() => onOpenTask(item.linkedTask!)}>Open task</button> : <a className="inline-flex min-h-10 items-center rounded-lg border border-border px-3 text-sm text-primary" href={`/tasks?task=${item.taskId}`}>Open task</a>}</div>
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    </div>;
+
     return (
         <div className={cn(
             'py-4 border-b border-border/40 last:border-b-0',
             isIgnored && 'opacity-50',
         )}>
+            {error && <p role="alert" className="mb-2 text-sm text-destructive">{error}</p>}
             {/* Title row */}
             <div className="flex items-start gap-3">
                 <input
+                    aria-label={`Complete ${item.title}`}
                     type="checkbox"
                     checked={isDone}
                     onChange={toggleDone}
@@ -182,6 +172,7 @@ export function ItemRow({ item, members, currentUser, onChanged }: ItemRowProps)
                 </div>
                 <div className="flex items-center gap-2 shrink-0 print:hidden">
                     <select
+                        aria-label={`Priority for ${item.title}`}
                         value={item.priority}
                         onChange={e => setPriority(e.target.value as MarketingPlanItemPriority)}
                         className={cn(
@@ -195,6 +186,8 @@ export function ItemRow({ item, members, currentUser, onChanged }: ItemRowProps)
                     </select>
                     <div className="relative">
                         <button
+                            aria-label={`Actions for ${item.title}`}
+                            aria-expanded={menuOpen}
                             onClick={() => setMenuOpen(o => !o)}
                             className="p-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
                         >
@@ -232,6 +225,7 @@ export function ItemRow({ item, members, currentUser, onChanged }: ItemRowProps)
             {/* Details toggle + meta chips */}
             <div className="flex items-center justify-between mt-2 ml-7">
                 <button
+                    aria-expanded={expanded}
                     onClick={() => setExpanded(e => !e)}
                     className="flex items-center gap-1 text-xs font-medium text-primary hover:underline print:hidden"
                 >
@@ -256,6 +250,7 @@ export function ItemRow({ item, members, currentUser, onChanged }: ItemRowProps)
                 <div className="ml-7 mt-3 space-y-4 rounded-lg bg-muted/30 p-4">
                     <div className="flex items-center gap-3 print:hidden">
                         <select
+                            aria-label={`Owner for ${item.title}`}
                             value={item.assigneeId ?? ''}
                             onChange={e => setAssignee(e.target.value)}
                             className="text-xs border border-border rounded-lg px-2 py-1.5 bg-card"
@@ -266,6 +261,7 @@ export function ItemRow({ item, members, currentUser, onChanged }: ItemRowProps)
                             ))}
                         </select>
                         <input
+                            aria-label={`Due date for ${item.title}`}
                             type="date"
                             value={item.dueDate ?? ''}
                             onChange={e => setDueDate(e.target.value)}

@@ -27,6 +27,7 @@ interface PlanBlockContext {
 type LoadState =
     | { status: 'loading' }
     | { status: 'missing' }
+    | { status: 'error' }
     | { status: 'ready'; plan: MarketingPlan; taskDueDates: Record<string, string | null> };
 
 export function MarketingPlanReportBlock({ block, ctx }: { block: Block; ctx: PlanBlockContext }) {
@@ -58,20 +59,21 @@ export function MarketingPlanReportBlock({ block, ctx }: { block: Block; ctx: Pl
                 return;
             }
             const taskIds = [...new Set(
-                (plan.items ?? []).filter(item => item.taskId && !item.dueDate?.trim()).map(item => item.taskId as string),
+                (plan.items ?? []).filter(item => item.taskId).map(item => item.taskId as string),
             )];
             const taskDueDates: Record<string, string | null> = {};
             if (taskIds.length > 0) {
                 const supabase = createClient();
                 if (supabase) {
-                    const { data } = await supabase.from('tasks').select('id, due_date').in('id', taskIds);
+                    const { data, error } = await supabase.from('tasks').select('id, due_date').in('id', taskIds);
+                    if (error) throw error;
                     for (const row of (data ?? []) as { id: string; due_date: string | null }[]) {
                         taskDueDates[row.id] = row.due_date ? String(row.due_date).slice(0, 10) : null;
                     }
                 }
             }
             if (!cancelled) setLoaded({ status: 'ready', plan, taskDueDates });
-        })();
+        })().catch(() => { if (!cancelled) setLoaded({ status: 'error' }); });
         return () => { cancelled = true; };
     }, [clientId, snapshotLocked]);
 
@@ -82,6 +84,8 @@ export function MarketingPlanReportBlock({ block, ctx }: { block: Block; ctx: Pl
             </SectionFrame>
         );
     }
+
+    if (loaded.status === 'error') return <Note text="SEO Plan could not be loaded. Refresh to retry." />;
 
     if (loaded.status === 'loading') {
         return (

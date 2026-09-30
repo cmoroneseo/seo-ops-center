@@ -103,6 +103,8 @@ export async function getTimeLogs(
     organizationId: string,
     opts: {
         clientId?: string;
+        /** Let capacity surfaces distinguish unavailable data from zero hours. */
+        throwOnError?: boolean;
         month?: string;
         includeInProgress?: boolean;
         /** Review surfaces that deliberately show unapproved imports. */
@@ -110,7 +112,7 @@ export async function getTimeLogs(
     } = {},
 ): Promise<TimeLog[]> {
     const supabase = createClient();
-    if (!supabase) return [];
+    if (!supabase) { if (opts.throwOnError) throw new Error('Time data unavailable'); return []; }
     try {
         let q = supabase.from('time_logs').select('*, clients(name), tasks(title)').eq('organization_id', organizationId);
         if (!opts.includeInProgress) q = q.eq('status', 'logged');
@@ -126,6 +128,7 @@ export async function getTimeLogs(
         return (data || []).map(rowToTimeLog);
     } catch (err) {
         console.error('Error fetching time logs:', err);
+        if (opts.throwOnError) throw err;
         return [];
     }
 }

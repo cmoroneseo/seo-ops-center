@@ -93,7 +93,7 @@ async function loadPlan(contact: PortalContact): Promise<PortalPlanView> {
             .eq('organization_id', contact.organizationId)
             .maybeSingle(),
         admin.from('marketing_plan_items')
-            .select('id, step_key, title, description, status, due_date, sort_order')
+            .select('id, step_key, title, description, status, due_date, sort_order, linked_task:tasks(due_date, status, organization_id, client_id)')
             .eq('marketing_plan_id', planId)
             .eq('client_id', contact.clientId)
             .eq('organization_id', contact.organizationId)
@@ -138,13 +138,15 @@ async function loadPlan(contact: PortalContact): Promise<PortalPlanView> {
             };
         }),
         items: (itemRows ?? []).flatMap(row => {
+            const linked = row.linked_task as unknown as { due_date: string | null; status: string; organization_id: string; client_id: string } | null;
+            const scopedTask = linked?.organization_id === contact.organizationId && linked?.client_id === contact.clientId ? linked : null;
             const item = portalPlanItem({
                 id: String(row.id),
                 stepKey: String(row.step_key),
                 title: String(row.title),
                 description: row.description as string | null,
-                status: String(row.status),
-                dueDate: row.due_date ? String(row.due_date).slice(0, 10) : null,
+                status: row.status === 'ignored' ? 'ignored' : scopedTask ? (['done', 'approved'].includes(scopedTask.status) ? 'done' : 'todo') : String(row.status),
+                dueDate: scopedTask ? scopedTask.due_date : row.due_date ? String(row.due_date).slice(0, 10) : null,
                 sortOrder: row.sort_order as number | null,
             });
             return item ? [item] : [];

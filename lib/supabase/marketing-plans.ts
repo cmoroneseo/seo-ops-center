@@ -4,8 +4,9 @@ import {
     MarketingPlanItemPriority,
 } from '../types';
 import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS, SEO_PLAN_LABEL } from '../marketing-plan-template';
-import { itemsEligibleForTaskGeneration, taskFieldsFromPlanItem } from '../marketing-plan-logic';
-import { createTask } from './tasks';
+import { createTask, rowToTask } from './tasks';
+import { itemsEligibleForTaskGeneration } from '../marketing-plan-logic';
+import { resolvePlanItem } from '../marketing-plan-execution';
 
 // ---------------------------------------------------------------------------
 // Row mappers
@@ -18,6 +19,7 @@ function rowToPlan(r: any): MarketingPlan {
         clientId: r.client_id,
         title: r.title,
         steps: r.steps ?? [],
+        goal: r.goal ?? undefined,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
     };
@@ -51,23 +53,23 @@ function rowToItem(r: any): MarketingPlanItem {
 
 export async function getMarketingPlan(clientId: string): Promise<MarketingPlan | null> {
     const supabase = createClient();
-    if (!supabase) return null;
+    if (!supabase) throw new Error('Supabase is unavailable');
     const { data, error } = await supabase
         .from('marketing_plans')
         .select('*')
         .eq('client_id', clientId)
         .maybeSingle();
-    if (error) { console.error('getMarketingPlan:', error); return null; }
+    if (error) throw new Error(error.message);
     if (!data) return null;
     const plan = rowToPlan(data);
 
     const { data: itemRows, error: itemsError } = await supabase
         .from('marketing_plan_items')
-        .select('*')
+        .select('*, linked_task:tasks(*)')
         .eq('marketing_plan_id', plan.id)
         .order('sort_order', { ascending: true });
-    if (itemsError) { console.error('getMarketingPlan items:', itemsError); return plan; }
-    return { ...plan, items: (itemRows ?? []).map(rowToItem) };
+    if (itemsError) throw new Error(itemsError.message);
+    return { ...plan, items: (itemRows ?? []).map((row: any) => resolvePlanItem({ ...rowToItem(row), linkedTask: row.linked_task ? rowToTask(row.linked_task) : undefined })) };
 }
 
 export async function createMarketingPlanFromTemplate(input: {
@@ -211,39 +213,29 @@ export async function promoteItemToTask(
     item: MarketingPlanItem,
     actorName?: string,
 ): Promise<{ success: boolean; taskId?: string; error?: string }> {
-    if (item.taskId) return { success: false, error: 'This item is already linked to a task' };
-    const supabase = createClient();
-    if (!supabase) return { success: false, error: 'No client' };
-
-    const { data: fresh, error: readError } = await supabase
-        .from('marketing_plan_items')
-        .select('task_id')
-        .eq('id', item.id)
-        .maybeSingle();
-    if (readError) return { success: false, error: readError.message };
-    if (!fresh) return { success: false, error: 'Item not found' };
-    if (fresh.task_id) return { success: false, error: 'This item is already linked to a task' };
-
+    if (item.taskId) return { success: true, taskId: item.taskId };
     const res = await createTask({
-        ...taskFieldsFromPlanItem(item),
+        sourceMarketingPlanItemId: item.id,
+        organizationId: item.organizationId,
+        clientId: item.clientId,
+        title: item.title,
+        description: item.description,
+        priority: item.priority,
+        assigneeIds: item.assigneeId ? [item.assigneeId] : undefined,
+        dueDate: item.dueDate,
         actorName,
     });
     if (!res.success || !res.data) return { success: false, error: res.error ?? 'Task creation failed' };
 
-    // Claim the link only if it is still empty, so two clicks cannot attach
-    // two tasks. The loser deletes the task it just created.
-    const { data: linked, error } = await supabase
-        .from('marketing_plan_items')
-        .update({ task_id: res.data.id, updated_at: new Date().toISOString() })
-        .eq('id', item.id)
-        .is('task_id', null)
-        .select('id')
-        .maybeSingle();
-    if (error || !linked) {
-        await supabase.from('tasks').delete().eq('id', res.data.id);
-        return { success: false, error: error?.message ?? 'This item is already linked to a task' };
-    }
     return { success: true, taskId: res.data.id };
+}
+
+export async function updateMarketingPlanGoal(planId: string, goal: string): Promise<void> {
+    const supabase = createClient();
+    if (!supabase) throw new Error('Supabase is unavailable');
+    const { error } = await supabase.from('marketing_plans')
+        .update({ goal: goal.trim() || null, updated_at: new Date().toISOString() }).eq('id', planId);
+    if (error) throw new Error(error.message);
 }
 
 export interface PromoteItemsResult {
@@ -267,4 +259,11 @@ export async function promoteItemsToTasks(
         }
     }
     return { created, failed };
+}
+
+export async function addExistingTaskToPlan(planId: string, taskId: string, stepKey: string): Promise<void> {
+    const supabase = createClient();
+    if (!supabase) throw new Error('Supabase is unavailable');
+    const { error } = await supabase.rpc('add_existing_task_to_marketing_plan', { p_plan_id: planId, p_task_id: taskId, p_step_key: stepKey });
+    if (error) throw new Error(error.message);
 }

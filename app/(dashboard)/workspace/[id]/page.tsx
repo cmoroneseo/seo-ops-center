@@ -25,15 +25,16 @@ import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { useTimer } from '@/components/providers/timer-provider';
 import { ClientProject } from '@/lib/types';
-import { Pencil, Play, Pause, ListTodo, Plus } from 'lucide-react';
+import { Pencil, Play, Pause, Plus } from 'lucide-react';
 import { TaskListView } from '@/components/tasks/TaskListView';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
 import { getTasksByClient } from '@/lib/supabase/tasks';
 import { getLoggedHoursByClient } from '@/lib/supabase/time-logs';
 import { Task } from '@/lib/types';
-import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
 import { SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
+import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
+import { BasecampImportModal } from '@/components/workspace/BasecampImportModal';
 import { ClientApprovalsTab } from '@/components/approvals/ClientApprovalsTab';
 import { ClientPortalStaffPanel } from '@/components/portal/ClientPortalStaffPanel';
 
@@ -48,11 +49,27 @@ export default function ClientDetailPage() {
     const [showReassign, setShowReassign] = useState(false);
     const [showEditPanel, setShowEditPanel] = useState(false);
     const [activityRefreshKey, setActivityRefreshKey] = useState(0);
-    const [activeTab, setActiveTab] = useState<Tab>('overview');
+    const [activeTab, setActiveTabState] = useState<Tab>('overview');
+    const [planView, setPlanView] = useState<'plan' | 'tasks'>('plan');
+    const [importOpen, setImportOpen] = useState(false);
+    const setActiveTab = (tab: Tab) => {
+        setActiveTabState(tab === 'tasks' ? 'campaign' : tab);
+        if (tab === 'tasks') setPlanView('tasks');
+        else if (tab === 'campaign') setPlanView('plan');
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', tab === 'tasks' ? 'campaign' : tab);
+        if (tab === 'tasks') url.searchParams.set('planView', 'tasks');
+        else url.searchParams.delete('planView');
+        window.history.replaceState(null, '', url);
+    };
 
     useEffect(() => {
         const query = new URLSearchParams(window.location.search);
-        if (query.has('integrationSuccess') || query.has('integrationError')) setActiveTab('integrations');
+        const tab = query.get('tab');
+        if (tab && ['overview', 'campaign', 'tasks', 'integrations', 'insights', 'inventory', 'topical-map', 'approvals', 'portal'].includes(tab)) setActiveTabState(tab as Tab);
+        if (tab === 'tasks') { setActiveTabState('campaign'); setPlanView('tasks'); }
+        else setPlanView(query.get('planView') === 'tasks' ? 'tasks' : 'plan');
+        if (query.has('integrationSuccess') || query.has('integrationError')) setActiveTabState('integrations');
     }, [id]);
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
     const [loggedHours, setLoggedHours] = useState<number | undefined>(undefined);
@@ -89,13 +106,16 @@ export default function ClientDetailPage() {
     }, [organization?.id, id]);
 
     useEffect(() => {
-        if (activeTab !== 'tasks' || !id) return;
+        if (activeTab !== 'campaign' || planView !== 'tasks' || !id) return;
+        let cancelled = false;
         setTasksLoading(true);
         getTasksByClient(id).then(tasks => {
+            if (cancelled) return;
             setClientTasks(tasks);
             setTasksLoading(false);
         });
-    }, [activeTab, id]);
+        return () => { cancelled = true; };
+    }, [activeTab, planView, id]);
 
     // Budget-consuming hours for this month — excludes internal work and client
     // meetings flagged as not counting toward budget. Re-read whenever confirmed
@@ -233,7 +253,7 @@ export default function ClientDetailPage() {
                 <button
                     onClick={() => setActiveTab('overview')}
                     className={cn(
-                        'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                        'flex shrink-0 whitespace-nowrap items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
                         activeTab === 'overview'
                             ? 'border-primary text-foreground'
                             : 'border-transparent text-muted-foreground hover:text-foreground',
@@ -244,7 +264,7 @@ export default function ClientDetailPage() {
                 <button
                     onClick={() => setActiveTab('campaign')}
                     className={cn(
-                        'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                        'flex shrink-0 whitespace-nowrap items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
                         activeTab === 'campaign'
                             ? 'border-primary text-foreground'
                             : 'border-transparent text-muted-foreground hover:text-foreground',
@@ -252,23 +272,6 @@ export default function ClientDetailPage() {
                 >
                     <Target className="h-3.5 w-3.5" />
                     {SEO_PLAN_LABEL}
-                </button>
-                <button
-                    onClick={() => setActiveTab('tasks')}
-                    className={cn(
-                        'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-                        activeTab === 'tasks'
-                            ? 'border-primary text-foreground'
-                            : 'border-transparent text-muted-foreground hover:text-foreground',
-                    )}
-                >
-                    <ListTodo className="h-3.5 w-3.5" />
-                    Tasks
-                    {clientTasks.filter(t => t.status !== 'done').length > 0 && (
-                        <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold">
-                            {clientTasks.filter(t => t.status !== 'done').length}
-                        </span>
-                    )}
                 </button>
                 <button
                     onClick={() => setActiveTab('insights')}
@@ -293,7 +296,7 @@ export default function ClientDetailPage() {
                 <button
                     onClick={() => setActiveTab('integrations')}
                     className={cn(
-                        'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                        'flex shrink-0 whitespace-nowrap items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
                         activeTab === 'integrations'
                             ? 'border-primary text-foreground'
                             : 'border-transparent text-muted-foreground hover:text-foreground',
@@ -304,34 +307,52 @@ export default function ClientDetailPage() {
                 </button>
             </div>
 
-            {/* SEO Plan tab */}
-            {activeTab === 'campaign' && (
+            {/* SEO Marketing Plan tab */}
+            {activeTab === 'campaign' && <nav aria-label="SEO Plan sections" className="mb-5 flex flex-wrap items-center gap-2 border-b border-border pb-3">
+                {([['plan', 'Monthly plan'], ['tasks', 'All client tasks']] as const).map(([view, label]) => <button key={view} aria-pressed={planView === view} onClick={() => {
+                    setPlanView(view);
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('tab', 'campaign');
+                    if (view === 'tasks') url.searchParams.set('planView', 'tasks'); else url.searchParams.delete('planView');
+                    window.history.replaceState(null, '', url);
+                }} className={cn('rounded-lg px-4 py-2 text-sm font-medium', planView === view ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>{label}</button>)}
+            </nav>}
+            {activeTab === 'campaign' && planView === 'plan' && (
                 <MarketingPlanTab
                     organizationId={organization?.id ?? ''}
                     clientId={client.id}
                     clientName={client.clientName}
+                    monthlyBudget={client.seoHours || client.retainerConfig?.monthlyHours || 0}
                 />
             )}
 
             {/* Tasks tab */}
-            {activeTab === 'tasks' && (
+            {activeTab === 'campaign' && planView === 'tasks' && (
                 <div className="space-y-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
-                            <h3 className="font-semibold text-foreground">Tasks for {client.clientName}</h3>
+                            <h3 className="font-semibold text-foreground">All tasks for {client.clientName}</h3>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                                {clientTasks.filter(t => t.status !== 'done').length} active · {clientTasks.filter(t => t.status === 'done').length} completed
+                                {clientTasks.filter(t => t.status !== 'done' && t.status !== 'approved').length} active · {clientTasks.filter(t => (t.status === 'done' || t.status === 'approved')).length} completed
                             </p>
                         </div>
+                        <div className="flex flex-wrap gap-2">
+                        <button onClick={() => setImportOpen(true)} className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted">Import from Basecamp</button>
                         <button
                             onClick={() => setIsCreateTaskOpen(true)}
-                            className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 transition-colors shadow-sm"
+                            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-primary-foreground hover:opacity-90 transition-colors shadow-sm"
                         >
                             <Plus className="h-4 w-4" />
                             New Task
                         </button>
+                        </div>
                     </div>
 
+                    <p className="text-sm text-muted-foreground">All client work, including Basecamp imports and ad hoc requests. Monthly plan shows the work selected for your SEO priorities.</p>
+                    {importOpen && organization && <BasecampImportModal isOpen onClose={() => setImportOpen(false)} onSuccess={() => {
+                        setImportOpen(false);
+                        void getTasksByClient(id).then(setClientTasks);
+                    }} clientId={client.id} organizationId={organization.id} />}
                     {tasksLoading ? (
                         <div className="text-center py-12 text-muted-foreground text-sm italic">Loading tasks…</div>
                     ) : (

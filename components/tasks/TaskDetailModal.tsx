@@ -25,6 +25,7 @@ import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
 interface TaskDetailModalProps {
     task: Task | null;
     isOpen: boolean;
+    initialCompletion?: boolean;
     onClose: () => void;
     onUpdate?: (task: Task) => void;
     onDelete?: (taskId: string) => void;
@@ -146,7 +147,7 @@ function TaskTimeLogRow({
     );
 }
 
-export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId }: TaskDetailModalProps) {
+export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId, initialCompletion = false }: TaskDetailModalProps) {
     const { organization, memberships } = useOrganization();
     const { runningTimer, pausedTimers, startTask, pause, beginStop } = useTimer();
     const [mounted, setMounted] = useState(false);
@@ -213,6 +214,10 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         setCompletionError(null);
         completionOperationId.current = null;
     }, [task?.id]);
+
+    useEffect(() => {
+        if (isOpen && initialCompletion && task && task.status !== 'done') setShowCompletion(true);
+    }, [isOpen, initialCompletion, task?.id]);
 
     // Fetch org members once per organization
     useEffect(() => {

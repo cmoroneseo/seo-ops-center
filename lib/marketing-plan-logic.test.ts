@@ -245,17 +245,18 @@ test('engagement anchor prefers the launch override, then launch, then plan crea
     assert.equal(planEngagementAnchor({ launchDate: 'soon' }), null);
 });
 
-test('checklist due date wins; linked task due date fills a blank item', () => {
+test('linked task dates win, including cleared dates', () => {
     const taskDueDates = { 'task-1': '2026-08-01' };
     assert.equal(
         schedulingDateForItem(item({ dueDate: '2026-04-01', taskId: 'task-1' }), taskDueDates),
-        '2026-04-01',
+        '2026-08-01',
     );
     assert.equal(
         schedulingDateForItem(item({ dueDate: '  ', taskId: 'task-1' }), taskDueDates),
         '2026-08-01',
     );
     assert.equal(schedulingDateForItem(item({ taskId: 'task-1' })), null);
+    assert.equal(schedulingDateForItem(item({ taskId: 'task-1', dueDate: '2026-04-01' }), { 'task-1': null }), null);
 });
 
 test('month buckets index from the anchor and keep undated items', () => {
