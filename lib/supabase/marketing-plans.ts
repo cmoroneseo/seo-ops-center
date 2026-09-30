@@ -4,6 +4,7 @@ import {
     MarketingPlanItemPriority,
 } from '../types';
 import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS } from '../marketing-plan-template';
+import { itemsEligibleForTaskGeneration, taskFieldsFromPlanItem } from '../marketing-plan-logic';
 import { createTask } from './tasks';
 
 // ---------------------------------------------------------------------------
@@ -210,24 +211,60 @@ export async function promoteItemToTask(
     item: MarketingPlanItem,
     actorName?: string,
 ): Promise<{ success: boolean; taskId?: string; error?: string }> {
+    if (item.taskId) return { success: false, error: 'This item is already linked to a task' };
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'No client' };
+
+    const { data: fresh, error: readError } = await supabase
+        .from('marketing_plan_items')
+        .select('task_id')
+        .eq('id', item.id)
+        .maybeSingle();
+    if (readError) return { success: false, error: readError.message };
+    if (!fresh) return { success: false, error: 'Item not found' };
+    if (fresh.task_id) return { success: false, error: 'This item is already linked to a task' };
+
     const res = await createTask({
-        organizationId: item.organizationId,
-        clientId: item.clientId,
-        title: item.title,
-        description: item.description,
-        priority: item.priority,
-        assigneeIds: item.assigneeId ? [item.assigneeId] : undefined,
-        dueDate: item.dueDate,
+        ...taskFieldsFromPlanItem(item),
         actorName,
     });
     if (!res.success || !res.data) return { success: false, error: res.error ?? 'Task creation failed' };
 
-    const supabase = createClient();
-    if (!supabase) return { success: false, error: 'No client' };
-    const { error } = await supabase
+    // Claim the link only if it is still empty, so two clicks cannot attach
+    // two tasks. The loser deletes the task it just created.
+    const { data: linked, error } = await supabase
         .from('marketing_plan_items')
         .update({ task_id: res.data.id, updated_at: new Date().toISOString() })
-        .eq('id', item.id);
-    if (error) return { success: false, error: error.message };
+        .eq('id', item.id)
+        .is('task_id', null)
+        .select('id')
+        .maybeSingle();
+    if (error || !linked) {
+        await supabase.from('tasks').delete().eq('id', res.data.id);
+        return { success: false, error: error?.message ?? 'This item is already linked to a task' };
+    }
     return { success: true, taskId: res.data.id };
+}
+
+export interface PromoteItemsResult {
+    created: { itemId: string; taskId: string }[];
+    failed: { itemId: string; title: string; error: string }[];
+}
+
+/** Create tasks for every eligible item, in list order. Already-linked, done, and ignored items are skipped. */
+export async function promoteItemsToTasks(
+    items: MarketingPlanItem[],
+    actorName?: string,
+): Promise<PromoteItemsResult> {
+    const created: PromoteItemsResult['created'] = [];
+    const failed: PromoteItemsResult['failed'] = [];
+    for (const item of itemsEligibleForTaskGeneration(items)) {
+        const res = await promoteItemToTask(item, actorName);
+        if (res.success && res.taskId) {
+            created.push({ itemId: item.id, taskId: res.taskId });
+        } else {
+            failed.push({ itemId: item.id, title: item.title, error: res.error ?? 'Task creation failed' });
+        }
+    }
+    return { created, failed };
 }

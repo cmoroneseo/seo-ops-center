@@ -4,7 +4,12 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computePlanSummary, groupItems, filterItems } from './marketing-plan-logic.ts';
+import {
+    computePlanSummary, groupItems, filterItems,
+    itemsEligibleForTaskGeneration, taskFieldsFromPlanItem,
+    nextChecklistStatusForTask, checklistTogglePlan,
+    TASK_STATUSES_THAT_COMPLETE_CHECKLIST,
+} from './marketing-plan-logic.ts';
 import type { MarketingPlanItem, MarketingPlanStep } from './types.ts';
 
 function item(over: Partial<MarketingPlanItem>): MarketingPlanItem {
@@ -89,4 +94,85 @@ test('filterItems matches title and description, case-insensitive', () => {
     assert.deepEqual(filterItems(items, 'gsc').map(i => i.id), ['b']);
     assert.deepEqual(filterItems(items, 'google').map(i => i.id), ['a']);
     assert.equal(filterItems(items, '  ').length, 3);
+});
+
+test('task generation skips done, ignored, and already-linked items', () => {
+    const eligible = itemsEligibleForTaskGeneration([
+        item({ id: 'todo', status: 'todo' }),
+        item({ id: 'done', status: 'done' }),
+        item({ id: 'ignored', status: 'ignored' }),
+        item({ id: 'linked', status: 'todo', taskId: 'task-1' }),
+    ]);
+    assert.deepEqual(eligible.map(i => i.id), ['todo']);
+});
+
+test('task fields copy title, description, priority, assignee, and due date', () => {
+    const fields = taskFieldsFromPlanItem(item({
+        title: 'Fix titles',
+        description: 'Rewrite title tags',
+        priority: 'high',
+        assigneeId: 'user-1',
+        dueDate: '2026-08-01',
+    }));
+    assert.equal(fields.title, 'Fix titles');
+    assert.equal(fields.description, 'Rewrite title tags');
+    assert.equal(fields.priority, 'high');
+    assert.deepEqual(fields.assigneeIds, ['user-1']);
+    assert.equal(fields.dueDate, '2026-08-01');
+    assert.equal(fields.clientId, 'c1');
+
+    const bare = taskFieldsFromPlanItem(item({ description: '' }));
+    assert.equal(bare.description, undefined);
+    assert.equal(bare.assigneeIds, undefined);
+    assert.equal(bare.dueDate, undefined);
+});
+
+test('checklist follows done and approved, and never rewrites ignored items', () => {
+    assert.deepEqual([...TASK_STATUSES_THAT_COMPLETE_CHECKLIST], ['done', 'approved']);
+    assert.equal(nextChecklistStatusForTask('todo', 'done'), 'done');
+    assert.equal(nextChecklistStatusForTask('todo', 'approved'), 'done');
+    assert.equal(nextChecklistStatusForTask('done', 'done'), null);
+    assert.equal(nextChecklistStatusForTask('done', 'approved'), null);
+    assert.equal(nextChecklistStatusForTask('done', 'todo'), 'todo');
+    assert.equal(nextChecklistStatusForTask('done', 'in_progress'), 'todo');
+    assert.equal(nextChecklistStatusForTask('done', 'review'), 'todo');
+    assert.equal(nextChecklistStatusForTask('done', 'blocked'), 'todo');
+    assert.equal(nextChecklistStatusForTask('todo', 'in_progress'), null);
+    assert.equal(nextChecklistStatusForTask('ignored', 'done'), null);
+    assert.equal(nextChecklistStatusForTask('ignored', 'todo'), null);
+});
+
+test('checkbox completes a linked task and does not rewind in-progress work', () => {
+    assert.deepEqual(
+        checklistTogglePlan({ itemStatus: 'todo' }),
+        { write: 'item', status: 'done' },
+    );
+    assert.deepEqual(
+        checklistTogglePlan({ itemStatus: 'done' }),
+        { write: 'item', status: 'todo' },
+    );
+    assert.deepEqual(
+        checklistTogglePlan({ itemStatus: 'todo', taskId: 'task-1' }),
+        { write: 'task', status: 'done' },
+    );
+    assert.deepEqual(
+        checklistTogglePlan({ itemStatus: 'done', taskId: 'task-1', taskStatus: 'done' }),
+        { write: 'task', status: 'todo' },
+    );
+    assert.deepEqual(
+        checklistTogglePlan({ itemStatus: 'done', taskId: 'task-1', taskStatus: 'approved' }),
+        { write: 'task', status: 'todo' },
+    );
+    assert.deepEqual(
+        checklistTogglePlan({ itemStatus: 'done', taskId: 'task-1', taskStatus: 'in_progress' }),
+        { write: 'item', status: 'todo' },
+    );
+    assert.deepEqual(
+        checklistTogglePlan({ itemStatus: 'done', taskId: 'task-1', taskStatus: 'review' }),
+        { write: 'item', status: 'todo' },
+    );
+    assert.deepEqual(
+        checklistTogglePlan({ itemStatus: 'done', taskId: 'task-1', taskStatus: null }),
+        { write: 'item', status: 'todo' },
+    );
 });
