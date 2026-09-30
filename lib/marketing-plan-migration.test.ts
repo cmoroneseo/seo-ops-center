@@ -3,12 +3,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 
+const permissionsMigration = readFileSync(new URL('../migrations/062_marketing_plan_execution_permissions.sql', import.meta.url), 'utf8');
 const migration = readFileSync(new URL('../migrations/061_marketing_plan_execution.sql', import.meta.url), 'utf8');
 test('promotion is retry safe, preserves source scope, and respects RLS', async () => {
     const db = new PGlite();
     try {
         await db.exec(`
             create role authenticated;
+            create role anon;
+            alter default privileges grant execute on functions to anon;
             create schema auth;
             create function auth.uid() returns uuid language sql as $$select '00000000-0000-0000-0000-000000000001'::uuid$$;
             create table marketing_plans(id uuid primary key, organization_id uuid, client_id uuid, steps jsonb);
@@ -31,6 +34,10 @@ test('promotion is retry safe, preserves source scope, and respects RLS', async 
         await db.exec(`insert into tasks (id, organization_id, client_id, title, priority, status) values
             ('00000000-0000-0000-0000-000000000300', '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000099', 'Other client task', 'medium', 'todo');`);
         await db.exec(migration);
+        await db.exec(permissionsMigration);
+        const privileges = await db.query<{anon_execute: boolean; authenticated_execute: boolean}>(`select has_function_privilege('anon',oid,'EXECUTE') as anon_execute, has_function_privilege('authenticated',oid,'EXECUTE') as authenticated_execute from pg_proc where proname in ('create_task_from_marketing_plan_item','add_existing_task_to_marketing_plan')`);
+        assert.equal(privileges.rows.length, 2);
+        for (const row of privileges.rows) { assert.equal(row.anon_execute, false); assert.equal(row.authenticated_execute, true); }
         await db.exec('set role authenticated');
         const query = "select * from create_task_from_marketing_plan_item('00000000-0000-0000-0000-000000000100')";
         const first = await db.query(query); const retry = await db.query(query);
@@ -49,4 +56,5 @@ test('promotion is retry safe, preserves source scope, and respects RLS', async 
         await assert.rejects(db.query("select create_task_from_marketing_plan_item('00000000-0000-0000-0000-000000000102')"), /Only open/);
     } finally { await db.close(); }
     assert.ok(readFileSync(new URL('../schema.sql', import.meta.url), 'utf8').includes(migration.trim()));
+    assert.ok(readFileSync(new URL('../schema.sql', import.meta.url), 'utf8').includes(permissionsMigration.trim()));
 });

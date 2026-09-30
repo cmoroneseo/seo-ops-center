@@ -35,3 +35,7 @@ Removed the client-level Tasks tab and renamed the parent to SEO Plan. Monthly p
 ## September 29 integration verification
 
 Code integration and automated checks passed. Authenticated in-app browser verification completed September 30 on localhost:3017 with Sandbox Client A. Monthly UI, nested task list, existing-task picker, Full plan/bulk preview, Results, and completion review entry load. Inline estimate save updates task and capacity; restored original 2.5h estimate. Fixed old heading and parent-tab wrapping. Basecamp sandbox project has no to-do lists, so import was not submitted. Migration 061 remains required for new promotion/linking/goal writes. See docs/research/seo-plan-review-2026-09-29/integration.md and monthly-preview.png in that directory.
+
+## September 30 database migration
+
+Applied 061 to the verified SEO Project Management Supabase project at the user’s request. Follow-up 062 removes direct anon execution grants inherited from Supabase default privileges. Both new RPCs preserve authenticated execution, SECURITY INVOKER and existing RLS. Rolled-back authenticated sandbox DB checks pass for goal update, task promotion/retry, and existing-task link/retry. No verification data retained. Remaining browser release checks are documented in integration.md.

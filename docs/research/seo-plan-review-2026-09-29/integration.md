@@ -22,8 +22,16 @@ Branch: codex/seo-plan-integration. Preserved the original monthly UI in 4ecf6f6
 - Inline estimate changed 2.5h → 3h: capacity updated to 3h planned/7h available with Tasks save confirmation. Restored to 2.5h, verified 2.5h planned/7.5h available. Completion review opens the existing time-confirmation dialog; cancelled without changing status.
 - Nested All client tasks shows 3 active/1 completed. Basecamp import loads SEO Ops Sandbox (testing), then reports no to-do lists; no import submitted. Existing-task picker excludes the already-linked task and offers the two open unlinked sandbox tasks.
 - Fixed stale SEO Marketing Plan heading and wrapping SEO Plan parent tab label found during visual checks. Screenshot: monthly-preview.png.
-- Goal save, fresh/bulk promotion, and existing-task link submission still require migration 061. No end-to-end claim for those writes or Basecamp import.
+- Migration-dependent DB checks completed below; browser submissions for bulk creation and Basecamp import remain unverified.
 
-## Release gate
+## Database release verification — September 30
 
-Apply 061 only after verifying target DB migration state; keep 059 and 060 already pushed. Then verify goal save, new and bulk promotion, existing Basecamp task linking, completion/time review, and report date consistency on the sandbox client. Do not deploy the integrated app before 061 is available. Production database and main deployment were not changed during integration.
+User authorized applying 061. Target confirmed: SEO Project Management, sgszojorcftyaknruckh, matching the local app configuration. Existing 059 task sync and 060 portal migrations were present.
+
+- Applied exact 061_marketing_plan_execution.sql; recorded version 20260930054231.
+- Verification found direct anon grants from Supabase default privileges survived revoking PUBLIC. Applied additive 062_marketing_plan_execution_permissions.sql to revoke anon explicitly. Both RPCs are SECURITY INVOKER with fixed search_path; authenticated can execute, anon cannot. RLS remains enabled on all three tables.
+- Authenticated-role database checks on Sandbox Client A passed in a transaction that was rolled back: goal update, new promotion, promotion retry reusing task with created=false, existing-task link, and linking retry reusing item. No test data retained.
+- PGlite regression reproduces the direct anon default grant and verifies 062 removes it while preserving authenticated access. Schema mirrors 062.
+- Security advisors reported no findings for either new function. Existing advisor categories/counts stayed unchanged; unrelated legacy advisory findings remain outside this migration.
+
+The DB migration gate is cleared. Browser checks for full bulk creation/import and client portal/report flows remain before release approval. Main/deployment were not changed; PR #94 remains draft.
