@@ -2,6 +2,7 @@
 // Custom org templates live in the report_templates table; these ship in code.
 
 import { Block, makeBlock } from './blocks';
+import { SEO_PLAN_LABEL } from '../marketing-plan-template';
 
 export interface StockTemplate {
     key: string;
@@ -17,7 +18,7 @@ export const STOCK_TEMPLATES: StockTemplate[] = [
         key: 'monthly_seo',
         name: 'Monthly SEO Report',
         description: 'The full monthly client report — summary, all four sources, recommendations.',
-        outline: ['Cover', 'Executive Summary', 'Organic Search', 'Website Traffic', 'Local Presence', 'Authority & Rankings', 'Recommendations'],
+        outline: ['Cover', 'Executive Summary', 'Organic Search', 'Website Traffic', 'Local Presence', 'Authority & Rankings', SEO_PLAN_LABEL, 'Recommendations'],
         build: () => [
             makeBlock('cover', {}),
             makeBlock('text', { field: 'executive_summary', label: 'Executive Summary' }),
@@ -25,6 +26,7 @@ export const STOCK_TEMPLATES: StockTemplate[] = [
             makeBlock('metrics_overview', { source: 'ga4' }),
             makeBlock('metrics_overview', { source: 'gbp' }),
             makeBlock('metrics_overview', { source: 'ahrefs' }),
+            makeBlock('marketing_plan', { planView: 'step' }),
             makeBlock('text', { field: 'recommendations', label: 'Recommendations' }),
         ],
     },

@@ -6098,12 +6098,388 @@ alter table public.notifications
         'content_approval_batch',
         'content_approval_doc'
     ));
+
+-- =============================================================================
+-- 059: Marketing plan checklist follows the linked task
+-- =============================================================================
+-- Task status is written from several places that do not share a helper:
+--   * lib/supabase/tasks.ts updateTask (task modal, planner, calendar)
+--   * app/api/time-tracking/route.ts completeOwnedTask (timer finalize)
+--   * app/api/integrations/basecamp/webhook updateTaskStatus (service role)
+-- A hook inside updateTask misses the API writers. Realtime only refreshes a
+-- browser that is open; it does not persist the checklist row. The link is
+-- marketing_plan_items.task_id, so the durable sync is an AFTER UPDATE trigger
+-- on tasks.status.
+--
+-- Rules (ignored items are never rewritten):
+--   * task status becomes done or approved → item todo becomes done
+--   * task status leaves done/approved → item done becomes todo
+-- Checking a linked item in the UI completes or reopens the task through
+-- updateTask; this trigger is what writes the item. Unchecking does not
+-- rewind a task that is already in progress, review, or blocked — that case
+-- only updates the item (see checklistTogglePlan in lib/marketing-plan-logic.ts).
+
+create index if not exists marketing_plan_items_task_idx
+  on public.marketing_plan_items (task_id)
+  where task_id is not null;
+
+create or replace function public.sync_marketing_plan_item_from_task()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+begin
+  if new.status is not distinct from old.status then
+    return new;
+  end if;
+
+  if new.status in ('done', 'approved') then
+    update public.marketing_plan_items
+      set status = 'done',
+          updated_at = timezone('utc', now())
+      where task_id = new.id
+        and organization_id = new.organization_id
+        and status = 'todo';
+  else
+    update public.marketing_plan_items
+      set status = 'todo',
+          updated_at = timezone('utc', now())
+      where task_id = new.id
+        and organization_id = new.organization_id
+        and status = 'done';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists sync_marketing_plan_item_from_task on public.tasks;
+create trigger sync_marketing_plan_item_from_task
+  after update of status on public.tasks
+  for each row
+  execute function public.sync_marketing_plan_item_from_task();
+
+-- Catch up items already linked to a finished task. Do not uncheck items
+-- someone marked done by hand while the task was still open.
+update public.marketing_plan_items as item
+set status = 'done',
+    updated_at = timezone('utc', now())
+from public.tasks as task
+where item.task_id = task.id
+  and item.organization_id = task.organization_id
+  and item.status = 'todo'
+  and task.status in ('done', 'approved');
+
+
+-- =============================================================================
+-- 060: Client portal v1
+-- =============================================================================
+-- Invite-only client contacts for one organization + client. They sign in with
+-- a magic link and use /portal. They are NOT organization_members.
+--
+-- get_user_org_ids() is unchanged, so every existing staff policy stays closed
+-- to these accounts. Portal reads and writes go through service-role routes
+-- that resolve the caller from auth.uid() and the contact row — never from a
+-- browser-supplied organization id.
+--
+-- Content batches stay on /review/[token]. This migration does not store raw
+-- share tokens. The portal mints a fresh hashed link at the moment a signed-in
+-- contact opens a batch that is already in review.
+-- =============================================================================
+
+create table public.client_portal_contacts (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+  email text not null check (email = lower(btrim(email)) and email ~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$'),
+  display_name text not null check (char_length(btrim(display_name)) between 1 and 80),
+  user_id uuid references public.users(id) on delete set null,
+  invited_by uuid references public.users(id) on delete set null,
+  revoked_at timestamptz,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+-- One live contact per email per client. A revoked row can be reactivated.
+create unique index client_portal_contacts_live_email_idx
+  on public.client_portal_contacts (client_id, email)
+  where revoked_at is null;
+
+create index client_portal_contacts_user_idx
+  on public.client_portal_contacts (user_id)
+  where user_id is not null and revoked_at is null;
+
+create index client_portal_contacts_org_idx
+  on public.client_portal_contacts (organization_id, client_id);
+
+alter table public.client_portal_contacts enable row level security;
+
+-- Staff can see who was invited. Portal users can see only their own live rows
+-- (middleware uses this to tell a client session from a staff session).
+create policy client_portal_contacts_staff_select
+  on public.client_portal_contacts for select to authenticated
+  using (organization_id in (select public.get_user_org_ids()));
+
+create policy client_portal_contacts_self_select
+  on public.client_portal_contacts for select to authenticated
+  using (user_id = auth.uid() and revoked_at is null);
+
+revoke all on table public.client_portal_contacts from public, anon, authenticated;
+grant select on table public.client_portal_contacts to authenticated;
+grant all on table public.client_portal_contacts to service_role;
+
+-- ─── Invites ────────────────────────────────────────────────────────────────
+-- Same shape as organization_invites: store the sha-256 of the token, consume
+-- once, service role only. Consuming a portal invite never inserts a membership.
+
+create table public.client_portal_invites (
+  id uuid primary key default gen_random_uuid(),
+  token_hash text not null unique check (length(token_hash) = 64),
+  contact_id uuid not null references public.client_portal_contacts(id) on delete cascade,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+  email text not null check (email = lower(btrim(email))),
+  invited_by uuid not null references public.users(id) on delete cascade,
+  expires_at timestamptz not null,
+  consumed_at timestamptz,
+  consumed_by uuid references public.users(id) on delete set null,
+  created_at timestamptz not null default timezone('utc', now())
+);
+
+create index client_portal_invites_expiry_idx
+  on public.client_portal_invites (expires_at)
+  where consumed_at is null;
+
+alter table public.client_portal_invites enable row level security;
+
+revoke all on table public.client_portal_invites from public, anon, authenticated;
+grant all on table public.client_portal_invites to service_role;
+
+create or replace function public.consume_client_portal_invite(
+  p_token_hash text,
+  p_user_id uuid,
+  p_email text
+) returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  invitation public.client_portal_invites%rowtype;
+  contact public.client_portal_contacts%rowtype;
+  normalized_email text;
+begin
+  if auth.role() is distinct from 'service_role'
+     and session_user not in ('postgres', 'supabase_admin') then
+    raise exception 'service role required' using errcode = '42501';
+  end if;
+
+  normalized_email := lower(btrim(coalesce(p_email, '')));
+
+  select * into invitation
+  from public.client_portal_invites
+  where token_hash = p_token_hash
+  for update;
+
+  if not found
+     or invitation.consumed_at is not null
+     or invitation.expires_at <= timezone('utc', now())
+     or normalized_email = ''
+     or invitation.email <> normalized_email then
+    return false;
+  end if;
+
+  select * into contact
+  from public.client_portal_contacts
+  where id = invitation.contact_id
+  for update;
+
+  if not found
+     or contact.revoked_at is not null
+     or contact.email <> invitation.email
+     or contact.organization_id is distinct from invitation.organization_id
+     or contact.client_id is distinct from invitation.client_id
+     or (contact.user_id is not null and contact.user_id is distinct from p_user_id) then
+    return false;
+  end if;
+
+  insert into public.users (id, email)
+  values (p_user_id, normalized_email)
+  on conflict (id) do nothing;
+
+  update public.client_portal_contacts
+  set user_id = p_user_id,
+      updated_at = timezone('utc', now())
+  where id = contact.id;
+
+  update public.client_portal_invites
+  set consumed_at = timezone('utc', now()),
+      consumed_by = p_user_id
+  where id = invitation.id
+    and consumed_at is null;
+
+  return found;
+end;
+$$;
+
+revoke all on function public.consume_client_portal_invite(text, uuid, text)
+  from public, anon, authenticated;
+grant execute on function public.consume_client_portal_invite(text, uuid, text)
+  to service_role;
+
+-- ─── SEO Plan share + decision ──────────────────────────────────────────────
+-- A plan is invisible in the portal until a staff member shares it. Decisions
+-- are append-only. Asking the client to look again bumps approval_requested_at
+-- so an older approval no longer counts as the current answer.
+
+create table public.client_portal_plan_shares (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+  marketing_plan_id uuid not null references public.marketing_plans(id) on delete cascade,
+  shared_by uuid references public.users(id) on delete set null,
+  shared_at timestamptz not null default timezone('utc', now()),
+  approval_requested_at timestamptz not null default timezone('utc', now()),
+  unshared_at timestamptz,
+  created_at timestamptz not null default timezone('utc', now())
+);
+
+create unique index client_portal_plan_shares_live_idx
+  on public.client_portal_plan_shares (marketing_plan_id)
+  where unshared_at is null;
+
+create index client_portal_plan_shares_client_idx
+  on public.client_portal_plan_shares (client_id)
+  where unshared_at is null;
+
+create table public.client_portal_plan_decisions (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+  marketing_plan_id uuid not null references public.marketing_plans(id) on delete cascade,
+  contact_id uuid not null references public.client_portal_contacts(id) on delete cascade,
+  actor_label text not null check (char_length(btrim(actor_label)) between 1 and 80),
+  decision text not null check (decision in ('approved', 'changes_requested')),
+  note text check (note is null or char_length(note) between 1 and 2000),
+  decided_at timestamptz not null default timezone('utc', now())
+);
+
+create index client_portal_plan_decisions_plan_idx
+  on public.client_portal_plan_decisions (marketing_plan_id, decided_at desc);
+
+-- ─── Report shares ──────────────────────────────────────────────────────────
+-- Only a published report can be shared. The API enforces that; the portal
+-- also refuses drafts even if a share row exists.
+
+create table public.client_portal_report_shares (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+  report_id uuid not null references public.reports(id) on delete cascade,
+  shared_by uuid references public.users(id) on delete set null,
+  shared_at timestamptz not null default timezone('utc', now()),
+  unshared_at timestamptz
+);
+
+create unique index client_portal_report_shares_live_idx
+  on public.client_portal_report_shares (report_id)
+  where unshared_at is null;
+
+create index client_portal_report_shares_client_idx
+  on public.client_portal_report_shares (client_id)
+  where unshared_at is null;
+
+-- ─── Waiting on the client ──────────────────────────────────────────────────
+-- Staff write the client-facing title and detail. This is not a copy of
+-- deliverable notes, assignees, or task comments.
+
+create table public.client_portal_waiting_items (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+  deliverable_id uuid references public.deliverables(id) on delete set null,
+  title text not null check (char_length(btrim(title)) between 1 and 140),
+  detail text check (detail is null or char_length(detail) between 1 and 2000),
+  created_by uuid references public.users(id) on delete set null,
+  created_at timestamptz not null default timezone('utc', now()),
+  resolved_at timestamptz
+);
+
+create index client_portal_waiting_items_open_idx
+  on public.client_portal_waiting_items (client_id, created_at desc)
+  where resolved_at is null;
+
+-- ─── Lightweight feedback ───────────────────────────────────────────────────
+-- Threads hang off the shared plan or an open waiting item. Not a ticket system.
+
+create table public.client_portal_feedback (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+  contact_id uuid not null references public.client_portal_contacts(id) on delete cascade,
+  author_label text not null check (char_length(btrim(author_label)) between 1 and 80),
+  subject_type text not null check (subject_type in ('plan', 'waiting_item')),
+  subject_id uuid not null,
+  body text not null check (char_length(body) between 1 and 2000),
+  created_at timestamptz not null default timezone('utc', now())
+);
+
+create index client_portal_feedback_subject_idx
+  on public.client_portal_feedback (client_id, subject_type, subject_id, created_at);
+
+alter table public.client_portal_plan_shares enable row level security;
+alter table public.client_portal_plan_decisions enable row level security;
+alter table public.client_portal_report_shares enable row level security;
+alter table public.client_portal_waiting_items enable row level security;
+alter table public.client_portal_feedback enable row level security;
+
+-- Staff can read portal activity for their org. Writes stay on the service
+-- role so a portal session cannot insert a decision for another client.
+create policy client_portal_plan_shares_staff_select
+  on public.client_portal_plan_shares for select to authenticated
+  using (organization_id in (select public.get_user_org_ids()));
+
+create policy client_portal_plan_decisions_staff_select
+  on public.client_portal_plan_decisions for select to authenticated
+  using (organization_id in (select public.get_user_org_ids()));
+
+create policy client_portal_report_shares_staff_select
+  on public.client_portal_report_shares for select to authenticated
+  using (organization_id in (select public.get_user_org_ids()));
+
+create policy client_portal_waiting_items_staff_select
+  on public.client_portal_waiting_items for select to authenticated
+  using (organization_id in (select public.get_user_org_ids()));
+
+create policy client_portal_feedback_staff_select
+  on public.client_portal_feedback for select to authenticated
+  using (organization_id in (select public.get_user_org_ids()));
+
+revoke all on table public.client_portal_plan_shares from public, anon, authenticated;
+revoke all on table public.client_portal_plan_decisions from public, anon, authenticated;
+revoke all on table public.client_portal_report_shares from public, anon, authenticated;
+revoke all on table public.client_portal_waiting_items from public, anon, authenticated;
+revoke all on table public.client_portal_feedback from public, anon, authenticated;
+
+grant select on table public.client_portal_plan_shares to authenticated;
+grant select on table public.client_portal_plan_decisions to authenticated;
+grant select on table public.client_portal_report_shares to authenticated;
+grant select on table public.client_portal_waiting_items to authenticated;
+grant select on table public.client_portal_feedback to authenticated;
+
+grant all on table public.client_portal_plan_shares to service_role;
+grant all on table public.client_portal_plan_decisions to service_role;
+grant all on table public.client_portal_report_shares to service_role;
+grant all on table public.client_portal_waiting_items to service_role;
+grant all on table public.client_portal_feedback to service_role;
+
 -- Monthly execution reuses tasks for dates, estimates, ownership and status.
 alter table public.marketing_plans add column if not exists goal text;
 
 -- Lock the source row so retries and simultaneous scheduling cannot duplicate work.
 create or replace function public.create_task_from_marketing_plan_item(p_item_id uuid)
-returns public.tasks
+returns jsonb
 language plpgsql
 security invoker
 set search_path = pg_catalog, public
@@ -6116,8 +6492,8 @@ begin
     if not found then raise exception 'Plan item is unavailable'; end if;
     if v_item.task_id is not null then
         select * into v_task from public.tasks where id = v_item.task_id;
-        if not found then raise exception 'Linked task is unavailable'; end if;
-        return v_task;
+        if not found or v_task.organization_id <> v_item.organization_id or v_task.client_id is distinct from v_item.client_id then raise exception 'Linked task is unavailable'; end if;
+        return jsonb_build_object('task', to_jsonb(v_task), 'created', false);
     end if;
     if v_item.status <> 'todo' then raise exception 'Only open plan items can be scheduled'; end if;
     insert into public.tasks (
@@ -6131,8 +6507,47 @@ begin
         jsonb_build_array(jsonb_build_object('status', 'todo', 'at', now(), 'by', auth.uid()))
     ) returning * into v_task;
     update public.marketing_plan_items set task_id = v_task.id, updated_at = now() where id = v_item.id;
-    return v_task;
+    return jsonb_build_object('task', to_jsonb(v_task), 'created', true);
 end;
 $$;
 revoke all on function public.create_task_from_marketing_plan_item(uuid) from public;
 grant execute on function public.create_task_from_marketing_plan_item(uuid) to authenticated;
+
+-- Link an existing client task without copying it. Plan locking makes retries idempotent.
+create or replace function public.add_existing_task_to_marketing_plan(p_plan_id uuid, p_task_id uuid, p_step_key text)
+returns uuid
+language plpgsql
+security invoker
+set search_path = pg_catalog, public
+as $$
+declare
+    v_plan public.marketing_plans%rowtype;
+    v_task public.tasks%rowtype;
+    v_item_id uuid;
+begin
+    select * into v_plan from public.marketing_plans where id = p_plan_id for update;
+    if not found then raise exception 'Plan is unavailable'; end if;
+    if not exists (select 1 from jsonb_array_elements(v_plan.steps) step where step->>'key' = p_step_key) then
+        raise exception 'Choose a valid plan category';
+    end if;
+    select * into v_task from public.tasks where id = p_task_id for update;
+    if not found or v_task.organization_id <> v_plan.organization_id or v_task.client_id is distinct from v_plan.client_id then
+        raise exception 'Task must belong to this client';
+    end if;
+    select id into v_item_id from public.marketing_plan_items where marketing_plan_id = p_plan_id and task_id = p_task_id;
+    if found then return v_item_id; end if;
+    insert into public.marketing_plan_items (
+        marketing_plan_id, organization_id, client_id, step_key, title, description,
+        priority, status, due_date, task_id, is_custom, sort_order
+    ) values (
+        v_plan.id, v_plan.organization_id, v_plan.client_id, p_step_key, v_task.title, v_task.description,
+        case when v_task.priority = 'urgent' then 'high' else v_task.priority end,
+        case when v_task.status in ('done','approved') then 'done' else 'todo' end,
+        v_task.due_date, v_task.id, true,
+        coalesce((select max(sort_order) + 1 from public.marketing_plan_items where marketing_plan_id = p_plan_id), 0)
+    ) returning id into v_item_id;
+    return v_item_id;
+end;
+$$;
+revoke all on function public.add_existing_task_to_marketing_plan(uuid, uuid, text) from public;
+grant execute on function public.add_existing_task_to_marketing_plan(uuid, uuid, text) to authenticated;

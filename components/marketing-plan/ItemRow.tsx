@@ -14,6 +14,8 @@ import {
     updateMarketingPlanItem, addItemComment,
     deleteCustomItem, promoteItemToTask,
 } from '@/lib/supabase/marketing-plans';
+import { getTask, updateTask } from '@/lib/supabase/tasks';
+import { checklistTogglePlan } from '@/lib/marketing-plan-logic';
 
 export interface MemberOption {
     userId: string;
@@ -40,6 +42,7 @@ export function ItemRow({ item, members, currentUser, onChanged, onOpenTask }: I
     const [commentDraft, setCommentDraft] = useState('');
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
+    const [toggling, setToggling] = useState(false);
 
     const isDone = item.status === 'done';
     const isIgnored = item.status === 'ignored';
@@ -132,9 +135,10 @@ export function ItemRow({ item, members, currentUser, onChanged, onOpenTask }: I
         });
     };
 
-    if (item.linkedTask) return <div className="flex items-center justify-between gap-4 border-b border-border/40 py-4 last:border-b-0">
-        <div><p className="text-sm font-medium">{item.title}</p><p className="mt-1 text-xs text-muted-foreground">{TASK_STATUS_LABELS[item.linkedTask.status]} · {item.dueDate ?? 'No due date'} · Shared with Tasks</p></div>
-        <button className="min-h-10 shrink-0 rounded-lg border border-border px-3 text-sm text-primary hover:bg-muted" onClick={() => onOpenTask?.(item.linkedTask!)}>Open task</button>
+    if (item.taskId) return <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/40 py-4 last:border-b-0">
+        <div><p className="text-sm font-medium">{item.title}</p><p className="mt-1 text-xs text-muted-foreground">{isIgnored ? 'Excluded from plan' : item.linkedTask ? TASK_STATUS_LABELS[item.linkedTask.status] : isDone ? 'Done' : 'Linked task'} · {item.dueDate ?? 'No due date'} · Shared with Tasks</p></div>
+        <div className="flex gap-2"><button className="min-h-10 rounded-lg px-3 text-xs text-muted-foreground hover:bg-muted" onClick={toggleIgnored}>{isIgnored ? 'Include in plan' : 'Exclude from plan'}</button>{item.linkedTask && onOpenTask ? <button className="min-h-10 shrink-0 rounded-lg border border-border px-3 text-sm text-primary hover:bg-muted" onClick={() => onOpenTask(item.linkedTask!)}>Open task</button> : <a className="inline-flex min-h-10 items-center rounded-lg border border-border px-3 text-sm text-primary" href={`/tasks?task=${item.taskId}`}>Open task</a>}</div>
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     </div>;
 
     return (
@@ -150,7 +154,7 @@ export function ItemRow({ item, members, currentUser, onChanged, onOpenTask }: I
                     type="checkbox"
                     checked={isDone}
                     onChange={toggleDone}
-                    disabled={isIgnored}
+                    disabled={isIgnored || toggling}
                     className="mt-1 h-4 w-4 rounded border-border accent-primary cursor-pointer"
                 />
                 <div className="flex-1 min-w-0">

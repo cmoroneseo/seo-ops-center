@@ -31,3 +31,7 @@ Added the user-outlined large month heading and segmented logged/planned/availab
 ## SEO Plan navigation consolidation
 
 Removed the client-level Tasks tab and renamed the parent to SEO Plan. Monthly plan and All client tasks are nested sections, accessible even before a plan exists. Legacy `?tab=tasks`, the timer's Choose Task action, and nested task links open All client tasks. The original task list/create/detail components remain in use. Basecamp import reuses the original scoped import modal; its Integrations entry point remains available. Chrome verified the task list and authorized sandbox Basecamp project selector. No import was submitted during this navigation check. TypeScript and whitespace checks pass.
+
+## September 29 integration verification
+
+Code integration and automated checks passed. Authenticated visual verification of the integrated version is pending a fresh localhost login; earlier screenshots above describe the September 22 implementation. Migration 061 is required before validating new promotion/linking/goal actions against the target DB. See docs/research/seo-plan-review-2026-09-29/integration.md.

@@ -38,3 +38,49 @@ test('auth callback consumes an email-bound invite token and rejects invalid or 
     assert.equal(accepted.headers.get('location'), 'https://seo-ops.test/dashboard');
     assert.match(replayed.headers.get('location') ?? '', /login\?error=/);
 });
+
+test('portal invite lands on the portal and cannot be pointed at the staff app', async () => {
+    const { createAuthCallbackGet } = await import('./auth-callback.ts');
+    const get = createAuthCallbackGet({
+        exchangeCode: async () => ({ id: 'client-1', email: 'client@example.com' }),
+        consumeInvite: async () => { throw new Error('staff invite must not run'); },
+        consumePortalInvite: async (token, user) => {
+            assert.equal(token, 'portal-token');
+            assert.equal(user.email, 'client@example.com');
+            return true;
+        },
+        appOrigin: 'https://seo-ops.test',
+    });
+
+    const response = await get(new Request(
+        'https://seo-ops.test/auth/callback?code=valid&portal_invite=portal-token&next=/dashboard',
+    ));
+    assert.equal(response.headers.get('location'), 'https://seo-ops.test/portal');
+});
+
+test('a rejected portal invite returns to the portal login', async () => {
+    const { createAuthCallbackGet } = await import('./auth-callback.ts');
+    const get = createAuthCallbackGet({
+        exchangeCode: async () => ({ id: 'client-1', email: 'client@example.com' }),
+        consumeInvite: async () => true,
+        consumePortalInvite: async () => false,
+        appOrigin: 'https://seo-ops.test',
+    });
+    const response = await get(new Request(
+        'https://seo-ops.test/auth/callback?code=valid&portal_invite=used&next=/portal/plan',
+    ));
+    assert.match(response.headers.get('location') ?? '', /\/portal\/login\?error=/);
+});
+
+test('a returning portal magic link can open the plan', async () => {
+    const { createAuthCallbackGet } = await import('./auth-callback.ts');
+    const get = createAuthCallbackGet({
+        exchangeCode: async () => ({ id: 'client-1', email: 'client@example.com' }),
+        consumeInvite: async () => { throw new Error('no invite on a returning link'); },
+        appOrigin: 'https://seo-ops.test',
+    });
+    const response = await get(new Request(
+        'https://seo-ops.test/auth/callback?code=valid&next=/portal/plan',
+    ));
+    assert.equal(response.headers.get('location'), 'https://seo-ops.test/portal/plan');
+});

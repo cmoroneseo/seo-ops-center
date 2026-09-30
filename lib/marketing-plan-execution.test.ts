@@ -34,3 +34,9 @@ test('capacity subtracts logged task time and excludes completed estimates', () 
     assert.equal(over.plannedHours, 0); assert.equal(over.available, 0); assert.equal(over.scale, 12);
     assert.equal(executionCapacity([], {}, null, 0).scale, 1);
 });
+
+test('ignored linked tasks stay excluded from monthly execution', () => {
+    const ignored = resolvePlanItem(item({ status: 'ignored', linkedTask: task({ dueDate: '2026-09-01', status: 'done' }) }));
+    assert.equal(ignored.status, 'ignored');
+    assert.equal(monthlyExecution([ignored], '2026-09', 10).tasks.length, 0);
+});

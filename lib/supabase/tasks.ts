@@ -242,9 +242,9 @@ export async function getTasks(
 }
 
 /** Tasks scoped to one client — used on the client detail Tasks tab. */
-export async function getTasksByClient(clientId: string): Promise<Task[]> {
+export async function getTasksByClient(clientId: string, throwOnError = false): Promise<Task[]> {
     const supabase = createClient();
-    if (!supabase) return [];
+    if (!supabase) { if (throwOnError) throw new Error('Tasks unavailable'); return []; }
     try {
         const { data, error } = await supabase
             .from('tasks')
@@ -257,6 +257,7 @@ export async function getTasksByClient(clientId: string): Promise<Task[]> {
         return (data || []).map(rowToTask);
     } catch (err) {
         console.error('Error fetching tasks by client:', err);
+        if (throwOnError) throw err;
         return [];
     }
 }
@@ -310,8 +311,9 @@ export async function createTask(
         let error: any;
         if (t.sourceMarketingPlanItemId) {
             const result = await supabase.rpc('create_task_from_marketing_plan_item', { p_item_id: t.sourceMarketingPlanItemId });
-            data = Array.isArray(result.data) ? result.data[0] : result.data;
+            data = result.data?.task;
             error = result.error;
+            if (!error && data && result.data?.created === false) return { success: true, data: rowToTask(data) };
         } else if (t.sourceInvestigationId) {
             const result = await supabase.rpc('create_task_from_search_investigation', {
                 p_investigation_id: t.sourceInvestigationId,
@@ -356,8 +358,9 @@ export async function createTask(
         }
 
         // Notify each assignee that they've been assigned this task
-        if (t.assigneeIds && t.assigneeIds.length > 0) {
-            t.assigneeIds.forEach((recipientId) => {
+        const notificationAssignees = t.sourceMarketingPlanItemId ? task.assigneeIds : t.assigneeIds;
+        if (notificationAssignees && notificationAssignees.length > 0) {
+            notificationAssignees.forEach((recipientId) => {
                 createNotification({
                     organizationId: task.organizationId,
                     userId: recipientId,

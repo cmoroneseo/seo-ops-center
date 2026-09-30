@@ -1,24 +1,27 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { ClipboardList, FileDown, Plus, Printer, Search, Sparkles } from 'lucide-react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { ClipboardList, FileDown, ListChecks, Plus, Printer, Search, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MarketingPlan, MarketingPlanItem, Task } from '@/lib/types';
 import {
-    getMarketingPlan, createMarketingPlanFromTemplate, addCustomItem, promoteItemToTask, updateMarketingPlanGoal,
+    getMarketingPlan, createMarketingPlanFromTemplate, addCustomItem, promoteItemToTask, updateMarketingPlanGoal, promoteItemsToTasks, addExistingTaskToPlan,
 } from '@/lib/supabase/marketing-plans';
 import { createClient } from '@/lib/supabase/client';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { logActivity } from '@/lib/supabase/client-activity';
 import { buildMarketingPlanExportHtml } from '@/lib/marketing-plan-export';
+import { displaySeoPlanTitle, SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import {
-    computePlanSummary, groupItems, filterItems, GroupMode,
+    computePlanSummary, groupItems, filterItems, itemsEligibleForTaskGeneration, GroupMode,
 } from '@/lib/marketing-plan-logic';
 import { SummaryStrip } from './SummaryStrip';
 import { StepRail } from './StepRail';
 import { ItemRow, MemberOption } from './ItemRow';
 import { AddItemForm } from './AddItemForm';
 import { SuggestItemsPanel } from './SuggestItemsPanel';
+import { ExistingTaskDialog } from './ExistingTaskDialog';
+import { GenerateTasksPanel } from './GenerateTasksPanel';
 import { ExecutionWorkspace, ExecutionTaskPatch, ScheduleFields } from './ExecutionWorkspace';
 import { monthKey } from '@/lib/marketing-plan-execution';
 import { getTask, updateTask } from '@/lib/supabase/tasks';
@@ -33,6 +36,7 @@ interface MarketingPlanTabProps {
 }
 
 export function MarketingPlanTab({ organizationId, clientId, clientName, monthlyBudget = 0 }: MarketingPlanTabProps) {
+    const [existingOpen, setExistingOpen] = useState(false);
     const [month, setMonth] = useState(monthKey);
     const [taskHours, setTaskHours] = useState<Record<string, number>>({});
     const [loggedHours, setLoggedHours] = useState<number | null>(null);
@@ -47,21 +51,27 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     const [activeStepKey, setActiveStepKey] = useState<string | null>(null);
     const [showAddForm, setShowAddForm] = useState(false);
     const [showSuggest, setShowSuggest] = useState(false);
+    const [taskDraft, setTaskDraft] = useState<{ label: string; items: MarketingPlanItem[] } | null>(null);
+    const [creatingTasks, setCreatingTasks] = useState(false);
+    const creatingTasksRef = useRef(false);
+    const [taskDraftError, setTaskDraftError] = useState<string | null>(null);
     const [members, setMembers] = useState<MemberOption[]>([]);
     const [currentUser, setCurrentUser] = useState<{ id?: string; name: string }>({ name: 'Team' });
 
+    const loadSequence = useRef(0);
     const loadPlan = useCallback(async (silent = false) => {
+        const sequence = ++loadSequence.current;
         if (!silent) setLoading(true);
         try {
             const p = await getMarketingPlan(clientId);
-            setPlan(p); setError(null);
-        } catch (e) { setError(e instanceof Error ? e.message : 'Could not load plan'); }
-        finally { setLoading(false); }
+            if (sequence === loadSequence.current) { setPlan(p); setError(null); }
+        } catch (e) { if (sequence === loadSequence.current) setError(e instanceof Error ? e.message : 'Could not load plan'); }
+        finally { if (sequence === loadSequence.current) setLoading(false); }
     }, [clientId]);
 
     const refresh = useCallback(() => loadPlan(true), [loadPlan]);
 
-    useEffect(() => { setPlan(null); loadPlan(); }, [loadPlan]);
+    useEffect(() => { setPlan(null); loadPlan(); return () => { loadSequence.current++; }; }, [loadPlan]);
     useEffect(() => {
         let cancelled = false;
         setLoggedHours(null);
@@ -129,6 +139,40 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
         await loadPlan();
     };
 
+    const openTaskDraft = (label: string, source: MarketingPlanItem[]) => {
+        const eligible = itemsEligibleForTaskGeneration(source);
+        if (eligible.length === 0) return;
+        setTaskDraftError(null);
+        setTaskDraft({ label, items: eligible });
+    };
+
+    const handleCreateTasks = async (chosen: MarketingPlanItem[]) => {
+        if (creatingTasksRef.current) return;
+        creatingTasksRef.current = true;
+        setCreatingTasks(true);
+        setTaskDraftError(null);
+        try {
+            const result = await promoteItemsToTasks(chosen, currentUser.name);
+            await refresh();
+            if (result.failed.length === 0) {
+                setTaskDraft(null);
+                return;
+            }
+            const detail = result.failed.map(f => `${f.title}: ${f.error}`).join('; ');
+            const summary = result.created.length === 0
+                ? `No tasks created. ${detail}`
+                : `Created ${result.created.length}. ${result.failed.length} failed — ${detail}`;
+            if (result.created.length === 0) setTaskDraftError(summary);
+            else {
+                setTaskDraft(null);
+                alert(summary);
+            }
+        } finally {
+            creatingTasksRef.current = false;
+            setCreatingTasks(false);
+        }
+    };
+
     const handleAddItem = async (fields: {
         stepKey: string; title: string; description?: string;
         priority: 'high' | 'medium' | 'low';
@@ -145,7 +189,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     };
 
     if (loading) {
-        return <div className="text-center py-12 text-muted-foreground text-sm italic">Loading marketing plan…</div>;
+        return <div className="text-center py-12 text-muted-foreground text-sm italic">Loading {SEO_PLAN_LABEL}…</div>;
     }
 
     if (error && !plan) return <div role="alert" className="space-y-3 rounded-xl border border-destructive/40 p-6"><p>Could not load your plan: {error}</p><button className="text-primary underline" onClick={() => loadPlan()}>Try again</button></div>;
@@ -168,7 +212,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                     className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
                     <Plus className="h-4 w-4" />
-                    {creating ? 'Creating…' : 'Create SEO Marketing Plan'}
+                    {creating ? 'Creating…' : `Create ${SEO_PLAN_LABEL}`}
                 </button>
             </div>
         );
@@ -177,6 +221,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     const items = plan.items ?? [];
     const summary = computePlanSummary(items);
     const visibleItems = filterItems(items, query);
+    const visibleEligible = itemsEligibleForTaskGeneration(visibleItems);
     const groups = groupItems(visibleItems, plan.steps, groupMode)
         .filter(g => groupMode !== 'step' || !activeStepKey || g.key === activeStepKey);
 
@@ -200,7 +245,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${clientName} - SEO Marketing Plan.doc`;
+            a.download = `${clientName} - ${SEO_PLAN_LABEL}.doc`;
             a.click();
             URL.revokeObjectURL(url);
         }
@@ -210,7 +255,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
         <div className="space-y-6" id="marketing-plan-root">
             {/* Header */}
             <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">{plan.title}</h3>
+                <h3 className="text-lg font-semibold">{displaySeoPlanTitle(plan.title)}</h3>
                 <div className="flex items-center gap-2">
                     <button
                         onClick={() => handleExport('pdf')}
@@ -270,6 +315,20 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                             />
                         </div>
                         <button
+                            onClick={() => openTaskDraft(
+                                activeStepKey
+                                    ? (plan.steps.find(s => s.key === activeStepKey)?.name ?? 'This step')
+                                    : 'Visible items',
+                                visibleItems,
+                            )}
+                            disabled={visibleEligible.length === 0 || creatingTasks}
+                            title={visibleEligible.length === 0 ? 'No to-do items left to turn into tasks' : undefined}
+                            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
+                        >
+                            <ListChecks className="h-4 w-4" />
+                            Create tasks{visibleEligible.length > 0 ? ` (${visibleEligible.length})` : ''}
+                        </button>
+                        <button
                             onClick={() => setShowSuggest(s => !s)}
                             className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted transition-colors"
                         >
@@ -292,6 +351,18 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                         />
                     )}
 
+                    {taskDraft && (
+                        <GenerateTasksPanel
+                            key={taskDraft.items.map(item => item.id).join(',')}
+                            scopeLabel={taskDraft.label}
+                            items={taskDraft.items}
+                            creating={creatingTasks}
+                            error={taskDraftError}
+                            onConfirm={handleCreateTasks}
+                            onClose={() => { if (!creatingTasks) setTaskDraft(null); }}
+                        />
+                    )}
+
                     {showSuggest && (
                         <SuggestItemsPanel
                             plan={plan}
@@ -306,13 +377,25 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                     {groups.filter(group => !query || group.items.length > 0).map(group => {
                         const done = group.items.filter(i => i.status === 'done').length;
                         const countable = group.items.filter(i => i.status !== 'ignored').length;
+                        const eligible = itemsEligibleForTaskGeneration(group.items);
                         return (
                             <section key={group.key} className="rounded-xl border border-border/50 bg-card px-5 py-2">
-                                <div className="flex items-center justify-between py-3">
+                                <div className="flex items-center justify-between gap-3 py-3">
                                     <h4 className="font-bold text-base">{group.label}</h4>
-                                    <span className="text-sm text-muted-foreground">
-                                        <span className="text-primary font-semibold">{done}</span>/{countable}
-                                    </span>
+                                    <div className="flex items-center gap-3">
+                                        {eligible.length > 0 && (
+                                            <button
+                                                onClick={() => openTaskDraft(group.label, group.items)}
+                                                disabled={creatingTasks}
+                                                className="print:hidden text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+                                            >
+                                                Create tasks ({eligible.length})
+                                            </button>
+                                        )}
+                                        <span className="text-sm text-muted-foreground">
+                                            <span className="text-primary font-semibold">{done}</span>/{countable}
+                                        </span>
+                                    </div>
                                 </div>
                                 {group.items.length === 0 ? (
                                     <p className="text-sm text-muted-foreground italic pb-4">No items.</p>
@@ -337,7 +420,13 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     );
     return <>
         {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/40 p-3 text-sm">{error}<button className="ml-3 text-primary underline" onClick={() => refresh()}>Retry</button></p>}
-        <ExecutionWorkspace plan={plan} month={month} budget={monthlyBudget} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} />
+        <ExecutionWorkspace onAddExisting={() => setExistingOpen(true)} plan={plan} month={month} budget={monthlyBudget} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} />
+        {existingOpen && <ExistingTaskDialog open plan={plan} month={month} onClose={() => setExistingOpen(false)} onAttach={async (task, step, due) => {
+            await addExistingTaskToPlan(plan.id, task.id, step);
+            const result = await updateTask(task.id, { dueDate: due, updatedBy: currentUser.id });
+            await refresh();
+            if (!result.success) throw new Error('Task is linked, but the due date could not be saved. Update it in Tasks.');
+        }} />}
         {taskDetail && <TaskDetailModal task={taskDetail.task} isOpen initialCompletion={taskDetail.complete} currentUserId={currentUser.id} onClose={() => { setTaskDetail(null); void refresh(); setTimeVersion(value => value + 1); }} onUpdate={() => { void refresh(); }} onDelete={() => { setTaskDetail(null); void refresh(); }} />}
     </>;
 

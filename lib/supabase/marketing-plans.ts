@@ -3,8 +3,9 @@ import {
     MarketingPlan, MarketingPlanItem, MarketingPlanItemComment,
     MarketingPlanItemPriority,
 } from '../types';
-import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS } from '../marketing-plan-template';
+import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS, SEO_PLAN_LABEL } from '../marketing-plan-template';
 import { createTask, rowToTask } from './tasks';
+import { itemsEligibleForTaskGeneration } from '../marketing-plan-logic';
 import { resolvePlanItem } from '../marketing-plan-execution';
 
 // ---------------------------------------------------------------------------
@@ -84,7 +85,7 @@ export async function createMarketingPlanFromTemplate(input: {
         .insert({
             organization_id: input.organizationId,
             client_id: input.clientId,
-            title: `${input.clientName} — SEO Marketing Plan`,
+            title: `${input.clientName} — ${SEO_PLAN_LABEL}`,
             steps: MARKETING_PLAN_STEPS,
         })
         .select()
@@ -234,5 +235,35 @@ export async function updateMarketingPlanGoal(planId: string, goal: string): Pro
     if (!supabase) throw new Error('Supabase is unavailable');
     const { error } = await supabase.from('marketing_plans')
         .update({ goal: goal.trim() || null, updated_at: new Date().toISOString() }).eq('id', planId);
+    if (error) throw new Error(error.message);
+}
+
+export interface PromoteItemsResult {
+    created: { itemId: string; taskId: string }[];
+    failed: { itemId: string; title: string; error: string }[];
+}
+
+/** Create tasks for every eligible item, in list order. Already-linked, done, and ignored items are skipped. */
+export async function promoteItemsToTasks(
+    items: MarketingPlanItem[],
+    actorName?: string,
+): Promise<PromoteItemsResult> {
+    const created: PromoteItemsResult['created'] = [];
+    const failed: PromoteItemsResult['failed'] = [];
+    for (const item of itemsEligibleForTaskGeneration(items)) {
+        const res = await promoteItemToTask(item, actorName);
+        if (res.success && res.taskId) {
+            created.push({ itemId: item.id, taskId: res.taskId });
+        } else {
+            failed.push({ itemId: item.id, title: item.title, error: res.error ?? 'Task creation failed' });
+        }
+    }
+    return { created, failed };
+}
+
+export async function addExistingTaskToPlan(planId: string, taskId: string, stepKey: string): Promise<void> {
+    const supabase = createClient();
+    if (!supabase) throw new Error('Supabase is unavailable');
+    const { error } = await supabase.rpc('add_existing_task_to_marketing_plan', { p_plan_id: planId, p_task_id: taskId, p_step_key: stepKey });
     if (error) throw new Error(error.message);
 }

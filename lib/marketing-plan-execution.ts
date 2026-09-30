@@ -19,7 +19,7 @@ export function resolvePlanItem(item: MarketingPlanItem): MarketingPlanItem {
     if (!task) return item;
     return {
         ...item, title: task.title, description: task.description,
-        status: taskIsComplete(task) ? 'done' : 'todo',
+        status: item.status === 'ignored' ? 'ignored' : taskIsComplete(task) ? 'done' : 'todo',
         priority: task.priority === 'urgent' ? 'high' : task.priority,
         dueDate: task.dueDate ?? undefined, assigneeId: task.assigneeIds?.[0],
     };
@@ -30,7 +30,7 @@ export function monthlyExecution(items: MarketingPlanItem[], month: string, budg
     const seen = new Set<string>();
     const tasks = items.flatMap(item => {
         const task = item.linkedTask;
-        if (!task || seen.has(task.id)) return [];
+        if (!task || item.status === 'ignored' || seen.has(task.id)) return [];
         seen.add(task.id);
         return [task];
     });

@@ -24,6 +24,7 @@ export interface ExecutionWorkspaceProps {
     taskHours: Record<string, number>;
     members: MemberOption[];
     fullPlan: ReactNode;
+    onAddExisting: () => void;
     onMonthChange: (month: string) => void;
     onSaveTask: (task: Task, patch: ExecutionTaskPatch) => Promise<void>;
     onSchedule: (item: MarketingPlanItem, fields: ScheduleFields) => Promise<void>;
@@ -43,7 +44,7 @@ function Status({ task }: { task: Task }) {
     </span>;
 }
 
-export function ExecutionWorkspace({ plan, month, budget, loggedHours, taskHours, members, fullPlan, onMonthChange, onSaveTask, onSchedule, onSaveGoal, onOpenTask }: ExecutionWorkspaceProps) {
+export function ExecutionWorkspace({ plan, month, budget, loggedHours, taskHours, members, fullPlan, onAddExisting, onMonthChange, onSaveTask, onSchedule, onSaveGoal, onOpenTask }: ExecutionWorkspaceProps) {
     const [view, setView] = useState<'month' | 'full' | 'results'>('month');
     const [selectedId, setSelectedId] = useState<string>();
     const [scheduling, setScheduling] = useState(false);
@@ -90,7 +91,7 @@ export function ExecutionWorkspace({ plan, month, budget, loggedHours, taskHours
                 <input id="execution-month" type="month" value={month} onChange={event => { if (/^\d{4}-\d{2}$/.test(event.target.value)) onMonthChange(event.target.value); }} className={cn(field, 'w-auto')} />
                 <button className={secondary} aria-label="Next month" onClick={() => changeMonth(1)}><ChevronRight className="h-4 w-4" /></button>
             </div>
-            <button className={primary} onClick={() => setScheduling(true)}><CalendarDays className="h-4 w-4" />Schedule work</button>
+            <div className="flex flex-wrap gap-2"><button className={secondary} onClick={onAddExisting}>Add existing task</button><button className={primary} onClick={() => setScheduling(true)}><CalendarDays className="h-4 w-4" />Schedule work</button></div>
         </div>
         {view === 'full' ? fullPlan : view === 'results' ? <section className="space-y-4" aria-label="Monthly results">
             <h3 className="text-lg font-semibold">Delivered in {title}</h3><p className="text-sm text-muted-foreground">{summary.completed.length} of {summary.tasks.length} planned tasks completed. Completion reflects Tasks; estimated effort includes completed work.</p>

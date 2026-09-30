@@ -1,5 +1,15 @@
 import { MarketingPlanStep, MarketingPlanItemPriority } from './types';
 
+/** User-facing name of the checklist. Technical names stay `marketing_plan`. */
+export const SEO_PLAN_LABEL = 'SEO Plan';
+
+/** Title seeded before the product rename. Display-only — stored rows are not migrated. */
+const LEGACY_SEO_PLAN_LABEL = 'SEO Marketing Plan';
+
+export function displaySeoPlanTitle(title: string): string {
+    return title.split(LEGACY_SEO_PLAN_LABEL).join(SEO_PLAN_LABEL);
+}
+
 export interface TemplateItem {
     stepKey: string;
     title: string;

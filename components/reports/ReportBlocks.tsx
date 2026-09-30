@@ -10,12 +10,13 @@ import {
     LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
     Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import { ClientProject } from '@/lib/types';
+import { ClientProject, MarketingPlan } from '@/lib/types';
 import {
     METRIC_DEFS, REPORT_SECTIONS, formatMetric, computeDelta,
     monthLabel, ReportSourceKey,
 } from '@/lib/reports/sections';
 import { Block } from '@/lib/reports/blocks';
+import { MarketingPlanReportBlock } from './MarketingPlanReportBlock';
 import { createClient } from '@/lib/supabase/client';
 import type { RankTrackerResult } from '@/lib/sync/fetchAhrefsRankTracker';
 
@@ -37,6 +38,12 @@ export interface ReportContext {
     /** Editing callbacks — undefined in read-only/print contexts. */
     onEditText?: (blockId: string, patch: Record<string, any>) => void;
     onEditField?: (field: 'executive_summary' | 'recommendations', value: string) => void;
+    /**
+     * When set (including null), the SEO Plan block renders this snapshot and
+     * does not query the checklist from the browser. The client portal passes
+     * a redacted plan, or null when the plan is not shared.
+     */
+    planSnapshot?: { plan: MarketingPlan; taskDueDates?: Record<string, string | null> } | null;
 }
 
 const METRIC_LABELS: Record<string, string> = Object.fromEntries(
@@ -909,6 +916,7 @@ export function RenderBlock({ block, ctx }: { block: Block; ctx: ReportContext }
         case 'distribution': return <DistributionBlock ctx={ctx} />;
         case 'organic_table': return <OrganicTableBlock ctx={ctx} />;
         case 'keyword_rankings_table': return <KeywordRankingsTableBlock block={block} ctx={ctx} />;
+        case 'marketing_plan': return <MarketingPlanReportBlock block={block} ctx={ctx} />;
         case 'page_break': return null; // handled by the canvas (page split)
         default: return null;
     }
