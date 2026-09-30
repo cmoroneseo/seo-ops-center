@@ -50,7 +50,7 @@ export async function getClientBasecampConfig(clientId: string | undefined): Pro
 // Row mappers
 // ---------------------------------------------------------------------------
 
-function rowToTask(row: any): Task {
+export function rowToTask(row: any): Task {
     return {
         id: row.id,
         organizationId: row.organization_id,
@@ -104,6 +104,7 @@ function rowToComment(row: any): TaskComment {
 }
 
 export type TaskInsert = {
+    sourceMarketingPlanItemId?: string;
     organizationId: string;
     projectId?: string;
     clientId?: string;
@@ -307,7 +308,11 @@ export async function createTask(
     try {
         let data: any;
         let error: any;
-        if (t.sourceInvestigationId) {
+        if (t.sourceMarketingPlanItemId) {
+            const result = await supabase.rpc('create_task_from_marketing_plan_item', { p_item_id: t.sourceMarketingPlanItemId });
+            data = Array.isArray(result.data) ? result.data[0] : result.data;
+            error = result.error;
+        } else if (t.sourceInvestigationId) {
             const result = await supabase.rpc('create_task_from_search_investigation', {
                 p_investigation_id: t.sourceInvestigationId,
                 p_task: taskInsertToRpcPayload(t),
@@ -416,7 +421,7 @@ export async function updateTask(
     taskId: string,
     // startDate/scheduledMinutes are omitted from the base so they can widen to
     // null — an intersection would collapse `string | null` back to `string`.
-    patch: Omit<Partial<TaskInsert>, 'startDate' | 'scheduledMinutes'> & {
+    patch: Omit<Partial<TaskInsert>, 'startDate' | 'scheduledMinutes' | 'estimatedHours'> & {
         status?: TaskStatus;
         completedAt?: string | null;
         assigneeIds?: string[];

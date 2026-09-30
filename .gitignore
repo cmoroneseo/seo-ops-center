@@ -50,3 +50,6 @@ scripts/workbook-data.json
 # Syncthing conflict copies. This checkout syncs between machines, and a stale
 # copy has already been committed once and has reverted live files mid-session.
 *.sync-conflict-*
+
+# Isolated local preview build output
+/.next-*/

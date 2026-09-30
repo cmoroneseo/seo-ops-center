@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Isolate local previews from other running Next.js sessions.
+  distDir: process.env.NEXT_BUILD_DIR || ".next",
   async headers() {
     return [
       {

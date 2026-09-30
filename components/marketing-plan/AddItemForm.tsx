@@ -18,18 +18,22 @@ export function AddItemForm({ steps, defaultStepKey, onSubmit, onCancel }: AddIt
     const [description, setDescription] = useState('');
     const [stepKey, setStepKey] = useState(defaultStepKey ?? steps[0]?.key ?? '');
     const [priority, setPriority] = useState<MarketingPlanItemPriority>('medium');
+    const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
 
     const submit = async () => {
         if (!title.trim()) return;
         setSaving(true);
-        await onSubmit({ stepKey, title: title.trim(), description: description.trim() || undefined, priority });
-        setSaving(false);
+        setError('');
+        try { await onSubmit({ stepKey, title: title.trim(), description: description.trim() || undefined, priority }); }
+        catch (e) { setError(e instanceof Error ? e.message : 'Could not save item'); }
+        finally { setSaving(false); }
     };
 
     return (
         <div className="rounded-xl border border-primary/40 bg-card p-4 space-y-3">
             <input
+                aria-label="Item title"
                 autoFocus
                 value={title}
                 onChange={e => setTitle(e.target.value)}
@@ -40,11 +44,14 @@ export function AddItemForm({ steps, defaultStepKey, onSubmit, onCancel }: AddIt
                 value={description}
                 onChange={e => setDescription(e.target.value)}
                 placeholder="Description (optional)..."
+                aria-label="Description"
                 rows={2}
                 className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card"
             />
+            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
             <div className="flex items-center gap-2">
                 <select
+                    aria-label="Plan category"
                     value={stepKey}
                     onChange={e => setStepKey(e.target.value)}
                     className="text-xs border border-border rounded-lg px-2 py-1.5 bg-card"
@@ -52,6 +59,7 @@ export function AddItemForm({ steps, defaultStepKey, onSubmit, onCancel }: AddIt
                     {steps.map(s => <option key={s.key} value={s.key}>{s.name}</option>)}
                 </select>
                 <select
+                    aria-label="Priority"
                     value={priority}
                     onChange={e => setPriority(e.target.value as MarketingPlanItemPriority)}
                     className="text-xs border border-border rounded-lg px-2 py-1.5 bg-card"

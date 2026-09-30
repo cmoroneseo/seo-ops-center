@@ -4,7 +4,8 @@ import {
     MarketingPlanItemPriority,
 } from '../types';
 import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS } from '../marketing-plan-template';
-import { createTask } from './tasks';
+import { createTask, rowToTask } from './tasks';
+import { resolvePlanItem } from '../marketing-plan-execution';
 
 // ---------------------------------------------------------------------------
 // Row mappers
@@ -17,6 +18,7 @@ function rowToPlan(r: any): MarketingPlan {
         clientId: r.client_id,
         title: r.title,
         steps: r.steps ?? [],
+        goal: r.goal ?? undefined,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
     };
@@ -50,23 +52,23 @@ function rowToItem(r: any): MarketingPlanItem {
 
 export async function getMarketingPlan(clientId: string): Promise<MarketingPlan | null> {
     const supabase = createClient();
-    if (!supabase) return null;
+    if (!supabase) throw new Error('Supabase is unavailable');
     const { data, error } = await supabase
         .from('marketing_plans')
         .select('*')
         .eq('client_id', clientId)
         .maybeSingle();
-    if (error) { console.error('getMarketingPlan:', error); return null; }
+    if (error) throw new Error(error.message);
     if (!data) return null;
     const plan = rowToPlan(data);
 
     const { data: itemRows, error: itemsError } = await supabase
         .from('marketing_plan_items')
-        .select('*')
+        .select('*, linked_task:tasks(*)')
         .eq('marketing_plan_id', plan.id)
         .order('sort_order', { ascending: true });
-    if (itemsError) { console.error('getMarketingPlan items:', itemsError); return plan; }
-    return { ...plan, items: (itemRows ?? []).map(rowToItem) };
+    if (itemsError) throw new Error(itemsError.message);
+    return { ...plan, items: (itemRows ?? []).map((row: any) => resolvePlanItem({ ...rowToItem(row), linkedTask: row.linked_task ? rowToTask(row.linked_task) : undefined })) };
 }
 
 export async function createMarketingPlanFromTemplate(input: {
@@ -210,7 +212,9 @@ export async function promoteItemToTask(
     item: MarketingPlanItem,
     actorName?: string,
 ): Promise<{ success: boolean; taskId?: string; error?: string }> {
+    if (item.taskId) return { success: true, taskId: item.taskId };
     const res = await createTask({
+        sourceMarketingPlanItemId: item.id,
         organizationId: item.organizationId,
         clientId: item.clientId,
         title: item.title,
@@ -222,12 +226,13 @@ export async function promoteItemToTask(
     });
     if (!res.success || !res.data) return { success: false, error: res.error ?? 'Task creation failed' };
 
-    const supabase = createClient();
-    if (!supabase) return { success: false, error: 'No client' };
-    const { error } = await supabase
-        .from('marketing_plan_items')
-        .update({ task_id: res.data.id, updated_at: new Date().toISOString() })
-        .eq('id', item.id);
-    if (error) return { success: false, error: error.message };
     return { success: true, taskId: res.data.id };
+}
+
+export async function updateMarketingPlanGoal(planId: string, goal: string): Promise<void> {
+    const supabase = createClient();
+    if (!supabase) throw new Error('Supabase is unavailable');
+    const { error } = await supabase.from('marketing_plans')
+        .update({ goal: goal.trim() || null, updated_at: new Date().toISOString() }).eq('id', planId);
+    if (error) throw new Error(error.message);
 }

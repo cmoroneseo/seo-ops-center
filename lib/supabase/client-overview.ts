@@ -3,6 +3,7 @@ import { daysLeftInMonth, getFulfillmentMatrix } from './fulfillment';
 import { getLoggedHoursByClient } from './time-logs';
 import { getTasks } from './tasks';
 import { getCampaignPlan } from './campaign-plans';
+import { getMarketingPlan } from './marketing-plans';
 import { fulfillmentStatus, hoursUsageStatus } from '../seo-ops-logic';
 import type { HoursStatusResult, StatusResult } from '../seo-ops-logic';
 import { computeHealthScore, computeNextBestActions } from './client-overview-logic';
@@ -57,11 +58,12 @@ export async function getClientOverview(
     orgId: string,
     month: string = currentMonthKey(),
 ): Promise<ClientOverview> {
-    const [hoursByClient, fulfillment, tasks, plan] = await Promise.all([
+    const [hoursByClient, fulfillment, tasks, plan, marketingPlan] = await Promise.all([
         getLoggedHoursByClient(orgId, month),
         getFulfillmentMatrix(orgId, month, { clientId: client.id }),
         getTasks(orgId, { clientId: client.id }),
         getCampaignPlan(client.id),
+        getMarketingPlan(client.id),
     ]);
 
     const hoursLogged = hoursByClient[client.id] ?? 0;
@@ -76,7 +78,7 @@ export async function getClientOverview(
     const atRiskDeliverables = cells.filter((cell) => cell.status.severity === 'warn' || cell.status.severity === 'critical').length;
     const openTasks = tasks.filter(isOpenTask);
     const blockedTasks = openTasks.filter((task) => task.status === 'blocked').length;
-    const hasCampaignPlan = Boolean(plan);
+    const hasCampaignPlan = Boolean(marketingPlan || plan);
 
     const scoreInput: HealthScoreInput = {
         overdueDeliverables,
@@ -105,7 +107,7 @@ export async function getClientOverview(
             atRisk: atRiskDeliverables,
             cells,
         },
-        campaignPlan: campaignPlanSummary(plan),
+        campaignPlan: marketingPlan ? { exists: true, title: marketingPlan.title } : campaignPlanSummary(plan),
         nextBestActions: computeNextBestActions({
             ...scoreInput,
             hoursLogged,

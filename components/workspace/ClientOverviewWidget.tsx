@@ -177,7 +177,7 @@ export function ClientOverviewWidget({ client, organizationId }: ClientOverviewW
             />
             <OverviewCard
                 icon={<Target className="h-4 w-4 text-primary" />}
-                label="Campaign Plan"
+                label="SEO Plan"
                 value={overview.campaignPlan.exists ? 'Ready' : 'Missing'}
                 badge={overview.campaignPlan.exists ? (
                     <CheckCircle2 className="h-5 w-5 text-green-500" />
