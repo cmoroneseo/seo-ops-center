@@ -13,6 +13,8 @@ import {
     updateMarketingPlanItem, addItemComment,
     deleteCustomItem, promoteItemToTask,
 } from '@/lib/supabase/marketing-plans';
+import { getTask, updateTask } from '@/lib/supabase/tasks';
+import { checklistTogglePlan } from '@/lib/marketing-plan-logic';
 
 export interface MemberOption {
     userId: string;
@@ -37,14 +39,43 @@ export function ItemRow({ item, members, currentUser, onChanged }: ItemRowProps)
     const [menuOpen, setMenuOpen] = useState(false);
     const [commentDraft, setCommentDraft] = useState('');
     const [saving, setSaving] = useState(false);
+    const [toggling, setToggling] = useState(false);
 
     const isDone = item.status === 'done';
     const isIgnored = item.status === 'ignored';
     const assignee = members.find(m => m.userId === item.assigneeId);
 
+    // Linked items: checking marks the task done, and migration 059 checks the
+    // item. Unchecking reopens a done/approved task only — an in-progress task
+    // is left alone and just the item is unchecked. See checklistTogglePlan.
     const toggleDone = async () => {
-        await updateMarketingPlanItem(item.id, { status: isDone ? 'todo' : 'done' });
-        onChanged();
+        if (toggling || isIgnored) return;
+        setToggling(true);
+        try {
+            let taskStatus: string | null | undefined;
+            if (item.taskId && isDone) {
+                const loaded = await getTask(item.taskId);
+                taskStatus = loaded.task?.status ?? null;
+            }
+            const plan = checklistTogglePlan({
+                itemStatus: item.status,
+                taskId: item.taskId,
+                taskStatus,
+            });
+            if (plan.write === 'item') {
+                const res = await updateMarketingPlanItem(item.id, { status: plan.status });
+                if (!res.success) alert(res.error ?? 'Could not update the item');
+            } else if (item.taskId) {
+                const res = await updateTask(item.taskId, {
+                    status: plan.status,
+                    updatedBy: currentUser.id,
+                });
+                if (!res.success) alert(res.error ?? 'Could not update the linked task');
+            }
+            onChanged();
+        } finally {
+            setToggling(false);
+        }
     };
 
     const setPriority = async (p: MarketingPlanItemPriority) => {
@@ -133,7 +164,7 @@ export function ItemRow({ item, members, currentUser, onChanged }: ItemRowProps)
                     type="checkbox"
                     checked={isDone}
                     onChange={toggleDone}
-                    disabled={isIgnored}
+                    disabled={isIgnored || toggling}
                     className="mt-1 h-4 w-4 rounded border-border accent-primary cursor-pointer"
                 />
                 <div className="flex-1 min-w-0">

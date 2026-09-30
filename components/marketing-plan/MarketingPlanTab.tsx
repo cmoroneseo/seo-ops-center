@@ -1,24 +1,26 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { ClipboardList, FileDown, Plus, Printer, Search, Sparkles } from 'lucide-react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { ClipboardList, FileDown, ListChecks, Plus, Printer, Search, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MarketingPlan, MarketingPlanItem } from '@/lib/types';
 import {
     getMarketingPlan, createMarketingPlanFromTemplate, addCustomItem,
+    promoteItemsToTasks,
 } from '@/lib/supabase/marketing-plans';
 import { createClient } from '@/lib/supabase/client';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { logActivity } from '@/lib/supabase/client-activity';
 import { buildMarketingPlanExportHtml } from '@/lib/marketing-plan-export';
 import {
-    computePlanSummary, groupItems, filterItems, GroupMode,
+    computePlanSummary, groupItems, filterItems, itemsEligibleForTaskGeneration, GroupMode,
 } from '@/lib/marketing-plan-logic';
 import { SummaryStrip } from './SummaryStrip';
 import { StepRail } from './StepRail';
 import { ItemRow, MemberOption } from './ItemRow';
 import { AddItemForm } from './AddItemForm';
 import { SuggestItemsPanel } from './SuggestItemsPanel';
+import { GenerateTasksPanel } from './GenerateTasksPanel';
 
 interface MarketingPlanTabProps {
     organizationId: string;
@@ -35,6 +37,10 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
     const [activeStepKey, setActiveStepKey] = useState<string | null>(null);
     const [showAddForm, setShowAddForm] = useState(false);
     const [showSuggest, setShowSuggest] = useState(false);
+    const [taskDraft, setTaskDraft] = useState<{ label: string; items: MarketingPlanItem[] } | null>(null);
+    const [creatingTasks, setCreatingTasks] = useState(false);
+    const creatingTasksRef = useRef(false);
+    const [taskDraftError, setTaskDraftError] = useState<string | null>(null);
     const [members, setMembers] = useState<MemberOption[]>([]);
     const [currentUser, setCurrentUser] = useState<{ id?: string; name: string }>({ name: 'Team' });
 
@@ -78,6 +84,40 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
         }
         setCreating(false);
         await loadPlan();
+    };
+
+    const openTaskDraft = (label: string, source: MarketingPlanItem[]) => {
+        const eligible = itemsEligibleForTaskGeneration(source);
+        if (eligible.length === 0) return;
+        setTaskDraftError(null);
+        setTaskDraft({ label, items: eligible });
+    };
+
+    const handleCreateTasks = async (chosen: MarketingPlanItem[]) => {
+        if (creatingTasksRef.current) return;
+        creatingTasksRef.current = true;
+        setCreatingTasks(true);
+        setTaskDraftError(null);
+        try {
+            const result = await promoteItemsToTasks(chosen, currentUser.name);
+            await refresh();
+            if (result.failed.length === 0) {
+                setTaskDraft(null);
+                return;
+            }
+            const detail = result.failed.map(f => `${f.title}: ${f.error}`).join('; ');
+            const summary = result.created.length === 0
+                ? `No tasks created. ${detail}`
+                : `Created ${result.created.length}. ${result.failed.length} failed — ${detail}`;
+            if (result.created.length === 0) setTaskDraftError(summary);
+            else {
+                setTaskDraft(null);
+                alert(summary);
+            }
+        } finally {
+            creatingTasksRef.current = false;
+            setCreatingTasks(false);
+        }
     };
 
     const handleAddItem = async (fields: {
@@ -125,6 +165,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
     const items = plan.items ?? [];
     const summary = computePlanSummary(items);
     const visibleItems = filterItems(items, query);
+    const visibleEligible = itemsEligibleForTaskGeneration(visibleItems);
     const groups = groupItems(visibleItems, plan.steps, groupMode)
         .filter(g => groupMode !== 'step' || !activeStepKey || g.key === activeStepKey);
 
@@ -218,6 +259,20 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
                             />
                         </div>
                         <button
+                            onClick={() => openTaskDraft(
+                                activeStepKey
+                                    ? (plan.steps.find(s => s.key === activeStepKey)?.name ?? 'This step')
+                                    : 'Visible items',
+                                visibleItems,
+                            )}
+                            disabled={visibleEligible.length === 0 || creatingTasks}
+                            title={visibleEligible.length === 0 ? 'No to-do items left to turn into tasks' : undefined}
+                            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
+                        >
+                            <ListChecks className="h-4 w-4" />
+                            Create tasks{visibleEligible.length > 0 ? ` (${visibleEligible.length})` : ''}
+                        </button>
+                        <button
                             onClick={() => setShowSuggest(s => !s)}
                             className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted transition-colors"
                         >
@@ -240,6 +295,18 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
                         />
                     )}
 
+                    {taskDraft && (
+                        <GenerateTasksPanel
+                            key={taskDraft.items.map(item => item.id).join(',')}
+                            scopeLabel={taskDraft.label}
+                            items={taskDraft.items}
+                            creating={creatingTasks}
+                            error={taskDraftError}
+                            onConfirm={handleCreateTasks}
+                            onClose={() => { if (!creatingTasks) setTaskDraft(null); }}
+                        />
+                    )}
+
                     {showSuggest && (
                         <SuggestItemsPanel
                             plan={plan}
@@ -253,13 +320,25 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
                     {groups.map(group => {
                         const done = group.items.filter(i => i.status === 'done').length;
                         const countable = group.items.filter(i => i.status !== 'ignored').length;
+                        const eligible = itemsEligibleForTaskGeneration(group.items);
                         return (
                             <section key={group.key} className="rounded-xl border border-border/50 bg-card px-5 py-2">
-                                <div className="flex items-center justify-between py-3">
+                                <div className="flex items-center justify-between gap-3 py-3">
                                     <h4 className="font-bold text-base">{group.label}</h4>
-                                    <span className="text-sm text-muted-foreground">
-                                        <span className="text-primary font-semibold">{done}</span>/{countable}
-                                    </span>
+                                    <div className="flex items-center gap-3">
+                                        {eligible.length > 0 && (
+                                            <button
+                                                onClick={() => openTaskDraft(group.label, group.items)}
+                                                disabled={creatingTasks}
+                                                className="print:hidden text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+                                            >
+                                                Create tasks ({eligible.length})
+                                            </button>
+                                        )}
+                                        <span className="text-sm text-muted-foreground">
+                                            <span className="text-primary font-semibold">{done}</span>/{countable}
+                                        </span>
+                                    </div>
                                 </div>
                                 {group.items.length === 0 ? (
                                     <p className="text-sm text-muted-foreground italic pb-4">No items.</p>
