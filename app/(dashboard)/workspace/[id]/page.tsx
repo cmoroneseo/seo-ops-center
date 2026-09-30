@@ -253,7 +253,7 @@ export default function ClientDetailPage() {
                 <button
                     onClick={() => setActiveTab('overview')}
                     className={cn(
-                        'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                        'flex shrink-0 whitespace-nowrap items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
                         activeTab === 'overview'
                             ? 'border-primary text-foreground'
                             : 'border-transparent text-muted-foreground hover:text-foreground',
@@ -264,7 +264,7 @@ export default function ClientDetailPage() {
                 <button
                     onClick={() => setActiveTab('campaign')}
                     className={cn(
-                        'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                        'flex shrink-0 whitespace-nowrap items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
                         activeTab === 'campaign'
                             ? 'border-primary text-foreground'
                             : 'border-transparent text-muted-foreground hover:text-foreground',
@@ -296,7 +296,7 @@ export default function ClientDetailPage() {
                 <button
                     onClick={() => setActiveTab('integrations')}
                     className={cn(
-                        'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                        'flex shrink-0 whitespace-nowrap items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
                         activeTab === 'integrations'
                             ? 'border-primary text-foreground'
                             : 'border-transparent text-muted-foreground hover:text-foreground',

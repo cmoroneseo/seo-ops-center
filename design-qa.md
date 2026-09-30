@@ -2,7 +2,7 @@
 
 final result: passed
 
-Scope: visual implementation of selected concept 3, with existing product tokens and actual sandbox data. This is a local preview; production release is pending migration 059.
+Scope: visual implementation of selected concept 3, with existing product tokens and actual sandbox data. This is a local preview; production release is pending migration 061 (the original unreleased execution migration was renumbered during September 29 integration).
 
 ## Comparison
 
@@ -20,7 +20,7 @@ TypeScript passes. Full suite passed 1,249 tests; focused execution tests passed
 
 ## Release requirements and limitations
 
-Apply migration 059 before deploying: saving goals and promoting previously unlinked items depend on its goal column and atomic RPC. These new DB actions were verified locally in migration tests, not against production. Existing-task scheduling and inline updates were verified in Chrome. No production deployment or migration was performed.
+Apply migration 061 before deploying: saving goals and promoting previously unlinked items depend on its goal column and atomic RPC. These new DB actions were verified locally in migration tests, not against production. Existing-task scheduling and inline updates were verified in Chrome. No production deployment or migration was performed.
 
 P3 follow-up: add richer source/evidence integrations as a separate feature when the data model supports them. Existing mobile client header clips some peripheral controls; the new plan editor fits the viewport.
 
@@ -34,4 +34,4 @@ Removed the client-level Tasks tab and renamed the parent to SEO Plan. Monthly p
 
 ## September 29 integration verification
 
-Code integration and automated checks passed. Authenticated visual verification of the integrated version is pending a fresh localhost login; earlier screenshots above describe the September 22 implementation. Migration 061 is required before validating new promotion/linking/goal actions against the target DB. See docs/research/seo-plan-review-2026-09-29/integration.md.
+Code integration and automated checks passed. Authenticated in-app browser verification completed September 30 on localhost:3017 with Sandbox Client A. Monthly UI, nested task list, existing-task picker, Full plan/bulk preview, Results, and completion review entry load. Inline estimate save updates task and capacity; restored original 2.5h estimate. Fixed old heading and parent-tab wrapping. Basecamp sandbox project has no to-do lists, so import was not submitted. Migration 061 remains required for new promotion/linking/goal writes. See docs/research/seo-plan-review-2026-09-29/integration.md and monthly-preview.png in that directory.

@@ -18,7 +18,11 @@ Branch: codex/seo-plan-integration. Preserved the original monthly UI in 4ecf6f6
 - Full suite: 1,307 passed, 0 failed.
 - Targeted lint on monthly workspace/existing-task dialog/plan orchestrator/execution logic: passes.
 - PGlite verifies promotion idempotency, created vs reused result, RLS rejection, existing-task linking retries, invalid category and wrong-client rejection, plus schema mirroring.
-- Authenticated Chrome verification remains pending: localhost requires a fresh sign-in. The running preview is http://localhost:3017. No browser claim of end-to-end import/promotion verification is made for this integrated version.
+- Authenticated local verification completed September 30 in the in-app browser, Sandbox (testing), Sandbox Client A. Monthly heading/capacity, linked task editor, existing-task picker, Full plan, bulk preview, Results, and month navigation load.
+- Inline estimate changed 2.5h → 3h: capacity updated to 3h planned/7h available with Tasks save confirmation. Restored to 2.5h, verified 2.5h planned/7.5h available. Completion review opens the existing time-confirmation dialog; cancelled without changing status.
+- Nested All client tasks shows 3 active/1 completed. Basecamp import loads SEO Ops Sandbox (testing), then reports no to-do lists; no import submitted. Existing-task picker excludes the already-linked task and offers the two open unlinked sandbox tasks.
+- Fixed stale SEO Marketing Plan heading and wrapping SEO Plan parent tab label found during visual checks. Screenshot: monthly-preview.png.
+- Goal save, fresh/bulk promotion, and existing-task link submission still require migration 061. No end-to-end claim for those writes or Basecamp import.
 
 ## Release gate
 

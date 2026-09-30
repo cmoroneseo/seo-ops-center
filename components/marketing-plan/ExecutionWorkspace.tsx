@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowUpRight, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Info, ListTodo, Loader2, Plus } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import type { MarketingPlan, MarketingPlanItem, Task } from '@/lib/types';
 import { executionCapacity, monthlyExecution, taskIsComplete, TASK_STATUS_LABELS } from '@/lib/marketing-plan-execution';
 import type { MemberOption } from './ItemRow';
@@ -64,7 +65,7 @@ export function ExecutionWorkspace({ plan, month, budget, loggedHours, taskHours
         setSelectedId(undefined);
     };
     return <div className="space-y-4">
-<header className="grid items-start gap-6 lg:grid-cols-[1fr_1.2fr]"><div><p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">SEO Marketing Plan</p><h2 className="text-3xl font-semibold tracking-tight sm:text-4xl lg:text-5xl">{title}</h2>
+<header className="grid items-start gap-6 lg:grid-cols-[1fr_1.2fr]"><div><p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">{SEO_PLAN_LABEL}</p><h2 className="text-3xl font-semibold tracking-tight sm:text-4xl lg:text-5xl">{title}</h2>
             <div className="mt-3 flex gap-3"><div className="min-w-0 flex-1">
                 <p className="text-xs text-muted-foreground">Plan goal</p>
                 {editingGoal ? <form className="mt-2 space-y-2" onSubmit={async event => {
