@@ -10,7 +10,7 @@ import {
     LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
     Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import { ClientProject } from '@/lib/types';
+import { ClientProject, MarketingPlan } from '@/lib/types';
 import {
     METRIC_DEFS, REPORT_SECTIONS, formatMetric, computeDelta,
     monthLabel, ReportSourceKey,
@@ -38,6 +38,12 @@ export interface ReportContext {
     /** Editing callbacks — undefined in read-only/print contexts. */
     onEditText?: (blockId: string, patch: Record<string, any>) => void;
     onEditField?: (field: 'executive_summary' | 'recommendations', value: string) => void;
+    /**
+     * When set (including null), the SEO Plan block renders this snapshot and
+     * does not query the checklist from the browser. The client portal passes
+     * a redacted plan, or null when the plan is not shared.
+     */
+    planSnapshot?: { plan: MarketingPlan; taskDueDates?: Record<string, string | null> } | null;
 }
 
 const METRIC_LABELS: Record<string, string> = Object.fromEntries(

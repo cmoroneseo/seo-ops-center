@@ -20,6 +20,8 @@ interface PlanBlockContext {
     client: ClientProject | null;
     hideEmpty: boolean;
     onEditText?: (blockId: string, patch: Record<string, unknown>) => void;
+    /** Defined means "do not fetch". Null is an explicit empty plan. */
+    planSnapshot?: { plan: MarketingPlan; taskDueDates?: Record<string, string | null> } | null;
 }
 
 type LoadState =
@@ -30,11 +32,21 @@ type LoadState =
 export function MarketingPlanReportBlock({ block, ctx }: { block: Block; ctx: PlanBlockContext }) {
     const view = readPlanReportView(block.props.planView);
     const clientId = ctx.client?.id ?? null;
-    const [loaded, setLoaded] = useState<LoadState>({ status: 'loading' });
+    const snapshotLocked = ctx.planSnapshot !== undefined;
+    const [loaded, setLoaded] = useState<LoadState>(() => {
+        if (!snapshotLocked) return { status: 'loading' };
+        if (!ctx.planSnapshot) return { status: 'missing' };
+        return {
+            status: 'ready',
+            plan: ctx.planSnapshot.plan,
+            taskDueDates: ctx.planSnapshot.taskDueDates ?? {},
+        };
+    });
     const [openState, setOpenState] = useState<{ signature: string; key: string | null } | null>(null);
     const [expandedFor, setExpandedFor] = useState<string | null>(null);
 
     useEffect(() => {
+        if (snapshotLocked) return;
         if (!clientId) return;
         let cancelled = false;
         setLoaded({ status: 'loading' });
@@ -61,7 +73,7 @@ export function MarketingPlanReportBlock({ block, ctx }: { block: Block; ctx: Pl
             if (!cancelled) setLoaded({ status: 'ready', plan, taskDueDates });
         })();
         return () => { cancelled = true; };
-    }, [clientId]);
+    }, [clientId, snapshotLocked]);
 
     if (!ctx.client) {
         return (

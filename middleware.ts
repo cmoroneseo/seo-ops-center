@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { classifyActor, clientPortalAllowedPath, contactErrorKind, isPortalLoginPath } from '@/lib/portal/access-policy'
 
 export async function middleware(request: NextRequest) {
     // The metrics handler validates the cron secret or client-scoped session itself.
@@ -95,15 +96,56 @@ export async function middleware(request: NextRequest) {
     const isWebhookRoute = pathname.startsWith('/api/integrations/basecamp/webhook') ||
         pathname.startsWith('/api/cron/')
 
+    // Portal sign-in is invite + magic link. The hub itself still requires a session.
+    const isPortalEntry = isPortalLoginPath(pathname)
+
     // If user is not signed in and tries to access a protected route, redirect to /login
-    if (!user && !isPublicRoute && !isReviewPortal && !isWebhookRoute && !pathname.startsWith('/auth')) {
+    if (!user && !isPublicRoute && !isReviewPortal && !isWebhookRoute && !isPortalEntry && !pathname.startsWith('/auth')) {
+        if (pathname.startsWith('/portal')) {
+            const login = new URL('/portal/login', request.url)
+            login.searchParams.set('next', pathname)
+            return NextResponse.redirect(login)
+        }
         return NextResponse.redirect(new URL('/login', request.url))
+    }
+
+    // Client contacts are not organization members. Keep them off staff pages and
+    // staff APIs, which authorize "any signed-in user" in a few places.
+    if (user && !isReviewPortal && !pathname.startsWith('/auth')) {
+        const [memberships, contacts] = await Promise.all([
+            supabase.from('organization_members').select('organization_id').limit(1),
+            supabase.from('client_portal_contacts').select('id').eq('user_id', user.id).is('revoked_at', null).limit(1),
+        ])
+        const kind = classifyActor({
+            membershipError: Boolean(memberships.error),
+            membershipCount: memberships.data?.length ?? 0,
+            contactError: contactErrorKind(contacts.error),
+            contactCount: contacts.data?.length ?? 0,
+        })
+        const withSessionCookies = (next: NextResponse) => {
+            response.cookies.getAll().forEach(cookie => next.cookies.set(cookie))
+            return next
+        }
+        if (kind === 'client') {
+            if (pathname === '/portal/login') {
+                return withSessionCookies(NextResponse.redirect(new URL('/portal', request.url)))
+            }
+            if (!clientPortalAllowedPath(pathname)) {
+                if (pathname.startsWith('/api/')) {
+                    return withSessionCookies(NextResponse.json({ error: 'Forbidden' }, { status: 403 }))
+                }
+                return withSessionCookies(NextResponse.redirect(new URL('/portal', request.url)))
+            }
+            return response
+        }
     }
 
     // If user is signed in and tries to access /login, /signup, or / (landing)
     // Redirect them to /dashboard
     if (user && isPublicRoute) {
-        return NextResponse.redirect(new URL('/dashboard', request.url))
+        const redirect = NextResponse.redirect(new URL('/dashboard', request.url))
+        response.cookies.getAll().forEach(cookie => redirect.cookies.set(cookie))
+        return redirect
     }
 
     return response
