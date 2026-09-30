@@ -180,3 +180,187 @@ export function checklistTogglePlan(input: {
     if (taskCompletesChecklist(input.taskStatus)) return { write: 'task', status: 'todo' };
     return { write: 'item', status: 'todo' };
 }
+
+// ---------------------------------------------------------------------------
+// Report fulfillment — step vs engagement month
+// ---------------------------------------------------------------------------
+
+/**
+ * How a Project Report SEO Plan block groups checklist progress.
+ * Stored on the block as `props.planView`. Missing or unknown values are step.
+ */
+export type PlanReportView = 'step' | 'month';
+
+export function readPlanReportView(value: unknown): PlanReportView {
+    return value === 'month' ? 'month' : 'step';
+}
+
+export interface FulfillmentCounts {
+    done: number;
+    todo: number;
+    ignored: number;
+    /** Non-ignored items. Denominator of the "3/10" fraction. */
+    total: number;
+    progressPercent: number;
+}
+
+/** Ignored items are an explicit skip, so they stay out of the fraction and the percent. */
+export function fulfillmentCounts(items: Pick<MarketingPlanItem, 'status'>[]): FulfillmentCounts {
+    const ignored = items.filter(i => i.status === 'ignored').length;
+    const done = items.filter(i => i.status === 'done').length;
+    const todo = items.filter(i => i.status === 'todo').length;
+    const total = done + todo;
+    const progressPercent = total === 0 ? 0 : Math.round((done / total) * 100);
+    return { done, todo, ignored, total, progressPercent };
+}
+
+export interface FulfillmentBucket {
+    key: string;
+    label: string;
+    items: MarketingPlanItem[];
+    done: number;
+    total: number;
+}
+
+function toBucket(key: string, label: string, items: MarketingPlanItem[]): FulfillmentBucket {
+    const counts = fulfillmentCounts(items);
+    return { key, label, items, done: counts.done, total: counts.total };
+}
+
+/**
+ * One bucket per plan step, in step order, including steps with no items.
+ * Items whose step is not on the plan land in "Other" so they are not dropped.
+ */
+export function stepFulfillmentBuckets(
+    items: MarketingPlanItem[],
+    steps: MarketingPlanStep[],
+): FulfillmentBucket[] {
+    const sortedSteps = [...steps].sort((a, b) => a.sortOrder - b.sortOrder);
+    const known = new Set(sortedSteps.map(s => s.key));
+    const bySort = (a: MarketingPlanItem, b: MarketingPlanItem) => a.sortOrder - b.sortOrder;
+    const buckets = sortedSteps.map((step, index) => toBucket(
+        step.key,
+        `Step ${index + 1}: ${step.name}`,
+        items.filter(i => i.stepKey === step.key).sort(bySort),
+    ));
+    const orphans = items.filter(i => !known.has(i.stepKey)).sort(bySort);
+    if (orphans.length > 0) buckets.push(toBucket('other', 'Other', orphans));
+    return buckets;
+}
+
+/** Calendar month from a `YYYY-MM...` prefix. No timezone conversion. */
+export function calendarYearMonth(value: string): { year: number; month: number } | null {
+    const match = /^(\d{4})-(\d{2})/.exec(value.trim());
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    if (month < 1 || month > 12) return null;
+    return { year, month };
+}
+
+/**
+ * Engagement month index. Month 1 is the anchor's calendar month.
+ * 0 or negative means the due month is before the anchor. Null means unparseable.
+ */
+export function engagementMonthIndex(anchorDate: string, dueDate: string): number | null {
+    const anchor = calendarYearMonth(anchorDate);
+    const due = calendarYearMonth(dueDate);
+    if (!anchor || !due) return null;
+    return (due.year - anchor.year) * 12 + (due.month - anchor.month) + 1;
+}
+
+/**
+ * Anchor for Month 1. Same clock the blog cadence uses (`launchDateOverride`,
+ * then `launchDate`), then the plan's created timestamp when the client has
+ * no launch date. This does not invent a schedule — it only names an origin.
+ */
+export function planEngagementAnchor(input: {
+    launchDateOverride?: string | null;
+    launchDate?: string | null;
+    planCreatedAt?: string | null;
+}): string | null {
+    for (const candidate of [input.launchDateOverride, input.launchDate, input.planCreatedAt]) {
+        if (candidate && calendarYearMonth(candidate)) return candidate;
+    }
+    return null;
+}
+
+/**
+ * Date that places an item in an engagement month.
+ * The checklist due date wins. A linked task's due date is used only when the
+ * item itself has none (the task is the live copy after generation).
+ */
+export function schedulingDateForItem(
+    item: Pick<MarketingPlanItem, 'dueDate' | 'taskId'>,
+    taskDueDates?: Readonly<Record<string, string | null | undefined>>,
+): string | null {
+    const own = item.dueDate?.trim();
+    if (own) return own;
+    if (!item.taskId || !taskDueDates) return null;
+    const linked = taskDueDates[item.taskId]?.trim();
+    return linked || null;
+}
+
+export interface MonthFulfillmentOptions {
+    /** Null when no engagement origin exists — every item is Unscheduled. */
+    anchorDate: string | null;
+    taskDueDates?: Readonly<Record<string, string | null | undefined>>;
+}
+
+/**
+ * Groups items into Month 1, Month 2, … from the engagement anchor.
+ * Empty months are omitted. Dated items before the anchor stay in "Before start".
+ * Items with no usable date (or no anchor) stay in "Unscheduled". Neither is dropped.
+ */
+export function monthFulfillmentBuckets(
+    items: MarketingPlanItem[],
+    options: MonthFulfillmentOptions,
+): FulfillmentBucket[] {
+    const byMonth = new Map<number, MarketingPlanItem[]>();
+    const before: MarketingPlanItem[] = [];
+    const unscheduled: MarketingPlanItem[] = [];
+
+    for (const item of items) {
+        const due = schedulingDateForItem(item, options.taskDueDates);
+        const index = due && options.anchorDate ? engagementMonthIndex(options.anchorDate, due) : null;
+        if (index == null) unscheduled.push(item);
+        else if (index < 1) before.push(item);
+        else {
+            const list = byMonth.get(index) ?? [];
+            list.push(item);
+            byMonth.set(index, list);
+        }
+    }
+
+    const bySchedule = (a: MarketingPlanItem, b: MarketingPlanItem) => {
+        const ad = schedulingDateForItem(a, options.taskDueDates) ?? '';
+        const bd = schedulingDateForItem(b, options.taskDueDates) ?? '';
+        if (ad !== bd) return ad < bd ? -1 : 1;
+        return a.sortOrder - b.sortOrder;
+    };
+
+    const buckets: FulfillmentBucket[] = [];
+    if (before.length > 0) buckets.push(toBucket('before', 'Before start', [...before].sort(bySchedule)));
+    for (const index of [...byMonth.keys()].sort((a, b) => a - b)) {
+        buckets.push(toBucket(`month-${index}`, `Month ${index}`, [...byMonth.get(index)!].sort(bySchedule)));
+    }
+    if (unscheduled.length > 0) {
+        buckets.push(toBucket(
+            'unscheduled',
+            'Unscheduled',
+            [...unscheduled].sort((a, b) => a.sortOrder - b.sortOrder),
+        ));
+    }
+    return buckets;
+}
+
+export function planFulfillmentBuckets(
+    items: MarketingPlanItem[],
+    steps: MarketingPlanStep[],
+    view: PlanReportView,
+    monthOptions: MonthFulfillmentOptions,
+): FulfillmentBucket[] {
+    return view === 'month'
+        ? monthFulfillmentBuckets(items, monthOptions)
+        : stepFulfillmentBuckets(items, steps);
+}

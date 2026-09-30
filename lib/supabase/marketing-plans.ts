@@ -3,7 +3,7 @@ import {
     MarketingPlan, MarketingPlanItem, MarketingPlanItemComment,
     MarketingPlanItemPriority,
 } from '../types';
-import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS } from '../marketing-plan-template';
+import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS, SEO_PLAN_LABEL } from '../marketing-plan-template';
 import { itemsEligibleForTaskGeneration, taskFieldsFromPlanItem } from '../marketing-plan-logic';
 import { createTask } from './tasks';
 
@@ -83,7 +83,7 @@ export async function createMarketingPlanFromTemplate(input: {
         .insert({
             organization_id: input.organizationId,
             client_id: input.clientId,
-            title: `${input.clientName} — SEO Marketing Plan`,
+            title: `${input.clientName} — ${SEO_PLAN_LABEL}`,
             steps: MARKETING_PLAN_STEPS,
         })
         .select()

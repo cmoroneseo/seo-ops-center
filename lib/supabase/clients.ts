@@ -40,6 +40,7 @@ function rowToClientProject(row: any): ClientProject {
         domain: row.domain ?? undefined,
         logoUrl: row.logo_url ?? undefined,
         launchDate,
+        launchDateOverride: row.launch_date_override ?? undefined,
         notes: row.notes ?? undefined,
         accountManager: row.account_manager_name || 'Unassigned',
         accountManagerId: row.account_manager_id ?? undefined,

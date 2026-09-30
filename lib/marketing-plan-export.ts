@@ -1,4 +1,5 @@
 import type { MarketingPlan, MarketingPlanItem } from './types';
+import { SEO_PLAN_LABEL } from './marketing-plan-template';
 
 function escapeHtml(s: string): string {
     return s
@@ -73,7 +74,7 @@ export function buildMarketingPlanExportHtml(input: {
 <html>
 <head>
 <meta charset="utf-8">
-<title>${escapeHtml(clientName)} — SEO Marketing Plan</title>
+<title>${escapeHtml(clientName)} — ${escapeHtml(SEO_PLAN_LABEL)}</title>
 <style>
     :root { color-scheme: light; }
     html, body { background: #ffffff; }
@@ -103,7 +104,7 @@ export function buildMarketingPlanExportHtml(input: {
 </head>
 <body>
     <div class="doc-header">
-        <h1>${escapeHtml(clientName)} — SEO Marketing Plan</h1>
+        <h1>${escapeHtml(clientName)} — ${escapeHtml(SEO_PLAN_LABEL)}</h1>
         <div class="subtitle">Marketing Empire Group · Generated ${generatedOn}</div>
     </div>
     ${sections}

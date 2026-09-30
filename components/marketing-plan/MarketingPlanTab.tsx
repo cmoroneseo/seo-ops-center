@@ -12,6 +12,7 @@ import { createClient } from '@/lib/supabase/client';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { logActivity } from '@/lib/supabase/client-activity';
 import { buildMarketingPlanExportHtml } from '@/lib/marketing-plan-export';
+import { displaySeoPlanTitle, SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import {
     computePlanSummary, groupItems, filterItems, itemsEligibleForTaskGeneration, GroupMode,
 } from '@/lib/marketing-plan-logic';
@@ -135,7 +136,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
     };
 
     if (loading) {
-        return <div className="text-center py-12 text-muted-foreground text-sm italic">Loading marketing plan…</div>;
+        return <div className="text-center py-12 text-muted-foreground text-sm italic">Loading {SEO_PLAN_LABEL}…</div>;
     }
 
     // Empty state
@@ -145,7 +146,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
                 <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
                     <ClipboardList className="h-8 w-8 text-primary" />
                 </div>
-                <h3 className="text-lg font-semibold">No SEO Marketing Plan Yet</h3>
+                <h3 className="text-lg font-semibold">No {SEO_PLAN_LABEL} Yet</h3>
                 <p className="text-sm text-muted-foreground max-w-md mx-auto">
                     Create a plan for {clientName} — a 7-step SEO checklist covering setup,
                     technical, research, content, on-page, links, and local.
@@ -156,7 +157,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
                     className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
                     <Plus className="h-4 w-4" />
-                    {creating ? 'Creating…' : 'Create SEO Marketing Plan'}
+                    {creating ? 'Creating…' : `Create ${SEO_PLAN_LABEL}`}
                 </button>
             </div>
         );
@@ -189,7 +190,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${clientName} - SEO Marketing Plan.doc`;
+            a.download = `${clientName} - ${SEO_PLAN_LABEL}.doc`;
             a.click();
             URL.revokeObjectURL(url);
         }
@@ -199,7 +200,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName }: Marke
         <div className="space-y-6" id="marketing-plan-root">
             {/* Header */}
             <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">{plan.title}</h3>
+                <h3 className="text-lg font-semibold">{displaySeoPlanTitle(plan.title)}</h3>
                 <div className="flex items-center gap-2">
                     <button
                         onClick={() => handleExport('pdf')}

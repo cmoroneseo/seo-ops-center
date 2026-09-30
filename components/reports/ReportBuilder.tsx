@@ -324,7 +324,7 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
                                                 <Folder className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                                 <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex-1 text-left">{group.name}</span>
                                                 <span className="text-[10px] text-muted-foreground">{group.items.length}</span>
-                                                {!hasData(group.source) && (
+                                                {group.source && !hasData(group.source) && (
                                                     <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">no data</span>
                                                 )}
                                                 {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}

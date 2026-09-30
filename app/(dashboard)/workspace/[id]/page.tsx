@@ -33,6 +33,7 @@ import { getTasksByClient } from '@/lib/supabase/tasks';
 import { getLoggedHoursByClient } from '@/lib/supabase/time-logs';
 import { Task } from '@/lib/types';
 import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
+import { SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import { ClientApprovalsTab } from '@/components/approvals/ClientApprovalsTab';
 
 type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'inventory' | 'topical-map' | 'approvals';
@@ -249,7 +250,7 @@ export default function ClientDetailPage() {
                     )}
                 >
                     <Target className="h-3.5 w-3.5" />
-                    SEO Marketing Plan
+                    {SEO_PLAN_LABEL}
                 </button>
                 <button
                     onClick={() => setActiveTab('tasks')}
@@ -298,7 +299,7 @@ export default function ClientDetailPage() {
                 </button>
             </div>
 
-            {/* SEO Marketing Plan tab */}
+            {/* SEO Plan tab */}
             {activeTab === 'campaign' && (
                 <MarketingPlanTab
                     organizationId={organization?.id ?? ''}

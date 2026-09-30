@@ -3,6 +3,7 @@
 // upgraded to blocks on read via blocksFromLegacy().
 
 import { ReportSourceKey, SectionConfig, defaultSectionConfig } from './sections';
+import { SEO_PLAN_LABEL } from '../marketing-plan-template';
 
 export type BlockType =
     // Formatting blocks
@@ -13,7 +14,8 @@ export type BlockType =
     | 'trend'              // multi-month line chart (props.source, props.metrics)
     | 'distribution'       // keywords by top-position buckets (Ahrefs)
     | 'organic_table'      // monthly organic history table (GSC + GA4)
-    | 'keyword_rankings_table'; // tracked-keyword start vs end of period (Ahrefs Rank Tracker)
+    | 'keyword_rankings_table' // tracked-keyword start vs end of period (Ahrefs Rank Tracker)
+    | 'marketing_plan';        // SEO Plan checklist progress (props.planView: 'step' | 'month')
 
 export interface Block {
     id: string;
@@ -73,7 +75,8 @@ export interface LibraryItem {
 
 export interface LibraryGroup {
     name: string;
-    source: ReportSourceKey; // used to badge availability from synced data
+    /** Metrics source used to badge "no data". Omit for widgets that are not a synced source. */
+    source?: ReportSourceKey;
     items: LibraryItem[];
 }
 
@@ -162,6 +165,16 @@ export const WIDGET_LIBRARY: LibraryGroup[] = [
             },
         ],
     },
+    {
+        name: SEO_PLAN_LABEL,
+        items: [
+            {
+                key: 'marketing_plan', name: SEO_PLAN_LABEL,
+                description: 'Checklist progress by step or by engagement month',
+                type: 'marketing_plan', props: { planView: 'step' },
+            },
+        ],
+    },
 ];
 
 export interface FormattingItem {
@@ -204,6 +217,7 @@ export function blockLabel(block: Block): string {
         case 'organic_table': return 'Organic traffic table';
         case 'grid_comparison': return 'Keyword Visibility Heatmaps';
         case 'keyword_rankings_table': return 'All keywords rankings';
+        case 'marketing_plan': return SEO_PLAN_LABEL;
         default: return 'Block';
     }
 }
