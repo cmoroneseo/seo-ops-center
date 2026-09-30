@@ -16,6 +16,7 @@ import {
     monthLabel, ReportSourceKey,
 } from '@/lib/reports/sections';
 import { Block } from '@/lib/reports/blocks';
+import { MarketingPlanReportBlock } from './MarketingPlanReportBlock';
 import { createClient } from '@/lib/supabase/client';
 import type { RankTrackerResult } from '@/lib/sync/fetchAhrefsRankTracker';
 
@@ -909,6 +910,7 @@ export function RenderBlock({ block, ctx }: { block: Block; ctx: ReportContext }
         case 'distribution': return <DistributionBlock ctx={ctx} />;
         case 'organic_table': return <OrganicTableBlock ctx={ctx} />;
         case 'keyword_rankings_table': return <KeywordRankingsTableBlock block={block} ctx={ctx} />;
+        case 'marketing_plan': return <MarketingPlanReportBlock block={block} ctx={ctx} />;
         case 'page_break': return null; // handled by the canvas (page split)
         default: return null;
     }

@@ -504,6 +504,8 @@ export interface ClientProject {
     domain?: string;
     logoUrl?: string;
     launchDate?: string;
+    /** Replaces `launchDate` as the engagement clock when the start was corrected. */
+    launchDateOverride?: string;
     accountManager: string;
     accountManagerId?: string;
     status: ProjectStatus;

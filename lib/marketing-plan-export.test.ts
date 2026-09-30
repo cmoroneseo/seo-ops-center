@@ -76,4 +76,6 @@ test('skips empty steps and omits internal meta (priority/assignee/due/progress)
     assert.ok(!html.includes('High'));
     assert.ok(!html.includes('Due 2026-08-01'));
     assert.ok(!html.includes('complete'));
+    assert.match(html, /SEO Plan/);
+    assert.equal(html.includes('SEO Marketing Plan'), false);
 });
