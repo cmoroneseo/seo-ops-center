@@ -17,7 +17,6 @@ import {
 import { getTask, updateTask } from '@/lib/supabase/tasks';
 import { RoadmapItemDetails } from './RoadmapItemDetails';
 import { isInRoadmap } from '@/lib/marketing-plan-roadmap';
-import { checklistTogglePlan } from '@/lib/marketing-plan-logic';
 
 export interface MemberOption {
     userId: string;
@@ -44,7 +43,6 @@ export function ItemRow({ item, members, currentUser, onChanged, onOpenTask }: I
     const [commentDraft, setCommentDraft] = useState('');
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
-    const [toggling, setToggling] = useState(false);
 
     const isDone = item.status === 'done';
     const isIgnored = !isInRoadmap(item);
@@ -54,11 +52,6 @@ export function ItemRow({ item, members, currentUser, onChanged, onOpenTask }: I
         setError('');
         const res = await updateMarketingPlanItem(item.id, patch);
         if (!res.success) { const message = res.error ?? 'Could not save changes'; setError(message); return; }
-        onChanged();
-    };
-
-    const toggleDone = async () => {
-        await saveItem({ status: isDone ? 'todo' : 'done' });
         onChanged();
     };
 
@@ -146,14 +139,6 @@ export function ItemRow({ item, members, currentUser, onChanged, onOpenTask }: I
             {error && <p role="alert" className="mb-2 text-sm text-destructive">{error}</p>}
             {/* Title row */}
             <div className="flex items-start gap-3">
-                <input
-                    aria-label={`Complete ${item.title}`}
-                    type="checkbox"
-                    checked={isDone}
-                    onChange={toggleDone}
-                    disabled={isIgnored || toggling}
-                    className="mt-1 h-4 w-4 rounded border-border accent-primary cursor-pointer"
-                />
                 <div className="flex-1 min-w-0">
                     <span className={cn('font-semibold text-sm', isDone && 'line-through text-muted-foreground')}>
                         {item.title}
@@ -210,13 +195,13 @@ export function ItemRow({ item, members, currentUser, onChanged, onOpenTask }: I
 
             {/* Description — always visible, like SE Ranking */}
             {item.description && (
-                <p className="text-sm text-muted-foreground leading-relaxed mt-2 ml-7">
+                <p className="text-sm text-muted-foreground leading-relaxed mt-2">
                     {renderDescription(item.description)}
                 </p>
             )}
 
             {/* Details toggle + meta chips */}
-            <div className="flex items-center justify-between mt-2 ml-7">
+            <div className="flex items-center justify-between mt-2">
                 <button
                     aria-expanded={expanded}
                     onClick={() => setExpanded(e => !e)}
@@ -240,7 +225,7 @@ export function ItemRow({ item, members, currentUser, onChanged, onOpenTask }: I
 
             {/* Expanded: assignee/due controls + comment section */}
             {expanded && (
-                <div className="ml-7 mt-3 space-y-4 rounded-lg bg-muted/30 p-4">
+                <div className="mt-3 space-y-4 rounded-lg bg-muted/30 p-4">
                     <RoadmapItemDetails item={item} onSave={async patch => { const res = await updateMarketingPlanItem(item.id, patch); if (!res.success) throw new Error(res.error ?? 'Could not save roadmap scope'); onChanged(); }} />
                     <div className="flex items-center gap-3 print:hidden">
                         <select

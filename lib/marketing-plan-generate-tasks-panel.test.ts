@@ -50,6 +50,7 @@ test('item row shows a task chip only after the item is linked', () => {
     }));
     assert.match(unlinked, /Claim the profile/);
     assert.doesNotMatch(unlinked, /\/tasks\?task=/);
+    assert.doesNotMatch(unlinked, /aria-label="Complete /);
 
     const linked = renderToStaticMarkup(createElement(ItemRow, {
         item: item({ id: 'b', title: 'Claim the profile', taskId: 'task-1', status: 'done' }),

@@ -94,7 +94,7 @@ export function ExecutionWorkspace({ plan, month, budget, loggedHours, taskHours
                 <input id="execution-month" type="month" value={month} onChange={event => { if (/^\d{4}-\d{2}$/.test(event.target.value)) onMonthChange(event.target.value); }} className={cn(field, 'w-auto')} />
                 <button className={secondary} aria-label="Next month" onClick={() => changeMonth(1)}><ChevronRight className="h-4 w-4" /></button>
             </div>
-            <div className="flex flex-wrap gap-2"><button className={secondary} onClick={() => { setView('full'); onAddExisting(); }}>Add Item</button><button className={primary} onClick={() => setScheduling(true)}><CalendarDays className="h-4 w-4" />Schedule work</button></div>
+            <div className="flex flex-wrap gap-2">{view !== 'full' && <button className={secondary} onClick={() => { setView('full'); onAddExisting(); }}>Add Item</button>}<button className={primary} onClick={() => setScheduling(true)}><CalendarDays className="h-4 w-4" />Schedule work</button></div>
         </div>
         {view === 'full' ? fullPlan : view === 'results' ? <section className="space-y-4" aria-label="Monthly results">
             <h3 className="text-lg font-semibold">Delivered in {title}</h3><p className="text-sm text-muted-foreground">{summary.completed.length} of {summary.tasks.length} planned tasks completed. Completion reflects Tasks; estimated effort includes completed work.</p>
