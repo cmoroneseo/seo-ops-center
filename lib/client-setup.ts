@@ -59,3 +59,26 @@ export function setupBudgetMonth(date: string, launchDate: string | null | undef
     if (!launchDate || date < launchDate) return scope.onboardingBudget === 'first_month' && launchDate ? launchDate.slice(0, 7) : null;
     return date.slice(0, 7);
 }
+
+export interface SetupHoursStatus {
+    status: string;
+    severity: 'ok' | 'info' | 'warn' | 'critical';
+    reason: string;
+    pct: number | null;
+}
+/** New setup agreements distinguish promised effort from optional capacity. */
+export function setupHoursStatus(scope: ClientSetupScope, status: string, launchDate: string | undefined, logged: number, budget: number, month: string, today = localDate()): SetupHoursStatus {
+    if (status !== 'Active' || !launchDate || month < launchDate.slice(0, 7)) return { status: status === 'Onboarding' || status === 'Active' ? 'Planned' : status, severity: 'ok', reason: 'Recurring hours begin after confirmed launch while the client is active.', pct: null };
+    if (scope.mode === 'custom' || budget <= 0) return { status: 'Tracked', severity: 'ok', reason: 'Custom work is scoped in the SEO Plan.', pct: null };
+    const pct = logged / budget;
+    if (logged > budget) return { status: 'Over', severity: 'critical', reason: `${(logged - budget).toFixed(2)}h over budget`, pct };
+    if (scope.hoursMode === 'allowance') return { status: 'Within allowance', severity: 'ok', reason: `${(budget - logged).toFixed(2)}h available; unused hours are not a shortfall.`, pct };
+    if (logged >= budget) return { status: 'Met', severity: 'ok', reason: 'Monthly hours commitment met.', pct };
+    const [year, monthIndex] = month.split('-').map(Number);
+    const lastDay = new Date(year, monthIndex, 0).getDate();
+    const end = `${month}-${String(lastDay).padStart(2, '0')}`;
+    const outstanding = `${(budget - logged).toFixed(2)}h remaining against the monthly commitment.`;
+    if (today > end) return { status: 'Shortfall', severity: 'critical', reason: outstanding, pct };
+    if (today >= `${month}-${String(Math.max(1, lastDay - 6)).padStart(2, '0')}`) return { status: 'At risk', severity: 'warn', reason: outstanding, pct };
+    return { status: 'In progress', severity: 'ok', reason: outstanding, pct };
+}

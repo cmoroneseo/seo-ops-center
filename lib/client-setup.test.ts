@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { setupBudgetMonth, setupPlanItems, validateClientSetup, type ClientSetupInput } from './client-setup';
+import { setupHoursStatus, setupBudgetMonth, setupPlanItems, validateClientSetup, type ClientSetupInput } from './client-setup';
 const input: ClientSetupInput = { requestId: 'id', organizationId: 'org', name: 'Mayas Construction', website: '', accountManagerId: '', onboardingDate: '2026-09-01', launchDate: '', seoHours: 5, template: 'foundation', customItems: [], scope: { version: 1, mode: 'monthly', hoursMode: 'committed', contentPieces: 1, gbp: true, gbpUsesSeoHours: false, listings: true, onboardingBudget: 'separate' } };
 test('setup distinguishes committed hours, allowance, and mixed content', () => {
     assert.equal(validateClientSetup(input, '2026-09-30'), null);
@@ -24,4 +24,16 @@ test('onboarding hours are allocated at launch without moving their recording da
     assert.equal(setupBudgetMonth('2026-09-15', '2026-10-01', '2026-09-01', { ...scope, onboardingBudget: 'first_month' }), '2026-10');
     assert.equal(setupBudgetMonth('2026-10-15', '2026-10-01', '2026-09-01', scope), '2026-10');
     assert.equal(setupBudgetMonth('2026-09-15', null, null, null), '2026-09');
+});
+
+test('committed hours flag shortfalls; allowance and onboarding do not', () => {
+    const committed = input.scope;
+    const allowance = { ...committed, hoursMode: 'allowance' as const };
+    assert.equal(setupHoursStatus(committed, 'Active', '2026-08-01', 3, 5, '2026-09', '2026-10-01').status, 'Shortfall');
+    assert.equal(setupHoursStatus(allowance, 'Active', '2026-08-01', 3, 5, '2026-09', '2026-10-01').severity, 'ok');
+    assert.equal(setupHoursStatus(committed, 'Onboarding', undefined, 0, 5, '2026-09', '2026-10-01').status, 'Planned');
+    assert.equal(setupHoursStatus(committed, 'Active', '2026-08-01', 3, 5, '2026-09', '2026-09-28').severity, 'warn');
+    assert.equal(setupHoursStatus(committed, 'Active', '2026-08-01', 5, 5, '2026-09', '2026-09-28').status, 'Met');
+    assert.equal(setupHoursStatus(allowance, 'Active', '2026-08-01', 6, 5, '2026-09', '2026-09-28').status, 'Over');
+    assert.equal(setupHoursStatus(committed, 'Paused', '2026-08-01', 0, 5, '2026-09', '2026-10-01').severity, 'ok');
 });
