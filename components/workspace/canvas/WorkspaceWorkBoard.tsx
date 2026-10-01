@@ -1,6 +1,7 @@
 'use client';
 
 import { formatDayLabel, LANE_PREVIEW_LIMIT, type BoardModel, type TimelineModel, type WorkCard } from '@/lib/workspace-canvas/project';
+import { CalendarDays, ClipboardList, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function badgeClass(badge: string): string {
@@ -17,12 +18,21 @@ function CardButton({ card, selected, onSelect }: { card: WorkCard; selected: bo
             onClick={() => onSelect(card.id)}
             aria-pressed={selected}
             className={cn(
-                'w-full rounded-lg border bg-background p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                selected ? 'border-primary ring-2 ring-ring' : 'border-border hover:border-primary/40',
+                'w-full rounded-lg border bg-muted/30 p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                selected ? 'border-primary ring-2 ring-ring' : 'border-border hover:border-primary/40 hover:bg-muted/50',
             )}
         >
-            <span className="block truncate text-sm font-medium" title={card.title}>{card.title}</span>
-            <span className="mt-1 block truncate text-xs text-muted-foreground">{card.assigneeLabel} · {card.dueDate ?? 'No due date'}</span>
+            <span className="flex items-start gap-3">
+                <span className="rounded-lg bg-primary/10 p-2 text-primary"><ClipboardList className="h-5 w-5" /></span>
+                <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold leading-5">{card.title}</span>
+                    {card.description && <span className="mt-1 block line-clamp-2 text-xs leading-5 text-muted-foreground">{card.description}</span>}
+                </span>
+            </span>
+            <span className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span className="inline-flex min-w-0 items-center gap-2"><span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground">{card.assigneeLabel.split(' ').slice(0, 2).map(part => part[0]).join('')}</span>{card.assigneeLabel}</span>
+                <span className="inline-flex items-center gap-1"><CalendarDays className="h-3.5 w-3.5" />{card.dueDate ? formatDayLabel(card.dueDate) : 'No due date'}</span>
+            </span>
             {card.badges.length > 0 && (
                 <span className="mt-2 flex flex-wrap gap-1">
                     {card.badges.map(badge => <span key={badge} className={cn('rounded px-1.5 py-0.5 text-[11px] font-medium', badgeClass(badge))}>{badge}</span>)}
@@ -56,10 +66,10 @@ function Lane({
         <section className={cn('min-w-0 rounded-xl border p-4', tint)}>
             <div className="mb-3 flex items-start justify-between gap-2">
                 <div>
-                    <h3 className="text-sm font-semibold">{title}</h3>
+                    <h3 className="text-xl font-semibold tracking-tight">{title}</h3>
                     <p className="text-xs text-muted-foreground">{hint}</p>
                 </div>
-                <span className="text-xs tabular-nums text-muted-foreground">{cards.length}</span>
+                <span className="rounded-full bg-muted px-2 py-1 text-xs tabular-nums text-muted-foreground">{cards.length}</span>
             </div>
             {preview.length === 0 ? <p className="text-sm text-muted-foreground">{empty}</p> : (
                 <div className="space-y-2">
@@ -97,16 +107,17 @@ export function WorkspaceWorkBoard({
     const emptyNext = model.tasksUnavailable ? 'Later dated work may be missing.' : 'No incomplete work is dated after this month.';
     return (
         <div className="min-w-0 space-y-3">
+            <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold tracking-tight">Campaign work</h2><button type="button" onClick={onViewAll} className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">View all tasks <ArrowRight className="h-4 w-4" /></button></div>
             {model.tasksUnavailable && <p role="status" className="text-sm text-amber-700 dark:text-amber-400">The full task list could not be loaded. Linked plan tasks are shown; other tasks may be missing.</p>}
-            <div className="grid gap-4 lg:grid-cols-3">
-                <Lane title="Now" hint="Due this month, plus earlier carryover" tint="border-primary/20 bg-primary/5" cards={model.now} empty={emptyNow} selectedId={selectedId} onSelect={onSelect} onViewAll={onViewAll} />
-                <Lane title="Next" hint="Nearest dated work after this month" tint="border-blue-500/20 bg-blue-500/5" cards={model.next} empty={emptyNext} selectedId={selectedId} onSelect={onSelect} onViewAll={onViewAll} />
+            <div className="grid gap-4 @min-[760px]:grid-cols-3">
+                <Lane title="Now" hint="This month & carryover" tint="border-primary/20 bg-primary/5" cards={model.now} empty={emptyNow} selectedId={selectedId} onSelect={onSelect} onViewAll={onViewAll} />
+                <Lane title="Next" hint="Coming up next" tint="border-blue-500/20 bg-blue-500/5" cards={model.next} empty={emptyNext} selectedId={selectedId} onSelect={onSelect} onViewAll={onViewAll} />
                 <section className="min-w-0 rounded-xl border border-border bg-card p-4">
-                    <h3 className="text-sm font-semibold">Impact</h3>
-                    <p className="text-xs text-muted-foreground">Verified outcomes. Not a claim that the work caused them.</p>
+                    <h3 className="text-xl font-semibold tracking-tight">Impact</h3>
+                    <p className="text-xs text-muted-foreground">Results & upcoming deadlines</p>
                     <div className="mt-3 space-y-3">
                         {model.impact.map(entry => (
-                            <article key={entry.id} className="rounded-lg border border-border bg-background p-3">
+                            <article key={entry.id} className="rounded-lg border border-border bg-muted/30 p-4">
                                 <h4 className="text-sm font-medium">{entry.title}</h4>
                                 <p className="mt-1 text-xs text-muted-foreground">{entry.detail}</p>
                             </article>
@@ -129,18 +140,7 @@ export function WorkspaceWorkBoard({
                     </div>
                 </section>
             </div>
-            <div className="rounded-xl border border-dashed border-border px-4 py-3">
-                <h3 className="text-sm font-medium">Unscheduled</h3>
-                <p className="text-xs text-muted-foreground">No due date is guessed for these.</p>
-                {model.unscheduled.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">{model.tasksUnavailable ? 'Unscheduled work may be missing.' : 'No undated incomplete work.'}</p> : (
-                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                        {model.unscheduled.slice(0, LANE_PREVIEW_LIMIT).map(card => <CardButton key={card.id} card={card} selected={card.id === selectedId} onSelect={onSelect} />)}
-                    </div>
-                )}
-                {model.unscheduled.length > LANE_PREVIEW_LIMIT && (
-                    <button type="button" onClick={onViewAll} className="mt-3 text-sm font-medium text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">View all {model.unscheduled.length}</button>
-                )}
-            </div>
+
         </div>
     );
 }

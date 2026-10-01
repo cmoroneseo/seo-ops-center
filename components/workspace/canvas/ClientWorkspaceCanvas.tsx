@@ -205,7 +205,7 @@ export function ClientWorkspaceCanvas({
             {model && (
                 <>
                     {loading && <p role="status" className="text-xs text-muted-foreground">Updating {model.monthLabel}…</p>}
-                    <div className="grid gap-4 @min-[960px]:grid-cols-[minmax(0,3fr)_minmax(240px,1fr)]">
+                    <div className="grid items-start gap-4 @min-[960px]:grid-cols-[minmax(0,3fr)_minmax(240px,1fr)]">
                         <WorkspacePerformancePanel model={model.performance} reducedMotion={reducedMotion} />
                         <div className="space-y-4">
                             <WorkspaceHoursGauge model={model.hours} onViewTime={onViewTime} />
@@ -214,7 +214,7 @@ export function ClientWorkspaceCanvas({
                     </div>
                     <WorkspacePhaseRail model={model.phases} onOpenPhase={onOpenPhase} onCreatePlan={onOpenPlan} />
                     <WorkspaceWorkBoard model={model.board} timeline={model.timeline} selectedId={selected?.id ?? null} onSelect={setSelectedId} onViewAll={onViewAllTasks} onOpenDeliverables={onOpenDeliverables} />
-                    <WorkspaceMonthTimeline model={model.timeline} monthLabel={model.monthLabel} compact={compactTimeline} onPrevious={() => changeMonth(-1)} onNext={() => changeMonth(1)} onSelect={setSelectedId} />
+                    <WorkspaceMonthTimeline onViewTime={onViewTime} model={model.timeline} monthLabel={model.monthLabel} compact={compactTimeline} onPrevious={() => changeMonth(-1)} onNext={() => changeMonth(1)} onSelect={setSelectedId} />
                 </>
             )}
                 <Dialog open={!!selected} onOpenChange={open => { if (!open) setSelectedId(null); }}>

@@ -33,9 +33,8 @@ import { TaskListView } from '@/components/tasks/TaskListView';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
 import { getTask, getTasksByClient } from '@/lib/supabase/tasks';
-import { getLoggedHoursByClient, getTimeLogs } from '@/lib/supabase/time-logs';
+import { getLoggedHoursByClient } from '@/lib/supabase/time-logs';
 import { Task } from '@/lib/types';
-import { monthKey } from '@/lib/marketing-plan-execution';
 import { SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
 import { BasecampImportModal } from '@/components/workspace/BasecampImportModal';
@@ -81,7 +80,7 @@ export default function ClientDetailPage() {
     }, [id]);
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
     const [loggedHours, setLoggedHours] = useState<number | undefined>(undefined);
-    const [hoursError, setHoursError] = useState(false);
+    const [showTimeDetails, setShowTimeDetails] = useState(false);
     const [hoursMonth, setHoursMonth] = useState<string | null>(null);
     const canvasEnabled = workspaceCanvasEnabled();
     const [tasksLoading, setTasksLoading] = useState(false);
@@ -134,24 +133,13 @@ export default function ClientDetailPage() {
     useEffect(() => {
         if (!organization?.id || !id) return;
         let cancelled = false;
-        const month = canvasEnabled ? (hoursMonth ?? monthKey()) : new Date().toISOString().slice(0, 7);
-        if (canvasEnabled) {
-            setHoursError(false);
-            setLoggedHours(undefined);
-            getTimeLogs(organization.id, { clientId: id, month, budgetMonth: true, throwOnError: true })
-                .then(logs => {
-                    if (cancelled) return;
-                    const total = logs.filter(log => log.countsTowardBudget).reduce((sum, log) => sum + log.hours, 0);
-                    setLoggedHours(Math.round(total * 100) / 100);
-                })
-                .catch(() => { if (!cancelled) { setLoggedHours(undefined); setHoursError(true); } });
-        } else {
-            getLoggedHoursByClient(organization.id, month).then(byClient => {
-                if (!cancelled) setLoggedHours(byClient[id] ?? 0);
-            });
-        }
+        if (canvasEnabled) return;
+        const month = new Date().toISOString().slice(0, 7);
+        getLoggedHoursByClient(organization.id, month).then(byClient => {
+            if (!cancelled) setLoggedHours(byClient[id] ?? 0);
+        });
         return () => { cancelled = true; };
-    }, [organization?.id, id, activityRefreshKey, canvasEnabled, hoursMonth]);
+    }, [organization?.id, id, activityRefreshKey, canvasEnabled]);
 
     useEffect(() => {
         const refresh = () => setActivityRefreshKey(key => key + 1);
@@ -452,25 +440,16 @@ export default function ClientDetailPage() {
                 onOpenPhase={(phase) => setActiveTab('campaign', { phase })}
                 onViewAllTasks={() => setActiveTab('tasks', { phase: null })}
                 onReview={(batchId) => setActiveTab('approvals', { approvalBatch: batchId })}
-                onViewTime={() => document.getElementById('client-time-details')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })}
+                onViewTime={() => { setShowTimeDetails(true); document.getElementById('client-time-details')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); }}
                 onOpenDeliverables={() => document.getElementById('client-deliverables')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })}
                 onMonthChange={setHoursMonth}
                 selectedMonth={hoursMonth}
             />
             <ClientSetupScopeCard client={client} />
-            <div id="client-engagement" className="space-y-3">
-                <h2 className="text-sm font-medium text-muted-foreground">Engagement details</h2>
-                {hoursError ? (
-                    <p role="alert" className="text-sm text-muted-foreground">Engagement hours could not be loaded. A stored hours total is not shown.</p>
-                ) : loggedHours == null ? (
-                    <p role="status" className="text-sm text-muted-foreground">Loading engagement hours…</p>
-                ) : (
-                    <EngagementOverview client={client} loggedHours={loggedHours} />
-                )}
-            </div>
-            <div id="client-time-details">
-                <MonthlyPlannerCard client={client} selectedMonth={hoursMonth} onMonthChange={setHoursMonth} />
-            </div>
+            <details id="client-time-details" open={showTimeDetails} onToggle={event => setShowTimeDetails(event.currentTarget.open)} className="rounded-xl border border-border bg-card p-4">
+                <summary className="cursor-pointer text-sm font-medium">Time details &amp; hour logging</summary>
+                {showTimeDetails && <div className="mt-4"><MonthlyPlannerCard client={client} selectedMonth={hoursMonth} onMonthChange={setHoursMonth} /></div>}
+            </details>
             <div id="client-deliverables">
                 <ClientDeliverablesTab
                     organizationId={organization?.id ?? ''}

@@ -29,6 +29,7 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{
 
 export function WorkspacePerformancePanel({ model, reducedMotion }: { model: PerformanceModel; reducedMotion: boolean }) {
     const titleId = useId();
+    const fillId = `search-fill-${titleId.replace(/[^a-zA-Z0-9]/g, '')}`;
     const clicks = model.clicks;
     const impressions = model.impressions;
     const summary = model.state === 'ready' && clicks
@@ -39,13 +40,13 @@ export function WorkspacePerformancePanel({ model, reducedMotion }: { model: Per
         <section aria-labelledby={titleId} className="min-w-0 rounded-xl border border-border bg-card p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                    <h2 id={titleId} className="text-sm font-medium text-muted-foreground">Search performance</h2>
-                    <p className="mt-1 text-xs text-muted-foreground">Google Search Console property totals. Lead events and daily GA4 sessions are not on this chart.</p>
+                    <h2 id={titleId} className="text-lg font-semibold tracking-tight">Search performance</h2>
+                    <p className="mt-1 text-xs text-muted-foreground">Google Search Console · Daily performance</p>
                 </div>
                 {model.rangeLabel && <p className="text-xs text-muted-foreground">{model.rangeLabel}</p>}
             </div>
             {model.state !== 'ready' || !clicks ? (
-                <p role="status" className="mt-6 text-sm text-muted-foreground">{model.message}</p>
+                <p role="status" className="mt-5 rounded-lg bg-muted/30 px-4 py-8 text-sm text-muted-foreground">{model.message}</p>
             ) : (
                 <>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -70,12 +71,13 @@ export function WorkspacePerformancePanel({ model, reducedMotion }: { model: Per
                     <div className="mt-3 h-[280px] min-h-[280px]" role="img" aria-label={summary}>
                         <ResponsiveContainer width="100%" height="100%">
                             <ComposedChart data={model.points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                                <defs><linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.24} /><stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} /></linearGradient></defs>
                                 <CartesianGrid vertical={false} stroke="var(--border)" />
-                                <XAxis dataKey="date" tickFormatter={value => String(value).slice(5)} stroke="var(--muted-foreground)" fontSize={11} minTickGap={28} />
-                                <YAxis allowDecimals={false} width={36} stroke="var(--muted-foreground)" fontSize={11} />
+                                <XAxis axisLine={false} tickLine={false} dataKey="date" tickFormatter={value => String(value).slice(5)} stroke="var(--muted-foreground)" fontSize={11} minTickGap={28} />
+                                <YAxis axisLine={false} tickLine={false} tickFormatter={value => Number(value) >= 1000 ? `${Number(value) / 1000}k` : String(value)} allowDecimals={false} width={36} stroke="var(--muted-foreground)" fontSize={11} />
                                 <Tooltip content={<ChartTooltip />} />
-                                <Area type="linear" dataKey="clicks" name="Organic search clicks" stroke="var(--chart-1)" strokeWidth={2} fill="var(--chart-1)" fillOpacity={0.12} connectNulls={false} dot={false} isAnimationActive={!reducedMotion} />
-                                {model.showPrevious && <Line type="linear" dataKey="previousClicks" name="Previous period" stroke="var(--muted-foreground)" strokeWidth={2} strokeDasharray="4 4" connectNulls={false} dot={false} isAnimationActive={!reducedMotion} />}
+                                <Area type="monotone" dataKey="clicks" name="Organic search clicks" stroke="var(--chart-1)" strokeWidth={2} fill={`url(#${fillId})`} connectNulls={false} dot={false} isAnimationActive={!reducedMotion} />
+                                {model.showPrevious && <Line type="monotone" dataKey="previousClicks" name="Previous period" stroke="var(--muted-foreground)" strokeWidth={2} strokeDasharray="4 4" connectNulls={false} dot={false} isAnimationActive={!reducedMotion} />}
                             </ComposedChart>
                         </ResponsiveContainer>
                     </div>
