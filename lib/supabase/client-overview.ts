@@ -1,3 +1,4 @@
+import { setupHoursStatus, type SetupHoursStatus } from '../client-setup';
 import type { CampaignPlan, ClientProject, FulfillmentCell, Task } from '../types';
 import { daysLeftInMonth, getFulfillmentMatrix } from './fulfillment';
 import { getLoggedHoursByClient } from './time-logs';
@@ -18,7 +19,7 @@ export interface ClientOverview {
     hours: {
         logged: number;
         budget: number;
-        status: HoursStatusResult;
+        status: HoursStatusResult | SetupHoursStatus;
     };
     tasks: {
         open: number;
@@ -67,8 +68,8 @@ export async function getClientOverview(
     ]);
 
     const hoursLogged = hoursByClient[client.id] ?? 0;
-    const hoursBudget = client.seoHours || client.retainerConfig?.monthlyHours || client.campaignConfig?.totalHours || 0;
-    const hoursStatus = hoursUsageStatus(hoursLogged, hoursBudget);
+    const hoursBudget = client.setupScope?.mode === 'custom' ? 0 : client.seoHours || client.retainerConfig?.monthlyHours || client.campaignConfig?.totalHours || 0;
+    const hoursStatus = client.setupScope ? setupHoursStatus(client.setupScope, client.status, client.launchDate, hoursLogged, hoursBudget, month) : hoursUsageStatus(hoursLogged, hoursBudget);
     const daysLeft = daysLeftInMonth(month);
     const cells = fulfillment.cells.map((cell) => ({
         ...cell,

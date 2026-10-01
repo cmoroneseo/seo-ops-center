@@ -19,7 +19,7 @@ const APP_TO_DB_STATUS: Record<ProjectStatus, string> = {
 };
 
 /** Map a Supabase clients row to the app's ClientProject shape. */
-function rowToClientProject(row: any): ClientProject {
+export function rowToClientProject(row: any): ClientProject {
     const engagementModel: EngagementModel = (row.engagement_model as EngagementModel) || 'Retainer';
     const launchDate: string | undefined = row.launch_date ?? undefined;
     const engagement = {
@@ -40,6 +40,8 @@ function rowToClientProject(row: any): ClientProject {
         domain: row.domain ?? undefined,
         logoUrl: row.logo_url ?? undefined,
         launchDate,
+        onboardingDate: row.onboarding_date ?? undefined,
+        setupScope: row.setup_scope ?? undefined,
         launchDateOverride: row.launch_date_override ?? undefined,
         notes: row.notes ?? undefined,
         accountManager: row.account_manager_name || 'Unassigned',
@@ -62,6 +64,14 @@ function rowToClientProject(row: any): ClientProject {
         approvals: { pendingCount: 0, items: [] },
         tasks: [],
         activeDeliverables: [],
+        campaignConfig: engagementModel === 'Campaign' ? {
+            startDate: row.campaign_start || launchDate || row.onboarding_date || '',
+            endDate: row.campaign_end || '',
+            totalHours: Number(row.campaign_total_hours ?? row.seo_hours) || 0,
+            hoursUsed: 0,
+            monthlyBlogQuota: Number(row.blogs_due_per_month) || 0,
+            monthlyBacklinkQuota: 0,
+        } : undefined,
         retainerConfig: {
             monthlyHours: Number(row.seo_hours) || 0,
             hoursUsed: 0,
@@ -71,18 +81,20 @@ function rowToClientProject(row: any): ClientProject {
 }
 
 /** Map a partial ClientProject to a Supabase clients insert/update payload. */
-function clientProjectToRow(client: Partial<ClientProject>) {
+export function clientProjectToRow(client: Partial<ClientProject>) {
     return {
         organization_id: client.organizationId,
         name: client.clientName,
-        launch_date: client.launchDate || null,
+        launch_date: 'launchDate' in client ? client.launchDate || null : undefined,
+        onboarding_date: client.onboardingDate,
+        setup_scope: client.setupScope,
         seo_hours: client.seoHours,
         engagement_model: client.engagementModel,
         deliverables_spec: client.deliverables,
         blogs_due_per_month: client.blogsDuePerMonth,
         account_manager_name: client.accountManager,
-        account_manager_id: client.accountManagerId ?? null,
-        campaign_total_blogs: client.campaignTotalBlogs ?? null,
+        account_manager_id: 'accountManagerId' in client ? client.accountManagerId ?? null : undefined,
+        campaign_total_blogs: 'campaignTotalBlogs' in client ? client.campaignTotalBlogs ?? null : undefined,
         status: client.status ? APP_TO_DB_STATUS[client.status] : undefined,
         tier: client.tier,
         logo_url: client.logoUrl,

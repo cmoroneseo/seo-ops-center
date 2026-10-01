@@ -18,6 +18,7 @@ import { SearchInsightsTab } from '@/components/workspace/SearchInsightsTab';
 import { SiteInventoryTab } from '@/components/workspace/SiteInventoryTab';
 import { TopicalMapTab } from '@/components/workspace/TopicalMapTab';
 import { IntegrationsTab } from '@/components/workspace/IntegrationsTab';
+import { ClientSetupScopeCard } from '@/components/workspace/ClientSetupScopeCard';
 import { ClientOverviewWidget } from '@/components/workspace/ClientOverviewWidget';
 import { EditClientPanel, ClientAvatar } from '@/components/workspace/EditClientPanel';
 import { getClients } from '@/lib/supabase/clients';
@@ -322,7 +323,7 @@ export default function ClientDetailPage() {
                     organizationId={organization?.id ?? ''}
                     clientId={client.id}
                     clientName={client.clientName}
-                    monthlyBudget={client.seoHours || client.retainerConfig?.monthlyHours || 0}
+                    monthlyBudget={client.setupScope?.mode === 'custom' ? 0 : client.seoHours || client.retainerConfig?.monthlyHours || 0}
                 />
             )}
 
@@ -428,6 +429,7 @@ export default function ClientDetailPage() {
             {/* Overview tab content */}
             {activeTab === 'overview' && <>
 
+            <ClientSetupScopeCard client={client} />
             <ClientOverviewWidget client={client} organizationId={organization?.id ?? ''} />
 
             {/* Engagement & Stats */}

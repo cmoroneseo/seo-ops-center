@@ -82,7 +82,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
         let cancelled = false;
         setLoggedHours(null);
         setTaskHours({});
-        getTimeLogs(organizationId, { clientId, month, throwOnError: true }).then(logs => {
+        getTimeLogs(organizationId, { clientId, month, budgetMonth: true, throwOnError: true }).then(logs => {
             if (cancelled) return;
             const budgetLogs = logs.filter(log => log.countsTowardBudget);
             setLoggedHours(budgetLogs.reduce((sum, log) => sum + log.hours, 0));

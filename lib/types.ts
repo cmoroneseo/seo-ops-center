@@ -498,6 +498,8 @@ export interface SiteInventoryPayload {
 }
 
 export interface ClientProject {
+    onboardingDate?: string;
+    setupScope?: import('./client-setup').ClientSetupScope;
     id: string;
     organizationId: string;
     clientName: string;
