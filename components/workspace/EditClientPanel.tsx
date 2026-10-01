@@ -198,7 +198,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
                     organizationId: organization.id,
                     oldSeoHours: client.seoHours,
                     newSeoHours,
-                    oldBlogsPerMonth: client.blogsDuePerMonth,
+                    oldBlogsPerMonth: client.setupScope?.contentPieces ?? client.blogsDuePerMonth,
                     newBlogsPerMonth: newBlogs,
                     note: amendmentNote.trim() || null,
                     actorName,
