@@ -18,7 +18,7 @@ export function RoadmapItemDetails({ item, onSave }: {
     };
     return <fieldset disabled={busy} className="space-y-3 print:hidden">
         <label className="flex cursor-pointer items-start gap-3 text-sm">
-            <input type="checkbox" checked={included} onChange={e => void save({ roadmapIncluded: e.target.checked, ...(e.target.checked && item.status === 'ignored' ? { status: 'todo' } : {}) })} className="mt-1 h-4 w-4 accent-primary" />
+            <input aria-label={`Include ${item.title} in roadmap`} type="checkbox" checked={included} onChange={e => void save({ roadmapIncluded: e.target.checked, ...(e.target.checked && item.status === 'ignored' ? { status: 'todo' } : {}) })} className="mt-1 h-4 w-4 accent-primary" />
             <span><span className="font-medium">Include in roadmap</span><span className="mt-1 block text-xs text-muted-foreground">Scope selection is separate from task completion.</span></span>
         </label>
         <label className="block text-xs text-muted-foreground">Roadmap phase
