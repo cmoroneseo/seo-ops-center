@@ -46,7 +46,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
     const [uploadingLogo, setUploadingLogo] = useState(false);
     const [logoError, setLogoError] = useState('');
     const [seoHours, setSeoHours] = useState(String(client.seoHours || ''));
-    const [blogsPerMonth, setBlogsPerMonth] = useState(String(client.blogsDuePerMonth || ''));
+    const [blogsPerMonth, setBlogsPerMonth] = useState(String(client.setupScope?.contentPieces ?? client.blogsDuePerMonth ?? ''));
     const [status, setStatus] = useState<ProjectStatus>(client.status);
     const [launchDate, setLaunchDate] = useState(client.launchDate ?? '');
     const [amendmentNote, setAmendmentNote] = useState('');
@@ -125,7 +125,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
         const newSeoHours = parseFloat(seoHours) || 0;
         const newBlogs = parseInt(blogsPerMonth) || 0;
         const hoursChanged = newSeoHours !== client.seoHours;
-        const blogsChanged = newBlogs !== client.blogsDuePerMonth;
+        const blogsChanged = newBlogs !== (client.setupScope?.contentPieces ?? client.blogsDuePerMonth);
         const activating = client.status === 'Onboarding' && status === 'Active';
 
         const result = await updateClientProject(client.id, {
@@ -133,7 +133,8 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
             clientName: name.trim(),
             logoUrl: logoUrl || undefined,
             seoHours: newSeoHours,
-            blogsDuePerMonth: newBlogs,
+            blogsDuePerMonth: client.setupScope ? 0 : newBlogs,
+            setupScope: client.setupScope ? { ...client.setupScope, contentPieces: newBlogs } : undefined,
             status,
             launchDate: launchDate || undefined,
             domain: domain.trim() || undefined,
@@ -146,7 +147,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
 
         // When transitioning from Onboarding → Active, auto-create service rows
         // if none exist yet, using the hours/blogs already on the client record.
-        if (activating && organization && launchDate) {
+        if (activating && !client.setupScope && organization && launchDate) {
             const existing = await getCommitments(organization.id, { clientId: client.id });
             if (existing.length === 0) {
                 const startsOn = launchDate;
@@ -345,7 +346,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
                                 />
                             </div>
                             <div className="space-y-1.5">
-                                <label className="text-xs text-muted-foreground">Blogs / Month</label>
+                                <label className="text-xs text-muted-foreground">{client.setupScope ? 'Content pieces / month' : 'Blogs / Month'}</label>
                                 <input
                                     type="number"
                                     min="0"
@@ -377,7 +378,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
                             </div>
                             <div className="space-y-1.5">
                                 <label className="text-xs text-muted-foreground">
-                                    {status === 'Onboarding' ? 'Expected Launch (optional)' : 'Launch Date'}
+                                    {status === 'Onboarding' ? 'Launched Date (optional)' : 'Launch Date'}
                                 </label>
                                 <input
                                     type="date"

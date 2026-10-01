@@ -1,4 +1,5 @@
 import { createClient } from './client';
+import { setupBudgetMonth } from '../client-setup';
 import { TimeLog, SessionNote, TimerAttempt } from '../types';
 import {
     sumBudgetHoursByClient,
@@ -106,6 +107,8 @@ export async function getTimeLogs(
         /** Let capacity surfaces distinguish unavailable data from zero hours. */
         throwOnError?: boolean;
         month?: string;
+        /** Allocate onboarding effort to the confirmed launch month without changing recorded dates. */
+        budgetMonth?: boolean;
         includeInProgress?: boolean;
         /** Review surfaces that deliberately show unapproved imports. */
         includeUnreviewedImports?: boolean;
@@ -114,18 +117,33 @@ export async function getTimeLogs(
     const supabase = createClient();
     if (!supabase) { if (opts.throwOnError) throw new Error('Time data unavailable'); return []; }
     try {
-        let q = supabase.from('time_logs').select('*, clients(name), tasks(title)').eq('organization_id', organizationId);
+        let q = supabase.from('time_logs').select('*, clients(name, launch_date, onboarding_date, setup_scope, status), tasks(title)').eq('organization_id', organizationId);
         if (!opts.includeInProgress) q = q.eq('status', 'logged');
         if (!opts.includeUnreviewedImports) q = q.eq('import_status', COUNTABLE_IMPORT_STATUS);
         if (opts.clientId) q = q.eq('client_id', opts.clientId);
         if (opts.month) {
             const [y, m] = opts.month.split('-').map(Number);
             const lastDay = new Date(y, m, 0).getDate();
-            q = q.gte('date', `${opts.month}-01`).lte('date', `${opts.month}-${String(lastDay).padStart(2, '0')}`);
+            const end = `${opts.month}-${String(lastDay).padStart(2, '0')}`;
+            if (opts.budgetMonth) {
+                let clients = supabase.from('clients').select('id').eq('organization_id', organizationId)
+                    .gte('launch_date', `${opts.month}-01`).lte('launch_date', end)
+                    .neq('status', 'onboarding').not('setup_scope', 'is', null);
+                if (opts.clientId) clients = clients.eq('id', opts.clientId);
+                const launchClients = await clients;
+                if (launchClients.error) throw launchClients.error;
+                const ids = (launchClients.data ?? []).map((c: { id: string }) => c.id);
+                q = q.lte('date', end);
+                q = ids.length ? q.or(`date.gte.${opts.month}-01,client_id.in.(${ids.join(',')})`) : q.gte('date', `${opts.month}-01`);
+            } else q = q.gte('date', `${opts.month}-01`).lte('date', end);
         }
         const { data, error } = await q.order('date', { ascending: false });
         if (error) throw error;
-        return (data || []).map(rowToTimeLog);
+        const rows = opts.budgetMonth && opts.month ? (data || []).filter((row: { date: string; clients: { status: string; launch_date: string | null; onboarding_date: string | null; setup_scope: import('../client-setup').ClientSetupScope | null } | null }) => {
+            const client = row.clients;
+            return setupBudgetMonth(row.date, client?.status === 'onboarding' ? null : client?.launch_date, client?.onboarding_date, client?.setup_scope) === opts.month;
+        }) : data || [];
+        return rows.map(rowToTimeLog);
     } catch (err) {
         console.error('Error fetching time logs:', err);
         if (opts.throwOnError) throw err;
@@ -226,7 +244,7 @@ export async function getLoggedHoursByClient(
     organizationId: string,
     month: string,
 ): Promise<Record<string, number>> {
-    return sumBudgetHoursByClient(await getTimeLogs(organizationId, { month }));
+    return sumBudgetHoursByClient(await getTimeLogs(organizationId, { month, budgetMonth: true }));
 }
 
 /** Every tracked hour against a client, budget-consuming or not. */
