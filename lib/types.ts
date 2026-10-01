@@ -1002,6 +1002,8 @@ export interface MarketingPlanItemComment {
 }
 
 export interface MarketingPlanItem {
+    roadmapIncluded?: boolean;
+    roadmapPhase?: import('./marketing-plan-roadmap').RoadmapPhase;
     id: string;
     marketingPlanId: string;
     organizationId: string;

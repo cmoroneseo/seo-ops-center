@@ -1,3 +1,4 @@
+import { isInRoadmap } from './marketing-plan-roadmap';
 import type { MarketingPlan, MarketingPlanItem } from './types';
 import { SEO_PLAN_LABEL } from './marketing-plan-template';
 
@@ -27,7 +28,7 @@ export function buildMarketingPlanExportHtml(input: {
     clientName: string;
 }): string {
     const { plan, clientName } = input;
-    const items = (plan.items ?? []).filter(i => i.status !== 'ignored');
+    const items = (plan.items ?? []).filter(isInRoadmap);
     const generatedOn = new Date().toLocaleDateString('en-US', {
         year: 'numeric', month: 'long', day: 'numeric',
     });

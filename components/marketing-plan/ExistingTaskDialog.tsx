@@ -8,8 +8,8 @@ import type { MarketingPlan, Task } from '@/lib/types';
 
 const field = 'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm';
 
-export function ExistingTaskDialog({ open, plan, month, onClose, onAttach }: {
-    open: boolean; plan: MarketingPlan; month: string; onClose: () => void;
+export function ExistingTaskDialog({ open, plan, month, onClose, onAttach, basecampOnly = false }: {
+    basecampOnly?: boolean; open: boolean; plan: MarketingPlan; month: string; onClose: () => void;
     onAttach: (task: Task, step: string, due: string) => Promise<void>;
 }) {
     const [tasks, setTasks] = useState<Task[]>([]);
@@ -28,10 +28,10 @@ export function ExistingTaskDialog({ open, plan, month, onClose, onAttach }: {
         return () => { cancelled = true; };
     }, [open, plan.clientId]);
     const linkedIds = new Set(plan.items?.map(item => item.taskId));
-    const options = tasks.filter(task => !taskIsComplete(task) && !linkedIds.has(task.id) && !task.parentTaskId && task.title.toLowerCase().includes(query.toLowerCase()));
+    const options = tasks.filter(task => (!basecampOnly || !!task.basecampTodoId) && !taskIsComplete(task) && !linkedIds.has(task.id) && !task.parentTaskId && task.title.toLowerCase().includes(query.toLowerCase()));
     const selected = tasks.find(task => task.id === taskId);
     return <Dialog open={open} onOpenChange={value => { if (!value && !busy) onClose(); }}><DialogContent showCloseButton={!busy} className="max-h-[90vh] overflow-auto">
-        <DialogHeader><DialogTitle>Add existing client task</DialogTitle><DialogDescription>Choose client work, including tasks imported from Basecamp. This links the original task to your plan.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>{basecampOnly ? 'Add from Basecamp' : 'Add existing client task'}</DialogTitle><DialogDescription>Choose client work, including tasks imported from Basecamp. This links the original task to your plan.</DialogDescription></DialogHeader>
         <form className="space-y-4" onSubmit={async event => {
             event.preventDefault(); if (!selected || busy) return;
             setBusy(true); setError('');

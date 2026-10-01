@@ -1,5 +1,7 @@
 'use client';
 
+import { isInRoadmap } from '@/lib/marketing-plan-roadmap';
+
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowUpRight, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Info, ListTodo, Loader2, Plus } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -92,7 +94,7 @@ export function ExecutionWorkspace({ plan, month, budget, loggedHours, taskHours
                 <input id="execution-month" type="month" value={month} onChange={event => { if (/^\d{4}-\d{2}$/.test(event.target.value)) onMonthChange(event.target.value); }} className={cn(field, 'w-auto')} />
                 <button className={secondary} aria-label="Next month" onClick={() => changeMonth(1)}><ChevronRight className="h-4 w-4" /></button>
             </div>
-            <div className="flex flex-wrap gap-2"><button className={secondary} onClick={onAddExisting}>Add existing task</button><button className={primary} onClick={() => setScheduling(true)}><CalendarDays className="h-4 w-4" />Schedule work</button></div>
+            <div className="flex flex-wrap gap-2"><button className={secondary} onClick={() => { setView('full'); onAddExisting(); }}>Add Item</button><button className={primary} onClick={() => setScheduling(true)}><CalendarDays className="h-4 w-4" />Schedule work</button></div>
         </div>
         {view === 'full' ? fullPlan : view === 'results' ? <section className="space-y-4" aria-label="Monthly results">
             <h3 className="text-lg font-semibold">Delivered in {title}</h3><p className="text-sm text-muted-foreground">{summary.completed.length} of {summary.tasks.length} planned tasks completed. Completion reflects Tasks; estimated effort includes completed work.</p>
@@ -160,7 +162,7 @@ function ScheduleDialog({ open, onClose, month, plan, members, remaining, budget
     const submitting = useRef(false);
     const [error, setError] = useState('');
     useEffect(() => { if (open) { setQuery(''); setItemId(''); setError(''); setOwner(''); setEffort('1'); const today = new Date(); const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`; setDue(day.startsWith(month) ? day : `${month}-01`); } }, [open, month]);
-    const eligible = (plan.items ?? []).filter(item => item.status === 'todo' && (!item.linkedTask?.dueDate || item.linkedTask.dueDate.slice(0, 7) !== month));
+    const eligible = (plan.items ?? []).filter(item => isInRoadmap(item) && item.status === 'todo' && (!item.linkedTask?.dueDate || item.linkedTask.dueDate.slice(0, 7) !== month));
     const options = eligible.filter(item => item.title.toLowerCase().includes(query.toLowerCase()));
     const picked = eligible.find(item => item.id === itemId);
     return <Dialog open={open} onOpenChange={value => { if (!value && !busy) onClose(); }}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl" showCloseButton={!busy}>

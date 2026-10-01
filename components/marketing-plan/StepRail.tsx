@@ -1,6 +1,7 @@
 'use client';
 
 import { ChevronRight } from 'lucide-react';
+import { isInRoadmap } from '@/lib/marketing-plan-roadmap';
 import { cn } from '@/lib/utils';
 import { MarketingPlanStep, MarketingPlanItem } from '@/lib/types';
 
@@ -16,7 +17,7 @@ export function StepRail({ steps, items, activeStepKey, onSelect }: StepRailProp
     return (
         <nav className="sticky top-4 space-y-1 print:hidden">
             {sorted.map((step, idx) => {
-                const stepItems = items.filter(i => i.stepKey === step.key && i.status !== 'ignored');
+                const stepItems = items.filter(i => i.stepKey === step.key && isInRoadmap(i));
                 const done = stepItems.filter(i => i.status === 'done').length;
                 const isActive = activeStepKey === step.key;
                 return (

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 
+const roadmapMigration = readFileSync(new URL('../migrations/063_marketing_plan_roadmap_scope.sql', import.meta.url), 'utf8');
 const permissionsMigration = readFileSync(new URL('../migrations/062_marketing_plan_execution_permissions.sql', import.meta.url), 'utf8');
 const migration = readFileSync(new URL('../migrations/061_marketing_plan_execution.sql', import.meta.url), 'utf8');
 test('promotion is retry safe, preserves source scope, and respects RLS', async () => {
@@ -35,6 +36,10 @@ test('promotion is retry safe, preserves source scope, and respects RLS', async 
             ('00000000-0000-0000-0000-000000000300', '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000099', 'Other client task', 'medium', 'todo');`);
         await db.exec(migration);
         await db.exec(permissionsMigration);
+        await db.exec(roadmapMigration);
+        const scopes = await db.query<{status: string; roadmap_included: boolean; roadmap_phase: string}>('select status, roadmap_included, roadmap_phase from marketing_plan_items');
+        for (const row of scopes.rows) { assert.equal(row.roadmap_included, row.status !== 'ignored'); assert.equal(row.roadmap_phase, 'backlog'); }
+        await assert.rejects(db.query("update marketing_plan_items set roadmap_phase = 'month_4'"), /check constraint/);
         const privileges = await db.query<{anon_execute: boolean; authenticated_execute: boolean}>(`select has_function_privilege('anon',oid,'EXECUTE') as anon_execute, has_function_privilege('authenticated',oid,'EXECUTE') as authenticated_execute from pg_proc where proname in ('create_task_from_marketing_plan_item','add_existing_task_to_marketing_plan')`);
         assert.equal(privileges.rows.length, 2);
         for (const row of privileges.rows) { assert.equal(row.anon_execute, false); assert.equal(row.authenticated_execute, true); }
@@ -49,12 +54,16 @@ test('promotion is retry safe, preserves source scope, and respects RLS', async 
         assert.equal(firstResult.task.organization_id, '00000000-0000-0000-0000-000000000010');
         await assert.rejects(db.query("select add_existing_task_to_marketing_plan('00000000-0000-0000-0000-000000000200', '00000000-0000-0000-0000-000000000300', 'setup')"), /belong to this client/);
         const linkQuery = `select add_existing_task_to_marketing_plan('00000000-0000-0000-0000-000000000200', '${firstResult.task.id}', 'setup')`;
-        const link = await db.query(linkQuery); const linkedRetry = await db.query(linkQuery);
+        const link = await db.query(linkQuery);
+        const attached = await db.query<{roadmap_included: boolean}>('select roadmap_included from marketing_plan_items where id = $1', [Object.values(link.rows[0])[0]]);
+        assert.equal(attached.rows[0].roadmap_included, true);
+        const linkedRetry = await db.query(linkQuery);
         assert.deepEqual(link.rows, linkedRetry.rows);
         await assert.rejects(db.query(`select add_existing_task_to_marketing_plan('00000000-0000-0000-0000-000000000200', '${firstResult.task.id}', 'invalid')`), /valid plan category/);
         await assert.rejects(db.query("select create_task_from_marketing_plan_item('00000000-0000-0000-0000-000000000101')"), /unavailable/);
-        await assert.rejects(db.query("select create_task_from_marketing_plan_item('00000000-0000-0000-0000-000000000102')"), /Only open/);
+        await assert.rejects(db.query("select create_task_from_marketing_plan_item('00000000-0000-0000-0000-000000000102')"), /Include this item/);
     } finally { await db.close(); }
+    assert.ok(readFileSync(new URL('../schema.sql', import.meta.url), 'utf8').includes(roadmapMigration.trim()));
     assert.ok(readFileSync(new URL('../schema.sql', import.meta.url), 'utf8').includes(migration.trim()));
     assert.ok(readFileSync(new URL('../schema.sql', import.meta.url), 'utf8').includes(permissionsMigration.trim()));
 });
