@@ -27,6 +27,8 @@ function rowToPlan(r: any): MarketingPlan {
 
 function rowToItem(r: any): MarketingPlanItem {
     return {
+        roadmapIncluded: r.roadmap_included ?? r.status !== 'ignored',
+        roadmapPhase: r.roadmap_phase ?? 'backlog',
         id: r.id,
         marketingPlanId: r.marketing_plan_id,
         organizationId: r.organization_id,
@@ -119,6 +121,7 @@ export async function createMarketingPlanFromTemplate(input: {
 export async function updateMarketingPlanItem(
     itemId: string,
     patch: {
+        roadmapIncluded?: boolean; roadmapPhase?: MarketingPlanItem['roadmapPhase'];
         status?: string; priority?: string; title?: string;
         description?: string; assigneeId?: string | null; dueDate?: string | null;
     },
@@ -126,6 +129,8 @@ export async function updateMarketingPlanItem(
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'No client' };
     const dbPatch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (patch.roadmapIncluded !== undefined) dbPatch.roadmap_included = patch.roadmapIncluded;
+    if (patch.roadmapPhase !== undefined) dbPatch.roadmap_phase = patch.roadmapPhase;
     if (patch.status !== undefined) dbPatch.status = patch.status;
     if (patch.priority !== undefined) dbPatch.priority = patch.priority;
     if (patch.title !== undefined) dbPatch.title = patch.title;
@@ -186,6 +191,7 @@ export async function addCustomItem(input: {
             priority: input.priority ?? 'medium',
             sort_order: input.sortOrder,
             is_custom: true,
+            roadmap_included: true,
         })
         .select()
         .single();

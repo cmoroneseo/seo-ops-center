@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import {
     ChevronDown, ChevronUp, MoreVertical, User, Clock,
-    MessageSquare, ArrowUpRight, Trash2, EyeOff, Eye,
+    MessageSquare, ArrowUpRight, Trash2,
 } from 'lucide-react';
 import { TASK_STATUS_LABELS } from '@/lib/marketing-plan-execution';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,8 @@ import {
     deleteCustomItem, promoteItemToTask,
 } from '@/lib/supabase/marketing-plans';
 import { getTask, updateTask } from '@/lib/supabase/tasks';
+import { RoadmapItemDetails } from './RoadmapItemDetails';
+import { isInRoadmap } from '@/lib/marketing-plan-roadmap';
 import { checklistTogglePlan } from '@/lib/marketing-plan-logic';
 
 export interface MemberOption {
@@ -45,13 +47,13 @@ export function ItemRow({ item, members, currentUser, onChanged, onOpenTask }: I
     const [toggling, setToggling] = useState(false);
 
     const isDone = item.status === 'done';
-    const isIgnored = item.status === 'ignored';
+    const isIgnored = !isInRoadmap(item);
     const assignee = members.find(m => m.userId === item.assigneeId);
 
     const saveItem = async (patch: Parameters<typeof updateMarketingPlanItem>[1]) => {
         setError('');
         const res = await updateMarketingPlanItem(item.id, patch);
-        if (!res.success) setError(res.error ?? 'Could not save changes');
+        if (!res.success) { const message = res.error ?? 'Could not save changes'; setError(message); return; }
         onChanged();
     };
 
@@ -72,12 +74,6 @@ export function ItemRow({ item, members, currentUser, onChanged, onOpenTask }: I
 
     const setDueDate = async (date: string) => {
         await saveItem({ dueDate: date || null });
-        onChanged();
-    };
-
-    const toggleIgnored = async () => {
-        setMenuOpen(false);
-        await saveItem({ status: isIgnored ? 'todo' : 'ignored' });
         onChanged();
     };
 
@@ -137,7 +133,8 @@ export function ItemRow({ item, members, currentUser, onChanged, onOpenTask }: I
 
     if (item.taskId) return <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/40 py-4 last:border-b-0">
         <div><p className="text-sm font-medium">{item.title}</p><p className="mt-1 text-xs text-muted-foreground">{isIgnored ? 'Excluded from plan' : item.linkedTask ? TASK_STATUS_LABELS[item.linkedTask.status] : isDone ? 'Done' : 'Linked task'} · {item.dueDate ?? 'No due date'} · Shared with Tasks</p></div>
-        <div className="flex gap-2"><button className="min-h-10 rounded-lg px-3 text-xs text-muted-foreground hover:bg-muted" onClick={toggleIgnored}>{isIgnored ? 'Include in plan' : 'Exclude from plan'}</button>{item.linkedTask && onOpenTask ? <button className="min-h-10 shrink-0 rounded-lg border border-border px-3 text-sm text-primary hover:bg-muted" onClick={() => onOpenTask(item.linkedTask!)}>Open task</button> : <a className="inline-flex min-h-10 items-center rounded-lg border border-border px-3 text-sm text-primary" href={`/tasks?task=${item.taskId}`}>Open task</a>}</div>
+        <div className="flex gap-2">{item.linkedTask && onOpenTask ? <button className="min-h-10 shrink-0 rounded-lg border border-border px-3 text-sm text-primary hover:bg-muted" onClick={() => onOpenTask(item.linkedTask!)}>Open task</button> : <a className="inline-flex min-h-10 items-center rounded-lg border border-border px-3 text-sm text-primary" href={`/tasks?task=${item.taskId}`}>Open task</a>}</div>
+        <details className="w-full rounded-lg bg-muted/30 p-3"><summary className="cursor-pointer text-xs font-medium text-primary">Roadmap scope &amp; details</summary><div className="mt-3"><RoadmapItemDetails item={item} onSave={async patch => { const res = await updateMarketingPlanItem(item.id, patch); if (!res.success) throw new Error(res.error ?? 'Could not save roadmap scope'); onChanged(); }} /></div></details>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     </div>;
 
@@ -200,10 +197,6 @@ export function ItemRow({ item, members, currentUser, onChanged, onOpenTask }: I
                                         <ArrowUpRight className="h-3.5 w-3.5" /> Promote to Task
                                     </button>
                                 )}
-                                <button onClick={toggleIgnored} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted text-left">
-                                    {isIgnored ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                                    {isIgnored ? 'Restore' : 'Ignore'}
-                                </button>
                                 {item.isCustom && (
                                     <button onClick={handleDelete} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted text-left text-red-600">
                                         <Trash2 className="h-3.5 w-3.5" /> Delete
@@ -229,7 +222,7 @@ export function ItemRow({ item, members, currentUser, onChanged, onOpenTask }: I
                     onClick={() => setExpanded(e => !e)}
                     className="flex items-center gap-1 text-xs font-medium text-primary hover:underline print:hidden"
                 >
-                    {expanded ? 'Hide details' : 'Show details'}
+                    {expanded ? 'Hide details' : 'Roadmap scope & details'}
                     {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </button>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground print:hidden">
@@ -248,6 +241,7 @@ export function ItemRow({ item, members, currentUser, onChanged, onOpenTask }: I
             {/* Expanded: assignee/due controls + comment section */}
             {expanded && (
                 <div className="ml-7 mt-3 space-y-4 rounded-lg bg-muted/30 p-4">
+                    <RoadmapItemDetails item={item} onSave={async patch => { const res = await updateMarketingPlanItem(item.id, patch); if (!res.success) throw new Error(res.error ?? 'Could not save roadmap scope'); onChanged(); }} />
                     <div className="flex items-center gap-3 print:hidden">
                         <select
                             aria-label={`Owner for ${item.title}`}

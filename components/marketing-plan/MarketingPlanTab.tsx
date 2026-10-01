@@ -15,6 +15,8 @@ import { displaySeoPlanTitle, SEO_PLAN_LABEL } from '@/lib/marketing-plan-templa
 import {
     computePlanSummary, groupItems, filterItems, itemsEligibleForTaskGeneration, GroupMode,
 } from '@/lib/marketing-plan-logic';
+import { AddPlanItemDialog } from './AddPlanItemDialog';
+import { isInRoadmap, ROADMAP_PHASES, roadmapItemsForPhase, type RoadmapPhase } from '@/lib/marketing-plan-roadmap';
 import { SummaryStrip } from './SummaryStrip';
 import { StepRail } from './StepRail';
 import { ItemRow, MemberOption } from './ItemRow';
@@ -36,6 +38,10 @@ interface MarketingPlanTabProps {
 }
 
 export function MarketingPlanTab({ organizationId, clientId, clientName, monthlyBudget = 0 }: MarketingPlanTabProps) {
+    const [addChooserOpen, setAddChooserOpen] = useState(false);
+    const [basecampOnly, setBasecampOnly] = useState(false);
+    const [planLayout, setPlanLayout] = useState<'list' | 'board'>('list');
+    const [roadmapMonth, setRoadmapMonth] = useState<'all' | RoadmapPhase>('all');
     const [existingOpen, setExistingOpen] = useState(false);
     const [month, setMonth] = useState(monthKey);
     const [taskHours, setTaskHours] = useState<Record<string, number>>({});
@@ -219,7 +225,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     }
 
     const items = plan.items ?? [];
-    const summary = computePlanSummary(items);
+    const summary = computePlanSummary(items.filter(isInRoadmap));
     const visibleItems = filterItems(items, query);
     const visibleEligible = itemsEligibleForTaskGeneration(visibleItems);
     const groups = groupItems(visibleItems, plan.steps, groupMode)
@@ -273,6 +279,9 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
             </div>
 
             <SummaryStrip summary={summary} />
+            <div className="flex rounded-lg border border-border p-1 w-fit" role="group" aria-label="SEO Plan layout">
+                {(['list', 'board'] as const).map(layout => <button key={layout} aria-pressed={planLayout === layout} onClick={() => setPlanLayout(layout)} className={cn('rounded-md px-4 py-2 text-sm font-medium', planLayout === layout ? 'bg-primary text-primary-foreground' : 'text-muted-foreground')}>{layout === 'list' ? 'List' : 'Kanban board'}</button>)}
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 items-start">
                 <StepRail
@@ -328,18 +337,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                             <ListChecks className="h-4 w-4" />
                             Create tasks{visibleEligible.length > 0 ? ` (${visibleEligible.length})` : ''}
                         </button>
-                        <button
-                            onClick={() => setShowSuggest(s => !s)}
-                            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted transition-colors"
-                        >
-                            <Sparkles className="h-4 w-4" /> Suggest Items
-                        </button>
-                        <button
-                            onClick={() => setShowAddForm(f => !f)}
-                            className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-green-700 transition-colors"
-                        >
-                            <Plus className="h-4 w-4" /> Add Item
-                        </button>
+                        <button onClick={() => setAddChooserOpen(true)} className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-green-700"><Plus className="h-4 w-4" /> Add Item</button>
                     </div>
 
                     {showAddForm && (
@@ -374,9 +372,9 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
 
                     {visibleItems.length === 0 && <div className="py-8 text-center"><p className="text-sm text-muted-foreground">No matching plan items.</p><button className="mt-3 text-sm text-primary underline" onClick={() => setQuery('')}>Clear search</button></div>}
                     {/* Groups */}
-                    {groups.filter(group => !query || group.items.length > 0).map(group => {
-                        const done = group.items.filter(i => i.status === 'done').length;
-                        const countable = group.items.filter(i => i.status !== 'ignored').length;
+                    {planLayout === 'list' ? groups.filter(group => !query || group.items.length > 0).map(group => {
+                        const done = group.items.filter(i => isInRoadmap(i) && i.status === 'done').length;
+                        const countable = group.items.filter(isInRoadmap).length;
                         const eligible = itemsEligibleForTaskGeneration(group.items);
                         return (
                             <section key={group.key} className="rounded-xl border border-border/50 bg-card px-5 py-2">
@@ -413,15 +411,32 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                                 )}
                             </section>
                         );
-                    })}
+                    }) : <div className="space-y-4">
+                        <div className="flex flex-wrap gap-2" role="group" aria-label="Roadmap phase filter">
+                            <button aria-pressed={roadmapMonth === 'all'} onClick={() => setRoadmapMonth('all')} className={cn('rounded-lg border px-3 py-2 text-sm', roadmapMonth === 'all' && 'border-primary text-primary')}>All phases</button>
+                            {ROADMAP_PHASES.map(([key, label]) => <button key={key} aria-pressed={roadmapMonth === key} onClick={() => setRoadmapMonth(key)} className={cn('rounded-lg border px-3 py-2 text-sm', roadmapMonth === key && 'border-primary text-primary')}>{label}</button>)}
+                        </div>
+                        <p className="text-xs text-muted-foreground">Selected roadmap work, relative to launch. Backlog is unsequenced; task due dates stay separate.</p>
+                        <div className={cn('grid gap-4', roadmapMonth === 'all' && 'xl:grid-cols-2 2xl:grid-cols-4')}>
+                            {ROADMAP_PHASES.filter(([key]) => roadmapMonth === 'all' || roadmapMonth === key).map(([key, label]) => {
+                                const phaseItems = roadmapItemsForPhase(visibleItems.filter(item => !activeStepKey || item.stepKey === activeStepKey), key);
+                                return <section key={key} className="min-w-0 rounded-xl border border-border bg-muted/30 p-4"><div className="mb-3 flex items-center justify-between"><h4 className="font-semibold">{label}</h4><span className="text-xs text-muted-foreground">{phaseItems.length} items</span></div>{phaseItems.length ? phaseItems.map(item => <div key={item.id} className="mb-3 rounded-lg border border-border bg-card px-3"><ItemRow item={item} members={members} currentUser={currentUser} onChanged={refresh} onOpenTask={task => openTask(task)} /></div>) : <p className="py-6 text-sm text-muted-foreground">No selected work in this phase.</p>}</section>;
+                            })}
+                        </div>
+                    </div>}
                 </div>
             </div>
         </div>
     );
     return <>
         {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/40 p-3 text-sm">{error}<button className="ml-3 text-primary underline" onClick={() => refresh()}>Retry</button></p>}
-        <ExecutionWorkspace onAddExisting={() => setExistingOpen(true)} plan={plan} month={month} budget={monthlyBudget} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} />
-        {existingOpen && <ExistingTaskDialog open plan={plan} month={month} onClose={() => setExistingOpen(false)} onAttach={async (task, step, due) => {
+        <ExecutionWorkspace onAddExisting={() => setAddChooserOpen(true)} plan={plan} month={month} budget={monthlyBudget} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} />
+        <AddPlanItemDialog open={addChooserOpen} onClose={() => setAddChooserOpen(false)} onSelect={source => {
+            if (source === 'custom') setShowAddForm(true);
+            else if (source === 'suggest') setShowSuggest(true);
+            else { setBasecampOnly(source === 'basecamp'); setExistingOpen(true); }
+        }} />
+        {existingOpen && <ExistingTaskDialog open basecampOnly={basecampOnly} plan={plan} month={month} onClose={() => setExistingOpen(false)} onAttach={async (task, step, due) => {
             await addExistingTaskToPlan(plan.id, task.id, step);
             const result = await updateTask(task.id, { dueDate: due, updatedBy: currentUser.id });
             await refresh();

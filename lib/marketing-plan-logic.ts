@@ -1,3 +1,4 @@
+import { isInRoadmap } from './marketing-plan-roadmap';
 import type {
     MarketingPlanItem, MarketingPlanStep,
     MarketingPlanItemPriority, MarketingPlanItemStatus,
@@ -124,7 +125,7 @@ export function nextChecklistStatusForTask(
 
 /** To-do items that do not already have a linked task. Order is preserved. */
 export function itemsEligibleForTaskGeneration(items: MarketingPlanItem[]): MarketingPlanItem[] {
-    return items.filter(item => item.status === 'todo' && !item.taskId);
+    return items.filter(item => isInRoadmap(item) && item.status === 'todo' && !item.taskId);
 }
 
 /** Fields copied onto a real Task. Priority, assignee, and due date pass through. */
