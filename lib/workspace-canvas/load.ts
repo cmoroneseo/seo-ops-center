@@ -3,6 +3,7 @@ import { loadHistory } from '../gsc/insights';
 import { listBatchesForClient, listDocsForBatch } from '../supabase/content-approvals';
 import { getDeliverables } from '../supabase/deliverables';
 import { getMarketingPlan } from '../supabase/marketing-plans';
+import { getOrganizationMembers } from '../supabase/organizations';
 import { getTasksByClient } from '../supabase/tasks';
 import { getTimeLogs } from '../supabase/time-logs';
 import { sumBudgetHoursByClient } from '../time-budget-logic';
@@ -13,6 +14,7 @@ import {
     monthBounds,
     performanceWindow,
     previousEqualWindow,
+    resolveAssigneeNames,
     type CanvasApprovalDoc,
     type CanvasPlanItem,
     type CanvasTask,
@@ -24,7 +26,7 @@ export interface WorkspaceCanvasLoad {
     tasks: Task[];
 }
 
-function toCanvasTask(task: Task): CanvasTask {
+function toCanvasTask(task: Task, members: { id: string; name: string }[]): CanvasTask {
     return {
         id: task.id,
         title: task.title,
@@ -34,7 +36,7 @@ function toCanvasTask(task: Task): CanvasTask {
         startDate: task.startDate,
         completedAt: task.completedAt,
         estimatedHours: task.estimatedHours,
-        assignees: task.assignees ?? [],
+        assignees: resolveAssigneeNames(task.assigneeIds ?? task.assignees ?? [], members),
         subtasks: (task.subtasks ?? []).map(subtask => ({ id: subtask.id, title: subtask.title, completed: subtask.completed })),
     };
 }
@@ -85,6 +87,7 @@ export async function loadWorkspaceCanvas(args: {
     const campaign = !custom && client.engagementModel === 'Campaign';
 
     const tasksPromise = getTasksByClient(client.id, true);
+    const membersPromise = getOrganizationMembers(organizationId);
     const planPromise = getMarketingPlan(client.id);
     const monthHoursPromise = getTimeLogs(organizationId, { clientId: client.id, month, budgetMonth: true, throwOnError: true });
     const campaignHoursPromise = campaign
@@ -108,7 +111,7 @@ export async function loadWorkspaceCanvas(args: {
     })();
     const searchPromise = loadSearch(client.id, month, through, signal);
 
-    const [tasksResult, planResult, monthResult, campaignResult, deliverableResult, approvalResult, searchResult] = await Promise.all([
+    const [tasksResult, planResult, monthResult, campaignResult, deliverableResult, approvalResult, searchResult, members] = await Promise.all([
         tasksPromise.then(value => ({ ok: true as const, value })).catch(() => ({ ok: false as const })),
         planPromise.then(value => ({ ok: true as const, value })).catch(() => ({ ok: false as const })),
         monthHoursPromise.then(value => ({ ok: true as const, value })).catch(() => ({ ok: false as const })),
@@ -116,6 +119,7 @@ export async function loadWorkspaceCanvas(args: {
         deliverablesPromise.then(value => ({ ok: true as const, value })).catch(() => ({ ok: false as const })),
         approvalsPromise.then(value => ({ ok: true as const, value })).catch(() => ({ ok: false as const })),
         searchPromise.then(value => ({ ok: true as const, value })).catch(error => ({ ok: false as const, message: error instanceof Error ? error.message : 'Search Console data could not be loaded.' })),
+        membersPromise.then(value => value.map(member => ({ id: member.userId, name: member.user.fullName ?? '' }))).catch(() => []),
     ]);
     if (signal.aborted) return null;
 
@@ -142,7 +146,8 @@ export async function loadWorkspaceCanvas(args: {
             roadmapIncluded: item.roadmapIncluded,
             roadmapPhase: item.roadmapPhase,
             taskId: item.taskId,
-            linkedTask: item.linkedTask ? toCanvasTask(item.linkedTask) : undefined,
+            linkedTask: item.linkedTask ? toCanvasTask(item.linkedTask, members) : undefined,
+            assignees: resolveAssigneeNames(item.assigneeId ? [item.assigneeId] : [], members),
         }))
         : [];
 
@@ -161,7 +166,7 @@ export async function loadWorkspaceCanvas(args: {
                 ? { startDate: client.campaignConfig.startDate, endDate: client.campaignConfig.endDate, totalHours: client.campaignConfig.totalHours }
                 : null,
         },
-        tasks: tasksResult.ok ? { ok: true, value: tasks.map(toCanvasTask) } : { ok: false },
+        tasks: tasksResult.ok ? { ok: true, value: tasks.map(task => toCanvasTask(task, members)) } : { ok: false },
         plan: planResult.ok ? { ok: true, value: planResult.value ? { goal: planResult.value.goal, items: planItems } : null } : { ok: false },
         monthHours: monthResult.ok ? { ok: true, value: sumBudgetHoursByClient(monthResult.value)[client.id] ?? 0 } : { ok: false },
         campaignHours,

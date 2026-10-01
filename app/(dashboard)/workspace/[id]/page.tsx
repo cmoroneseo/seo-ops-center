@@ -455,6 +455,7 @@ export default function ClientDetailPage() {
                 onViewTime={() => document.getElementById('client-time-details')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })}
                 onOpenDeliverables={() => document.getElementById('client-deliverables')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })}
                 onMonthChange={setHoursMonth}
+                selectedMonth={hoursMonth}
             />
             <ClientSetupScopeCard client={client} />
             <div id="client-engagement" className="space-y-3">
@@ -468,7 +469,7 @@ export default function ClientDetailPage() {
                 )}
             </div>
             <div id="client-time-details">
-                <MonthlyPlannerCard client={client} />
+                <MonthlyPlannerCard client={client} selectedMonth={hoursMonth} onMonthChange={setHoursMonth} />
             </div>
             <div id="client-deliverables">
                 <ClientDeliverablesTab

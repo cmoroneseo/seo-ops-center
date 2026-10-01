@@ -23,12 +23,20 @@ import { WorkspaceWorkBoard } from './WorkspaceWorkBoard';
 function useActionClass(): string {
     const [choice, setChoice] = useState<ActionForeground>('token');
     useEffect(() => {
-        const styles = getComputedStyle(document.documentElement);
-        const next = actionForegroundChoice({
-            token: oklchContrast(styles.getPropertyValue('--primary'), styles.getPropertyValue('--primary-foreground')),
-            ink: oklchContrast(styles.getPropertyValue('--primary'), styles.getPropertyValue('--foreground')),
-        });
-        setChoice(next);
+        const update = () => {
+            const styles = getComputedStyle(document.documentElement);
+            setChoice(actionForegroundChoice({
+                token: oklchContrast(styles.getPropertyValue('--primary'), styles.getPropertyValue('--primary-foreground')),
+                ink: oklchContrast(styles.getPropertyValue('--primary'), styles.getPropertyValue('--foreground')),
+            }));
+        };
+        update();
+        const observer = new MutationObserver(update);
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
+        // BrandThemeSync replaces stylesheet text during organization changes
+        // and Appearance previews, without necessarily changing the root class.
+        observer.observe(document.head, { childList: true, subtree: true, characterData: true });
+        return () => observer.disconnect();
     }, []);
     if (choice === 'ink') return 'bg-primary text-foreground hover:opacity-90';
     if (choice === 'neutral') return 'bg-foreground text-background hover:opacity-90';
@@ -69,6 +77,7 @@ export function ClientWorkspaceCanvas({
     onViewTime,
     onOpenDeliverables,
     onMonthChange,
+    selectedMonth,
 }: {
     client: ClientProject;
     organizationId: string;
@@ -84,6 +93,7 @@ export function ClientWorkspaceCanvas({
     onViewTime: () => void;
     onOpenDeliverables: () => void;
     onMonthChange: (month: string) => void;
+    selectedMonth?: string | null;
 }) {
     const rootRef = useRef<HTMLDivElement>(null);
     const requestId = useRef(0);
@@ -112,6 +122,10 @@ export function ClientWorkspaceCanvas({
         onMonthChange(nextMonth);
         setSelectedId(params.get('overviewTask'));
     }, [client.id, onMonthChange]);
+
+    useEffect(() => {
+        if (selectedMonth && isMonthKey(selectedMonth)) setMonth(selectedMonth);
+    }, [selectedMonth]);
 
     useEffect(() => {
         if (!month) return;
@@ -209,7 +223,7 @@ export function ClientWorkspaceCanvas({
                         </div>
                     </div>
                     <WorkspacePhaseRail model={model.phases} onOpenPhase={onOpenPhase} onCreatePlan={onOpenPlan} />
-                    <div className={wide ? 'grid grid-cols-[minmax(0,1fr)_340px] items-start gap-4' : ''}>
+                    <div className={wide && selected ? 'grid grid-cols-[minmax(0,1fr)_340px] items-start gap-4' : ''}>
                         <WorkspaceWorkBoard model={model.board} selectedId={selected?.id ?? null} onSelect={setSelectedId} onViewAll={onViewAllTasks} />
                         {wide && selected && (
                             <WorkspaceTaskInspector card={selected} actionClass={actionClass} onClose={() => setSelectedId(null)} onOpenTask={onOpenTask} onOpenPlan={onOpenPlan} />

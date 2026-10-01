@@ -15,7 +15,6 @@ import type { Task } from '../types';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const COVERAGE_FLOOR = 0.5;
 const DELIVERED_DELIVERABLE = new Set(['Approved', 'Published']);
 
 export const LANE_PREVIEW_LIMIT = 4;
@@ -52,6 +51,11 @@ export function assigneeLabel(names: string[]): string {
     if (clean.length === 0) return 'No assignee';
     if (clean.length <= 2) return clean.join(', ');
     return `${clean.slice(0, 2).join(', ')} +${clean.length - 2}`;
+}
+
+export function resolveAssigneeNames(ids: string[], members: { id: string; name: string }[]): string[] {
+    const names = new Map(members.map(member => [member.id, member.name]));
+    return [...new Set(ids)].map(id => names.get(id)?.trim() || 'Unknown assignee');
 }
 
 /** Ignore a finished request after the client, organization, or month changed. */
@@ -122,6 +126,7 @@ export interface CanvasPlanItem {
     roadmapPhase?: RoadmapPhase;
     taskId?: string;
     linkedTask?: CanvasTask;
+    assignees?: string[];
 }
 
 export interface CanvasDeliverable {
@@ -360,7 +365,8 @@ function coverageOf(points: DailyPoint[], metric: 'clicks' | 'impressions') {
         observed: observed.length,
         missing: points.length - observed.length,
         sum: observed.length ? sum : null,
-        sufficient: points.length > 0 && observed.length / points.length >= COVERAGE_FLOOR,
+        // A partial import total is not comparable to a complete period total.
+        sufficient: points.length > 0 && observed.length === points.length,
     };
 }
 
@@ -617,8 +623,8 @@ function cardFromPlan(item: CanvasPlanItem, month: string, today: string): WorkC
         statusLabel: item.status === 'done' ? 'Done' : 'To do',
         badges,
         dueDate: due,
-        assignees: [],
-        assigneeLabel: 'No assignee',
+        assignees: item.assignees ?? [],
+        assigneeLabel: assigneeLabel(item.assignees ?? []),
         estimateLabel: 'No estimate',
         subtasks: [],
         subtaskProgress: 'No subtasks',

@@ -2,12 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     assigneeLabel, buildDailySeries, finalizedThrough, formatMonthLabel, isMonthKey, monthBounds,
-    performanceWindow, previousEqualWindow, projectWorkspaceCanvas, settleLatest, shiftMonth,
+    performanceWindow, previousEqualWindow, projectWorkspaceCanvas, resolveAssigneeNames, settleLatest, shiftMonth,
     type CanvasApprovalDoc, type CanvasPlanItem, type CanvasTask, type WorkspaceCanvasInput,
 } from './project.ts';
 
 const today = '2026-10-15';
 const month = '2026-10';
+
+test('assignee IDs resolve to names without exposing IDs when membership is unavailable', () => {
+    assert.deepEqual(resolveAssigneeNames(['user-1', 'user-1', 'removed'], [{ id: 'user-1', name: 'Carlos Morones' }]), ['Carlos Morones', 'Unknown assignee']);
+    const model = projectWorkspaceCanvas(baseInput({ plan: { ok: true, value: { items: [planItem({ assignees: ['Abel Miranda'] })] } } }));
+    assert.equal(model.board.unscheduled[0].assigneeLabel, 'Abel Miranda');
+});
 
 function task(patch: Partial<CanvasTask> = {}): CanvasTask {
     return { id: 't1', title: 'Refresh service page', status: 'todo', assignees: ['Priya Shah'], subtasks: [], ...patch };
@@ -66,8 +72,8 @@ test('missing search days stay null and a zero baseline is not a percent', () =>
         search: { ok: true, coverage: 'ready', property: 'sc-domain:example.com', lastSync: '2026-10-13T00:00:00Z', window: { start: '2026-10-01', end: '2026-10-04' }, current, previous },
     }));
     assert.equal(model.performance.clicks?.total, 15);
-    assert.equal(model.performance.clicks?.delta.kind, 'no_baseline');
-    assert.equal(model.performance.showPrevious, true);
+    assert.equal(model.performance.clicks?.delta.kind, 'insufficient');
+    assert.equal(model.performance.showPrevious, false);
     assert.equal(model.performance.points[1].clicks, null);
     assert.equal(model.performance.points[1].previousClicks, null);
     assert.match(model.performance.message, /not zero/);
@@ -106,6 +112,21 @@ test('equal coverage reports a percent and does not treat the change as caused b
     const search = model.board.impact.find(entry => entry.id === 'search-clicks');
     assert.match(search?.detail ?? '', /not attributed/i);
     assert.equal(model.board.impact.some(entry => /top 3/i.test(entry.title + entry.detail)), false);
+});
+
+test('partial period totals cannot manufacture a decline and complete zero baselines remain explicit', () => {
+    const previous = Array.from({ length: 4 }, (_, index) => ({ date: `2026-09-${27 + index}`, clicks: 10, impressions: 100 }));
+    const search = { ok: true as const, coverage: 'ready' as const, property: 'sc-domain:example.com', lastSync: null, window: { start: '2026-10-01', end: '2026-10-04' }, previous };
+    const current = previous.map((point, index) => ({ ...point, date: `2026-10-0${index + 1}`, clicks: index < 2 ? 10 : null, impressions: index < 2 ? 100 : null }));
+    const partial = projectWorkspaceCanvas(baseInput({ search: { ...search, current } }));
+    assert.equal(partial.performance.clicks?.total, 20);
+    assert.equal(partial.performance.clicks?.delta.kind, 'insufficient');
+    assert.equal(partial.performance.showPrevious, false);
+    const zero = projectWorkspaceCanvas(baseInput({ search: {
+        ...search, current: previous.map((point, index) => ({ ...point, date: `2026-10-0${index + 1}` })),
+        previous: previous.map(point => ({ ...point, clicks: 0, impressions: 0 })),
+    } }));
+    assert.equal(zero.performance.clicks?.delta.kind, 'no_baseline');
 });
 
 test('hours distinguish error, zero budget, over budget, campaign totals, and custom scope', () => {
