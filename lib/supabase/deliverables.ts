@@ -74,10 +74,13 @@ async function notifyAssigned(
 /** Deliverables for an org, optionally filtered by client and/or month (YYYY-MM). */
 export async function getDeliverables(
     organizationId: string,
-    opts: { clientId?: string; month?: string; assigneeId?: string } = {},
+    opts: { clientId?: string; month?: string; assigneeId?: string; throwOnError?: boolean } = {},
 ): Promise<Deliverable[]> {
     const supabase = createClient();
-    if (!supabase) return [];
+    if (!supabase) {
+        if (opts.throwOnError) throw new Error('Deliverables unavailable');
+        return [];
+    }
     try {
         let q = supabase.from('deliverables').select('*').eq('organization_id', organizationId);
         if (opts.clientId) q = q.eq('client_id', opts.clientId);
@@ -88,6 +91,7 @@ export async function getDeliverables(
         return (data || []).map(rowToDeliverable);
     } catch (err) {
         console.error('Error fetching deliverables:', err);
+        if (opts.throwOnError) throw err;
         return [];
     }
 }

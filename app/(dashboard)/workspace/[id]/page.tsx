@@ -20,6 +20,8 @@ import { TopicalMapTab } from '@/components/workspace/TopicalMapTab';
 import { IntegrationsTab } from '@/components/workspace/IntegrationsTab';
 import { ClientSetupScopeCard } from '@/components/workspace/ClientSetupScopeCard';
 import { ClientOverviewWidget } from '@/components/workspace/ClientOverviewWidget';
+import { ClientWorkspaceCanvas } from '@/components/workspace/canvas/ClientWorkspaceCanvas';
+import { workspaceCanvasEnabled } from '@/lib/workspace-canvas/flag';
 import { EditClientPanel, ClientAvatar } from '@/components/workspace/EditClientPanel';
 import { getClients } from '@/lib/supabase/clients';
 import { useOrganization } from '@/components/providers/organization-provider';
@@ -30,9 +32,10 @@ import { Pencil, Play, Pause, Plus } from 'lucide-react';
 import { TaskListView } from '@/components/tasks/TaskListView';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
-import { getTasksByClient } from '@/lib/supabase/tasks';
-import { getLoggedHoursByClient } from '@/lib/supabase/time-logs';
+import { getTask, getTasksByClient } from '@/lib/supabase/tasks';
+import { getLoggedHoursByClient, getTimeLogs } from '@/lib/supabase/time-logs';
 import { Task } from '@/lib/types';
+import { monthKey } from '@/lib/marketing-plan-execution';
 import { SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
 import { BasecampImportModal } from '@/components/workspace/BasecampImportModal';
@@ -53,7 +56,7 @@ export default function ClientDetailPage() {
     const [activeTab, setActiveTabState] = useState<Tab>('overview');
     const [planView, setPlanView] = useState<'plan' | 'tasks'>('plan');
     const [importOpen, setImportOpen] = useState(false);
-    const setActiveTab = (tab: Tab) => {
+    const setActiveTab = (tab: Tab, extras?: Record<string, string | null>) => {
         setActiveTabState(tab === 'tasks' ? 'campaign' : tab);
         if (tab === 'tasks') setPlanView('tasks');
         else if (tab === 'campaign') setPlanView('plan');
@@ -61,6 +64,10 @@ export default function ClientDetailPage() {
         url.searchParams.set('tab', tab === 'tasks' ? 'campaign' : tab);
         if (tab === 'tasks') url.searchParams.set('planView', 'tasks');
         else url.searchParams.delete('planView');
+        for (const [key, value] of Object.entries(extras ?? {})) {
+            if (value == null) url.searchParams.delete(key);
+            else url.searchParams.set(key, value);
+        }
         window.history.replaceState(null, '', url);
     };
 
@@ -74,6 +81,9 @@ export default function ClientDetailPage() {
     }, [id]);
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
     const [loggedHours, setLoggedHours] = useState<number | undefined>(undefined);
+    const [hoursError, setHoursError] = useState(false);
+    const [hoursMonth, setHoursMonth] = useState<string | null>(null);
+    const canvasEnabled = workspaceCanvasEnabled();
     const [tasksLoading, setTasksLoading] = useState(false);
     const [selectedTask, setSelectedTask] = useState<Task | null>(null);
     const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
@@ -123,11 +133,25 @@ export default function ClientDetailPage() {
     // time lands so SEO hours and the feed refresh together.
     useEffect(() => {
         if (!organization?.id || !id) return;
-        const month = new Date().toISOString().slice(0, 7);
-        getLoggedHoursByClient(organization.id, month).then(byClient => {
-            setLoggedHours(byClient[id] ?? 0);
-        });
-    }, [organization?.id, id, activityRefreshKey]);
+        let cancelled = false;
+        const month = canvasEnabled ? (hoursMonth ?? monthKey()) : new Date().toISOString().slice(0, 7);
+        if (canvasEnabled) {
+            setHoursError(false);
+            setLoggedHours(undefined);
+            getTimeLogs(organization.id, { clientId: id, month, budgetMonth: true, throwOnError: true })
+                .then(logs => {
+                    if (cancelled) return;
+                    const total = logs.filter(log => log.countsTowardBudget).reduce((sum, log) => sum + log.hours, 0);
+                    setLoggedHours(Math.round(total * 100) / 100);
+                })
+                .catch(() => { if (!cancelled) { setLoggedHours(undefined); setHoursError(true); } });
+        } else {
+            getLoggedHoursByClient(organization.id, month).then(byClient => {
+                if (!cancelled) setLoggedHours(byClient[id] ?? 0);
+            });
+        }
+        return () => { cancelled = true; };
+    }, [organization?.id, id, activityRefreshKey, canvasEnabled, hoursMonth]);
 
     useEffect(() => {
         const refresh = () => setActivityRefreshKey(key => key + 1);
@@ -263,7 +287,7 @@ export default function ClientDetailPage() {
                     Overview
                 </button>
                 <button
-                    onClick={() => setActiveTab('campaign')}
+                    onClick={() => setActiveTab('campaign', { phase: null })}
                     className={cn(
                         'flex shrink-0 whitespace-nowrap items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
                         activeTab === 'campaign'
@@ -366,24 +390,6 @@ export default function ClientDetailPage() {
                         />
                     )}
 
-                    <TaskDetailModal
-                        task={selectedTask}
-                        isOpen={isTaskDetailOpen}
-                        onClose={() => setIsTaskDetailOpen(false)}
-                        onUpdate={(updated) => {
-                            setClientTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
-                            setSelectedTask(updated);
-                        }}
-                    />
-
-                    <CreateTaskModal
-                        isOpen={isCreateTaskOpen}
-                        onClose={() => setIsCreateTaskOpen(false)}
-                        onCreated={(created) => setClientTasks(prev => [created, ...prev])}
-                        organizationId={organization?.id ?? ''}
-                        defaultClientId={client.id}
-                        defaultClientName={client.clientName}
-                    />
                 </div>
             )}
 
@@ -427,7 +433,57 @@ export default function ClientDetailPage() {
             )}
 
             {/* Overview tab content */}
-            {activeTab === 'overview' && <>
+            {activeTab === 'overview' && canvasEnabled && <>
+            <ClientWorkspaceCanvas
+                client={client}
+                organizationId={organization?.id ?? ''}
+                isOwner={isOwner}
+                refreshKey={activityRefreshKey}
+                onReassign={() => setShowReassign(true)}
+                onAddWork={() => setIsCreateTaskOpen(true)}
+                onOpenTask={(taskId) => {
+                    void getTask(taskId).then(result => {
+                        if (!result.task) return;
+                        setSelectedTask(result.task);
+                        setIsTaskDetailOpen(true);
+                    });
+                }}
+                onOpenPlan={() => setActiveTab('campaign', { phase: null })}
+                onOpenPhase={(phase) => setActiveTab('campaign', { phase })}
+                onViewAllTasks={() => setActiveTab('tasks', { phase: null })}
+                onReview={(batchId) => setActiveTab('approvals', { approvalBatch: batchId })}
+                onViewTime={() => document.getElementById('client-time-details')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })}
+                onOpenDeliverables={() => document.getElementById('client-deliverables')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })}
+                onMonthChange={setHoursMonth}
+            />
+            <ClientSetupScopeCard client={client} />
+            <div id="client-engagement" className="space-y-3">
+                <h2 className="text-sm font-medium text-muted-foreground">Engagement details</h2>
+                {hoursError ? (
+                    <p role="alert" className="text-sm text-muted-foreground">Engagement hours could not be loaded. A stored hours total is not shown.</p>
+                ) : loggedHours == null ? (
+                    <p role="status" className="text-sm text-muted-foreground">Loading engagement hours…</p>
+                ) : (
+                    <EngagementOverview client={client} loggedHours={loggedHours} />
+                )}
+            </div>
+            <div id="client-time-details">
+                <MonthlyPlannerCard client={client} />
+            </div>
+            <div id="client-deliverables">
+                <ClientDeliverablesTab
+                    organizationId={organization?.id ?? ''}
+                    clientId={client.id}
+                    clientName={client.clientName}
+                />
+            </div>
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <ClientNotesPanel client={client} />
+                <ActivityFeed client={client} refreshKey={activityRefreshKey} />
+            </div>
+            </>}
+
+            {activeTab === 'overview' && !canvasEnabled && <>
 
             <ClientSetupScopeCard client={client} />
             <ClientOverviewWidget client={client} organizationId={organization?.id ?? ''} />
@@ -523,6 +579,28 @@ export default function ClientDetailPage() {
             </div>
 
             </> /* end overview tab */}
+
+            <TaskDetailModal
+                task={selectedTask}
+                isOpen={isTaskDetailOpen}
+                onClose={() => setIsTaskDetailOpen(false)}
+                onUpdate={(updated) => {
+                    setClientTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
+                    setSelectedTask(updated);
+                    setActivityRefreshKey(key => key + 1);
+                }}
+            />
+            <CreateTaskModal
+                isOpen={isCreateTaskOpen}
+                onClose={() => setIsCreateTaskOpen(false)}
+                onCreated={(created) => {
+                    setClientTasks(prev => [created, ...prev]);
+                    setActivityRefreshKey(key => key + 1);
+                }}
+                organizationId={organization?.id ?? ''}
+                defaultClientId={client.id}
+                defaultClientName={client.clientName}
+            />
 
             {/* Reassign Modal */}
             {showReassign && (

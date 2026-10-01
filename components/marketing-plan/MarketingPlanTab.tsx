@@ -79,6 +79,16 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
 
     useEffect(() => { setPlan(null); loadPlan(); return () => { loadSequence.current++; }; }, [loadPlan]);
     useEffect(() => {
+        const query = new URLSearchParams(window.location.search);
+        const phase = query.get('phase');
+        if (phase && ROADMAP_PHASES.some(([key]) => key === phase)) {
+            setPlanLayout('board');
+            setRoadmapMonth(phase as RoadmapPhase);
+        }
+        const overviewMonth = query.get('overviewMonth');
+        if (overviewMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(overviewMonth)) setMonth(overviewMonth);
+    }, [clientId]);
+    useEffect(() => {
         let cancelled = false;
         setLoggedHours(null);
         setTaskHours({});

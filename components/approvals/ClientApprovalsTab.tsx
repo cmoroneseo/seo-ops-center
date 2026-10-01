@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Archive, ArrowLeft, Check, Copy, ExternalLink, FileText, Loader2, Lock,
     Plus, Send, Trash2, Unlock, Upload,
@@ -34,6 +34,7 @@ export function ClientApprovalsTab({ clientId, organizationId }: Props) {
     const [batches, setBatches] = useState<ContentApprovalBatch[]>([]);
     const [openBatch, setOpenBatch] = useState<ContentApprovalBatch | null>(null);
     const [loading, setLoading] = useState(true);
+    const openedFromUrl = useRef(false);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -42,6 +43,16 @@ export function ClientApprovalsTab({ clientId, organizationId }: Props) {
     }, [clientId]);
 
     useEffect(() => { void load(); }, [load]);
+
+    useEffect(() => {
+        if (loading || openedFromUrl.current) return;
+        const batchId = new URLSearchParams(window.location.search).get('approvalBatch');
+        if (!batchId) return;
+        const match = batches.find(batch => batch.id === batchId);
+        if (!match) return;
+        openedFromUrl.current = true;
+        setOpenBatch(match);
+    }, [loading, batches]);
 
     if (loading) {
         return <div className="flex items-center gap-2 py-12 text-sm text-muted-foreground">
@@ -54,7 +65,13 @@ export function ClientApprovalsTab({ clientId, organizationId }: Props) {
             batch={openBatch}
             clientId={clientId}
             organizationId={organizationId}
-            onBack={() => { setOpenBatch(null); void load(); }}
+            onBack={() => {
+                const url = new URL(window.location.href);
+                url.searchParams.delete('approvalBatch');
+                window.history.replaceState(null, '', url);
+                setOpenBatch(null);
+                void load();
+            }}
         />;
     }
 
