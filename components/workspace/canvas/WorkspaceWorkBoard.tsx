@@ -1,6 +1,6 @@
 'use client';
 
-import { LANE_PREVIEW_LIMIT, type BoardModel, type WorkCard } from '@/lib/workspace-canvas/project';
+import { formatDayLabel, LANE_PREVIEW_LIMIT, type BoardModel, type TimelineModel, type WorkCard } from '@/lib/workspace-canvas/project';
 import { cn } from '@/lib/utils';
 
 function badgeClass(badge: string): string {
@@ -77,14 +77,18 @@ function Lane({
 
 export function WorkspaceWorkBoard({
     model,
+    timeline,
     selectedId,
     onSelect,
     onViewAll,
+    onOpenDeliverables,
 }: {
     model: BoardModel;
+    timeline: TimelineModel;
     selectedId: string | null;
     onSelect: (id: string) => void;
     onViewAll: () => void;
+    onOpenDeliverables: () => void;
 }) {
     if (model.state === 'error') {
         return <p role="status" className="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">Work could not be loaded. This is not an empty month.</p>;
@@ -107,6 +111,21 @@ export function WorkspaceWorkBoard({
                                 <p className="mt-1 text-xs text-muted-foreground">{entry.detail}</p>
                             </article>
                         ))}
+                    </div>
+                    <div className="mt-4 border-t border-border pt-4">
+                        <h4 className="text-sm font-semibold">{timeline.deadlinesTitle}</h4>
+                        {timeline.deadlines.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">No open deadlines in this month.</p> : (
+                            <ul className="mt-2 space-y-2">
+                                {timeline.deadlines.slice(0, 6).map(item => (
+                                    <li key={item.id}>
+                                        <button type="button" onClick={() => item.cardId ? onSelect(item.cardId) : onOpenDeliverables()} className="block w-full rounded-md text-left text-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                                            <span className="block truncate font-medium" title={item.title}>{item.title}</span>
+                                            <span className="block text-xs text-muted-foreground">{formatDayLabel(item.dueDate)} · {item.kind === 'task' ? 'Task' : 'Deliverable'}</span>
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
                     </div>
                 </section>
             </div>

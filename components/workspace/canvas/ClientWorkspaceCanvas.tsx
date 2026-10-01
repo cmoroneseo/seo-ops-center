@@ -164,16 +164,6 @@ export function ClientWorkspaceCanvas({
         };
     }, [client, organizationId, month, refreshKey]);
 
-    useEffect(() => {
-        if (width < 1180 || !selectedId) return;
-        const onKey = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') setSelectedId(null);
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [width, selectedId]);
-
-    const wide = width >= 1180;
     const compactTimeline = width > 0 && width < 760;
     const selected = model?.cards.find(card => card.id === selectedId) ?? null;
     const href = siteHref(client.domain);
@@ -223,23 +213,16 @@ export function ClientWorkspaceCanvas({
                         </div>
                     </div>
                     <WorkspacePhaseRail model={model.phases} onOpenPhase={onOpenPhase} onCreatePlan={onOpenPlan} />
-                    <div className={wide && selected ? 'grid grid-cols-[minmax(0,1fr)_340px] items-start gap-4' : ''}>
-                        <WorkspaceWorkBoard model={model.board} selectedId={selected?.id ?? null} onSelect={setSelectedId} onViewAll={onViewAllTasks} />
-                        {wide && selected && (
-                            <WorkspaceTaskInspector card={selected} actionClass={actionClass} onClose={() => setSelectedId(null)} onOpenTask={onOpenTask} onOpenPlan={onOpenPlan} />
-                        )}
-                    </div>
+                    <WorkspaceWorkBoard model={model.board} timeline={model.timeline} selectedId={selected?.id ?? null} onSelect={setSelectedId} onViewAll={onViewAllTasks} onOpenDeliverables={onOpenDeliverables} />
                     <WorkspaceMonthTimeline model={model.timeline} monthLabel={model.monthLabel} compact={compactTimeline} onPrevious={() => changeMonth(-1)} onNext={() => changeMonth(1)} onSelect={setSelectedId} />
                 </>
             )}
-            {!wide && (
                 <Dialog open={!!selected} onOpenChange={open => { if (!open) setSelectedId(null); }}>
-                    <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
+                    <DialogContent showCloseButton={false} aria-describedby={undefined} className="top-0 right-0 left-auto h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 content-start overflow-y-auto rounded-none border-y-0 border-r-0 bg-card p-0 sm:max-w-md data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100 motion-reduce:animate-none">
                         <DialogTitle className="sr-only">{selected?.title ?? 'Work details'}</DialogTitle>
-                        {selected && <WorkspaceTaskInspector card={selected} actionClass={actionClass} onClose={() => setSelectedId(null)} onOpenTask={onOpenTask} onOpenPlan={onOpenPlan} />}
+                        {selected && <WorkspaceTaskInspector card={selected} actionClass={actionClass} onClose={() => setSelectedId(null)} onOpenTask={taskId => { setSelectedId(null); onOpenTask(taskId); }} onOpenPlan={() => { setSelectedId(null); onOpenPlan(); }} />}
                     </DialogContent>
                 </Dialog>
-            )}
         </div>
     );
 }

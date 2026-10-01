@@ -2,7 +2,6 @@
 
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { TimelineModel } from '@/lib/workspace-canvas/project';
-import { formatDayLabel } from '@/lib/workspace-canvas/project';
 
 export function WorkspaceMonthTimeline({
     model,
@@ -64,21 +63,6 @@ export function WorkspaceMonthTimeline({
                     </div>
                 </div>
             )}
-            <div className="mt-5 border-t border-border pt-4">
-                <h3 className="text-sm font-medium">{model.deadlinesTitle}</h3>
-                {model.deadlines.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">No open deadlines in this month.</p> : (
-                    <ul className="mt-2 space-y-1">
-                        {model.deadlines.slice(0, 6).map(item => (
-                            <li key={item.id} className="flex items-baseline justify-between gap-3 text-sm">
-                                {item.cardId ? (
-                                    <button type="button" onClick={() => onSelect(item.cardId!)} className="truncate text-left font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{item.title}</button>
-                                ) : <span className="truncate">{item.title}</span>}
-                                <span className="shrink-0 text-xs text-muted-foreground">{formatDayLabel(item.dueDate)} · {item.kind === 'task' ? 'Task' : 'Deliverable'}</span>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-            </div>
         </section>
     );
 }

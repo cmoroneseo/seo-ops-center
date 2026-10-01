@@ -17,7 +17,7 @@ export function WorkspaceTaskInspector({
     onOpenPlan: () => void;
 }) {
     return (
-        <aside aria-labelledby="workspace-inspector-title" className="min-w-0 rounded-xl border border-border bg-card p-4">
+        <aside aria-labelledby="workspace-inspector-title" className="min-w-0 bg-card p-6">
             <div className="flex items-start justify-between gap-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{card.source === 'task' ? 'Task' : 'Plan item'}</p>
                 <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Close</button>
