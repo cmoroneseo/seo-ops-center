@@ -5,7 +5,8 @@ import { AddClientModal } from '@/components/workspace/AddClientModal';
 import { CSVImportModal } from '@/components/workspace/CSVImportModal';
 import { BasecampImportModal } from '@/components/workspace/BasecampImportModal';
 import { PlanningTable } from '@/components/workspace/PlanningTable';
-import { ClientProject, ProjectStatus, MonthlyPlan } from '@/lib/types';
+import { ClientProject, MonthlyPlan } from '@/lib/types';
+import { DEFAULT_CLIENT_STATUS_FILTER, matchesClientStatus, type ClientStatusFilter } from '@/lib/workspace/client-status-filter';
 import { cn } from '@/lib/utils';
 import { Search, Filter, Plus, X, LayoutList, CalendarRange, User } from 'lucide-react';
 import { useState, useMemo, useEffect, useCallback } from 'react';
@@ -28,18 +29,19 @@ export default function WorkspacePage() {
     const [plans, setPlans] = useState<MonthlyPlan[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'All'>('Active');
+    const [statusFilter, setStatusFilter] = useState<ClientStatusFilter>(DEFAULT_CLIENT_STATUS_FILTER);
     const [managerFilter, setManagerFilter] = useState<string>('All');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [bcImportTarget, setBcImportTarget] = useState<{ clientId: string; orgId: string } | null>(null);
     const [viewMode, setViewMode] = useState<'list' | 'planning'>('list');
-    const [myClientsOnly, setMyClientsOnly] = useState(!isOwner); // members default to their own clients
+    const [myClientsPreference, setMyClientsPreference] = useState<boolean | null>(null);
+    // The role loads asynchronously. Derive its default until the user chooses a filter.
+    const myClientsOnly = myClientsPreference ?? !isOwner;
     const organizationId = organization?.id;
 
     const fetchClients = useCallback(async () => {
         if (!organizationId) return;
-        setIsLoading(true);
         const [data, planData] = await Promise.all([
             getClients(organizationId),
             getMonthlyPlans(organizationId),
@@ -50,6 +52,17 @@ export default function WorkspacePage() {
     }, [organizationId]);
 
     useEffect(() => {
+        setIsLoading(true);
+        void fetchClients();
+    }, [fetchClients]);
+
+    const handleClientCreated = useCallback(() => {
+        // Show the newly created onboarding client even if the user was browsing another filter.
+        setStatusFilter(DEFAULT_CLIENT_STATUS_FILTER);
+        setSearchQuery('');
+        setManagerFilter('All');
+        setMyClientsPreference(false);
+        // Refresh in place so the modal's saved confirmation and Open client action stay mounted.
         void fetchClients();
     }, [fetchClients]);
 
@@ -129,7 +142,7 @@ export default function WorkspacePage() {
             const matchesSearch =
                 client.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 client.accountManager.toLowerCase().includes(searchQuery.toLowerCase());
-            const matchesStatus = statusFilter === 'All' || client.status === statusFilter;
+            const matchesStatus = matchesClientStatus(client.status, statusFilter);
             const matchesManager = managerFilter === 'All' ||
                 (selectedManager
                     ? client.accountManagerId
@@ -155,7 +168,7 @@ export default function WorkspacePage() {
                 <div className="flex items-center gap-3 flex-wrap justify-end">
                     {/* My Clients toggle */}
                     <button
-                        onClick={() => setMyClientsOnly(p => !p)}
+                        onClick={() => setMyClientsPreference(!myClientsOnly)}
                         className={cn(
                             "flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg border transition-all",
                             myClientsOnly
@@ -226,9 +239,11 @@ export default function WorkspacePage() {
                     <div className="relative">
                         <select
                             value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value as ProjectStatus | 'All')}
+                            aria-label="Client status"
+                            onChange={(e) => setStatusFilter(e.target.value as ClientStatusFilter)}
                             className="appearance-none pl-9 pr-8 py-2 rounded-md bg-muted/50 hover:bg-muted text-sm font-medium transition-colors cursor-pointer border-none focus:ring-2 focus:ring-primary/50"
                         >
+                            <option value="Current">Active &amp; onboarding</option>
                             <option value="Active">Active</option>
                             <option value="All">All Statuses</option>
                             <option value="Onboarding">Onboarding</option>
@@ -269,7 +284,7 @@ export default function WorkspacePage() {
             <AddClientModal
                 isOpen={isAddModalOpen}
                 onClose={() => setIsAddModalOpen(false)}
-                onSuccess={fetchClients}
+                onSuccess={handleClientCreated}
                 onImportFromBasecamp={(clientId, orgId) => setBcImportTarget({ clientId, orgId })}
             />
 
