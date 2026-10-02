@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck, Plug, Target, ScanSearch, Map, FileCheck2, Globe } from 'lucide-react';
 import Link from 'next/link';
@@ -45,6 +45,7 @@ type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'in
 
 export default function ClientDetailPage() {
     const params = useParams();
+    const router = useRouter();
     const id = params.id as string;
     const { organization } = useOrganization();
     const { isOwner } = useCurrentMember();
@@ -441,22 +442,12 @@ export default function ClientDetailPage() {
                 onViewAllTasks={() => setActiveTab('tasks', { phase: null })}
                 onReview={(batchId) => setActiveTab('approvals', { approvalBatch: batchId })}
 
-                onOpenDeliverables={() => document.getElementById('client-deliverables')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })}
+                onOpenDeliverables={() => router.push('/deliverables')}
                 onMonthChange={setHoursMonth}
                 selectedMonth={hoursMonth}
             />
             <ClientSetupScopeCard client={client} />
-            <div id="client-deliverables">
-                <ClientDeliverablesTab
-                    organizationId={organization?.id ?? ''}
-                    clientId={client.id}
-                    clientName={client.clientName}
-                />
-            </div>
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                <ClientNotesPanel client={client} />
-                <ActivityFeed client={client} refreshKey={activityRefreshKey} />
-            </div>
+            <ActivityFeed client={client} refreshKey={activityRefreshKey} />
             </>}
 
             {activeTab === 'overview' && !canvasEnabled && <>
