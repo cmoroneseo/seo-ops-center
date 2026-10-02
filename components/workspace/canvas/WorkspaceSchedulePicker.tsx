@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { formatDayLabel, type WorkCard } from '@/lib/workspace-canvas/project';
 
 export function WorkspaceSchedulePicker({ date, cards, saving, unavailable, error, onClose, onSchedule, onEdit }: {
@@ -18,9 +18,9 @@ export function WorkspaceSchedulePicker({ date, cards, saving, unavailable, erro
     const [query, setQuery] = useState('');
     const candidates = cards.filter(card => card.taskId && !['Done', 'Approved'].includes(card.statusLabel) && card.title.toLowerCase().includes(query.toLowerCase())).sort((a, b) => Number(!!a.dueDate) - Number(!!b.dueDate) || a.title.localeCompare(b.title));
     return <Dialog open onOpenChange={open => { if (!open && !saving) onClose(); }}>
-        <DialogContent className="sm:max-w-xl" aria-describedby="schedule-existing-description">
+        <DialogContent className="sm:max-w-xl">
             <DialogTitle>Schedule existing task</DialogTitle>
-            <p id="schedule-existing-description" className="text-sm text-muted-foreground">Choose a task and set its due date. Existing start dates are preserved.</p>
+            <DialogDescription className="text-sm text-muted-foreground">Choose a task and set its due date. Existing start dates are preserved.</DialogDescription>
             <label htmlFor="schedule-existing-date" className="text-sm font-medium">Due date</label>
             <input id="schedule-existing-date" type="date" value={dueDate} disabled={saving} onChange={event => setDueDate(event.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-ring" />
             <input aria-label="Search existing client tasks" placeholder="Search client tasks…" value={query} disabled={saving} onChange={event => setQuery(event.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-ring" />

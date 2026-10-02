@@ -20,13 +20,17 @@ import {
     monthKey, monthDisplay, statusBadgeClass, typeIcon, typeIconClass,
 } from '@/components/deliverables/deliverable-ui';
 
+import { isMyClient } from '@/lib/workspace/client-managers';
+import { useManagerIdentities } from '@/lib/hooks/use-manager-identities';
+
 type Lens = 'queue' | 'clients' | 'agency';
 const DELIVERED = ['Approved', 'Published'];
 
 export default function DeliverablesPage() {
     const { organization } = useOrganization();
-    const { userId, displayName, isOwner } = useCurrentMember();
+    const { userId, displayName, email, isOwner } = useCurrentMember();
     const { clients } = useClients({ statuses: ['Active', 'Onboarding'] });
+    const managerMembers = useManagerIdentities(organization?.id);
 
     const [monthOffset, setMonthOffset] = useState(0);
     const month = monthKey(monthOffset);
@@ -89,8 +93,8 @@ export default function DeliverablesPage() {
 
     // Lens-scoped data
     const myClientIds = useMemo(
-        () => new Set(clients.filter((c) => c.accountManager === displayName).map((c) => c.id)),
-        [clients, displayName],
+        () => new Set(clients.filter((c) => isMyClient(c, {id:userId,name:displayName,email}, clients, managerMembers)).map((c) => c.id)),
+        [clients, userId, displayName, email, managerMembers],
     );
     const deliverables = data?.deliverables ?? [];
     const lensDeliverables = activeLens === 'queue'

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { updateTask } from '@/lib/supabase/tasks';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { dueDateMoveError } from '@/lib/workspace-canvas/calendar';
@@ -12,7 +12,7 @@ import type { ClientProject } from '@/lib/types';
 import { actionForegroundChoice, oklchContrast, type ActionForeground } from '@/lib/workspace-canvas/palette';
 import { loadWorkspaceCanvas } from '@/lib/workspace-canvas/load';
 import {
-    isMonthKey, monthBounds, projectWorkspaceCanvas, settleLatest, shiftMonth,
+    isMonthKey, formatMonthLabel, monthBounds, projectWorkspaceCanvas, settleLatest, shiftMonth,
     type WorkspaceCanvasModel,
 } from '@/lib/workspace-canvas/project';
 import { WorkspaceAttentionPanel } from './WorkspaceAttentionPanel';
@@ -163,7 +163,8 @@ export function ClientWorkspaceCanvas({
         };
     }, [client, organizationId, month, refreshKey, calendarRefresh]);
 
-    const selected = model?.cards.find(card => card.id === selectedId) ?? null;
+    const currentModel = model?.month === month ? model : null;
+    const selected = currentModel?.cards.find(card => card.id === selectedId) ?? null;
     const bounds = month ? monthBounds(month) : null;
     const periodLabel = bounds ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).formatRange(new Date(`${bounds.start}T12:00:00`), new Date(`${bounds.end}T12:00:00`)) : 'Select month';
     const changeMonth = (delta: number) => {
@@ -175,7 +176,7 @@ export function ClientWorkspaceCanvas({
     };
 
     const moveDueDate = async (cardId: string, date: string): Promise<boolean> => {
-        const card = model?.cards.find(item => item.id === cardId);
+        const card = currentModel?.cards.find(item => item.id === cardId);
         if (!card || loading || calendarSaving) return false;
         const invalid = dueDateMoveError(card, date);
         if (invalid) { setCalendarError(invalid); return false; }
@@ -202,14 +203,17 @@ export function ClientWorkspaceCanvas({
                 </button>
             </div>
 
-            {loading && !model && (
-                <div className="grid gap-4" aria-hidden>
+            {!currentModel && (loading || !!model) && (
+                <div>
+                    <p role="status" className="mb-3 text-xs text-muted-foreground">Loading {month ? formatMonthLabel(month) : 'overview'}…</p>
+                    <div className="grid gap-4" aria-hidden>
                     <div className="h-80 animate-pulse rounded-xl border border-border bg-card" />
                     <div className="h-40 animate-pulse rounded-xl border border-border bg-card" />
                 </div>
+                </div>
             )}
             {!loading && !model && <p role="alert" className="text-sm text-destructive">The overview could not be loaded. Refresh to retry.</p>}
-            {model && (
+            {model && currentModel && (
                 <>
                     {loading && <p role="status" className="text-xs text-muted-foreground">Updating {model.monthLabel}…</p>}
                     <div className="grid items-start gap-4 @min-[960px]:grid-cols-[minmax(0,3fr)_minmax(240px,1fr)]">
@@ -240,10 +244,11 @@ export function ClientWorkspaceCanvas({
                     <WorkspaceMonthTimeline model={model.timeline} cards={model.cards} monthLabel={model.monthLabel} loading={loading} unavailable={model.board.state === 'error' || model.board.tasksUnavailable || model.attention.deliverablesUnavailable || model.phases.state === 'error'} saving={calendarSaving} error={calendarError} onPrevious={() => changeMonth(-1)} onNext={() => changeMonth(1)} onToday={() => { const current = monthKey(); setMonth(current); onMonthChange(current); }} onSelect={setSelectedId} onAddWork={onAddWork} onScheduleExisting={date => { setCalendarError(null); setScheduleDate(date ?? model.timeline.days[0]); }} onOpenDeliverables={onOpenDeliverables} onMoveDueDate={(cardId, date) => { void moveDueDate(cardId, date); }} />
                 </>
             )}
-                {scheduleDate && model && <WorkspaceSchedulePicker key={scheduleDate} date={scheduleDate} cards={model.cards} saving={calendarSaving || loading} unavailable={model.board.tasksUnavailable || model.board.state === 'error'} error={calendarError} onClose={() => setScheduleDate(null)} onSchedule={moveDueDate} onEdit={cardId => { setScheduleDate(null); setSelectedId(cardId); }} />}
+                {scheduleDate && model && currentModel && <WorkspaceSchedulePicker key={scheduleDate} date={scheduleDate} cards={model.cards} saving={calendarSaving || loading} unavailable={model.board.tasksUnavailable || model.board.state === 'error'} error={calendarError} onClose={() => setScheduleDate(null)} onSchedule={moveDueDate} onEdit={cardId => { setScheduleDate(null); setSelectedId(cardId); }} />}
                 <Dialog open={!!selected} onOpenChange={open => { if (!open) setSelectedId(null); }}>
-                    <DialogContent showCloseButton={false} aria-describedby={undefined} className="top-0 right-0 left-auto h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 content-start overflow-y-auto rounded-none border-y-0 border-r-0 bg-card p-0 sm:max-w-xl data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100 motion-reduce:animate-none">
+                    <DialogContent showCloseButton={false} className="top-0 right-0 left-auto h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 content-start overflow-y-auto rounded-none border-y-0 border-r-0 bg-card p-0 sm:max-w-xl data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100 motion-reduce:animate-none">
                         <DialogTitle className="sr-only">{selected?.title ?? 'Work details'}</DialogTitle>
+                        <DialogDescription className="sr-only">View and edit the selected work, its schedule, and task details.</DialogDescription>
                         {selected?.taskId ? <WorkspaceTaskEditor taskId={selected.taskId} organizationId={organizationId} clientId={client.id} userId={userId} onClose={() => setSelectedId(null)} onChanged={() => { setCalendarRefresh(value => value + 1); window.dispatchEvent(new Event('client-activity:data-changed')); }} /> : selected && <WorkspaceTaskInspector card={selected} actionClass={actionClass} onClose={() => setSelectedId(null)} onOpenTask={taskId => { setSelectedId(null); onOpenTask(taskId); }} onOpenPlan={() => { setSelectedId(null); onOpenPlan(); }} />}
                     </DialogContent>
                 </Dialog>
