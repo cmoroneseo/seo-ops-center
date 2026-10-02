@@ -65,10 +65,10 @@ export function settleLatest<T>(requestId: number, latestId: number, value: T): 
     return requestId === latestId ? value : null;
 }
 
-export function performanceWindow(month: string, finalizedThrough: string): { start: string; end: string } | null {
+export function performanceWindow(month: string, availableThrough: string): { start: string; end: string } | null {
     const { start, end } = monthBounds(month);
-    if (start > finalizedThrough) return null;
-    return { start, end: end < finalizedThrough ? end : finalizedThrough };
+    if (start > availableThrough) return null;
+    return { start, end: end < availableThrough ? end : availableThrough };
 }
 
 export function previousEqualWindow(start: string, end: string): { start: string; end: string } {
@@ -77,7 +77,7 @@ export function previousEqualWindow(start: string, end: string): { start: string
     return { start: dateOffset(endDate, 1 - count), end: endDate };
 }
 
-export function finalizedThrough(now = new Date()): string {
+export function availableThrough(now = new Date()): string {
     return historyWindow(now).end;
 }
 
@@ -85,20 +85,23 @@ export interface DailyPoint {
     date: string;
     clicks: number | null;
     impressions: number | null;
+    isIncomplete?: boolean;
 }
 
 export function buildDailySeries(
     start: string,
     end: string,
-    days: { id: string; date: string }[],
+    days: { id: string; date: string; isIncomplete?: boolean }[],
     rows: { dayId: string; clicks: number; impressions: number }[],
 ): DailyPoint[] {
     return historyDates(start, end).map(date => {
         const day = days.find(item => item.date === date);
         if (!day) return { date, clicks: null, impressions: null };
         const matched = rows.filter(row => row.dayId === day.id);
+        if (day.isIncomplete && !matched.length) return {date, clicks:null, impressions:null, isIncomplete:true};
         return {
             date,
+            isIncomplete: day.isIncomplete ?? false,
             clicks: matched.reduce((sum, row) => sum + row.clicks, 0),
             impressions: matched.reduce((sum, row) => sum + row.impressions, 0),
         };
@@ -165,7 +168,7 @@ export type SourceResult<T> = { ok: true; value: T } | { ok: false };
 export interface WorkspaceCanvasInput {
     month: string;
     today: string;
-    finalizedThrough: string;
+    availableThrough: string;
     client: CanvasClient;
     tasks: SourceResult<CanvasTask[]>;
     plan: SourceResult<{ goal?: string; items: CanvasPlanItem[] } | null>;
@@ -182,6 +185,7 @@ export type SearchInput =
     | {
         ok: true;
         coverage: 'ready';
+        refreshPending?: boolean;
         connectionHealth?: 'connected' | 'reconnect' | 'interrupted';
         property: string;
         lastSync: string | null;
@@ -191,6 +195,7 @@ export type SearchInput =
     };
 
 export interface ChartPoint {
+    isIncomplete?: boolean;
     date: string;
     clicks: number | null;
     previousDate: string | null;
@@ -201,7 +206,8 @@ export type Delta =
     | { kind: 'percent'; percent: number }
     | { kind: 'no_baseline' }
     | { kind: 'insufficient' }
-    | { kind: 'unavailable' };
+    | { kind: 'unavailable' }
+    | { kind: 'preliminary' };
 
 export interface MetricFigure {
     label: string;
@@ -215,7 +221,7 @@ export interface PerformanceModel {
     message: string;
     property?: string;
     lastSync: string | null;
-    finalizedThrough: string;
+    availableThrough: string;
     rangeLabel?: string;
     previousRangeLabel?: string;
     clicks?: MetricFigure;
@@ -225,6 +231,7 @@ export interface PerformanceModel {
     observedDays: number;
     expectedDays: number;
     missingDays: number;
+    hasPreliminaryData?: boolean;
 }
 
 export interface HoursGauge {
@@ -386,7 +393,7 @@ function deltaFor(current: ReturnType<typeof coverageOf>, previous: ReturnType<t
 
 function projectPerformance(input: WorkspaceCanvasInput): PerformanceModel {
     const base = {
-        finalizedThrough: input.finalizedThrough,
+        availableThrough: input.availableThrough,
         lastSync: null as string | null,
         points: [] as ChartPoint[],
         showPrevious: false,
@@ -401,7 +408,7 @@ function projectPerformance(input: WorkspaceCanvasInput): PerformanceModel {
         return {
             ...base,
             state: 'no_coverage',
-            message: `Search Console finalizes data through ${formatDayLabel(input.finalizedThrough)}. ${formatMonthLabel(input.month)} has no finalized days yet. Hours and work below still use ${formatMonthLabel(input.month)}.`,
+            message: `Search data is requested through ${formatDayLabel(input.availableThrough)}. ${formatMonthLabel(input.month)} has no available search data yet. Hours and work below still use ${formatMonthLabel(input.month)}.`,
         };
     }
     const current = input.search.current;
@@ -411,7 +418,8 @@ function projectPerformance(input: WorkspaceCanvasInput): PerformanceModel {
     const previousClicks = lengthsMatch && previous ? coverageOf(previous, 'clicks') : null;
     const impressionCoverage = coverageOf(current, 'impressions');
     const previousImpressions = lengthsMatch && previous ? coverageOf(previous, 'impressions') : null;
-    const showPrevious = !!previousClicks?.sufficient && clickCoverage.sufficient;
+    const partialToday = current.some(point => point.date === input.today && point.isIncomplete);
+    const showPrevious = !partialToday && !!previousClicks?.sufficient && clickCoverage.sufficient;
     const rangeLabel = `${formatDayLabel(input.search.window.start)} – ${formatDayLabel(input.search.window.end)}`;
     const previousRangeLabel = previous && previous.length
         ? `${formatDayLabel(previous[0].date)} – ${formatDayLabel(previous[previous.length - 1].date)}`
@@ -419,13 +427,16 @@ function projectPerformance(input: WorkspaceCanvasInput): PerformanceModel {
     const points = current.map((point, index) => ({
         date: point.date,
         clicks: point.clicks,
+        isIncomplete: point.isIncomplete,
         previousDate: showPrevious && previous ? previous[index].date : null,
         previousClicks: showPrevious && previous ? previous[index].clicks : null,
     }));
     const missingNote = clickCoverage.missing > 0
         ? 'This period is still updating. Gaps represent unavailable data, not zero clicks.'
         : '';
-    const comparisonNote = !previous
+    const comparisonNote = partialToday
+        ? "Today's search data is preliminary; the comparison is paused until this day is complete."
+        : !previous
         ? 'The previous period could not be loaded, so no comparison is shown.'
         : !lengthsMatch
             ? 'The previous period did not line up with this window, so no comparison is shown.'
@@ -444,15 +455,16 @@ function projectPerformance(input: WorkspaceCanvasInput): PerformanceModel {
         clicks: {
             label: 'Organic search clicks',
             total: clickCoverage.sum,
-            delta: deltaFor(clickCoverage, previousClicks, lengthsMatch),
+            delta: partialToday ? {kind:'preliminary'} : deltaFor(clickCoverage, previousClicks, lengthsMatch),
         },
         impressions: {
             label: 'Search impressions',
             total: impressionCoverage.sum,
-            delta: deltaFor(impressionCoverage, previousImpressions, lengthsMatch),
+            delta: partialToday ? {kind:'preliminary'} : deltaFor(impressionCoverage, previousImpressions, lengthsMatch),
         },
         points,
         showPrevious,
+        hasPreliminaryData: current.some(point => point.isIncomplete && point.clicks != null),
         observedDays: clickCoverage.observed,
         expectedDays: clickCoverage.expected,
         missingDays: clickCoverage.missing,

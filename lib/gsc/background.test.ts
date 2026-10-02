@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { backgroundHistoryDates, planBackgroundDays, retryDelaySeconds } from './background';
 const now = new Date('2026-10-01T18:00:00Z');
-test('background history spans 480 dates, finalized Pacific dates newest first', () => {
+test('background history spans 480 dates, Pacific dates including today newest first', () => {
  const dates=backgroundHistoryDates(now);
  assert.equal(dates.length,480); assert.equal(new Set(dates).size,480);
- assert.equal(dates[0],'2026-09-28'); assert.ok(dates[0]>dates.at(-1)!);
+ assert.equal(dates[0],'2026-10-01'); assert.ok(dates[0]>dates.at(-1)!);
 });
 test('recent revisions cannot starve behind historical backfill; fresh days do not refetch', () => {
  const dates=backgroundHistoryDates(now);
@@ -22,4 +22,12 @@ test('complete fresh coverage is idle; stale recent days rotate without rewritin
 test('retry delays increase and stay bounded',()=>{
  assert.equal(retryDelaySeconds(1),60);assert.equal(retryDelaySeconds(2),120);
  assert.equal(retryDelaySeconds(100),86400);
+});
+
+test('preliminary dates refresh hourly without repeatedly fetching fresh snapshots',()=>{
+ const dates=backgroundHistoryDates(now);
+ const all=dates.map(data_date=>({data_date,imported_at:now.toISOString()}));
+ const previousHour=new Date(now.getTime()-3600001).toISOString();
+ all[0].imported_at=previousHour;all[4].imported_at=previousHour;
+ assert.deepEqual(planBackgroundDays(dates,all,now),[dates[0]]);
 });

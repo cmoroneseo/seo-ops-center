@@ -11,7 +11,7 @@ export function planBackgroundDays(
 ): string[] {
     const known = new Map(existing.map(day => [day.data_date, day.imported_at]));
     const missing = dates.filter(date => !known.has(date));
-    const stale = dates.slice(0, 7).filter(date => known.has(date) && Date.parse(known.get(date)!) <= now.getTime() - 86400000);
+    const stale = dates.slice(0, 7).filter(date => known.has(date) && Date.parse(known.get(date)!) <= now.getTime() - (date > dateOffset(dates[0], -3) ? 3600000 : 86400000));
     // Never starve recent revisions while older history is still being filled.
     return [...missing.slice(0, 1), ...stale.slice(0, 1), ...missing.slice(1), ...stale.slice(1)].slice(0, limit);
 }

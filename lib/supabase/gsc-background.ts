@@ -50,7 +50,7 @@ export async function runGscSyncWorker(options: { clientId?: string; budgetMs?: 
                 const { data: saved, error: saveError } = await admin.rpc('replace_gsc_history_day', {
                     p_organization_id: job.organizationId, p_client_id: job.clientId, p_property: job.property,
                     p_date: date, p_fetched_at: day.fetchedAt, p_page_limited: day.pageLimited,
-                    p_query_limited: day.queryLimited, p_facts: day.facts,
+                    p_query_limited: day.queryLimited, p_facts: day.facts, p_is_incomplete: day.isIncomplete,
                 });
                 if (saveError || saved !== true) throw new Error('Snapshot was not saved');
                 savedDates.add(date);
@@ -66,7 +66,7 @@ export async function runGscSyncWorker(options: { clientId?: string; budgetMs?: 
             }
             remaining = dates.some(date => !savedDates.has(date));
             succeeded = true;
-            delay = remaining ? 0 : 86400;
+            delay = remaining ? 0 : 3600;
         } catch {
             // No raw API responses or tokens enter job records or client-visible errors.
             failed += 1;

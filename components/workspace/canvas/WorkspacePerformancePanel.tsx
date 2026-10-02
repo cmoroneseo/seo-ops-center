@@ -12,7 +12,7 @@ function DeltaLine({ delta }: { delta: Delta }) {
         const up = pct >= 0;
         return <p className={up ? 'text-sm font-medium text-green-600 dark:text-green-400' : 'text-sm font-medium text-red-600 dark:text-red-400'}>{up ? 'Up' : 'Down'} {Math.abs(pct)}% vs the previous period</p>;
     }
-    const label = delta.kind === 'no_baseline' ? 'No comparable baseline' : delta.kind === 'insufficient' ? 'Not enough coverage to compare' : 'Comparison unavailable';
+    const label = delta.kind === 'preliminary' ? "Comparison pending today's data" : delta.kind === 'no_baseline' ? 'No comparable baseline' : delta.kind === 'insufficient' ? 'Not enough coverage to compare' : 'Comparison unavailable';
     return <p className="text-sm text-muted-foreground">{label}</p>;
 }
 
@@ -23,6 +23,7 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{
         <div className="rounded-lg border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
             <p className="font-medium">{formatDayLabel(row.date)}</p>
             <p>Organic search clicks: {row.clicks == null ? 'Missing' : row.clicks.toLocaleString('en-US')}</p>
+            {row.isIncomplete && <p className="text-muted-foreground">Preliminary · May change</p>}
             {row.previousDate && <p>Previous {formatDayLabel(row.previousDate)}: {row.previousClicks == null ? 'Missing' : row.previousClicks.toLocaleString('en-US')}</p>}
         </div>
     );
@@ -57,7 +58,7 @@ export function WorkspacePerformancePanel({ model, reducedMotion, periodControl,
                 <div className="mt-5 rounded-lg bg-muted/30 px-4 py-5 text-sm text-muted-foreground"><p role="status">{preparing ? 'Preparing your search performance…' : model.message}</p>{model.state === 'error' && <button type="button" onClick={onConnections} className="mt-2 rounded text-foreground underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Manage GSC connection</button>}</div>
             ) : (
                 <>
-                    {dataThrough && <p className="mt-3 text-xs font-medium text-foreground">Data through {formatDayLabel(dataThrough)}{model.missingDays > 0 ? ` · Updating this period` : ''}</p>}
+                    {dataThrough && <p className="mt-3 text-xs font-medium text-foreground">Search data through {formatDayLabel(dataThrough)}{model.missingDays > 0 ? ` · Updating this period` : ''}{model.hasPreliminaryData && <span title="Recent Google Search Console data is preliminary and may change as Google finishes processing it." className="font-normal text-muted-foreground"> · Recent data preliminary</span>}</p>}
                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
                         <div>
                             <p className="text-sm text-muted-foreground">{clicks.label}</p>

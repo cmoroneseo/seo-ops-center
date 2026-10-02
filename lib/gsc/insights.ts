@@ -1,6 +1,6 @@
 import { dateOffset, historyWindow } from './history';
 
-export interface HistoryDay { id: string; date: string; importedAt: string; pageLimited: boolean; queryLimited: boolean }
+export interface HistoryDay { id: string; date: string; importedAt: string; pageLimited: boolean; queryLimited: boolean; isIncomplete?: boolean }
 export interface HistoryRow { id: number; dayId: string; page: string; query: string; clicks: number; impressions: number; position: number }
 export interface HistoryResponse {
     connectionHealth?: 'connected' | 'reconnect' | 'interrupted';

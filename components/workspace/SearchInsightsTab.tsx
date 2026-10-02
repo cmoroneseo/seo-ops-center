@@ -177,7 +177,7 @@ export function SearchInsightsTab({ organizationId, clientId, clientName, onConn
         return historyDates(property.start, property.end).map(date => {
             const day = property.days.find(item => item.date === date);
             const rows = property.rows.filter(row => row.dayId === day?.id);
-            return { date, clicks: day ? summarizePerformance(rows).clicks : null };
+            return { date, clicks: day && !(day.isIncomplete && !rows.length) ? summarizePerformance(rows).clicks : null };
         });
     }, [property]);
     const decisionMap = useMemo(
@@ -283,8 +283,9 @@ export function SearchInsightsTab({ organizationId, clientId, clientName, onConn
         {property && <>
             <div className="rounded-xl border border-border bg-card p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className="h-4 w-4 text-primary" />Selected Search Console property</p><p className="mt-2 break-all font-mono text-sm">{property.property}</p></div><button onClick={onConnections} className="text-sm text-primary underline">Manage connection</button></div>
-                <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground"><span>{property.start} – {property.end} · Pacific dates</span><span>{property.days.length < period ? 'Updating this period' : 'Daily performance'}</span><span>{property.days.at(-1) ? `Data through ${property.days.at(-1)!.date}` : 'Preparing search performance…'}</span></div>
+                <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground"><span>{property.start} – {property.end} · Pacific dates</span><span>{property.days.length < period ? 'Updating this period' : 'Daily performance'}</span><span>{chart.filter(point => point.clicks != null).at(-1) ? `Search data through ${chart.filter(point => point.clicks != null).at(-1)!.date}` : 'Preparing search performance…'}</span></div>
                 <p className="mt-3 text-xs text-muted-foreground">Search performance updates automatically as Google finalizes data.</p>
+                {property.days.some(day => day.isIncomplete) && <p className="mt-2 text-xs text-muted-foreground">Recent search data is preliminary and may change.</p>}
                 {property.missingDates.length > 0 && <p role="status" className="mt-3 text-sm text-amber-600 dark:text-amber-400">{property.missingDates.length} days are missing. Totals cover saved days only; investigations are paused until coverage is complete.</p>}
                 {workflowError && <p role="alert" className="mt-3 text-sm text-amber-600 dark:text-amber-400">Evidence is available, but investigation decisions could not be loaded. Reload saved data to retry.</p>}
             </div>

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    workDescriptionPreview, assigneeLabel, buildDailySeries, finalizedThrough, formatMonthLabel, isMonthKey, monthBounds,
+    workDescriptionPreview, assigneeLabel, buildDailySeries, availableThrough, formatMonthLabel, isMonthKey, monthBounds,
     performanceWindow, previousEqualWindow, projectWorkspaceCanvas, resolveAssigneeNames, settleLatest, shiftMonth,
     type CanvasApprovalDoc, type CanvasPlanItem, type CanvasTask, type WorkspaceCanvasInput,
 } from './project.ts';
@@ -23,7 +23,7 @@ function planItem(patch: Partial<CanvasPlanItem> = {}): CanvasPlanItem {
 }
 function baseInput(patch: Partial<WorkspaceCanvasInput> = {}): WorkspaceCanvasInput {
     return {
-        month, today, finalizedThrough: '2026-10-12',
+        month, today, availableThrough: '2026-10-12',
         client: { engagementModel: 'Retainer', status: 'Active', launchDate: '2026-01-01', seoHours: 30 },
         tasks: { ok: true, value: [] },
         plan: { ok: true, value: { items: [] } },
@@ -46,7 +46,7 @@ test('month boundaries shift across the year and keep February lengths', () => {
     assert.equal(performanceWindow('2026-10', '2026-09-28'), null);
     assert.deepEqual(performanceWindow('2026-09', '2026-09-28'), { start: '2026-09-01', end: '2026-09-28' });
     assert.deepEqual(previousEqualWindow('2026-09-01', '2026-09-28'), { start: '2026-08-04', end: '2026-08-31' });
-    assert.equal(finalizedThrough(new Date('2026-10-01T18:00:00Z')).length, 10);
+    assert.equal(availableThrough(new Date('2026-10-01T18:00:00Z')).length, 10);
 });
 
 test('stale responses are dropped when a newer request is current', () => {
@@ -301,4 +301,21 @@ test('attention prioritizes decisions and blocked work, retaining older overdue 
     assert.equal(model.attention.items.find(item => item.deliverableId === 'old')?.older, true);
     assert.equal(model.attention.items.find(item => item.taskId === 'blocked')?.older, undefined);
     assert.equal(model.attention.items[0].batchId, 'batch');
+});
+
+test('unavailable preliminary dates remain gaps while confirmed zero days stay zero',()=>{
+ const points=buildDailySeries('2026-10-01','2026-10-02',[
+  {id:'settled',date:'2026-10-01',isIncomplete:false},
+  {id:'fresh',date:'2026-10-02',isIncomplete:true},
+ ],[]);
+ assert.equal(points[0].clicks,0); assert.equal(points[1].clicks,null);
+ const fresh=buildDailySeries('2026-10-02','2026-10-02',[{id:'fresh',date:'2026-10-02',isIncomplete:true}],[{dayId:'fresh',clicks:2,impressions:20}]);
+ assert.equal(fresh[0].clicks,2);assert.equal(fresh[0].isIncomplete,true);
+});
+
+test('incomplete today remains visible without a misleading decline against complete prior days',()=>{
+ const input=baseInput({today:'2026-10-15',search:{ok:true,coverage:'ready',property:'example',lastSync:null,window:{start:'2026-10-15',end:'2026-10-15'},current:[{date:'2026-10-15',clicks:1,impressions:10,isIncomplete:true}],previous:[{date:'2026-10-14',clicks:20,impressions:100}]}});
+ const model=projectWorkspaceCanvas(input).performance;
+ assert.equal(model.clicks?.total,1);assert.equal(model.clicks?.delta.kind,'preliminary');assert.equal(model.showPrevious,false);
+ assert.equal(model.hasPreliminaryData,true);
 });

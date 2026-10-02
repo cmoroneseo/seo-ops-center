@@ -4,7 +4,7 @@ import { performanceHealth } from './connection-health.ts';
 import type { PerformanceModel } from '../workspace-canvas/project.ts';
 
 const model: PerformanceModel = {
-    state: 'ready', message: '', lastSync: '2026-10-01T12:00:00Z', finalizedThrough: '2026-10-05',
+    state: 'ready', message: '', lastSync: '2026-10-01T12:00:00Z', availableThrough: '2026-10-05',
     points: [{ date: '2026-10-05', clicks: null, previousDate: null, previousClicks: null }],
     showPrevious: false, observedDays: 0, expectedDays: 1, missingDays: 1,
 };
