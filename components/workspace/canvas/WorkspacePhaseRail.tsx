@@ -12,6 +12,8 @@ export function WorkspacePhaseRail({
     onOpenPhase: (phase: RoadmapPhase) => void;
     onCreatePlan: () => void;
 }) {
+    const populated = model.phases.filter(phase => phase.total > 0);
+    const empty = model.phases.filter(phase => phase.total === 0);
     return (
         <section aria-labelledby="workspace-phases-heading" className="rounded-xl border border-border bg-card p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -26,8 +28,9 @@ export function WorkspacePhaseRail({
                 </div>
             )}
             {model.state === 'ready' && (
-                <div className="flex overflow-x-auto rounded-lg border border-border">
-                    {model.phases.map(phase => (
+                <>
+                {populated.length > 0 && <div className="flex overflow-x-auto rounded-lg border border-border">
+                    {populated.map(phase => (
                         <button
                             key={phase.key}
                             type="button"
@@ -35,10 +38,12 @@ export function WorkspacePhaseRail({
                             className="min-w-36 flex-1 shrink-0 border-r border-border bg-muted/20 px-4 py-3 last:border-r-0 text-left hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                             <span className="block text-sm font-medium">{phase.label}</span>
-                            <span className="mt-1 block text-xs text-muted-foreground">{phase.total === 0 ? 'No items' : `${phase.done} / ${phase.total} done`}</span>
+                            <span className="mt-1 block text-xs text-muted-foreground">{`${phase.done} / ${phase.total} done`}</span>
                         </button>
                     ))}
-                </div>
+                </div>}
+                {empty.length > 0 && <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"><span>Not planned yet:</span>{empty.map(phase => <button key={phase.key} type="button" onClick={() => onOpenPhase(phase.key)} className="rounded px-1 py-1 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{phase.label}</button>)}</div>}
+                </>
             )}
         </section>
     );

@@ -70,6 +70,7 @@ export function ClientWorkspaceCanvas({
     onOpenPhase,
     onViewAllTasks,
     onReview,
+    onConnections,
     onOpenDeliverables,
     onMonthChange,
     selectedMonth,
@@ -83,6 +84,7 @@ export function ClientWorkspaceCanvas({
     onOpenPlan: () => void;
     onViewAllTasks: () => void;
     onReview: (batchId: string) => void;
+    onConnections: () => void;
     onOpenDeliverables: (deliverableId?: string) => void;
     onMonthChange: (month: string) => void;
     selectedMonth?: string | null;
@@ -212,7 +214,7 @@ export function ClientWorkspaceCanvas({
                     {loading && <p role="status" className="text-xs text-muted-foreground">Updating {model.monthLabel}…</p>}
                     <div className="grid items-start gap-4 @min-[960px]:grid-cols-[minmax(0,3fr)_minmax(240px,1fr)]">
                         <div className="min-w-0 space-y-4">
-                            <WorkspacePerformancePanel model={model.performance} reducedMotion={reducedMotion} periodControl={
+                            <WorkspacePerformancePanel onConnections={onConnections} model={model.performance} reducedMotion={reducedMotion} periodControl={
                                 <div className="flex min-w-0 items-center rounded-lg border border-border bg-background/50 focus-within:ring-2 focus-within:ring-ring" aria-label="Overview reporting period">
                                     <button type="button" aria-label="Previous month" disabled={loading} onClick={() => changeMonth(-1)} className="rounded-l-lg p-2 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"><ChevronLeft className="h-4 w-4" /></button>
                                     <label className="relative flex min-w-0 items-center gap-2 px-2 py-2 text-xs font-medium">

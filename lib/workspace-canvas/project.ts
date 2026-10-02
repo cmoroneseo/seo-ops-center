@@ -182,6 +182,7 @@ export type SearchInput =
     | {
         ok: true;
         coverage: 'ready';
+        connectionHealth?: 'connected' | 'reconnect' | 'interrupted';
         property: string;
         lastSync: string | null;
         window: { start: string; end: string };
@@ -210,6 +211,7 @@ export interface MetricFigure {
 
 export interface PerformanceModel {
     state: 'error' | 'no_coverage' | 'ready';
+    connectionHealth?: 'connected' | 'reconnect' | 'interrupted';
     message: string;
     property?: string;
     lastSync: string | null;
@@ -434,6 +436,7 @@ function projectPerformance(input: WorkspaceCanvasInput): PerformanceModel {
         ...base,
         state: 'ready',
         property: input.search.property,
+        connectionHealth: input.search.connectionHealth,
         lastSync: input.search.lastSync,
         message: `Organic search clicks from ${input.search.property}. ${rangeLabel}. ${missingNote} ${comparisonNote}`,
         rangeLabel,

@@ -56,6 +56,14 @@ export async function runGscSyncWorker(options: { clientId?: string; budgetMs?: 
                 savedDates.add(date);
                 imported += 1;
             }
+            if (selected.length > 0) {
+                // Clear recovered connection errors only for the property we just fetched.
+                const { error: connectionError } = await admin.from('client_integrations').update({
+                    sync_status: 'active', error_message: null, last_synced_at: new Date().toISOString(),
+                }).eq('organization_id', job.organizationId).eq('client_id', job.clientId)
+                    .eq('service', 'gsc').eq('credentials->>site_url', job.property);
+                if (connectionError) throw new Error('Unable to update connection health');
+            }
             remaining = dates.some(date => !savedDates.has(date));
             succeeded = true;
             delay = remaining ? 0 : 86400;

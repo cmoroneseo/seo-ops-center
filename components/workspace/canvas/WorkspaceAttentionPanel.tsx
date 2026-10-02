@@ -46,7 +46,7 @@ export function WorkspaceAttentionPanel({ model, onReview, onOpenDeliverables, o
             <div className="flex items-center justify-between gap-3">
                 <h2 id="workspace-attention-heading" className="text-sm font-medium">Needs your attention</h2>
                 <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-800 dark:text-amber-300" aria-label={warnings.length ? 'Attention count is incomplete because a source failed' : `${current.length} current attention items`}>
-                    {current.length}{warnings.length ? '+' : ''} current
+                    {current.length === 0 && !warnings.length ? 'No recent items' : `${current.length}${warnings.length ? '+' : ''} current`}
                 </span>
             </div>
             {warnings.map(warning => <p key={warning} role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-400">{warning}</p>)}

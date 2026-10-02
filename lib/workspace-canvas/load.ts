@@ -64,6 +64,7 @@ async function loadSearch(clientId: string, month: string, through: string, sign
         coverage: 'ready',
         property: current.property,
         lastSync,
+        connectionHealth: current.connectionHealth,
         window,
         current: currentPoints,
         previous,

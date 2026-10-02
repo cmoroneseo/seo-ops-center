@@ -3,6 +3,7 @@
 import { useId, type ReactNode } from 'react';
 import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { ChartPoint, Delta, PerformanceModel } from '@/lib/workspace-canvas/project';
+import { performanceHealth } from '@/lib/gsc/connection-health';
 import { formatDayLabel } from '@/lib/workspace-canvas/project';
 
 function DeltaLine({ delta }: { delta: Delta }) {
@@ -27,9 +28,10 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{
     );
 }
 
-export function WorkspacePerformancePanel({ model, reducedMotion, periodControl }: { model: PerformanceModel; reducedMotion: boolean; periodControl?: ReactNode }) {
+export function WorkspacePerformancePanel({ model, reducedMotion, periodControl, onConnections }: { model: PerformanceModel; reducedMotion: boolean; periodControl?: ReactNode; onConnections: () => void }) {
     const titleId = useId();
     const fillId = `search-fill-${titleId.replace(/[^a-zA-Z0-9]/g, '')}`;
+    const health = performanceHealth(model);
     const clicks = model.clicks;
     const impressions = model.impressions;
     const preparing = model.state === 'ready' && model.points.every(point => point.clicks == null);
@@ -47,8 +49,12 @@ export function WorkspacePerformancePanel({ model, reducedMotion, periodControl 
                 </div>
                 {periodControl ?? (model.rangeLabel && <p className="text-xs text-muted-foreground">{model.rangeLabel}</p>)}
             </div>
+            {health && <div role="status" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs">
+                <p>{health === 'reconnect' ? 'Reconnect Google Search Console to resume updates. Existing data is still available.' : health === 'interrupted' ? 'Search updates are temporarily interrupted. Existing data is still available.' : 'Search data may be out of date. Updates will resume automatically.'}</p>
+                <button type="button" onClick={onConnections} className="shrink-0 rounded underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{health === 'reconnect' ? 'Reconnect GSC' : 'Manage connection'}</button>
+            </div>}
             {model.state !== 'ready' || !clicks || preparing ? (
-                <p role="status" className="mt-5 rounded-lg bg-muted/30 px-4 py-5 text-sm text-muted-foreground">{preparing ? 'Preparing your search performance…' : model.message}</p>
+                <div className="mt-5 rounded-lg bg-muted/30 px-4 py-5 text-sm text-muted-foreground"><p role="status">{preparing ? 'Preparing your search performance…' : model.message}</p>{model.state === 'error' && <button type="button" onClick={onConnections} className="mt-2 rounded text-foreground underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Manage GSC connection</button>}</div>
             ) : (
                 <>
                     {dataThrough && <p className="mt-3 text-xs font-medium text-foreground">Data through {formatDayLabel(dataThrough)}{model.missingDays > 0 ? ` · Updating this period` : ''}</p>}
