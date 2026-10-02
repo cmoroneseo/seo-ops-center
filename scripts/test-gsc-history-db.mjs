@@ -17,6 +17,7 @@ insert into client_integrations values('${client}','${org}','gsc','active','{"si
 await db.exec(readFileSync('migrations/049_gsc_performance_history.sql','utf8'));
 await db.exec(readFileSync('migrations/050_gsc_search_insights_aggregation.sql','utf8'));
 await db.exec(readFileSync('migrations/051_expand_gsc_search_insights_evidence.sql','utf8'));
+await db.exec(readFileSync('migrations/067_gsc_fresh_data.sql','utf8'));
 const fact={grain:'query_page',query:'test',page:'https://example.com/a',clicks:1,impressions:10,position:2};
 const save=async(facts=[fact],property='sc-domain:example.com',fetched='2024-01-10T00:00:00Z',organization=org,date='2024-01-01',queryLimited=false)=>db.query('select public.replace_gsc_history_day($1,$2,$3,$4,$5,$6,$7,$8) as saved',[organization,client,property,date,fetched,false,queryLimited,JSON.stringify(facts)]);
 await db.exec('set role service_role');
@@ -72,5 +73,11 @@ const shortWindow=(await db.query(`select public.get_gsc_search_insights('${org}
 assert.equal((typeof shortWindow==='string'?JSON.parse(shortWindow):shortWindow).queryPageRollups.length,0);
 await save([],'sc-domain:example.com','2024-01-13T00:00:00Z');
 assert.equal((await db.query("select count(*)::int as count from gsc_history_facts f join gsc_history_days d on d.id=f.day_id where d.data_date='2024-01-01'")).rows[0].count,0);
+const today=(await db.query("select (now() at time zone 'America/Los_Angeles')::date::text as date")).rows[0].date;
+await db.query('select public.replace_gsc_history_day($1,$2,$3,$4,now(),false,false,$5,true)',[org,client,'sc-domain:example.com',today,JSON.stringify([{grain:'property',query:'',page:'',clicks:2,impressions:10,position:2}])]);
+assert.equal((await db.query('select is_incomplete from gsc_history_days where data_date=$1',[today])).rows[0].is_incomplete,true);
+await assert.rejects(db.query("select public.replace_gsc_history_day($1,$2,$3,((now() at time zone 'America/Los_Angeles')::date+1),now(),false,false,'[]',true)",[org,client,'sc-domain:example.com']),/future Pacific dates/);
+const freshAggregate=(await db.query('select public.get_gsc_search_insights($1,$2,$3,$4,$4) as result',[org,client,'sc-domain:example.com',today])).rows[0].result;
+assert.equal((typeof freshAggregate==='string'?JSON.parse(freshAggregate):freshAggregate).days[0].isIncomplete,true);
 console.log('PASS: migration, idempotency, rollback, property/org guards, stale-write rejection, tenant RLS, denied writes, anonymous denial, server aggregation, empty replacement');
 await db.close();

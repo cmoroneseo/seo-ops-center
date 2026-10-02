@@ -17,12 +17,12 @@ test('ranking candidates require repeated evidence and suppress brand and utilit
     assert.equal(rankingCandidates(rows().map(row => ({ ...row, position: 2 })), '').length, 0);
     assert.equal(safePageUrl('javascript:alert(1)'), undefined);
 });
-test('seven-day range ends at finalized Pacific date', () => {
-    assert.deepEqual(insightsRange(7, new Date('2026-09-11T00:00:00Z')), { start: '2026-09-01', end: '2026-09-07' });
+test('seven-day range includes the current Pacific date', () => {
+    assert.deepEqual(insightsRange(7, new Date('2026-09-11T00:00:00Z')), { start: '2026-09-04', end: '2026-09-10' });
 });
 test('loader follows pagination and pins exact property', async () => {
     const urls: string[] = [];
-    const result = await loadHistory('client', { start: '2026-09-01', end: '2026-09-07' }, 'query_page', new AbortController().signal, async url => {
+    const result = await loadHistory('client', { start: '2026-09-04', end: '2026-09-10' }, 'query_page', new AbortController().signal, async url => {
         urls.push(String(url));
         return Response.json({ property: 'sc-domain:example.com', days: [], rows: [rows()[urls.length - 1]], nextOffset: urls.length === 1 ? 500 : null });
     });

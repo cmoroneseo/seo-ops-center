@@ -12,7 +12,7 @@ export async function POST(req:Request) {
     if(!auth.ok) return Response.json({error:auth.error},{status:auth.status});
     const range={start:body.start??historyWindow().start,end:body.end??historyWindow().end};
     try { historyDates(range.start,range.end); if(range.end>historyWindow().end) throw new Error(); }
-    catch { return Response.json({error:'Use up to 31 finalized days ending at least three days ago'},{status:400}); }
+    catch { return Response.json({error:'Use up to 31 days ending no later than today (Pacific)'},{status:400}); }
     try { return Response.json(await syncGscHistory(auth.organizationId,auth.clientId,range)); }
     catch { return Response.json({error:'History import failed. Check the GSC connection and retry; previously saved days are retained.'},{status:502}); }
 }
@@ -29,7 +29,7 @@ export async function GET(req:Request) {
     if(connectionError) return Response.json({error:'Unable to read selected property'},{status:500});
     const property=params.get('property')??connection?.site_url;
     if(!property) return Response.json({error:'Select a GSC property first'},{status:400});
-    const {data:days,error}=await admin.from('gsc_history_days').select('id,data_date,imported_at,page_limited,query_limited').eq('organization_id',auth.organizationId).eq('client_id',auth.clientId).eq('property',property).gte('data_date',range.start).lte('data_date',range.end).order('data_date');
+    const {data:days,error}=await admin.from('gsc_history_days').select('id,data_date,imported_at,page_limited,query_limited,is_incomplete').eq('organization_id',auth.organizationId).eq('client_id',auth.clientId).eq('property',property).gte('data_date',range.start).lte('data_date',range.end).order('data_date');
     if(error) return Response.json({error:'Unable to read history'},{status:500});
     if (property === connection?.site_url) scheduleGscSync(auth.organizationId, auth.clientId);
     const grain=params.get('grain')??'query_page';

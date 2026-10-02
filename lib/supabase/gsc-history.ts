@@ -4,7 +4,7 @@ import { fetchGscDay, historyDates, historyWindow, planHistoryDays } from '@/lib
 
 export async function syncGscHistory(organizationId: string,clientId: string,range=historyWindow()) {
     const dates=historyDates(range.start,range.end);
-    if(range.end>historyWindow().end) throw new Error('Choose finalized dates at least three days old');
+    if(range.end>historyWindow().end) throw new Error('Choose dates no later than today (Pacific)');
     const admin=createAdminClient();
     const {data:client,error:clientError}=await admin.from('clients').select('id').eq('id',clientId).eq('organization_id',organizationId).single();
     if(clientError||!client) throw new Error('Unable to verify history client');
@@ -18,7 +18,7 @@ export async function syncGscHistory(organizationId: string,clientId: string,ran
     const signal=AbortSignal.timeout(60000);
     for(const date of selected) {
         const day=await fetchGscDay(property,auth.token,date,{signal});
-        const {data:saved,error:saveError}=await admin.rpc('replace_gsc_history_day',{p_organization_id:organizationId,p_client_id:clientId,p_property:property,p_date:date,p_fetched_at:day.fetchedAt,p_page_limited:day.pageLimited,p_query_limited:day.queryLimited,p_facts:day.facts});
+        const {data:saved,error:saveError}=await admin.rpc('replace_gsc_history_day',{p_organization_id:organizationId,p_client_id:clientId,p_property:property,p_date:date,p_fetched_at:day.fetchedAt,p_page_limited:day.pageLimited,p_query_limited:day.queryLimited,p_facts:day.facts,p_is_incomplete:day.isIncomplete});
         if(saveError) throw new Error('History was not saved; the connection may have changed. Retry the import.');
         if(saved) imported.push(date);
     }

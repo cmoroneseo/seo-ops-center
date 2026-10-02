@@ -139,7 +139,7 @@ export function ClientWorkspaceCanvas({
                 setModel(next);
                 const search = loaded.input.search;
                 if (search.ok && search.coverage === 'ready' && polls < 6 &&
-                    (search.current.some(point => point.clicks == null) || search.previous?.some(point => point.clicks == null))) {
+                    (search.refreshPending || search.current.some(point => point.clicks == null) || search.previous?.some(point => point.clicks == null))) {
                     polls += 1;
                     timer = setTimeout(() => { if (!controller.signal.aborted) void load(); }, 15000);
                 }

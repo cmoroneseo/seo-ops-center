@@ -10,7 +10,7 @@ import { sumBudgetHoursByClient } from '../time-budget-logic';
 import type { ClientProject, Task } from '../types';
 import {
     buildDailySeries,
-    finalizedThrough,
+    availableThrough,
     monthBounds,
     performanceWindow,
     previousEqualWindow,
@@ -42,11 +42,17 @@ function toCanvasTask(task: Task, members: { id: string; name: string }[]): Canv
 }
 
 async function loadSearch(clientId: string, month: string, through: string, signal: AbortSignal): Promise<WorkspaceCanvasInput['search']> {
-    const window = performanceWindow(month, through);
+    let window = performanceWindow(month, through);
     if (!window) return { ok: true, coverage: 'none' };
     const current = await loadHistory(clientId, window, 'property', signal);
     if (current.truncated) throw new Error('Search history was incomplete. Reload before treating the total as final.');
-    const currentPoints = buildDailySeries(window.start, window.end, current.days, current.rows);
+    let currentPoints = buildDailySeries(window.start, window.end, current.days, current.rows);
+    const requestedEnd = window.end;
+    const latest = currentPoints.filter(point => point.clicks != null).at(-1)?.date;
+    if (latest) {
+        window = {...window, end:latest};
+        currentPoints = currentPoints.filter(point => point.date <= latest);
+    }
     const previousWindow = previousEqualWindow(window.start, window.end);
     let previous = null;
     try {
@@ -62,6 +68,7 @@ async function loadSearch(clientId: string, month: string, through: string, sign
     return {
         ok: true,
         coverage: 'ready',
+        refreshPending: !latest || latest < requestedEnd,
         property: current.property,
         lastSync,
         connectionHealth: current.connectionHealth,
@@ -83,7 +90,7 @@ export async function loadWorkspaceCanvas(args: {
     const { client, organizationId, month, signal } = args;
     const now = args.now ?? new Date();
     const today = args.today ?? localDate(now);
-    const through = finalizedThrough(now);
+    const through = availableThrough(now);
     const custom = client.setupScope?.mode === 'custom';
     const campaign = !custom && client.engagementModel === 'Campaign';
 
@@ -155,7 +162,7 @@ export async function loadWorkspaceCanvas(args: {
     const input: WorkspaceCanvasInput = {
         month,
         today,
-        finalizedThrough: through,
+        availableThrough: through,
         client: {
             engagementModel: client.engagementModel,
             status: client.status,
