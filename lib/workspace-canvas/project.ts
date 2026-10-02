@@ -7,6 +7,8 @@
  * days stay null. Hours never fall back to stored `hoursUsed`.
  */
 
+import { Parser } from 'htmlparser2';
+
 import { setupHoursStatus, type ClientSetupScope } from '../client-setup';
 import { dateOffset, historyDates, historyWindow } from '../gsc/history';
 import { taskIsComplete } from '../marketing-plan-execution';
@@ -679,17 +681,24 @@ function projectPhases(input: WorkspaceCanvasInput): PhasesModel {
 /** Plain preview only: never render imported task HTML as markup. */
 export function workDescriptionPreview(value?: string): string | undefined {
     if (!value) return undefined;
-    const entities: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
-    return value
-        .replace(/<!--[^]*?-->/g, '')
-        .replace(/<(script|style)\b[^>]*>[^]*?<\/\1\s*>/gi, '')
-        .replace(/<\/?[a-z][^>]*>/gi, ' ')
-        .replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (match, entity: string) => {
-            if (!entity.startsWith('#')) return entities[entity.toLowerCase()] ?? match;
-            const code = entity[1].toLowerCase() === 'x' ? parseInt(entity.slice(2), 16) : Number(entity.slice(1));
-            return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : match;
-        })
-        .replace(/\s+/g, ' ').trim() || undefined;
+    const chunks: string[] = [];
+    const blocks = new Set(['p', 'div', 'br', 'li', 'ul', 'ol', 'section', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'tr']);
+    let excludedDepth = 0;
+    const parser = new Parser({
+        onopentag(name) {
+            if (name === 'script' || name === 'style') excludedDepth += 1;
+            if (!excludedDepth && blocks.has(name)) chunks.push(' ');
+        },
+        ontext(text) {
+            if (!excludedDepth) chunks.push(text);
+        },
+        onclosetag(name) {
+            if (name === 'script' || name === 'style') excludedDepth = Math.max(0, excludedDepth - 1);
+            if (!excludedDepth && blocks.has(name)) chunks.push(' ');
+        },
+    }, { decodeEntities: true });
+    parser.end(value);
+    return chunks.join('').replace(/\s+/g, ' ').trim() || undefined;
 }
 
 function byDueThenTitle(a: WorkCard, b: WorkCard): number {
