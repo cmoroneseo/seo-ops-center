@@ -32,6 +32,7 @@ export function WorkspacePerformancePanel({ model, reducedMotion, periodControl 
     const fillId = `search-fill-${titleId.replace(/[^a-zA-Z0-9]/g, '')}`;
     const clicks = model.clicks;
     const impressions = model.impressions;
+    const dataThrough = model.points.filter(point => point.clicks != null).at(-1)?.date;
     const summary = model.state === 'ready' && clicks
         ? `${clicks.label} ${clicks.total == null ? 'unavailable' : clicks.total} from ${model.rangeLabel}. ${model.message}`
         : model.message;
@@ -49,6 +50,7 @@ export function WorkspacePerformancePanel({ model, reducedMotion, periodControl 
                 <p role="status" className="mt-5 rounded-lg bg-muted/30 px-4 py-5 text-sm text-muted-foreground">{model.message}</p>
             ) : (
                 <>
+                    {dataThrough && <p className="mt-3 text-xs font-medium text-foreground">Data through {formatDayLabel(dataThrough)}{model.missingDays > 0 ? ` · ${model.missingDays} missing days` : ''}</p>}
                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
                         <div>
                             <p className="text-sm text-muted-foreground">{clicks.label}</p>

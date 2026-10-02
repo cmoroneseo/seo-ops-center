@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    assigneeLabel, buildDailySeries, finalizedThrough, formatMonthLabel, isMonthKey, monthBounds,
+    workDescriptionPreview, assigneeLabel, buildDailySeries, finalizedThrough, formatMonthLabel, isMonthKey, monthBounds,
     performanceWindow, previousEqualWindow, projectWorkspaceCanvas, resolveAssigneeNames, settleLatest, shiftMonth,
     type CanvasApprovalDoc, type CanvasPlanItem, type CanvasTask, type WorkspaceCanvasInput,
 } from './project.ts';
@@ -272,4 +272,14 @@ test('attention counts documents once, keeps errors off zero, and lists real blo
     assert.equal(unavailable.attention.items.length, 0);
     assert.equal(unavailable.attention.approvalsUnavailable, true);
     assert.equal(unavailable.board.tasksUnavailable, true);
+});
+
+
+test('imported work previews remove markup, preserve readable entities, and omit executable content', () => {
+    assert.equal(workDescriptionPreview('<p dir="auto">Draft &amp; review</p><p>Next&nbsp;step &#8212; SEO</p>'), 'Draft & review Next step — SEO');
+    assert.equal(workDescriptionPreview('<script>alert(1)</script><style>body{}</style><p>Safe &lt;b&gt;text&lt;/b&gt;</p>'), 'Safe <b>text</b>');
+    assert.equal(workDescriptionPreview('Spend < 3 hours'), 'Spend < 3 hours');
+    assert.equal(workDescriptionPreview('<p> </p>'), undefined);
+    const model = projectWorkspaceCanvas(baseInput({ tasks: { ok: true, value: [task({ description: '<p>Imported task</p>' })] } }));
+    assert.equal(model.board.unscheduled[0].description, 'Imported task');
 });

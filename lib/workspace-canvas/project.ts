@@ -596,7 +596,7 @@ function cardFromTask(task: CanvasTask, month: string, today: string): WorkCard 
         source: 'task',
         taskId: task.id,
         title: task.title,
-        description: task.description,
+        description: workDescriptionPreview(task.description),
         statusLabel: STATUS_LABELS[task.status],
         badges,
         dueDate: due,
@@ -619,7 +619,7 @@ function cardFromPlan(item: CanvasPlanItem, month: string, today: string): WorkC
         source: 'plan',
         planItemId: item.id,
         title: item.title,
-        description: item.description,
+        description: workDescriptionPreview(item.description),
         statusLabel: item.status === 'done' ? 'Done' : 'To do',
         badges,
         dueDate: due,
@@ -674,6 +674,22 @@ function projectPhases(input: WorkspaceCanvasInput): PhasesModel {
             };
         }),
     };
+}
+
+/** Plain preview only: never render imported task HTML as markup. */
+export function workDescriptionPreview(value?: string): string | undefined {
+    if (!value) return undefined;
+    const entities: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+    return value
+        .replace(/<!--[^]*?-->/g, '')
+        .replace(/<(script|style)\b[^>]*>[^]*?<\/\1\s*>/gi, '')
+        .replace(/<\/?[a-z][^>]*>/gi, ' ')
+        .replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (match, entity: string) => {
+            if (!entity.startsWith('#')) return entities[entity.toLowerCase()] ?? match;
+            const code = entity[1].toLowerCase() === 'x' ? parseInt(entity.slice(2), 16) : Number(entity.slice(1));
+            return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : match;
+        })
+        .replace(/\s+/g, ' ').trim() || undefined;
 }
 
 function byDueThenTitle(a: WorkCard, b: WorkCard): number {

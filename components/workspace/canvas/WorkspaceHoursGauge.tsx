@@ -12,6 +12,8 @@ export function WorkspaceHoursGauge({ model }: { model: HoursModel }) {
     const gauge = model.gauge;
     const number = gauge.mode === 'arc' && gauge.logged != null ? formatHours(gauge.logged) : model.monthLogged != null && gauge.mode !== 'unavailable' ? formatHours(model.monthLogged) : null;
 
+    const readoutClass = `${number ?? '—'} / ${gauge.budget == null ? '' : formatHours(gauge.budget)}`.length > 7 ? 'text-2xl' : 'text-3xl';
+
     return (
         <section aria-labelledby="workspace-hours-heading" className="rounded-xl border border-border bg-card p-4">
             <h2 id="workspace-hours-heading" className="text-lg font-semibold tracking-tight">{model.kind === 'monthly' ? 'Monthly hours' : model.label}</h2>
@@ -22,7 +24,7 @@ export function WorkspaceHoursGauge({ model }: { model: HoursModel }) {
                         {gauge.mode === 'arc' && gauge.arc != null && gauge.arc > 0 && <path d="M 17.4 95.2 A 56 56 0 1 1 122.6 95.2" pathLength="100" fill="none" stroke={gauge.over ? 'var(--destructive)' : 'var(--chart-1)'} strokeWidth="10" strokeDasharray={`${gauge.arc * 100} 100`} strokeLinecap="round" />}
                     </svg>
                     <div className="absolute inset-x-0 top-[52%] flex flex-col items-center gap-0.5">
-                        <p className="text-3xl leading-none font-semibold tabular-nums">{number ?? '—'}{gauge.budget != null && <span className="text-lg font-medium text-muted-foreground"> / {formatHours(gauge.budget)}</span>}</p>
+                        <p className={`${readoutClass} leading-none font-semibold tabular-nums`}>{number ?? '—'}{gauge.budget != null && <span className="text-base font-medium text-muted-foreground"> / {formatHours(gauge.budget)}</span>}</p>
                         <p className="text-xs text-muted-foreground">hours</p>
                     </div>
                 </div>
