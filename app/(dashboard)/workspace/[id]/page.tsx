@@ -446,7 +446,7 @@ export default function ClientDetailPage() {
                 onViewAllTasks={() => setActiveTab('tasks', { phase: null })}
                 onReview={(batchId) => setActiveTab('approvals', { approvalBatch: batchId })}
 
-                onOpenDeliverables={() => router.push('/deliverables')}
+                onOpenDeliverables={(id) => router.push(id ? `/deliverables?deliverable=${encodeURIComponent(id)}` : '/deliverables')}
                 onMonthChange={setHoursMonth}
                 selectedMonth={hoursMonth}
             />

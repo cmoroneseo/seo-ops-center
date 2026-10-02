@@ -249,6 +249,9 @@ export interface HoursModel {
 export interface AttentionItem {
     id: string;
     kind: 'approval' | 'deliverable' | 'blocked';
+    older?: boolean;
+    date?: string;
+    deliverableId?: string;
     title: string;
     detail: string;
     action: 'review' | 'deliverables' | 'task';
@@ -858,6 +861,7 @@ function projectAttention(input: WorkspaceCanvasInput): AttentionModel {
             items.push({
                 id: `approval:${doc.id}`,
                 kind: 'approval',
+                date: day(doc.sentAt),
                 title: doc.title,
                 detail: doc.status === 'changes_requested'
                     ? `${doc.batchName} · Changes requested`
@@ -874,6 +878,9 @@ function projectAttention(input: WorkspaceCanvasInput): AttentionModel {
             items.push({
                 id: `deliverable:${item.id}`,
                 kind: 'deliverable',
+                older: due < dateOffset(input.today, -30),
+                date: due,
+                deliverableId: item.id,
                 title: item.title,
                 detail: `Overdue deliverable · due ${formatDayLabel(due)}`,
                 action: 'deliverables',
@@ -886,6 +893,7 @@ function projectAttention(input: WorkspaceCanvasInput): AttentionModel {
             items.push({
                 id: `blocked:${task.id}`,
                 kind: 'blocked',
+                date: day(task.dueDate),
                 title: task.title,
                 detail: 'Blocked task',
                 action: 'task',
@@ -894,7 +902,11 @@ function projectAttention(input: WorkspaceCanvasInput): AttentionModel {
         }
     }
     return {
-        items,
+        items: items.sort((a, b) => {
+            const rank = { approval: 0, blocked: 1, deliverable: 2 };
+            return Number(!!a.older) - Number(!!b.older) || rank[a.kind] - rank[b.kind]
+                || (b.date ?? '').localeCompare(a.date ?? '') || a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
+        }),
         approvalsUnavailable: !input.approvals.ok,
         deliverablesUnavailable: !input.deliverables.ok,
         tasksUnavailable: !input.tasks.ok,

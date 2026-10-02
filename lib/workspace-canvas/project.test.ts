@@ -283,3 +283,22 @@ test('imported work previews remove markup, preserve readable entities, and omit
     const model = projectWorkspaceCanvas(baseInput({ tasks: { ok: true, value: [task({ description: '<p>Imported task</p>' })] } }));
     assert.equal(model.board.unscheduled[0].description, 'Imported task');
 });
+
+test('attention prioritizes decisions and blocked work, retaining older overdue records separately', () => {
+    const model = projectWorkspaceCanvas(baseInput({ today: '2026-10-15',
+        approvals: { ok: true, value: [{ id: 'approval', batchId: 'batch', batchName: 'Content', batchStatus: 'in_review', sentAt: '2026-05-01', title: 'Decision needed', status: 'pending' }] },
+        tasks: { ok: true, value: [task({ id: 'blocked', title: 'Blocked work', status: 'blocked', dueDate: '2026-05-01' })] },
+        deliverables: { ok: true, value: [
+            { id: 'old', title: 'Older item', status: 'Pending', dueDate: '2026-05-31' },
+            { id: 'recent', title: 'Recent overdue', status: 'Pending', dueDate: '2026-10-14' },
+            { id: 'boundary', title: 'Thirty days ago', status: 'Pending', dueDate: '2026-09-15' },
+            { id: 'older-boundary', title: 'Thirty-one days ago', status: 'Pending', dueDate: '2026-09-14' },
+        ] },
+    }));
+    assert.deepEqual(model.attention.items.map(item => item.id), ['approval:approval', 'blocked:blocked', 'deliverable:recent', 'deliverable:boundary', 'deliverable:older-boundary', 'deliverable:old']);
+    assert.equal(model.attention.items.filter(item => !item.older).length, 4);
+    assert.equal(model.attention.items.filter(item => item.older).length, 2);
+    assert.equal(model.attention.items.find(item => item.deliverableId === 'old')?.older, true);
+    assert.equal(model.attention.items.find(item => item.taskId === 'blocked')?.older, undefined);
+    assert.equal(model.attention.items[0].batchId, 'batch');
+});

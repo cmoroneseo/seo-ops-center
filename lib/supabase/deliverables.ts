@@ -96,6 +96,16 @@ export async function getDeliverables(
     }
 }
 
+/** Direct record lookup stays tenant-scoped, including dates outside the selected month. */
+export async function getDeliverable(organizationId: string, id: string): Promise<Deliverable | null> {
+    const supabase = createClient();
+    if (!supabase) throw new Error('Deliverables unavailable');
+    const { data, error } = await supabase.from('deliverables').select('*')
+        .eq('organization_id', organizationId).eq('id', id).maybeSingle();
+    if (error) throw new Error('Deliverable could not be loaded');
+    return data ? rowToDeliverable(data) : null;
+}
+
 export async function createDeliverable(
     d: Partial<Deliverable> & { organizationId: string; clientId: string },
 ): Promise<{ success: boolean; data?: Deliverable; error?: string }> {

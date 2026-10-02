@@ -83,7 +83,7 @@ export function ClientWorkspaceCanvas({
     onOpenPlan: () => void;
     onViewAllTasks: () => void;
     onReview: (batchId: string) => void;
-    onOpenDeliverables: () => void;
+    onOpenDeliverables: (deliverableId?: string) => void;
     onMonthChange: (month: string) => void;
     selectedMonth?: string | null;
 }) {
