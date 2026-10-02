@@ -26,6 +26,11 @@ export function WorkspaceMonthTimeline({ model, cards, monthLabel, loading, unav
     const [dropDate, setDropDate] = useState<string | null>(null);
     const days = model.days;
     const weeks = timelineWeeks(days);
+    // Each week gets equal width, including partial weeks at month boundaries.
+    const columns = days.map((_, index) => {
+        const week = weeks.find(item => item.start <= index && item.end >= index)!;
+        return `minmax(0, ${1 / (week.end - week.start + 1)}fr)`;
+    }).join(' ');
     const rows = [
         ...model.bars.map(bar => ({ id: bar.id, title: bar.title, startIndex: bar.startIndex, endIndex: bar.endIndex, point: bar.point, label: bar.label, cardId: bar.cardId, deliverable: false })),
         ...model.deadlines.filter(item => item.kind === 'deliverable').map(item => ({ id: item.id, title: item.title, startIndex: days.indexOf(item.dueDate), endIndex: days.indexOf(item.dueDate), point: true, label: `Deliverable due ${formatDayLabel(item.dueDate)}`, cardId: undefined, deliverable: true })),
@@ -54,7 +59,7 @@ export function WorkspaceMonthTimeline({ model, cards, monthLabel, loading, unav
                 <div className="min-w-[760px] px-5 pb-5">
                     <div className="grid grid-cols-[12rem_minmax(0,1fr)] border-b border-border pb-3">
                         <span className="self-end text-xs font-medium text-muted-foreground">Scheduled work</span>
-                        <div className="grid" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>
+                        <div className="grid" style={{ gridTemplateColumns: columns }}>
                             {weeks.map((week, index) => <div key={week.start} style={{ gridColumn: `${week.start + 1} / ${week.end + 2}` }} className="border-l border-border px-3">
                                 <p className="text-sm font-semibold">Week {index + 1}</p>
                                 <p className="mt-0.5 text-xs text-muted-foreground">{formatDayLabel(days[week.start]).replace(/, \d{4}$/, '')}–{Number(days[week.end].slice(8))}</p>
@@ -63,14 +68,14 @@ export function WorkspaceMonthTimeline({ model, cards, monthLabel, loading, unav
                         </div>
                     </div>
                     <div className="relative min-h-40">
-                        <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 left-48 grid" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>{weeks.map(week => <span key={week.start} style={{ gridColumn: `${week.start + 1} / ${week.end + 2}` }} className="border-l border-border/50" />)}</div>
+                        <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 left-48 grid" style={{ gridTemplateColumns: columns }}>{weeks.map(week => <span key={week.start} style={{ gridColumn: `${week.start + 1} / ${week.end + 2}` }} className="border-l border-border/50" />)}</div>
                         {rows.length === 0 && <p className="py-8 text-sm text-muted-foreground">No scheduled work this month. Add a task to start planning.</p>}
                         {rows.map(row => {
                             const card = cards.find(item => item.id === row.cardId);
                             const open = () => row.deliverable ? onOpenDeliverables() : row.cardId && onSelect(row.cardId);
                             return <div key={row.id} className="grid min-h-16 grid-cols-[12rem_minmax(0,1fr)] border-b border-border/40 last:border-b-0">
                                 <button type="button" onClick={open} disabled={disabled} title={row.title} className="min-w-0 rounded py-3 pr-4 text-left focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"><span className="block truncate text-sm font-medium">{row.title}</span><span className="block truncate text-xs text-muted-foreground">{row.deliverable ? 'Deliverable due' : card?.statusLabel}</span></button>
-                                <div className="relative grid items-center" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>
+                                <div className="relative grid items-center" style={{ gridTemplateColumns: columns }}>
                                     {days.map((date, index) => <div key={date} style={{ gridColumn: index + 1, gridRow: 1 }} onDragOver={event => { if (draggedId && !disabled) { event.preventDefault(); setDropDate(date); } }} onDragLeave={() => setDropDate(null)} onDrop={event => { event.preventDefault(); if (draggedId && !disabled) onMoveDueDate(draggedId, date); setDraggedId(null); setDropDate(null); }} className={cn('h-full min-h-16', weeks.some(week => week.start === index) && 'border-l border-border', dropDate === date && 'bg-primary/10 ring-2 ring-inset ring-ring')} />)}
                                     <button type="button" onClick={open} disabled={disabled} draggable={!!card?.taskId && !disabled} onDragStart={event => { setDraggedId(card!.id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', card!.id); }} onDragEnd={() => { setDraggedId(null); setDropDate(null); }} title={`${row.title} · ${row.label}`} aria-label={`${row.title}, ${row.label}`} style={{ gridColumn: `${row.startIndex + 1} / ${row.endIndex + 2}`, gridRow: 1 }} className={cn('z-10 min-w-0 rounded-md border px-2 py-2 text-left text-xs font-medium focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50', row.deliverable ? 'border-amber-500/30 bg-amber-500/15' : 'border-primary/30 bg-primary/20 hover:bg-primary/30', row.point && 'h-4 w-4 justify-self-center rotate-45 rounded-sm p-0')}>
                                         <span className={row.point ? 'sr-only' : 'block truncate'}>{row.title}</span>
