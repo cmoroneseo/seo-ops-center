@@ -32,6 +32,7 @@ export function WorkspacePerformancePanel({ model, reducedMotion, periodControl 
     const fillId = `search-fill-${titleId.replace(/[^a-zA-Z0-9]/g, '')}`;
     const clicks = model.clicks;
     const impressions = model.impressions;
+    const preparing = model.state === 'ready' && model.points.every(point => point.clicks == null);
     const dataThrough = model.points.filter(point => point.clicks != null).at(-1)?.date;
     const summary = model.state === 'ready' && clicks
         ? `${clicks.label} ${clicks.total == null ? 'unavailable' : clicks.total} from ${model.rangeLabel}. ${model.message}`
@@ -46,11 +47,11 @@ export function WorkspacePerformancePanel({ model, reducedMotion, periodControl 
                 </div>
                 {periodControl ?? (model.rangeLabel && <p className="text-xs text-muted-foreground">{model.rangeLabel}</p>)}
             </div>
-            {model.state !== 'ready' || !clicks ? (
-                <p role="status" className="mt-5 rounded-lg bg-muted/30 px-4 py-5 text-sm text-muted-foreground">{model.message}</p>
+            {model.state !== 'ready' || !clicks || preparing ? (
+                <p role="status" className="mt-5 rounded-lg bg-muted/30 px-4 py-5 text-sm text-muted-foreground">{preparing ? 'Preparing your search performance…' : model.message}</p>
             ) : (
                 <>
-                    {dataThrough && <p className="mt-3 text-xs font-medium text-foreground">Data through {formatDayLabel(dataThrough)}{model.missingDays > 0 ? ` · ${model.missingDays} missing days` : ''}</p>}
+                    {dataThrough && <p className="mt-3 text-xs font-medium text-foreground">Data through {formatDayLabel(dataThrough)}{model.missingDays > 0 ? ` · Updating this period` : ''}</p>}
                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
                         <div>
                             <p className="text-sm text-muted-foreground">{clicks.label}</p>
@@ -65,7 +66,7 @@ export function WorkspacePerformancePanel({ model, reducedMotion, periodControl 
                             </div>
                         )}
                     </div>
-                    <p className="mt-3 text-xs text-muted-foreground">{model.property}{model.lastSync ? ` · Latest import ${new Date(model.lastSync).toLocaleString()}` : ' · No import timestamp'}</p>
+                    <p className="mt-3 text-xs text-muted-foreground">{model.property}</p>
                     <div className="mt-2 flex flex-wrap justify-end gap-4 text-xs text-muted-foreground">
                         <span className="inline-flex items-center gap-2"><span className="h-0.5 w-6 bg-chart-1" aria-hidden /> Organic search clicks</span>
                         {model.showPrevious && <span className="inline-flex items-center gap-2"><span className="h-0 w-6 border-t-2 border-dashed border-muted-foreground" aria-hidden /> Previous period</span>}

@@ -127,12 +127,20 @@ export function ClientWorkspaceCanvas({
         if (!month || !organizationId) return;
         const id = ++requestId.current;
         const controller = new AbortController();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let polls = 0;
         setLoading(true);
-        loadWorkspaceCanvas({ client, organizationId, month, signal: controller.signal })
+        const load = () => loadWorkspaceCanvas({ client, organizationId, month, signal: controller.signal })
             .then(loaded => {
                 if (!settleLatest(id, requestId.current, loaded) || !loaded) return;
                 const next = projectWorkspaceCanvas(loaded.input);
                 setModel(next);
+                const search = loaded.input.search;
+                if (search.ok && search.coverage === 'ready' && polls < 6 &&
+                    (search.current.some(point => point.clicks == null) || search.previous?.some(point => point.clicks == null))) {
+                    polls += 1;
+                    timer = setTimeout(() => { if (!controller.signal.aborted) void load(); }, 15000);
+                }
                 setSelectedId(current => {
                     if (!current) return null;
                     const match = next.cards.find(card => card.id === current || card.taskId === current || card.planItemId === current);
@@ -140,12 +148,14 @@ export function ClientWorkspaceCanvas({
                 });
             })
             .catch(() => {
-                if (settleLatest(id, requestId.current, true)) setModel(null);
+                if (polls === 0 && settleLatest(id, requestId.current, true)) setModel(null);
             })
             .finally(() => {
                 if (settleLatest(id, requestId.current, true)) setLoading(false);
             });
+        void load();
         return () => {
+            clearTimeout(timer);
             controller.abort();
             requestId.current += 1;
         };

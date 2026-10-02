@@ -1,0 +1,44 @@
+// Isolated Postgres checks: no connection to production.
+import { PGlite } from '@electric-sql/pglite';
+import { readFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
+const db=new PGlite();
+const org='11111111-1111-1111-1111-111111111111',other='22222222-2222-2222-2222-222222222222',client='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;
+ create table organizations(id uuid primary key);create table clients(id uuid primary key,organization_id uuid);
+ create table client_integrations(client_id uuid,organization_id uuid,service text,sync_status text,credentials jsonb);
+ grant all on organizations,clients,client_integrations to service_role;
+ insert into organizations values('${org}'),('${other}');insert into clients values('${client}','${org}');
+ insert into client_integrations values('${client}','${org}','gsc','active','{"site_url":"sc-domain:example.com"}');`);
+await db.exec(readFileSync('migrations/066_gsc_background_sync.sql','utf8'));
+await db.exec('set role service_role');
+const enqueue=organization=>db.query('select enqueue_gsc_sync($1,$2) as queued',[organization,client]);
+assert.equal((await enqueue(other)).rows[0].queued,false);
+assert.equal((await enqueue(org)).rows[0].queued,true);
+await enqueue(org);
+assert.equal((await db.query('select count(*)::int as n from gsc_sync_jobs')).rows[0].n,1);
+const first=(await db.query('select * from claim_gsc_sync()')).rows[0];
+assert.equal(first.client_id,client);
+assert.equal((await db.query('select * from claim_gsc_sync()')).rows.length,0);
+await enqueue(org);
+assert.equal((await db.query('select * from claim_gsc_sync()')).rows.length,0);
+await db.query("update gsc_sync_jobs set lease_until=now()-interval '1 second'");
+const reclaimed=(await db.query('select * from claim_gsc_sync()')).rows[0];
+assert.notEqual(reclaimed.lease_token,first.lease_token);
+assert.equal((await db.query("update gsc_sync_jobs set status='idle' where id=$1 and lease_token=$2 returning id",[first.id,first.lease_token])).rows.length,0);
+await db.query("update gsc_sync_jobs set status='pending',available_at=now()+interval '1 hour',lease_until=null,lease_token=null");
+await enqueue(org);
+assert.equal((await db.query('select * from claim_gsc_sync()')).rows.length,0);
+await db.query("update gsc_sync_jobs set available_at=now()");
+await db.query("update client_integrations set credentials='{"+'"site_url":"sc-domain:other.com"'+"}'");
+assert.equal((await db.query('select * from claim_gsc_sync()')).rows.length,0);
+await enqueue(org);
+assert.equal((await db.query('select * from claim_gsc_sync()')).rows[0].property,'sc-domain:other.com');
+for(const role of ['authenticated','anon']){
+ await db.exec(`reset role;set role ${role}`);
+ await assert.rejects(db.query('select * from gsc_sync_jobs'),/permission denied/);
+ await assert.rejects(enqueue(org),/permission denied/);
+ await assert.rejects(db.query('select * from claim_gsc_sync()'),/permission denied/);
+}
+await db.close();
+console.log('PASS: enqueue deduplication, org/property guards, exclusive leases, crash recovery, stale-worker fencing, retry cooldown, denied user access');

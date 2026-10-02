@@ -1,3 +1,4 @@
+import { scheduleGscSync } from '@/lib/gsc/schedule';
 import { requireClientIntegrationManager, requireClientOrgMember } from '@/lib/security/tenant-authz';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { syncGscHistory } from '@/lib/supabase/gsc-history';
@@ -30,6 +31,7 @@ export async function GET(req:Request) {
     if(!property) return Response.json({error:'Select a GSC property first'},{status:400});
     const {data:days,error}=await admin.from('gsc_history_days').select('id,data_date,imported_at,page_limited,query_limited').eq('organization_id',auth.organizationId).eq('client_id',auth.clientId).eq('property',property).gte('data_date',range.start).lte('data_date',range.end).order('data_date');
     if(error) return Response.json({error:'Unable to read history'},{status:500});
+    if (property === connection?.site_url) scheduleGscSync(auth.organizationId, auth.clientId);
     const grain=params.get('grain')??'query_page';
     const offset=Number(params.get('offset')??0);
     if(!['property','page','query_page'].includes(grain)||!Number.isSafeInteger(offset)||offset<0) return Response.json({error:'Invalid grain or offset'},{status:400});

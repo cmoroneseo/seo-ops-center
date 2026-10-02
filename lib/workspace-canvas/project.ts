@@ -418,8 +418,8 @@ function projectPerformance(input: WorkspaceCanvasInput): PerformanceModel {
         previousClicks: showPrevious && previous ? previous[index].clicks : null,
     }));
     const missingNote = clickCoverage.missing > 0
-        ? `${clickCoverage.missing} missing ${clickCoverage.missing === 1 ? 'day is a gap' : 'days are gaps'}, not zero.`
-        : 'Every day in this window has a saved import.';
+        ? 'This period is still updating. Gaps represent unavailable data, not zero clicks.'
+        : '';
     const comparisonNote = !previous
         ? 'The previous period could not be loaded, so no comparison is shown.'
         : !lengthsMatch
@@ -432,7 +432,7 @@ function projectPerformance(input: WorkspaceCanvasInput): PerformanceModel {
         state: 'ready',
         property: input.search.property,
         lastSync: input.search.lastSync,
-        message: `Organic search clicks from ${input.search.property}. ${rangeLabel}. ${clickCoverage.observed} of ${clickCoverage.expected} days saved. ${missingNote} ${comparisonNote}`,
+        message: `Organic search clicks from ${input.search.property}. ${rangeLabel}. ${missingNote} ${comparisonNote}`,
         rangeLabel,
         previousRangeLabel,
         clicks: {

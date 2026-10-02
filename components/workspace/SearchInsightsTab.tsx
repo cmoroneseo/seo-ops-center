@@ -134,6 +134,30 @@ export function SearchInsightsTab({ organizationId, clientId, clientName, onConn
         return () => controller.abort();
     }, [clientId, period, revision]);
 
+    useEffect(() => {
+        const controller = new AbortController();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let remaining = 6;
+        const refresh = async () => {
+            if (controller.signal.aborted || document.visibilityState === 'hidden') return;
+            try {
+                const range = insightsRange(period);
+                const [nextProperty, nextQueries] = await Promise.all([
+                    loadHistory(clientId, range, 'property', controller.signal),
+                    loadSearchInsights(clientId, range, controller.signal),
+                ]);
+                if (controller.signal.aborted) return;
+                setProperty(nextProperty);
+                setQueries(nextQueries);
+                if (nextProperty.missingDates.length && --remaining > 0) timer = setTimeout(() => void refresh(), 15000);
+            } catch {
+                // Existing performance remains visible during a temporary background failure.
+            }
+        };
+        timer = setTimeout(() => void refresh(), 15000);
+        return () => { controller.abort(); clearTimeout(timer); };
+    }, [clientId, period, revision]);
+
     const totals = useMemo(() => summarizePerformance(property?.rows ?? []), [property]);
     const snapshotsMatch = !!property && !!queries && property.property === queries.property && JSON.stringify(property.days) === JSON.stringify(queries.days);
     const queryComplete = snapshotsMatch && evidenceIsComplete(queries!.days, queries!.missingDates, 'query');
@@ -156,7 +180,6 @@ export function SearchInsightsTab({ organizationId, clientId, clientName, onConn
             return { date, clicks: day ? summarizePerformance(rows).clicks : null };
         });
     }, [property]);
-    const lastImport = property?.days.map(day => day.importedAt).sort().at(-1);
     const decisionMap = useMemo(
         () => mapInvestigationsByIdentity(investigations, property?.property),
         [investigations, property?.property],
@@ -260,8 +283,8 @@ export function SearchInsightsTab({ organizationId, clientId, clientName, onConn
         {property && <>
             <div className="rounded-xl border border-border bg-card p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className="h-4 w-4 text-primary" />Selected Search Console property</p><p className="mt-2 break-all font-mono text-sm">{property.property}</p></div><button onClick={onConnections} className="text-sm text-primary underline">Manage connection</button></div>
-                <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground"><span>{property.start} – {property.end} · Pacific dates</span><span>{property.days.length}/{period} days saved</span><span>{lastImport ? `Latest import ${new Date(lastImport).toLocaleString()}` : 'Waiting for the first import'}</span></div>
-                <p className="mt-3 text-xs text-muted-foreground">Daily imports use finalized web-search data ending at least three days ago. Reload reads saved data.</p>
+                <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground"><span>{property.start} – {property.end} · Pacific dates</span><span>{property.days.length < period ? 'Updating this period' : 'Daily performance'}</span><span>{property.days.at(-1) ? `Data through ${property.days.at(-1)!.date}` : 'Preparing search performance…'}</span></div>
+                <p className="mt-3 text-xs text-muted-foreground">Search performance updates automatically as Google finalizes data.</p>
                 {property.missingDates.length > 0 && <p role="status" className="mt-3 text-sm text-amber-600 dark:text-amber-400">{property.missingDates.length} days are missing. Totals cover saved days only; investigations are paused until coverage is complete.</p>}
                 {workflowError && <p role="alert" className="mt-3 text-sm text-amber-600 dark:text-amber-400">Evidence is available, but investigation decisions could not be loaded. Reload saved data to retry.</p>}
             </div>
@@ -272,13 +295,13 @@ export function SearchInsightsTab({ organizationId, clientId, clientName, onConn
                     ['CTR', percent(totals.ctr), 'Clicks divided by impressions'],
                     ['Average position', totals.position?.toFixed(1) ?? '—', 'Weighted by impressions'],
                 ].map(([label, value, hint]) => <div key={label} className="rounded-xl border border-border bg-card p-5"><p className="text-sm text-muted-foreground">{label}</p><p className="mt-2 text-3xl font-semibold tabular-nums">{value}</p><p className="mt-2 text-xs text-muted-foreground">{hint}</p></div>)}</div>
-                <div className="rounded-xl border border-border bg-card p-5"><h3 className="font-medium">Daily clicks</h3><p className="mt-1 text-xs text-muted-foreground">Gaps indicate missing imports, not zero clicks.</p><div className="mt-4 h-56" role="img" aria-label={`Daily clicks from ${property.start} to ${property.end}. ${totals.clicks} total clicks across ${property.days.length} saved days. Daily values are available below.`}><ResponsiveContainer width="100%" height="100%"><LineChart data={chart}><CartesianGrid strokeDasharray="3 3" opacity={0.15} /><XAxis dataKey="date" tickFormatter={value => value.slice(5)} stroke="var(--muted-foreground)" fontSize={11} minTickGap={35} /><YAxis allowDecimals={false} width={35} stroke="var(--muted-foreground)" fontSize={11} /><Tooltip /><Line type="linear" dataKey="clicks" stroke="var(--primary)" strokeWidth={2} dot={false} connectNulls={false} /></LineChart></ResponsiveContainer></div><details className="mt-3 text-sm"><summary className="cursor-pointer text-muted-foreground">View daily values</summary><div className="mt-2 max-h-48 overflow-auto"><table className="w-full text-left"><thead><tr><th scope="col">Date</th><th scope="col">Clicks</th></tr></thead><tbody>{chart.map(row => <tr key={row.date}><td>{row.date}</td><td>{row.clicks ?? 'Missing'}</td></tr>)}</tbody></table></div></details></div>
-            </> : <div className="rounded-xl border border-border bg-card p-8"><h3 className="font-medium">History is getting started</h3><p className="mt-2 text-sm text-muted-foreground">The daily import will collect history for this property. Performance and investigation evidence will appear as data arrives.</p></div>}
+                <div className="rounded-xl border border-border bg-card p-5"><h3 className="font-medium">Daily clicks</h3><p className="mt-1 text-xs text-muted-foreground">Gaps indicate unavailable data, not zero clicks.</p><div className="mt-4 h-56" role="img" aria-label={`Daily clicks from ${property.start} to ${property.end}. ${totals.clicks} total clicks across ${property.days.length} saved days. Daily values are available below.`}><ResponsiveContainer width="100%" height="100%"><LineChart data={chart}><CartesianGrid strokeDasharray="3 3" opacity={0.15} /><XAxis dataKey="date" tickFormatter={value => value.slice(5)} stroke="var(--muted-foreground)" fontSize={11} minTickGap={35} /><YAxis allowDecimals={false} width={35} stroke="var(--muted-foreground)" fontSize={11} /><Tooltip /><Line type="linear" dataKey="clicks" stroke="var(--primary)" strokeWidth={2} dot={false} connectNulls={false} /></LineChart></ResponsiveContainer></div><details className="mt-3 text-sm"><summary className="cursor-pointer text-muted-foreground">View daily values</summary><div className="mt-2 max-h-48 overflow-auto"><table className="w-full text-left"><thead><tr><th scope="col">Date</th><th scope="col">Clicks</th></tr></thead><tbody>{chart.map(row => <tr key={row.date}><td>{row.date}</td><td>{row.clicks ?? 'Missing'}</td></tr>)}</tbody></table></div></details></div>
+            </> : <div className="rounded-xl border border-border bg-card p-8"><h3 className="font-medium">Preparing your search performance</h3><p className="mt-2 text-sm text-muted-foreground">Your search performance will appear automatically.</p></div>}
             {(queryComplete || pageComplete) && <label className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"><Search className="h-4 w-4 text-muted-foreground" /><span className="sr-only">Filter evidence by query or page</span><input value={filter} onChange={event => setFilter(event.target.value)} placeholder="Filter evidence by query or page" className="w-full bg-transparent text-sm outline-none" /></label>}
             <div className="rounded-xl border border-border bg-card p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4"><div><h3 className="text-lg font-semibold">Near-page-one query investigations</h3><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Queries with at least 100 impressions across 3 saved days and average positions 4–20. Ordered by observed impressions.</p></div><span className="rounded-full bg-primary/10 px-3 py-1 text-xs text-primary">{queryComplete ? `${candidates.length} ${candidates.length === 1 ? 'candidate' : 'candidates'}` : 'Awaiting evidence'}</span></div>
                 <p className="mt-3 text-xs text-muted-foreground">Exact client-name brand matches and common utility pages are excluded. Brand variants may remain. These are research candidates; content gaps and ranking gains have not been established.</p>
-                {queryError ? <p role="alert" className="mt-5 text-sm text-destructive">Query evidence unavailable: {queryError}</p> : loading ? <p role="status" className="mt-5 text-sm text-muted-foreground">Loading query evidence…</p> : !queryComplete ? <p className="mt-5 text-sm text-muted-foreground">Query investigations are paused because history is incomplete, capped, or changed during loading. Reload after the next import.</p> : candidates.length === 0 ? <p className="mt-5 text-sm text-muted-foreground">No queries meet these evidence thresholds yet. This does not mean the site has no SEO opportunities.</p> : <>
+                {queryError ? <p role="alert" className="mt-5 text-sm text-destructive">Query evidence unavailable: {queryError}</p> : loading ? <p role="status" className="mt-5 text-sm text-muted-foreground">Loading query evidence…</p> : !queryComplete ? <p className="mt-5 text-sm text-muted-foreground">Query investigations are paused because history is incomplete, capped, or changed during loading. Evidence will update as data becomes available.</p> : candidates.length === 0 ? <p className="mt-5 text-sm text-muted-foreground">No queries meet these evidence thresholds yet. This does not mean the site has no SEO opportunities.</p> : <>
                     <div className="mt-4 space-y-3">{filtered.slice(0, 50).map(item => <InvestigationEvidenceCard
                         key={JSON.stringify([item.query, item.page])}
                         summary={<><span className="font-medium">{item.query}</span><span className="mt-2 block break-all text-xs text-muted-foreground">{item.page}</span><span className="mt-2 block text-sm text-muted-foreground">{number.format(item.impressions)} impressions · Position {item.position.toFixed(1)} · {item.clicks} clicks · {percent(item.ctr)} CTR</span></>}
