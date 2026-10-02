@@ -13,14 +13,14 @@ export function WorkspaceHoursGauge({ model }: { model: HoursModel }) {
     return (
         <section aria-labelledby="workspace-hours-heading" className="rounded-xl border border-border bg-card p-5">
             <h2 id="workspace-hours-heading" className="text-lg font-semibold tracking-tight">{model.label}</h2>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                <div className="relative h-24 w-36 shrink-0">
-                    <svg viewBox="0 0 140 100" className="h-full w-full" role="img" aria-label={`${model.label}: ${number ?? 'unavailable'} of ${gauge.budget ?? 'no'} budget`}>
-                        <path d="M 18 82 A 52 52 0 0 1 122 82" fill="none" stroke="var(--border)" strokeWidth="10" strokeLinecap="round" />
-                        {gauge.mode === 'arc' && gauge.arc != null && gauge.arc > 0 && <path d="M 18 82 A 52 52 0 0 1 122 82" pathLength="100" fill="none" stroke={gauge.over ? 'var(--destructive)' : 'var(--chart-1)'} strokeWidth="10" strokeDasharray={`${gauge.arc * 100} 100`} strokeLinecap="round" />}
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+                <div className="relative h-36 w-42 shrink-0">
+                    <svg viewBox="0 0 140 120" className="h-full w-full" role="img" aria-label={`${model.label}: ${number ?? 'unavailable'} of ${gauge.budget ?? 'no'} budget`}>
+                        <path d="M 17.4 95.2 A 56 56 0 1 1 122.6 95.2" fill="none" stroke="var(--border)" strokeWidth="10" strokeLinecap="round" />
+                        {gauge.mode === 'arc' && gauge.arc != null && gauge.arc > 0 && <path d="M 17.4 95.2 A 56 56 0 1 1 122.6 95.2" pathLength="100" fill="none" stroke={gauge.over ? 'var(--destructive)' : 'var(--chart-1)'} strokeWidth="10" strokeDasharray={`${gauge.arc * 100} 100`} strokeLinecap="round" />}
                     </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-end pb-3">
-                        <p className="text-3xl font-semibold tabular-nums">{number ?? '—'}{gauge.budget != null && <span className="text-base text-muted-foreground"> / {formatHours(gauge.budget)}</span>}</p>
+                    <div className="absolute inset-x-0 top-[52%] flex flex-col items-center gap-1">
+                        <p className="text-3xl leading-none font-semibold tabular-nums">{number ?? '—'}{gauge.budget != null && <span className="text-lg font-medium text-muted-foreground"> / {formatHours(gauge.budget)}</span>}</p>
                         <p className="text-xs text-muted-foreground">hours</p>
                     </div>
                 </div>
