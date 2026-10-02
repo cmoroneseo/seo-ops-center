@@ -21,6 +21,8 @@ export interface DragCommit {
     source: PlannerItemSource;
     startsAt: string;
     endsAt: string;
+    /** Sidebar drops add sessions; grid drags only move the selected block. */
+    newSession?: boolean;
 }
 
 export interface DragPreview {
@@ -284,7 +286,7 @@ export function usePlannerDrag({
                 });
             } else if (state.mode === 'schedule') {
                 setPreview({
-                    itemId: `task:${state.taskId}`,
+                    itemId: `new-session:${state.taskId}`,
                     startMin: at.minutes,
                     endMin: clampMinutes(at.minutes + state.durationMin),
                     dayIndex: at.dayIndex,
@@ -330,6 +332,7 @@ export function usePlannerDrag({
                 void onCommit({
                     itemId: `task:${state.taskId}`,
                     source: 'task',
+                    newSession: true,
                     startsAt: toIso(day, current.startMin),
                     endsAt: toIso(day, Math.max(current.endMin, current.startMin + MIN_EVENT_MINUTES)),
                 });

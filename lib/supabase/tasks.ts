@@ -241,6 +241,24 @@ export async function getTasks(
     }
 }
 
+/** Planner search includes subtasks and paginates past the API row limit. */
+export async function getPlannerTasks(organizationId: string): Promise<Task[]> {
+    const supabase = createClient();
+    if (!supabase) throw new Error('Tasks unavailable');
+    const tasks: Task[] = [];
+    const pageSize = 500;
+    for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await supabase.from('tasks')
+            .select('*, clients(name)')
+            .eq('organization_id', organizationId)
+            .order('id', { ascending: true })
+            .range(offset, offset + pageSize - 1);
+        if (error) throw error;
+        tasks.push(...(data ?? []).map(rowToTask));
+        if (!data || data.length < pageSize) return tasks;
+    }
+}
+
 /** Tasks scoped to one client — used on the client detail Tasks tab. */
 export async function getTasksByClient(clientId: string, throwOnError = false): Promise<Task[]> {
     const supabase = createClient();

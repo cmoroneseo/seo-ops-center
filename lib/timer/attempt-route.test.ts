@@ -613,3 +613,28 @@ test('a mutation that never committed still reports failure', async () => {
 
     assert.equal(response.status, 403);
 });
+
+test('session starts and switches pass task and session identity to the atomic session RPC', async () => {
+    const calls: Array<{name: string; args: Record<string, unknown>}> = [];
+    const deps = dependencies({ mutateRpc: async (name, args) => { calls.push({name, args}); } });
+    assert.equal((await handleTimerMutation(request({action: 'start', taskId: 'task-1', plannerEventId: 'event-1'}), deps)).status, 200);
+    assert.equal((await handleTimerMutation(request({action: 'switch', fromTimeLogId: 'log-1', toTaskId: 'task-2', plannerEventId: 'event-2'}), deps)).status, 200);
+    assert.equal(calls[0].name, 'start_planner_task_session');
+    assert.equal(calls[0].args.p_event_id, 'event-1');
+    assert.equal(calls[0].args.p_task_id, 'task-1');
+    assert.equal(calls[0].args.p_from_time_log_id, null);
+    assert.equal(calls[1].name, 'start_planner_task_session');
+    assert.equal(calls[1].args.p_event_id, 'event-2');
+    assert.equal(calls[1].args.p_task_id, 'task-2');
+    assert.equal(calls[1].args.p_from_time_log_id, 'log-1');
+});
+
+test('session identity cannot be supplied to an attempt resume or as an empty value', async () => {
+    let called = false;
+    const deps = dependencies({mutateRpc: async () => {called = true;} });
+    for (const input of [
+        {action: 'start', taskId: 'task-1', plannerEventId: ''},
+        {action: 'switch', fromTimeLogId: 'log-1', toTimeLogId: 'log-2', plannerEventId: 'event-1'},
+    ]) assert.equal((await handleTimerMutation(request(input), deps)).status, 400);
+    assert.equal(called, false);
+});

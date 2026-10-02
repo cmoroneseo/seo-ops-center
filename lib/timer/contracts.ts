@@ -8,7 +8,7 @@ import type {
 } from '../types';
 
 export type TimerMutationRequest =
-    | { action: 'start'; taskId: string; now?: string; timeZone?: string }
+    | { action: 'start'; taskId: string; now?: string; timeZone?: string; plannerEventId?: string }
     | { action: 'pause'; timeLogId: string; now?: string }
     | { action: 'resume'; timeLogId: string; now?: string }
     | {
@@ -16,6 +16,7 @@ export type TimerMutationRequest =
         fromTimeLogId: string;
         toTimeLogId?: string;
         toTaskId?: string;
+        plannerEventId?: string;
         now?: string;
     }
     | { action: 'begin_stop'; timeLogId: string; now?: string }

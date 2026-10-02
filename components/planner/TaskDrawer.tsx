@@ -15,11 +15,13 @@ interface TaskDrawerProps {
     onTaskDragStart?: (task: Task, e: React.PointerEvent) => void;
     taskDropTarget?: 'backlog';
     dropTargetActive?: boolean;
+    showStatus?: boolean;
 }
 
 export function TaskDrawer({
     title, tasks, defaultOpen = false, emptyLabel = 'No tasks match these filters',
     onTaskClick, onTaskDragStart, taskDropTarget, dropTargetActive = false,
+    showStatus = false,
 }: TaskDrawerProps) {
     const [open, setOpen] = useState(defaultOpen);
     const contentId = useId();
@@ -59,13 +61,14 @@ export function TaskDrawer({
                             <button
                                 type="button"
                                 key={task.id}
-                                onPointerDown={e => onTaskDragStart?.(task, e)}
+                                onPointerDown={e => { if (task.status !== 'done') onTaskDragStart?.(task, e); }}
                                 onClick={() => onTaskClick?.(task)}
                                 className={cn(
                                     'w-full rounded-md border border-border bg-card px-2.5 py-1.5 text-left text-xs',
-                                    onTaskDragStart && 'cursor-grab active:cursor-grabbing',
+                                    onTaskDragStart && task.status !== 'done' && 'cursor-grab active:cursor-grabbing',
                                     'hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                                 )}
+
                             >
                                 <span className="block truncate font-medium">{task.title}</span>
                                 {task.clientName && (
@@ -73,6 +76,9 @@ export function TaskDrawer({
                                         {task.clientName}
                                     </span>
                                 )}
+                                {showStatus && <span className="mt-1 block text-[10px] text-muted-foreground">
+                                    {task.status === 'in_progress' ? 'In progress' : task.status === 'done' ? 'Completed' : task.status === 'todo' ? 'To do' : task.status.replaceAll('_', ' ')}
+                                </span>}
                             </button>
                         ))
                     )}

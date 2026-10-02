@@ -45,6 +45,8 @@ export interface PlannerItem {
     raw: PlannerEvent | Task | Reminder | TimerAttempt;
     /** Shared by every display group belonging to one timer attempt. */
     attemptId?: string;
+    /** Independent planned session linked to the canonical task. */
+    plannerEventId?: string;
     /** Tracked duration only; a visually merged pause is excluded. */
     activeSeconds?: number;
     timerState?: PlannerTimerState;
@@ -54,6 +56,7 @@ export interface PlannerItem {
 export function plannerSourceLabel(item: PlannerItem): string {
     if (item.source === 'actual_time') return 'Actual work';
     if (item.source === 'task') {
+        if (item.plannerEventId) return 'Task session';
         return item.id.startsWith('overdue:') ? 'Overdue task' : 'Task';
     }
     if (item.source === 'reminder') return 'Reminder';

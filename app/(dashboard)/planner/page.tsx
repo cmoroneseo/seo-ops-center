@@ -17,8 +17,9 @@ import {
     listPlannerPriorities, createPlannerPriority,
     reorderPlannerPriorities, deletePlannerPriority, unschedulePlannerTask,
 } from '@/lib/supabase/planner-priorities';
-import { listPlannerEvents, updatePlannerEvent } from '@/lib/supabase/planner-events';
-import { getTasks, updateTask } from '@/lib/supabase/tasks';
+import { listPlannerEvents, updatePlannerEvent, createPlannerEvent, deletePlannerEvent } from '@/lib/supabase/planner-events';
+import { getPlannerTasks, updateTask } from '@/lib/supabase/tasks';
+import { taskSessionInput, taskSessionToItem, shouldRenderTaskSession } from '@/lib/planner/task-sessions';
 import { DragCommit } from '@/lib/planner/use-planner-drag';
 import { durationMinutes } from '@/lib/planner/layout';
 import type { PlannerTaskDropTarget } from '@/lib/planner/layout';
@@ -78,6 +79,8 @@ export default function PlannerPage() {
     }, []);
     const [events, setEvents] = useState<PlannerEvent[]>([]);
     const [tasks, setTasks] = useState<Task[]>([]);
+    const [tasksLoading, setTasksLoading] = useState(true);
+    const [tasksError, setTasksError] = useState(false);
     const [reminders, setReminders] = useState<Reminder[]>([]);
     const [attempts, setAttempts] = useState<TimerAttempt[]>([]);
     const [clockNow, setClockNow] = useState(() => Date.now());
@@ -159,16 +162,24 @@ export default function PlannerPage() {
     const loadWork = useCallback(async () => {
         if (!organization?.id || !userId) return;
         const mayApply = workRequestGateRef.current.start();
-        const [t, r, a] = await Promise.all([
-            getTasks(organization.id, {}),
-            listReminders({ organizationId: organization.id, userId }),
-            getTimerAttemptsForRange(organization.id, range.start, range.end),
-        ]);
-        if (!mayApply()) return;
-        setTasks(t);
-        setReminders(r);
-        setAttempts(a);
-        setClockNow(Date.now());
+        setTasksLoading(true);
+        try {
+            const [t, r, a] = await Promise.all([
+                getPlannerTasks(organization.id),
+                listReminders({ organizationId: organization.id, userId }),
+                getTimerAttemptsForRange(organization.id, range.start, range.end),
+            ]);
+            if (!mayApply()) return;
+            setTasks(t);
+            setReminders(r);
+            setAttempts(a);
+            setClockNow(Date.now());
+            setTasksError(false);
+        } catch {
+            if (mayApply()) setTasksError(true);
+        } finally {
+            if (mayApply()) setTasksLoading(false);
+        }
     }, [organization?.id, range.end, range.start, userId]);
 
     /** Everything — used after a write whose effect could span both. */
@@ -248,13 +259,17 @@ export default function PlannerPage() {
             : [];
 
         return [
-            ...events.map(eventToItem),
+            ...events.flatMap(event => {
+                const task = event.taskId ? tasks.find(t => t.id === event.taskId) : null;
+                if (!task || event.kind !== 'focus') return [eventToItem(event)];
+                return shouldRenderTaskSession(event, attempts) ? [taskSessionToItem(event, task, userId)] : [];
+            }),
             ...fromTasks,
             ...actual,
             ...overdue,
             ...reminders.filter(r => r.status === 'pending').map(reminderToItem),
         ];
-    }, [attempts, clockNow, events, tasks, reminders, prefs.rollOverdueIntoToday]);
+    }, [attempts, clockNow, events, tasks, reminders, prefs.rollOverdueIntoToday, userId]);
 
     // An empty teammate selection means no filter at all.
     const visibleItems = useMemo(() => {
@@ -306,6 +321,32 @@ export default function PlannerPage() {
         const rawId = commit.itemId.split(':')[1];
         if (!rawId) return;
 
+        if (commit.newSession) {
+            const task = tasks.find(t => t.id === rawId);
+            if (!task || task.status === 'done' || !userId || task.organizationId !== organization?.id) return;
+            const saved = await createPlannerEvent(taskSessionInput(task, userId, commit.startsAt, commit.endsAt));
+            if (!saved) {
+                setError("Couldn't add that session. Try dragging the task again.");
+                return;
+            }
+            setEvents(prev => [...prev, saved]);
+            setSelectedMemberIds(prev => prev.length && !prev.includes(userId) ? [] : prev);
+            setAnnouncement(`New session added for ${task.title}. Earlier sessions are preserved.`);
+            return;
+        }
+
+        if (commit.itemId.startsWith('session:')) {
+            const existing = events.find(event => event.id === rawId);
+            if (!existing || existing.userId !== userId) return;
+            setEvents(prev => prev.map(event => event.id === rawId ? { ...event, startsAt: commit.startsAt, endsAt: commit.endsAt } : event));
+            const saved = await updatePlannerEvent(rawId, { startsAt: commit.startsAt, endsAt: commit.endsAt });
+            if (!saved) {
+                setError("Couldn't save that session move — it's been put back.");
+                void loadEvents();
+            }
+            return;
+        }
+
         if (commit.source === 'event') {
             setEvents(prev => prev.map(e =>
                 e.id === rawId ? { ...e, startsAt: commit.startsAt, endsAt: commit.endsAt } : e));
@@ -335,13 +376,30 @@ export default function PlannerPage() {
                 void loadWork();
             }
         }
-    }, [loadEvents, loadWork]);
+    }, [events, loadEvents, loadWork, organization?.id, tasks, userId]);
 
     const handleUnschedule = useCallback(async (
         itemId: string,
         target: PlannerTaskDropTarget = 'backlog',
     ): Promise<boolean> => {
         const rawId = itemId.includes(':') ? itemId.split(':')[1] : itemId;
+        if (itemId.startsWith('session:')) {
+            const session = events.find(event => event.id === rawId);
+            if (!session || session.userId !== userId) return false;
+            const deleted = await deletePlannerEvent(rawId);
+            if (!deleted) {
+                setError("Couldn't remove that session. Try again.");
+                return false;
+            }
+            setEvents(prev => prev.filter(event => event.id !== rawId));
+            if (target === 'priorities' && organization?.id && session.taskId && !priorities.some(p => p.taskId === session.taskId)) {
+                const priority = await createPlannerPriority({ organizationId: organization.id, userId, taskId: session.taskId, sortOrder: priorities.length });
+                if (priority) setPriorities(prev => [...prev, priority]);
+                else setError('Session removed, but the task could not be added to Priorities.');
+            }
+            setAnnouncement('Session removed. The task and its other sessions are preserved.');
+            return true;
+        }
         const existing = tasks.find(task => task.id === rawId);
         if (!rawId || !existing) return false;
         const plan = planTaskDrop(target, rawId, priorities);
@@ -379,7 +437,7 @@ export default function PlannerPage() {
             ? `${existing.title} moved from the calendar to Priorities.`
             : `${existing.title} moved from the calendar to Backlog.`);
         return true;
-    }, [loadPriorities, loadWork, organization?.id, priorities, tasks, userId]);
+    }, [events, loadPriorities, loadWork, organization?.id, priorities, tasks, userId]);
 
     const handleCreate = useCallback((
         dayIndex: number,
@@ -441,6 +499,7 @@ export default function PlannerPage() {
     }, [loadPriorities]);
 
     const handleTaskDragStart = useCallback((task: Task, e: React.PointerEvent) => {
+        if (task.status === 'done') return;
         // Same rule the grid uses to size a block — one definition, in items.ts.
         dragHandles?.beginSchedule(task.id, task.title, taskBlockMinutes(task), e);
     }, [dragHandles]);
@@ -462,6 +521,7 @@ export default function PlannerPage() {
             return Boolean(item.attemptId && getAttemptById(item.attemptId));
         }
         if (item.source !== 'task') return false;
+        if (item.plannerEventId && item.ownerId !== userId) return false;
         const task = item.raw as Task;
         const assigned = task.assigneeIds ?? [];
         const alreadyTracking = [runningTimer, ...pausedTimers].some(attempt => (
@@ -488,6 +548,7 @@ export default function PlannerPage() {
                     clientId: task.clientId,
                     clientName: task.clientName ?? 'Internal work',
                     startedAt: options?.startedAt,
+                    plannerEventId: item.plannerEventId,
                 });
                 if (changed) announceTimer(`Timer started for ${task.title}.`);
                 return;
@@ -531,6 +592,7 @@ export default function PlannerPage() {
             const task = selected.raw as Task;
             const activeAttempt = attempts.find(attempt => (
                 attempt.taskId === task.id && attempt.status === 'in_progress'
+                && (!selected.plannerEventId || attempt.plannerEventId === selected.plannerEventId)
             ));
             if (activeAttempt) {
                 return actualAttemptToItems(activeAttempt, new Date(clockNow))[0] ?? selected;
@@ -542,6 +604,7 @@ export default function PlannerPage() {
     return (
         <div className="flex h-full min-h-0 w-full overflow-hidden">
             <PlannerSidebar
+                key={organization?.id}
                 priorities={priorities}
                 tasks={tasks}
                 assignedToMe={assignedToMe}
@@ -557,6 +620,9 @@ export default function PlannerPage() {
                 onTaskClick={handleTaskClick}
                 onTaskDragStart={handleTaskDragStart}
                 activeTaskDropTarget={activeTaskDropTarget}
+                tasksLoading={tasksLoading}
+                tasksError={tasksError}
+                onRetryTasks={() => void loadWork()}
             />
 
             <div
@@ -639,7 +705,8 @@ export default function PlannerPage() {
                     onTimerAction={handleTimerAction}
                     canControlTimer={canControlTimer(selectedItem)}
                     canStartEarlier={!runningTimer}
-                    onUnscheduleTask={taskId => handleUnschedule(taskId, 'backlog')}
+                    onUnscheduleTask={selectedItem.plannerEventId && selectedItem.ownerId !== userId
+                        ? undefined : taskId => handleUnschedule(taskId, 'backlog')}
                     onCreateTaskFromEvent={event => {
                         const clientName = clients.find(client => client.id === event.clientId)?.clientName;
                         setEventTaskDraft(eventToTaskDraft(event, clientName));

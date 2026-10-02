@@ -69,7 +69,7 @@ export interface TaskBlockLogContext {
     organizationId: string;
     userId?: string;
     taskId: string;
-    clientId: string;
+    clientId?: string;
     taskTitle: string;
     /** The block's own date, not today — a block is often logged after the fact. */
     date: string;
@@ -77,6 +77,7 @@ export interface TaskBlockLogContext {
     plannedStartsAt: string;
     /** The SCHEDULED length, not the length logged. */
     plannedMinutes: number;
+    plannerEventId?: string;
 }
 
 /**
@@ -100,7 +101,7 @@ export function taskBlockLogInput(context: TaskBlockLogContext, draft: TaskBlock
         date: context.date,
         hours: hoursFromMinutes(draft.minutes),
         description: note || context.taskTitle,
-        billable: true,
+        billable: Boolean(context.clientId),
         countsTowardBudget: draft.countsTowardBudget,
         // The forecast this log answers. Two jobs: it gives the entry a place
         // on the calendar, and it tells the planner this block's plan has been
@@ -109,5 +110,6 @@ export function taskBlockLogInput(context: TaskBlockLogContext, draft: TaskBlock
         // still consumes that block.
         plannedStartsAt: context.plannedStartsAt,
         plannedMinutes: context.plannedMinutes,
+        ...(context.plannerEventId ? { plannerEventId: context.plannerEventId } : {}),
     };
 }
