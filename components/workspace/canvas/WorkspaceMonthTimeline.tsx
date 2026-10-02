@@ -6,7 +6,7 @@ import { timelineWeeks } from '@/lib/workspace-canvas/calendar';
 import { formatDayLabel, type TimelineModel, type WorkCard } from '@/lib/workspace-canvas/project';
 import { cn } from '@/lib/utils';
 
-export function WorkspaceMonthTimeline({ model, cards, monthLabel, loading, unavailable, saving, error, onPrevious, onNext, onToday, onSelect, onAddWork, onOpenDeliverables, onMoveDueDate }: {
+export function WorkspaceMonthTimeline({ model, cards, monthLabel, loading, unavailable, saving, error, onPrevious, onNext, onToday, onSelect, onAddWork, onScheduleExisting, onOpenDeliverables, onMoveDueDate }: {
     model: TimelineModel;
     cards: WorkCard[];
     monthLabel: string;
@@ -19,6 +19,7 @@ export function WorkspaceMonthTimeline({ model, cards, monthLabel, loading, unav
     onToday: () => void;
     onSelect: (cardId: string) => void;
     onAddWork: (date?: string) => void;
+    onScheduleExisting: (date?: string) => void;
     onOpenDeliverables: () => void;
     onMoveDueDate: (cardId: string, date: string) => void;
 }) {
@@ -49,6 +50,7 @@ export function WorkspaceMonthTimeline({ model, cards, monthLabel, loading, unav
                     <button type="button" onClick={onToday} disabled={disabled} className={controlClass}>Today</button>
                     <button type="button" onClick={onPrevious} disabled={disabled} aria-label="Previous timeline month" className={controlClass}><ChevronLeft className="h-4 w-4" /></button>
                     <button type="button" onClick={onNext} disabled={disabled} aria-label="Next timeline month" className={controlClass}><ChevronRight className="h-4 w-4" /></button>
+                    <button type="button" onClick={() => onScheduleExisting()} disabled={disabled} className={controlClass}>Schedule existing</button>
                     <button type="button" onClick={() => onAddWork()} disabled={disabled} className={controlClass}><span className="flex items-center gap-2"><Plus className="h-4 w-4" />Add task</span></button>
                 </div>
             </div>
@@ -64,6 +66,7 @@ export function WorkspaceMonthTimeline({ model, cards, monthLabel, loading, unav
                                 <p className="text-sm font-semibold">Week {index + 1}</p>
                                 <p className="mt-0.5 text-xs text-muted-foreground">{formatDayLabel(days[week.start]).replace(/, \d{4}$/, '')}–{Number(days[week.end].slice(8))}</p>
                                 <button type="button" onClick={() => onAddWork(days[week.start])} disabled={disabled} aria-label={`Add task in week ${index + 1}, starting ${formatDayLabel(days[week.start])}`} className="mt-2 inline-flex items-center gap-1 rounded text-xs text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"><Plus className="h-3 w-3" />Add task</button>
+                                <button type="button" onClick={() => onScheduleExisting(days[week.start])} disabled={disabled} aria-label={`Schedule existing task in week ${index + 1}`} className="mt-1 block rounded text-xs text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">Schedule existing</button>
                             </div>)}
                         </div>
                     </div>

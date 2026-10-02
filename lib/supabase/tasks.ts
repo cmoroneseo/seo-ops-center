@@ -424,13 +424,14 @@ export async function updateTask(
     taskId: string,
     // startDate/scheduledMinutes are omitted from the base so they can widen to
     // null — an intersection would collapse `string | null` back to `string`.
-    patch: Omit<Partial<TaskInsert>, 'startDate' | 'scheduledMinutes' | 'estimatedHours'> & {
+    patch: Omit<Partial<TaskInsert>, 'dueDate' | 'startDate' | 'scheduledMinutes' | 'estimatedHours'> & {
         status?: TaskStatus;
         completedAt?: string | null;
         assigneeIds?: string[];
         tags?: string[];
         estimatedHours?: number | null;
         /** null unschedules the task, sending it back to the planner backlog. */
+        dueDate?: string | null;
         startDate?: string | null;
         scheduledMinutes?: number | null;
         sortOrder?: number;
