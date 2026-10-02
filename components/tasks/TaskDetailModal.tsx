@@ -10,6 +10,7 @@ import {
     retryTimeLogBasecampSync,
 } from '@/lib/supabase/time-logs';
 import { cn } from '@/lib/utils';
+import { taskDescriptionText, taskDescriptionChanged } from '@/lib/tasks/description';
 import { Task, TaskComment, TaskStatus, TaskPriority, TaskCategory, TimerAttempt } from '@/lib/types';
 import { getTask, updateTask, createTask, deleteTask, getTaskComments, createTaskComment, getClientBasecampConfig } from '@/lib/supabase/tasks';
 import { PUSH_OUTCOME_MESSAGE, pushOutcomeFor, type PushOutcome } from '@/lib/timesheets/push-outcome';
@@ -207,7 +208,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     useEffect(() => {
         if (!task) return;
         setTitle(task.title ?? '');
-        setDescription(task.description ?? '');
+        setDescription(taskDescriptionText(task.description));
         setStatus(task.status ?? 'todo');
         setPriority(task.priority ?? 'medium');
         setCategory((task.category as TaskCategory) ?? '');
@@ -446,7 +447,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     };
 
     const handleDescriptionBlur = async () => {
-        if (description !== task?.description) await save({ description });
+        if (taskDescriptionChanged(task?.description, description)) await save({ description });
     };
 
     const handleDueDateChange = async (date: string) => {
@@ -656,8 +657,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
 
                         {/* Description */}
                         <div>
-                            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Description</label>
+                            <label htmlFor={`${fieldId}-description`} className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Description</label>
                             <textarea
+                                id={`${fieldId}-description`}
                                 disabled={saving}
                                 value={description}
                                 onChange={e => setDescription(e.target.value)}

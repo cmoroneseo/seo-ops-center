@@ -7,6 +7,8 @@ import { BasecampImportModal } from '@/components/workspace/BasecampImportModal'
 import { PlanningTable } from '@/components/workspace/PlanningTable';
 import { ClientProject, MonthlyPlan } from '@/lib/types';
 import { DEFAULT_CLIENT_STATUS_FILTER, matchesClientStatus, type ClientStatusFilter } from '@/lib/workspace/client-status-filter';
+import { buildManagerOptions, matchesManager, isMyClient } from '@/lib/workspace/client-managers';
+import { useManagerIdentities } from '@/lib/hooks/use-manager-identities';
 import { cn } from '@/lib/utils';
 import { Search, Filter, Plus, X, LayoutList, CalendarRange, User } from 'lucide-react';
 import { useState, useMemo, useEffect, useCallback } from 'react';
@@ -15,16 +17,9 @@ import { getMonthlyPlans } from '@/lib/supabase/monthly-plans';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 
-type ManagerFilterOption = {
-    value: string;
-    label: string;
-    accountManagerId?: string;
-    aliases: string[];
-};
-
 export default function WorkspacePage() {
     const { organization } = useOrganization();
-    const { userId, displayName, isOwner } = useCurrentMember();
+    const { userId, displayName, email, isOwner } = useCurrentMember();
     const [clients, setClients] = useState<ClientProject[]>([]);
     const [plans, setPlans] = useState<MonthlyPlan[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -39,6 +34,7 @@ export default function WorkspacePage() {
     // The role loads asynchronously. Derive its default until the user chooses a filter.
     const myClientsOnly = myClientsPreference ?? !isOwner;
     const organizationId = organization?.id;
+    const managerMembers = useManagerIdentities(organizationId);
 
     const fetchClients = useCallback(async () => {
         if (!organizationId) return;
@@ -66,76 +62,10 @@ export default function WorkspacePage() {
         void fetchClients();
     }, [fetchClients]);
 
-    // Extract unique managers, preferring stable user IDs over display names.
-    const managers = useMemo(() => {
-        const normalizeName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, ' ');
-        const isNameVariant = (a: string, b: string) => {
-            if (!a || !b) return false;
-            return a === b || a.startsWith(`${b} `) || b.startsWith(`${a} `);
-        };
-        const isBetterName = (next: string, current: string) => next.length > current.length;
-
-        const byId = new Map<string, ManagerFilterOption>();
-        const orphanManagers: ManagerFilterOption[] = [];
-
-        for (const client of clients) {
-            const label = client.accountManager || 'Unassigned';
-            const normalized = normalizeName(label);
-
-            if (client.accountManagerId) {
-                const existing = byId.get(client.accountManagerId);
-                if (existing) {
-                    if (isBetterName(label, existing.label)) existing.label = label;
-                    if (!existing.aliases.includes(normalized)) existing.aliases.push(normalized);
-                } else {
-                    byId.set(client.accountManagerId, {
-                        value: client.accountManagerId,
-                        label,
-                        accountManagerId: client.accountManagerId,
-                        aliases: [normalized],
-                    });
-                }
-                continue;
-            }
-
-            const existingOrphan = orphanManagers.find((manager) =>
-                manager.aliases.some((alias) => isNameVariant(alias, normalized))
-            );
-            if (existingOrphan) {
-                if (isBetterName(label, existingOrphan.label)) existingOrphan.label = label;
-                if (!existingOrphan.aliases.includes(normalized)) existingOrphan.aliases.push(normalized);
-            } else {
-                orphanManagers.push({
-                    value: `name:${normalized}`,
-                    label,
-                    aliases: [normalized],
-                });
-            }
-        }
-
-        const mergedOrphans: typeof orphanManagers = [];
-        for (const orphan of orphanManagers) {
-            const idMatch = Array.from(byId.values()).find((manager) =>
-                manager.aliases.some((alias) =>
-                    orphan.aliases.some((orphanAlias) => isNameVariant(alias, orphanAlias))
-                )
-            );
-            if (idMatch) {
-                if (isBetterName(orphan.label, idMatch.label)) idMatch.label = orphan.label;
-                for (const alias of orphan.aliases) {
-                    if (!idMatch.aliases.includes(alias)) idMatch.aliases.push(alias);
-                }
-            } else {
-                mergedOrphans.push(orphan);
-            }
-        }
-
-        return [...byId.values(), ...mergedOrphans].sort((a, b) => a.label.localeCompare(b.label));
-    }, [clients]);
+    const managers = useMemo(() => buildManagerOptions(clients, managerMembers), [clients, managerMembers]);
 
     // Filter clients
     const filteredClients = useMemo(() => {
-        const normalizeName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, ' ');
         const selectedManager = managers.find((manager) => manager.value === managerFilter);
 
         return clients.filter(client => {
@@ -143,18 +73,11 @@ export default function WorkspacePage() {
                 client.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 client.accountManager.toLowerCase().includes(searchQuery.toLowerCase());
             const matchesStatus = matchesClientStatus(client.status, statusFilter);
-            const matchesManager = managerFilter === 'All' ||
-                (selectedManager
-                    ? client.accountManagerId
-                        ? client.accountManagerId === selectedManager.accountManagerId
-                        : selectedManager.aliases.includes(normalizeName(client.accountManager))
-                    : false);
-            const matchesMine = !myClientsOnly ||
-                (client.accountManagerId && client.accountManagerId === userId) ||
-                (!client.accountManagerId && client.accountManager.toLowerCase().includes(displayName.toLowerCase()));
-            return matchesSearch && matchesStatus && matchesManager && matchesMine;
+            const matchesManagerFilter = managerFilter === 'All' || !!selectedManager && matchesManager(client, selectedManager, clients, managerMembers);
+            const matchesMine = !myClientsOnly || isMyClient(client, {id:userId,name:displayName,email}, clients, managerMembers);
+            return matchesSearch && matchesStatus && matchesManagerFilter && matchesMine;
         });
-    }, [clients, searchQuery, statusFilter, managerFilter, myClientsOnly, userId, displayName, managers]);
+    }, [clients, searchQuery, statusFilter, managerFilter, myClientsOnly, userId, displayName, email, managers, managerMembers]);
 
     if (isLoading) return <div className="p-8">Loading client workspace...</div>;
 

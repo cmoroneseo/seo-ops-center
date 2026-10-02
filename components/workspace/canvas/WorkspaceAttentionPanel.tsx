@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { AlertTriangle, FileCheck2, OctagonAlert } from 'lucide-react';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import type { AttentionItem, AttentionModel } from '@/lib/workspace-canvas/project';
 
 const labels = { approval: 'Approval needed', blocked: 'Blocked', deliverable: 'Overdue' };
@@ -55,9 +55,9 @@ export function WorkspaceAttentionPanel({ model, onReview, onOpenDeliverables, o
             {(current.length > 3 || older.length > 0) && <button type="button" onClick={() => setExpanded(true)} className="mt-3 text-sm font-medium text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">View all ({model.items.length})</button>}
         </section>
         <Dialog open={expanded} onOpenChange={setExpanded}>
-            <DialogContent className="sm:max-w-xl" aria-describedby="attention-description">
+            <DialogContent className="sm:max-w-xl">
                 <DialogTitle>Needs your attention</DialogTitle>
-                <p id="attention-description" className="text-sm text-muted-foreground">Approvals and blocked work appear first. Older overdue deliverables remain available below.</p>
+                <DialogDescription>Approvals and blocked work appear first. Older overdue deliverables remain available below.</DialogDescription>
                 {warnings.map(warning => <p key={warning} role="status" className="text-xs text-amber-700 dark:text-amber-400">{warning}</p>)}
                 <div className="max-h-[65dvh] space-y-5 overflow-y-auto pr-1">
                     {current.length > 0 && <div><h3 className="mb-2 text-sm font-semibold">Current ({current.length})</h3>{renderItems(current)}</div>}
