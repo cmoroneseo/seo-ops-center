@@ -25,3 +25,13 @@ export function dueDateMoveError(card: WorkCard, date: string): string | null {
     if (card.startDate && date < card.startDate) return 'The due date must be on or after the task’s start date. Open the task to change its schedule.';
     return null;
 }
+
+/** Monday-aligned weeks clipped to the visible month, including partial weeks. */
+export function timelineWeeks(days: string[]): { start: number; end: number }[] {
+    const weeks: { start: number; end: number }[] = [];
+    for (let index = 0; index < days.length; index++) {
+        if (index === 0 || new Date(`${days[index]}T00:00:00Z`).getUTCDay() === 1) weeks.push({ start: index, end: index });
+        else weeks[weeks.length - 1].end = index;
+    }
+    return weeks;
+}

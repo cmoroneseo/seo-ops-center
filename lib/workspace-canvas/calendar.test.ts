@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calendarDays, dueDateMoveError, workOnDate } from './calendar';
+import { calendarDays, dueDateMoveError, workOnDate, timelineWeeks } from './calendar';
 import type { WorkCard } from './project';
 
 const card = (patch: Partial<WorkCard>): WorkCard => ({ id: 'task:1', taskId: '1', source: 'task', title: 'Audit', statusLabel: 'In progress', badges: [], assignees: [], assigneeLabel: 'Unassigned', estimateLabel: '', subtasks: [], subtaskProgress: '', ...patch });
@@ -39,4 +39,12 @@ test('dragging a due date cannot move it before the existing start date or mutat
     assert.equal(dueDateMoveError(card({ startDate: '2026-10-10' }), '2026-10-10'), null);
     assert.equal(dueDateMoveError(card({}), '2026-11-01'), null);
     assert.ok(dueDateMoveError(card({ source: 'plan', taskId: undefined }), '2026-10-10'));
+});
+
+test('timeline weeks align to Mondays and retain partial weeks without dropping dates', () => {
+    const days = calendarDays('2026-10').filter(date => date.startsWith('2026-10'));
+    const weeks = timelineWeeks(days);
+    assert.deepEqual(weeks, [{ start: 0, end: 3 }, { start: 4, end: 10 }, { start: 11, end: 17 }, { start: 18, end: 24 }, { start: 25, end: 30 }]);
+    assert.equal(weeks.reduce((total, week) => total + week.end - week.start + 1, 0), 31);
+    assert.deepEqual(timelineWeeks([]), []);
 });
