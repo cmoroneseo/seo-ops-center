@@ -312,3 +312,10 @@ test('unavailable preliminary dates remain gaps while confirmed zero days stay z
  const fresh=buildDailySeries('2026-10-02','2026-10-02',[{id:'fresh',date:'2026-10-02',isIncomplete:true}],[{dayId:'fresh',clicks:2,impressions:20}]);
  assert.equal(fresh[0].clicks,2);assert.equal(fresh[0].isIncomplete,true);
 });
+
+test('incomplete today remains visible without a misleading decline against complete prior days',()=>{
+ const input=baseInput({today:'2026-10-15',search:{ok:true,coverage:'ready',property:'example',lastSync:null,window:{start:'2026-10-15',end:'2026-10-15'},current:[{date:'2026-10-15',clicks:1,impressions:10,isIncomplete:true}],previous:[{date:'2026-10-14',clicks:20,impressions:100}]}});
+ const model=projectWorkspaceCanvas(input).performance;
+ assert.equal(model.clicks?.total,1);assert.equal(model.clicks?.delta.kind,'preliminary');assert.equal(model.showPrevious,false);
+ assert.equal(model.hasPreliminaryData,true);
+});

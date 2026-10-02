@@ -12,7 +12,7 @@ function DeltaLine({ delta }: { delta: Delta }) {
         const up = pct >= 0;
         return <p className={up ? 'text-sm font-medium text-green-600 dark:text-green-400' : 'text-sm font-medium text-red-600 dark:text-red-400'}>{up ? 'Up' : 'Down'} {Math.abs(pct)}% vs the previous period</p>;
     }
-    const label = delta.kind === 'no_baseline' ? 'No comparable baseline' : delta.kind === 'insufficient' ? 'Not enough coverage to compare' : 'Comparison unavailable';
+    const label = delta.kind === 'preliminary' ? "Comparison pending today's data" : delta.kind === 'no_baseline' ? 'No comparable baseline' : delta.kind === 'insufficient' ? 'Not enough coverage to compare' : 'Comparison unavailable';
     return <p className="text-sm text-muted-foreground">{label}</p>;
 }
 

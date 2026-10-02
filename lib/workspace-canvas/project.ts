@@ -206,7 +206,8 @@ export type Delta =
     | { kind: 'percent'; percent: number }
     | { kind: 'no_baseline' }
     | { kind: 'insufficient' }
-    | { kind: 'unavailable' };
+    | { kind: 'unavailable' }
+    | { kind: 'preliminary' };
 
 export interface MetricFigure {
     label: string;
@@ -417,7 +418,8 @@ function projectPerformance(input: WorkspaceCanvasInput): PerformanceModel {
     const previousClicks = lengthsMatch && previous ? coverageOf(previous, 'clicks') : null;
     const impressionCoverage = coverageOf(current, 'impressions');
     const previousImpressions = lengthsMatch && previous ? coverageOf(previous, 'impressions') : null;
-    const showPrevious = !!previousClicks?.sufficient && clickCoverage.sufficient;
+    const partialToday = current.some(point => point.date === input.today && point.isIncomplete);
+    const showPrevious = !partialToday && !!previousClicks?.sufficient && clickCoverage.sufficient;
     const rangeLabel = `${formatDayLabel(input.search.window.start)} – ${formatDayLabel(input.search.window.end)}`;
     const previousRangeLabel = previous && previous.length
         ? `${formatDayLabel(previous[0].date)} – ${formatDayLabel(previous[previous.length - 1].date)}`
@@ -432,7 +434,9 @@ function projectPerformance(input: WorkspaceCanvasInput): PerformanceModel {
     const missingNote = clickCoverage.missing > 0
         ? 'This period is still updating. Gaps represent unavailable data, not zero clicks.'
         : '';
-    const comparisonNote = !previous
+    const comparisonNote = partialToday
+        ? "Today's search data is preliminary; the comparison is paused until this day is complete."
+        : !previous
         ? 'The previous period could not be loaded, so no comparison is shown.'
         : !lengthsMatch
             ? 'The previous period did not line up with this window, so no comparison is shown.'
@@ -451,12 +455,12 @@ function projectPerformance(input: WorkspaceCanvasInput): PerformanceModel {
         clicks: {
             label: 'Organic search clicks',
             total: clickCoverage.sum,
-            delta: deltaFor(clickCoverage, previousClicks, lengthsMatch),
+            delta: partialToday ? {kind:'preliminary'} : deltaFor(clickCoverage, previousClicks, lengthsMatch),
         },
         impressions: {
             label: 'Search impressions',
             total: impressionCoverage.sum,
-            delta: deltaFor(impressionCoverage, previousImpressions, lengthsMatch),
+            delta: partialToday ? {kind:'preliminary'} : deltaFor(impressionCoverage, previousImpressions, lengthsMatch),
         },
         points,
         showPrevious,
