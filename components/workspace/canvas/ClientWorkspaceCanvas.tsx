@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { updateTask } from '@/lib/supabase/tasks';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
@@ -12,7 +12,7 @@ import type { ClientProject } from '@/lib/types';
 import { actionForegroundChoice, oklchContrast, type ActionForeground } from '@/lib/workspace-canvas/palette';
 import { loadWorkspaceCanvas } from '@/lib/workspace-canvas/load';
 import {
-    formatMonthLabel, isMonthKey, projectWorkspaceCanvas, settleLatest, shiftMonth,
+    isMonthKey, monthBounds, projectWorkspaceCanvas, settleLatest, shiftMonth,
     type WorkspaceCanvasModel,
 } from '@/lib/workspace-canvas/project';
 import { WorkspaceAttentionPanel } from './WorkspaceAttentionPanel';
@@ -60,19 +60,10 @@ function useReducedMotion(): boolean {
     return reduced;
 }
 
-function siteHref(domain?: string): string | null {
-    if (!domain) return null;
-    if (/^https?:\/\//i.test(domain)) return domain;
-    if (domain.includes('.')) return `https://${domain}`;
-    return null;
-}
-
 export function ClientWorkspaceCanvas({
     client,
     organizationId,
-    isOwner,
     refreshKey,
-    onReassign,
     onAddWork,
     onOpenTask,
     onOpenPlan,
@@ -85,9 +76,7 @@ export function ClientWorkspaceCanvas({
 }: {
     client: ClientProject;
     organizationId: string;
-    isOwner: boolean;
     refreshKey: number;
-    onReassign: () => void;
     onAddWork: (date?: string) => void;
     onOpenTask: (taskId: string) => void;
     onOpenPhase: (phase: RoadmapPhase) => void;
@@ -163,7 +152,8 @@ export function ClientWorkspaceCanvas({
     }, [client, organizationId, month, refreshKey, calendarRefresh]);
 
     const selected = model?.cards.find(card => card.id === selectedId) ?? null;
-    const href = siteHref(client.domain);
+    const bounds = month ? monthBounds(month) : null;
+    const periodLabel = bounds ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).formatRange(new Date(`${bounds.start}T12:00:00`), new Date(`${bounds.end}T12:00:00`)) : 'Select month';
     const changeMonth = (delta: number) => {
         if (!month) return;
         const nextMonth = shiftMonth(month, delta);
@@ -194,20 +184,8 @@ export function ClientWorkspaceCanvas({
 
     return (
         <div ref={rootRef} className="@container min-w-0 max-w-full space-y-4 overflow-x-hidden">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0 space-y-1">
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-                        {href ? <a href={href} target="_blank" rel="noreferrer" className="truncate hover:text-foreground">{client.domain}</a> : client.domain && <span className="truncate">{client.domain}</span>}
-                        <span className="truncate">Manager: {client.accountManager || 'Unassigned'}</span>
-                        {isOwner && <button type="button" onClick={onReassign} className="font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Reassign</button>}
-                    </div>
-                    <div className="flex items-center gap-1" aria-live="polite">
-                        <button type="button" aria-label="Previous month" onClick={() => changeMonth(-1)} className="rounded-md border border-border p-2 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ChevronLeft className="h-4 w-4" /></button>
-                        <p className="min-w-32 text-center text-sm font-semibold">{month ? formatMonthLabel(month) : 'Loading month'}</p>
-                        <button type="button" aria-label="Next month" onClick={() => changeMonth(1)} className="rounded-md border border-border p-2 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ChevronRight className="h-4 w-4" /></button>
-                    </div>
-                </div>
-                <button type="button" onClick={() => onAddWork()} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-base font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${actionClass}`}>
+            <div className="flex items-center justify-end">
+                <button type="button" onClick={() => onAddWork()} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${actionClass}`}>
                     <Plus className="h-4 w-4" /> Add work
                 </button>
             </div>
@@ -223,13 +201,29 @@ export function ClientWorkspaceCanvas({
                 <>
                     {loading && <p role="status" className="text-xs text-muted-foreground">Updating {model.monthLabel}…</p>}
                     <div className="grid items-start gap-4 @min-[960px]:grid-cols-[minmax(0,3fr)_minmax(240px,1fr)]">
-                        <WorkspacePerformancePanel model={model.performance} reducedMotion={reducedMotion} />
+                        <div className="min-w-0 space-y-4">
+                            <WorkspacePerformancePanel model={model.performance} reducedMotion={reducedMotion} periodControl={
+                                <div className="flex min-w-0 items-center rounded-lg border border-border bg-background/50 focus-within:ring-2 focus-within:ring-ring" aria-label="Overview reporting period">
+                                    <button type="button" aria-label="Previous month" disabled={loading} onClick={() => changeMonth(-1)} className="rounded-l-lg p-2 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"><ChevronLeft className="h-4 w-4" /></button>
+                                    <label className="relative flex min-w-0 items-center gap-2 px-2 py-2 text-xs font-medium">
+                                        <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                        <span>{periodLabel}</span>
+                                        <input aria-label="Overview month" type="month" onClick={event => event.currentTarget.showPicker?.()} value={month ?? ''} disabled={loading} onChange={event => {
+                                            const next = event.target.value;
+                                            if (!isMonthKey(next)) return;
+                                            setMonth(next); onMonthChange(next); setSelectedId(null);
+                                        }} className="absolute inset-0 w-full cursor-pointer opacity-0 disabled:cursor-wait" />
+                                    </label>
+                                    <button type="button" aria-label="Next month" disabled={loading} onClick={() => changeMonth(1)} className="rounded-r-lg p-2 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"><ChevronRight className="h-4 w-4" /></button>
+                                </div>
+                            } />
+                            <WorkspacePhaseRail model={model.phases} onOpenPhase={onOpenPhase} onCreatePlan={onOpenPlan} />
+                        </div>
                         <div className="space-y-4">
                             <WorkspaceHoursGauge model={model.hours} />
                             <WorkspaceAttentionPanel model={model.attention} onReview={onReview} onOpenDeliverables={onOpenDeliverables} onOpenTask={onOpenTask} />
                         </div>
                     </div>
-                    <WorkspacePhaseRail model={model.phases} onOpenPhase={onOpenPhase} onCreatePlan={onOpenPlan} />
                     <WorkspaceWorkBoard model={model.board} timeline={model.timeline} selectedId={selected?.id ?? null} onSelect={setSelectedId} onViewAll={onViewAllTasks} onOpenDeliverables={onOpenDeliverables} />
                     <WorkspaceMonthTimeline model={model.timeline} cards={model.cards} monthLabel={model.monthLabel} loading={loading} unavailable={model.board.state === 'error' || model.board.tasksUnavailable || model.attention.deliverablesUnavailable || model.phases.state === 'error'} saving={calendarSaving} error={calendarError} onPrevious={() => changeMonth(-1)} onNext={() => changeMonth(1)} onToday={() => { const current = monthKey(); setMonth(current); onMonthChange(current); }} onSelect={setSelectedId} onAddWork={onAddWork} onScheduleExisting={date => { setCalendarError(null); setScheduleDate(date ?? model.timeline.days[0]); }} onOpenDeliverables={onOpenDeliverables} onMoveDueDate={(cardId, date) => { void moveDueDate(cardId, date); }} />
                 </>

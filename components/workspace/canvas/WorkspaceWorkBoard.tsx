@@ -18,7 +18,7 @@ function CardButton({ card, selected, onSelect }: { card: WorkCard; selected: bo
             onClick={() => onSelect(card.id)}
             aria-pressed={selected}
             className={cn(
-                'w-full rounded-lg border bg-muted/30 p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                'w-full rounded-lg border bg-muted/30 p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 selected ? 'border-primary ring-2 ring-ring' : 'border-border hover:border-primary/40 hover:bg-muted/50',
             )}
         >
@@ -29,7 +29,7 @@ function CardButton({ card, selected, onSelect }: { card: WorkCard; selected: bo
                     {card.description && <span className="mt-1 block line-clamp-2 text-xs leading-5 text-muted-foreground">{card.description}</span>}
                 </span>
             </span>
-            <span className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                 <span className="inline-flex min-w-0 items-center gap-2"><span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground">{card.assigneeLabel.split(' ').slice(0, 2).map(part => part[0]).join('')}</span>{card.assigneeLabel}</span>
                 <span className="inline-flex items-center gap-1"><CalendarDays className="h-3.5 w-3.5" />{card.dueDate ? formatDayLabel(card.dueDate) : 'No due date'}</span>
             </span>
@@ -109,15 +109,15 @@ export function WorkspaceWorkBoard({
         <div className="min-w-0 space-y-3">
             <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold tracking-tight">Campaign work</h2><button type="button" onClick={onViewAll} className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">View all tasks <ArrowRight className="h-4 w-4" /></button></div>
             {model.tasksUnavailable && <p role="status" className="text-sm text-amber-700 dark:text-amber-400">The full task list could not be loaded. Linked plan tasks are shown; other tasks may be missing.</p>}
-            <div className="grid gap-4 @min-[760px]:grid-cols-3">
+            <div className="grid items-start gap-4 @min-[760px]:grid-cols-3">
                 <Lane title="Now" hint="This month & carryover" tint="border-primary/20 bg-primary/5" cards={model.now} empty={emptyNow} selectedId={selectedId} onSelect={onSelect} onViewAll={onViewAll} />
                 <Lane title="Next" hint="Coming up next" tint="border-blue-500/20 bg-blue-500/5" cards={model.next} empty={emptyNext} selectedId={selectedId} onSelect={onSelect} onViewAll={onViewAll} />
                 <section className="min-w-0 rounded-xl border border-border bg-card p-4">
                     <h3 className="text-xl font-semibold tracking-tight">Impact</h3>
-                    <p className="text-xs text-muted-foreground">Results & upcoming deadlines</p>
+                    <p className="text-xs text-muted-foreground">Completed work & milestones</p>
                     <div className="mt-3 space-y-3">
-                        {model.impact.map(entry => (
-                            <article key={entry.id} className="rounded-lg border border-border bg-muted/30 p-4">
+                        {model.impact.filter(entry => !entry.id.startsWith('search-')).map(entry => (
+                            <article key={entry.id} className="rounded-lg border border-border bg-muted/30 p-3">
                                 <h4 className="text-sm font-medium">{entry.title}</h4>
                                 <p className="mt-1 text-xs text-muted-foreground">{entry.detail}</p>
                             </article>

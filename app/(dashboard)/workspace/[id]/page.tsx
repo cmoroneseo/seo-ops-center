@@ -180,7 +180,7 @@ export default function ClientDetailPage() {
                     </div>
                 )}
 
-                <div className="flex items-start justify-between">
+                <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="flex items-center gap-4">
                         <ClientAvatar name={client.clientName} logoUrl={client.logoUrl} size="lg" />
                         <div className="space-y-1">
@@ -194,7 +194,7 @@ export default function ClientDetailPage() {
                             <Pencil className="h-4 w-4" />
                         </button>
                         </div>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
                             {client.launchDate && (
                                 <div className="flex items-center gap-1.5">
                                     <Calendar className="h-4 w-4" />
@@ -209,6 +209,12 @@ export default function ClientDetailPage() {
                                 <Clock className="h-4 w-4" />
                                 <span>{client.seoHours}h/mo</span>
                             </div>
+                            {canvasEnabled && <div className="flex flex-wrap items-center gap-2">
+                                <UserCheck className="h-4 w-4" />
+                                <span>Manager: {client.accountManager || 'Unassigned'}</span>
+                                {isOwner && <button type="button" onClick={() => setShowReassign(true)} className="rounded px-1 text-xs font-medium text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring">Reassign</button>}
+                            </div>}
+                            {canvasEnabled && client.domain && <a href={/^https?:\/\//i.test(client.domain) ? client.domain : `https://${client.domain}`} target="_blank" rel="noreferrer" className="hover:text-foreground hover:underline">{client.domain}</a>}
                         </div>
                         </div>{/* end inner space-y-1 */}
                     </div>{/* end flex items-center gap-4 (logo + text) */}
@@ -426,9 +432,7 @@ export default function ClientDetailPage() {
             <ClientWorkspaceCanvas
                 client={client}
                 organizationId={organization?.id ?? ''}
-                isOwner={isOwner}
                 refreshKey={activityRefreshKey}
-                onReassign={() => setShowReassign(true)}
                 onAddWork={(date) => { setCalendarDueDate(date); setIsCreateTaskOpen(true); }}
                 onOpenTask={(taskId) => {
                     void getTask(taskId).then(result => {

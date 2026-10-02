@@ -1,6 +1,6 @@
 'use client';
 
-import { useId } from 'react';
+import { useId, type ReactNode } from 'react';
 import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { ChartPoint, Delta, PerformanceModel } from '@/lib/workspace-canvas/project';
 import { formatDayLabel } from '@/lib/workspace-canvas/project';
@@ -27,7 +27,7 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{
     );
 }
 
-export function WorkspacePerformancePanel({ model, reducedMotion }: { model: PerformanceModel; reducedMotion: boolean }) {
+export function WorkspacePerformancePanel({ model, reducedMotion, periodControl }: { model: PerformanceModel; reducedMotion: boolean; periodControl?: ReactNode }) {
     const titleId = useId();
     const fillId = `search-fill-${titleId.replace(/[^a-zA-Z0-9]/g, '')}`;
     const clicks = model.clicks;
@@ -43,10 +43,10 @@ export function WorkspacePerformancePanel({ model, reducedMotion }: { model: Per
                     <h2 id={titleId} className="text-lg font-semibold tracking-tight">Search performance</h2>
                     <p className="mt-1 text-xs text-muted-foreground">Google Search Console · Daily performance</p>
                 </div>
-                {model.rangeLabel && <p className="text-xs text-muted-foreground">{model.rangeLabel}</p>}
+                {periodControl ?? (model.rangeLabel && <p className="text-xs text-muted-foreground">{model.rangeLabel}</p>)}
             </div>
             {model.state !== 'ready' || !clicks ? (
-                <p role="status" className="mt-5 rounded-lg bg-muted/30 px-4 py-8 text-sm text-muted-foreground">{model.message}</p>
+                <p role="status" className="mt-5 rounded-lg bg-muted/30 px-4 py-5 text-sm text-muted-foreground">{model.message}</p>
             ) : (
                 <>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -64,11 +64,11 @@ export function WorkspacePerformancePanel({ model, reducedMotion }: { model: Per
                         )}
                     </div>
                     <p className="mt-3 text-xs text-muted-foreground">{model.property}{model.lastSync ? ` · Latest import ${new Date(model.lastSync).toLocaleString()}` : ' · No import timestamp'}</p>
-                    <div className="mt-2 flex flex-wrap gap-4 text-xs text-muted-foreground">
+                    <div className="mt-2 flex flex-wrap justify-end gap-4 text-xs text-muted-foreground">
                         <span className="inline-flex items-center gap-2"><span className="h-0.5 w-6 bg-chart-1" aria-hidden /> Organic search clicks</span>
                         {model.showPrevious && <span className="inline-flex items-center gap-2"><span className="h-0 w-6 border-t-2 border-dashed border-muted-foreground" aria-hidden /> Previous period</span>}
                     </div>
-                    <div className="mt-3 h-[280px] min-h-[280px]" role="img" aria-label={summary}>
+                    <div className="mt-3 h-[300px] min-h-[300px]" role="img" aria-label={summary}>
                         <ResponsiveContainer width="100%" height="100%">
                             <ComposedChart data={model.points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                                 <defs><linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.24} /><stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} /></linearGradient></defs>
