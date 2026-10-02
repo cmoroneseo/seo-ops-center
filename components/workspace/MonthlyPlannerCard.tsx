@@ -15,6 +15,8 @@ import { createClient } from '@/lib/supabase/client';
 
 interface MonthlyPlannerCardProps {
     client: ClientProject;
+    selectedMonth?: string | null;
+    onMonthChange?: (month: string) => void;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -157,10 +159,11 @@ function WorkEntryRow({ log, isImported, onSave, onDelete }: WorkEntryRowProps) 
 
 // ── Main Component ─────────────────────────────────────────────────────────
 
-export function MonthlyPlannerCard({ client }: MonthlyPlannerCardProps) {
+export function MonthlyPlannerCard({ client, selectedMonth, onMonthChange }: MonthlyPlannerCardProps) {
     const { organization } = useOrganization();
     const now = new Date();
-    const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+    const [localMonth, setLocalMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+    const month = selectedMonth ?? localMonth;
     const [plan, setPlan] = useState<MonthlyPlan | null>(null);
     const [timeLogs, setTimeLogs] = useState<TimeLog[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -205,7 +208,9 @@ export function MonthlyPlannerCard({ client }: MonthlyPlannerCardProps) {
     const navMonth = (dir: -1 | 1) => {
         const [y, m] = month.split('-').map(Number);
         const d = new Date(y, m - 1 + dir, 1);
-        setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+        const nextMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        setLocalMonth(nextMonth);
+        onMonthChange?.(nextMonth);
         setExpandedWeeks(new Set());
     };
 

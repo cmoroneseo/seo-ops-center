@@ -3,6 +3,7 @@ import { dateOffset, historyWindow } from './history';
 export interface HistoryDay { id: string; date: string; importedAt: string; pageLimited: boolean; queryLimited: boolean }
 export interface HistoryRow { id: number; dayId: string; page: string; query: string; clicks: number; impressions: number; position: number }
 export interface HistoryResponse {
+    connectionHealth?: 'connected' | 'reconnect' | 'interrupted';
     property: string; start: string; end: string; grain: string; days: HistoryDay[];
     missingDates: string[]; rows: HistoryRow[]; nextOffset: number | null; coverageNote: string;
 }

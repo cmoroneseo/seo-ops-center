@@ -150,17 +150,27 @@ export function rowToShareReviewer(row: Record<string, unknown>): ContentShareRe
 
 // ─── Batches ────────────────────────────────────────────────────────────────
 
-export async function listBatchesForClient(clientId: string): Promise<ContentApprovalBatch[]> {
+export async function listBatchesForClient(
+    clientId: string,
+    opts: { throwOnError?: boolean } = {},
+): Promise<ContentApprovalBatch[]> {
     const supabase = createClient();
-    if (!supabase) return [];
+    if (!supabase) {
+        if (opts.throwOnError) throw new Error('Approvals unavailable');
+        return [];
+    }
 
-    const { data } = await supabase
+    const { data, error } = await supabase
         .from('content_approval_batches')
         .select('*')
         .eq('client_id', clientId)
         .neq('status', 'archived')
         .order('created_at', { ascending: false });
 
+    if (error) {
+        if (opts.throwOnError) throw new Error(error.message);
+        return [];
+    }
     return (data ?? []).map(rowToBatch);
 }
 
@@ -304,16 +314,26 @@ export async function deleteApprovalDoc(docId: string): Promise<{ ok: boolean; e
 
 // ─── Documents ──────────────────────────────────────────────────────────────
 
-export async function listDocsForBatch(batchId: string): Promise<ContentApprovalDoc[]> {
+export async function listDocsForBatch(
+    batchId: string,
+    opts: { throwOnError?: boolean } = {},
+): Promise<ContentApprovalDoc[]> {
     const supabase = createClient();
-    if (!supabase) return [];
+    if (!supabase) {
+        if (opts.throwOnError) throw new Error('Approvals unavailable');
+        return [];
+    }
 
-    const { data } = await supabase
+    const { data, error } = await supabase
         .from('content_approval_docs')
         .select('*')
         .eq('batch_id', batchId)
         .order('position');
 
+    if (error) {
+        if (opts.throwOnError) throw new Error(error.message);
+        return [];
+    }
     return (data ?? []).map(rowToApprovalDoc);
 }
 

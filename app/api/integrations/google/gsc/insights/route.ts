@@ -1,9 +1,10 @@
+import { scheduleGscSync } from '@/lib/gsc/schedule';
 import { parseSearchInsightsAggregate } from '@/lib/gsc/insights';
 import { historyDates, historyWindow } from '@/lib/gsc/history';
 import { requireClientOrgMember } from '@/lib/security/tenant-authz';
 import { createAdminClient } from '@/lib/supabase/admin';
 
-export const maxDuration = 30;
+export const maxDuration = 90;
 
 export async function GET(req: Request) {
     const params = new URL(req.url).searchParams;
@@ -32,6 +33,7 @@ export async function GET(req: Request) {
     if (connectionError) return Response.json({ error: 'Unable to read selected property' }, { status: 500 });
     const property = connection?.site_url;
     if (!property) return Response.json({ error: 'Select a GSC property first' }, { status: 400 });
+    scheduleGscSync(auth.organizationId, auth.clientId);
 
     const { data, error } = await admin.rpc('get_gsc_search_insights', {
         p_organization_id: auth.organizationId,

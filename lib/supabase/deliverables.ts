@@ -74,10 +74,13 @@ async function notifyAssigned(
 /** Deliverables for an org, optionally filtered by client and/or month (YYYY-MM). */
 export async function getDeliverables(
     organizationId: string,
-    opts: { clientId?: string; month?: string; assigneeId?: string } = {},
+    opts: { clientId?: string; month?: string; assigneeId?: string; throwOnError?: boolean } = {},
 ): Promise<Deliverable[]> {
     const supabase = createClient();
-    if (!supabase) return [];
+    if (!supabase) {
+        if (opts.throwOnError) throw new Error('Deliverables unavailable');
+        return [];
+    }
     try {
         let q = supabase.from('deliverables').select('*').eq('organization_id', organizationId);
         if (opts.clientId) q = q.eq('client_id', opts.clientId);
@@ -88,8 +91,19 @@ export async function getDeliverables(
         return (data || []).map(rowToDeliverable);
     } catch (err) {
         console.error('Error fetching deliverables:', err);
+        if (opts.throwOnError) throw err;
         return [];
     }
+}
+
+/** Direct record lookup stays tenant-scoped, including dates outside the selected month. */
+export async function getDeliverable(organizationId: string, id: string): Promise<Deliverable | null> {
+    const supabase = createClient();
+    if (!supabase) throw new Error('Deliverables unavailable');
+    const { data, error } = await supabase.from('deliverables').select('*')
+        .eq('organization_id', organizationId).eq('id', id).maybeSingle();
+    if (error) throw new Error('Deliverable could not be loaded');
+    return data ? rowToDeliverable(data) : null;
 }
 
 export async function createDeliverable(

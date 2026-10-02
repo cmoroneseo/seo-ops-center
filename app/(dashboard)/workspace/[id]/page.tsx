@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck, Plug, Target, ScanSearch, Map, FileCheck2, Globe } from 'lucide-react';
 import Link from 'next/link';
@@ -20,6 +20,8 @@ import { TopicalMapTab } from '@/components/workspace/TopicalMapTab';
 import { IntegrationsTab } from '@/components/workspace/IntegrationsTab';
 import { ClientSetupScopeCard } from '@/components/workspace/ClientSetupScopeCard';
 import { ClientOverviewWidget } from '@/components/workspace/ClientOverviewWidget';
+import { ClientWorkspaceCanvas } from '@/components/workspace/canvas/ClientWorkspaceCanvas';
+import { workspaceCanvasEnabled } from '@/lib/workspace-canvas/flag';
 import { EditClientPanel, ClientAvatar } from '@/components/workspace/EditClientPanel';
 import { getClients } from '@/lib/supabase/clients';
 import { useOrganization } from '@/components/providers/organization-provider';
@@ -30,7 +32,7 @@ import { Pencil, Play, Pause, Plus } from 'lucide-react';
 import { TaskListView } from '@/components/tasks/TaskListView';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
-import { getTasksByClient } from '@/lib/supabase/tasks';
+import { getTask, getTasksByClient } from '@/lib/supabase/tasks';
 import { getLoggedHoursByClient } from '@/lib/supabase/time-logs';
 import { Task } from '@/lib/types';
 import { SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
@@ -43,6 +45,7 @@ type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'in
 
 export default function ClientDetailPage() {
     const params = useParams();
+    const router = useRouter();
     const id = params.id as string;
     const { organization } = useOrganization();
     const { isOwner } = useCurrentMember();
@@ -53,7 +56,7 @@ export default function ClientDetailPage() {
     const [activeTab, setActiveTabState] = useState<Tab>('overview');
     const [planView, setPlanView] = useState<'plan' | 'tasks'>('plan');
     const [importOpen, setImportOpen] = useState(false);
-    const setActiveTab = (tab: Tab) => {
+    const setActiveTab = (tab: Tab, extras?: Record<string, string | null>) => {
         setActiveTabState(tab === 'tasks' ? 'campaign' : tab);
         if (tab === 'tasks') setPlanView('tasks');
         else if (tab === 'campaign') setPlanView('plan');
@@ -61,6 +64,10 @@ export default function ClientDetailPage() {
         url.searchParams.set('tab', tab === 'tasks' ? 'campaign' : tab);
         if (tab === 'tasks') url.searchParams.set('planView', 'tasks');
         else url.searchParams.delete('planView');
+        for (const [key, value] of Object.entries(extras ?? {})) {
+            if (value == null) url.searchParams.delete(key);
+            else url.searchParams.set(key, value);
+        }
         window.history.replaceState(null, '', url);
     };
 
@@ -74,6 +81,9 @@ export default function ClientDetailPage() {
     }, [id]);
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
     const [loggedHours, setLoggedHours] = useState<number | undefined>(undefined);
+    const [calendarDueDate, setCalendarDueDate] = useState<string | undefined>();
+    const [hoursMonth, setHoursMonth] = useState<string | null>(null);
+    const canvasEnabled = workspaceCanvasEnabled();
     const [tasksLoading, setTasksLoading] = useState(false);
     const [selectedTask, setSelectedTask] = useState<Task | null>(null);
     const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
@@ -123,11 +133,14 @@ export default function ClientDetailPage() {
     // time lands so SEO hours and the feed refresh together.
     useEffect(() => {
         if (!organization?.id || !id) return;
+        let cancelled = false;
+        if (canvasEnabled) return;
         const month = new Date().toISOString().slice(0, 7);
         getLoggedHoursByClient(organization.id, month).then(byClient => {
-            setLoggedHours(byClient[id] ?? 0);
+            if (!cancelled) setLoggedHours(byClient[id] ?? 0);
         });
-    }, [organization?.id, id, activityRefreshKey]);
+        return () => { cancelled = true; };
+    }, [organization?.id, id, activityRefreshKey, canvasEnabled]);
 
     useEffect(() => {
         const refresh = () => setActivityRefreshKey(key => key + 1);
@@ -167,7 +180,7 @@ export default function ClientDetailPage() {
                     </div>
                 )}
 
-                <div className="flex items-start justify-between">
+                <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="flex items-center gap-4">
                         <ClientAvatar name={client.clientName} logoUrl={client.logoUrl} size="lg" />
                         <div className="space-y-1">
@@ -181,7 +194,7 @@ export default function ClientDetailPage() {
                             <Pencil className="h-4 w-4" />
                         </button>
                         </div>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
                             {client.launchDate && (
                                 <div className="flex items-center gap-1.5">
                                     <Calendar className="h-4 w-4" />
@@ -196,6 +209,12 @@ export default function ClientDetailPage() {
                                 <Clock className="h-4 w-4" />
                                 <span>{client.seoHours}h/mo</span>
                             </div>
+                            {canvasEnabled && <div className="flex flex-wrap items-center gap-2">
+                                <UserCheck className="h-4 w-4" />
+                                <span>Manager: {client.accountManager || 'Unassigned'}</span>
+                                {isOwner && <button type="button" onClick={() => setShowReassign(true)} className="rounded px-1 text-xs font-medium text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring">Reassign</button>}
+                            </div>}
+                            {canvasEnabled && client.domain && <a href={/^https?:\/\//i.test(client.domain) ? client.domain : `https://${client.domain}`} target="_blank" rel="noreferrer" className="hover:text-foreground hover:underline">{client.domain}</a>}
                         </div>
                         </div>{/* end inner space-y-1 */}
                     </div>{/* end flex items-center gap-4 (logo + text) */}
@@ -263,7 +282,7 @@ export default function ClientDetailPage() {
                     Overview
                 </button>
                 <button
-                    onClick={() => setActiveTab('campaign')}
+                    onClick={() => setActiveTab('campaign', { phase: null })}
                     className={cn(
                         'flex shrink-0 whitespace-nowrap items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
                         activeTab === 'campaign'
@@ -366,24 +385,6 @@ export default function ClientDetailPage() {
                         />
                     )}
 
-                    <TaskDetailModal
-                        task={selectedTask}
-                        isOpen={isTaskDetailOpen}
-                        onClose={() => setIsTaskDetailOpen(false)}
-                        onUpdate={(updated) => {
-                            setClientTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
-                            setSelectedTask(updated);
-                        }}
-                    />
-
-                    <CreateTaskModal
-                        isOpen={isCreateTaskOpen}
-                        onClose={() => setIsCreateTaskOpen(false)}
-                        onCreated={(created) => setClientTasks(prev => [created, ...prev])}
-                        organizationId={organization?.id ?? ''}
-                        defaultClientId={client.id}
-                        defaultClientName={client.clientName}
-                    />
                 </div>
             )}
 
@@ -427,7 +428,34 @@ export default function ClientDetailPage() {
             )}
 
             {/* Overview tab content */}
-            {activeTab === 'overview' && <>
+            {activeTab === 'overview' && canvasEnabled && <>
+            <ClientWorkspaceCanvas
+                client={client}
+                organizationId={organization?.id ?? ''}
+                refreshKey={activityRefreshKey}
+                onAddWork={(date) => { setCalendarDueDate(date); setIsCreateTaskOpen(true); }}
+                onOpenTask={(taskId) => {
+                    void getTask(taskId).then(result => {
+                        if (!result.task) return;
+                        setSelectedTask(result.task);
+                        setIsTaskDetailOpen(true);
+                    });
+                }}
+                onOpenPlan={() => setActiveTab('campaign', { phase: null })}
+                onOpenPhase={(phase) => setActiveTab('campaign', { phase })}
+                onViewAllTasks={() => setActiveTab('tasks', { phase: null })}
+                onReview={(batchId) => setActiveTab('approvals', { approvalBatch: batchId })}
+                onConnections={() => setActiveTab('integrations')}
+
+                onOpenDeliverables={(id) => router.push(id ? `/deliverables?deliverable=${encodeURIComponent(id)}` : '/deliverables')}
+                onMonthChange={setHoursMonth}
+                selectedMonth={hoursMonth}
+            />
+            <ClientSetupScopeCard client={client} />
+            <ActivityFeed client={client} refreshKey={activityRefreshKey} />
+            </>}
+
+            {activeTab === 'overview' && !canvasEnabled && <>
 
             <ClientSetupScopeCard client={client} />
             <ClientOverviewWidget client={client} organizationId={organization?.id ?? ''} />
@@ -523,6 +551,29 @@ export default function ClientDetailPage() {
             </div>
 
             </> /* end overview tab */}
+
+            <TaskDetailModal
+                task={selectedTask}
+                isOpen={isTaskDetailOpen}
+                onClose={() => setIsTaskDetailOpen(false)}
+                onUpdate={(updated) => {
+                    setClientTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
+                    setSelectedTask(updated);
+                    setActivityRefreshKey(key => key + 1);
+                }}
+            />
+            <CreateTaskModal
+                isOpen={isCreateTaskOpen}
+                onClose={() => { setIsCreateTaskOpen(false); setCalendarDueDate(undefined); }}
+                onCreated={(created) => {
+                    setClientTasks(prev => [created, ...prev]);
+                    setActivityRefreshKey(key => key + 1);
+                }}
+                organizationId={organization?.id ?? ''}
+                defaultDueDate={calendarDueDate}
+                defaultClientId={client.id}
+                defaultClientName={client.clientName}
+            />
 
             {/* Reassign Modal */}
             {showReassign && (

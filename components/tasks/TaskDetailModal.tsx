@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useId } from 'react';
 import { X, Clock, Calendar, Tag, CheckSquare, MessageSquare, ChevronDown, Trash2, Plus, UserCircle2, PenLine, RefreshCw, Building2 } from 'lucide-react';
 import {
     createTimeLog,
@@ -20,12 +20,15 @@ import { groupSegmentsForDisplay, sumActiveSeconds } from '@/lib/timer/segments'
 import { timeLogSyncState, canPushToBasecamp } from '@/lib/timesheets/log-sync-state';
 import { completeTaskWithReconciliation } from '@/lib/tasks/task-completion';
 import { TaskCompletionDrawer } from './TaskCompletionDrawer';
+import { startDateForDay, scheduleDateError, estimateFromInput } from '@/lib/tasks/schedule-edit';
 import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
 
 interface TaskDetailModalProps {
     task: Task | null;
     isOpen: boolean;
     initialCompletion?: boolean;
+    /** Render the shared editor inside an existing workspace drawer. */
+    embedded?: boolean;
     onClose: () => void;
     onUpdate?: (task: Task) => void;
     onDelete?: (taskId: string) => void;
@@ -147,7 +150,7 @@ function TaskTimeLogRow({
     );
 }
 
-export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId, initialCompletion = false }: TaskDetailModalProps) {
+export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId, initialCompletion = false, embedded = false }: TaskDetailModalProps) {
     const { organization, memberships } = useOrganization();
     const { runningTimer, pausedTimers, startTask, pause, beginStop } = useTimer();
     const [mounted, setMounted] = useState(false);
@@ -177,7 +180,11 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const [status, setStatus] = useState<TaskStatus>('todo');
     const [priority, setPriority] = useState<TaskPriority>('medium');
     const [category, setCategory] = useState<TaskCategory | ''>('');
+    const fieldId = useId();
     const [dueDate, setDueDate] = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [estimate, setEstimate] = useState('');
+    const [saveError, setSaveError] = useState<string | null>(null);
     const [tags, setTags] = useState<string[]>([]);
     const [newTag, setNewTag] = useState('');
     const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
@@ -205,6 +212,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         setPriority(task.priority ?? 'medium');
         setCategory((task.category as TaskCategory) ?? '');
         setDueDate(task.dueDate ? task.dueDate.slice(0, 10) : '');
+        setStartDate(task.startDate?.slice(0, 10) ?? '');
+        setEstimate(task.estimatedHours == null ? '' : String(task.estimatedHours));
+        setSaveError(null);
         setTags(task.tags ?? []);
         setAssigneeIds(task.assigneeIds ?? []);
         setLoggedHours(0);
@@ -323,11 +333,19 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const save = useCallback(async (patch: Parameters<typeof updateTask>[1]) => {
         if (!task) return;
         setSaving(true);
-        const result = await updateTask(task.id, { ...patch, updatedBy: currentUserId });
-        setSaving(false);
-        if (result.success && result.data) {
-            onUpdate?.(result.data);
-        }
+        setSaveError(null);
+        try {
+            const result = await updateTask(task.id, { ...patch, updatedBy: currentUserId });
+            if (result.success && result.data) {
+                onUpdate?.(result.data);
+                return true;
+            }
+            setSaveError('Could not save changes. Check the task and try again.');
+            return false;
+        } catch {
+            setSaveError('Could not confirm the save. Refresh the task before retrying.');
+            return false;
+        } finally { setSaving(false); }
     }, [task?.id, currentUserId, onUpdate]);
 
     const handleStatusChange = async (newStatus: TaskStatus) => {
@@ -336,8 +354,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             setShowCompletion(true);
             return;
         }
+        const previous = status;
         setStatus(newStatus);
-        await save({ status: newStatus });
+        if (!await save({ status: newStatus })) setStatus(previous);
     };
 
     const openAttempt = task
@@ -431,8 +450,11 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     };
 
     const handleDueDateChange = async (date: string) => {
+        const error = scheduleDateError(startDate, date);
+        if (error) { setSaveError(error); return; }
+        const previous = dueDate;
         setDueDate(date);
-        await save({ dueDate: date || undefined });
+        if (!await save({ dueDate: date || null })) setDueDate(previous);
     };
 
     const handleCategoryChange = async (cat: TaskCategory | '') => {
@@ -506,8 +528,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         const next = assigneeIds.includes(memberId)
             ? assigneeIds.filter(id => id !== memberId)
             : [...assigneeIds, memberId];
+        const previous = assigneeIds;
         setAssigneeIds(next);
-        await save({ assigneeIds: next });
+        if (!await save({ assigneeIds: next })) setAssigneeIds(previous);
     };
 
     const isThisTaskRunning = runningTimer?.taskId === task?.id;
@@ -537,20 +560,13 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
 
     return (
         <>
-            {/* Backdrop */}
-            <div
-                className={cn(
-                    "fixed inset-0 z-[110] bg-background/80 backdrop-blur-sm transition-opacity duration-300",
-                    isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
-                )}
-                onClick={onClose}
-            />
+            {!embedded && <div className={cn("fixed inset-0 z-[110] bg-background/80 backdrop-blur-sm transition-opacity duration-300", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")} onClick={onClose} />}
 
             {/* Slide-over panel */}
             <div
                 className={cn(
-                    "fixed inset-y-0 right-0 z-[120] w-full max-w-xl bg-card border-l border-border shadow-2xl transition-transform duration-300 ease-in-out",
-                    isOpen ? "translate-x-0" : "translate-x-full"
+                    embedded ? "h-full min-h-0 w-full bg-card" : "fixed inset-y-0 right-0 z-[120] w-full max-w-xl bg-card border-l border-border shadow-2xl transition-transform duration-300 ease-in-out",
+                    !embedded && (isOpen ? "translate-x-0" : "translate-x-full")
                 )}
             >
                 <div className="flex flex-col h-full">
@@ -609,6 +625,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                             )}
                             <button
                                 onClick={onClose}
+                                aria-label="Close task details"
                                 className="p-2 hover:bg-muted rounded-lg text-muted-foreground transition-colors"
                             >
                                 <X className="h-5 w-5" />
@@ -617,10 +634,12 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-6 space-y-7 custom-scrollbar">
+                        {saveError && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{saveError}</p>}
                         {/* Title */}
                         <div>
                             <input
                                 type="text"
+                                disabled={saving}
                                 value={title}
                                 onChange={e => setTitle(e.target.value)}
                                 onBlur={handleTitleBlur}
@@ -639,6 +658,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                         <div>
                             <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Description</label>
                             <textarea
+                                disabled={saving}
                                 value={description}
                                 onChange={e => setDescription(e.target.value)}
                                 onBlur={handleDescriptionBlur}
@@ -650,9 +670,11 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                         {/* Status & Priority */}
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Status</label>
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground" htmlFor={`${fieldId}-status`}>Status</label>
                                 <div className="relative">
                                     <select
+                                        id={`${fieldId}-status`}
+                                        disabled={saving}
                                         value={status}
                                         onChange={e => handleStatusChange(e.target.value as TaskStatus)}
                                         className="w-full appearance-none p-2 pr-8 rounded-lg border border-border bg-muted/30 text-sm focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
@@ -668,6 +690,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                 <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Priority</label>
                                 <div className="relative">
                                     <select
+                                        disabled={saving}
                                         value={priority}
                                         onChange={e => handlePriorityChange(e.target.value as TaskPriority)}
                                         className="w-full appearance-none p-2 pr-8 rounded-lg border border-border bg-muted/30 text-sm focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
@@ -702,13 +725,36 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                             </div>
                         </div>
 
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label htmlFor={`${fieldId}-start-date`} className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Start date</label>
+                                <input id={`${fieldId}-start-date`} type="date" value={startDate} disabled={saving} max={dueDate || undefined} onChange={async event => {
+                                    const date = event.target.value;
+                                    const error = scheduleDateError(date, dueDate);
+                                    if (error) { setSaveError(error); return; }
+                                    const previous = startDate;
+                                    setStartDate(date);
+                                    if (!await save({ startDate: startDateForDay(date, task.startDate) })) setStartDate(previous);
+                                }} className="w-full rounded-lg border border-border bg-muted/30 p-2 text-sm focus-visible:ring-2 focus-visible:ring-ring" />
+                            </div>
+                            <div className="space-y-2">
+                                <label htmlFor={`${fieldId}-estimate-hours`} className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Estimate (hours)</label>
+                                <input id={`${fieldId}-estimate-hours`} type="number" min="0" step="any" value={estimate} disabled={saving} placeholder="No estimate" onChange={event => setEstimate(event.target.value)} onBlur={async () => {
+                                    const parsed = estimateFromInput(estimate);
+                                    if (parsed.error) { setSaveError(parsed.error); return; }
+                                    if (parsed.value !== (task.estimatedHours ?? null)) await save({ estimatedHours: parsed.value });
+                                }} className="w-full rounded-lg border border-border bg-muted/30 p-2 text-sm focus-visible:ring-2 focus-visible:ring-ring" />
+                            </div>
+                        </div>
+
                         {/* Due Date */}
                         <div className="space-y-2">
-                            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Due Date</label>
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground" htmlFor={`${fieldId}-due-date`}>Due Date</label>
                             <div className="flex gap-2 mb-2">
                                 {[{ label: 'Today', offset: 0 }, { label: 'Tomorrow', offset: 1 }, { label: 'Next Week', offset: 7 }].map(({ label, offset }) => (
                                     <button
                                         key={label}
+                                        disabled={saving}
                                         onClick={() => setQuickDate(offset)}
                                         className="px-3 py-1.5 rounded-lg border border-border text-xs hover:bg-muted transition-colors flex items-center gap-1.5"
                                     >
@@ -718,6 +764,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                             </div>
                             <input
                                 type="date"
+                                id={`${fieldId}-due-date`}
+                                min={startDate || undefined}
+                                disabled={saving}
                                 value={dueDate}
                                 onChange={e => handleDueDateChange(e.target.value)}
                                 className="w-full bg-muted/30 border border-border rounded-lg p-2 text-sm focus:ring-1 focus:ring-primary focus:border-primary"
@@ -737,6 +786,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                             <button
                                                 key={m.id}
                                                 type="button"
+                                                disabled={saving}
                                                 onClick={() => handleAssigneeToggle(m.id)}
                                                 className={cn(
                                                     'px-3 py-1.5 rounded-full text-xs border transition-all',

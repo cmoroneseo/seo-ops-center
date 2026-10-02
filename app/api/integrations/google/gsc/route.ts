@@ -1,9 +1,12 @@
+import { scheduleGscSync } from '@/lib/gsc/schedule';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
 import { logClientActivity } from '@/lib/supabase/client-activity';
 import { createGscHandlers } from '@/lib/google/gsc-route';
 import { GscError, readGscSites } from '@/lib/google/gsc-properties';
 import { withPropertyLogos } from '@/lib/google/property-branding';
+
+export const maxDuration = 90;
 
 const handlers = createGscHandlers({
     authorize: requireClientIntegrationManager,
@@ -59,6 +62,7 @@ const handlers = createGscHandlers({
         }).eq('organization_id', auth.organizationId).eq('client_id', auth.clientId).eq('service', 'gsc')
             .neq('sync_status', 'disconnected').filter('credentials', 'eq', JSON.stringify(credentials)).select('id').single();
         if (error) throw new GscError('Property could not be saved. Refresh the list and try again.', 409);
+        scheduleGscSync(auth.organizationId, auth.clientId);
     },
     async activity(auth, site, previous) {
         await logClientActivity({ organizationId: auth.organizationId, clientId: auth.clientId,

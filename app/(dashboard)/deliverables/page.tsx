@@ -5,6 +5,7 @@ import {
     Package, PackageCheck, ChevronLeft, ChevronRight, RefreshCw,
     Factory, AlertTriangle, Percent, X, Calendar, User as UserIcon,
 } from 'lucide-react';
+import { getDeliverable } from '@/lib/supabase/deliverables';
 import { cn } from '@/lib/utils';
 import { Deliverable, DeliverableType } from '@/lib/types';
 import { useOrganization } from '@/components/providers/organization-provider';
@@ -34,6 +35,28 @@ export default function DeliverablesPage() {
     const [selected, setSelected] = useState<Deliverable | null>(null);
     const [cellFilter, setCellFilter] = useState<{ clientId: string; type: DeliverableType } | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
+
+    const [recordError, setRecordError] = useState('');
+    const recordOrganizationId = organization?.id;
+    useEffect(() => {
+        if (!recordOrganizationId) return;
+        let cancelled = false;
+        setSelected(null);
+        setRecordError('');
+        const id = new URLSearchParams(window.location.search).get('deliverable');
+        if (id) getDeliverable(recordOrganizationId, id).then(record => {
+            if (cancelled) return;
+            if (record) setSelected(record);
+            else setRecordError('This deliverable is unavailable in the current organization.');
+        }).catch(() => { if (!cancelled) setRecordError('The deliverable could not be loaded. Refresh to retry.'); });
+        return () => { cancelled = true; };
+    }, [recordOrganizationId]);
+    const closeRecord = () => {
+        setSelected(null);
+        const url = new URL(window.location.href);
+        url.searchParams.delete('deliverable');
+        window.history.replaceState(null, '', url);
+    };
 
     // Default lens by role once membership resolves
     useEffect(() => {
@@ -106,6 +129,7 @@ export default function DeliverablesPage() {
 
     return (
         <div className="space-y-6">
+            {recordError && <p role="alert" className="text-sm text-destructive">{recordError}</p>}
             {/* Header */}
             <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
@@ -282,7 +306,7 @@ export default function DeliverablesPage() {
             <DeliverableDetailPanel
                 deliverable={selected}
                 isOpen={selected !== null}
-                onClose={() => setSelected(null)}
+                onClose={closeRecord}
                 onUpdated={onUpdated}
                 onDeleted={(id) => setData((prev) => prev ? { ...prev, deliverables: prev.deliverables.filter((d) => d.id !== id) } : prev)}
                 organizationId={organization?.id ?? ''}
