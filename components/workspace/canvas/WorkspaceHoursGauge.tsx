@@ -6,7 +6,7 @@ function formatHours(value: number): string {
     return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-export function WorkspaceHoursGauge({ model, onViewTime }: { model: HoursModel; onViewTime: () => void }) {
+export function WorkspaceHoursGauge({ model }: { model: HoursModel }) {
     const gauge = model.gauge;
     const number = gauge.mode === 'arc' && gauge.logged != null ? formatHours(gauge.logged) : model.monthLogged != null && gauge.mode !== 'unavailable' ? formatHours(model.monthLogged) : null;
 
@@ -35,7 +35,6 @@ export function WorkspaceHoursGauge({ model, onViewTime }: { model: HoursModel; 
             )}
             <p className="mt-2 text-xs text-muted-foreground">{model.detail}</p>
             {model.monthUnavailable && <p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-400">Selected-month hours could not be loaded.</p>}
-            <button type="button" onClick={onViewTime} className="mt-3 rounded-md py-1 text-sm font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">View time details</button>
         </section>
     );
 }

@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { updateTask } from '@/lib/supabase/tasks';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
+import { dueDateMoveError } from '@/lib/workspace-canvas/calendar';
 import { monthKey } from '@/lib/marketing-plan-execution';
 import type { RoadmapPhase } from '@/lib/marketing-plan-roadmap';
 import type { ClientProject } from '@/lib/types';
@@ -74,7 +77,6 @@ export function ClientWorkspaceCanvas({
     onOpenPhase,
     onViewAllTasks,
     onReview,
-    onViewTime,
     onOpenDeliverables,
     onMonthChange,
     selectedMonth,
@@ -84,13 +86,12 @@ export function ClientWorkspaceCanvas({
     isOwner: boolean;
     refreshKey: number;
     onReassign: () => void;
-    onAddWork: () => void;
+    onAddWork: (date?: string) => void;
     onOpenTask: (taskId: string) => void;
     onOpenPhase: (phase: RoadmapPhase) => void;
     onOpenPlan: () => void;
     onViewAllTasks: () => void;
     onReview: (batchId: string) => void;
-    onViewTime: () => void;
     onOpenDeliverables: () => void;
     onMonthChange: (month: string) => void;
     selectedMonth?: string | null;
@@ -99,20 +100,14 @@ export function ClientWorkspaceCanvas({
     const requestId = useRef(0);
     const actionClass = useActionClass();
     const reducedMotion = useReducedMotion();
-    const [width, setWidth] = useState(0);
+    const { userId } = useCurrentMember();
+    const [calendarRefresh, setCalendarRefresh] = useState(0);
+    const [calendarSaving, setCalendarSaving] = useState(false);
+    const [calendarError, setCalendarError] = useState<string | null>(null);
     const [month, setMonth] = useState<string | null>(null);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [model, setModel] = useState<WorkspaceCanvasModel | null>(null);
     const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        const element = rootRef.current;
-        if (!element) return;
-        const observer = new ResizeObserver(() => setWidth(element.clientWidth));
-        observer.observe(element);
-        setWidth(element.clientWidth);
-        return () => observer.disconnect();
-    }, []);
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -162,9 +157,8 @@ export function ClientWorkspaceCanvas({
             controller.abort();
             requestId.current += 1;
         };
-    }, [client, organizationId, month, refreshKey]);
+    }, [client, organizationId, month, refreshKey, calendarRefresh]);
 
-    const compactTimeline = width > 0 && width < 760;
     const selected = model?.cards.find(card => card.id === selectedId) ?? null;
     const href = siteHref(client.domain);
     const changeMonth = (delta: number) => {
@@ -173,6 +167,24 @@ export function ClientWorkspaceCanvas({
         setMonth(nextMonth);
         onMonthChange(nextMonth);
         setSelectedId(null);
+    };
+
+    const moveDueDate = async (cardId: string, date: string) => {
+        const card = model?.cards.find(item => item.id === cardId);
+        if (!card || loading || calendarSaving) return;
+        const invalid = dueDateMoveError(card, date);
+        if (invalid) { setCalendarError(invalid); return; }
+        if (card.dueDate === date) return;
+        setCalendarError(null);
+        setCalendarSaving(true);
+        try {
+            const result = await updateTask(card.taskId!, { dueDate: date, updatedBy: userId || undefined });
+            if (!result.success) { setCalendarError('Could not save the task date. Its schedule has not changed. Try again.'); return; }
+            setCalendarRefresh(value => value + 1);
+            window.dispatchEvent(new Event('client-activity:data-changed'));
+        } catch {
+            setCalendarError('Could not save the task date. Refresh to verify its schedule before trying again.');
+        } finally { setCalendarSaving(false); }
     };
 
     return (
@@ -190,7 +202,7 @@ export function ClientWorkspaceCanvas({
                         <button type="button" aria-label="Next month" onClick={() => changeMonth(1)} className="rounded-md border border-border p-2 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ChevronRight className="h-4 w-4" /></button>
                     </div>
                 </div>
-                <button type="button" onClick={onAddWork} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-base font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${actionClass}`}>
+                <button type="button" onClick={() => onAddWork()} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-base font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${actionClass}`}>
                     <Plus className="h-4 w-4" /> Add work
                 </button>
             </div>
@@ -208,13 +220,13 @@ export function ClientWorkspaceCanvas({
                     <div className="grid items-start gap-4 @min-[960px]:grid-cols-[minmax(0,3fr)_minmax(240px,1fr)]">
                         <WorkspacePerformancePanel model={model.performance} reducedMotion={reducedMotion} />
                         <div className="space-y-4">
-                            <WorkspaceHoursGauge model={model.hours} onViewTime={onViewTime} />
+                            <WorkspaceHoursGauge model={model.hours} />
                             <WorkspaceAttentionPanel model={model.attention} onReview={onReview} onOpenDeliverables={onOpenDeliverables} onOpenTask={onOpenTask} />
                         </div>
                     </div>
                     <WorkspacePhaseRail model={model.phases} onOpenPhase={onOpenPhase} onCreatePlan={onOpenPlan} />
                     <WorkspaceWorkBoard model={model.board} timeline={model.timeline} selectedId={selected?.id ?? null} onSelect={setSelectedId} onViewAll={onViewAllTasks} onOpenDeliverables={onOpenDeliverables} />
-                    <WorkspaceMonthTimeline onViewTime={onViewTime} model={model.timeline} monthLabel={model.monthLabel} compact={compactTimeline} onPrevious={() => changeMonth(-1)} onNext={() => changeMonth(1)} onSelect={setSelectedId} />
+                    <WorkspaceMonthTimeline model={model.timeline} cards={model.cards} month={model.month} monthLabel={model.monthLabel} loading={loading} unavailable={model.board.state === 'error' || model.board.tasksUnavailable || model.attention.deliverablesUnavailable || model.phases.state === 'error'} saving={calendarSaving} error={calendarError} onPrevious={() => changeMonth(-1)} onNext={() => changeMonth(1)} onToday={() => { const current = monthKey(); setMonth(current); onMonthChange(current); }} onSelect={setSelectedId} onAddWork={onAddWork} onOpenDeliverables={onOpenDeliverables} onMoveDueDate={(cardId, date) => { void moveDueDate(cardId, date); }} />
                 </>
             )}
                 <Dialog open={!!selected} onOpenChange={open => { if (!open) setSelectedId(null); }}>

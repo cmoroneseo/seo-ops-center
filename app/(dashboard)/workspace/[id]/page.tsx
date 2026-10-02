@@ -80,7 +80,7 @@ export default function ClientDetailPage() {
     }, [id]);
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
     const [loggedHours, setLoggedHours] = useState<number | undefined>(undefined);
-    const [showTimeDetails, setShowTimeDetails] = useState(false);
+    const [calendarDueDate, setCalendarDueDate] = useState<string | undefined>();
     const [hoursMonth, setHoursMonth] = useState<string | null>(null);
     const canvasEnabled = workspaceCanvasEnabled();
     const [tasksLoading, setTasksLoading] = useState(false);
@@ -428,7 +428,7 @@ export default function ClientDetailPage() {
                 isOwner={isOwner}
                 refreshKey={activityRefreshKey}
                 onReassign={() => setShowReassign(true)}
-                onAddWork={() => setIsCreateTaskOpen(true)}
+                onAddWork={(date) => { setCalendarDueDate(date); setIsCreateTaskOpen(true); }}
                 onOpenTask={(taskId) => {
                     void getTask(taskId).then(result => {
                         if (!result.task) return;
@@ -440,16 +440,12 @@ export default function ClientDetailPage() {
                 onOpenPhase={(phase) => setActiveTab('campaign', { phase })}
                 onViewAllTasks={() => setActiveTab('tasks', { phase: null })}
                 onReview={(batchId) => setActiveTab('approvals', { approvalBatch: batchId })}
-                onViewTime={() => { setShowTimeDetails(true); document.getElementById('client-time-details')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); }}
+
                 onOpenDeliverables={() => document.getElementById('client-deliverables')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })}
                 onMonthChange={setHoursMonth}
                 selectedMonth={hoursMonth}
             />
             <ClientSetupScopeCard client={client} />
-            <details id="client-time-details" open={showTimeDetails} onToggle={event => setShowTimeDetails(event.currentTarget.open)} className="rounded-xl border border-border bg-card p-4">
-                <summary className="cursor-pointer text-sm font-medium">Time details &amp; hour logging</summary>
-                {showTimeDetails && <div className="mt-4"><MonthlyPlannerCard client={client} selectedMonth={hoursMonth} onMonthChange={setHoursMonth} /></div>}
-            </details>
             <div id="client-deliverables">
                 <ClientDeliverablesTab
                     organizationId={organization?.id ?? ''}
@@ -572,12 +568,13 @@ export default function ClientDetailPage() {
             />
             <CreateTaskModal
                 isOpen={isCreateTaskOpen}
-                onClose={() => setIsCreateTaskOpen(false)}
+                onClose={() => { setIsCreateTaskOpen(false); setCalendarDueDate(undefined); }}
                 onCreated={(created) => {
                     setClientTasks(prev => [created, ...prev]);
                     setActivityRefreshKey(key => key + 1);
                 }}
                 organizationId={organization?.id ?? ''}
+                defaultDueDate={calendarDueDate}
                 defaultClientId={client.id}
                 defaultClientName={client.clientName}
             />
