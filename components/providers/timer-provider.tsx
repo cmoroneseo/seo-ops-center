@@ -164,13 +164,13 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             if (options.startedAt) {
                 throw new Error('Pause or stop the current timer before starting from an earlier time.');
             }
-            return switchToTask({ taskId: options.taskId, title: options.taskTitle ?? options.clientName }, confirmSwitch);
+            return switchToTask({ taskId: options.taskId, title: options.taskTitle ?? options.clientName, plannerEventId: options.plannerEventId }, confirmSwitch);
         }
-        await mutate(startTimerMutation(
+        await mutate({ ...startTimerMutation(
             options.taskId,
             options.startedAt,
             Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-        ));
+        ), ...(options.plannerEventId ? { plannerEventId: options.plannerEventId } : {}) });
         return true;
     }, [mutate, runningTimer, switchToTask]);
 
@@ -202,7 +202,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
             ...(options.countsTowardBudget === undefined ? {} : { countsTowardBudget: options.countsTowardBudget }),
         }));
-        if (!attempt.taskId) return state;
+        if (!attempt.taskId || attempt.plannerEventId) return state;
         const updated = await updateTask(attempt.taskId, {
             scheduledMinutes: trackedBlockMinutes(totalAttemptActiveSeconds(attempt)),
         });

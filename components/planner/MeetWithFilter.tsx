@@ -23,7 +23,7 @@ export function MeetWithFilter({ members, selectedIds, onToggle }: MeetWithFilte
 
     return (
         <div className="border-b border-border/60 px-3 py-3">
-            <div className="mb-2 text-sm font-medium">Meet with</div>
+            <div className="mb-2 text-sm font-medium">Teammates</div>
 
             <div className="relative">
                 <Users className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />

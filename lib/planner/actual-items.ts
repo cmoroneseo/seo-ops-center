@@ -19,6 +19,7 @@ export function shouldRenderForecast(task: Task, attempts: TimerAttempt[]): bool
     if (!task.startDate) return false;
     return !attempts.some(attempt => (
         attempt.taskId === task.id
+        && !attempt.plannerEventId
         && (attempt.status === 'in_progress' || attempt.status === 'logged')
         && Boolean(attempt.plannedStartsAt)
         && sameInstant(attempt.plannedStartsAt!, task.startDate!)

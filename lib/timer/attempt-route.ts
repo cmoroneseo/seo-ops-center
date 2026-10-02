@@ -108,10 +108,10 @@ export async function completeFinalizedTask(
 type JsonObject = Record<string, unknown>;
 
 const actionFields: Record<TimerMutationRequest['action'], readonly string[]> = {
-    start: ['action', 'taskId', 'now', 'timeZone'],
+    start: ['action', 'taskId', 'now', 'timeZone', 'plannerEventId'],
     pause: ['action', 'timeLogId', 'now'],
     resume: ['action', 'timeLogId', 'now'],
-    switch: ['action', 'fromTimeLogId', 'toTimeLogId', 'toTaskId', 'now'],
+    switch: ['action', 'fromTimeLogId', 'toTimeLogId', 'toTaskId', 'now', 'plannerEventId'],
     begin_stop: ['action', 'timeLogId', 'now'],
     finalize: [
         'action',
@@ -192,10 +192,12 @@ function parseTimerRequest(value: unknown): TimerMutationRequest | null {
             || !isOptionalInstant(value.now)
             || hasExplicitInstant !== hasTimeZone
             || (hasTimeZone && !isValidTimeZone(value.timeZone))
+            || (value.plannerEventId !== undefined && !isNonEmptyString(value.plannerEventId))
         ) return null;
         return {
             action,
             taskId: value.taskId,
+            ...(value.plannerEventId ? { plannerEventId: value.plannerEventId as string } : {}),
             ...(value.now ? { now: value.now, timeZone: value.timeZone as string } : {}),
         };
     }
@@ -210,6 +212,7 @@ function parseTimerRequest(value: unknown): TimerMutationRequest | null {
         if (
             !isNonEmptyString(value.fromTimeLogId)
             || hasAttempt === hasTask
+            || (value.plannerEventId !== undefined && (!hasTask || !isNonEmptyString(value.plannerEventId)))
             || !isOptionalInstant(value.now)
         ) return null;
         return {
@@ -217,6 +220,7 @@ function parseTimerRequest(value: unknown): TimerMutationRequest | null {
             fromTimeLogId: value.fromTimeLogId,
             ...(hasAttempt ? { toTimeLogId: value.toTimeLogId as string } : {}),
             ...(hasTask ? { toTaskId: value.toTaskId as string } : {}),
+            ...(value.plannerEventId ? { plannerEventId: value.plannerEventId as string } : {}),
             ...(value.now ? { now: value.now } : {}),
         };
     }
@@ -294,6 +298,15 @@ async function mutateSimple(
     deps: AttemptRouteDeps,
 ): Promise<void> {
     if (input.action === 'start') {
+        if (input.plannerEventId) {
+            await deps.mutateRpc('start_planner_task_session', {
+                p_task_id: input.taskId,
+                p_event_id: input.plannerEventId,
+                p_started_at: mutationInstant(input.now),
+                p_from_time_log_id: null,
+            });
+            return;
+        }
         await deps.mutateRpc('start_task_timer', {
             p_task_id: input.taskId,
             p_started_at: mutationInstant(input.now),
@@ -315,6 +328,15 @@ async function mutateSimple(
         return;
     }
     if (input.action === 'switch') {
+        if (input.plannerEventId) {
+            await deps.mutateRpc('start_planner_task_session', {
+                p_task_id: input.toTaskId,
+                p_event_id: input.plannerEventId,
+                p_started_at: mutationInstant(input.now),
+                p_from_time_log_id: input.fromTimeLogId,
+            });
+            return;
+        }
         await deps.mutateRpc('switch_time_attempt', {
             p_from_time_log_id: input.fromTimeLogId,
             p_to_time_log_id: input.toTimeLogId ?? null,

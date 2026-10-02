@@ -337,6 +337,7 @@ export function EventDetailPanel({
                 date: localDateForInstant(item.startsAt),
                 plannedStartsAt: item.startsAt,
                 plannedMinutes: blockMinutes,
+                plannerEventId: item.plannerEventId,
             },
             { minutes, note: taskLogNote, countsTowardBudget: taskLogCountsBudget },
         ), { syncToBasecamp: bcAvailable && sendToBasecamp });
@@ -390,7 +391,7 @@ export function EventDetailPanel({
         if (!task || !onUnscheduleTask || isUnscheduling) return;
         setIsUnscheduling(true);
         setUnscheduleError(null);
-        const success = await onUnscheduleTask(task.id);
+        const success = await onUnscheduleTask(item.plannerEventId ? item.id : task.id);
         setIsUnscheduling(false);
         if (success) onChanged();
         else setUnscheduleError('Could not remove this task from the calendar. Try again.');
@@ -410,11 +411,24 @@ export function EventDetailPanel({
             additionalMinutes,
             operationId,
         }, {
-            logTime: input => logTaskCompletionTime({
-                ...input,
-                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-                syncToBasecamp,
-            }),
+            logTime: async input => {
+                if (item.plannerEventId && organizationId) {
+                    const existing = await getTimeLogForPlannerEvent(item.plannerEventId);
+                    if (existing) return { success: true, timeLogId: existing.id };
+                    const logged = await createTimeLog(taskBlockLogInput({
+                        organizationId, userId, taskId: task.id, clientId: task.clientId,
+                        taskTitle: task.title, date: localDateForInstant(item.startsAt),
+                        plannedStartsAt: item.startsAt, plannedMinutes: blockMinutes,
+                        plannerEventId: item.plannerEventId,
+                    }, { minutes: input.additionalMinutes, note: '', countsTowardBudget: true }), { syncToBasecamp });
+                    return { success: logged.success, timeLogId: logged.data?.id, error: logged.error };
+                }
+                return logTaskCompletionTime({
+                    ...input,
+                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+                    syncToBasecamp,
+                });
+            },
             markDone: async taskId => {
                 const current = await getTask(taskId);
                 if (current.task?.status === 'done') {
@@ -1038,8 +1052,9 @@ export function EventDetailPanel({
                             className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
                         >
                             <CalendarMinus className="h-3.5 w-3.5" />
-                            {isUnscheduling ? 'Removing…' : 'Remove from calendar'}
+                            {isUnscheduling ? 'Removing…' : item.plannerEventId ? 'Remove session' : 'Remove from calendar'}
                         </button>
+                        {item.plannerEventId && <p className="text-[11px] text-muted-foreground">The task and its other sessions will stay available.</p>}
                         {unscheduleError && (
                             <p className="text-[11px] text-destructive" role="alert">{unscheduleError}</p>
                         )}

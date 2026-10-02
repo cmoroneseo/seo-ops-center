@@ -7,6 +7,7 @@ export type TimerSwitchConfirmation = (prompt: string) => boolean | Promise<bool
 export interface TimerSwitchTarget {
     taskId?: string;
     timeLogId?: string;
+    plannerEventId?: string;
     title: string;
 }
 
@@ -65,6 +66,7 @@ export async function confirmAndSwitchTimer({
         action: 'switch',
         fromTimeLogId: running.id,
         ...(target.timeLogId ? { toTimeLogId: target.timeLogId } : { toTaskId: target.taskId! }),
+        ...(target.plannerEventId && !target.timeLogId ? { plannerEventId: target.plannerEventId } : {}),
     });
     return true;
 }

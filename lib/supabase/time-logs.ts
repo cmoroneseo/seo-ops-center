@@ -213,8 +213,9 @@ export async function getTimerAttemptsForRange(
                 // that was voided at Basecamp, while the timesheet (rightly)
                 // stops counting it — the two views then disagree about a day.
                 .eq('import_status', COUNTABLE_IMPORT_STATUS)
-                .gte('date', localDateKey(rangeStart))
-                .lte('date', localDateKey(lastVisibleInstant)),
+                // Load consumed session snapshots even if the work was logged
+                // on a different day, so its planned block cannot reappear.
+                .or(`and(date.gte.${localDateKey(rangeStart)},date.lte.${localDateKey(lastVisibleInstant)}),and(planned_starts_at.gte.${rangeStart.toISOString()},planned_starts_at.lt.${rangeEnd.toISOString()})`),
             supabase
                 .from('time_logs')
                 .select(selection)
