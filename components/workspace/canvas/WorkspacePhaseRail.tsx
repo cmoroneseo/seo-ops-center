@@ -28,8 +28,8 @@ export function WorkspacePhaseRail({
                 </div>
             )}
             {model.state === 'ready' && (
-                <>
-                {populated.length > 0 && <div className="flex overflow-x-auto rounded-lg border border-border">
+                <div className="flex flex-wrap items-center gap-3">
+                {populated.length > 0 && <div className="flex min-w-0 flex-1 overflow-x-auto rounded-lg border border-border">
                     {populated.map(phase => (
                         <button
                             key={phase.key}
@@ -42,8 +42,8 @@ export function WorkspacePhaseRail({
                         </button>
                     ))}
                 </div>}
-                {empty.length > 0 && <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"><span>Not planned yet:</span>{empty.map(phase => <button key={phase.key} type="button" onClick={() => onOpenPhase(phase.key)} className="rounded px-1 py-1 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{phase.label}</button>)}</div>}
-                </>
+                {empty.length > 0 && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"><span>Not planned yet:</span>{empty.map(phase => <button key={phase.key} type="button" onClick={() => onOpenPhase(phase.key)} className="rounded px-1 py-1 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{phase.label}</button>)}</div>}
+                </div>
             )}
         </section>
     );
