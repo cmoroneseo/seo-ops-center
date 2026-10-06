@@ -106,7 +106,7 @@ export async function middleware(request: NextRequest) {
             response.cookies.getAll().forEach(cookie => unauthorized.cookies.set(cookie))
             return unauthorized
         }
-        if (pathname.startsWith('/portal')) {
+        if (pathname === '/portal' || pathname.startsWith('/portal/')) {
             const login = new URL('/portal/login', request.url)
             login.searchParams.set('next', pathname)
             return NextResponse.redirect(login)

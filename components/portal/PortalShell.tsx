@@ -1,11 +1,13 @@
 'use client';
 
-import Link from 'next/link';
+import NextLink from 'next/link';
+import { PortalLink as Link, PortalViewProvider } from './PortalViewContext';
+import { portalViewHref } from '@/lib/portal/preview-policy';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ChevronDown, LogOut, MessageSquare, Mountain, ShieldCheck } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import type { PortalContact } from '@/lib/portal/session';
+import type { PortalClientScope, PortalContact } from '@/lib/portal/session';
 import './portal.css';
 
 const LINKS = [
@@ -16,14 +18,18 @@ const LINKS = [
     { href: '/portal/messages', label: 'Messages' },
 ];
 
-export function PortalShell({ contact, contacts, pendingCount, children }: {
-    contact: PortalContact; contacts: PortalContact[]; pendingCount: number | null; children: React.ReactNode;
+export function PortalShell({ contact, contacts, pendingCount, children, previewBasePath }: {
+    contact: PortalClientScope | PortalContact; contacts: PortalContact[]; pendingCount: number | null; children: React.ReactNode;
+    previewBasePath?: string;
 }) {
+    const readOnly = Boolean(previewBasePath);
+    const basePath = previewBasePath ?? '/portal';
     const pathname = usePathname();
     const router = useRouter();
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     async function signOut() {
+        if (readOnly) return;
         setBusy(true); setError(null);
         try {
             const supabase = createClient();
@@ -34,6 +40,7 @@ export function PortalShell({ contact, contacts, pendingCount, children }: {
         } catch { setError('Could not sign out. Please try again.'); setBusy(false); }
     }
     async function switchClient(clientId: string) {
+        if (readOnly) return;
         setBusy(true); setError(null);
         try {
             const response = await fetch('/api/client-portal/switch', {
@@ -47,7 +54,9 @@ export function PortalShell({ contact, contacts, pendingCount, children }: {
     }
     const initials = contact.clientName.split(/\s+/).slice(0, 2).map(word => word[0]).join('').toUpperCase();
     return (
+        <PortalViewProvider value={{ basePath, readOnly }}>
         <div className="portal-theme">
+            {readOnly && <aside className="border-b border-border bg-secondary px-4 py-3 text-secondary-foreground print:hidden" aria-label="Client preview"><div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold">Preview as client · {contact.clientName}</p><p className="mt-1 text-xs">Read-only · Shows currently shared content. Approvals, messages, and content review actions are disabled.</p></div><NextLink href={`/workspace/${contact.clientId}?tab=portal`} className="rounded-md border border-border px-3 py-2 text-sm font-semibold hover:bg-muted">Back to Portal management</NextLink></div></aside>}
             <a href="#portal-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-card focus:p-4">Skip to content</a>
             <header className="portal-header">
                 <div className="portal-header-inner">
@@ -58,14 +67,15 @@ export function PortalShell({ contact, contacts, pendingCount, children }: {
                     <p className="portal-client-name">{contact.clientName}</p>
                     <nav className="portal-nav" aria-label="Client portal">
                         {LINKS.map(link => {
-                            const active = link.href === '/portal' ? pathname === '/portal' : pathname.startsWith(link.href);
+                            const href = portalViewHref(link.href, basePath);
+                            const active = link.href === '/portal' ? pathname === basePath : pathname.startsWith(href);
                             return <Link key={link.href} href={link.href} aria-current={active ? 'page' : undefined}>
                                 {link.label}{link.href === '/portal/pending' && pendingCount !== null && pendingCount > 0 && <span className="portal-badge" aria-label={`${pendingCount} waiting on you`}>{pendingCount}</span>}
                             </Link>;
                         })}
                     </nav>
                     <Link href="/portal/messages#message-compose" className="portal-button portal-header-message"><MessageSquare size={16} aria-hidden="true" />Message your team</Link>
-                    <details className="portal-account">
+                    {!readOnly && 'email' in contact && <details className="portal-account">
                         <summary aria-label="Your account"><span className="portal-avatar">{initials}</span><ChevronDown size={13} aria-hidden="true" /></summary>
                         <div className="portal-account-menu">
                             <p className="text-sm font-bold">{contact.displayName}</p>
@@ -78,7 +88,7 @@ export function PortalShell({ contact, contacts, pendingCount, children }: {
                             <button type="button" disabled={busy} onClick={signOut} className="mt-4 flex min-h-10 w-full items-center gap-2 text-sm font-medium"><LogOut size={15} />{busy ? 'Please wait…' : 'Sign out'}</button>
                             {error && <p role="alert" className="mt-2 text-xs text-destructive">{error}</p>}
                         </div>
-                    </details>
+                    </details>}
                 </div>
             </header>
             <main id="portal-content" className="portal-main" key={contact.clientId}>
@@ -87,5 +97,6 @@ export function PortalShell({ contact, contacts, pendingCount, children }: {
                 <footer className="portal-footer mt-8"><span>{contact.organizationName} · {contact.clientName}</span><span className="flex items-center gap-1.5"><ShieldCheck size={13} aria-hidden="true" />Your private client workspace</span></footer>
             </main>
         </div>
+        </PortalViewProvider>
     );
 }

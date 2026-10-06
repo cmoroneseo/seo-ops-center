@@ -13,3 +13,5 @@ Truth: No sample data in production. No invented active campaign phase. Publishe
 Verification: Desktop 1440px, 390px phone, empty overview, shared plan, message send rejection, reports, and magic-link login. Preview captures use clearly labeled synthetic data through a temporary development-only route that is removed before release.
 
 Theme: Use the app’s inherited semantic colors in light and dark modes. No separate navy/blue/coral palette or background imagery. The mockup guides layout only. Earlier review captures predate this theme correction.
+
+Staff preview: Portal management opens `/portal-preview/[clientId]` in a new tab. It verifies staff membership in the client’s organization, then reuses the client portal’s data loaders and page components. Navigation stays in that client’s preview; a persistent banner explains read-only mode and links back to management. Unshared plans and reports remain hidden. Decisions, messages, review handoffs, account switching, and sign-out are disabled or unavailable. Preview creates no contacts, invites, tokens, cookies, or records.

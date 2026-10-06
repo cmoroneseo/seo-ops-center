@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { PortalLink as Link, usePortalView } from './PortalViewContext';
 import { useState } from 'react';
 import { ArrowRight, Check, ClipboardCheck, ExternalLink, FileText, Layers, TrendingUp, Target, MessageSquare } from 'lucide-react';
 import { labelSubtype, type PortalDeliverable, type PortalPendingItem } from '@/lib/portal/progress';
@@ -12,6 +12,8 @@ import { PortalPerformance } from './PortalPerformance';
 const STATUS = { in_progress: 'In progress', in_review: 'In review', approved: 'Approved · awaiting delivery', published: 'Published', delivered: 'Delivered' };
 
 function PendingLink({ item, children, className }: { item: PortalPendingItem; children: React.ReactNode; className?: string }) {
+    const { readOnly } = usePortalView();
+    if (readOnly && item.external) return <button type="button" className={className} disabled title="Content review is disabled in client preview">{children}</button>;
     return item.external ? <a className={className} href={item.href}>{children}</a> : <Link className={className} href={item.href}>{children}</Link>;
 }
 

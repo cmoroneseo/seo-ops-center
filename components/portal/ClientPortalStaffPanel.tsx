@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import { monthLabel } from '@/lib/reports/sections';
+import Link from 'next/link';
+import { Eye, ExternalLink } from 'lucide-react';
 
 interface ContactRow {
     id: string;
@@ -117,6 +119,7 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
                     Manage what {clientName} sees in their separate client portal. Invite contacts, share the SEO Plan and reports, and respond to their messages.
                     Internal notes, assignees, drafts, and timesheets stay in the workspace.
                 </p>
+                <Link href={`/portal-preview/${clientId}`} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg border border-border bg-secondary px-4 py-2 text-sm font-semibold text-secondary-foreground hover:bg-muted"><Eye size={16} aria-hidden="true" />Preview as client<ExternalLink size={14} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></Link>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             {notice && <p className="text-sm text-muted-foreground">{notice}</p>}
