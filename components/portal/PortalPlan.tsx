@@ -6,6 +6,7 @@ import { MarketingPlanReportBody } from '@/components/reports/MarketingPlanRepor
 import { planEngagementAnchor, planFulfillmentBuckets, type PlanReportView } from '@/lib/marketing-plan-logic';
 import { checklistPlan, type PlanDecisionState, type PortalFeedbackEntry, type PortalPlanItem, type PortalPlanStep } from '@/lib/portal/progress';
 import { FeedbackThread } from './FeedbackThread';
+import { usePortalView } from './PortalViewContext';
 
 function when(iso?: string) {
     if (!iso) return '';
@@ -46,6 +47,7 @@ export function PortalPlan({
     };
     feedback: PortalFeedbackEntry[];
 }) {
+    const { readOnly } = usePortalView();
     const router = useRouter();
     const [view, setView] = useState<PlanReportView>('step');
     const [openKey, setOpenKey] = useState<string | null>(null);
@@ -72,6 +74,7 @@ export function PortalPlan({
     const activeKey = openKey ?? buckets.find(bucket => bucket.total > 0)?.key ?? buckets[0]?.key ?? null;
 
     async function decide(action: 'approved' | 'changes_requested') {
+        if (readOnly) return;
         if (action === 'changes_requested' && !note.trim()) { setError('Tell your team what you’d like changed before sending.'); return; }
         setPending(action);
         setError(null);
@@ -125,6 +128,7 @@ export function PortalPlan({
                 <label className="mt-4 block text-sm font-medium">
                     Note for the team
                     <textarea
+                        disabled={readOnly}
                         value={note}
                         onChange={event => setNote(event.target.value)}
                         rows={3}
@@ -137,7 +141,7 @@ export function PortalPlan({
                 <div className="mt-3 flex flex-wrap gap-2">
                     <button
                         type="button"
-                        disabled={pending !== null || state === 'approved'}
+                        disabled={readOnly || pending !== null || state === 'approved'}
                         onClick={() => decide('approved')}
                         className="portal-button disabled:opacity-50"
                     >
@@ -145,13 +149,14 @@ export function PortalPlan({
                     </button>
                     <button
                         type="button"
-                        disabled={pending !== null || state === 'changes_requested'}
+                        disabled={readOnly || pending !== null || state === 'changes_requested'}
                         onClick={() => decide('changes_requested')}
                         className="rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
                     >
                         {pending === 'changes_requested' ? 'Saving…' : 'Request changes'}
                     </button>
                 </div>
+                {readOnly && <p className="mt-3 text-xs text-muted-foreground">Decisions are disabled in client preview.</p>}
                 <FeedbackThread subjectType="plan" subjectId={planId} entries={feedback} />
             </section>
         </div>

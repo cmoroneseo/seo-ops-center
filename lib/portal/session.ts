@@ -6,16 +6,19 @@ import { isUuid } from './access-policy';
 
 export const PORTAL_CLIENT_COOKIE = 'portal_client_id';
 
-export interface PortalContact {
-    id: string;
+export interface PortalClientScope {
     organizationId: string;
     clientId: string;
-    email: string;
-    displayName: string;
     clientName: string;
     logoUrl?: string;
     launchDate?: string;
     organizationName: string;
+}
+
+export interface PortalContact extends PortalClientScope {
+    id: string;
+    email: string;
+    displayName: string;
 }
 
 export interface PortalIdentity {

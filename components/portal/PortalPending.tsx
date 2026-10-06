@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { PortalLink as Link, usePortalView } from './PortalViewContext';
 import { FeedbackThread } from './FeedbackThread';
 import type { PortalFeedbackEntry, PortalPendingItem } from '@/lib/portal/progress';
 
@@ -13,6 +13,7 @@ export function PortalPending({
     feedback: PortalFeedbackEntry[];
     planId?: string;
 }) {
+    const { readOnly } = usePortalView();
     if (items.length === 0) {
         return (
             <div className="rounded-xl border border-border bg-card p-6">
@@ -41,7 +42,7 @@ export function PortalPending({
                         {item.detail && <p className="mt-2 text-sm text-muted-foreground">{item.detail}</p>}
                         <div className="mt-3">
                             {item.external ? (
-                                <a href={item.href} className="text-sm font-medium text-primary hover:underline">Open content review</a>
+                                readOnly ? <p className="text-sm text-muted-foreground">Content review is disabled in client preview.</p> : <a href={item.href} className="text-sm font-medium text-primary hover:underline">Open content review</a>
                             ) : item.kind === 'plan' ? (
                                 <Link href={item.href} className="text-sm font-medium text-primary hover:underline">Review the SEO Plan</Link>
                             ) : null}

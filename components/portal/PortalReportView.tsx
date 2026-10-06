@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import Link from 'next/link';
+import { PortalLink as Link } from './PortalViewContext';
 import { RenderBlock, type ReportContext } from '@/components/reports/ReportBlocks';
 import { resolveBlocks, type Block, type ReportSectionsField } from '@/lib/reports/blocks';
 import { monthLabel } from '@/lib/reports/sections';

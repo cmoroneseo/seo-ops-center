@@ -11,7 +11,7 @@ import {
     type PlanDecisionState, type PortalDeliverable, type PortalFeedbackEntry, type PortalPendingItem,
     type PortalPlanItem, type PortalPlanStep,
 } from './progress';
-import type { PortalContact } from './session';
+import type { PortalClientScope } from './session';
 
 export interface PortalPlanView {
     shared: boolean;
@@ -68,7 +68,7 @@ function feedbackFrom(rows: Record<string, unknown>[]): PortalFeedbackEntry[] {
     }));
 }
 
-const loadPlan = cache(async (contact: PortalContact): Promise<PortalPlanView> => {
+const loadPlan = cache(async (contact: PortalClientScope): Promise<PortalPlanView> => {
     const admin = createAdminClient();
     const empty: PortalPlanView = {
         shared: false,
@@ -174,7 +174,7 @@ const loadPlan = cache(async (contact: PortalContact): Promise<PortalPlanView> =
     };
 });
 
-const loadWaiting = cache(async (contact: PortalContact) => {
+const loadWaiting = cache(async (contact: PortalClientScope) => {
     const admin = createAdminClient();
     const { data, error } = await admin
         .from('client_portal_waiting_items')
@@ -191,7 +191,7 @@ const loadWaiting = cache(async (contact: PortalContact) => {
     }));
 });
 
-const loadReviews = cache(async (contact: PortalContact) => {
+const loadReviews = cache(async (contact: PortalClientScope) => {
     const admin = createAdminClient();
     const { data, error } = await admin
         .from('content_approval_batches')
@@ -208,7 +208,7 @@ const loadReviews = cache(async (contact: PortalContact) => {
     });
 });
 
-const loadReportSummaries = cache(async (contact: PortalContact): Promise<PortalReportSummary[]> => {
+const loadReportSummaries = cache(async (contact: PortalClientScope): Promise<PortalReportSummary[]> => {
     const admin = createAdminClient();
     const { data: shares, error: shareError } = await admin
         .from('client_portal_report_shares')
@@ -240,7 +240,7 @@ const loadReportSummaries = cache(async (contact: PortalContact): Promise<Portal
         .sort((a, b) => b.reportMonth.localeCompare(a.reportMonth) || b.sharedAt.localeCompare(a.sharedAt));
 });
 
-export const loadPortalHome = cache(async (contact: PortalContact): Promise<PortalHome> => {
+export const loadPortalHome = cache(async (contact: PortalClientScope): Promise<PortalHome> => {
     const admin = createAdminClient();
     const months = recentMonthKeys(new Date(`${portalToday()}T12:00:00Z`));
     const [deliverableResult, plan, waiting, reviews, reports] = await Promise.all([
@@ -290,11 +290,11 @@ export const loadPortalHome = cache(async (contact: PortalContact): Promise<Port
     };
 });
 
-export async function loadPortalPlan(contact: PortalContact): Promise<PortalPlanView> {
+export async function loadPortalPlan(contact: PortalClientScope): Promise<PortalPlanView> {
     return loadPlan(contact);
 }
 
-export async function loadPortalPending(contact: PortalContact): Promise<{
+export async function loadPortalPending(contact: PortalClientScope): Promise<{
     items: PortalPendingItem[];
     feedback: PortalFeedbackEntry[];
 }> {
@@ -320,11 +320,11 @@ export async function loadPortalPending(contact: PortalContact): Promise<{
     };
 }
 
-export async function loadPortalReports(contact: PortalContact): Promise<PortalReportSummary[]> {
+export async function loadPortalReports(contact: PortalClientScope): Promise<PortalReportSummary[]> {
     return loadReportSummaries(contact);
 }
 
-export async function loadPortalReport(contact: PortalContact, reportId: string): Promise<PortalReportDetail | null> {
+export async function loadPortalReport(contact: PortalClientScope, reportId: string): Promise<PortalReportDetail | null> {
     if (!isUuid(reportId)) return null;
     const summaries = await loadReportSummaries(contact);
     const summary = summaries.find(report => report.id === reportId);
@@ -369,13 +369,13 @@ export async function loadPortalReport(contact: PortalContact, reportId: string)
     };
 }
 
-export async function countPending(contact: PortalContact): Promise<number> {
+export async function countPending(contact: PortalClientScope): Promise<number> {
     const [plan, waiting, reviews] = await Promise.all([loadPlan(contact), loadWaiting(contact), loadReviews(contact)]);
     return buildPendingInbox({ plan: plan.shared ? { needsDecision: plan.state === 'awaiting', title: plan.title } : null, waiting, reviews }).length;
 }
 
 /** Home performance follows published, explicitly shared reports only. */
-async function loadPortalPerformance(contact: PortalContact, reports: PortalReportSummary[]): Promise<PortalPerformanceMonth[]> {
+async function loadPortalPerformance(contact: PortalClientScope, reports: PortalReportSummary[]): Promise<PortalPerformanceMonth[]> {
     if (!reports.length) return [];
     const recent = [...new Map(reports.map(report => [report.reportMonth, report])).values()].slice(0, 12);
     const months = [...new Set(recent.flatMap(report => [report.reportMonth, previousMonth(report.reportMonth)]))];
@@ -393,7 +393,7 @@ async function loadPortalPerformance(contact: PortalContact, reports: PortalRepo
     });
 }
 
-export async function loadPortalMessages(contact: PortalContact): Promise<PortalFeedbackEntry[]> {
+export async function loadPortalMessages(contact: PortalClientScope): Promise<PortalFeedbackEntry[]> {
     const { data, error } = await createAdminClient().from('client_portal_feedback')
         .select('id, subject_type, subject_id, author_label, body, created_at, staff_user_id')
         .eq('client_id', contact.clientId).eq('organization_id', contact.organizationId)

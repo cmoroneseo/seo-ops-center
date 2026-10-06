@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
+import { PortalLink as Link } from './PortalViewContext';
 import { ArrowDownRight, ArrowUpRight, CalendarDays, ChartNoAxesCombined } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { monthLabel } from '@/lib/reports/sections';
