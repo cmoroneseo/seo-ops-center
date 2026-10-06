@@ -16,7 +16,7 @@ export function PortalLoginForm() {
     async function submit(event: FormEvent) {
         event.preventDefault(); setPending(true); setMessage(null); setIsError(false);
         try {
-            const response = await fetch('/api/client-portal/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, next }) });
+            const response = await fetch('/api/client-portal/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, next, clientId: params.get('client') }) });
             const body = await response.json().catch(() => null);
             if (!response.ok) throw new Error('Could not send the link. Try again in a moment.');
             setMessage(body?.message ?? 'If this email is invited to a client portal, a sign-in link is on its way. Check your inbox and spam folder.');

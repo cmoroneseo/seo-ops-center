@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json().catch(() => null);
-        await loginPortalEmail(body?.email, body?.next);
+        await loginPortalEmail(body?.email, body?.next, body?.clientId);
     } catch {
         // Same reply whether the address is unknown or the mailer is down.
     }

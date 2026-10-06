@@ -84,3 +84,20 @@ test('a returning portal magic link can open the plan', async () => {
     ));
     assert.equal(response.headers.get('location'), 'https://seo-ops.test/portal/plan');
 });
+
+test('notification links select only a live client verified after authentication', async () => {
+    const { createAuthCallbackGet } = await import('./auth-callback.ts');
+    const allowed = '22222222-2222-4222-8222-222222222222';
+    const selected: string[] = [];
+    const get = createAuthCallbackGet({
+        exchangeCode: async () => ({ id: 'client-1', email: 'client@example.com' }),
+        consumeInvite: async () => true,
+        selectPortalClient: async (id, user) => { assert.equal(user.id, 'client-1'); selected.push(id); return id === allowed; },
+        appOrigin: 'https://seo-ops.test',
+    });
+    const open = (id: string) => get(new Request(`https://seo-ops.test/auth/callback?code=valid&next=/portal/plan&portal_client=${id}`));
+    assert.equal((await open(allowed)).headers.get('location'), 'https://seo-ops.test/portal/plan');
+    assert.match((await open('77777777-7777-4777-8777-777777777777')).headers.get('location') ?? '', /\/portal\/login\?error=/);
+    assert.match((await open('invalid')).headers.get('location') ?? '', /\/portal\/login\?error=/);
+    assert.equal(selected.length, 2);
+});

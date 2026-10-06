@@ -16,7 +16,7 @@ function when(iso?: string) {
 }
 
 export function PortalPlan({
-    planId,
+    planId, revisionId, version, publishedAt,
     title,
     steps,
     items,
@@ -29,7 +29,7 @@ export function PortalPlan({
     decision,
     feedback,
 }: {
-    planId: string;
+    planId: string; revisionId: string; version: number; publishedAt: string;
     title: string;
     steps: PortalPlanStep[];
     items: PortalPlanItem[];
@@ -81,7 +81,7 @@ export function PortalPlan({
         try {
             const response = await fetch('/api/client-portal/decision', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ decision: action, note: note.trim() || undefined }),
+                body: JSON.stringify({ revisionId, decision: action, note: note.trim() || undefined }),
             });
             const payload = await response.json().catch(() => null);
             if (response.status === 401) throw new Error('Your sign-in has expired. Sign in again to save your decision.');
@@ -94,7 +94,7 @@ export function PortalPlan({
 
     return (
         <div className="space-y-6">
-            <div className="text-foreground"><h1 className="text-3xl font-bold tracking-tight">{title}</h1><p className="mt-3 text-sm text-muted-foreground">Your shared roadmap. Review the work ahead and let your team know what you think.</p></div>
+            <div className="text-foreground"><h1 className="text-3xl font-bold tracking-tight">{title}</h1><p className="mt-3 text-sm text-muted-foreground">Version {version} · Published {when(publishedAt)}. Scope and dates reflect this version; completion updates as work is delivered.</p></div>
             <div className="rounded-xl border border-border bg-white p-6 text-neutral-900">
                 <MarketingPlanReportBody
                     view={view}

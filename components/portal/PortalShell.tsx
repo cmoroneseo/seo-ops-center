@@ -4,7 +4,7 @@ import NextLink from 'next/link';
 import { PortalLink as Link, PortalViewProvider } from './PortalViewContext';
 import { portalViewHref } from '@/lib/portal/preview-policy';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronDown, LogOut, MessageSquare, Mountain, ShieldCheck } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { PortalClientScope, PortalContact } from '@/lib/portal/session';
@@ -26,6 +26,9 @@ export function PortalShell({ contact, contacts, pendingCount, children, preview
     const basePath = previewBasePath ?? '/portal';
     const pathname = usePathname();
     const router = useRouter();
+    useEffect(() => {
+        if (!readOnly) void fetch('/api/client-portal/visit', { method: 'POST' }).catch(() => {});
+    }, [readOnly, contact.clientId]);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     async function signOut() {

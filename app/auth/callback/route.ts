@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { createAuthCallbackGet } from '@/lib/security/auth-callback';
+import { PORTAL_CLIENT_COOKIE } from '@/lib/portal/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export async function GET(request: Request) {
@@ -48,6 +49,15 @@ export async function GET(request: Request) {
                 p_email: user.email.toLowerCase(),
             });
             return !error && data === true;
+        },
+        async selectPortalClient(clientId, user) {
+            const { data, error } = await createAdminClient().from('client_portal_contacts')
+                .select('id').eq('client_id', clientId).eq('user_id', user.id)
+                .eq('email', user.email.toLowerCase()).is('revoked_at', null).limit(1).maybeSingle();
+            if (error || !data) return false;
+            cookieStore.set(PORTAL_CLIENT_COOKIE, clientId, { httpOnly: true, sameSite: 'lax',
+                secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 60 * 60 * 24 * 365 });
+            return true;
         },
         appOrigin,
     })(request);

@@ -1,6 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { deliverPortalEmails } from '@/lib/portal/email-delivery';
+import { after, NextRequest, NextResponse } from 'next/server';
 import {
     loadStaffPortal, staffReply, staffInvite, staffRevoke, staffSharePlan, staffShareReport, staffWaiting,
+    staffPublishUpdate, staffAnalytics, staffDeliveryTiming, staffConversation,
 } from '@/lib/portal/staff';
 
 export const dynamic = 'force-dynamic';
@@ -28,8 +30,13 @@ export async function POST(req: NextRequest) {
         : action === 'add_waiting' ? await staffWaiting(record, false)
         : action === 'resolve_waiting' ? await staffWaiting(record, true)
         : action === 'reply' ? await staffReply(record)
+        : action === 'publish_update' ? await staffPublishUpdate(record)
+        : action === 'analytics' ? await staffAnalytics(record)
+        : action === 'delivery_timing' ? await staffDeliveryTiming(record)
+        : action === 'conversation' ? await staffConversation(record)
         : { ok: false as const, status: 400, error: 'Unknown action' };
 
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+    after(async () => { try { await deliverPortalEmails(5); } catch { /* Daily cron retries persisted notifications. */ } });
     return NextResponse.json(result);
 }

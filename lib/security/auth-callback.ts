@@ -1,4 +1,4 @@
-import { safePortalNext } from '@/lib/portal/access-policy';
+import { isUuid, safePortalNext } from '@/lib/portal/access-policy';
 
 interface AuthenticatedUser {
     id: string;
@@ -9,6 +9,7 @@ interface Dependencies {
     exchangeCode(code: string): Promise<AuthenticatedUser | null>;
     consumeInvite(token: string, user: AuthenticatedUser): Promise<boolean>;
     consumePortalInvite?(token: string, user: AuthenticatedUser): Promise<boolean>;
+    selectPortalClient?(clientId: string, user: AuthenticatedUser): Promise<boolean>;
     appOrigin: string;
 }
 
@@ -33,12 +34,17 @@ export function createAuthCallbackGet(dependencies: Dependencies) {
         const user = await dependencies.exchangeCode(code);
         if (!user?.id || !user.email) return errorRedirect(dependencies.appOrigin);
 
+        const selectClient = async () => {
+            const hint = params.get('portal_client');
+            if (!hint) return true;
+            return isUuid(hint) && Boolean(dependencies.selectPortalClient && await dependencies.selectPortalClient(hint, user));
+        };
         const portalToken = params.get('portal_invite');
         if (portalToken) {
             const consumed = dependencies.consumePortalInvite
                 ? await dependencies.consumePortalInvite(portalToken, user)
                 : false;
-            if (!consumed) return errorRedirect(dependencies.appOrigin, '/portal/login');
+            if (!consumed || !await selectClient()) return errorRedirect(dependencies.appOrigin, '/portal/login');
             return Response.redirect(new URL(safePortalNext(params.get('next')), dependencies.appOrigin));
         }
 
@@ -48,6 +54,7 @@ export function createAuthCallbackGet(dependencies: Dependencies) {
         }
 
         const next = params.get('next');
+        if (next?.startsWith('/portal') && !await selectClient()) return errorRedirect(dependencies.appOrigin, '/portal/login');
         const destination = next?.startsWith('/portal')
             ? safePortalNext(next)
             : safeNext(next);

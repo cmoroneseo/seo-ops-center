@@ -73,9 +73,10 @@ export function safePortalNext(value: string | null | undefined): string {
     return '/portal';
 }
 
-export function portalCallbackUrl(siteUrl: string, opts: { portalInvite?: string | null; nextPath?: string | null }): string {
+export function portalCallbackUrl(siteUrl: string, opts: { portalInvite?: string | null; nextPath?: string | null; clientId?: string | null }): string {
     const url = new URL('/auth/callback', siteUrl);
     if (opts.portalInvite) url.searchParams.set('portal_invite', opts.portalInvite);
+    if (isUuid(opts.clientId)) url.searchParams.set('portal_client', opts.clientId);
     url.searchParams.set('next', safePortalNext(opts.nextPath));
     return url.toString();
 }

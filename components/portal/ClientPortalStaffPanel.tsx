@@ -3,7 +3,9 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { monthLabel } from '@/lib/reports/sections';
 import Link from 'next/link';
+import { reportTitleMonthMismatch } from '@/lib/portal/readiness';
 import { Eye, ExternalLink } from 'lucide-react';
+import { PortalReadiness, PortalUpdateManager, PortalTimingManager, PortalConversationManager, type ManagementExtrasData } from './PortalManagementExtras';
 
 interface ContactRow {
     id: string;
@@ -13,10 +15,10 @@ interface ContactRow {
     revoked_at: string | null;
 }
 
-interface StaffPayload {
+interface StaffPayload extends ManagementExtrasData {
     contacts: ContactRow[];
     plan: { id: string; title: string } | null;
-    planShare: { state: string; sharedAt: string; approvalRequestedAt: string } | null;
+    planShare: { state: string; sharedAt: string; approvalRequestedAt: string; version: number; needsPublish: boolean } | null;
     decisions: { id: string; decision: string; actor_label: string; note: string | null; decided_at: string }[];
     reports: { id: string; title: string; report_month: string; status: string }[];
     sharedReportIds: string[];
@@ -31,6 +33,7 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
     const [link, setLink] = useState<string | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const disabled = busy || !data || data.role === 'viewer';
 
     async function reload() {
         const response = await fetch(`/api/client-portal/staff?clientId=${encodeURIComponent(clientId)}`);
@@ -81,33 +84,30 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
 
     async function invite(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
-        const form = new FormData(event.currentTarget);
-        await act({
+        const formElement = event.currentTarget;
+        const form = new FormData(formElement);
+        const result = await act({
             action: 'invite',
             displayName: form.get('displayName'),
             email: form.get('email'),
             nextPath: '/portal',
         });
-        event.currentTarget.reset();
+        if (result?.ok) formElement.reset();
     }
 
     async function addWaiting(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
-        const form = new FormData(event.currentTarget);
+        const formElement = event.currentTarget;
+        const form = new FormData(formElement);
         const deliverableId = String(form.get('deliverableId') ?? '');
-        await act({
+        const result = await act({
             action: 'add_waiting',
             title: form.get('title'),
             detail: form.get('detail'),
+            dueDate: form.get('dueDate'),
+            impact: form.get('impact'),
             ...(deliverableId ? { deliverableId } : {}),
         });
-        event.currentTarget.reset();
-    }
-
-    async function reply(event: FormEvent<HTMLFormElement>) {
-        event.preventDefault();
-        const formElement = event.currentTarget;
-        const result = await act({ action: 'reply', body: new FormData(formElement).get('body') });
         if (result?.ok) formElement.reset();
     }
 
@@ -121,8 +121,10 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
                 </p>
                 <Link href={`/portal-preview/${clientId}`} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg border border-border bg-secondary px-4 py-2 text-sm font-semibold text-secondary-foreground hover:bg-muted"><Eye size={16} aria-hidden="true" />Preview as client<ExternalLink size={14} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></Link>
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            {notice && <p className="text-sm text-muted-foreground">{notice}</p>}
+            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+            {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
+            {!data && !error && <p role="status" className="text-sm text-muted-foreground">Loading portal management…</p>}
+            {data && <PortalReadiness data={data} />}
             {link && (
                 <label className="block text-sm">
                     Sign-in link (works once)
@@ -141,7 +143,7 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
                         Email
                         <input name="email" type="email" required className="mt-1 block rounded-lg border border-border bg-background px-3 py-2" />
                     </label>
-                    <button disabled={busy} className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">
+                    <button disabled={disabled} className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">
                         Send invite
                     </button>
                 </form>
@@ -151,15 +153,15 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
                             <span>
                                 {contact.display_name} · {contact.email}
                                 <span className="ml-2 text-xs text-muted-foreground">
-                                    {contact.revoked_at ? 'Revoked' : contact.user_id ? 'Signed in' : 'Invited'}
+                                    {contact.revoked_at ? 'Revoked' : data?.visits.some(visit => visit.contact_id === contact.id) ? `Visited ${new Date(data.visits.find(visit => visit.contact_id === contact.id)!.visited_at).toLocaleDateString()}` : contact.user_id ? 'Access activated · No visit yet' : 'Invited · No visit yet'}
                                 </span>
                             </span>
                             <span className="flex gap-2">
-                                <button type="button" className="text-primary hover:underline" disabled={busy} onClick={() => act({ action: 'invite', displayName: contact.display_name, email: contact.email, nextPath: '/portal/plan', emailLink: false })}>
+                                <button type="button" className="text-primary hover:underline" disabled={disabled} onClick={() => act({ action: 'invite', displayName: contact.display_name, email: contact.email, nextPath: '/portal/plan', emailLink: false })}>
                                     Copy plan link
                                 </button>
                                 {!contact.revoked_at && (
-                                    <button type="button" className="text-muted-foreground hover:text-destructive" disabled={busy} onClick={() => act({ action: 'revoke', contactId: contact.id })}>
+                                    <button type="button" className="text-muted-foreground hover:text-destructive" disabled={disabled} onClick={() => act({ action: 'revoke', contactId: contact.id })}>
                                         Revoke
                                     </button>
                                 )}
@@ -170,6 +172,8 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
                 </ul>
             </section>
 
+            {data && <PortalUpdateManager data={data} act={act} disabled={disabled} />}
+
             <section className="rounded-xl border border-border bg-card p-5">
                 <h4 className="font-semibold">SEO Plan</h4>
                 {!data?.plan && <p className="mt-2 text-sm text-muted-foreground">Create the SEO Plan before sharing it.</p>}
@@ -177,16 +181,17 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
                     <div className="mt-2 space-y-2 text-sm">
                         <p>{data.plan.title}</p>
                         <p className="text-muted-foreground">
-                            {data.planShare ? `Shared · client status: ${data.planShare.state.replace(/_/g, ' ')}` : 'Not shared'}
+                            {data.planShare ? `Published version ${data.planShare.version} · ${data.planShare.state.replace(/_/g, ' ')}` : 'Not shared'}
                         </p>
+                        {data.planShare?.needsPublish && <p className="text-sm text-muted-foreground">The internal plan differs from the published version. Publish a new version when it is ready for the client.</p>}
                         <div className="flex flex-wrap gap-2">
                             {!data.planShare && (
-                                <button type="button" disabled={busy} onClick={() => act({ action: 'share_plan' })} className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">Share with client</button>
+                                <button type="button" disabled={disabled} onClick={() => act({ action: 'share_plan' })} className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">Publish plan and notify client</button>
                             )}
                             {data.planShare && (
                                 <>
-                                    <button type="button" disabled={busy} onClick={() => act({ action: 'request_plan_again' })} className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-50">Ask for approval again</button>
-                                    <button type="button" disabled={busy} onClick={() => act({ action: 'unshare_plan' })} className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-50">Stop sharing</button>
+                                    <button type="button" disabled={disabled} onClick={() => act({ action: 'request_plan_again' })} className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-50">Publish new version and request approval</button>
+                                    <button type="button" disabled={disabled} onClick={() => act({ action: 'unshare_plan' })} className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-50">Stop sharing</button>
                                 </>
                             )}
                         </div>
@@ -211,11 +216,11 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
                         const shared = data?.sharedReportIds.includes(report.id);
                         return (
                             <li key={report.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                                <span>{report.title} · {monthLabel(report.report_month)} · {report.status}</span>
+                                <span>{report.title} · {monthLabel(report.report_month)} · {report.status}{reportTitleMonthMismatch(report.title, report.report_month) && <span className="mt-1 block text-destructive">Title and reporting month disagree. Correct this in Reports before sharing. <Link href={`/reports/${report.id}`} className="underline">Open report</Link></span>}</span>
                                 {report.status === 'published' ? (
                                     <button
                                         type="button"
-                                        disabled={busy}
+                                        disabled={disabled}
                                         onClick={() => act({ action: shared ? 'unshare_report' : 'share_report', reportId: report.id })}
                                         className="text-primary hover:underline disabled:opacity-50"
                                     >
@@ -235,15 +240,17 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
                 <h4 className="font-semibold">Waiting on the client</h4>
                 <p className="mt-1 text-xs text-muted-foreground">Write what the client should see. This does not copy internal deliverable notes.</p>
                 <form onSubmit={addWaiting} className="mt-3 space-y-2">
-                    <input name="title" required placeholder="What you need from them" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-                    <textarea name="detail" rows={2} placeholder="Optional detail they can act on" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-                    <select name="deliverableId" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                    <label className="block text-sm font-medium">What you need from the client<input name="title" required maxLength={140} className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" /></label>
+                    <label className="block text-sm font-medium">Details (optional)<textarea name="detail" maxLength={2000} rows={2} className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" /></label>
+                    <label className="block text-sm font-medium">Requested response date (optional)<input type="date" name="dueDate" className="mt-1 block rounded-lg border border-border bg-background px-3 py-2 text-sm" /></label>
+                    <label className="block text-sm font-medium">What this unlocks (optional)<input name="impact" maxLength={500} className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" /></label>
+                    <label className="block text-sm font-medium">Related deliverable (optional)<select name="deliverableId" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm">
                         <option value="">Not linked to a deliverable</option>
                         {(data?.deliverables ?? []).map(item => (
                             <option key={item.id} value={item.id}>{item.title} ({item.status})</option>
                         ))}
-                    </select>
-                    <button disabled={busy} className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">Add to their inbox</button>
+                    </select></label>
+                    <button disabled={disabled} className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">Add to their inbox</button>
                 </form>
                 <ul className="mt-4 divide-y divide-border text-sm">
                     {(data?.waiting ?? []).filter(item => !item.resolved_at).map(item => (
@@ -252,31 +259,15 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
                                 <span className="font-medium">{item.title}</span>
                                 {item.detail && <span className="mt-0.5 block text-muted-foreground">{item.detail}</span>}
                             </span>
-                            <button type="button" disabled={busy} onClick={() => act({ action: 'resolve_waiting', waitingId: item.id })} className="text-primary hover:underline">Resolve</button>
+                            <button type="button" disabled={disabled} onClick={() => act({ action: 'resolve_waiting', waitingId: item.id })} className="text-primary hover:underline">Resolve</button>
                         </li>
                     ))}
                 </ul>
             </section>
 
-            <section className="rounded-xl border border-border bg-card p-5">
-                <h4 className="font-semibold">Client conversation</h4>
-                <p className="mt-1 text-xs text-muted-foreground">Replies are visible to invited client contacts in their Messages tab.</p>
-                <form onSubmit={reply} className="mt-4 space-y-2">
-                    <label className="block text-sm font-medium">Reply to the client
-                        <textarea name="body" rows={3} required maxLength={2000} className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" placeholder="A short update or answer for the client" />
-                    </label>
-                    <button disabled={busy} className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">Send portal reply</button>
-                </form>
-                <ul className="mt-3 space-y-2 text-sm">
-                    {(data?.feedback ?? []).map(entry => (
-                        <li key={entry.id} className="rounded-lg bg-muted/40 px-3 py-2">
-                            <p className="text-xs text-muted-foreground">{entry.author_label} · {entry.subject_type} · {new Date(entry.created_at).toLocaleString()}</p>
-                            <p className="mt-1 whitespace-pre-wrap">{entry.body}</p>
-                        </li>
-                    ))}
-                    {data && data.feedback.length === 0 && <li className="text-muted-foreground">No notes yet.</li>}
-                </ul>
-            </section>
+            {data && <PortalTimingManager data={data} act={act} disabled={disabled} />}
+            {data && <PortalConversationManager data={data} act={act} disabled={disabled} />}
+
         </div>
     );
 }
