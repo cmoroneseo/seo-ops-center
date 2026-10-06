@@ -38,6 +38,7 @@ async function database() {
         insert into client_portal_contacts values ('${ids.contact}','${ids.org}','${ids.client}','${ids.user}','Client',null);
     `);
     await db.exec(migration);
+    await db.exec(readFileSync(new URL('../../migrations/071_client_portal_server_reads.sql', import.meta.url), 'utf8'));
     return db;
 }
 
@@ -73,13 +74,15 @@ test('tenant checks and database privileges reject client mutations and cross-or
         await db.exec('set role authenticated');
         await assert.rejects(db.query('select publish_client_portal_plan($1,$2,$3,$4,$5::jsonb)', [ids.org, ids.client, ids.plan, ids.staff, '{}']), /permission denied/);
         await assert.rejects(db.query("insert into client_portal_settings(client_id,organization_id) values ($1,$2)", [ids.client, ids.org]), /permission denied/);
-        assert.equal((await db.query('select * from client_portal_updates')).rows.length, 0);
+        await assert.rejects(db.query('select * from client_portal_updates'), /permission denied/);
         await assert.rejects(db.query('select * from client_portal_email_queue'), /permission denied/);
     } finally { await db.close(); }
 });
 
 test('schema mirrors the reliability migration', () => {
-    assert.ok(readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8').includes(migration));
+    const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
+    assert.ok(schema.includes(migration));
+    assert.ok(schema.includes(readFileSync(new URL('../../migrations/071_client_portal_server_reads.sql', import.meta.url), 'utf8')));
 });
 
 test('an expired final email lease is marked failed rather than left pending forever', async () => {
