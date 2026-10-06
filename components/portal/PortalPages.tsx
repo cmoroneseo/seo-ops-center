@@ -1,16 +1,14 @@
 import { PortalHome } from '@/components/portal/PortalHome';
 import { portalToday, portalDate } from '@/lib/portal/dashboard';
-import { loadPortalHome, loadPortalPlan, loadPortalPending, loadPortalMessages, loadPortalReports, loadPortalReport } from '@/lib/portal/data';
+import { loadPortalHome, loadPortalPlan, loadPortalPending, loadPortalConversations, loadPortalReports, loadPortalReport } from '@/lib/portal/data';
 import { PortalPlan } from '@/components/portal/PortalPlan';
 import { PortalPending } from '@/components/portal/PortalPending';
-import { PortalRefreshButton } from '@/components/portal/PortalRefreshButton';
-import { FeedbackThread } from '@/components/portal/FeedbackThread';
+import { PortalConversations } from './PortalConversations';
 import { PortalLink as Link } from './PortalViewContext';
 import { ArrowRight, FileChartColumn, CalendarDays } from 'lucide-react';
 import { monthLabel } from '@/lib/reports/sections';
 import { notFound } from 'next/navigation';
 import { PortalReportView } from '@/components/portal/PortalReportView';
-import { checklistPlan } from '@/lib/portal/progress';
 import type { PortalClientScope } from '@/lib/portal/session';
 
 export async function PortalHomeContent({ contact }: { contact: PortalClientScope }) {
@@ -26,6 +24,10 @@ export async function PortalHomeContent({ contact }: { contact: PortalClientScop
             clientName={contact.clientName}
             launchDate={contact.launchDate}
             today={portalToday()}
+            update={home.update}
+            managerName={home.managerName}
+            analyticsShared={home.analyticsShared}
+            analyticsSyncedAt={home.analyticsSyncedAt}
         />
     );
 }
@@ -45,6 +47,9 @@ export async function PortalPlanContent({ contact }: { contact: PortalClientScop
     return (
         <PortalPlan
             planId={plan.planId}
+            revisionId={plan.revisionId!}
+            version={plan.version!}
+            publishedAt={plan.publishedAt!}
             title={plan.title}
             steps={plan.steps}
             items={plan.items}
@@ -74,8 +79,9 @@ export async function PortalPendingContent({ contact }: { contact: PortalClientS
 }
 
 export async function PortalMessagesContent({ contact }: { contact: PortalClientScope }) {
-    const entries = await loadPortalMessages(contact);
-    return <div className="mx-auto max-w-3xl"><div className="mb-6 text-foreground"><h1 className="text-3xl font-bold tracking-tight">A direct line to your team.</h1><p className="mt-3 text-sm leading-relaxed text-muted-foreground">Questions, ideas, or a quick update — keep the conversation moving between reports.</p></div><section className="portal-panel"><div className="flex flex-wrap items-center justify-between gap-3"><h2>Your conversation</h2><PortalRefreshButton /></div><p className="portal-panel-description">Notes here are shared with your account team and invited contacts for {contact.clientName}. Your team’s replies appear in this conversation.</p>{entries.length === 0 && <p className="mt-5 text-sm text-muted-foreground">Start with whatever’s on your mind. You don’t need to wait for the next report.</p>}<FeedbackThread key={contact.clientId} subjectType="general" subjectId={contact.clientId} entries={entries} /></section></div>;
+    const conversations = await loadPortalConversations(contact);
+    return <div className="mx-auto max-w-3xl"><div className="mb-6 text-foreground"><h1 className="text-3xl font-bold tracking-tight">A direct line to your team.</h1><p className="mt-3 text-sm leading-relaxed text-muted-foreground">Questions, ideas, or a quick update — keep the conversation moving between reports.</p></div><PortalConversations conversations={conversations} /></div>;
+
 }
 
 export async function PortalReportsContent({ contact }: { contact: PortalClientScope }) {
@@ -85,25 +91,8 @@ export async function PortalReportsContent({ contact }: { contact: PortalClientS
 }
 
 export async function PortalReportContent({ contact, id }: { contact: PortalClientScope; id: string }) {
-    const [report, plan] = await Promise.all([
-        loadPortalReport(contact, id),
-        loadPortalPlan(contact),
-    ]);
+    const report = await loadPortalReport(contact, id);
     if (!report) notFound();
-
-    const snapshot = plan.shared && plan.planId
-        ? {
-            plan: checklistPlan({
-                planId: plan.planId,
-                title: plan.title,
-                steps: plan.steps,
-                items: plan.items,
-                createdAt: plan.createdAt,
-                organizationId: contact.organizationId,
-                clientId: contact.clientId,
-            }),
-        }
-        : null;
 
     return (
         <PortalReportView
@@ -117,7 +106,7 @@ export async function PortalReportContent({ contact, id }: { contact: PortalClie
             logoUrl={contact.logoUrl}
             metrics={report.metrics}
             history={report.history}
-            planSnapshot={snapshot}
+            planSnapshot={report.planSnapshot}
         />
     );
 }

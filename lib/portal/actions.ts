@@ -52,7 +52,7 @@ async function sendPortalEmail(input: {
     const admin = createAdminClient();
     const { data: org } = await admin.from('organizations').select('theme').eq('id', input.organizationId).maybeSingle();
     const { error } = await new Resend(process.env.RESEND_API_KEY).emails.send({
-        from: 'SEO Ops Command Center <onboarding@resend.dev>',
+        from: process.env.RESEND_FROM_EMAIL || 'SEO Ops Command Center <onboarding@resend.dev>',
         to: input.to,
         subject: `Your ${input.clientName.replace(/[\r\n]/g, ' ')} portal is ready`,
         html: clientPortalInviteEmail({
@@ -118,7 +118,7 @@ export async function sendContactLink(input: {
 
     const link = await generateAuthLink(
         row.email as string,
-        portalCallbackUrl(siteUrl(), { portalInvite, nextPath: input.nextPath }),
+        portalCallbackUrl(siteUrl(), { portalInvite, nextPath: input.nextPath, clientId: String(row.client_id) }),
     );
 
     let emailed = false;
@@ -140,20 +140,21 @@ export async function sendContactLink(input: {
     return { link, emailed };
 }
 
-export async function loginPortalEmail(emailInput: unknown, nextPath: unknown): Promise<void> {
+export async function loginPortalEmail(emailInput: unknown, nextPath: unknown, clientHint?: unknown): Promise<void> {
     const email = normalizeEmail(emailInput);
     if (!email) return;
     const admin = createAdminClient();
     const { data: rows } = await admin
         .from('client_portal_contacts')
-        .select('id, user_id, invited_by')
+        .select('id, user_id, invited_by, client_id')
         .eq('email', email)
         .is('revoked_at', null)
         .order('created_at', { ascending: true });
     if (!rows?.length) return;
 
-    const linked = rows.find(row => row.user_id);
-    const target = linked ?? rows[0];
+    const candidates = isUuid(clientHint) ? rows.filter(row => row.client_id === clientHint) : rows;
+    const target = candidates.find(row => row.user_id) ?? candidates[0];
+    if (!target) return;
     try {
         await sendContactLink({
             contactId: target.id as string,
@@ -216,6 +217,7 @@ export async function recordPlanDecision(
     identity: PortalIdentity,
     action: unknown,
     noteInput: unknown,
+    revisionInput: unknown,
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
     if (action !== 'approved' && action !== 'changes_requested') {
         return { ok: false, status: 400, error: 'Choose approve or request changes' };
@@ -230,34 +232,18 @@ export async function recordPlanDecision(
 
     const plan = await loadPortalPlan(identity.contact);
     if (!plan.shared || !plan.planId) return { ok: false, status: 404, error: 'The plan is not shared yet' };
+    if (!isUuid(revisionInput) || revisionInput !== plan.revisionId) return { ok: false, status: 409, error: 'The plan has a new version. Refresh the page and review it before deciding.' };
     if (!decisionActionAllowed(plan.state, action)) {
         return { ok: false, status: 409, error: 'That decision is already recorded' };
     }
 
     const admin = createAdminClient();
-    const { error } = await admin.from('client_portal_plan_decisions').insert({
-        organization_id: identity.contact.organizationId,
-        client_id: identity.contact.clientId,
-        marketing_plan_id: plan.planId,
-        contact_id: identity.contact.id,
-        actor_label: identity.contact.displayName,
-        decision: action,
-        note,
+    const { data: saved, error } = await admin.rpc('record_client_portal_decision', {
+        p_contact: identity.contact.id, p_user: identity.userId, p_share: revisionInput, p_decision: action, p_note: note,
     });
     if (error) return { ok: false, status: 500, error: 'Could not save the decision' };
-
-    if (note) {
-        await admin.from('client_portal_feedback').insert({
-            organization_id: identity.contact.organizationId,
-            client_id: identity.contact.clientId,
-            contact_id: identity.contact.id,
-            author_label: identity.contact.displayName,
-            subject_type: 'plan',
-            subject_id: plan.planId,
-            body: note,
-        });
-    }
-    await notifyPortalFeedback(identity.contact, undefined, action === 'approved' ? 'SEO plan approved' : 'SEO plan changes requested');
+    if (!saved) return { ok: false, status: 409, error: 'The plan or your access changed. Refresh and review the current version.' };
+    await notifyPortalFeedback(identity.contact, undefined, action === 'approved' ? 'SEO plan approved' : 'SEO plan changes requested', 'plan', plan.planId);
     return { ok: true };
 }
 
@@ -312,7 +298,7 @@ export async function addPortalFeedback(
         body,
     }).select('id').single();
     if (error) return { ok: false, status: 500, error: 'Could not save the note' };
-    await notifyPortalFeedback(contact, String(saved.id));
+    await notifyPortalFeedback(contact, String(saved.id), 'new client message', String(subjectType), String(subjectId));
     return { ok: true };
 }
 
@@ -354,14 +340,17 @@ export async function mintReviewHandoff(
     return { ok: true, token };
 }
 
-async function notifyPortalFeedback(contact: PortalContact, feedbackId?: string, activity = 'new client message'): Promise<void> {
+async function notifyPortalFeedback(contact: PortalContact, feedbackId?: string, activity = 'new client message', subjectType?: string, subjectId?: string): Promise<void> {
     try {
         const admin = createAdminClient();
         const { data: client } = await admin.from('clients').select('account_manager_id')
             .eq('id', contact.clientId).eq('organization_id', contact.organizationId).maybeSingle();
-        if (!client?.account_manager_id) return;
+        const { data: conversation } = subjectType && subjectId ? await admin.from('client_portal_conversations').select('owner_id')
+            .eq('organization_id', contact.organizationId).eq('client_id', contact.clientId).eq('subject_type', subjectType).eq('subject_id', subjectId).maybeSingle() : { data: null };
+        const owner = conversation?.owner_id ?? client?.account_manager_id;
+        if (!owner) return;
         const { data: member } = await admin.from('organization_members').select('user_id')
-            .eq('organization_id', contact.organizationId).eq('user_id', client.account_manager_id).maybeSingle();
+            .eq('organization_id', contact.organizationId).eq('user_id', owner).maybeSingle();
         if (!member) return;
         await admin.from('notifications').insert({
             organization_id: contact.organizationId, user_id: member.user_id,

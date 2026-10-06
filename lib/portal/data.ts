@@ -1,13 +1,15 @@
 import { cache } from 'react';
 import { metricNumber, portalToday, type PortalPerformanceMonth } from './dashboard';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { displaySeoPlanTitle, SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
-import { getClientMetrics } from '@/lib/sync/upsertMetric';
+import { SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
+import type { MarketingPlan } from '@/lib/types';
+import { capturePlan, publishedItems, type PortalPlanSnapshot } from './publication';
+import { rowToPortalUpdate, type PortalUpdate } from './readiness';
 import { previousMonth } from '@/lib/reports/sections';
 import type { ReportSectionsField } from '@/lib/reports/blocks';
 import { isUuid } from './access-policy';
 import {
-    buildPendingInbox, planDecisionState, portalDeliverable, portalPlanItem, recentMonthKeys,
+    buildPendingInbox, planDecisionState, portalDeliverable, recentMonthKeys,
     type PlanDecisionState, type PortalDeliverable, type PortalFeedbackEntry, type PortalPendingItem,
     type PortalPlanItem, type PortalPlanStep,
 } from './progress';
@@ -22,6 +24,9 @@ export interface PortalPlanView {
     createdAt?: string;
     state: PlanDecisionState;
     approvalRequestedAt?: string;
+    revisionId?: string;
+    version?: number;
+    publishedAt?: string;
     askedAgain: boolean;
     decision?: {
         decision: 'approved' | 'changes_requested';
@@ -45,6 +50,7 @@ export interface PortalReportDetail extends PortalReportSummary {
     sections: ReportSectionsField;
     metrics: { current: Record<string, Record<string, unknown>>; previous: Record<string, Record<string, unknown>> };
     history: Record<string, { month: string; data: Record<string, unknown> }[]>;
+    planSnapshot: { plan: MarketingPlan } | null;
 }
 
 export interface PortalHome {
@@ -54,9 +60,13 @@ export interface PortalHome {
     plan: PortalPlanView;
     latestReport: PortalReportSummary | null;
     performance: PortalPerformanceMonth[];
+    update: PortalUpdate | null;
+    managerName: string;
+    analyticsShared: boolean;
+    analyticsSyncedAt?: string;
 }
 
-function feedbackFrom(rows: Record<string, unknown>[]): PortalFeedbackEntry[] {
+export function feedbackFrom(rows: Record<string, unknown>[]): PortalFeedbackEntry[] {
     return rows.map(row => ({
         id: String(row.id),
         subjectType: row.subject_type as PortalFeedbackEntry['subjectType'],
@@ -82,7 +92,7 @@ const loadPlan = cache(async (contact: PortalClientScope): Promise<PortalPlanVie
 
     const { data: share, error: shareError } = await admin
         .from('client_portal_plan_shares')
-        .select('marketing_plan_id, approval_requested_at')
+        .select('id,marketing_plan_id,approval_requested_at,snapshot,version,shared_at')
         .eq('client_id', contact.clientId)
         .eq('organization_id', contact.organizationId)
         .is('unshared_at', null)
@@ -91,36 +101,20 @@ const loadPlan = cache(async (contact: PortalClientScope): Promise<PortalPlanVie
     if (!share) return empty;
 
     const planId = share.marketing_plan_id as string;
-    const [{ data: plan, error: planError }, { data: itemRows, error: itemError }, { data: decisionRows, error: decisionError }, { data: feedbackRows, error: feedbackError }] = await Promise.all([
-        admin.from('marketing_plans').select('id, title, steps, created_at')
-            .eq('id', planId)
-            .eq('client_id', contact.clientId)
-            .eq('organization_id', contact.organizationId)
-            .maybeSingle(),
-        admin.from('marketing_plan_items')
-            .select('id, step_key, title, description, status, due_date, sort_order, linked_task:tasks(due_date, status, organization_id, client_id)')
-            .eq('marketing_plan_id', planId)
-            .eq('client_id', contact.clientId)
-            .eq('organization_id', contact.organizationId)
-            .order('sort_order', { ascending: true }),
-        admin.from('client_portal_plan_decisions')
-            .select('decision, actor_label, decided_at, note')
-            .eq('marketing_plan_id', planId)
-            .eq('client_id', contact.clientId)
-            .eq('organization_id', contact.organizationId)
-            .order('decided_at', { ascending: false })
-            .limit(1),
-        admin.from('client_portal_feedback')
-            .select('id, subject_type, subject_id, author_label, body, created_at, staff_user_id')
-            .eq('client_id', contact.clientId)
-            .eq('organization_id', contact.organizationId)
-            .eq('subject_type', 'plan')
-            .eq('subject_id', planId)
-            .order('created_at', { ascending: true }),
+    // Legacy unsnapshotted shares require deliberate republication. Never imply
+    // an old approval covered the current editable document.
+    if (!share.snapshot) return empty;
+    const plan = share.snapshot as unknown as PortalPlanSnapshot;
+    const [current, { data: decisionRows, error: decisionError }, { data: feedbackRows, error: feedbackError }] = await Promise.all([
+        capturePlan(contact),
+        admin.from('client_portal_plan_decisions').select('decision,actor_label,decided_at,note')
+            .eq('plan_share_id', share.id).eq('client_id', contact.clientId).eq('organization_id', contact.organizationId)
+            .order('decided_at', { ascending: false }).limit(1),
+        admin.from('client_portal_feedback').select('id,subject_type,subject_id,author_label,body,created_at,staff_user_id')
+            .eq('client_id', contact.clientId).eq('organization_id', contact.organizationId)
+            .eq('subject_type', 'plan').eq('subject_id', planId).order('created_at'),
     ]);
-    if (planError || itemError || decisionError || feedbackError) throw new Error('Could not load the shared plan');
-    if (!plan) return empty;
-
+    if (decisionError || feedbackError) throw new Error('Could not load the shared plan');
     const latest = decisionRows?.[0];
     const approvalRequestedAt = String(share.approval_requested_at);
     const latestDecision = latest
@@ -130,35 +124,10 @@ const loadPlan = cache(async (contact: PortalClientScope): Promise<PortalPlanVie
         }
         : null;
     const state = planDecisionState({ shared: true, approvalRequestedAt, latest: latestDecision });
-    const steps = Array.isArray(plan.steps) ? plan.steps as PortalPlanStep[] : [];
-
     return {
-        shared: true,
-        planId,
-        title: displaySeoPlanTitle(String(plan.title || SEO_PLAN_LABEL)),
-        steps: steps.map(step => {
-            const raw = step as PortalPlanStep & { sort_order?: number };
-            return {
-                key: String(raw.key),
-                name: String(raw.name),
-                sortOrder: Number(raw.sortOrder ?? raw.sort_order ?? 0),
-            };
-        }),
-        items: (itemRows ?? []).flatMap(row => {
-            const linked = row.linked_task as unknown as { due_date: string | null; status: string; organization_id: string; client_id: string } | null;
-            const scopedTask = linked?.organization_id === contact.organizationId && linked?.client_id === contact.clientId ? linked : null;
-            const item = portalPlanItem({
-                id: String(row.id),
-                stepKey: String(row.step_key),
-                title: String(row.title),
-                description: row.description as string | null,
-                status: row.status === 'ignored' ? 'ignored' : scopedTask ? (['done', 'approved'].includes(scopedTask.status) ? 'done' : 'todo') : String(row.status),
-                dueDate: scopedTask ? scopedTask.due_date : row.due_date ? String(row.due_date).slice(0, 10) : null,
-                sortOrder: row.sort_order as number | null,
-            });
-            return item ? [item] : [];
-        }),
-        createdAt: plan.created_at ? String(plan.created_at) : undefined,
+        shared: true, planId, title: plan.title, steps: plan.steps,
+        items: publishedItems(plan, current), createdAt: plan.createdAt,
+        revisionId: String(share.id), version: Number(share.version), publishedAt: String(share.shared_at),
         state,
         approvalRequestedAt,
         askedAgain: Boolean(latestDecision && latestDecision.decidedAt < approvalRequestedAt),
@@ -178,7 +147,7 @@ const loadWaiting = cache(async (contact: PortalClientScope) => {
     const admin = createAdminClient();
     const { data, error } = await admin
         .from('client_portal_waiting_items')
-        .select('id, title, detail')
+        .select('id,title,detail,due_date,impact')
         .eq('client_id', contact.clientId)
         .eq('organization_id', contact.organizationId)
         .is('resolved_at', null)
@@ -188,6 +157,8 @@ const loadWaiting = cache(async (contact: PortalClientScope) => {
         id: String(row.id),
         title: String(row.title),
         detail: row.detail ? String(row.detail) : null,
+        dueDate: row.due_date ? String(row.due_date) : null,
+        impact: row.impact ? String(row.impact) : null,
     }));
 });
 
@@ -212,7 +183,7 @@ const loadReportSummaries = cache(async (contact: PortalClientScope): Promise<Po
     const admin = createAdminClient();
     const { data: shares, error: shareError } = await admin
         .from('client_portal_report_shares')
-        .select('report_id, shared_at')
+        .select('report_id,shared_at,snapshot')
         .eq('client_id', contact.clientId)
         .eq('organization_id', contact.organizationId)
         .is('unshared_at', null);
@@ -229,13 +200,13 @@ const loadReportSummaries = cache(async (contact: PortalClientScope): Promise<Po
         .eq('status', 'published');
 
     if (reportError) throw new Error('Could not load shared reports');
-    const sharedAt = new Map(shares.map(share => [share.report_id as string, String(share.shared_at)]));
+    const sharesByReport = new Map(shares.map(share => [share.report_id as string, share]));
     return (reports ?? [])
         .map(report => ({
             id: String(report.id),
-            title: String(report.title),
-            reportMonth: String(report.report_month),
-            sharedAt: sharedAt.get(report.id as string) ?? '',
+            title: String((sharesByReport.get(report.id)?.snapshot as PortalReportDetail | null)?.title ?? report.title),
+            reportMonth: String((sharesByReport.get(report.id)?.snapshot as PortalReportDetail | null)?.reportMonth ?? report.report_month),
+            sharedAt: String(sharesByReport.get(report.id)?.shared_at ?? ''),
         }))
         .sort((a, b) => b.reportMonth.localeCompare(a.reportMonth) || b.sharedAt.localeCompare(a.sharedAt));
 });
@@ -243,7 +214,7 @@ const loadReportSummaries = cache(async (contact: PortalClientScope): Promise<Po
 export const loadPortalHome = cache(async (contact: PortalClientScope): Promise<PortalHome> => {
     const admin = createAdminClient();
     const months = recentMonthKeys(new Date(`${portalToday()}T12:00:00Z`));
-    const [deliverableResult, plan, waiting, reviews, reports] = await Promise.all([
+    const [deliverableResult, plan, waiting, reviews, reports, metadata] = await Promise.all([
         admin.from('deliverables')
             .select('id, title, type, subtype, status, month, published_url, delivered_on, due_date')
             .eq('client_id', contact.clientId)
@@ -253,10 +224,11 @@ export const loadPortalHome = cache(async (contact: PortalClientScope): Promise<
         loadWaiting(contact),
         loadReviews(contact),
         loadReportSummaries(contact),
+        loadPortalMetadata(contact),
     ]);
 
     if (deliverableResult.error) throw new Error('Could not load client progress');
-    const performance = await loadPortalPerformance(contact, reports);
+    const performance = await loadPortalPerformance(contact, reports, metadata.analyticsShared);
     const progress = (deliverableResult.data ?? []).flatMap(row => {
         const item = portalDeliverable({
             id: String(row.id),
@@ -269,6 +241,8 @@ export const loadPortalHome = cache(async (contact: PortalClientScope): Promise<
             dueDate: row.due_date ? String(row.due_date) : null,
             deliveredOn: row.delivered_on ? String(row.delivered_on) : null,
         }, months);
+        const timing = metadata.timing.find(row => row.deliverable_id === item?.id);
+        if (item && timing) { item.timingNote = timing.timing_note; item.revisedDueDate = timing.revised_due_date ?? undefined; item.responsibility = timing.responsibility; }
         return item ? [item] : [];
     });
 
@@ -287,6 +261,7 @@ export const loadPortalHome = cache(async (contact: PortalClientScope): Promise<
         plan,
         latestReport: reports[0] ?? null,
         performance,
+        update: metadata.update, managerName: metadata.managerName, analyticsShared: metadata.analyticsShared, analyticsSyncedAt: metadata.analyticsSyncedAt,
     };
 });
 
@@ -330,43 +305,13 @@ export async function loadPortalReport(contact: PortalClientScope, reportId: str
     const summary = summaries.find(report => report.id === reportId);
     if (!summary) return null;
 
-    const admin = createAdminClient();
-    const { data: report } = await admin
-        .from('reports')
-        .select('id, title, report_month, executive_summary, recommendations, sections, status, client_id, organization_id')
-        .eq('id', reportId)
-        .eq('client_id', contact.clientId)
-        .eq('organization_id', contact.organizationId)
-        .eq('status', 'published')
-        .maybeSingle();
-    if (!report) return null;
+    const { data: share, error } = await createAdminClient().from('client_portal_report_shares')
+        .select('snapshot').eq('report_id', reportId).eq('client_id', contact.clientId)
+        .eq('organization_id', contact.organizationId).is('unshared_at', null).maybeSingle();
+    if (error) throw new Error('Could not load the published report');
+    if (!share?.snapshot) return null;
+    return { ...(share.snapshot as unknown as PortalReportDetail), ...summary };
 
-    const allRows = await getClientMetrics(contact.clientId);
-    const toMap = (rows: { source: string; data: Record<string, unknown> }[]) =>
-        Object.fromEntries(rows.map(row => [row.source, row.data]));
-    const prevMonth = previousMonth(report.report_month as string);
-    const history: Record<string, { month: string; data: Record<string, unknown> }[]> = {};
-    for (const row of allRows) {
-        if (!row.metric_month || row.metric_month > report.report_month) continue;
-        (history[row.source] ??= []).push({ month: row.metric_month, data: row.data });
-    }
-    for (const source of Object.keys(history)) {
-        history[source] = history[source].sort((a, b) => a.month.localeCompare(b.month)).slice(-12);
-    }
-
-    return {
-        ...summary,
-        title: String(report.title),
-        reportMonth: String(report.report_month),
-        executiveSummary: String(report.executive_summary ?? ''),
-        recommendations: String(report.recommendations ?? ''),
-        sections: (report.sections ?? null) as ReportSectionsField,
-        metrics: {
-            current: toMap(allRows.filter(row => row.metric_month === report.report_month)),
-            previous: toMap(allRows.filter(row => row.metric_month === prevMonth)),
-        },
-        history,
-    };
 }
 
 export async function countPending(contact: PortalClientScope): Promise<number> {
@@ -375,18 +320,25 @@ export async function countPending(contact: PortalClientScope): Promise<number> 
 }
 
 /** Home performance follows published, explicitly shared reports only. */
-async function loadPortalPerformance(contact: PortalClientScope, reports: PortalReportSummary[]): Promise<PortalPerformanceMonth[]> {
+async function loadPortalPerformance(contact: PortalClientScope, reports: PortalReportSummary[], analyticsShared: boolean): Promise<PortalPerformanceMonth[]> {
+    if (analyticsShared) {
+        const { data, error } = await createAdminClient().from('metrics').select('metric_month,data')
+            .eq('client_id', contact.clientId).eq('organization_id', contact.organizationId).eq('source', 'gsc')
+            .lt('metric_month', portalToday().slice(0, 7)).order('metric_month', { ascending: false }).limit(13);
+        if (error) throw new Error('Could not load shared search performance');
+        const rows = new Map((data ?? []).map(row => [String(row.metric_month), row.data as Record<string, unknown>]));
+        return (data ?? []).slice(0, 12).map(row => ({ month: String(row.metric_month),
+            reportId: reports.find(report => report.reportMonth === row.metric_month)?.id,
+            clicks: metricNumber(row.data.organic_clicks), impressions: metricNumber(row.data.impressions),
+            previousClicks: metricNumber(rows.get(previousMonth(row.metric_month))?.organic_clicks),
+            previousImpressions: metricNumber(rows.get(previousMonth(row.metric_month))?.impressions) }));
+    }
     if (!reports.length) return [];
     const recent = [...new Map(reports.map(report => [report.reportMonth, report])).values()].slice(0, 12);
-    const months = [...new Set(recent.flatMap(report => [report.reportMonth, previousMonth(report.reportMonth)]))];
-    const { data, error } = await createAdminClient().from('metrics')
-        .select('metric_month, data').eq('client_id', contact.clientId)
-        .eq('organization_id', contact.organizationId).eq('source', 'gsc').in('metric_month', months);
-    if (error) throw new Error('Could not load shared search performance');
-    const byMonth = new Map((data ?? []).map(row => [String(row.metric_month), row.data as Record<string, unknown>]));
-    return recent.map(report => {
-        const current = byMonth.get(report.reportMonth);
-        const previous = byMonth.get(previousMonth(report.reportMonth));
+    const details = await Promise.all(recent.map(report => loadPortalReport(contact, report.id)));
+    return recent.map((report, index) => {
+        const current = details[index]?.metrics.current.gsc;
+        const previous = details[index]?.metrics.previous.gsc;
         return { month: report.reportMonth, reportId: report.id,
             clicks: metricNumber(current?.organic_clicks), impressions: metricNumber(current?.impressions),
             previousClicks: metricNumber(previous?.organic_clicks), previousImpressions: metricNumber(previous?.impressions) };
@@ -401,4 +353,40 @@ export async function loadPortalMessages(contact: PortalClientScope): Promise<Po
         .order('created_at', { ascending: false }).limit(200);
     if (error) throw new Error('Could not load messages');
     return feedbackFrom([...(data ?? [])].reverse());
+}
+
+
+export const loadPortalMetadata = cache(async (contact: PortalClientScope) => {
+    const admin = createAdminClient();
+    const [update, settings, timing, client, integration] = await Promise.all([
+        admin.from('client_portal_updates').select('id,author_label,shipped,impact,next_steps,blockers,next_update_on,published_at')
+            .eq('client_id', contact.clientId).eq('organization_id', contact.organizationId).order('published_at', { ascending: false }).limit(1).maybeSingle(),
+        admin.from('client_portal_settings').select('analytics_shared').eq('client_id', contact.clientId).eq('organization_id', contact.organizationId).maybeSingle(),
+        admin.from('client_portal_delivery_updates').select('deliverable_id,timing_note,revised_due_date,responsibility')
+            .eq('client_id', contact.clientId).eq('organization_id', contact.organizationId),
+        admin.from('clients').select('account_manager_name').eq('id', contact.clientId).eq('organization_id', contact.organizationId).maybeSingle(),
+        admin.from('client_integrations').select('last_synced_at').eq('client_id', contact.clientId).eq('organization_id', contact.organizationId).eq('service', 'gsc').maybeSingle(),
+    ]);
+    if ([update, settings, timing, client, integration].some(result => result.error)) throw new Error('Could not load campaign updates');
+    return { update: update.data ? rowToPortalUpdate(update.data) : null, analyticsShared: settings.data?.analytics_shared === true,
+        analyticsSyncedAt: settings.data?.analytics_shared && integration.data?.last_synced_at ? String(integration.data.last_synced_at) : undefined,
+        timing: (timing.data ?? []) as { deliverable_id: string; timing_note: string; revised_due_date: string | null; responsibility: 'team' | 'client' }[],
+        managerName: client.data?.account_manager_name ? String(client.data.account_manager_name) : 'Your account team' };
+});
+
+export async function loadPortalConversations(contact: PortalClientScope) {
+    const admin = createAdminClient();
+    const [plan, requests, feedback] = await Promise.all([
+        loadPlan(contact),
+        admin.from('client_portal_waiting_items').select('id,title,resolved_at').eq('client_id', contact.clientId).eq('organization_id', contact.organizationId),
+        admin.from('client_portal_feedback').select('id,subject_type,subject_id,author_label,body,created_at,staff_user_id')
+            .eq('client_id', contact.clientId).eq('organization_id', contact.organizationId).order('created_at', { ascending: false }).limit(200),
+    ]);
+    if (requests.error || feedback.error) throw new Error('Could not load conversations');
+    const entries = feedbackFrom([...(feedback.data ?? [])].reverse());
+    const general = { subjectType: 'general' as const, subjectId: contact.clientId, title: 'General conversation', closed: false };
+    const threads = [general, ...(plan.shared && plan.planId ? [{ subjectType: 'plan' as const, subjectId: plan.planId, title: 'SEO Plan', closed: false }] : []),
+        ...(requests.data ?? []).map(request => ({ subjectType: 'waiting_item' as const, subjectId: String(request.id), title: String(request.title), closed: Boolean(request.resolved_at) }))];
+    return threads.map(thread => ({ ...thread, entries: entries.filter(entry => entry.subjectType === thread.subjectType && entry.subjectId === thread.subjectId) }))
+        .filter(thread => thread.subjectType === 'general' || thread.entries.length > 0);
 }

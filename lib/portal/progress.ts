@@ -17,6 +17,9 @@ export interface PortalDeliverable {
     publishedUrl?: string;
     deliveredOn?: string;
     dueDate?: string;
+    revisedDueDate?: string;
+    timingNote?: string;
+    responsibility?: 'team' | 'client';
     status: 'in_progress' | 'in_review' | 'approved' | 'published' | 'delivered';
 }
 
@@ -170,11 +173,13 @@ export interface PortalPendingItem {
     detail?: string;
     href: string;
     external: boolean;
+    dueDate?: string;
+    impact?: string;
 }
 
 export function buildPendingInbox(input: {
     plan: { needsDecision: boolean; title: string } | null;
-    waiting: { id: string; title: string; detail?: string | null }[];
+    waiting: { id: string; title: string; detail?: string | null; dueDate?: string | null; impact?: string | null }[];
     reviews: { id: string; name: string }[];
 }): PortalPendingItem[] {
     const items: PortalPendingItem[] = [];
@@ -198,6 +203,8 @@ export function buildPendingInbox(input: {
         };
         const detail = item.detail?.trim();
         if (detail) entry.detail = detail;
+        if (item.dueDate) entry.dueDate = item.dueDate;
+        if (item.impact) entry.impact = item.impact;
         items.push(entry);
     }
     for (const review of input.reviews) {

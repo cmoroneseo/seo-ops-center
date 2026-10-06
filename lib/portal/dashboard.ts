@@ -22,7 +22,7 @@ export interface PortalPerformanceMonth {
     impressions: number | null;
     previousClicks: number | null;
     previousImpressions: number | null;
-    reportId: string;
+    reportId?: string;
 }
 
 export function first90Days(items: PortalPlanItem[], launchDate?: string) {

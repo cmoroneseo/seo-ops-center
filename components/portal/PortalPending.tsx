@@ -1,6 +1,7 @@
 'use client';
 
 import { PortalLink as Link, usePortalView } from './PortalViewContext';
+import { portalDate, portalToday } from '@/lib/portal/dashboard';
 import { FeedbackThread } from './FeedbackThread';
 import type { PortalFeedbackEntry, PortalPendingItem } from '@/lib/portal/progress';
 
@@ -39,6 +40,8 @@ export function PortalPending({
                             {item.kind === 'plan' ? 'SEO Plan' : item.kind === 'content_review' ? 'Content review' : 'Waiting on you'}
                         </p>
                         <h2 className="mt-1 text-lg font-semibold">{item.title}</h2>
+                        {item.dueDate && <p className="mt-2 text-sm font-medium">{item.dueDate < portalToday() ? "Past requested date: " : "Please respond by "}{portalDate(item.dueDate)}</p>}
+                        {item.impact && <p className="mt-2 text-sm text-muted-foreground">This unlocks: {item.impact}</p>}
                         {item.detail && <p className="mt-2 text-sm text-muted-foreground">{item.detail}</p>}
                         <div className="mt-3">
                             {item.external ? (
