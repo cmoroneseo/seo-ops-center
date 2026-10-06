@@ -5,7 +5,7 @@ import { clientPortalInviteEmail } from '@/lib/email/templates';
 import { parseTheme } from '@/lib/theme/palette';
 import { defaultExpiry, generateToken, hashToken } from '@/lib/approvals/token';
 import {
-    cleanFeedbackBody, isUuid, normalizeEmail, portalCallbackUrl, reviewHandoffAllowed,
+    cleanFeedbackBody, generalFeedbackAllowed, isUuid, normalizeEmail, portalCallbackUrl, reviewHandoffAllowed,
 } from './access-policy';
 import { decisionActionAllowed } from './progress';
 import { loadPortalPlan } from './data';
@@ -257,6 +257,7 @@ export async function recordPlanDecision(
             body: note,
         });
     }
+    await notifyPortalFeedback(identity.contact, undefined, action === 'approved' ? 'SEO plan approved' : 'SEO plan changes requested');
     return { ok: true };
 }
 
@@ -268,7 +269,7 @@ export async function addPortalFeedback(
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
     const body = cleanFeedbackBody(bodyInput);
     if (!body) return { ok: false, status: 400, error: 'Write a short note (up to 2000 characters)' };
-    if (subjectType !== 'plan' && subjectType !== 'waiting_item') {
+    if (subjectType !== 'plan' && subjectType !== 'waiting_item' && subjectType !== 'general') {
         return { ok: false, status: 400, error: 'Unknown item' };
     }
     if (!isUuid(subjectId)) return { ok: false, status: 400, error: 'Unknown item' };
@@ -285,7 +286,7 @@ export async function addPortalFeedback(
             .is('unshared_at', null)
             .maybeSingle();
         if (!data) return { ok: false, status: 404, error: 'The plan is not shared yet' };
-    } else {
+    } else if (subjectType === 'waiting_item') {
         const { data } = await admin
             .from('client_portal_waiting_items')
             .select('id')
@@ -297,7 +298,11 @@ export async function addPortalFeedback(
         if (!data) return { ok: false, status: 404, error: 'That item is no longer waiting on you' };
     }
 
-    const { error } = await admin.from('client_portal_feedback').insert({
+    if (subjectType === 'general' && !generalFeedbackAllowed(subjectId, contact.clientId)) {
+        return { ok: false, status: 403, error: 'Unknown conversation' };
+    }
+
+    const { data: saved, error } = await admin.from('client_portal_feedback').insert({
         organization_id: contact.organizationId,
         client_id: contact.clientId,
         contact_id: contact.id,
@@ -305,8 +310,9 @@ export async function addPortalFeedback(
         subject_type: subjectType,
         subject_id: subjectId,
         body,
-    });
+    }).select('id').single();
     if (error) return { ok: false, status: 500, error: 'Could not save the note' };
+    await notifyPortalFeedback(contact, String(saved.id));
     return { ok: true };
 }
 
@@ -346,4 +352,24 @@ export async function mintReviewHandoff(
     });
     if (error) return { ok: false, status: 404 };
     return { ok: true, token };
+}
+
+async function notifyPortalFeedback(contact: PortalContact, feedbackId?: string, activity = 'new client message'): Promise<void> {
+    try {
+        const admin = createAdminClient();
+        const { data: client } = await admin.from('clients').select('account_manager_id')
+            .eq('id', contact.clientId).eq('organization_id', contact.organizationId).maybeSingle();
+        if (!client?.account_manager_id) return;
+        const { data: member } = await admin.from('organization_members').select('user_id')
+            .eq('organization_id', contact.organizationId).eq('user_id', client.account_manager_id).maybeSingle();
+        if (!member) return;
+        await admin.from('notifications').insert({
+            organization_id: contact.organizationId, user_id: member.user_id,
+            type: 'portal_feedback', title: `${contact.clientName}: ${activity}`,
+            body: `View the update from ${contact.displayName} in the client portal workspace.`,
+            entity_type: feedbackId ? 'client_portal_feedback' : null, entity_id: feedbackId ?? null, client_id: contact.clientId,
+        });
+    } catch {
+        // A saved note remains successful even if the bell is unavailable.
+    }
 }

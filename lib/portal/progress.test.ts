@@ -34,7 +34,7 @@ test('portal deliverables drop internal fields and pending work', () => {
     assert.equal('assignee' in item, false);
     assert.equal('statusHistory' in item, false);
     assert.deepEqual(Object.keys(item).sort(), [
-        'bucket', 'deliveredOn', 'id', 'month', 'publishedUrl', 'subtype', 'title', 'type',
+        'bucket', 'deliveredOn', 'id', 'month', 'publishedUrl', 'status', 'subtype', 'title', 'type',
     ]);
 
     assert.equal(portalDeliverable({ ...raw, status: 'Pending' }, MONTHS), null);
@@ -52,6 +52,7 @@ test('shipped work outside the recent window stays off the home', () => {
         type: 'Content',
         status: 'Approved',
         month: '2026-01',
+        deliveredOn: '2026-01-12',
     }, MONTHS), null);
     assert.ok(portalDeliverable({
         id: 'late',
@@ -134,4 +135,13 @@ test('pending inbox is plan, waiting items, then content review handoff', () => 
 
     const quiet = buildPendingInbox({ plan: { needsDecision: false, title: 'SEO Plan' }, waiting: [], reviews: [] });
     assert.deepEqual(quiet, []);
+});
+
+test('approved drafts are not shipped until delivery is recorded', () => {
+    const draft = { id: 'approved', title: 'A draft', type: 'Content', status: 'Approved', month: '2026-09', dueDate: '2026-09-18T00:00:00Z', publishedUrl: 'https://draft.example' };
+    assert.equal(portalDeliverable(draft, MONTHS)?.bucket, 'in_progress');
+    assert.equal(portalDeliverable(draft, MONTHS)?.status, 'approved');
+    assert.equal(portalDeliverable(draft, MONTHS)?.dueDate, '2026-09-18');
+    assert.equal(portalDeliverable(draft, MONTHS)?.publishedUrl, undefined);
+    assert.equal(portalDeliverable({ ...draft, deliveredOn: '2026-09-18' }, MONTHS)?.bucket, 'shipped');
 });

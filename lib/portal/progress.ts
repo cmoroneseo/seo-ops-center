@@ -16,6 +16,8 @@ export interface PortalDeliverable {
     month?: string;
     publishedUrl?: string;
     deliveredOn?: string;
+    dueDate?: string;
+    status: 'in_progress' | 'in_review' | 'approved' | 'published' | 'delivered';
 }
 
 const SHIPPED = new Set(['Approved', 'Published']);
@@ -50,11 +52,13 @@ export function portalDeliverable(
         month?: string | null;
         publishedUrl?: string | null;
         deliveredOn?: string | null;
+        dueDate?: string | null;
     },
     recentMonths: readonly string[],
 ): PortalDeliverable | null {
     let bucket: ProgressBucket | null = null;
-    if (IN_PROGRESS.has(input.status)) bucket = 'in_progress';
+    const delivered = input.status === 'Published' || (input.status === 'Approved' && Boolean(input.deliveredOn));
+    if (IN_PROGRESS.has(input.status) || (input.status === 'Approved' && !delivered)) bucket = 'in_progress';
     else if (SHIPPED.has(input.status) && isRecentShipped(input.month, input.deliveredOn, recentMonths)) bucket = 'shipped';
     if (!bucket) return null;
 
@@ -63,9 +67,11 @@ export function portalDeliverable(
         title: input.title,
         type: input.type,
         bucket,
+        status: input.status === 'Published' ? 'published' : delivered ? 'delivered' : input.status === 'Approved' ? 'approved' : input.status === 'Review' ? 'in_review' : 'in_progress',
     };
     if (input.subtype) item.subtype = input.subtype;
     if (input.month) item.month = input.month;
+    if (input.dueDate) item.dueDate = input.dueDate.slice(0, 10);
     const publishedUrl = safePublicUrl(input.publishedUrl);
     if (bucket === 'shipped' && input.status === 'Published' && publishedUrl) {
         item.publishedUrl = publishedUrl;
@@ -89,7 +95,7 @@ export function labelSubtype(value?: string): string | undefined {
     if (!value) return undefined;
     const words = value.replace(/_/g, ' ').trim();
     if (!words) return undefined;
-    return words.replace(/\b\w/g, char => char.toUpperCase());
+    return words.replace(/\b\w/g, char => char.toUpperCase()).replace(/\b(Seo|Gbp|Ai)\b/g, word => word.toUpperCase());
 }
 
 export interface PortalPlanItem {
@@ -199,7 +205,7 @@ export function buildPendingInbox(input: {
             id: review.id,
             kind: 'content_review',
             title: review.name,
-            detail: 'Opens the content review. That page stays on its own link.',
+            detail: 'Your content is ready. Review it and share your approval or feedback.',
             href: `/api/client-portal/review-handoff/${review.id}`,
             external: true,
         });
@@ -248,7 +254,8 @@ export function checklistPlan(input: {
 
 export interface PortalFeedbackEntry {
     id: string;
-    subjectType: 'plan' | 'waiting_item';
+    subjectType: 'plan' | 'waiting_item' | 'general';
+    authorType?: 'client' | 'team';
     subjectId: string;
     authorLabel: string;
     body: string;

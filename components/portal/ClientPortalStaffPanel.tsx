@@ -58,29 +58,23 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
         setBusy(true);
         setNotice(null);
         setError(null);
-        const response = await fetch('/api/client-portal/staff', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId, ...payload }),
-        });
-        const body = await response.json().catch(() => null);
-        setBusy(false);
-        if (!response.ok) {
-            setError(body?.error ?? 'Could not save');
+        try {
+            const response = await fetch('/api/client-portal/staff', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId, ...payload }),
+            });
+            const body = await response.json().catch(() => null);
+            if (!response.ok) throw new Error(body?.error ?? 'Could not save. Please try again.');
+            if (typeof body?.link === 'string') {
+                setLink(body.link);
+                setNotice(body.emailed ? 'Invite emailed. You can also copy the link.' : body.emailRequested ? 'Email did not send. Copy the link instead.' : 'Link ready to copy. It works once.');
+            } else { setNotice('Saved.'); }
+            await reload();
+            return body;
+        } catch (error) {
+            setError(error instanceof Error ? error.message : 'Could not save. Please try again.');
             return null;
-        }
-        if (typeof body?.link === 'string') {
-            setLink(body.link);
-            setNotice(body.emailed
-                ? 'Invite emailed. You can also copy the link.'
-                : body.emailRequested
-                    ? 'Email did not send. Copy the link instead.'
-                    : 'Link ready to copy. It works once.');
-        } else {
-            setNotice('Saved.');
-        }
-        await reload();
-        return body;
+        } finally { setBusy(false); }
     }
 
     async function invite(event: FormEvent<HTMLFormElement>) {
@@ -108,12 +102,19 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
         event.currentTarget.reset();
     }
 
+    async function reply(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault();
+        const formElement = event.currentTarget;
+        const result = await act({ action: 'reply', body: new FormData(formElement).get('body') });
+        if (result?.ok) formElement.reset();
+    }
+
     return (
         <div className="space-y-8">
             <div>
-                <h3 className="text-lg font-semibold">Client portal</h3>
+                <div className="flex flex-wrap items-center gap-3"><h3 className="text-lg font-semibold">Portal management</h3><span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">Staff only</span></div>
                 <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-                    Invite {clientName} contacts to follow progress, approve the SEO Plan, and open shared reports.
+                    Manage what {clientName} sees in their separate client portal. Invite contacts, share the SEO Plan and reports, and respond to their messages.
                     Internal notes, assignees, drafts, and timesheets stay in the workspace.
                 </p>
             </div>
@@ -255,7 +256,14 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
             </section>
 
             <section className="rounded-xl border border-border bg-card p-5">
-                <h4 className="font-semibold">Client notes</h4>
+                <h4 className="font-semibold">Client conversation</h4>
+                <p className="mt-1 text-xs text-muted-foreground">Replies are visible to invited client contacts in their Messages tab.</p>
+                <form onSubmit={reply} className="mt-4 space-y-2">
+                    <label className="block text-sm font-medium">Reply to the client
+                        <textarea name="body" rows={3} required maxLength={2000} className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" placeholder="A short update or answer for the client" />
+                    </label>
+                    <button disabled={busy} className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">Send portal reply</button>
+                </form>
                 <ul className="mt-3 space-y-2 text-sm">
                     {(data?.feedback ?? []).map(entry => (
                         <li key={entry.id} className="rounded-lg bg-muted/40 px-3 py-2">

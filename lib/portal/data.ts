@@ -1,3 +1,5 @@
+import { cache } from 'react';
+import { metricNumber, portalToday, type PortalPerformanceMonth } from './dashboard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { displaySeoPlanTitle, SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import { getClientMetrics } from '@/lib/sync/upsertMetric';
@@ -51,12 +53,14 @@ export interface PortalHome {
     shipped: PortalDeliverable[];
     plan: PortalPlanView;
     latestReport: PortalReportSummary | null;
+    performance: PortalPerformanceMonth[];
 }
 
 function feedbackFrom(rows: Record<string, unknown>[]): PortalFeedbackEntry[] {
     return rows.map(row => ({
         id: String(row.id),
-        subjectType: row.subject_type as 'plan' | 'waiting_item',
+        subjectType: row.subject_type as PortalFeedbackEntry['subjectType'],
+        authorType: row.staff_user_id ? 'team' : 'client',
         subjectId: String(row.subject_id),
         authorLabel: String(row.author_label),
         body: String(row.body),
@@ -64,7 +68,7 @@ function feedbackFrom(rows: Record<string, unknown>[]): PortalFeedbackEntry[] {
     }));
 }
 
-async function loadPlan(contact: PortalContact): Promise<PortalPlanView> {
+const loadPlan = cache(async (contact: PortalContact): Promise<PortalPlanView> => {
     const admin = createAdminClient();
     const empty: PortalPlanView = {
         shared: false,
@@ -76,17 +80,18 @@ async function loadPlan(contact: PortalContact): Promise<PortalPlanView> {
         feedback: [],
     };
 
-    const { data: share } = await admin
+    const { data: share, error: shareError } = await admin
         .from('client_portal_plan_shares')
         .select('marketing_plan_id, approval_requested_at')
         .eq('client_id', contact.clientId)
         .eq('organization_id', contact.organizationId)
         .is('unshared_at', null)
         .maybeSingle();
+    if (shareError) throw new Error('Could not load the shared plan');
     if (!share) return empty;
 
     const planId = share.marketing_plan_id as string;
-    const [{ data: plan }, { data: itemRows }, { data: decisionRows }, { data: feedbackRows }] = await Promise.all([
+    const [{ data: plan, error: planError }, { data: itemRows, error: itemError }, { data: decisionRows, error: decisionError }, { data: feedbackRows, error: feedbackError }] = await Promise.all([
         admin.from('marketing_plans').select('id, title, steps, created_at')
             .eq('id', planId)
             .eq('client_id', contact.clientId)
@@ -102,16 +107,18 @@ async function loadPlan(contact: PortalContact): Promise<PortalPlanView> {
             .select('decision, actor_label, decided_at, note')
             .eq('marketing_plan_id', planId)
             .eq('client_id', contact.clientId)
+            .eq('organization_id', contact.organizationId)
             .order('decided_at', { ascending: false })
             .limit(1),
         admin.from('client_portal_feedback')
-            .select('id, subject_type, subject_id, author_label, body, created_at')
+            .select('id, subject_type, subject_id, author_label, body, created_at, staff_user_id')
             .eq('client_id', contact.clientId)
             .eq('organization_id', contact.organizationId)
             .eq('subject_type', 'plan')
             .eq('subject_id', planId)
             .order('created_at', { ascending: true }),
     ]);
+    if (planError || itemError || decisionError || feedbackError) throw new Error('Could not load the shared plan');
     if (!plan) return empty;
 
     const latest = decisionRows?.[0];
@@ -165,52 +172,55 @@ async function loadPlan(contact: PortalContact): Promise<PortalPlanView> {
             : undefined,
         feedback: feedbackFrom(feedbackRows ?? []),
     };
-}
+});
 
-async function loadWaiting(contact: PortalContact) {
+const loadWaiting = cache(async (contact: PortalContact) => {
     const admin = createAdminClient();
-    const { data } = await admin
+    const { data, error } = await admin
         .from('client_portal_waiting_items')
         .select('id, title, detail')
         .eq('client_id', contact.clientId)
         .eq('organization_id', contact.organizationId)
         .is('resolved_at', null)
         .order('created_at', { ascending: true });
+    if (error) throw new Error('Could not load client requests');
     return (data ?? []).map(row => ({
         id: String(row.id),
         title: String(row.title),
         detail: row.detail ? String(row.detail) : null,
     }));
-}
+});
 
-async function loadReviews(contact: PortalContact) {
+const loadReviews = cache(async (contact: PortalContact) => {
     const admin = createAdminClient();
-    const { data } = await admin
+    const { data, error } = await admin
         .from('content_approval_batches')
         .select('id, name')
         .eq('client_id', contact.clientId)
         .eq('organization_id', contact.organizationId)
         .eq('status', 'in_review')
         .order('sent_at', { ascending: false });
+    if (error) throw new Error('Could not load content reviews');
     return (data ?? []).flatMap(row => {
         const id = String(row.id);
         if (!isUuid(id)) return [];
         return [{ id, name: String(row.name) }];
     });
-}
+});
 
-async function loadReportSummaries(contact: PortalContact): Promise<PortalReportSummary[]> {
+const loadReportSummaries = cache(async (contact: PortalContact): Promise<PortalReportSummary[]> => {
     const admin = createAdminClient();
-    const { data: shares } = await admin
+    const { data: shares, error: shareError } = await admin
         .from('client_portal_report_shares')
         .select('report_id, shared_at')
         .eq('client_id', contact.clientId)
         .eq('organization_id', contact.organizationId)
         .is('unshared_at', null);
+    if (shareError) throw new Error('Could not load shared reports');
     if (!shares?.length) return [];
 
     const ids = shares.map(share => share.report_id as string);
-    const { data: reports } = await admin
+    const { data: reports, error: reportError } = await admin
         .from('reports')
         .select('id, title, report_month, status')
         .in('id', ids)
@@ -218,6 +228,7 @@ async function loadReportSummaries(contact: PortalContact): Promise<PortalReport
         .eq('organization_id', contact.organizationId)
         .eq('status', 'published');
 
+    if (reportError) throw new Error('Could not load shared reports');
     const sharedAt = new Map(shares.map(share => [share.report_id as string, String(share.shared_at)]));
     return (reports ?? [])
         .map(report => ({
@@ -227,14 +238,14 @@ async function loadReportSummaries(contact: PortalContact): Promise<PortalReport
             sharedAt: sharedAt.get(report.id as string) ?? '',
         }))
         .sort((a, b) => b.reportMonth.localeCompare(a.reportMonth) || b.sharedAt.localeCompare(a.sharedAt));
-}
+});
 
-export async function loadPortalHome(contact: PortalContact): Promise<PortalHome> {
+export const loadPortalHome = cache(async (contact: PortalContact): Promise<PortalHome> => {
     const admin = createAdminClient();
-    const months = recentMonthKeys(new Date());
+    const months = recentMonthKeys(new Date(`${portalToday()}T12:00:00Z`));
     const [deliverableResult, plan, waiting, reviews, reports] = await Promise.all([
         admin.from('deliverables')
-            .select('id, title, type, subtype, status, month, published_url, delivered_on')
+            .select('id, title, type, subtype, status, month, published_url, delivered_on, due_date')
             .eq('client_id', contact.clientId)
             .eq('organization_id', contact.organizationId)
             .in('status', ['In Progress', 'Review', 'Approved', 'Published']),
@@ -244,6 +255,8 @@ export async function loadPortalHome(contact: PortalContact): Promise<PortalHome
         loadReportSummaries(contact),
     ]);
 
+    if (deliverableResult.error) throw new Error('Could not load client progress');
+    const performance = await loadPortalPerformance(contact, reports);
     const progress = (deliverableResult.data ?? []).flatMap(row => {
         const item = portalDeliverable({
             id: String(row.id),
@@ -253,6 +266,7 @@ export async function loadPortalHome(contact: PortalContact): Promise<PortalHome
             status: String(row.status),
             month: row.month as string | null,
             publishedUrl: row.published_url as string | null,
+            dueDate: row.due_date ? String(row.due_date) : null,
             deliveredOn: row.delivered_on ? String(row.delivered_on) : null,
         }, months);
         return item ? [item] : [];
@@ -272,8 +286,9 @@ export async function loadPortalHome(contact: PortalContact): Promise<PortalHome
             .sort((a, b) => (b.deliveredOn ?? b.month ?? '').localeCompare(a.deliveredOn ?? a.month ?? '')),
         plan,
         latestReport: reports[0] ?? null,
+        performance,
     };
-}
+});
 
 export async function loadPortalPlan(contact: PortalContact): Promise<PortalPlanView> {
     return loadPlan(contact);
@@ -289,11 +304,12 @@ export async function loadPortalPending(contact: PortalContact): Promise<{
         loadWaiting(contact),
         loadReviews(contact),
         admin.from('client_portal_feedback')
-            .select('id, subject_type, subject_id, author_label, body, created_at')
+            .select('id, subject_type, subject_id, author_label, body, created_at, staff_user_id')
             .eq('client_id', contact.clientId)
             .eq('organization_id', contact.organizationId)
             .order('created_at', { ascending: true }),
     ]);
+    if (feedbackResult.error) throw new Error('Could not load request notes');
     return {
         items: buildPendingInbox({
             plan: plan.shared ? { needsDecision: plan.state === 'awaiting', title: plan.title } : null,
@@ -354,6 +370,35 @@ export async function loadPortalReport(contact: PortalContact, reportId: string)
 }
 
 export async function countPending(contact: PortalContact): Promise<number> {
-    const pending = await loadPortalPending(contact);
-    return pending.items.length;
+    const [plan, waiting, reviews] = await Promise.all([loadPlan(contact), loadWaiting(contact), loadReviews(contact)]);
+    return buildPendingInbox({ plan: plan.shared ? { needsDecision: plan.state === 'awaiting', title: plan.title } : null, waiting, reviews }).length;
+}
+
+/** Home performance follows published, explicitly shared reports only. */
+async function loadPortalPerformance(contact: PortalContact, reports: PortalReportSummary[]): Promise<PortalPerformanceMonth[]> {
+    if (!reports.length) return [];
+    const recent = [...new Map(reports.map(report => [report.reportMonth, report])).values()].slice(0, 12);
+    const months = [...new Set(recent.flatMap(report => [report.reportMonth, previousMonth(report.reportMonth)]))];
+    const { data, error } = await createAdminClient().from('metrics')
+        .select('metric_month, data').eq('client_id', contact.clientId)
+        .eq('organization_id', contact.organizationId).eq('source', 'gsc').in('metric_month', months);
+    if (error) throw new Error('Could not load shared search performance');
+    const byMonth = new Map((data ?? []).map(row => [String(row.metric_month), row.data as Record<string, unknown>]));
+    return recent.map(report => {
+        const current = byMonth.get(report.reportMonth);
+        const previous = byMonth.get(previousMonth(report.reportMonth));
+        return { month: report.reportMonth, reportId: report.id,
+            clicks: metricNumber(current?.organic_clicks), impressions: metricNumber(current?.impressions),
+            previousClicks: metricNumber(previous?.organic_clicks), previousImpressions: metricNumber(previous?.impressions) };
+    });
+}
+
+export async function loadPortalMessages(contact: PortalContact): Promise<PortalFeedbackEntry[]> {
+    const { data, error } = await createAdminClient().from('client_portal_feedback')
+        .select('id, subject_type, subject_id, author_label, body, created_at, staff_user_id')
+        .eq('client_id', contact.clientId).eq('organization_id', contact.organizationId)
+        .eq('subject_type', 'general').eq('subject_id', contact.clientId)
+        .order('created_at', { ascending: false }).limit(200);
+    if (error) throw new Error('Could not load messages');
+    return feedbackFrom([...(data ?? [])].reverse());
 }

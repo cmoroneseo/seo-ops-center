@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    classifyActor, clientPortalAllowedPath, contactErrorKind, isPortalLoginPath,
+    classifyActor, generalFeedbackAllowed, clientPortalAllowedPath, contactErrorKind, isPortalLoginPath,
     portalCallbackUrl, reviewHandoffAllowed, safePortalNext,
 } from './access-policy.ts';
 
@@ -93,4 +93,12 @@ test('callback URL carries the portal invite and a safe next path', () => {
 test('review handoff stops after eight fresh links', () => {
     assert.equal(reviewHandoffAllowed(7), true);
     assert.equal(reviewHandoffAllowed(8), false);
+});
+
+test('general feedback cannot target another client and messages are a safe magic-link destination', () => {
+    const client = '11111111-1111-4111-8111-111111111111';
+    assert.equal(generalFeedbackAllowed(client, client), true);
+    assert.equal(generalFeedbackAllowed('22222222-2222-4222-8222-222222222222', client), false);
+    assert.equal(generalFeedbackAllowed('invalid', client), false);
+    assert.equal(safePortalNext('/portal/messages#message-compose'), '/portal/messages');
 });

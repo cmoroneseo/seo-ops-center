@@ -75,7 +75,7 @@ export function PortalReportView({
                     @page { margin: 14mm; }
                 }
             `}</style>
-            <div className="print-hidden mb-4 flex items-center justify-between gap-3">
+            <div className="print-hidden mb-6 flex flex-wrap items-center justify-between gap-3 text-foreground">
                 <div>
                     <Link href="/portal/reports" className="text-sm text-muted-foreground hover:text-foreground">All reports</Link>
                     <h2 className="text-xl font-semibold">{title}</h2>
@@ -84,11 +84,13 @@ export function PortalReportView({
                 <button
                     type="button"
                     onClick={() => window.print()}
-                    className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground"
+                    className="portal-button"
+                    title="Opens the print dialog. Choose Save as PDF to download."
                 >
-                    Download PDF
+                    Save as PDF
                 </button>
             </div>
+            <p className="print-hidden mb-4 text-xs text-muted-foreground">To download a PDF, choose Save as PDF in your browser’s print dialog.</p>
             <div id="report-print-area" className="mx-auto max-w-[860px] space-y-6">
                 {pages.map((page, index) => (
                     <div key={index} className="report-page space-y-7 rounded-xl border border-border/40 bg-white px-6 py-8 text-neutral-900 shadow-sm sm:px-10">

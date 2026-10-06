@@ -16,11 +16,11 @@ export default async function PortalHubLayout({ children }: { children: React.Re
         if (access.status === 401) redirect('/portal/login');
         return (
             <div className="mx-auto max-w-lg px-4 py-16 text-sm text-muted-foreground">
-                This portal is for invited client contacts. Ask your account team for a sign-in link.
+                {access.status === 500 ? 'We couldn’t verify your access right now. Please refresh and try again.' : 'This portal is for invited client contacts. Ask your account team for a sign-in link.'}
             </div>
         );
     }
-    const pendingCount = await countPending(access.identity.contact);
+    const pendingCount = await countPending(access.identity.contact).catch(() => null);
     return (
         <PortalShell
             contact={access.identity.contact}

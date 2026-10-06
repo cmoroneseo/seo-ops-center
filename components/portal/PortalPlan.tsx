@@ -72,25 +72,26 @@ export function PortalPlan({
     const activeKey = openKey ?? buckets.find(bucket => bucket.total > 0)?.key ?? buckets[0]?.key ?? null;
 
     async function decide(action: 'approved' | 'changes_requested') {
+        if (action === 'changes_requested' && !note.trim()) { setError('Tell your team what you’d like changed before sending.'); return; }
         setPending(action);
         setError(null);
-        const response = await fetch('/api/client-portal/decision', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ decision: action, note: note.trim() || undefined }),
-        });
-        const payload = await response.json().catch(() => null);
-        setPending(null);
-        if (!response.ok) {
-            setError(payload?.error ?? 'Could not save the decision');
-            return;
-        }
-        setNote('');
-        router.refresh();
+        try {
+            const response = await fetch('/api/client-portal/decision', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ decision: action, note: note.trim() || undefined }),
+            });
+            const payload = await response.json().catch(() => null);
+            if (response.status === 401) throw new Error('Your sign-in has expired. Sign in again to save your decision.');
+            if (!response.ok) throw new Error(payload?.error ?? 'Could not save your decision. Please try again.');
+            setNote(''); router.refresh();
+        } catch (error) {
+            setError(error instanceof Error ? error.message : 'Could not save your decision. Please try again.');
+        } finally { setPending(null); }
     }
 
     return (
         <div className="space-y-6">
+            <div className="text-foreground"><h1 className="text-3xl font-bold tracking-tight">{title}</h1><p className="mt-3 text-sm text-muted-foreground">Your shared roadmap. Review the work ahead and let your team know what you think.</p></div>
             <div className="rounded-xl border border-border bg-white p-6 text-neutral-900">
                 <MarketingPlanReportBody
                     view={view}
@@ -132,13 +133,13 @@ export function PortalPlan({
                         placeholder={state === 'changes_requested' ? 'What should change?' : 'Optional, unless you are requesting changes'}
                     />
                 </label>
-                {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+                {error && <div role="alert" className="mt-2 text-sm text-destructive"><p>{error}</p>{error.includes('sign-in') && <a href="/portal/login?next=/portal/plan" className="mt-1 inline-block font-semibold underline">Sign in again</a>}</div>}
                 <div className="mt-3 flex flex-wrap gap-2">
                     <button
                         type="button"
                         disabled={pending !== null || state === 'approved'}
                         onClick={() => decide('approved')}
-                        className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                        className="portal-button disabled:opacity-50"
                     >
                         {pending === 'approved' ? 'Saving…' : 'Approve'}
                     </button>

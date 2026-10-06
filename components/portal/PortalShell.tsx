@@ -3,105 +3,89 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { ChevronDown, LogOut, MessageSquare, Mountain, ShieldCheck } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { cn } from '@/lib/utils';
 import type { PortalContact } from '@/lib/portal/session';
+import './portal.css';
 
 const LINKS = [
-    { href: '/portal', label: 'Progress' },
-    { href: '/portal/plan', label: 'SEO Plan' },
-    { href: '/portal/pending', label: 'Pending' },
+    { href: '/portal', label: 'Overview' },
+    { href: '/portal/plan', label: 'Our plan' },
+    { href: '/portal/pending', label: 'Approvals' },
     { href: '/portal/reports', label: 'Reports' },
+    { href: '/portal/messages', label: 'Messages' },
 ];
 
-export function PortalShell({
-    contact,
-    contacts,
-    pendingCount,
-    children,
-}: {
-    contact: PortalContact;
-    contacts: PortalContact[];
-    pendingCount: number;
-    children: React.ReactNode;
+export function PortalShell({ contact, contacts, pendingCount, children }: {
+    contact: PortalContact; contacts: PortalContact[]; pendingCount: number | null; children: React.ReactNode;
 }) {
     const pathname = usePathname();
     const router = useRouter();
-    const [switching, setSwitching] = useState(false);
-
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     async function signOut() {
-        const supabase = createClient();
-        await supabase?.auth.signOut();
-        window.location.assign('/portal/login');
+        setBusy(true); setError(null);
+        try {
+            const supabase = createClient();
+            if (!supabase) throw new Error('Sign out is unavailable. Try again.');
+            const result = await supabase.auth.signOut({ scope: 'local' });
+            if (result.error) throw result.error;
+            window.location.assign('/portal/login');
+        } catch { setError('Could not sign out. Please try again.'); setBusy(false); }
     }
-
     async function switchClient(clientId: string) {
-        setSwitching(true);
-        await fetch('/api/client-portal/switch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId }),
-        });
-        router.refresh();
-        setSwitching(false);
+        setBusy(true); setError(null);
+        try {
+            const response = await fetch('/api/client-portal/switch', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId }),
+            });
+            if (!response.ok) throw new Error('switch failed');
+            // Full navigation clears client state and drafts belonging to the previous account.
+            router.push('/portal'); router.refresh();
+        } catch { setError('Could not switch accounts. Please try again.'); }
+        finally { setBusy(false); }
     }
-
+    const initials = contact.clientName.split(/\s+/).slice(0, 2).map(word => word[0]).join('').toUpperCase();
     return (
-        <div className="min-h-screen bg-background text-foreground">
-            <header className="border-b border-border bg-card">
-                <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-4 px-4 py-4">
-                    <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{contact.organizationName}</p>
-                        <h1 className="truncate text-lg font-semibold">{contact.clientName}</h1>
-                    </div>
-                    {contacts.length > 1 && (
-                        <label className="text-sm text-muted-foreground">
-                            <span className="sr-only">Client</span>
-                            <select
-                                className="rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
-                                value={contact.clientId}
-                                disabled={switching}
-                                onChange={event => switchClient(event.target.value)}
-                            >
-                                {contacts.map(item => (
-                                    <option key={item.clientId} value={item.clientId}>{item.clientName}</option>
-                                ))}
-                            </select>
-                        </label>
-                    )}
-                    <div className="text-right">
-                        <p className="text-sm">{contact.displayName}</p>
-                        <button type="button" onClick={signOut} className="text-xs text-muted-foreground hover:text-foreground">
-                            Sign out
-                        </button>
-                    </div>
+        <div className="portal-theme">
+            <a href="#portal-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-card focus:p-4">Skip to content</a>
+            <header className="portal-header">
+                <div className="portal-header-inner">
+                    <Link href="/portal" className="portal-brand" aria-label={`${contact.organizationName} portal home`}>
+                        <Mountain size={39} className="shrink-0 text-primary" aria-hidden="true" />
+                        <span>{contact.organizationName}</span>
+                    </Link>
+                    <p className="portal-client-name">{contact.clientName}</p>
+                    <nav className="portal-nav" aria-label="Client portal">
+                        {LINKS.map(link => {
+                            const active = link.href === '/portal' ? pathname === '/portal' : pathname.startsWith(link.href);
+                            return <Link key={link.href} href={link.href} aria-current={active ? 'page' : undefined}>
+                                {link.label}{link.href === '/portal/pending' && pendingCount !== null && pendingCount > 0 && <span className="portal-badge" aria-label={`${pendingCount} waiting on you`}>{pendingCount}</span>}
+                            </Link>;
+                        })}
+                    </nav>
+                    <Link href="/portal/messages#message-compose" className="portal-button portal-header-message"><MessageSquare size={16} aria-hidden="true" />Message your team</Link>
+                    <details className="portal-account">
+                        <summary aria-label="Your account"><span className="portal-avatar">{initials}</span><ChevronDown size={13} aria-hidden="true" /></summary>
+                        <div className="portal-account-menu">
+                            <p className="text-sm font-bold">{contact.displayName}</p>
+                            <p className="mt-1 break-all text-xs text-muted-foreground">{contact.email}</p>
+                            {contacts.length > 1 && <label className="mt-4 block text-xs font-medium">Client account
+                                <select className="mt-2 w-full rounded-md border border-border bg-background p-2 text-sm" value={contact.clientId} disabled={busy} onChange={event => switchClient(event.target.value)}>
+                                    {contacts.map(item => <option key={item.clientId} value={item.clientId}>{item.clientName}</option>)}
+                                </select>
+                            </label>}
+                            <button type="button" disabled={busy} onClick={signOut} className="mt-4 flex min-h-10 w-full items-center gap-2 text-sm font-medium"><LogOut size={15} />{busy ? 'Please wait…' : 'Sign out'}</button>
+                            {error && <p role="alert" className="mt-2 text-xs text-destructive">{error}</p>}
+                        </div>
+                    </details>
                 </div>
-                <nav className="mx-auto flex max-w-5xl gap-1 overflow-x-auto px-4 pb-3">
-                    {LINKS.map(link => {
-                        const active = link.href === '/portal'
-                            ? pathname === '/portal'
-                            : pathname === link.href || pathname.startsWith(`${link.href}/`);
-                        return (
-                            <Link
-                                key={link.href}
-                                href={link.href}
-                                className={cn(
-                                    'rounded-full px-3 py-1.5 text-sm font-medium whitespace-nowrap',
-                                    active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                                )}
-                            >
-                                {link.label}
-                                {link.href === '/portal/pending' && pendingCount > 0 && (
-                                    <span className={cn('ml-1.5 rounded-full px-1.5 text-xs', active ? 'bg-primary-foreground/20' : 'bg-primary/15 text-primary')}>
-                                        {pendingCount}
-                                    </span>
-                                )}
-                            </Link>
-                        );
-                    })}
-                </nav>
             </header>
-            <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+            <main id="portal-content" className="portal-main" key={contact.clientId}>
+                {pendingCount === null && <p role="status" className="mb-5 rounded-lg bg-card p-4 text-sm text-muted-foreground">Your approval count is temporarily unavailable. Open Approvals to try again.</p>}
+                {children}
+                <footer className="portal-footer mt-8"><span>{contact.organizationName} · {contact.clientName}</span><span className="flex items-center gap-1.5"><ShieldCheck size={13} aria-hidden="true" />Your private client workspace</span></footer>
+            </main>
         </div>
     );
 }

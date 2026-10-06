@@ -1,0 +1,368 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-06T21:02:48.845389+00:00",
+  "title": "Design System: SEO Ops Center Client Portal",
+  "extensions": {
+    "colorMeta": {
+      "background": {
+        "displayName": "Background",
+        "role": "neutral"
+      },
+      "foreground": {
+        "displayName": "Foreground",
+        "role": "neutral"
+      },
+      "card": {
+        "displayName": "Card",
+        "role": "neutral"
+      },
+      "card-foreground": {
+        "displayName": "Card Foreground",
+        "role": "neutral"
+      },
+      "popover": {
+        "displayName": "Popover",
+        "role": "neutral"
+      },
+      "popover-foreground": {
+        "displayName": "Popover Foreground",
+        "role": "neutral"
+      },
+      "primary": {
+        "displayName": "Primary",
+        "role": "primary",
+        "tonalRamp": [
+          "color-mix(in oklab, var(--primary) 10%, transparent)",
+          "color-mix(in oklab, var(--primary) 30%, transparent)",
+          "var(--primary)"
+        ],
+        "purpose": "Inherited borders, underlines, and current journey icon; ramp entries are observed source mixes, not fixed color stops."
+      },
+      "primary-foreground": {
+        "displayName": "Primary Foreground",
+        "role": "primary"
+      },
+      "secondary": {
+        "displayName": "Secondary",
+        "role": "secondary"
+      },
+      "secondary-foreground": {
+        "displayName": "Secondary Foreground",
+        "role": "secondary"
+      },
+      "muted": {
+        "displayName": "Muted",
+        "role": "neutral"
+      },
+      "muted-foreground": {
+        "displayName": "Muted Foreground",
+        "role": "neutral"
+      },
+      "border": {
+        "displayName": "Border",
+        "role": "neutral"
+      },
+      "ring": {
+        "displayName": "Ring",
+        "role": "neutral"
+      },
+      "destructive": {
+        "displayName": "Destructive",
+        "role": "tertiary"
+      },
+      "chart-1": {
+        "displayName": "Chart 1",
+        "role": "primary"
+      },
+      "chart-2": {
+        "displayName": "Chart 2",
+        "role": "tertiary"
+      },
+      "chart-4": {
+        "displayName": "Chart 4",
+        "role": "tertiary"
+      },
+      "selection": {
+        "displayName": "Selection",
+        "role": "primary"
+      },
+      "primary-tint": {
+        "displayName": "Primary Tint",
+        "role": "primary"
+      },
+      "muted-translucent": {
+        "displayName": "Muted Translucent",
+        "role": "neutral"
+      },
+      "border-translucent": {
+        "displayName": "Border Translucent",
+        "role": "neutral"
+      },
+      "technical-surface": {
+        "displayName": "Technical Surface",
+        "role": "tertiary"
+      },
+      "links-surface": {
+        "displayName": "Links Surface",
+        "role": "tertiary"
+      },
+      "completion-ink": {
+        "displayName": "Completion Ink",
+        "role": "tertiary"
+      },
+      "completion-ink-dark": {
+        "displayName": "Completion Ink Dark",
+        "role": "tertiary"
+      },
+      "paper": {
+        "displayName": "Paper",
+        "role": "neutral",
+        "purpose": "Fixed white only for plan/report paper and print."
+      },
+      "paper-ink": {
+        "displayName": "Paper Ink",
+        "role": "neutral"
+      },
+      "transparent": {
+        "displayName": "Transparent",
+        "role": "neutral"
+      },
+      "panel-shadow-color": {
+        "displayName": "Panel Shadow Color",
+        "role": "neutral"
+      },
+      "menu-shadow-color": {
+        "displayName": "Menu Shadow Color",
+        "role": "neutral"
+      },
+      "error-ink": {
+        "displayName": "Light error ink",
+        "role": "tertiary"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Observed display role in portal CSS or inherited utilities."
+      },
+      "metric": {
+        "displayName": "Metric",
+        "purpose": "Observed metric role in portal CSS or inherited utilities."
+      },
+      "metric-minimum": {
+        "displayName": "Metric Minimum",
+        "purpose": "Lower endpoint of the metric clamp, not a separate fixed-size component."
+      },
+      "page-title": {
+        "displayName": "Page Title",
+        "purpose": "Observed page title role in portal CSS or inherited utilities."
+      },
+      "login-title": {
+        "displayName": "Login Title",
+        "purpose": "Observed login title role in portal CSS or inherited utilities."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Observed headline role in portal CSS or inherited utilities."
+      },
+      "section-heading": {
+        "displayName": "Section Heading",
+        "purpose": "Observed section heading role in portal CSS or inherited utilities."
+      },
+      "content-title": {
+        "displayName": "Content Title",
+        "purpose": "Observed content title role in portal CSS or inherited utilities."
+      },
+      "client-name": {
+        "displayName": "Client Name",
+        "purpose": "Observed client name role in portal CSS or inherited utilities."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Observed body role in portal CSS or inherited utilities."
+      },
+      "body-inherited": {
+        "displayName": "Body Inherited",
+        "purpose": "Observed body inherited role in portal CSS or inherited utilities."
+      },
+      "work-title": {
+        "displayName": "Work Title",
+        "purpose": "Observed work title role in portal CSS or inherited utilities."
+      },
+      "navigation": {
+        "displayName": "Navigation",
+        "purpose": "Observed navigation role in portal CSS or inherited utilities."
+      },
+      "action": {
+        "displayName": "Action",
+        "purpose": "Observed action role in portal CSS or inherited utilities."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Observed label role in portal CSS or inherited utilities."
+      },
+      "micro": {
+        "displayName": "Micro",
+        "purpose": "Observed micro role in portal CSS or inherited utilities."
+      }
+    },
+    "shadows": [
+      {
+        "name": "portal-panel",
+        "value": "0 5px 18px rgb(0 0 0 / 8%)",
+        "purpose": "Separate card work surfaces from the app background."
+      },
+      {
+        "name": "portal-menu",
+        "value": "0 12px 32px rgb(0 0 0 / 20%)",
+        "purpose": "Elevate the account disclosure above portal content."
+      }
+    ],
+    "motion": [
+      {
+        "name": "inherited-color-transition",
+        "value": "color/background-color/border-color/outline-color 200ms cubic-bezier(0.4,0,0.2,1)",
+        "purpose": "Existing global utility transition on portal elements; removed by the portal reduced-motion rule."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "transition-duration: 0ms !important; animation: none !important",
+        "purpose": "Existing portal preference override; chart animation is independently disabled."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "portal-phone",
+        "value": "480px"
+      },
+      {
+        "name": "portal-milestone-grid",
+        "value": "768px"
+      },
+      {
+        "name": "portal-stack",
+        "value": "800px"
+      },
+      {
+        "name": "portal-nav-wrap",
+        "value": "1200px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Client action",
+      "kind": "button",
+      "refersTo": "action",
+      "description": "Client action with secondary surface/text, primary border, and muted hover.",
+      "html": "<button class=\"ds-action\">Review</button>",
+      "css": ".ds-action{font-family:var(--font-plus-jakarta),'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 16px;border:1px solid var(--primary);border-radius:7px;font-size:12px;line-height:1.5;font-weight:700;white-space:nowrap;cursor:pointer;transition:background-color 200ms cubic-bezier(0.4,0,0.2,1);background:var(--secondary);color:var(--secondary-foreground)}.ds-action:hover{background:var(--muted)}.ds-action:focus-visible{outline:3px solid var(--ring);outline-offset:4px;}.ds-action:disabled{cursor:not-allowed;opacity:.6}@media(max-width:480px){.ds-action{min-height:44px}}@media(prefers-reduced-motion:reduce){.ds-action{transition-duration:0ms}}"
+    },
+    {
+      "name": "Secondary action",
+      "kind": "button",
+      "refersTo": "action-secondary",
+      "description": "Refresh action with secondary surface/text, default border, and muted hover.",
+      "html": "<button class=\"ds-secondary\">Refresh conversation</button>",
+      "css": ".ds-secondary{font-family:var(--font-plus-jakarta),'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 16px;border:1px solid var(--border);border-radius:7px;font-size:12px;line-height:1.5;font-weight:700;white-space:nowrap;cursor:pointer;transition:background-color 200ms cubic-bezier(0.4,0,0.2,1);background:var(--secondary);color:var(--secondary-foreground)}.ds-secondary:hover{background:var(--muted)}.ds-secondary:focus-visible{outline:3px solid var(--ring);outline-offset:4px;}.ds-secondary:disabled{cursor:not-allowed;opacity:.6}@media(max-width:480px){.ds-secondary{min-height:44px}}@media(prefers-reduced-motion:reduce){.ds-secondary{transition-duration:0ms}}"
+    },
+    {
+      "name": "Work panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Card surface above the inherited app background.",
+      "html": "<section class=\"ds-panel\"><h2>Search performance</h2><p>Organic search results from shared reports</p></section>",
+      "css": ".ds-panel{font-family:var(--font-plus-jakarta),'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;background:var(--card);color:var(--card-foreground);border:1px solid var(--border);border-radius:10px;padding:25px;box-shadow:0 5px 18px rgb(0 0 0 / 8%)}.ds-panel h2{margin:0;font-size:19px;font-weight:800;letter-spacing:-.025em;line-height:1.3}.ds-panel p{margin:5px 0 0;font-size:12px;color:var(--muted-foreground);line-height:1.6}@media(max-width:480px){.ds-panel{padding:20px}}"
+    },
+    {
+      "name": "Message field",
+      "kind": "input",
+      "refersTo": "message-field",
+      "description": "Client conversation textarea using inherited card and border tokens.",
+      "html": "<label class=\"ds-field-label\">Message your team<textarea class=\"ds-field\" rows=\"4\" placeholder=\"Share a question or update.\"></textarea></label>",
+      "css": ".ds-field-label{font-family:var(--font-plus-jakarta),'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;display:block;color:var(--foreground);font-size:.875rem;line-height:1.25rem;font-weight:600}.ds-field{font-family:var(--font-plus-jakarta),'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;display:block;margin-top:8px;width:100%;border:1px solid var(--border);background:var(--card);color:var(--foreground);padding:12px;border-radius:.75rem;font-size:.875rem;font-weight:400;line-height:1.625;caret-color:var(--primary)}.ds-field:focus-visible{outline:3px solid var(--ring);outline-offset:4px;}"
+    },
+    {
+      "name": "Portal navigation",
+      "kind": "nav",
+      "refersTo": "navigation",
+      "description": "Horizontal theme-aware navigation with primary active underline.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Client portal\"><a href=\"#overview\" aria-current=\"page\">Overview</a><a href=\"#plan\">Our plan</a><a href=\"#reports\">Reports</a></nav>",
+      "css": ".ds-nav{font-family:var(--font-plus-jakarta),'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;display:flex;gap:22px;background:var(--card);padding:0 16px;min-height:82px}.ds-nav a{position:relative;display:flex;align-items:center;padding:12px 0;color:var(--muted-foreground);white-space:nowrap;font-size:12px;text-decoration:none}.ds-nav a:hover,.ds-nav a[aria-current=page]{color:var(--foreground)}.ds-nav a[aria-current=page]{font-weight:700}.ds-nav a[aria-current=page]::after{content:\"\";position:absolute;height:3px;bottom:14px;left:0;right:0;background:var(--primary);border-radius:3px}.ds-nav a:focus-visible{outline:3px solid var(--ring);outline-offset:4px;}@media(max-width:480px){.ds-nav{overflow-x:auto;gap:16px;min-height:48px}}"
+    },
+    {
+      "name": "Progress badge",
+      "kind": "chip",
+      "refersTo": "status-progress",
+      "description": "Secondary progress state on card panels.",
+      "html": "<span class=\"ds-progress\">In progress</span>",
+      "css": ".ds-progress{font-family:var(--font-plus-jakarta),'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;display:inline-flex;align-items:center;gap:5px;border-radius:30px;padding:3px 9px;font-size:10px;font-weight:700;background:var(--secondary);color:var(--secondary-foreground)}"
+    },
+    {
+      "name": "Completion badge",
+      "kind": "chip",
+      "refersTo": "status-done",
+      "description": "Recorded delivery or publication using muted and foreground tokens.",
+      "html": "<span class=\"ds-done\"><svg width=\"11\" height=\"11\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"m20 6-11 11-5-5\"/></svg>Delivered</span>",
+      "css": ".ds-done{font-family:var(--font-plus-jakarta),'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;display:inline-flex;align-items:center;gap:5px;border-radius:30px;padding:3px 9px;font-size:10px;font-weight:700;background:var(--muted);color:var(--foreground)}"
+    },
+    {
+      "name": "Work filters",
+      "kind": "button",
+      "refersTo": "work-filter",
+      "description": "Pressed state selects the work bucket using secondary tokens.",
+      "html": "<div class=\"ds-filter-group\"><button class=\"ds-filter\" aria-pressed=\"true\">Shipped</button><button class=\"ds-filter\" aria-pressed=\"false\">In progress</button></div>",
+      "css": ".ds-filter-group{display:flex;flex-wrap:wrap;gap:8px;background:var(--background);padding:12px}.ds-filter{font-family:var(--font-plus-jakarta),'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;font-size:11px;color:var(--muted-foreground);background:transparent;border:1px solid var(--border);border-radius:6px;padding:8px 11px;cursor:pointer}.ds-filter[aria-pressed=true]{background:var(--secondary);color:var(--secondary-foreground);border-color:var(--secondary)}.ds-filter:focus-visible{outline:3px solid var(--ring);outline-offset:4px;}@media(max-width:480px){.ds-filter{min-height:44px}}"
+    },
+    {
+      "name": "Current journey icon",
+      "kind": "custom",
+      "refersTo": "journey-current",
+      "description": "Current milestone window using primary theme tokens.",
+      "html": "<span class=\"ds-journey\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"m22 7-8.5 8.5-5-5L2 17\"/><path d=\"M16 7h6v6\"/></svg><span class=\"ds-hidden\">Current milestone</span></span>",
+      "css": ".ds-journey{width:53px;height:53px;border:2px solid var(--primary);border-radius:50%;display:grid;place-items:center;background:var(--primary);color:var(--primary-foreground);flex-shrink:0}.ds-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@media(max-width:800px){.ds-journey{width:36px;height:36px}.ds-journey svg{width:18px}}"
+    },
+    {
+      "name": "Text link",
+      "kind": "button",
+      "refersTo": "text-link",
+      "description": "Small client link with foreground text and a primary underline.",
+      "html": "<a class=\"ds-text-link\" href=\"#report\">View full report →</a>",
+      "css": ".ds-text-link{font-family:var(--font-plus-jakarta),'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;font-size:12px;color:var(--foreground);text-decoration:underline;text-decoration-color:var(--primary);text-underline-offset:4px}.ds-text-link:focus-visible{outline:3px solid var(--ring);outline-offset:4px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Visible client progress",
+    "overview": "This document captures the implemented client portal visual system: the portal shell, login, dashboard, client conversations, and the wrappers around shared plans and reports. The staff application, including ClientPortalStaffPanel, is explicitly outside scope. Imported shared plan and report block interiors retain their existing presentation; their full token systems are not redefined here. This is implementation documentation for review and handoff, not evidence of a production release.\n\nThe user’s dashboard mockup establishes the portal’s composition and information hierarchy. Its colors, including navy, are illustrative. The implemented portal uses the app’s inherited semantic theme tokens, so organization branding and light/dark mode determine the actual palette. The header, panels, navigation, and actions belong to the same visual language as the app. The final shell and login have no mountain background. Plus Jakarta Sans remains inherited from the existing app. Actual shared data determines content and states.",
+    "keyCharacteristics": [
+      "App semantic colors inherited by the portal without a separate fixed palette.",
+      "Card surfaces, primary actions, and chart tokens that follow the active theme.",
+      "Compact type with strong headings and tabular metrics.",
+      "Visible keyboard focus and layouts that stack for phones."
+    ],
+    "rules": [
+      {
+        "name": "Inherited Theme",
+        "body": "Use the app’s semantic CSS variables for portal surfaces and actions. Do not replace them with colors sampled from the illustrative mockup.",
+        "section": "colors"
+      },
+      {
+        "name": "Paper Exception",
+        "body": "Keep shared plan and report paper white with its existing neutral ink; this exception does not define the portal shell palette.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "Do inherit the app’s semantic colors and existing Plus Jakarta Sans for portal components.",
+      "Do use secondary surfaces and text for client actions with primary borders, foreground text with primary underlines for small links, chart tokens for performance, and the source emerald utilities for success feedback.",
+      "Do retain visible keyboard focus, small-screen stacking, and reduced-motion behavior.",
+      "Do let unavailable measurements and dates remain visibly unavailable."
+    ],
+    "donts": [
+      "Don’t apply this portal document as a staff redesign or restyle imported report and plan interiors through it.",
+      "Don’t hardcode the mockup’s navy, blue, coral, or other illustrative colors in portal surfaces.",
+      "Don’t use completion styling to imply that an approved draft was published or delivered.",
+      "Don’t interpret reference fidelity or these documents as confirmation of a production release."
+    ]
+  }
+}
