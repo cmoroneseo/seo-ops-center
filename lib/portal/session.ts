@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -51,7 +52,7 @@ async function sessionUser(): Promise<{ id: string; email: string } | null> {
  * The signed-in user's live portal contacts. Organization and client ids come
  * from these rows, never from the request body or query string.
  */
-export async function requirePortalAccess(): Promise<AccessResult> {
+export const requirePortalAccess = cache(async (): Promise<AccessResult> => {
     const user = await sessionUser();
     if (!user) return { ok: false, status: 401, error: 'Unauthorized' };
 
@@ -99,7 +100,7 @@ export async function requirePortalAccess(): Promise<AccessResult> {
     const requested = cookieStore.get(PORTAL_CLIENT_COOKIE)?.value;
     const contact = (requested && contacts.find(item => item.clientId === requested)) || contacts[0];
     return { ok: true, identity: { userId: user.id, email: user.email, contact, contacts } };
-}
+});
 
 export async function setPortalClientCookie(clientId: string): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
     if (!isUuid(clientId)) return { ok: false, status: 400, error: 'Unknown client' };

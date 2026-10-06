@@ -312,7 +312,7 @@ export default function ClientDetailPage() {
                 <button
                     onClick={() => setActiveTab('portal')}
                     className={cn('flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'portal' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
-                ><Globe className="h-3.5 w-3.5" />Client portal</button>
+                ><Globe className="h-3.5 w-3.5" />Portal management</button>
                 <button
                     onClick={() => setActiveTab('integrations')}
                     className={cn(

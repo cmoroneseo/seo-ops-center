@@ -101,6 +101,11 @@ export async function middleware(request: NextRequest) {
 
     // If user is not signed in and tries to access a protected route, redirect to /login
     if (!user && !isPublicRoute && !isReviewPortal && !isWebhookRoute && !isPortalEntry && !pathname.startsWith('/auth')) {
+        if (pathname.startsWith('/api/client-portal/')) {
+            const unauthorized = NextResponse.json({ error: 'Your sign-in has expired. Sign in again to continue.' }, { status: 401 })
+            response.cookies.getAll().forEach(cookie => unauthorized.cookies.set(cookie))
+            return unauthorized
+        }
         if (pathname.startsWith('/portal')) {
             const login = new URL('/portal/login', request.url)
             login.searchParams.set('next', pathname)

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-    loadStaffPortal, staffInvite, staffRevoke, staffSharePlan, staffShareReport, staffWaiting,
+    loadStaffPortal, staffReply, staffInvite, staffRevoke, staffSharePlan, staffShareReport, staffWaiting,
 } from '@/lib/portal/staff';
 
 export const dynamic = 'force-dynamic';
@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
         : action === 'unshare_report' ? await staffShareReport(record, false)
         : action === 'add_waiting' ? await staffWaiting(record, false)
         : action === 'resolve_waiting' ? await staffWaiting(record, true)
+        : action === 'reply' ? await staffReply(record)
         : { ok: false as const, status: 400, error: 'Unknown action' };
 
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });

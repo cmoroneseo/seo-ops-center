@@ -1,7 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requireClientOrgMember } from '@/lib/security/tenant-authz';
 import { SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
-import { cleanDisplayName, cleanShortText, isUuid, normalizeEmail } from './access-policy';
+import { cleanDisplayName, cleanFeedbackBody, cleanShortText, isUuid, normalizeEmail } from './access-policy';
 import { planDecisionState } from './progress';
 import { ensureStaffContact, sendContactLink } from './actions';
 
@@ -325,5 +325,20 @@ export async function staffWaiting(body: Record<string, unknown>, resolve: boole
         created_by: auth.actor.userId,
     });
     if (error) return { ok: false, status: 500, error: 'Could not add the item' };
+    return { ok: true as const };
+}
+
+export async function staffReply(input: Record<string, unknown>) {
+    const auth = await authorize(input.clientId, true);
+    if (!auth.ok) return auth;
+    const body = cleanFeedbackBody(input.body);
+    if (!body) return { ok: false as const, status: 400, error: 'Write a short reply (up to 2000 characters)' };
+    const { actor } = auth;
+    const { error } = await createAdminClient().from('client_portal_feedback').insert({
+        organization_id: actor.organizationId, client_id: actor.clientId,
+        staff_user_id: actor.userId, author_label: actor.actorName,
+        subject_type: 'general', subject_id: actor.clientId, body,
+    });
+    if (error) return { ok: false as const, status: 500, error: 'Could not save the reply' };
     return { ok: true as const };
 }

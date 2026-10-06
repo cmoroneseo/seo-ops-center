@@ -65,6 +65,7 @@ export function safePortalNext(value: string | null | undefined): string {
         || path === '/portal/plan'
         || path === '/portal/pending'
         || path === '/portal/reports'
+        || path === '/portal/messages'
         || REPORT_PATH.test(path)
     ) {
         return path;
@@ -112,4 +113,9 @@ export function cleanFeedbackBody(value: unknown): string | null {
 /** Cap how many review links a signed-in contact can mint for one batch. */
 export function reviewHandoffAllowed(recentLinkCount: number, limit = 8): boolean {
     return Number.isInteger(recentLinkCount) && recentLinkCount >= 0 && recentLinkCount < limit;
+}
+
+/** A general conversation always belongs to the signed-in contact's client. */
+export function generalFeedbackAllowed(subjectId: unknown, clientId: string): boolean {
+    return isUuid(subjectId) && subjectId === clientId;
 }

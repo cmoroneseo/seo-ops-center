@@ -18,7 +18,8 @@ export type NotificationType =
   | 'approval_comment'
   | 'approval_decision'
   | 'approval_batch_done'
-  | 'approval_doc_drifted';
+  | 'approval_doc_drifted'
+  | 'portal_feedback';
 export type EntityType =
   | 'task'
   | 'task_comment'
@@ -26,7 +27,8 @@ export type EntityType =
   | 'deliverable'
   | 'reminder'
   | 'content_approval_batch'
-  | 'content_approval_doc';
+  | 'content_approval_doc'
+  | 'client_portal_feedback';
 
 export interface AppNotification {
   id: string;
