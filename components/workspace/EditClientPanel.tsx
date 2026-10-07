@@ -38,6 +38,7 @@ function ClientAvatar({ name, logoUrl, size = 'lg' }: { name: string; logoUrl?: 
 export { ClientAvatar };
 
 export function EditClientPanel({ client, onClose, onSaved }: Props) {
+    const agreementManaged=!!client.agreements?.length;
     const { organization } = useOrganization();
     const [name, setName] = useState(client.clientName);
     const [domain, setDomain] = useState(client.domain ?? '');
@@ -186,7 +187,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
         }
 
         // Log retainer amendment if hours/blogs changed or a note was provided
-        if (organization && (hoursChanged || blogsChanged || amendmentNote.trim())) {
+        if (!agreementManaged && organization && (hoursChanged || blogsChanged || amendmentNote.trim())) {
             const supabase = createClient();
             const actorName = supabase
                 ? await supabase.auth.getUser().then((r: Awaited<ReturnType<typeof supabase.auth.getUser>>) => r.data.user?.user_metadata?.full_name ?? r.data.user?.email ?? undefined)
@@ -333,6 +334,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
                     {/* Hours & Deliverables */}
                     <div className="space-y-3">
                         <label className="text-sm font-medium">Hours &amp; Deliverables</label>
+                        {agreementManaged && <p className="text-xs leading-relaxed text-muted-foreground">These terms are maintained in Agreement history. Use Change scope or Renew agreement to preserve earlier periods.</p>}
                         <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-1.5">
                                 <label className="text-xs text-muted-foreground">Monthly SEO Hours</label>
@@ -341,6 +343,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
                                     min="0"
                                     step="0.5"
                                     value={seoHours}
+                                    disabled={agreementManaged}
                                     onChange={e => setSeoHours(e.target.value)}
                                     className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40"
                                 />
@@ -352,6 +355,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
                                     min="0"
                                     step="1"
                                     value={blogsPerMonth}
+                                    disabled={agreementManaged}
                                     onChange={e => setBlogsPerMonth(e.target.value)}
                                     className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40"
                                 />

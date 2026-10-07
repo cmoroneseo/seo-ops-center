@@ -53,6 +53,7 @@ export async function getClientBasecampConfig(clientId: string | undefined): Pro
 export function rowToTask(row: any): Task {
     return {
         id: row.id,
+        agreementId:row.agreement_id ?? undefined,
         organizationId: row.organization_id,
         projectId: row.project_id ?? undefined,
         clientId: row.client_id ?? undefined,

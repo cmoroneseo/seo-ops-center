@@ -26,8 +26,11 @@ import { ExistingTaskDialog } from './ExistingTaskDialog';
 import { GenerateTasksPanel } from './GenerateTasksPanel';
 import { ExecutionWorkspace, ExecutionTaskPatch, ScheduleFields } from './ExecutionWorkspace';
 import { monthKey } from '@/lib/marketing-plan-execution';
+import {getSeoHoursForMonth} from '@/lib/supabase/change-log';
 import { getTask, updateTask } from '@/lib/supabase/tasks';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
+import {getAgreementHistory,getAgreementWorkFunding} from '@/lib/supabase/agreements';
+import {monthlyAgreementLogs,monthlyAgreementTaskIds,agreementPeriod} from '@/lib/agreements/logic';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 
 interface MarketingPlanTabProps {
@@ -35,15 +38,19 @@ interface MarketingPlanTabProps {
     clientId: string;
     clientName: string;
     monthlyBudget?: number;
+    scopeMode?:'monthly'|'custom';
 }
 
-export function MarketingPlanTab({ organizationId, clientId, clientName, monthlyBudget = 0 }: MarketingPlanTabProps) {
+export function MarketingPlanTab({ organizationId, clientId, clientName, monthlyBudget = 0,scopeMode='monthly' }: MarketingPlanTabProps) {
     const [addChooserOpen, setAddChooserOpen] = useState(false);
     const [basecampOnly, setBasecampOnly] = useState(false);
     const [planLayout, setPlanLayout] = useState<'list' | 'board'>('list');
     const [roadmapMonth, setRoadmapMonth] = useState<'all' | RoadmapPhase>('all');
     const [existingOpen, setExistingOpen] = useState(false);
     const [month, setMonth] = useState(monthKey);
+    const [periodBudget,setPeriodBudget]=useState(monthlyBudget);
+    const [capacityMode,setCapacityMode]=useState<'monthly'|'scoped'|'unavailable'>('unavailable');
+    const [budgetTaskIds,setBudgetTaskIds]=useState<string[]|undefined>();
     const [taskHours, setTaskHours] = useState<Record<string, number>>({});
     const [loggedHours, setLoggedHours] = useState<number | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -92,14 +99,21 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
         let cancelled = false;
         setLoggedHours(null);
         setTaskHours({});
-        getTimeLogs(organizationId, { clientId, month, budgetMonth: true, throwOnError: true }).then(logs => {
+        setCapacityMode('unavailable');
+        Promise.all([getTimeLogs(organizationId, { clientId, month, budgetMonth: true, throwOnError: true }),getAgreementHistory(organizationId,clientId)]).then(async([logs,history]) => {
+            const period=history.agreements.length ? agreementPeriod(history.agreements,month) : null;
+            const mode=period ? period.uncoveredDays>0 || period.segments.some(s=>s.agreement.mode==='custom') ? 'scoped' : 'monthly' : scopeMode==='custom' ? 'scoped' : 'monthly';
+            const hours=period?.monthlyBudget ?? (scopeMode==='monthly' ? await getSeoHoursForMonth(organizationId,clientId,month,monthlyBudget) : 0);
+            const funding=period ? await getAgreementWorkFunding(organizationId,clientId) : [];
             if (cancelled) return;
-            const budgetLogs = logs.filter(log => log.countsTowardBudget);
+            setPeriodBudget(hours);setCapacityMode(mode);
+            setBudgetTaskIds(period && mode==='monthly' ? monthlyAgreementTaskIds((plan?.items ?? []).flatMap(item=>item.linkedTask ? [item.linkedTask] : []),history.agreements,funding,month) : undefined);
+            const budgetLogs = period && mode==='monthly' ? monthlyAgreementLogs(logs,history.agreements,month) : logs.filter(log => log.countsTowardBudget);
             setLoggedHours(budgetLogs.reduce((sum, log) => sum + log.hours, 0));
             setTaskHours(budgetLogs.reduce<Record<string, number>>((hours, log) => { if (log.taskId) hours[log.taskId] = (hours[log.taskId] ?? 0) + log.hours; return hours; }, {}));
         }).catch(() => { if (!cancelled) setLoggedHours(null); });
         return () => { cancelled = true; };
-    }, [organizationId, clientId, month, timeVersion]);
+    }, [organizationId, clientId, month, timeVersion,monthlyBudget,scopeMode,plan]);
     useEffect(() => {
         const reload = () => { void refresh(); setTimeVersion(value => value + 1); };
         window.addEventListener('focus', reload);
@@ -440,7 +454,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     );
     return <>
         {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/40 p-3 text-sm">{error}<button className="ml-3 text-primary underline" onClick={() => refresh()}>Retry</button></p>}
-        <ExecutionWorkspace onAddExisting={() => setAddChooserOpen(true)} plan={plan} month={month} budget={monthlyBudget} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} />
+        <ExecutionWorkspace onAddExisting={() => setAddChooserOpen(true)} plan={plan} month={month} budget={periodBudget} capacityMode={capacityMode} budgetTaskIds={budgetTaskIds} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} />
         <AddPlanItemDialog open={addChooserOpen} onClose={() => setAddChooserOpen(false)} onSelect={source => {
             if (source === 'custom') setShowAddForm(true);
             else if (source === 'suggest') setShowSuggest(true);
