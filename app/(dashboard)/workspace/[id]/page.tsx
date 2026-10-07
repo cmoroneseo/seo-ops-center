@@ -40,6 +40,7 @@ import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
 import { BasecampImportModal } from '@/components/workspace/BasecampImportModal';
 import { ClientApprovalsTab } from '@/components/approvals/ClientApprovalsTab';
 import { ClientPortalStaffPanel } from '@/components/portal/ClientPortalStaffPanel';
+import {ClientAgreementSummary} from '@/components/workspace/agreements/ClientAgreementSummary';
 
 type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'inventory' | 'topical-map' | 'approvals' | 'portal';
 
@@ -207,7 +208,7 @@ export default function ClientDetailPage() {
                             </div>
                             <div className="flex items-center gap-1.5">
                                 <Clock className="h-4 w-4" />
-                                <span>{client.seoHours}h/mo</span>
+                                <span>{client.agreementHistoryUnavailable ? 'Scope unavailable' : client.setupScope?.mode==='custom' ? 'Custom scope' : `${client.seoHours}h/mo`}</span>
                             </div>
                             {canvasEnabled && <div className="flex flex-wrap items-center gap-2">
                                 <UserCheck className="h-4 w-4" />
@@ -249,6 +250,14 @@ export default function ClientDetailPage() {
                     </div>
                 </div>
             </div>
+
+            <ClientAgreementSummary client={client} onChanged={async()=>{
+                if(!organization?.id)return;
+                const refreshed=(await getClients(organization.id)).find(item=>item.id===client.id);
+                if(refreshed)setClient(refreshed);
+                setActivityRefreshKey(key=>key+1);
+                window.dispatchEvent(new Event('client-activity:data-changed'));
+            }} />
 
             {timerTaskRequired && (
                 <p className="-mt-3 text-sm text-muted-foreground">
@@ -343,6 +352,7 @@ export default function ClientDetailPage() {
                     clientId={client.id}
                     clientName={client.clientName}
                     monthlyBudget={client.setupScope?.mode === 'custom' ? 0 : client.seoHours || client.retainerConfig?.monthlyHours || 0}
+                    scopeMode={client.setupScope?.mode==='custom' ? 'custom' : 'monthly'}
                 />
             )}
 

@@ -1,11 +1,15 @@
 import { createClient } from './client';
 import { DeliverableCommitment, DeliverableType, CommitmentCadence } from '../types';
 import { EngagementModel } from '../seo-ops-logic';
+import {getAgreementHistory} from './agreements';
+import {commitmentWindow} from '../agreements/commitments';
+import {agreementToday} from '../agreements/logic';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function rowToCommitment(row: any): DeliverableCommitment {
+export function rowToCommitment(row: any): DeliverableCommitment {
     return {
         id: row.id,
+        agreementId:row.agreement_id ?? undefined,
         organizationId: row.organization_id,
         clientId: row.client_id,
         type: (row.type as DeliverableType) || 'Content',
@@ -63,6 +67,9 @@ async function syncClientBlogCadence(clientId: string): Promise<void> {
     const supabase = createClient();
     if (!supabase) return;
     try {
+        const {data:recorded,error:recordedError}=await supabase.from('client_agreements').select('id').eq('client_id',clientId).limit(1);
+        if(recorded?.length)return;
+        if(recordedError && !['42P01','PGRST205'].includes(recordedError.code))throw recordedError;
         const { data, error } = await supabase
             .from('deliverable_commitments')
             .select('quantity_per_month, subtype, type, is_active, engagement_model')
@@ -82,10 +89,10 @@ async function syncClientBlogCadence(clientId: string): Promise<void> {
 /** Commitments for an org, optionally filtered by client. Active first. */
 export async function getCommitments(
     organizationId: string,
-    opts: { clientId?: string; activeOnly?: boolean } = {},
+    opts: { clientId?: string; activeOnly?: boolean;throwOnError?:boolean } = {},
 ): Promise<DeliverableCommitment[]> {
     const supabase = createClient();
-    if (!supabase) return [];
+    if (!supabase) {if(opts.throwOnError)throw new Error('Service data unavailable.');return [];}
     try {
         let q = supabase.from('deliverable_commitments').select('*').eq('organization_id', organizationId);
         if (opts.clientId) q = q.eq('client_id', opts.clientId);
@@ -94,9 +101,20 @@ export async function getCommitments(
             .order('is_active', { ascending: false })
             .order('created_at', { ascending: true });
         if (error) throw error;
-        return (data || []).map(rowToCommitment);
+        const commitments:DeliverableCommitment[]=(data || []).map(rowToCommitment);
+        if(!commitments.some(c=>c.agreementId))return commitments;
+        const history=await getAgreementHistory(organizationId,opts.clientId);
+        const projected=commitments.map(c=>{
+            if(!c.agreementId)return c;
+            const window=commitmentWindow(c,history.agreements);
+            const agreement=history.agreements.find(a=>a.id===c.agreementId);
+            const today=agreementToday(agreement?.timezone ?? 'America/Los_Angeles');
+            return {...c,startsOn:window?.startsOn ?? c.startsOn,endsOn:window?.endsOn ?? c.endsOn,isActive:!!window && window.startsOn<=today && (!window.endsOn || window.endsOn>=today)};
+        });
+        return opts.activeOnly ? projected.filter(c=>c.isActive) : projected;
     } catch (err) {
         console.error('Error fetching commitments:', err);
+        if(opts.throwOnError)throw new Error('Services could not be loaded. Retry before recording the original agreement.');
         return [];
     }
 }

@@ -10,6 +10,7 @@ import { MonthlyPlan, WeeklyPlan, ClientProject, TimeLog } from '@/lib/types';
 import { getMonthlyPlans, upsertMonthlyPlan } from '@/lib/supabase/monthly-plans';
 import { getTimeLogs, createTimeLog, updateTimeLog, deleteTimeLog } from '@/lib/supabase/time-logs';
 import { getSeoHoursForMonth } from '@/lib/supabase/change-log';
+import {monthlyAgreementLogs} from '@/lib/agreements/logic';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { createClient } from '@/lib/supabase/client';
 
@@ -190,18 +191,20 @@ export function MonthlyPlannerCard({ client, selectedMonth, onMonthChange }: Mon
     const load = useCallback(async () => {
         if (!organization) return;
         setIsLoading(true);
+        setDeleteError(null);
+        try {
         const [plans, logs, historicalHours] = await Promise.all([
             getMonthlyPlans(organization.id, { clientId: client.id, month }),
-            getTimeLogs(organization.id, { clientId: client.id, month }),
+            getTimeLogs(organization.id, { clientId: client.id, month,throwOnError:true }),
             getSeoHoursForMonth(organization.id, client.id, month, client.seoHours),
         ]);
         const p = plans[0] ?? null;
         setPlan(p);
         setMonthNotes(p?.notes ?? '');
-        setTimeLogs(logs);
+        setTimeLogs(client.agreements?.length ? monthlyAgreementLogs(logs,client.agreements,month) : logs);
         setEffectiveSeoHours(historicalHours);
-        setIsLoading(false);
-    }, [organization?.id, client.id, month, client.seoHours]);
+        } catch {setTimeLogs([]);setEffectiveSeoHours(0);setDeleteError('Hours could not be loaded. Reload before planning against the allowance.');} finally {setIsLoading(false);}
+    }, [organization?.id, client.id, month, client.seoHours,client.agreements]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -217,7 +220,7 @@ export function MonthlyPlannerCard({ client, selectedMonth, onMonthChange }: Mon
     // ── Computed ───────────────────────────────────────────────────────────
 
     const weeks: WeeklyPlan[] = plan?.weeks.length ? plan.weeks : generateDefaultWeeks(month);
-    const isHistorical = timeLogs.length === 0 && (plan?.weeks ?? []).some(w => w.logged > 0);
+    const isHistorical = !client.agreements?.length && timeLogs.length === 0 && (plan?.weeks ?? []).some(w => w.logged > 0);
 
     // Group real time_logs by week number.
     //

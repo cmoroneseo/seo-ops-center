@@ -23,6 +23,8 @@ export interface ExecutionWorkspaceProps {
     plan: MarketingPlan;
     month: string;
     budget: number;
+    capacityMode?:'monthly'|'scoped'|'unavailable';
+    budgetTaskIds?:string[];
     loggedHours: number | null;
     taskHours: Record<string, number>;
     members: MemberOption[];
@@ -47,7 +49,7 @@ function Status({ task }: { task: Task }) {
     </span>;
 }
 
-export function ExecutionWorkspace({ plan, month, budget, loggedHours, taskHours, members, fullPlan, onAddExisting, onMonthChange, onSaveTask, onSchedule, onSaveGoal, onOpenTask }: ExecutionWorkspaceProps) {
+export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',budgetTaskIds, loggedHours, taskHours, members, fullPlan, onAddExisting, onMonthChange, onSaveTask, onSchedule, onSaveGoal, onOpenTask }: ExecutionWorkspaceProps) {
     const [view, setView] = useState<'month' | 'full' | 'results'>('month');
     const [selectedId, setSelectedId] = useState<string>();
     const [scheduling, setScheduling] = useState(false);
@@ -56,7 +58,8 @@ export function ExecutionWorkspace({ plan, month, budget, loggedHours, taskHours
     const [goalError, setGoalError] = useState('');
     const [savingGoal, setSavingGoal] = useState(false);
     const summary = monthlyExecution(plan.items ?? [], month, budget);
-    const { plannedHours, consumed, available, scale } = executionCapacity(summary.tasks, taskHours, loggedHours, budget);
+    const capacityTasks=budgetTaskIds ? summary.tasks.filter(task=>budgetTaskIds.includes(task.id)) : summary.tasks;
+    const { plannedHours, consumed, available, scale } = executionCapacity(capacityTasks, taskHours, loggedHours, budget);
     const selected = summary.tasks.find(task => task.id === selectedId) ?? summary.tasks[0];
     const source = plan.items?.find(item => item.taskId === selected?.id);
     const title = new Date(`${month}-01T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
@@ -76,13 +79,15 @@ export function ExecutionWorkspace({ plan, month, budget, loggedHours, taskHours
                 }}><label className="sr-only" htmlFor="plan-goal">Plan goal</label><input id="plan-goal" className={field} value={goal} maxLength={500} onChange={e => setGoal(e.target.value)} autoFocus disabled={savingGoal} placeholder="What should this SEO work achieve?" /><div className="flex gap-2"><button disabled={savingGoal} className={primary}>{savingGoal ? 'Saving…' : 'Save goal'}</button><button type="button" disabled={savingGoal} className={secondary} onClick={() => { setEditingGoal(false); setGoalError(''); }}>Cancel</button></div>{goalError && <p role="alert" className="text-sm text-destructive">{goalError}</p>}</form>
                 : <button className="mt-1 text-left text-sm font-medium hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" onClick={() => { setGoal(plan.goal ?? ''); setEditingGoal(true); }}>{plan.goal || 'Set a goal for this plan'}<span className="ml-2 text-xs font-normal text-muted-foreground">Edit</span></button>}
             </div></div>
-</div>            <section aria-label="Monthly capacity" className="min-w-0 lg:pt-7">
+</div>            <section aria-label={capacityMode==='monthly' ? 'Monthly capacity' : 'Planned work'} className="min-w-0 lg:pt-7">
+                {capacityMode!=='monthly' ? <div className="space-y-3 text-sm"><p className="font-medium">{capacityMode==='unavailable' ? 'Agreement hours unavailable' : 'Planned work this month'}</p><p className="text-muted-foreground">{loggedHours==null ? 'Time unavailable' : `${formatHours(loggedHours)} logged`} · {formatHours(plannedHours)} remaining estimate</p><p className="text-xs leading-relaxed text-muted-foreground">{capacityMode==='unavailable' ? 'Reload to see the correct scope and allowance.' : 'Work spans custom scope or partial coverage. Review each agreement’s allowance in the workspace overview.'}</p></div> : <>
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2">Monthly capacity{budget > 0 ? ` (${formatHours(budget)})` : ''}<span title="Logged: confirmed budget-counting client time this month. Planned: remaining estimates for open tasks in this plan, after subtracting their logged time this month. Other unscheduled work is not included." tabIndex={0} aria-label="Capacity calculation: logged client time plus remaining estimates for open tasks in this plan."><Info className="h-4 w-4 text-muted-foreground" /></span></span><span className={cn('font-medium', consumed > budget && budget > 0 && 'text-amber-500')}>{loggedHours === null ? 'Time unavailable' : budget <= 0 ? 'No budget set' : consumed > budget ? `${formatHours(consumed - budget)} over capacity` : `${formatHours(available)} available`}</span></div>
                 <div className="flex h-3 overflow-hidden rounded-full bg-muted sm:h-4" role="img" aria-label={`Monthly capacity: ${loggedHours === null ? 'unknown' : formatHours(loggedHours)} logged, ${formatHours(plannedHours)} planned, ${budget > 0 && loggedHours !== null ? formatHours(available) : 'unknown'} available`}>
                     {loggedHours !== null && <><span className="bg-primary transition-[width]" style={{ width: `${loggedHours / scale * 100}%` }} /><span className="bg-primary/40 transition-[width]" style={{ width: `${plannedHours / scale * 100}%` }} /></>}
                 </div>
                 <div className="mt-3 flex flex-wrap justify-between gap-x-4 gap-y-2 text-xs text-muted-foreground"><span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-primary" />{loggedHours === null ? '—' : formatHours(loggedHours)} logged</span><span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-primary/40" />{formatHours(plannedHours)} planned</span><span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/50" />{budget > 0 && loggedHours !== null ? formatHours(available) : '—'} available</span></div>
-                <p className="mt-2 text-xs text-muted-foreground">Planned = remaining estimates in this plan.{summary.missingEstimates > 0 && ` ${summary.missingEstimates} tasks need estimates.`}</p>
+                <p className="mt-2 text-xs text-muted-foreground">Planned = remaining estimates in this plan.{budgetTaskIds && ' Capacity includes work funded by this month’s monthly agreements.'}{summary.missingEstimates > 0 && ` ${summary.missingEstimates} tasks need estimates.`}</p>
+                </>}
             </section></header>
         <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex rounded-lg border border-border p-1" role="group" aria-label="Plan views">

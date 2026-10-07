@@ -73,7 +73,7 @@ const INTERNAL_EVENT_TYPES: ReadonlySet<string> = new Set([
 
 /** Whether an event belongs in the client-facing feed and its export. */
 export function isClientVisibleEvent(eventType: string): boolean {
-    return !INTERNAL_EVENT_TYPES.has(eventType);
+    return !eventType.startsWith('agreement.') && !INTERNAL_EVENT_TYPES.has(eventType);
 }
 
 /** Write an activity event (server-side only — uses service role). */

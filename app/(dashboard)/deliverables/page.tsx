@@ -82,8 +82,11 @@ export default function DeliverablesPage() {
     const handleGenerate = async () => {
         setIsGenerating(true);
         try {
-            await fetch('/api/cron/generate-deliverables', { method: 'POST' });
+            const response=await fetch('/api/cron/generate-deliverables', { method: 'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({organizationId:organization?.id}) });
+            if(!response.ok)throw new Error('Deliverables could not be generated. Try again.');
             refetch();
+        } catch(error) {
+            setRecordError(error instanceof Error ? error.message : 'Deliverables could not be generated.');
         } finally {
             setIsGenerating(false);
         }

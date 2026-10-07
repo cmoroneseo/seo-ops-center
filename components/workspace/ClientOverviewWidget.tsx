@@ -116,7 +116,7 @@ export function ClientOverviewWidget({ client, organizationId }: ClientOverviewW
             <OverviewCard
                 icon={<Clock className="h-4 w-4 text-primary" />}
                 label="Hours This Month"
-                value={<>{formatHours(overview.hours.logged)} <span className="text-sm font-medium text-muted-foreground">/ {formatHours(overview.hours.budget)} hrs</span></>}
+                value={<>{formatHours(overview.hours.logged)} <span className="text-sm font-medium text-muted-foreground">{overview.hours.status.status==='By agreement' ? 'hrs logged' : `/ ${formatHours(overview.hours.budget)} hrs`}</span></>}
                 badge={(
                     <span className={cn('px-2 py-0.5 rounded text-xs font-medium border', severityBadgeClass(overview.hours.status.severity))}>
                         {overview.hours.status.status}

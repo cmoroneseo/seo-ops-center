@@ -2,6 +2,7 @@ import { createClient } from './client';
 import { ClientProject, ProjectStatus, EngagementModel, Tier } from '../types';
 import { actualBlogsDueToDate, targetBlogCount } from '../seo-ops-logic';
 import { logActivity } from './client-activity';
+import {getAgreementHistory,withClientAgreements} from './agreements';
 
 // --- status mapping between the app's ProjectStatus and the DB's clients.status ---
 const DB_TO_APP_STATUS: Record<string, ProjectStatus> = {
@@ -87,11 +88,11 @@ export function clientProjectToRow(client: Partial<ClientProject>) {
         name: client.clientName,
         launch_date: 'launchDate' in client ? client.launchDate || null : undefined,
         onboarding_date: client.onboardingDate,
-        setup_scope: client.setupScope,
-        seo_hours: client.seoHours,
-        engagement_model: client.engagementModel,
+        setup_scope: client.agreements?.length ? undefined : client.setupScope,
+        seo_hours: client.agreements?.length ? undefined : client.seoHours,
+        engagement_model: client.agreements?.length ? undefined : client.engagementModel,
         deliverables_spec: client.deliverables,
-        blogs_due_per_month: client.blogsDuePerMonth,
+        blogs_due_per_month: client.agreements?.length ? undefined : client.blogsDuePerMonth,
         account_manager_name: client.accountManager,
         account_manager_id: 'accountManagerId' in client ? client.accountManagerId ?? null : undefined,
         campaign_total_blogs: 'campaignTotalBlogs' in client ? client.campaignTotalBlogs ?? null : undefined,
@@ -145,7 +146,13 @@ export async function getClients(organizationId: string): Promise<ClientProject[
             .order('name', { ascending: true });
 
         if (error) throw error;
-        return (data || []).map(rowToClientProject);
+        const clients:ClientProject[]=(data || []).map(rowToClientProject);
+        try {
+        const history=await getAgreementHistory(organizationId,undefined,false);
+            return clients.map(client=>withClientAgreements(client,history.agreements.filter(a=>a.clientId===client.id)));
+        } catch {
+            return clients.map(client=>({...client,agreementHistoryUnavailable:true}));
+        }
     } catch (err) {
         console.error('Error fetching clients:', err);
         return [];
@@ -173,7 +180,7 @@ export async function updateClientProject(
 
         const { data, error } = await supabase.from('clients').update(payload).eq('id', id).select().single();
         if (error) throw error;
-        const updated = rowToClientProject(data);
+        const updated = patch.agreements?.length ? withClientAgreements(rowToClientProject(data),patch.agreements) : rowToClientProject(data);
 
         if (patch.status !== undefined && prev.status !== updated.status) {
             logActivity({
