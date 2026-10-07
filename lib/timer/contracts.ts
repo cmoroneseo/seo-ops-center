@@ -97,6 +97,7 @@ export function timerAttemptFromRow(value: unknown): TimerAttempt {
         plannerEventId: optionalString(row.planner_event_id),
         userId: String(row.user_id ?? ''),
         date: String(row.date ?? ''),
+        agreementId: row.agreement_id ? String(row.agreement_id) : undefined,
         hours: Number(row.hours) || 0,
         description: typeof row.description === 'string' ? row.description : '',
         billable: typeof row.billable === 'boolean' ? row.billable : true,

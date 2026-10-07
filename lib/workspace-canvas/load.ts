@@ -7,6 +7,8 @@ import { getOrganizationMembers } from '../supabase/organizations';
 import { getTasksByClient } from '../supabase/tasks';
 import { getTimeLogs } from '../supabase/time-logs';
 import { sumBudgetHoursByClient } from '../time-budget-logic';
+import {getAgreementHours} from '../supabase/agreements';
+import {getSeoHoursForMonth} from '../supabase/change-log';
 import type { ClientProject, Task } from '../types';
 import {
     buildDailySeries,
@@ -93,6 +95,8 @@ export async function loadWorkspaceCanvas(args: {
     const through = availableThrough(now);
     const custom = client.setupScope?.mode === 'custom';
     const campaign = !custom && client.engagementModel === 'Campaign';
+    const agreementPromise=client.agreementHistoryUnavailable ? Promise.reject(new Error('Agreement history unavailable')) : client.agreements?.length ? getAgreementHours(organizationId,client.id,month,client.agreements) : Promise.resolve(null);
+    const historicalBudgetPromise=client.agreements?.length ? Promise.resolve(0) : getSeoHoursForMonth(organizationId,client.id,month,client.seoHours);
 
     const tasksPromise = getTasksByClient(client.id, true);
     const membersPromise = getOrganizationMembers(organizationId);
@@ -119,7 +123,7 @@ export async function loadWorkspaceCanvas(args: {
     })();
     const searchPromise = loadSearch(client.id, month, through, signal);
 
-    const [tasksResult, planResult, monthResult, campaignResult, deliverableResult, approvalResult, searchResult, members] = await Promise.all([
+    const [tasksResult, planResult, monthResult, campaignResult, deliverableResult, approvalResult, searchResult, members,agreementResult,historicalBudget] = await Promise.all([
         tasksPromise.then(value => ({ ok: true as const, value })).catch(() => ({ ok: false as const })),
         planPromise.then(value => ({ ok: true as const, value })).catch(() => ({ ok: false as const })),
         monthHoursPromise.then(value => ({ ok: true as const, value })).catch(() => ({ ok: false as const })),
@@ -128,6 +132,8 @@ export async function loadWorkspaceCanvas(args: {
         approvalsPromise.then(value => ({ ok: true as const, value })).catch(() => ({ ok: false as const })),
         searchPromise.then(value => ({ ok: true as const, value })).catch(error => ({ ok: false as const, message: error instanceof Error ? error.message : 'Search Console data could not be loaded.' })),
         membersPromise.then(value => value.map(member => ({ id: member.userId, name: member.user.fullName ?? '' }))).catch(() => []),
+        agreementPromise.then(value=>({ok:true as const,value})).catch(()=>({ok:false as const})),
+        historicalBudgetPromise.catch(()=>null),
     ]);
     if (signal.aborted) return null;
 
@@ -167,8 +173,8 @@ export async function loadWorkspaceCanvas(args: {
             engagementModel: client.engagementModel,
             status: client.status,
             launchDate: client.launchDate,
-            seoHours: client.seoHours,
-            retainerMonthlyHours: client.retainerConfig?.monthlyHours ?? null,
+            seoHours: historicalBudget ?? 0,
+            retainerMonthlyHours: historicalBudget ?? null,
             setupScope: client.setupScope ?? null,
             campaignConfig: client.campaignConfig
                 ? { startDate: client.campaignConfig.startDate, endDate: client.campaignConfig.endDate, totalHours: client.campaignConfig.totalHours }
@@ -177,6 +183,7 @@ export async function loadWorkspaceCanvas(args: {
         tasks: tasksResult.ok ? { ok: true, value: tasks.map(task => toCanvasTask(task, members)) } : { ok: false },
         plan: planResult.ok ? { ok: true, value: planResult.value ? { goal: planResult.value.goal, items: planItems } : null } : { ok: false },
         monthHours: monthResult.ok ? { ok: true, value: sumBudgetHoursByClient(monthResult.value)[client.id] ?? 0 } : { ok: false },
+        agreementHours:!agreementResult.ok ? {ok:false} : agreementResult.value ? {ok:true,value:agreementResult.value} : undefined,
         campaignHours,
         deliverables: deliverableResult.ok
             ? { ok: true, value: deliverableResult.value.map(item => ({ id: item.id, title: item.title, status: item.status, dueDate: item.dueDate })) }

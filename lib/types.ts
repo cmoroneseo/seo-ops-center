@@ -111,6 +111,7 @@ export interface Deliverable {
 export type CommitmentEngagementModel = 'Retainer' | 'Campaign';
 
 export interface DeliverableCommitment {
+    agreementId?: string;
     id: string;
     organizationId: string;
     clientId: string;
@@ -225,6 +226,7 @@ export interface TaskTemplate {
 
 export interface Task {
     id: string;
+    agreementId?: string;
     organizationId: string;
     projectId?: string;
     clientId?: string;
@@ -498,6 +500,9 @@ export interface SiteInventoryPayload {
 }
 
 export interface ClientProject {
+    /** Accepted commercial history. Client identity and original launch stay permanent. */
+    agreements?: import('./agreements/types').ClientAgreement[];
+    agreementHistoryUnavailable?: boolean;
     onboardingDate?: string;
     setupScope?: import('./client-setup').ClientSetupScope;
     id: string;
@@ -843,6 +848,7 @@ export interface TimeLogReferenceLink {
 
 export interface TimeLog {
     id: string;
+    agreementId?: string;
     organizationId: string;
     /** Undefined for internal work — a 1:1 has no client (migration 030). */
     clientId?: string;
