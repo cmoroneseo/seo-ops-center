@@ -71,6 +71,46 @@ test('HTTP 429 is a retryable error', async () => {
     assert.deepEqual(result, { status: 'error', message: 'Search Console request failed (HTTP 429)', retryable: true });
 });
 
+test('v2 monthly finality replaces the Search Analytics month query', async () => {
+    let fetched = false;
+    const result = await fetchGSC('client', '2026-09', {
+        getToken,
+        v2Enabled: true,
+        deriveMonth: async () => ({
+            status: 'ok',
+            data: { organic_clicks: 30, impressions: 300, avg_position: 4, ctr: 0.1 },
+            provenance: { source: 'gsc_history', finality: { final: true, days_present: 30, days_expected: 30, complete_through: '2026-09-30' } },
+        }),
+        fetch: async () => { fetched = true; return Response.json({ rows: [] }); },
+    });
+    assert.equal(fetched, false);
+    assert.equal(result.status, 'ok');
+    if (result.status === 'ok') assert.equal(result.provenance?.finality && (result.provenance.finality as { final: boolean }).final, true);
+});
+
+test('with v2 off the metrics row still comes from the monthly API', async () => {
+    let fetched = false;
+    const result = await fetchGSC('client', '2026-08', {
+        getToken,
+        v2Enabled: false,
+        deriveMonth: async () => { throw new Error('history must not be read'); },
+        now: () => new Date('2026-09-15T20:00:00Z'),
+        fetch: async () => { fetched = true; return Response.json({ rows: [{ clicks: 2, impressions: 10, position: 3 }] }); },
+    });
+    assert.equal(fetched, true);
+    assert.deepEqual(result, { status: 'ok', data: { organic_clicks: 2, impressions: 10, avg_position: 3, ctr: 0.2 } });
+});
+
+test('v2 does not invent a zero when history has no days', async () => {
+    const result = await fetchGSC('client', '2026-09', {
+        getToken,
+        v2Enabled: true,
+        deriveMonth: async () => ({ status: 'no_data', reason: 'no stored Search Console history for this month' }),
+        fetch: async () => { throw new Error('must not fetch'); },
+    });
+    assert.deepEqual(result, { status: 'no_data', reason: 'no stored Search Console history for this month' });
+});
+
 test('a reauth failure is an error result rather than a thrown exception', async () => {
     const result = await fetchGSC('client', '2026-08', {
         getToken: async () => { throw new GoogleAuthError('Google authorization expired. Reconnect this integration.', 'reauth_required'); },

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { enqueueGscSync, runGscSyncWorker } from '@/lib/supabase/gsc-background';
+import { enqueueGscSync, enqueueGscV2Backfill, runGscSyncWorker, runGscV2BackfillWorker } from '@/lib/supabase/gsc-background';
+import { gscHistoryV2BackfillEnabled } from '@/lib/gsc/flags';
 
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
@@ -17,10 +18,17 @@ export async function GET(req: NextRequest) {
             const { data, error } = await admin.from('client_integrations').select('client_id,organization_id')
                 .eq('service', 'gsc').in('sync_status', ['active', 'error']).order('id').range(offset, offset + 499);
             if (error) throw new Error('Unable to load connections');
-            for (const row of data ?? []) await enqueueGscSync(row.organization_id, row.client_id);
+            for (const row of data ?? []) {
+                await enqueueGscSync(row.organization_id, row.client_id);
+                if (gscHistoryV2BackfillEnabled()) await enqueueGscV2Backfill(row.organization_id, row.client_id);
+            }
             if ((data?.length ?? 0) < 500) break;
         }
-        return NextResponse.json(await runGscSyncWorker());
+        const backfill = gscHistoryV2BackfillEnabled();
+        const daily = await runGscSyncWorker(backfill ? { budgetMs: 180000 } : {});
+        if (!backfill) return NextResponse.json(daily);
+        const history = await runGscV2BackfillWorker({ budgetMs: 90000 });
+        return NextResponse.json({ daily, history });
     } catch {
         return NextResponse.json({ error: 'Search performance sync will retry on the next run.' }, { status: 500 });
     }

@@ -12,6 +12,8 @@ export interface WriteMetricParams {
     sourceType: 'auto' | 'manual';
     syncRunId?: string | null;
     enteredBy?: string | null;
+    /** Sent only when present, so older write_metric (before 074) still accepts other sources. */
+    provenance?: Record<string, unknown> | null;
 }
 
 export interface MetricRow {
@@ -47,7 +49,7 @@ export async function writeMetric(
     deps: { admin: () => RpcClient } = { admin: adminClient },
 ): Promise<{ success: true; outcome: WriteOutcome } | { success: false; error: string }> {
     try {
-        const { data, error } = await deps.admin().rpc('write_metric', {
+        const args: Record<string, unknown> = {
             p_organization_id: params.organizationId,
             p_client_id: params.clientId,
             p_source: params.source,
@@ -56,7 +58,9 @@ export async function writeMetric(
             p_source_type: params.sourceType,
             p_sync_run_id: params.syncRunId ?? null,
             p_entered_by: params.enteredBy ?? null,
-        });
+        };
+        if (params.provenance != null) args.p_provenance = params.provenance;
+        const { data, error } = await deps.admin().rpc('write_metric', args);
         if (error) return { success: false, error: genericWriteError };
         if (data !== 'inserted' && data !== 'updated' && data !== 'skipped_manual') {
             return { success: false, error: genericWriteError };
