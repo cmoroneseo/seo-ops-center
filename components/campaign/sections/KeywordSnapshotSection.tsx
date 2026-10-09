@@ -43,7 +43,7 @@ export function KeywordSnapshotSection({ plan, expanded, onToggle, onRefresh, cl
         keyword: k.keyword,
         volume: k.volume,
         difficulty: k.difficulty,
-        priority: k.priority ?? (k.difficulty <= 30 ? 'high' as const : k.difficulty <= 60 ? 'medium' as const : 'low' as const),
+        priority: k.priority ?? (typeof k.difficulty === 'number' ? (k.difficulty <= 30 ? 'high' as const : k.difficulty <= 60 ? 'medium' as const : 'low' as const) : undefined),
         cluster: k.cluster ?? undefined,
     }));
 
@@ -284,8 +284,8 @@ export function KeywordSnapshotSection({ plan, expanded, onToggle, onRefresh, cl
                             )}
                         </div>
                         <div className="flex items-center gap-4 text-xs text-muted-foreground shrink-0">
-                            {k.volume != null && <span>Vol: <strong className="text-foreground">{k.volume.toLocaleString()}</strong></span>}
-                            {k.difficulty != null && <span>KD: <strong className="text-foreground">{k.difficulty}</strong></span>}
+                            <span>Vol: <strong className="text-foreground">{k.volume != null ? k.volume.toLocaleString() : '—'}</strong></span>
+                            <span>KD: <strong className="text-foreground">{k.difficulty != null ? k.difficulty : '—'}</strong></span>
                             <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 text-muted-foreground transition-all" />
                             <button
                                 onClick={(e) => { e.stopPropagation(); handleDelete(idx); }}

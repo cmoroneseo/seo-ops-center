@@ -38,7 +38,7 @@ interface Props {
      *  until one is picked via the Settings tab's Bulk parameters. */
     client: ClientProject | null;
     initialReport: ReportData;
-    metrics: { current: MetricMap; previous: MetricMap };
+    metrics: { current: MetricMap; previous: MetricMap; sourceTypes?: Partial<Record<ReportSourceKey, string>> };
     history: HistoryMap;
     organizationId: string;
     /** Called after the client or report period is reassigned, so the parent
@@ -66,7 +66,7 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
     const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
     const [hideEmpty, setHideEmpty] = useState(true);
     const [selectedId, setSelectedId] = useState<string | null>(null);
-    const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+    const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
     const [templateSaved, setTemplateSaved] = useState(false);
     const [reassigning, setReassigning] = useState(false);
     const [syncing, setSyncing] = useState(false);
@@ -78,13 +78,17 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
     // ── Persistence ───────────────────────────────────────────────────────────
     const save = useCallback(async (patch: Record<string, unknown>) => {
         setSaveState('saving');
-        await fetch(`/api/reports/${initialReport.id}`, {
+        const res = await fetch(`/api/reports/${initialReport.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(patch),
         });
+        if (!res.ok) {
+            setSaveState('error');
+            return;
+        }
         setSaveState('saved');
-        setTimeout(() => setSaveState('idle'), 1500);
+        setTimeout(() => setSaveState(current => current === 'saved' ? 'idle' : current), 1500);
     }, [initialReport.id]);
 
     const queueSave = useCallback((patch: Record<string, unknown>) => {
@@ -158,11 +162,16 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
     // ── Client / period reassignment (Settings tab) ────────────────────────────
     const reassign = async (patch: { client_id?: string; report_month?: string }) => {
         setReassigning(true);
-        await fetch(`/api/reports/${initialReport.id}`, {
+        const res = await fetch(`/api/reports/${initialReport.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(patch),
         });
+        if (!res.ok) {
+            setSaveState('error');
+            setReassigning(false);
+            return;
+        }
         onDataChanged?.();
         // Parent remounts this component (keyed by client+month) once fresh
         // props arrive, so no local state reset is needed here.
@@ -262,8 +271,8 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground w-14 text-right">
-                        {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved ✓' : ''}
+                    <span className={`text-xs text-right ${saveState === 'error' ? 'text-destructive' : 'text-muted-foreground w-14'}`}>
+                        {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved ✓' : saveState === 'error' ? "Couldn't save. You may not have edit access." : ''}
                     </span>
                     <button onClick={downloadPDF} className="flex items-center gap-1.5 text-xs bg-primary text-primary-foreground rounded-lg px-3 py-1.5 hover:bg-primary/90">
                         <Download className="h-3.5 w-3.5" /> Download PDF
@@ -565,9 +574,9 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
             {manualSource && client && (
                 <ManualMetricsModal
                     client={client}
-                    orgId={organizationId}
                     source={manualSource}
                     month={initialReport.report_month}
+                    sourceType={metrics.sourceTypes?.[manualSource as ReportSourceKey]}
                     existingData={metrics.current[manualSource as ReportSourceKey]}
                     onClose={() => setManualSource(null)}
                     onSaved={() => {
