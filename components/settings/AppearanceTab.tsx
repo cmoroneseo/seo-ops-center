@@ -12,11 +12,13 @@ import {
     OrganizationTheme,
     THEME_PRESETS,
     buildThemeCss,
+    buildTokens,
     previewAccentHex,
     previewHex,
     themeContrast,
 } from '@/lib/theme/palette';
 import { hexToOklch } from '@/lib/theme/color';
+import { organicColorNote, resolveSurfaceColors } from '@/lib/theme/surface-colors';
 import { cn } from '@/lib/utils';
 
 const sameTheme = (a: OrganizationTheme, b: OrganizationTheme) =>
@@ -53,6 +55,7 @@ export function AppearanceTab() {
     const isDirty = isTouched && !sameTheme(draft, saved);
     const isCustom = draft.preset === 'custom';
     const contrast = themeContrast(draft);
+    const organicSurface = resolveSurfaceColors(buildTokens(draft, 'dark'), 'dark');
 
     // The organization resolves after this component mounts, so the initial
     // draft is the default rather than the real theme. Adopt the saved theme
@@ -257,6 +260,15 @@ export function AppearanceTab() {
                         className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                     />
                 </div>
+
+                <p className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">
+                    <span
+                        className="mr-2 inline-block h-2.5 w-2.5 rounded-full align-middle"
+                        style={{ backgroundColor: organicSurface.organic }}
+                        aria-hidden="true"
+                    />
+                    {organicColorNote(organicSurface)}
+                </p>
             </div>
 
             {error && (
