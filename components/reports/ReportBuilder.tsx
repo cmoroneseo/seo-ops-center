@@ -19,8 +19,10 @@ import {
     WIDGET_LIBRARY, FORMATTING_ITEMS, BLOCK_TYPES_WITH_SETTINGS,
 } from '@/lib/reports/blocks';
 import { REPORT_PRINT_CSS } from '@/lib/reports/print-style';
+import { searchReportingEnabled } from '@/lib/search-reporting/flag';
 import { RenderBlock, ReportContext, MetricMap, HistoryMap } from './ReportBlocks';
 import { ManualMetricsModal } from './ManualMetricsModal';
+import { ReportReviewPanel } from './ReportReviewPanel';
 import { cn } from '@/lib/utils';
 
 interface ReportData {
@@ -326,6 +328,7 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
             <div className="flex flex-1 min-h-0">
                 {/* ── Left panel ──────────────────────────────────────────────── */}
                 <aside className="print-hidden w-80 shrink-0 border-r border-border flex flex-col sticky top-[53px] self-start h-[calc(100vh-53px)]">
+                    {searchReportingEnabled() && client && <ReportReviewPanel reportId={initialReport.id} />}
                     {/* Tabs */}
                     <div className="flex border-b border-border">
                         {([
