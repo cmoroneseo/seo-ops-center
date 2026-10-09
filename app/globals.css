@@ -33,6 +33,13 @@
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
 
+  /* Reporting surfaces. Components use the reporting-* names; map/info are the plan aliases. */
+  --color-reporting-map: var(--reporting-map);
+  --color-reporting-info: var(--reporting-info);
+  --color-reporting-org-fallback: var(--reporting-org-fallback);
+  --color-map: var(--reporting-map);
+  --color-info: var(--reporting-info);
+
   --font-sans: var(--font-plus-jakarta), ui-sans-serif, system-ui, sans-serif;
 
   --radius-lg: var(--radius);
@@ -76,6 +83,14 @@
   --sidebar-accent-foreground: oklch(0.2 0.02 260);
   --sidebar-border: oklch(0.9 0.02 260);
   --sidebar-ring: oklch(0.63 0.26 352);
+
+  /* Map pack is the only blue on reporting surfaces. Info is neutral slate, always paired with ⓘ. */
+  --reporting-map: oklch(0.48 0.13 235);
+  --reporting-info: oklch(0.50 0.03 260);
+  --reporting-org-fallback: oklch(0.63 0.26 352);
+  --map: var(--reporting-map);
+  --info: var(--reporting-info);
+  --org-fallback: var(--reporting-org-fallback);
 }
 
 @layer base {
@@ -151,6 +166,11 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-reporting-map: var(--reporting-map);
+  --color-reporting-info: var(--reporting-info);
+  --color-reporting-org-fallback: var(--reporting-org-fallback);
+  --color-map: var(--reporting-map);
+  --color-info: var(--reporting-info);
 }
 
 .dark {
@@ -195,6 +215,9 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.63 0.26 352);
+
+  --reporting-map: oklch(0.72 0.13 235);
+  --reporting-info: oklch(0.74 0.03 260);
 }
 /* --- Notepad (Tiptap) editor --- */
 .notepad-editor .ProseMirror {
@@ -354,4 +377,31 @@
   }
   .approval-doc .ProseMirror { max-width: none; }
   .approval-doc .ProseMirror table { display: table; overflow-x: visible; }
+}
+
+/* Reporting receipts. Tier A is always underlined; tier B waits for the row.
+   Motion is opacity only, including under reduced motion. */
+.reporting-receipt-tier-a {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in oklch, var(--muted) 45%, transparent);
+}
+.reporting-receipt-tier-b {
+  text-decoration-line: none;
+}
+.reporting-row:hover .reporting-receipt-tier-b,
+.reporting-row:focus-within .reporting-receipt-tier-b {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in oklch, var(--muted) 45%, transparent);
+}
+.reporting-receipt-popover {
+  transition: opacity 120ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reporting-receipt-popover {
+    transition: opacity 120ms linear;
+  }
 }

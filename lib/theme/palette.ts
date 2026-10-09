@@ -140,6 +140,13 @@ export function resolveBaseColors(theme: OrganizationTheme): { primary: Oklch; a
     };
 }
 
+/**
+ * Organic series on reporting charts. It follows the brand primary via
+ * `--chart-1`. A theme that would sit on top of map-pack blue is swapped in
+ * `lib/theme/surface-colors.ts`; this token is not rewritten.
+ */
+export const ORGANIC_SERIES_TOKEN = '--chart-1';
+
 /** The themed CSS custom properties for one mode. */
 export function buildTokens(theme: OrganizationTheme, mode: ThemeMode): Record<string, string> {
     const base = resolveBaseColors(theme);
