@@ -50,6 +50,7 @@ export function DashboardShell({
     const isWorkspace = pathname.startsWith('/workspace');
     const isTasks = pathname.startsWith('/tasks');
     const isPlanner = pathname.startsWith('/planner');
+    const isCloseBoard = pathname.startsWith('/reports/close');
     const isTraining = pathname.startsWith('/training');
     const isDashboard = pathname === '/dashboard';
     const showProjectSidebar = !isSetupPage && (isWorkspace || isTasks || isDashboard);
@@ -69,7 +70,7 @@ export function DashboardShell({
                                 ? "flex flex-col items-center justify-center"
                                 // The planner manages its own scrolling and rails, so it opts out
                                 // of the page padding entirely.
-                                : isPlanner
+                                : isPlanner || isCloseBoard
                                     ? "overflow-hidden p-0 pt-14 lg:pt-0"
                                     : isTraining
                                         ? "overflow-y-auto p-0 pb-20 pt-14 lg:pb-0 lg:pt-0 xl:overflow-hidden"

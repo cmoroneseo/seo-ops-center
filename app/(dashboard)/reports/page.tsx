@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Plus, FileText, Loader2 } from 'lucide-react';
 import { useOrganization } from '@/components/providers/organization-provider';
@@ -10,6 +11,7 @@ import { TemplatesTab } from '@/components/reports/TemplatesTab';
 import { ReportsTable } from '@/components/reports/ReportsTable';
 import { STOCK_TEMPLATES } from '@/lib/reports/reportTemplates';
 import { cn } from '@/lib/utils';
+import { searchReportingEnabled } from '@/lib/search-reporting/flag';
 
 type PageTab = 'reports' | 'templates';
 
@@ -87,6 +89,9 @@ export default function ReportsPage() {
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight neon-gradient-text">Report Builder</h2>
                     <p className="text-muted-foreground mt-1">Build branded client reports from a template or from scratch.</p>
+                    {searchReportingEnabled() && (
+                        <Link href="/reports/close" className="mt-2 inline-block text-sm text-primary">Month close</Link>
+                    )}
                 </div>
                 <button
                     onClick={() => buildReport(STOCK_TEMPLATES[0].build())}

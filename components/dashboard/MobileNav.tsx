@@ -14,6 +14,7 @@ import { ClientListPanel } from '@/components/workspace/ClientListPanel';
 import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useOrganization } from '@/components/providers/organization-provider';
+import { reportsNavHref } from '@/lib/reports/close-nav';
 
 // Primary destinations surfaced in the bottom tab bar (one-handed reach).
 const primaryTabs = [
@@ -188,7 +189,7 @@ export function MobileNav({ showClientList }: { showClientList: boolean }) {
             return (
               <Link
                 key={item.name}
-                href={item.href}
+                href={item.name === 'Reports' ? reportsNavHref() : item.href}
                 onClick={() => setMenuOpen(false)}
                 className={cn(
                   'flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors',

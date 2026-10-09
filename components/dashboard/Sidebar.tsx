@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, CheckSquare, Briefcase, ClipboardList, PackageCheck, CalendarRange, GraduationCap, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { reportsNavHref } from '@/lib/reports/close-nav';
 
 export const navigation = [
   { name: 'Home', href: '/dashboard', icon: LayoutDashboard },
@@ -31,7 +32,7 @@ export function Sidebar() {
           return (
             <Link
               key={item.name}
-              href={item.href}
+              href={item.name === 'Reports' ? reportsNavHref() : item.href}
               className={cn(
                 'relative group flex items-center justify-center h-12 w-12 rounded-xl transition-all duration-200',
                 isActive
