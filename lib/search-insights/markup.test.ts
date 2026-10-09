@@ -64,6 +64,22 @@ test('pages keep a sticky table and say that lower position is better', () => {
     assert.equal(html.includes('bg-green-'), false);
 });
 
+test('cities with no matching queries explain the empty state instead of a blank table', () => {
+    const payload = exampleInsights();
+    payload.cities = payload.cities && { ...payload.cities, tokens: ['Eastvale'], rows: [] };
+    const html = render(createElement(SearchInsightsV2, {
+        clientId: 'example',
+        clientName: 'Scott Cole Plumbing',
+        onConnections() {},
+        fixture: payload,
+        initialSection: 'cities',
+    }));
+    assert.match(html, /Cities come from query text/);
+    assert.match(html, /None of the queries in this window matched a city token/);
+    assert.equal(html.includes('>City<'), false);
+    assert.equal(html.includes('>Impressions<'), false);
+});
+
 test('not connected renders one connect panel and no chart', () => {
     const html = render(createElement(SearchInsightsV2, {
         clientId: 'example',

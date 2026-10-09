@@ -61,10 +61,11 @@ test('the ledger stays hidden unless search reporting is enabled', async () => {
 
 test('the loader uses the membership organization, never a browser org id', async () => {
     const { api, calls } = handler();
-    const response = await api(new Request(`https://app.test/api/search-reporting/ledger?clientId=${client}&orgId=99999999-9999-4999-8999-999999999999`));
+    const response = await api(new Request(`https://app.test/api/search-reporting/ledger?clientId=${client}&orgId=99999999-9999-4999-8999-999999999999&range=2026-09`));
     assert.equal(response.status, 200);
     assert.equal(calls.load?.organizationId, org);
     assert.equal(calls.load?.clientId, client);
+    assert.equal(calls.load?.range, '2026-09');
     const body = await response.json();
     assert.equal(body.latest, null);
     assert.equal(body.empty, 'No shipped work recorded yet. Work shows up here once it has a ship date and a page URL.');

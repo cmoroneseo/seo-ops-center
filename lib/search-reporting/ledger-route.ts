@@ -27,6 +27,7 @@ export function createLedgerHandler(deps: LedgerRouteDeps) {
                 organizationId: auth.organizationId,
                 clientId: auth.clientId,
                 now: deps.now(),
+                range: params.get('range'),
             });
             return json(buildLedger(loaded, deps.now()));
         } catch {

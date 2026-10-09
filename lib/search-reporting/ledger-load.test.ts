@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { buildLedger } from './ledger';
 import { loadLedger } from './ledger-load';
 import type { SearchReportingAdmin } from './load';
 
@@ -81,4 +82,60 @@ test('ledger reads stay on page facts for the member organization', async () => 
     assert.equal(selected.some(item => item.startsWith('client_integrations:') && item.includes('credentials->>site_url')), true);
     assert.deepEqual(ins.find(item => item.table === 'gsc_history_facts' && item.column === 'grain')?.values, ['page']);
     assert.equal(ins.some(item => item.values.includes('page_device') || item.values.includes('page_organic')), false);
+});
+
+test('no shipped work reports the month’s stored days and does not read page facts', async () => {
+    const bounds: { gte?: unknown; lte?: unknown } = {};
+    const tables: string[] = [];
+    const admin: SearchReportingAdmin = {
+        from(table: string) {
+            tables.push(table);
+            const api = {
+                select() { return api; },
+                eq() { return api; },
+                gte(_column: string, value: unknown) { if (table === 'gsc_history_days') bounds.gte = value; return api; },
+                lte(_column: string, value: unknown) { if (table === 'gsc_history_days') bounds.lte = value; return api; },
+                in() { throw new Error('page facts are not read until work ships'); },
+                order() { return api; },
+                async range() {
+                    if (table === 'gsc_history_days') {
+                        return {
+                            data: Array.from({ length: 30 }, (_, index) => ({
+                                id: `day-${index + 1}`,
+                                data_date: `2026-09-${String(index + 1).padStart(2, '0')}`,
+                                is_incomplete: false,
+                            })),
+                            error: null,
+                        };
+                    }
+                    return { data: [], error: null };
+                },
+                async maybeSingle() {
+                    if (table === 'clients') return { data: { domain: 'scottcole.example' }, error: null };
+                    if (table === 'client_integrations') {
+                        return { data: { site_url: 'sc-domain:scottcole.example', sync_status: 'active', last_synced_at: '2026-10-08T15:00:00.000Z' }, error: null };
+                    }
+                    return { data: null, error: null };
+                },
+            };
+            return api;
+        },
+    };
+    const now = new Date('2026-10-09T18:00:00.000Z');
+    const loaded = await loadLedger({
+        organizationId: org,
+        clientId: client,
+        now,
+        range: '2026-09',
+    }, admin);
+    assert.equal(loaded.pageFactsDeferred, true);
+    assert.equal(loaded.facts.length, 0);
+    assert.deepEqual(loaded.coverage, { present: 30, expected: 30 });
+    assert.equal(bounds.gte, '2026-09-01');
+    assert.equal(bounds.lte, '2026-09-30');
+    assert.equal(tables.includes('gsc_history_facts'), false);
+    const model = buildLedger(loaded, now);
+    assert.equal(model.historyRangeLabel, '30 of 30 days stored');
+    assert.equal(JSON.stringify(model).includes('No Search Console days are stored'), false);
+    assert.equal(model.gaps.find(gap => gap.id === 'page-facts')?.detail, "Page facts aren't needed until work ships.");
 });

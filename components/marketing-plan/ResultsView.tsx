@@ -22,6 +22,13 @@ const RULES = [
     'Correlation language only. "After this shipped…", never "this caused…".',
 ];
 
+function ledgerQuery(clientId: string): string {
+    const params = new URLSearchParams({ clientId });
+    const range = new URLSearchParams(window.location.search).get('range');
+    if (range) params.set('range', range);
+    return params.toString();
+}
+
 function shipLabel(iso: string): { day: string; year: string } {
     const [year, month, day] = iso.split('-').map(Number);
     const date = new Date(Date.UTC(year, month - 1, day));
@@ -169,7 +176,7 @@ export function ResultsView({
         setLoading(true);
         setError(false);
         Promise.all([
-            fetch(`/api/search-reporting/ledger?clientId=${encodeURIComponent(clientId)}`).then(async (response) => {
+            fetch(`/api/search-reporting/ledger?${ledgerQuery(clientId)}`).then(async (response) => {
                 if (!response.ok) throw new Error('load');
                 return response.json() as Promise<LedgerModel>;
             }),
@@ -232,7 +239,7 @@ export function ResultsView({
                         {model.state === 'stale' && model.banner && (
                             <p role="status" className="text-sm text-amber-700 dark:text-amber-400">{model.banner} Verdicts stay frozen until sync recovers.</p>
                         )}
-                        <SourceChip source="Search Console · page facts" rangeLabel={model.historyStart ? `history from ${model.historyStart}` : 'no stored days in this read'} />
+                        <SourceChip source={model.sourceLabel} rangeLabel={model.historyRangeLabel} />
 
                         {filter === 'work' && model.entries.length === 0 && (
                             <div className="rounded-xl border border-dashed border-border p-6">
