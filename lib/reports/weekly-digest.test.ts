@@ -72,7 +72,7 @@ test('the event id is stable per client and week', () => {
     const first = weeklyDigestEventId(clientId, week.start);
     assert.equal(first, weeklyDigestEventId(clientId, week.start));
     assert.notEqual(first, weeklyDigestEventId(clientId, '2026-10-12'));
-    assert.match(first, /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.match(first, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 });
 
 test('content is shipped work with proof links, in progress, and waiting, without hours or metrics', () => {
@@ -126,7 +126,7 @@ test('the email is from the account manager, links to the portal, and passes the
     assert.equal(email.subject, 'Scott Cole Plumbing: Your week of October 5–11');
     assert.equal('attachments' in email, false);
     assert.equal(email.html.includes('Open your portal'), true);
-    assert.equal(email.html.includes('https://scottcole.example/service'), true);
+    assert.equal([...email.html.matchAll(/href="([^"]*)"/g)].some(match => match[1] === 'https://scottcole.example/service'), true);
     assert.equal(email.html.includes('/portal/login?'), true);
     assert.equal(email.html.includes('next=%2Fportal%2Freports'), false);
     assert.equal(email.text.includes('next=%2Fportal&') || email.text.includes('next=%2Fportal'), true);

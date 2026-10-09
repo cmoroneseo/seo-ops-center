@@ -145,17 +145,16 @@ export function formatWeekLabel(start: string, end: string): string {
     return `${monthName(start)} ${a.day}, ${a.year}–${monthName(end)} ${b.day}, ${b.year}`;
 }
 
-function uuidBytes(uuid: string): Buffer {
-    return Buffer.from(uuid.replace(/-/g, ''), 'hex');
-}
-
 /** Stable id for (client, week). The queue unique key then blocks a second send. */
 export function weeklyDigestEventId(clientId: string, weekStart: string): string {
-    const hash = createHash('sha1').update(uuidBytes(DIGEST_NAMESPACE)).update(`${clientId}:${weekStart}`).digest();
-    const bytes = Buffer.from(hash.subarray(0, 16));
-    bytes[6] = (bytes[6] & 0x0f) | 0x50;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    const hex = bytes.toString('hex');
+    const hex = createHash('sha256')
+        .update(DIGEST_NAMESPACE)
+        .update('\0')
+        .update(clientId)
+        .update('\0')
+        .update(weekStart)
+        .digest('hex')
+        .slice(0, 32);
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
