@@ -30,14 +30,14 @@ const FIELDS: Record<string, { key: string; label: string; type: 'number' | 'dec
         { key: 'organic_sessions', label: 'Organic Sessions', type: 'number', placeholder: '1890' },
     ],
     gsc: [
-        { key: 'organic_clicks', label: 'Organic Clicks', type: 'number', placeholder: '1240' },
-        { key: 'impressions', label: 'Impressions', type: 'number', placeholder: '18500' },
+        { key: 'organic_clicks', label: 'Clicks to your website from Google', type: 'number', placeholder: '1240' },
+        { key: 'impressions', label: 'Times shown', type: 'number', placeholder: '18500' },
         { key: 'avg_position', label: 'Avg Position', type: 'decimal', placeholder: '14.2' },
         { key: 'ctr', label: 'CTR (0–1)', type: 'decimal', placeholder: '0.067' },
     ],
     gbp: [
         { key: 'impressions', label: 'GBP Impressions', type: 'number', placeholder: '3200' },
-        { key: 'calls', label: 'Calls', type: 'number', placeholder: '48' },
+        { key: 'calls', label: 'Call-button taps', type: 'number', placeholder: '48' },
         { key: 'direction_requests', label: 'Direction Requests', type: 'number', placeholder: '31' },
         { key: 'website_clicks', label: 'Website Clicks', type: 'number', placeholder: '112' },
         { key: 'review_count', label: '# of Reviews', type: 'number', placeholder: '87' },

@@ -15,9 +15,10 @@ import { ClientProject } from '@/lib/types';
 import { useClients } from '@/lib/hooks/use-clients';
 import { REPORT_SECTIONS, monthLabel, ReportSourceKey } from '@/lib/reports/sections';
 import {
-    Block, ReportSectionsField, resolveBlocks, makeBlock, blockLabel,
+    Block, ReportSectionsField, resolveBlocks, makeBlock, blockLabel, splitReportPages,
     WIDGET_LIBRARY, FORMATTING_ITEMS, BLOCK_TYPES_WITH_SETTINGS,
 } from '@/lib/reports/blocks';
+import { REPORT_PRINT_CSS } from '@/lib/reports/print-style';
 import { RenderBlock, ReportContext, MetricMap, HistoryMap } from './ReportBlocks';
 import { ManualMetricsModal } from './ManualMetricsModal';
 import { cn } from '@/lib/utils';
@@ -38,7 +39,12 @@ interface Props {
      *  until one is picked via the Settings tab's Bulk parameters. */
     client: ClientProject | null;
     initialReport: ReportData;
-    metrics: { current: MetricMap; previous: MetricMap; sourceTypes?: Partial<Record<ReportSourceKey, string>> };
+    metrics: {
+        current: MetricMap;
+        previous: MetricMap;
+        sourceTypes?: Partial<Record<ReportSourceKey, string>>;
+        updatedAt?: Partial<Record<ReportSourceKey, string | null>>;
+    };
     history: HistoryMap;
     organizationId: string;
     /** Called after the client or report period is reassigned, so the parent
@@ -66,6 +72,9 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
     const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
     const [hideEmpty, setHideEmpty] = useState(true);
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [status, setStatus] = useState<'draft' | 'published'>(initialReport.status);
+    const [publishing, setPublishing] = useState(false);
+    const [printing, setPrinting] = useState(false);
     const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
     const [templateSaved, setTemplateSaved] = useState(false);
     const [reassigning, setReassigning] = useState(false);
@@ -157,6 +166,43 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
         return () => { document.title = previousTitle; };
     }, [client, initialReport.report_month]);
 
+    useEffect(() => {
+        const before = () => setPrinting(true);
+        const after = () => setPrinting(false);
+        const media = window.matchMedia('print');
+        const onChange = () => setPrinting(media.matches);
+        window.addEventListener('beforeprint', before);
+        window.addEventListener('afterprint', after);
+        media.addEventListener('change', onChange);
+        return () => {
+            window.removeEventListener('beforeprint', before);
+            window.removeEventListener('afterprint', after);
+            media.removeEventListener('change', onChange);
+        };
+    }, []);
+
+    const togglePublish = async () => {
+        const next = status === 'published' ? 'draft' : 'published';
+        setPublishing(true);
+        setSaveState('saving');
+        const res = await fetch(`/api/reports/${initialReport.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: next }),
+        });
+        if (!res.ok) {
+            setSaveState('error');
+            setPublishing(false);
+            return;
+        }
+        const body = await res.json().catch(() => null);
+        const saved = body?.report?.status;
+        setStatus(saved === 'published' || saved === 'draft' ? saved : next);
+        setSaveState('saved');
+        setTimeout(() => setSaveState(current => current === 'saved' ? 'idle' : current), 1500);
+        setPublishing(false);
+    };
+
     const downloadPDF = () => window.print();
 
     // ── Client / period reassignment (Settings tab) ────────────────────────────
@@ -201,14 +247,7 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
     };
 
     // ── Canvas: split blocks into pages on page_break ─────────────────────────
-    const pages = useMemo(() => {
-        const out: Block[][] = [[]];
-        for (const b of blocks) {
-            if (b.type === 'page_break') out.push([]);
-            else out[out.length - 1].push(b);
-        }
-        return out.filter((p, i) => p.length > 0 || i === 0);
-    }, [blocks]);
+    const pages = useMemo(() => splitReportPages(blocks), [blocks]);
 
     const ctx: ReportContext = {
         reportId: initialReport.id,
@@ -216,7 +255,8 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
         reportMonth: initialReport.report_month,
         executiveSummary: summary,
         recommendations: recs,
-        metrics, history, hideEmpty,
+        metrics, history,         hideEmpty,
+        clientFacing: printing,
         onEditText: editBlockProps,
         onEditField: editField,
     };
@@ -235,17 +275,9 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
     return (
         <div className="min-h-screen flex flex-col">
             {/* Print CSS: only the canvas pages print */}
-            <style>{`
-                .print-only { display: none; }
+            <style>{REPORT_PRINT_CSS}{`
                 @media print {
-                    body * { visibility: hidden; }
-                    #report-print-area, #report-print-area * { visibility: visible; }
-                    #report-print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 0 !important; background: white !important; }
-                    .report-page { box-shadow: none !important; border: none !important; border-radius: 0 !important; margin: 0 0 24px !important; break-after: page; }
                     .group\\/block { box-shadow: none !important; }
-                    .print-hidden { display: none !important; }
-                    .print-only { display: block !important; }
-                    @page { margin: 14mm; }
                 }
             `}</style>
 
@@ -274,6 +306,17 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
                     <span className={`text-xs text-right ${saveState === 'error' ? 'text-destructive' : 'text-muted-foreground w-14'}`}>
                         {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved ✓' : saveState === 'error' ? "Couldn't save. You may not have edit access." : ''}
                     </span>
+                    <span className={cn('text-xs font-medium', status === 'published' ? 'text-green-600' : 'text-muted-foreground')}>
+                        {status === 'published' ? 'Published' : 'Draft'}
+                    </span>
+                    <button
+                        type="button"
+                        onClick={togglePublish}
+                        disabled={publishing}
+                        className="text-xs border border-border rounded-lg px-3 py-1.5 hover:bg-muted disabled:opacity-50"
+                    >
+                        {publishing ? 'Saving…' : status === 'published' ? 'Unpublish' : 'Publish'}
+                    </button>
                     <button onClick={downloadPDF} className="flex items-center gap-1.5 text-xs bg-primary text-primary-foreground rounded-lg px-3 py-1.5 hover:bg-primary/90">
                         <Download className="h-3.5 w-3.5" /> Download PDF
                     </button>
@@ -537,10 +580,9 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
                                         <div key={block.id} id={`block-${block.id}`}
                                             onClick={() => setSelectedId(block.id)}
                                             className={cn(
-                                                'relative group/block rounded-lg -mx-3 px-3 py-1 transition-shadow',
+                                                'report-block relative group/block rounded-lg -mx-3 px-3 py-1 transition-shadow',
                                                 selectedId === block.id && 'ring-2 ring-primary/30',
-                                            )}
-                                            style={{ breakInside: 'avoid' }}>
+                                            )}>
                                             {/* Hover toolbar */}
                                             <div className={cn(
                                                 'print-hidden absolute -top-3 right-2 z-10 items-center gap-0.5 bg-card border border-border rounded-lg shadow-sm px-1 py-0.5',

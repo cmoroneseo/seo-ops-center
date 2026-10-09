@@ -147,7 +147,7 @@ export function createReportHandlers(deps: ReportRouteDeps) {
             if (!access.ok) return json({ error: access.error }, access.status);
             const report = access.report;
             if (!report.client_id) {
-                return json({ report, metrics: { current: {}, previous: {}, sourceTypes: {} }, history: {} });
+                return json({ report, metrics: { current: {}, previous: {}, sourceTypes: {}, updatedAt: {} }, history: {} });
             }
 
             const allRows = await deps.getClientMetrics(report.client_id, { organizationId: report.organization_id });
@@ -168,6 +168,7 @@ export function createReportHandlers(deps: ReportRouteDeps) {
                     current: toMap(currentRows),
                     previous: toMap(previousRows),
                     sourceTypes: Object.fromEntries(currentRows.map(row => [row.source, row.source_type])),
+                    updatedAt: Object.fromEntries(currentRows.map(row => [row.source, row.updated_at])),
                 },
                 history,
             });

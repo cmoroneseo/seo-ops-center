@@ -1,12 +1,55 @@
-import { METRIC_DEFS, computeDelta, ReportSourceKey } from './sections';
+import { assertClientCopy } from './copy-rules';
+import { formatDelta } from './delta';
+import { METRIC_DEFS, formatMetric, ReportSourceKey, type MetricDef } from './sections';
 
 type MetricMap = Partial<Record<ReportSourceKey, Record<string, any>>>;
 
+const HEADLINES: { source: ReportSourceKey; key: string }[] = [
+    { source: 'gsc', key: 'organic_clicks' },
+    { source: 'gsc', key: 'impressions' },
+    { source: 'ga4', key: 'sessions' },
+    { source: 'ga4', key: 'bounce_rate' },
+    { source: 'gbp', key: 'impressions' },
+    { source: 'gbp', key: 'calls' },
+    { source: 'ahrefs', key: 'domain_rating' },
+    { source: 'ahrefs', key: 'top_10_keywords' },
+];
+
+function missing(value: unknown): boolean {
+    if (value == null || value === '') return true;
+    return typeof value === 'number' ? !Number.isFinite(value) : !Number.isFinite(Number(value));
+}
+
+function factLine(def: MetricDef, current: unknown, previous: unknown): string | null {
+    if (missing(current)) return null;
+    const shown = formatMetric(current, def.format);
+    const delta = formatDelta(current, previous, {
+        lowerIsBetter: def.lowerIsBetter,
+        scale: def.format === 'percent' ? 100 : 1,
+    });
+    if (delta.kind === 'no_baseline') return `${def.label}: ${shown}. No comparable baseline.`;
+    if (delta.kind === 'noise') {
+        return missing(previous)
+            ? `${def.label}: ${shown}.`
+            : `${def.label}: ${shown}, about the same as ${formatMetric(previous, def.format)}.`;
+    }
+    if (delta.kind === 'change' && delta.direction && delta.absolute != null) {
+        const word = delta.direction === 'up' ? 'higher' : 'lower';
+        const amount = def.format === 'percent' ? `${formatAbs(delta.absolute)} points` : formatAbs(delta.absolute);
+        const pct = delta.percent == null ? '' : ` (${Math.abs(delta.percent).toFixed(1)}%)`;
+        return `${def.label}: ${shown}, ${word} by ${amount}${pct} from ${formatMetric(previous, def.format)}.`;
+    }
+    return `${def.label}: ${shown}.`;
+}
+
+function formatAbs(value: number): string {
+    const rounded = Math.round(value * 10) / 10;
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
 /**
- * Build a plain-English executive summary + recommendations draft from the
- * month's metrics vs. the prior month. Deterministic (no LLM) so it works
- * offline; AMs edit afterward. Designed to read like the Search Atlas
- * "AI Insights" block.
+ * Plain-English draft from this month's metrics versus the prior month.
+ * Facts only: no canned recommendations and no momentum framing.
  */
 export function generateAutoSummary(
     clientName: string,
@@ -14,58 +57,26 @@ export function generateAutoSummary(
     current: MetricMap,
     previous: MetricMap,
 ): { executiveSummary: string; recommendations: string } {
-    const wins: string[] = [];
-    const watch: string[] = [];
-
-    const note = (label: string, cur: any, prev: any, lowerIsBetter = false) => {
-        const d = computeDelta(cur, prev, lowerIsBetter);
-        if (!d || d.direction === 'flat') return;
-        const verb = d.direction === 'up' ? 'rose' : 'fell';
-        const phrase = `${label} ${verb} ${Math.abs(d.pct).toFixed(0)}%`;
-        (d.isGood ? wins : watch).push(phrase);
-    };
-
-    // Highlight the headline metric per source.
-    if (current.gsc) note('organic clicks', current.gsc.organic_clicks, previous.gsc?.organic_clicks);
-    if (current.ga4) note('website sessions', current.ga4.sessions, previous.ga4?.sessions);
-    if (current.ga4) note('bounce rate', current.ga4.bounce_rate, previous.ga4?.bounce_rate, true);
-    if (current.gbp) note('local impressions', current.gbp.impressions, previous.gbp?.impressions);
-    if (current.gbp) note('calls', current.gbp.calls, previous.gbp?.calls);
-    if (current.ahrefs) note('domain rating', current.ahrefs.domain_rating, previous.ahrefs?.domain_rating);
-    if (current.ahrefs) note('top-10 keywords', current.ahrefs.top_10_keywords, previous.ahrefs?.top_10_keywords);
-
-    const sourcesPresent = Object.keys(current).length;
-
-    let executiveSummary: string;
-    if (sourcesPresent === 0) {
-        executiveSummary = `This report covers ${clientName}'s SEO performance for ${monthLabel}. Connect data sources or enter metrics manually to populate performance highlights.`;
-    } else {
-        const winText = wins.length
-            ? `Key gains this period: ${listJoin(wins.slice(0, 4))}.`
-            : '';
-        const watchText = watch.length
-            ? ` Areas to watch: ${listJoin(watch.slice(0, 3))}.`
-            : '';
-        const opener = wins.length >= watch.length
-            ? `${clientName} saw positive momentum across its SEO program in ${monthLabel}.`
-            : `${clientName}'s SEO program showed mixed results in ${monthLabel}.`;
-        executiveSummary = `${opener} ${winText}${watchText}`.trim();
+    const facts: string[] = [];
+    for (const headline of HEADLINES) {
+        const def = METRIC_DEFS[headline.source].find(metric => metric.key === headline.key);
+        const row = current[headline.source];
+        if (!def || !row || !(headline.key in row)) continue;
+        const line = factLine(def, row[headline.key], previous[headline.source]?.[headline.key]);
+        if (line) facts.push(line);
     }
 
-    // Recommendations draft from the watch items + standard playbook.
-    const recs: string[] = [];
-    if (watch.some(w => w.includes('bounce'))) recs.push('Improve landing-page relevance and load speed to reduce bounce rate.');
-    if (watch.some(w => w.includes('clicks') || w.includes('sessions'))) recs.push('Refresh underperforming pages and expand content targeting high-intent queries.');
-    if (current.ahrefs) recs.push('Continue building authority links to move striking-distance keywords (positions 11–20) into the top 10.');
-    if (current.gbp) recs.push('Maintain Google Business Profile activity — posts, photos, and review responses — to grow local visibility.');
-    if (recs.length === 0) recs.push('Sustain current strategy and monitor month-over-month trends to capture additional traffic.');
+    const opener = `Search performance for ${clientName} in ${monthLabel}.`;
+    const executiveSummary = facts.length > 0
+        ? `${opener} ${facts.join(' ')}`
+        : `${opener} No metrics are on file for this month.`;
+    const recommendations = '';
 
-    const recommendations = recs.map((r, i) => `${i + 1}. ${r}`).join('\n');
+    const sources = Object.keys(current);
+    if (current.gsc) sources.push('gsc', 'organic_clicks', 'impressions');
+    if (current.gbp && current.gbp.calls != null) sources.push('CALL_CLICKS');
+    assertClientCopy(executiveSummary, sources);
+    assertClientCopy(recommendations, sources);
 
     return { executiveSummary, recommendations };
-}
-
-function listJoin(items: string[]): string {
-    if (items.length <= 1) return items[0] ?? '';
-    return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }

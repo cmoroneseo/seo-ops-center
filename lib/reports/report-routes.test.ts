@@ -69,6 +69,22 @@ test('patch keeps only allowlisted fields', async () => {
     assert.equal((await api.patch(reportId, json({ pdf_url: 'https://secret' }))).status, 400);
 });
 
+test('get includes each metric updated_at for the report caption', async () => {
+    const { api } = handlers('member', {
+        getClientMetrics: async () => [{
+            source: 'gsc',
+            metric_month: '2026-08',
+            data: { organic_clicks: 65 },
+            source_type: 'auto',
+            updated_at: '2026-09-02T12:00:00.000Z',
+        }],
+    });
+    const response = await api.get(reportId);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.metrics.updatedAt.gsc, '2026-09-02T12:00:00.000Z');
+});
+
 test('a viewer cannot delete, and a store error does not echo database text', async () => {
     assert.equal((await handlers('viewer').api.remove(reportId)).status, 403);
     const { api } = handlers('member', {
