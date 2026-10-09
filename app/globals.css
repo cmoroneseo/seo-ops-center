@@ -405,3 +405,16 @@
     transition: opacity 120ms linear;
   }
 }
+
+/* Search Insights tables scroll inside the card. The first column stays put. */
+.insights-table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.insights-table-scroll th:first-child,
+.insights-table-scroll td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--card);
+}

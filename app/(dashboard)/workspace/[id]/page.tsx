@@ -80,6 +80,7 @@ export default function ClientDetailPage() {
         if (tab && ['overview', 'campaign', 'tasks', 'integrations', 'insights', 'inventory', 'topical-map', 'approvals', 'portal'].includes(tab)) setActiveTabState(tab as Tab);
         if (tab === 'tasks') { setActiveTabState('campaign'); setPlanView('tasks'); }
         else setPlanView(parsePlanView(query.get('planView'), searchReportingEnabled()));
+        if (!tab && (query.has('range') || query.has('section'))) setActiveTabState('insights');
         if (query.has('integrationSuccess') || query.has('integrationError')) setActiveTabState('integrations');
     }, [id]);
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
