@@ -40,6 +40,20 @@ async function run(store: SyncStore, sourceFetchers: Record<SyncService, (client
     );
 }
 
+test('gsc provenance is forwarded and sources without it omit the field', async () => {
+    const writes: { source: string; provenance?: Record<string, unknown> }[] = [];
+    const memory = memoryStore();
+    memory.store.writeMetric = async params => {
+        writes.push({ source: params.source, provenance: params.provenance ?? undefined });
+        return 'inserted';
+    };
+    await run(memory.store, fetchers({
+        gsc: async () => ok({ organic_clicks: 4 }, { source: 'gsc_history', finality: { final: false, days_present: 9, days_expected: 31, complete_through: '2026-10-09' } }),
+    }));
+    assert.equal(writes.find(item => item.source === 'gsc')?.provenance?.source, 'gsc_history');
+    assert.equal(writes.find(item => item.source === 'ga4')?.provenance, undefined);
+});
+
 test('one source error makes the run partial and marks only that source', async () => {
     const memory = memoryStore();
     const response = await run(memory.store, fetchers({

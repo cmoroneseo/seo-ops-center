@@ -1,11 +1,15 @@
 import { fetchError, noData, notConfigured, ok, type FetchResult } from './fetch-result';
 import { isClosedMonth, monthBounds } from './months';
 import { getGoogleAccessToken, GoogleAuthError } from './token';
+import { gscHistoryV2Enabled } from '@/lib/gsc/flags';
 
 export interface GscDeps {
     getToken: typeof getGoogleAccessToken;
     fetch: typeof fetch;
     now: () => Date;
+    /** When omitted, GSC_HISTORY_V2_ENABLED is read. Tests pin it so the API path stays stable. */
+    v2Enabled?: boolean;
+    deriveMonth?: (clientId: string, metricMonth: string) => Promise<FetchResult>;
 }
 
 const defaultDeps: GscDeps = {
@@ -35,6 +39,11 @@ export async function fetchGSC(clientId: string, metricMonth: string, deps: Part
     const siteUrl = auth.creds.site_url;
     if (typeof siteUrl !== 'string' || siteUrl.length === 0) {
         return notConfigured('Select a Search Console property');
+    }
+
+    if (resolved.v2Enabled ?? gscHistoryV2Enabled()) {
+        const derive = resolved.deriveMonth ?? (await import('@/lib/gsc/monthly-store')).loadMonthlyGsc;
+        return derive(clientId, metricMonth);
     }
 
     const bounds = monthBounds(metricMonth);

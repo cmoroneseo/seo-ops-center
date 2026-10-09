@@ -178,6 +178,7 @@ export async function runMetricsSync(
                             data: result.data,
                             sourceType: 'auto',
                             syncRunId: runId,
+                            ...(result.provenance != null ? { provenance: result.provenance } : {}),
                         });
                         await settle(deps.store.markSynced(clientId, service));
                         return { client_id: clientId, service, outcome };
