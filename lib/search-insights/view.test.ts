@@ -123,7 +123,7 @@ test('not connected replaces the body and draws no chart', () => {
     assert.equal(view.chart, null);
     assert.equal(view.kpis.length, 0);
     assert.equal(view.receiptCount, 0);
-    assert.equal(view.connect?.body?.includes('scottcoleplumbing.com'), true);
+    assert.equal(view.connect?.body, connectPanel('scottcoleplumbing.com').body);
     assert.equal(view.connect?.action, 'Connect Search Console');
     assert.equal(view.property, null);
     assert.notEqual(view.domain, EXAMPLE_PROPERTY);
