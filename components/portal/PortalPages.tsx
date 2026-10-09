@@ -9,6 +9,9 @@ import { ArrowRight, FileChartColumn, CalendarDays } from 'lucide-react';
 import { monthLabel } from '@/lib/reports/sections';
 import { notFound } from 'next/navigation';
 import { PortalReportView } from '@/components/portal/PortalReportView';
+import { ClientReport } from '@/components/client-report/ClientReport';
+import { loadClientReportModel } from '@/lib/reports/client-report-load';
+import { searchReportingEnabled } from '@/lib/search-reporting/flag';
 import type { PortalClientScope } from '@/lib/portal/session';
 
 export async function PortalHomeContent({ contact }: { contact: PortalClientScope }) {
@@ -91,6 +94,10 @@ export async function PortalReportsContent({ contact }: { contact: PortalClientS
 }
 
 export async function PortalReportContent({ contact, id }: { contact: PortalClientScope; id: string }) {
+    if (searchReportingEnabled()) {
+        const model = await loadClientReportModel(contact, id);
+        if (model) return <ClientReport model={model} audience="client" />;
+    }
     const report = await loadPortalReport(contact, id);
     if (!report) notFound();
 

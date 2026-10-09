@@ -37,6 +37,14 @@
         {
             "path": "/api/cron/report-drafts",
             "schedule": "0 15 * * *"
+        },
+        {
+            "path": "/api/cron/report-sends",
+            "schedule": "0 16 * * *"
+        },
+        {
+            "path": "/api/cron/report-sends",
+            "schedule": "0 17 * * *"
         }
     ],
     "headers": [
