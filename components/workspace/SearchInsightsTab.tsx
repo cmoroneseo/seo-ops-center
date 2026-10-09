@@ -9,6 +9,8 @@ import { buildInvestigationSnapshot, investigationLookupKey, kindForEvidenceCate
 import { getSearchInvestigations, setSearchInvestigationDecision } from '@/lib/supabase/search-investigations';
 import type { SearchDismissalReason, SearchEvidenceCategory, SearchInvestigation } from '@/lib/types';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
+import { SearchInsightsV2 } from '@/components/search-insights/SearchInsightsV2';
+import { searchReportingEnabled } from '@/lib/search-reporting/flag';
 import { SearchInvestigationActions } from './SearchInvestigationActions';
 
 type LoadedHistory = Awaited<ReturnType<typeof loadHistory>>;
@@ -97,7 +99,14 @@ export function InvestigationEvidenceCard({
     </details>;
 }
 
-export function SearchInsightsTab({ organizationId, clientId, clientName, onConnections, onSiteInventory }: { organizationId: string; clientId: string; clientName: string; onConnections: () => void; onSiteInventory?: () => void }) {
+export function SearchInsightsTab(props: { organizationId: string; clientId: string; clientName: string; onConnections: () => void; onSiteInventory?: () => void }) {
+    if (searchReportingEnabled()) {
+        return <SearchInsightsV2 {...props} evidence={<LegacySearchInsights {...props} variant="evidence" />} />;
+    }
+    return <LegacySearchInsights {...props} />;
+}
+
+function LegacySearchInsights({ organizationId, clientId, clientName, onConnections, onSiteInventory, variant = 'full' }: { organizationId: string; clientId: string; clientName: string; onConnections: () => void; onSiteInventory?: () => void; variant?: 'full' | 'evidence' }) {
     const [period, setPeriod] = useState<7 | 28>(28);
     const [revision, setRevision] = useState(0);
     const [property, setProperty] = useState<LoadedHistory | null>(null);
@@ -269,27 +278,28 @@ export function SearchInsightsTab({ organizationId, clientId, clientName, onConn
         };
     };
 
-    return <section className="space-y-6" aria-label="Search Insights">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+    const chrome = variant === 'full';
+    return <section className="space-y-6" aria-label={chrome ? 'Search Insights' : 'Search investigations'}>
+        {chrome && <div className="flex flex-wrap items-start justify-between gap-4">
             <div><p className="text-xs uppercase tracking-widest text-primary">Search performance</p><h2 className="mt-1 text-2xl font-semibold">Search Insights</h2><p className="mt-1 text-sm text-muted-foreground">Find work worth investigating for {clientName}.</p></div>
             <div className="flex flex-wrap items-center gap-2">
                 {onSiteInventory && <button onClick={onSiteInventory} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"><ShieldCheck className="h-4 w-4" />Site inventory</button>}
                 <div className="flex rounded-lg border border-border p-1" aria-label="Reporting period">{([7, 28] as const).map(days => <button key={days} aria-pressed={period === days} onClick={() => setPeriod(days)} className={`rounded-md px-3 py-1.5 text-sm ${period === days ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}>{days} days</button>)}</div>
                 <button onClick={() => setRevision(value => value + 1)} disabled={loading} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Reload saved data</button>
             </div>
-        </div>
+        </div>}
         {error && <div role="alert" className="rounded-xl border border-destructive/40 bg-card p-5"><p>{error}</p><button className="mt-3 text-sm text-primary underline" onClick={onConnections}>Manage Google Search Console connection</button></div>}
         {loading && !property && !error && <p role="status" className="rounded-xl border border-border bg-card p-8 text-muted-foreground">Loading saved search performance…</p>}
         {property && <>
-            <div className="rounded-xl border border-border bg-card p-5">
+            {chrome && <div className="rounded-xl border border-border bg-card p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className="h-4 w-4 text-primary" />Selected Search Console property</p><p className="mt-2 break-all font-mono text-sm">{property.property}</p></div><button onClick={onConnections} className="text-sm text-primary underline">Manage connection</button></div>
                 <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground"><span>{property.start} – {property.end} · Pacific dates</span><span>{property.days.length < period ? 'Updating this period' : 'Daily performance'}</span><span>{chart.filter(point => point.clicks != null).at(-1) ? `Search data through ${chart.filter(point => point.clicks != null).at(-1)!.date}` : 'Preparing search performance…'}</span></div>
                 <p className="mt-3 text-xs text-muted-foreground">Search performance updates automatically as Google finalizes data.</p>
                 {property.days.some(day => day.isIncomplete) && <p className="mt-2 text-xs text-muted-foreground">Recent search data is preliminary and may change.</p>}
                 {property.missingDates.length > 0 && <p role="status" className="mt-3 text-sm text-amber-600 dark:text-amber-400">{property.missingDates.length} days are missing. Totals cover saved days only; investigations are paused until coverage is complete.</p>}
                 {workflowError && <p role="alert" className="mt-3 text-sm text-amber-600 dark:text-amber-400">Evidence is available, but investigation decisions could not be loaded. Reload saved data to retry.</p>}
-            </div>
-            {property.days.length > 0 ? <>
+            </div>}
+            {chrome && (property.days.length > 0 ? <>
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
                     ['Clicks', number.format(totals.clicks), 'Visits from Google Search'],
                     ['Impressions', number.format(totals.impressions), 'Search result appearances'],
@@ -297,8 +307,8 @@ export function SearchInsightsTab({ organizationId, clientId, clientName, onConn
                     ['Average position', totals.position?.toFixed(1) ?? '—', 'Weighted by impressions'],
                 ].map(([label, value, hint]) => <div key={label} className="rounded-xl border border-border bg-card p-5"><p className="text-sm text-muted-foreground">{label}</p><p className="mt-2 text-3xl font-semibold tabular-nums">{value}</p><p className="mt-2 text-xs text-muted-foreground">{hint}</p></div>)}</div>
                 <div className="rounded-xl border border-border bg-card p-5"><h3 className="font-medium">Daily clicks</h3><p className="mt-1 text-xs text-muted-foreground">Gaps indicate unavailable data, not zero clicks.</p><div className="mt-4 h-56" role="img" aria-label={`Daily clicks from ${property.start} to ${property.end}. ${totals.clicks} total clicks across ${property.days.length} saved days. Daily values are available below.`}><ResponsiveContainer width="100%" height="100%"><LineChart data={chart}><CartesianGrid strokeDasharray="3 3" opacity={0.15} /><XAxis dataKey="date" tickFormatter={value => value.slice(5)} stroke="var(--muted-foreground)" fontSize={11} minTickGap={35} /><YAxis allowDecimals={false} width={35} stroke="var(--muted-foreground)" fontSize={11} /><Tooltip /><Line type="linear" dataKey="clicks" stroke="var(--primary)" strokeWidth={2} dot={false} connectNulls={false} /></LineChart></ResponsiveContainer></div><details className="mt-3 text-sm"><summary className="cursor-pointer text-muted-foreground">View daily values</summary><div className="mt-2 max-h-48 overflow-auto"><table className="w-full text-left"><thead><tr><th scope="col">Date</th><th scope="col">Clicks</th></tr></thead><tbody>{chart.map(row => <tr key={row.date}><td>{row.date}</td><td>{row.clicks ?? 'Missing'}</td></tr>)}</tbody></table></div></details></div>
-            </> : <div className="rounded-xl border border-border bg-card p-8"><h3 className="font-medium">Preparing your search performance</h3><p className="mt-2 text-sm text-muted-foreground">Your search performance will appear automatically.</p></div>}
-            {(queryComplete || pageComplete) && <label className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"><Search className="h-4 w-4 text-muted-foreground" /><span className="sr-only">Filter evidence by query or page</span><input value={filter} onChange={event => setFilter(event.target.value)} placeholder="Filter evidence by query or page" className="w-full bg-transparent text-sm outline-none" /></label>}
+            </> : <div className="rounded-xl border border-border bg-card p-8"><h3 className="font-medium">Preparing your search performance</h3><p className="mt-2 text-sm text-muted-foreground">Your search performance will appear automatically.</p></div>)}
+            {chrome && (queryComplete || pageComplete) && <label className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"><Search className="h-4 w-4 text-muted-foreground" /><span className="sr-only">Filter evidence by query or page</span><input value={filter} onChange={event => setFilter(event.target.value)} placeholder="Filter evidence by query or page" className="w-full bg-transparent text-sm outline-none" /></label>}
             <div className="rounded-xl border border-border bg-card p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4"><div><h3 className="text-lg font-semibold">Near-page-one query investigations</h3><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Queries with at least 100 impressions across 3 saved days and average positions 4–20. Ordered by observed impressions.</p></div><span className="rounded-full bg-primary/10 px-3 py-1 text-xs text-primary">{queryComplete ? `${candidates.length} ${candidates.length === 1 ? 'candidate' : 'candidates'}` : 'Awaiting evidence'}</span></div>
                 <p className="mt-3 text-xs text-muted-foreground">Exact client-name brand matches and common utility pages are excluded. Brand variants may remain. These are research candidates; content gaps and ranking gains have not been established.</p>
