@@ -240,7 +240,7 @@ export function ClientWorkspaceCanvas({
                             <WorkspaceAttentionPanel model={model.attention} onReview={onReview} onOpenDeliverables={onOpenDeliverables} onOpenTask={onOpenTask} />
                         </div>
                     </div>
-                    <WorkspaceWorkBoard model={model.board} timeline={model.timeline} selectedId={selected?.id ?? null} onSelect={setSelectedId} onViewAll={onViewAllTasks} onOpenDeliverables={onOpenDeliverables} />
+                    <WorkspaceWorkBoard model={model.board} timeline={model.timeline} selectedId={selected?.id ?? null} onSelect={setSelectedId} onViewAll={onViewAllTasks} onOpenDeliverables={onOpenDeliverables} clientId={client.id} />
                     <WorkspaceMonthTimeline model={model.timeline} cards={model.cards} monthLabel={model.monthLabel} loading={loading} unavailable={model.board.state === 'error' || model.board.tasksUnavailable || model.attention.deliverablesUnavailable || model.phases.state === 'error'} saving={calendarSaving} error={calendarError} onPrevious={() => changeMonth(-1)} onNext={() => changeMonth(1)} onToday={() => { const current = monthKey(); setMonth(current); onMonthChange(current); }} onSelect={setSelectedId} onAddWork={onAddWork} onScheduleExisting={date => { setCalendarError(null); setScheduleDate(date ?? model.timeline.days[0]); }} onOpenDeliverables={onOpenDeliverables} onMoveDueDate={(cardId, date) => { void moveDueDate(cardId, date); }} />
                 </>
             )}

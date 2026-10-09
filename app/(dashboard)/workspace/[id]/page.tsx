@@ -37,6 +37,9 @@ import { getLoggedHoursByClient } from '@/lib/supabase/time-logs';
 import { Task } from '@/lib/types';
 import { SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
+import { ResultsView } from '@/components/marketing-plan/ResultsView';
+import { searchReportingEnabled } from '@/lib/search-reporting/flag';
+import { parsePlanView, type PlanView } from '@/lib/search-reporting/ledger';
 import { BasecampImportModal } from '@/components/workspace/BasecampImportModal';
 import { ClientApprovalsTab } from '@/components/approvals/ClientApprovalsTab';
 import { ClientPortalStaffPanel } from '@/components/portal/ClientPortalStaffPanel';
@@ -54,7 +57,7 @@ export default function ClientDetailPage() {
     const [showEditPanel, setShowEditPanel] = useState(false);
     const [activityRefreshKey, setActivityRefreshKey] = useState(0);
     const [activeTab, setActiveTabState] = useState<Tab>('overview');
-    const [planView, setPlanView] = useState<'plan' | 'tasks'>('plan');
+    const [planView, setPlanView] = useState<PlanView>('plan');
     const [importOpen, setImportOpen] = useState(false);
     const setActiveTab = (tab: Tab, extras?: Record<string, string | null>) => {
         setActiveTabState(tab === 'tasks' ? 'campaign' : tab);
@@ -76,7 +79,7 @@ export default function ClientDetailPage() {
         const tab = query.get('tab');
         if (tab && ['overview', 'campaign', 'tasks', 'integrations', 'insights', 'inventory', 'topical-map', 'approvals', 'portal'].includes(tab)) setActiveTabState(tab as Tab);
         if (tab === 'tasks') { setActiveTabState('campaign'); setPlanView('tasks'); }
-        else setPlanView(query.get('planView') === 'tasks' ? 'tasks' : 'plan');
+        else setPlanView(parsePlanView(query.get('planView'), searchReportingEnabled()));
         if (query.has('integrationSuccess') || query.has('integrationError')) setActiveTabState('integrations');
     }, [id]);
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
@@ -329,11 +332,16 @@ export default function ClientDetailPage() {
 
             {/* SEO Marketing Plan tab */}
             {activeTab === 'campaign' && <nav aria-label="SEO Plan sections" className="mb-5 flex flex-wrap items-center gap-2 border-b border-border pb-3">
-                {([['plan', 'Monthly plan'], ['tasks', 'All client tasks']] as const).map(([view, label]) => <button key={view} aria-pressed={planView === view} onClick={() => {
+                {([
+                    ['plan', 'Monthly plan'],
+                    ['tasks', 'All client tasks'],
+                    ...(searchReportingEnabled() ? [['results', 'Results'] as const] : []),
+                ] as const).map(([view, label]) => <button key={view} aria-pressed={planView === view} onClick={() => {
                     setPlanView(view);
                     const url = new URL(window.location.href);
                     url.searchParams.set('tab', 'campaign');
-                    if (view === 'tasks') url.searchParams.set('planView', 'tasks'); else url.searchParams.delete('planView');
+                    if (view === 'plan') url.searchParams.delete('planView');
+                    else url.searchParams.set('planView', view);
                     window.history.replaceState(null, '', url);
                 }} className={cn('rounded-lg px-4 py-2 text-sm font-medium', planView === view ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>{label}</button>)}
             </nav>}
@@ -343,6 +351,15 @@ export default function ClientDetailPage() {
                     clientId={client.id}
                     clientName={client.clientName}
                     monthlyBudget={client.setupScope?.mode === 'custom' ? 0 : client.seoHours || client.retainerConfig?.monthlyHours || 0}
+                />
+            )}
+
+            {activeTab === 'campaign' && planView === 'results' && (
+                <ResultsView
+                    organizationId={organization?.id ?? ''}
+                    clientId={client.id}
+                    clientName={client.clientName}
+                    clientDomain={client.domain ?? null}
                 />
             )}
 
@@ -509,6 +526,7 @@ export default function ClientDetailPage() {
                         organizationId={organization?.id ?? ''}
                         clientId={client.id}
                         clientName={client.clientName}
+                        clientDomain={client.domain ?? null}
                     />
                     <ClientNotesPanel client={client} />
                 </div>

@@ -29,9 +29,10 @@ interface ClientDeliverablesTabProps {
     organizationId: string;
     clientId: string;
     clientName: string;
+    clientDomain?: string | null;
 }
 
-export function ClientDeliverablesTab({ organizationId, clientId, clientName }: ClientDeliverablesTabProps) {
+export function ClientDeliverablesTab({ organizationId, clientId, clientName, clientDomain }: ClientDeliverablesTabProps) {
     const [monthOffset, setMonthOffset] = useState(0);
     const month = monthKey(monthOffset);
     const [commitments, setCommitments] = useState<DeliverableCommitment[]>([]);
@@ -243,6 +244,7 @@ export function ClientDeliverablesTab({ organizationId, clientId, clientName }: 
                 onCreated={(d) => setDeliverables((prev) => [...prev, d])}
                 organizationId={organizationId}
                 clientId={clientId}
+                clientDomain={clientDomain}
                 commitment={createFor && createFor !== 'adhoc' ? createFor : undefined}
                 defaultMonth={month}
             />
@@ -255,6 +257,7 @@ export function ClientDeliverablesTab({ organizationId, clientId, clientName }: 
                 onDeleted={(id) => setDeliverables((prev) => prev.filter((d) => d.id !== id))}
                 organizationId={organizationId}
                 clientName={clientName}
+                clientDomain={clientDomain}
             />
 
             <CommitmentsManager

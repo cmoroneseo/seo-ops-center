@@ -11,7 +11,7 @@ export interface SearchReportingAdmin {
     };
 }
 
-interface SearchQuery {
+export interface SearchQuery {
     eq(column: string, value: unknown): SearchQuery;
     gte(column: string, value: unknown): SearchQuery;
     lte(column: string, value: unknown): SearchQuery;

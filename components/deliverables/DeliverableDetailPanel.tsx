@@ -10,7 +10,7 @@ import { updateDeliverable, deleteDeliverable } from '@/lib/supabase/deliverable
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { createTask } from '@/lib/supabase/tasks';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
-import { DELIVERABLE_STATUSES, statusBadgeClass, subtypeLabel } from './deliverable-ui';
+import { DELIVERABLE_STATUSES, PUBLISHED_PROOF_HINT, publishedProofError, statusBadgeClass, subtypeLabel } from './deliverable-ui';
 
 const TYPE_TO_TASK_CATEGORY: Record<string, TaskCategory> = {
     Content: 'content',
@@ -27,14 +27,17 @@ interface DeliverableDetailPanelProps {
     onDeleted?: (id: string) => void;
     organizationId: string;
     clientName?: string;
+    clientDomain?: string | null;
 }
 
 export function DeliverableDetailPanel({
-    deliverable, isOpen, onClose, onUpdated, onDeleted, organizationId, clientName,
+    deliverable, isOpen, onClose, onUpdated, onDeleted, organizationId, clientName, clientDomain,
 }: DeliverableDetailPanelProps) {
     const { userId } = useCurrentMember();
     const [members, setMembers] = useState<(OrganizationMember & { user: User })[]>([]);
     const [publishedUrl, setPublishedUrl] = useState('');
+    const [shipDate, setShipDate] = useState('');
+    const [proofError, setProofError] = useState<string | null>(null);
     const [docUrl, setDocUrl] = useState('');
     const [taskCreated, setTaskCreated] = useState(false);
     const [isCreatingTask, setIsCreatingTask] = useState(false);
@@ -44,6 +47,8 @@ export function DeliverableDetailPanel({
     useEffect(() => {
         if (!isOpen || !deliverable) return;
         setPublishedUrl(deliverable.publishedUrl ?? '');
+        setShipDate(deliverable.completedDate ? String(deliverable.completedDate).slice(0, 10) : '');
+        setProofError(null);
         setDocUrl(deliverable.docUrl ?? '');
         setTitleDraft(deliverable.title);
         setEditingTitle(false);
@@ -55,7 +60,25 @@ export function DeliverableDetailPanel({
 
     const patch = async (p: Partial<Deliverable>) => {
         const res = await updateDeliverable(deliverable.id, p, { organizationId, actorId: userId });
-        if (res.success && res.data) onUpdated(res.data);
+        if (res.success && res.data) {
+            setProofError(null);
+            onUpdated(res.data);
+            return;
+        }
+        setProofError(res.error ?? 'Could not update the deliverable');
+    };
+
+    const markPublished = () => {
+        const error = publishedProofError({
+            publishedUrl,
+            deliveredOn: shipDate,
+            clientDomain,
+        });
+        if (error) {
+            setProofError(error);
+            return;
+        }
+        void patch({ status: 'Published', publishedUrl: publishedUrl.trim(), completedDate: shipDate });
     };
 
     const handleCreateTask = async () => {
@@ -145,7 +168,11 @@ export function DeliverableDetailPanel({
                                 return (
                                     <button
                                         key={s}
-                                        onClick={() => patch({ status: s as DeliverableStatus })}
+                                        onClick={() => {
+                                            if (s === deliverable.status) return;
+                                            if (s === 'Published') markPublished();
+                                            else void patch({ status: s as DeliverableStatus });
+                                        }}
                                         title={s}
                                         className={cn(
                                             'flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded border transition-all',
@@ -161,6 +188,10 @@ export function DeliverableDetailPanel({
                                 );
                             })}
                         </div>
+                        {proofError && <p role="alert" className="mt-2 text-xs text-amber-700 dark:text-amber-400">{proofError}</p>}
+                        {deliverable.status === 'Published' && !deliverable.publishedUrl?.trim() && (
+                            <p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-400">Missing proof. Add the live URL. This published row can still be edited.</p>
+                        )}
                     </div>
 
                     {/* Due date + assignee */}
@@ -216,14 +247,29 @@ export function DeliverableDetailPanel({
                         </div>
                     </div>
 
+                    <div>
+                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Ship date</label>
+                        <p className="text-[11px] text-muted-foreground/70 mt-0.5">The day the page went live. Required to mark this Published.</p>
+                        <input
+                            type="date"
+                            value={shipDate}
+                            onChange={(e) => { setShipDate(e.target.value); setProofError(null); }}
+                            onBlur={() => {
+                                const current = deliverable.completedDate ? String(deliverable.completedDate).slice(0, 10) : '';
+                                if (shipDate && shipDate !== current) void patch({ completedDate: shipDate });
+                            }}
+                            className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                        />
+                    </div>
+
                     {/* Published URL (live page) */}
                     <div>
                         <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Published URL</label>
-                        <p className="text-[11px] text-muted-foreground/70 mt-0.5">Live URL once the content is published to the site</p>
+                        <p className="text-[11px] text-muted-foreground/70 mt-0.5">{PUBLISHED_PROOF_HINT}</p>
                         <div className="flex items-center gap-2 mt-1.5">
                             <input
                                 value={publishedUrl}
-                                onChange={(e) => setPublishedUrl(e.target.value)}
+                                onChange={(e) => { setPublishedUrl(e.target.value); setProofError(null); }}
                                 onBlur={() => publishedUrl !== (deliverable.publishedUrl ?? '') && patch({ publishedUrl: publishedUrl || undefined })}
                                 placeholder="https://…"
                                 className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"

@@ -5,7 +5,7 @@ import { X, Package } from 'lucide-react';
 import { Deliverable, DeliverableCommitment, DeliverableType, OrganizationMember, User } from '@/lib/types';
 import { createDeliverable } from '@/lib/supabase/deliverables';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
-import { SUBTYPE_OPTIONS } from './deliverable-ui';
+import { PUBLISHED_PROOF_HINT, SUBTYPE_OPTIONS, publishedProofError } from './deliverable-ui';
 
 interface CreateDeliverableModalProps {
     isOpen: boolean;
@@ -16,10 +16,11 @@ interface CreateDeliverableModalProps {
     /** Pre-fill from a commitment's "+ Add" button */
     commitment?: DeliverableCommitment;
     defaultMonth?: string; // 'YYYY-MM'
+    clientDomain?: string | null;
 }
 
 export function CreateDeliverableModal({
-    isOpen, onClose, onCreated, organizationId, clientId, commitment, defaultMonth,
+    isOpen, onClose, onCreated, organizationId, clientId, commitment, defaultMonth, clientDomain,
 }: CreateDeliverableModalProps) {
     const [title, setTitle] = useState('');
     const [type, setType] = useState<DeliverableType>('Content');
@@ -27,6 +28,10 @@ export function CreateDeliverableModal({
     const [dueDate, setDueDate] = useState('');
     const [assigneeId, setAssigneeId] = useState('');
     const [notes, setNotes] = useState('');
+    const [alreadyPublished, setAlreadyPublished] = useState(false);
+    const [publishedUrl, setPublishedUrl] = useState('');
+    const [shipDate, setShipDate] = useState('');
+    const [proofError, setProofError] = useState<string | null>(null);
     const [members, setMembers] = useState<(OrganizationMember & { user: User })[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -37,6 +42,10 @@ export function CreateDeliverableModal({
         setSubtype(commitment?.subtype ?? '');
         setAssigneeId(commitment?.defaultAssigneeId ?? '');
         setNotes('');
+        setAlreadyPublished(false);
+        setPublishedUrl('');
+        setShipDate(new Date().toLocaleDateString('en-CA'));
+        setProofError(null);
         const month = defaultMonth ?? new Date().toISOString().slice(0, 7);
         const day = commitment?.dueDay
             ? String(commitment.dueDay).padStart(2, '0')
@@ -50,6 +59,14 @@ export function CreateDeliverableModal({
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!title.trim()) return;
+        const proof = alreadyPublished
+            ? publishedProofError({ publishedUrl, deliveredOn: shipDate, clientDomain })
+            : null;
+        if (proof) {
+            setProofError(proof);
+            return;
+        }
+        setProofError(null);
         setIsSubmitting(true);
         const res = await createDeliverable({
             organizationId,
@@ -57,7 +74,7 @@ export function CreateDeliverableModal({
             title: title.trim(),
             type,
             subtype: subtype || undefined,
-            status: 'Pending',
+            status: alreadyPublished ? 'Published' : 'Pending',
             dueDate,
             month: dueDate.slice(0, 7),
             assigneeId: assigneeId || undefined,
@@ -65,11 +82,15 @@ export function CreateDeliverableModal({
             countsTowardsHours: commitment?.countsTowardHours ?? true,
             generatedBy: 'manual',
             notes: notes || undefined,
+            publishedUrl: alreadyPublished ? publishedUrl.trim() : undefined,
+            completedDate: alreadyPublished ? shipDate : undefined,
         });
         setIsSubmitting(false);
         if (res.success && res.data) {
             onCreated(res.data);
             onClose();
+        } else {
+            setProofError(res.error ?? 'Could not create the deliverable');
         }
     };
 
@@ -153,6 +174,41 @@ export function CreateDeliverableModal({
                                 ))}
                             </select>
                         </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border p-3 space-y-3">
+                        <label className="flex items-center gap-2 text-sm">
+                            <input
+                                type="checkbox"
+                                checked={alreadyPublished}
+                                onChange={(e) => { setAlreadyPublished(e.target.checked); setProofError(null); }}
+                            />
+                            Already published
+                        </label>
+                        {alreadyPublished && (
+                            <>
+                                <p className="text-[11px] text-muted-foreground">{PUBLISHED_PROOF_HINT}</p>
+                                <div>
+                                    <label className="text-xs font-medium text-muted-foreground">Live URL</label>
+                                    <input
+                                        value={publishedUrl}
+                                        onChange={(e) => { setPublishedUrl(e.target.value); setProofError(null); }}
+                                        placeholder="https://"
+                                        className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-medium text-muted-foreground">Ship date</label>
+                                    <input
+                                        type="date"
+                                        value={shipDate}
+                                        onChange={(e) => { setShipDate(e.target.value); setProofError(null); }}
+                                        className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                                    />
+                                </div>
+                            </>
+                        )}
+                        {proofError && <p role="alert" className="text-xs text-amber-700 dark:text-amber-400">{proofError}</p>}
                     </div>
 
                     <div>
