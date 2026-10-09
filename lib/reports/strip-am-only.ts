@@ -83,17 +83,19 @@ function endOfElement(html: string, from: number, name: string): number {
     return from;
 }
 
-/** Visible text, for copy lint and absence checks. */
+const NAMED_ENTITY: Record<string, string> = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#39;': "'",
+};
+
+/** Visible text, for copy lint and absence checks. One entity pass, so `&amp;lt;` stays `&lt;`. */
 export function htmlText(html: string): string {
     return html
-        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&(?:amp|lt|gt|quot|#39);/g, entity => NAMED_ENTITY[entity] ?? entity)
         .replace(/\s+/g, ' ')
         .trim();
 }

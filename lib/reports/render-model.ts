@@ -342,7 +342,6 @@ function ledgerItems(snapshot: Record<string, unknown>, monthName: string): { ti
         const verdict = withoutHours(text(row?.verdict) ?? '');
         const detail = withoutHours(text(row?.detail) ?? '');
         const line = [verdict, detail].filter(Boolean).join(' ').trim();
-        if (!line && !title) continue;
         items.push({ title, url, shippedOn, line: line || `Shipped in ${monthName}.` });
     }
     return items;
