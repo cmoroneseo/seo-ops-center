@@ -141,6 +141,26 @@ export interface CitiesModel {
     source: SourceLine | null;
     rows: TableRowModel[];
     hidden: number;
+    empty: string | null;
+}
+
+export const CITIES_NEED_TOKENS = 'Cities come from query text. Add city tokens on the client, or open this view with ?cities=.';
+export const CITIES_NONE_MATCHED = 'Cities come from query text. None of the queries in this window matched a city token.';
+
+export function citiesEmptyCopy(input: {
+    matched: boolean;
+    tokens: readonly string[];
+    queriesAvailable: boolean;
+    device: string | null;
+}): string | null {
+    if (input.matched) return null;
+    if (!input.queriesAvailable) {
+        return input.device
+            ? 'Cities come from query text. This device view does not include queries.'
+            : STATES_COPY.partialHistory;
+    }
+    if (input.tokens.length === 0) return CITIES_NEED_TOKENS;
+    return CITIES_NONE_MATCHED;
 }
 
 export interface MoversModel {
@@ -830,8 +850,8 @@ export function presentInsights(
     } : null;
 
     const cityRows = response.cities?.rows ?? [];
-    const cities: CitiesModel | null = response.cities ? {
-        source: sourceLine(response, response.cities.receipt),
+    const cities: CitiesModel = {
+        source: response.cities ? sourceLine(response, response.cities.receipt) : null,
         rows: cityRows.slice(0, TABLE_RECEIPT_CAP).map(row => ({
             key: `${row.surface}:${row.city}`,
             cells: [
@@ -846,7 +866,13 @@ export function presentInsights(
                 : null,
         })),
         hidden: Math.max(0, cityRows.length - TABLE_RECEIPT_CAP),
-    } : null;
+        empty: citiesEmptyCopy({
+            matched: cityRows.length > 0,
+            tokens: response.cities?.tokens ?? [],
+            queriesAvailable: response.cities != null,
+            device: response.grains?.device.requested ?? null,
+        }),
+    };
 
     const movers: MoversModel | null = response.movers ? {
         source: sourceLine(response, response.movers.receipt),

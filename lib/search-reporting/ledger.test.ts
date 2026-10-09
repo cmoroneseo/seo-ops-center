@@ -296,6 +296,27 @@ test('a failed history read degrades instead of claiming the days are empty', ()
     assert.match(empty.gaps.find(gap => gap.id === 'history')?.detail ?? '', /No Search Console days are stored in this read/);
 });
 
+test('history coverage is reported when nothing has shipped', () => {
+    const model = buildLedger(base({
+        deliverables: [],
+        days: [],
+        facts: [],
+        historyStart: null,
+        earliestStoredDay: null,
+        historyDays: 30,
+        coverage: { present: 30, expected: 30 },
+        pageFactsDeferred: true,
+    }), TODAY);
+    assert.equal(model.empty, 'No shipped work recorded yet. Work shows up here once it has a ship date and a page URL.');
+    assert.equal(model.sourceLabel, 'Search Console');
+    assert.equal(model.historyRangeLabel, '30 of 30 days stored');
+    assert.equal(model.gaps.find(gap => gap.id === 'history')?.value, '30 of 30');
+    assert.equal(model.gaps.find(gap => gap.id === 'history')?.detail, '30 of 30 days stored.');
+    assert.equal(model.gaps.find(gap => gap.id === 'page-facts')?.value, 'Not needed');
+    assert.equal(model.gaps.find(gap => gap.id === 'page-facts')?.detail, "Page facts aren't needed until work ships.");
+    assert.equal(JSON.stringify(model).includes('No Search Console days are stored'), false);
+});
+
 test('no shipped work uses the empty state and does not invent a latest result', () => {
     const model = buildLedger(base({ deliverables: [] }), TODAY);
     assert.equal(model.empty, 'No shipped work recorded yet. Work shows up here once it has a ship date and a page URL.');

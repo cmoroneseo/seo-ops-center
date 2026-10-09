@@ -14,6 +14,8 @@ import {
     partialBanner,
     positionHeader,
     positionLegendLabel,
+    CITIES_NEED_TOKENS,
+    CITIES_NONE_MATCHED,
     presentInsights,
     preliminaryLegend,
     staleBanner,
@@ -115,6 +117,25 @@ test('a missing series is not drawn as a zero line', () => {
     assert.equal(map?.drawn, false);
     assert.equal(map?.solid, '');
     assert.match(map?.unavailable ?? '', /Partial · not collected yet/);
+});
+
+test('an empty cities table explains a missing token or a miss, and does not invent rows', () => {
+    const tokens = exampleInsights();
+    tokens.cities = tokens.cities && { ...tokens.cities, tokens: [], rows: [] };
+    const needsTokens = presentInsights(tokens, { now: EXAMPLE_NOW, clientId: 'example-client' });
+    assert.equal(needsTokens.cities?.rows.length, 0);
+    assert.equal(needsTokens.cities?.empty, CITIES_NEED_TOKENS);
+
+    const missed = exampleInsights();
+    missed.cities = missed.cities && { ...missed.cities, tokens: ['Eastvale'], rows: [] };
+    const none = presentInsights(missed, { now: EXAMPLE_NOW, clientId: 'example-client' });
+    assert.equal(none.cities?.empty, CITIES_NONE_MATCHED);
+
+    const unread = exampleInsights();
+    unread.cities = null;
+    unread.queries = null;
+    const failed = presentInsights(unread, { now: EXAMPLE_NOW, clientId: 'example-client' });
+    assert.equal(failed.cities?.empty, "History doesn't cover this window.");
 });
 
 test('not connected replaces the body and draws no chart', () => {

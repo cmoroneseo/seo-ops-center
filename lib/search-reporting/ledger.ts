@@ -89,6 +89,10 @@ export interface LedgerSource {
     factsDegraded?: boolean;
     /** Day metadata could not be read. Do not describe that as an empty history. */
     historyUnreadable?: boolean;
+    /** Stored days versus the days the selected window expects. Set when history is read on its own. */
+    coverage?: { present: number; expected: number } | null;
+    /** Nothing has shipped, so page facts were not read. */
+    pageFactsDeferred?: boolean;
 }
 
 export interface LedgerCount {
@@ -148,6 +152,8 @@ export interface LedgerModel {
     historyStart: string | null;
     historyDays: number;
     lastSyncAt: string | null;
+    sourceLabel: string;
+    historyRangeLabel: string;
 }
 
 interface DatedFact {
@@ -407,18 +413,33 @@ export function buildLedger(source: LedgerSource, now: Date): LedgerModel {
                 ? 'Every published deliverable has a page URL and a ship date.'
                 : 'Published deliverables with no live URL or no ship date. Add both and they can be read.',
         },
-        {
-            id: 'page-facts',
-            label: 'Page facts',
-            value: degraded || !(source.connected && source.historyDays > 0) ? '—' : String(source.historyDays),
-            detail: degraded
-                ? STATES_COPY.partialHistory
-                : source.connected
-                    ? 'Results use page facts and the surface column. Device and organic-only page grains are not read.'
-                    : LEDGER_COPY.notConnected,
-        },
+        source.pageFactsDeferred
+            ? {
+                id: 'page-facts',
+                label: 'Page facts',
+                value: 'Not needed',
+                detail: "Page facts aren't needed until work ships.",
+            }
+            : {
+                id: 'page-facts',
+                label: 'Page facts',
+                value: degraded || !(source.connected && source.historyDays > 0) ? '—' : String(source.historyDays),
+                detail: degraded
+                    ? STATES_COPY.partialHistory
+                    : source.connected
+                        ? 'Results use page facts and the surface column. Device and organic-only page grains are not read.'
+                        : LEDGER_COPY.notConnected,
+            },
     ];
-    if (source.historyStart) {
+    const covered = source.coverage && source.coverage.expected > 0 ? source.coverage : null;
+    if (covered) {
+        gaps.push({
+            id: 'history',
+            label: 'History',
+            value: `${covered.present} of ${covered.expected}`,
+            detail: `${covered.present} of ${covered.expected} days stored.`,
+        });
+    } else if (source.historyStart) {
         gaps.push({
             id: 'history',
             label: 'History starts',
@@ -479,5 +500,21 @@ export function buildLedger(source: LedgerSource, now: Date): LedgerModel {
         historyStart: source.historyStart,
         historyDays: source.historyDays,
         lastSyncAt: source.lastSyncAt,
+        sourceLabel: source.pageFactsDeferred ? 'Search Console' : 'Search Console · page facts',
+        historyRangeLabel: historyRangeLabel(source),
     };
+}
+
+function historyRangeLabel(source: LedgerSource): string {
+    if (!source.connected) return LEDGER_COPY.notConnected;
+    if (source.historyUnreadable) return STATES_COPY.partialHistory;
+    if (source.coverage && source.coverage.expected > 0) {
+        return `${source.coverage.present} of ${source.coverage.expected} days stored`;
+    }
+    if (source.historyDays > 0) {
+        return source.historyStart
+            ? `history from ${source.historyStart}`
+            : `${source.historyDays} stored days in this read`;
+    }
+    return 'No Search Console days are stored in this read.';
 }

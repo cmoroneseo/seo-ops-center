@@ -1,15 +1,19 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import { dateOffset } from '@/lib/gsc/history';
-import { ptToday } from '@/lib/sync/months';
+import { monthFinality } from '@/lib/gsc/monthly';
+import { monthBounds, ptToday } from '@/lib/sync/months';
 import { readGrainedFacts } from './fact-read';
 import type { SearchReportingAdmin, SearchQuery } from './load';
 import type { LedgerDayInput, LedgerDeliverableInput, LedgerFactInput, LedgerSource } from './ledger';
 import { normalizeShipDate } from './proof';
+import { LOOKBACK_DAYS, coverWindow, parseRange, resolveRange } from './range';
 
 export interface LedgerLoadInput {
     organizationId: string;
     clientId: string;
     now: Date;
+    /** Insights range (`28d` or `YYYY-MM`). Omitted means the last 28 final days. */
+    range?: string | null;
 }
 
 function integer(value: unknown): number | null {
@@ -109,7 +113,7 @@ export async function loadLedger(
         .map(row => normalizeShipDate(row.deliveredOn))
         .filter((day): day is string => Boolean(day))
         .sort();
-    if (ships.length === 0) return empty;
+    if (ships.length === 0) return readCoverage(admin, input, property, empty);
 
     const today = ptToday(input.now);
     const spanStart = dateOffset(ships[0], -28);
@@ -188,5 +192,77 @@ export async function loadLedger(
         facts,
         factsDegraded,
         historyUnreadable,
+    };
+}
+
+function storedDay(row: Record<string, unknown>): LedgerDayInput {
+    if (typeof row.id !== 'string' || typeof row.data_date !== 'string') throw new Error('Unable to read the results ledger');
+    return { id: row.id, date: row.data_date, isIncomplete: row.is_incomplete === true };
+}
+
+/**
+ * Nothing has shipped, so page facts are not read. Day rows still answer
+ * "how much of this window is stored?" independently of the ledger.
+ */
+async function readCoverage(
+    admin: SearchReportingAdmin,
+    input: LedgerLoadInput,
+    property: string,
+    empty: LedgerSource,
+): Promise<LedgerSource> {
+    const preset = parseRange(input.range ?? null) ?? { kind: '28d' as const, key: '28d', month: null };
+    const today = ptToday(input.now);
+    const monthEnd = preset.kind === 'month' && preset.month ? monthBounds(preset.month).end : today;
+    const span = preset.kind === 'month' && preset.month
+        ? { start: monthBounds(preset.month).start, end: monthEnd > today ? today : monthEnd }
+        : { start: dateOffset(today, -LOOKBACK_DAYS), end: today };
+    let dayRows: Record<string, unknown>[] = [];
+    try {
+        dayRows = await readPages(() => admin.from('gsc_history_days')
+            .select('id, data_date, is_incomplete')
+            .eq('organization_id', input.organizationId)
+            .eq('client_id', input.clientId)
+            .eq('property', property)
+            .eq('search_type', 'web')
+            .gte('data_date', span.start)
+            .lte('data_date', span.end)
+            .order('data_date', { ascending: true }));
+    } catch {
+        return { ...empty, historyUnreadable: true, pageFactsDeferred: true };
+    }
+    let days: LedgerDayInput[];
+    try {
+        days = dayRows.map(storedDay);
+    } catch {
+        return { ...empty, historyUnreadable: true, pageFactsDeferred: true };
+    }
+    let windowDays: LedgerDayInput[];
+    let windowStart: string;
+    let present: number;
+    let expected: number;
+    if (preset.kind === 'month' && preset.month) {
+        windowDays = days;
+        windowStart = monthBounds(preset.month).start;
+        const finality = monthFinality(preset.month, windowDays);
+        present = finality.days_present;
+        expected = finality.days_expected;
+    } else {
+        const resolved = resolveRange(preset, days, input.now);
+        windowStart = resolved.current.start;
+        windowDays = days.filter(day => day.date >= windowStart && day.date <= resolved.current.end);
+        const covered = coverWindow(resolved.current, days);
+        present = covered.daysPresent;
+        expected = covered.daysExpected;
+    }
+    const dates = windowDays.map(day => day.date).sort();
+    const earliest = dates[0] ?? null;
+    return {
+        ...empty,
+        historyStart: earliest && earliest > windowStart ? earliest : null,
+        earliestStoredDay: earliest,
+        historyDays: present,
+        days: windowDays,
+        coverage: { present, expected },
+        pageFactsDeferred: true,
     };
 }

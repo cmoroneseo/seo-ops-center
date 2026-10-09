@@ -362,19 +362,24 @@ function Queries({
 }
 
 function Cities({ view }: { view: InsightsPresentation }) {
+    const cities = view.cities;
     return (
-        <PanelCard title="Cities" extra={<CardSource source={view.cities?.source ?? null} />}>
-            <InsightTable label="Cities" head={['City', 'Surface', 'Impressions', 'Note']}>
-                {view.cities?.rows.map(row => (
-                    <tr key={row.key} className="reporting-row border-b border-border">
-                        <th scope="row" className="px-3 py-2 font-medium">{row.cells[0]}</th>
-                        <td className="px-3 py-2"><SurfaceMark name={row.cells[1]} /></td>
-                        <td className="px-3 py-2 tabular-nums" style={row.cells[1] === 'Map pack' ? { color: 'var(--map)' } : undefined}>{row.receipt ? <Receipt input={row.receipt} /> : row.cells[2]}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{row.cells[3]}</td>
-                    </tr>
-                ))}
-            </InsightTable>
-            {view.cities?.hidden ? <p className="mt-2 text-xs text-muted-foreground">Showing the first rows. {view.cities.hidden} more are hidden so this view stays readable.</p> : null}
+        <PanelCard title="Cities" extra={<CardSource source={cities?.source ?? null} />}>
+            {cities?.empty ? <p role="status" className="text-sm text-muted-foreground">{cities.empty}</p> : (
+                <>
+                    <InsightTable label="Cities" head={['City', 'Surface', 'Impressions', 'Note']}>
+                        {cities?.rows.map(row => (
+                            <tr key={row.key} className="reporting-row border-b border-border">
+                                <th scope="row" className="px-3 py-2 font-medium">{row.cells[0]}</th>
+                                <td className="px-3 py-2"><SurfaceMark name={row.cells[1]} /></td>
+                                <td className="px-3 py-2 tabular-nums" style={row.cells[1] === 'Map pack' ? { color: 'var(--map)' } : undefined}>{row.receipt ? <Receipt input={row.receipt} /> : row.cells[2]}</td>
+                                <td className="px-3 py-2 text-muted-foreground">{row.cells[3]}</td>
+                            </tr>
+                        ))}
+                    </InsightTable>
+                    {cities && cities.hidden > 0 ? <p className="mt-2 text-xs text-muted-foreground">Showing the first rows. {cities.hidden} more are hidden so this view stays readable.</p> : null}
+                </>
+            )}
         </PanelCard>
     );
 }
