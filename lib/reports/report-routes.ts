@@ -27,6 +27,7 @@ export interface ReportRouteDeps extends ReportAccessDeps {
         patch: Partial<Pick<ReportRow, 'title' | 'executive_summary' | 'recommendations' | 'sections' | 'status' | 'client_id' | 'report_month'>>,
     ) => Promise<{ report?: ReportRow; error?: string }>;
     deleteReport: (id: string, organizationId: string) => Promise<{ error?: string }>;
+    hasFrozenVersion?: (id: string, organizationId: string) => Promise<boolean>;
     getClientMetrics: (clientId: string, opts: { organizationId: string; month?: string }) => Promise<MetricRow[]>;
     generateAutoSummary: typeof generateAutoSummary;
 }
@@ -215,6 +216,9 @@ export function createReportHandlers(deps: ReportRouteDeps) {
             }
             if ('status' in body) {
                 if (body.status !== 'draft' && body.status !== 'published') return json({ error: 'Invalid status' }, 400);
+                if (body.status === 'draft' && deps.hasFrozenVersion && await deps.hasFrozenVersion(access.report.id, access.report.organization_id)) {
+                    return json({ error: 'This report is approved. A correction creates a new version.' }, 409);
+                }
                 patch.status = body.status;
             }
             if ('report_month' in body) {
@@ -244,6 +248,9 @@ export function createReportHandlers(deps: ReportRouteDeps) {
         async remove(id: string) {
             const access = await requireReportAccess(id, 'write', deps);
             if (!access.ok) return json({ error: access.error }, access.status);
+            if (deps.hasFrozenVersion && await deps.hasFrozenVersion(access.report.id, access.report.organization_id)) {
+                return json({ error: 'This report has a frozen version.' }, 409);
+            }
             const result = await deps.deleteReport(access.report.id, access.report.organization_id);
             if (result.error) return json({ error: 'Unable to delete report' }, 500);
             return json({ success: true });

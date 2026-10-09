@@ -3,6 +3,7 @@ import { requireClientOrgMember, requireOrganizationMember } from '@/lib/securit
 import { generateAutoSummary } from '@/lib/reports/autoSummary';
 import { createReportHandlers } from '@/lib/reports/report-routes';
 import { deleteReport, getReport, updateReport } from '@/lib/reports/reportStore';
+import { reportHasFrozenVersion } from '@/lib/reports/version-store';
 import { getClientMetrics } from '@/lib/sync/upsertMetric';
 
 const handlers = createReportHandlers({
@@ -13,6 +14,7 @@ const handlers = createReportHandlers({
     getReport,
     updateReport,
     deleteReport,
+    hasFrozenVersion: reportHasFrozenVersion,
     getClientMetrics,
     generateAutoSummary,
 });

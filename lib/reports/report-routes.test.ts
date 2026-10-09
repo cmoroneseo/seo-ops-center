@@ -59,6 +59,16 @@ test('get hides a cross-org report and does not load its metrics', async () => {
     assert.equal(calls.metrics, 0);
 });
 
+test('an approved report cannot be unpublished or deleted', async () => {
+    const { api, calls } = handlers('member', { hasFrozenVersion: async () => true });
+    assert.equal((await api.patch(reportId, json({ status: 'draft' }))).status, 409);
+    assert.equal((await api.remove(reportId)).status, 409);
+    assert.equal(calls.deleted, 0);
+    assert.equal(calls.updated.length, 0);
+    const open = handlers('member', { hasFrozenVersion: async () => false });
+    assert.equal((await open.api.patch(reportId, json({ status: 'draft' }))).status, 200);
+});
+
 test('patch keeps only allowlisted fields', async () => {
     const { api, calls } = handlers();
     const response = await api.patch(reportId, json({ title: 'October', pdf_url: 'https://secret', organization_id: 'other', created_by: 'attacker' }));
