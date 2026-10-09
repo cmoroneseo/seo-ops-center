@@ -1,6 +1,9 @@
 'use client';
 
 import { formatDayLabel, LANE_PREVIEW_LIMIT, type BoardModel, type TimelineModel, type WorkCard } from '@/lib/workspace-canvas/project';
+import { workspaceCanvasEnabled } from '@/lib/workspace-canvas/flag';
+import { searchReportingEnabled } from '@/lib/search-reporting/flag';
+import { LatestResultLink } from '@/components/marketing-plan/LatestResultLink';
 import { CalendarDays, ClipboardList, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -92,6 +95,7 @@ export function WorkspaceWorkBoard({
     onSelect,
     onViewAll,
     onOpenDeliverables,
+    clientId,
 }: {
     model: BoardModel;
     timeline: TimelineModel;
@@ -99,10 +103,12 @@ export function WorkspaceWorkBoard({
     onSelect: (id: string) => void;
     onViewAll: () => void;
     onOpenDeliverables: () => void;
+    clientId?: string;
 }) {
     if (model.state === 'error') {
         return <p role="status" className="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">Work could not be loaded. This is not an empty month.</p>;
     }
+    const showLatestResult = Boolean(clientId) && searchReportingEnabled() && workspaceCanvasEnabled();
     const emptyNow = model.tasksUnavailable ? 'The full task list could not be loaded, so this lane is not “nothing due.”' : 'Nothing incomplete is due this month or carried over.';
     const emptyNext = model.tasksUnavailable ? 'Later dated work may be missing.' : 'No incomplete work is dated after this month.';
     return (
@@ -115,6 +121,7 @@ export function WorkspaceWorkBoard({
                 <section className="min-w-0 rounded-xl border border-border bg-card p-4">
                     <h3 className="text-xl font-semibold tracking-tight">Impact</h3>
                     <p className="text-xs text-muted-foreground">Completed work & milestones</p>
+                    {showLatestResult && clientId ? <LatestResultLink clientId={clientId} /> : null}
                     <div className="mt-3 space-y-3">
                         {model.impact.filter(entry => !entry.id.startsWith('search-')).map(entry => (
                             <article key={entry.id} className="rounded-lg border border-border bg-muted/30 p-3">

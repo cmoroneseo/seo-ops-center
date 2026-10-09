@@ -2,7 +2,20 @@
 
 import { DeliverableStatus, DeliverableType } from '@/lib/types';
 import { Severity } from '@/lib/seo-ops-logic';
+import { PROOF_MESSAGES, validatePublishedProof } from '@/lib/search-reporting/proof';
 import { FileText, Link as LinkIcon, MapPin, Circle } from 'lucide-react';
+
+export const PUBLISHED_PROOF_HINT = PROOF_MESSAGES.hint;
+
+/** UI gate for the Published transition. Null means the row can be marked shipped. */
+export function publishedProofError(input: {
+    publishedUrl: string | null | undefined;
+    deliveredOn: string | null | undefined;
+    clientDomain: string | null | undefined;
+}): string | null {
+    const proof = validatePublishedProof(input);
+    return proof.ok ? null : proof.message;
+}
 
 export const DELIVERABLE_STATUSES: DeliverableStatus[] = [
     'Pending', 'In Progress', 'Review', 'Approved', 'Published',

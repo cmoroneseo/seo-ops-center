@@ -78,6 +78,10 @@ export default function DeliverablesPage() {
         () => new Map(clients.map((c) => [c.id, c.clientName])),
         [clients],
     );
+    const clientDomainById = useMemo(
+        () => new Map(clients.map((c) => [c.id, c.domain ?? null])),
+        [clients],
+    );
 
     const handleGenerate = async () => {
         setIsGenerating(true);
@@ -315,6 +319,7 @@ export default function DeliverablesPage() {
                 onDeleted={(id) => setData((prev) => prev ? { ...prev, deliverables: prev.deliverables.filter((d) => d.id !== id) } : prev)}
                 organizationId={organization?.id ?? ''}
                 clientName={selected ? clientNameById.get(selected.clientId) : undefined}
+                clientDomain={selected ? clientDomainById.get(selected.clientId) : undefined}
             />
         </div>
     );

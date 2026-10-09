@@ -2,6 +2,7 @@ import { createClient } from './client';
 import { Deliverable, DeliverableType, DeliverableStatus } from '../types';
 import { createNotification } from './notifications';
 import { logActivity } from './client-activity';
+import { validateProofUrl, validatePublishedProof } from '../search-reporting/proof';
 
 function rowToDeliverable(row: any): Deliverable {
     return {
@@ -51,6 +52,31 @@ function deliverableToRow(d: Partial<Deliverable> & { organizationId?: string })
         sequence_in_month: d.sequenceInMonth,
         notes: d.notes,
     };
+}
+
+async function clientDomain(supabase: NonNullable<ReturnType<typeof createClient>>, clientId: string): Promise<string | null> {
+    const { data, error } = await supabase.from('clients').select('domain').eq('id', clientId).maybeSingle();
+    if (error) throw error;
+    return typeof data?.domain === 'string' ? data.domain : null;
+}
+
+/**
+ * Moving to Published needs a live URL and a ship date. Already-published
+ * rows skip this, matching the database trigger, so historical rows stay editable.
+ */
+async function enforcePublishedProof(
+    supabase: NonNullable<ReturnType<typeof createClient>>,
+    clientId: string,
+    publishedUrl: string | null | undefined,
+    deliveredOn: string | null | undefined,
+): Promise<{ ok: true; url: string; deliveredOn: string } | { ok: false; error: string }> {
+    const proof = validatePublishedProof({
+        publishedUrl,
+        deliveredOn,
+        clientDomain: await clientDomain(supabase, clientId),
+    });
+    if (!proof.ok) return { ok: false, error: proof.message };
+    return proof;
 }
 
 /** Fire-and-forget: notify the new assignee of a deliverable. */
@@ -116,6 +142,17 @@ export async function createDeliverable(
             ...deliverableToRow(d),
             status_history: [{ status: d.status ?? 'Pending', at: new Date().toISOString() }],
         };
+        if ((d.status ?? 'Pending') === 'Published') {
+            const proof = await enforcePublishedProof(supabase, d.clientId, d.publishedUrl, d.completedDate);
+            if (!proof.ok) return { success: false, error: proof.error };
+            row.published_url = proof.url;
+            row.delivered_on = proof.deliveredOn;
+            row.status = 'Published';
+        } else if (d.publishedUrl?.trim()) {
+            const url = validateProofUrl(d.publishedUrl, await clientDomain(supabase, d.clientId));
+            if (!url.ok) return { success: false, error: url.message };
+            row.published_url = url.url;
+        }
         const { data, error } = await supabase.from('deliverables').insert([row]).select().single();
         if (error) throw error;
         const created = rowToDeliverable(data);
@@ -150,26 +187,41 @@ export async function updateDeliverable(
         // Read current row when the change needs context (history append / assignee diff).
         let prevAssigneeId: string | null | undefined;
         let prevStatus: DeliverableStatus | undefined;
-        if (patch.status || patch.assigneeId) {
-            const { data: current } = await supabase
+        if (patch.status || patch.assigneeId || patch.publishedUrl !== undefined) {
+            const { data: current, error: currentError } = await supabase
                 .from('deliverables')
-                .select('status, status_history, organization_id, assignee_id')
+                .select('status, status_history, organization_id, assignee_id, published_url, delivered_on, client_id')
                 .eq('id', id)
                 .single();
-            prevAssigneeId = current?.assignee_id;
-            // Status change: append to status_history; stamp delivered_on at Published.
-            if (patch.status && current && current.status !== patch.status) {
+            if (currentError || !current) return { success: false, error: 'Deliverable could not be loaded' };
+            prevAssigneeId = current.assignee_id;
+            // Status change: append to status_history. Publishing requires proof;
+            // an already-published row can still be edited.
+            if (patch.status && current.status !== patch.status) {
                 prevStatus = current.status as DeliverableStatus;
                 const history = Array.isArray(current.status_history) ? current.status_history : [];
                 payload.status_history = [
                     ...history,
                     { status: patch.status, at: new Date().toISOString(), by: opts.actorId },
                 ];
-                if (patch.status === 'Published' && !patch.completedDate) {
-                    payload.delivered_on = new Date().toISOString();
+                if (patch.status === 'Published') {
+                    const proof = await enforcePublishedProof(
+                        supabase,
+                        current.client_id,
+                        patch.publishedUrl !== undefined ? patch.publishedUrl : current.published_url,
+                        patch.completedDate !== undefined ? patch.completedDate : current.delivered_on,
+                    );
+                    if (!proof.ok) return { success: false, error: proof.error };
+                    payload.published_url = proof.url;
+                    payload.delivered_on = proof.deliveredOn;
                 }
-            } else if (patch.status && current && current.status === patch.status) {
+            } else if (patch.status && current.status === patch.status) {
                 delete payload.status;
+            }
+            if (patch.publishedUrl?.trim() && payload.published_url === undefined) {
+                const url = validateProofUrl(patch.publishedUrl, await clientDomain(supabase, current.client_id));
+                if (!url.ok) return { success: false, error: url.message };
+                payload.published_url = url.url;
             }
         }
 
