@@ -55,4 +55,11 @@ test('history reads are scoped to the member organization and the selected prope
     assert.equal(selected.some(item => item.startsWith('client_integrations:') && item.includes('site_url:credentials->>site_url')), true);
     assert.equal(selected.some(item => item === 'client_integrations:credentials'), false);
     assert.deepEqual(ins.find(item => item.table === 'gsc_history_facts' && item.column === 'day_id')?.values, ['day-1']);
+    const grainFilters = ins.filter(item => item.table === 'gsc_history_facts' && item.column === 'grain');
+    assert.equal(grainFilters.length > 0, true);
+    assert.equal(grainFilters.every(item => item.values.length === 1), true);
+    assert.equal(grainFilters.some(item => item.values[0] === 'query_page'), true);
+    assert.equal(grainFilters.some(item => item.values[0] === 'property'), true);
+    assert.equal(grainFilters.some(item => item.values.includes('property_country')), false);
+    assert.equal(loaded.unavailableGrains.length, 0);
 });

@@ -340,3 +340,34 @@ test('page labels and a 50k-row rollup stay on the TypeScript path', () => {
     assert.equal(report.summary?.totals.organic?.clicks ?? 0, 0);
     assert.ok(elapsed < 2000, `50k-row rollup took ${elapsed}ms`);
 });
+
+test('a failed query grain keeps v1 totals and hides query sections', () => {
+    const stored = day('sep-1', '2026-09-01');
+    const report = buildSearchReporting(base({
+        days: [stored],
+        unavailableGrains: ['query_page'],
+        facts: [
+            fact(stored.id, { grain: 'property', clicks: 9, impressions: 20, position: 4 }),
+            fact(stored.id, { grain: 'page', page: 'https://scottcole.example/services', clicks: 3, impressions: 8, position: 2, surface: 'organic' }),
+        ],
+    }));
+    assert.equal(report.summary?.totals.allGoogleSearch?.clicks, 9);
+    assert.equal(report.summary?.totals.organic?.clicks, 3);
+    assert.equal(report.queries, null);
+    assert.equal(report.cities, null);
+    assert.equal(report.movers, null);
+    assert.equal(report.grains?.pageOrganic.reason, NOT_COLLECTED_REASON);
+});
+
+test('failed property and page grains degrade to the states-matrix history message', () => {
+    const report = buildSearchReporting(base({
+        days: [day('sep-1', '2026-09-01')],
+        facts: [],
+        unavailableGrains: ['property', 'page'],
+    }));
+    assert.equal(report.summary?.totals.allGoogleSearch, null);
+    assert.equal(report.summary?.totals.organic, null);
+    assert.equal(report.freshness.state, 'partial');
+    assert.equal(report.freshness.copy, "History doesn't cover this window.");
+    assert.equal(report.freshness.tag, null);
+});

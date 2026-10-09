@@ -2,6 +2,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import type { GscDevice, GscGrain, GscSurface } from '@/lib/gsc/history';
 import { historySpan, parseRange, resolveRange } from './range';
 import { ptToday } from '@/lib/sync/months';
+import { insightFactGrains, readGrainedFacts } from './fact-read';
 import { ahrefsReferenceRows, cityTokensFromCustomFields } from './tracker';
 import type { AhrefsReferenceRow, StoredDay, StoredFact } from './types';
 
@@ -27,6 +28,7 @@ export interface LoadInput {
     range: string | null;
     now: Date;
     cityTokens: string[];
+    device?: string | null;
 }
 
 export interface LoadedSearch {
@@ -40,10 +42,11 @@ export interface LoadedSearch {
     ahrefsSyncedAt: string | null;
     lastSyncAt: string | null;
     lastSyncErrored: boolean;
+    /** Grains whose chunked read failed. Callers keep the grains that succeeded. */
+    unavailableGrains: string[];
 }
 
 const GRAINS = new Set<GscGrain>(['property', 'page', 'query_page', 'property_device', 'page_device', 'property_country', 'page_organic']);
-const FACT_GRAINS = ['property', 'page', 'query_page', 'property_device', 'page_device', 'page_organic'];
 
 function integer(value: unknown): number | null {
     if (typeof value === 'number' && Number.isInteger(value) && value >= 0) return value;
@@ -149,6 +152,7 @@ export async function loadSearchReporting(
             ahrefsSyncedAt: null,
             lastSyncAt,
             lastSyncErrored,
+            unavailableGrains: [],
         };
     }
 
@@ -169,11 +173,14 @@ export async function loadSearchReporting(
         || (day.date >= resolved.prior.start && day.date <= resolved.prior.end)
         || (day.date >= resolved.current.start && day.date <= resolved.current.end),
     ).map(day => day.id)]);
-    const facts = wanted.size === 0 ? [] : (await readPages(() => admin.from('gsc_history_facts')
-        .select('day_id, grain, page, query, clicks, impressions, position, device, country, surface')
-        .in('day_id', [...wanted])
-        .in('grain', FACT_GRAINS)
-        .order('id', { ascending: true }))).map(storedFact);
+    const factRead = wanted.size === 0
+        ? { rows: [], failedGrains: [] as string[] }
+        : await readGrainedFacts(admin, {
+            dayIds: [...wanted],
+            grains: insightFactGrains(input.device),
+            columns: 'day_id, grain, page, query, clicks, impressions, position, device, country, surface',
+        });
+    const facts = factRead.rows.map(storedFact);
 
     const metricMonth = preset.kind === 'month' && preset.month ? preset.month : resolved.current.end.slice(0, 7);
     const metricResult = await admin.from('metrics')
@@ -199,6 +206,7 @@ export async function loadSearchReporting(
         ahrefsSyncedAt: typeof metric?.updated_at === 'string' ? metric.updated_at : null,
         lastSyncAt,
         lastSyncErrored,
+        unavailableGrains: factRead.failedGrains,
     };
 }
 

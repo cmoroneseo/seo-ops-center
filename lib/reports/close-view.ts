@@ -27,7 +27,7 @@ export function closeTitle(month: string): string {
 export function closeMeta(active: number, drafts: number, waiting: number): string {
     const clients = active === 1 ? 'client' : 'clients';
     const draftWord = drafts === 1 ? 'draft' : 'drafts';
-    return `${active} active ${clients} · ${drafts} ${draftWord} · ${waiting} waiting on data`;
+    return `${active} ${clients} on monthly reports · ${drafts} ${draftWord} · ${waiting} waiting on data`;
 }
 
 export function shiftMonth(month: string, delta: number): string | null {

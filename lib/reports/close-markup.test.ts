@@ -30,6 +30,14 @@ function board() {
                 accountManagerName: 'Abel',
                 seoHours: 3,
             },
+            {
+                id: 'c3',
+                name: 'Scott Draft Pending',
+                domain: 'pending.example',
+                accountManagerId: 'am',
+                accountManagerName: 'Abel',
+                seoHours: 8,
+            },
         ],
         reports: [{
             id: 'r1',
@@ -49,6 +57,12 @@ function board() {
             syncStatus: 'active',
             lastSyncedAt: now.toISOString(),
             siteUrl: 'sc-domain:hidden.example',
+        }, {
+            clientId: 'c3',
+            service: 'gsc',
+            syncStatus: 'active',
+            lastSyncedAt: now.toISOString(),
+            siteUrl: 'sc-domain:pending.example',
         }, {
             clientId: 'c1',
             service: 'ahrefs',
@@ -89,6 +103,10 @@ test('the board markup follows the close naming and stays inside the column scro
     assert.match(html, /Add contacts/);
     assert.match(html, /No Search Console/);
     assert.match(html, /Connect/);
+    assert.match(html, /Not drafted yet/);
+    assert.match(html, /Scott Draft Pending/);
+    assert.match(html, /September draft not created yet/);
+    assert.equal(html.includes('No clients in this group'), false);
     assert.match(html, /Tracker error/);
     assert.match(html, /Preview report/);
     assert.match(html, /range=2026-09/);

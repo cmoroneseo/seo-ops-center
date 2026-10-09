@@ -19,6 +19,7 @@ import {
     WIDGET_LIBRARY, FORMATTING_ITEMS, BLOCK_TYPES_WITH_SETTINGS,
 } from '@/lib/reports/blocks';
 import { REPORT_PRINT_CSS } from '@/lib/reports/print-style';
+import { reportsBuilderHref } from '@/lib/reports/close-nav';
 import { searchReportingEnabled } from '@/lib/search-reporting/flag';
 import { RenderBlock, ReportContext, MetricMap, HistoryMap } from './ReportBlocks';
 import { ManualMetricsModal } from './ManualMetricsModal';
@@ -286,7 +287,7 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
             {/* Top bar */}
             <div className="print-hidden sticky top-0 z-30 flex items-center justify-between gap-3 bg-card/95 backdrop-blur border-b border-border px-5 py-3">
                 <div className="flex items-center gap-3 min-w-0">
-                    <button onClick={() => router.push('/reports')} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted">
+                    <button onClick={() => router.push(reportsBuilderHref())} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted">
                         <ArrowLeft className="h-4 w-4" />
                     </button>
                     <div className="min-w-0">

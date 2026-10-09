@@ -92,6 +92,7 @@ test('Ahrefs errors and missing proof warn, and they never block', () => {
     assert.equal(ahrefs?.severity, 'warn');
     assert.equal(gbp?.severity, 'warn');
     assert.equal(check(result, 'missing_proof')?.severity, 'warn');
+    assert.equal(check(result, 'missing_proof')?.message, '4 published deliverables this month are missing a live URL or ship date.');
     assert.equal(result.canApprove, true);
 });
 

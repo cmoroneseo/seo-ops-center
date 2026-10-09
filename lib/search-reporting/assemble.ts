@@ -43,6 +43,7 @@ export interface BuildInput {
     ahrefsSyncedAt: string | null;
     lastSyncAt: string | null;
     lastSyncErrored: boolean;
+    unavailableGrains?: readonly string[];
 }
 
 function labelled(metrics: SearchMetrics, label: string): LabelledMetrics {
@@ -141,6 +142,7 @@ export function buildSearchReporting(input: BuildInput): SearchReportingResponse
     }
 
     const device = input.device;
+    const unavailable = new Set(input.unavailableGrains ?? []);
     const pageGrain = device ? 'page_device' : 'page';
     const propertyGrain = device ? 'property_device' : 'property';
     const deviceMatch = (row: DatedMetric) => !device || row.device === device;
@@ -163,8 +165,9 @@ export function buildSearchReporting(input: BuildInput): SearchReportingResponse
         deviceMetrics = totals ? presentGrain(totals) : missingGrain();
     }
     else deviceMetrics = missingGrain();
-    const surfaceReady = device == null || hasPageDevice;
-    const propertyReady = device == null || hasPropertyDevice;
+    const surfaceReady = !unavailable.has(pageGrain) && (device == null || hasPageDevice);
+    const propertyReady = !unavailable.has(propertyGrain) && (device == null || hasPropertyDevice);
+    const queriesReady = device == null && !unavailable.has('query_page');
 
     const organicCurrent = surfaceReady && wants(input.surface, 'organic')
         ? pointsFor(resolved.current, byDate, dated, row => row.grain === pageGrain && row.surface === 'organic' && deviceMatch(row))
@@ -194,10 +197,10 @@ export function buildSearchReporting(input: BuildInput): SearchReportingResponse
         distortion,
     );
 
-    const queryFacts = surfaceReady && device == null ? factsFor(input.facts, byId, currentDates, 'query_page') : [];
+    const queryFacts = queriesReady ? factsFor(input.facts, byId, currentDates, 'query_page') : [];
     const pageFacts = surfaceReady ? factsFor(input.facts, byId, currentDates, pageGrain, device) : [];
-    const priorQuery = device == null ? impressionsByQuery(input.facts, byId, priorDates, 'query_page') : new Map<string, number>();
-    const currentQuery = device == null ? impressionsByQuery(input.facts, byId, currentDates, 'query_page') : new Map<string, number>();
+    const priorQuery = queriesReady ? impressionsByQuery(input.facts, byId, priorDates, 'query_page') : new Map<string, number>();
+    const currentQuery = queriesReady ? impressionsByQuery(input.facts, byId, currentDates, 'query_page') : new Map<string, number>();
 
     const cityQueries: CityQuery[] = [];
     const seenCity = new Set<string>();
@@ -219,7 +222,7 @@ export function buildSearchReporting(input: BuildInput): SearchReportingResponse
     const anomalyOpen = ahrefsPairs.some(row => row.anomalyOpen);
 
     const headline = allCurrent?.totals?.impressions ?? organicCurrent?.totals?.impressions ?? mapCurrent?.totals?.impressions ?? null;
-    const freshness = resolveFreshness({
+    let freshness = resolveFreshness({
         source: 'gsc',
         connected: true,
         lastSyncAt: syncedAt ? new Date(syncedAt) : null,
@@ -229,6 +232,16 @@ export function buildSearchReporting(input: BuildInput): SearchReportingResponse
         backfillRunning: false,
         value: device != null && !hasPageDevice && !hasPropertyDevice ? null : headline,
     });
+    if (unavailable.has(propertyGrain) && unavailable.has(pageGrain)) {
+        freshness = {
+            ...freshness,
+            state: 'partial',
+            copy: STATES_COPY.partialHistory,
+            displayValue: STATES_COPY.missingValue,
+            asOf: null,
+            tag: null,
+        };
+    }
 
     const range = {
         preset: resolved.preset.kind,
@@ -280,7 +293,7 @@ export function buildSearchReporting(input: BuildInput): SearchReportingResponse
                 allGoogleSearch: allCurrent ? blockComparison(allCurrent.totals, allPrior, distortion) : null,
             },
         },
-        queries: device != null ? null : {
+        queries: queriesReady ? {
             bands: {
                 organic: wants(input.surface, 'organic') ? positionBands(queryFacts, 'organic') : null,
                 map: wants(input.surface, 'gbp_link') ? positionBands(queryFacts, 'gbp_link') : null,
@@ -291,15 +304,15 @@ export function buildSearchReporting(input: BuildInput): SearchReportingResponse
             },
             receipt: sharedReceipt(METHODS.queries),
             comparison: distortionComparison(distortion),
-        },
-        cities: device != null ? null : {
+        } : null,
+        cities: queriesReady ? {
             minimum: CLUSTER_IMPRESSION_MINIMUM,
             tokens: input.cityTokens,
             rows: buildCityRows(cityQueries, input.cityTokens, input.surface),
             receipt: sharedReceipt(METHODS.cities),
             comparison: distortionComparison(distortion),
-        },
-        movers: device != null ? null : {
+        } : null,
+        movers: queriesReady ? {
             minimum: CLUSTER_IMPRESSION_MINIMUM,
             rows: buildMovers({
                 facts: input.facts,
@@ -313,7 +326,7 @@ export function buildSearchReporting(input: BuildInput): SearchReportingResponse
             }),
             receipt: sharedReceipt(METHODS.movers),
             comparison: distortionComparison(distortion),
-        },
+        } : null,
         pages: surfaceReady ? {
             rows: buildPageRows(pageFacts, input.surface),
             receipt: sharedReceipt(METHODS.pages),
