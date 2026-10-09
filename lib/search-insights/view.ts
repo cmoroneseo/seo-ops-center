@@ -6,6 +6,7 @@
  */
 
 import { dateOffset } from '@/lib/gsc/history';
+import { STATES_COPY } from '@/lib/reporting/states-copy';
 import { deltaColumnHeader, type FormattedDelta } from '@/lib/reporting/delta';
 import type { ReceiptInput } from '@/lib/reporting/receipt';
 import { inclusiveDays, parseRange } from '@/lib/search-reporting/range';
@@ -639,6 +640,9 @@ export function presentInsights(
         grainNote('Organic totals', response.grains?.pageOrganic),
         grainNote('Device', response.grains?.device),
     ].filter((note): note is string => Boolean(note));
+    if (response.connected && response.queries == null && response.grains?.device.requested == null) {
+        grainNotes.push(`Queries · ${STATES_COPY.partialHistory}`);
+    }
 
     const anomalyCount = response.tracker?.ahrefs.rows.filter(row => row.anomalyOpen).length ?? 0;
     const badge = response.tracker?.anomaly_open && anomalyCount > 0 ? anomalyCount : null;
@@ -702,6 +706,13 @@ export function presentInsights(
             body: emptyWindowCopy(domain, windowLabel),
             action: response.property ? 'property' : null,
             actionLabel: response.property ? `Check property ${response.property}` : null,
+        };
+    } else if (response.freshness.copy === STATES_COPY.partialHistory && response.freshness.tag == null) {
+        banner = {
+            id: 'partial',
+            body: STATES_COPY.partialHistory,
+            action: null,
+            actionLabel: null,
         };
     } else if (response.freshness.state === 'partial' || reason === 'history starts mid-period' || reason === 'partial period') {
         banner = {

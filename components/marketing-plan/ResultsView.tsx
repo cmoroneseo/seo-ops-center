@@ -226,6 +226,9 @@ export function ResultsView({
                 <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_17rem]">
                     <div className="min-w-0 space-y-4">
                         {notConnected && <StateBanner readout={notConnected} />}
+                        {model.state === 'partial' && model.banner && (
+                            <p role="status" className="text-sm text-muted-foreground">{model.banner}</p>
+                        )}
                         {model.state === 'stale' && model.banner && (
                             <p role="status" className="text-sm text-amber-700 dark:text-amber-400">{model.banner} Verdicts stay frozen until sync recovers.</p>
                         )}

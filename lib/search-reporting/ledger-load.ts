@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import { dateOffset } from '@/lib/gsc/history';
 import { ptToday } from '@/lib/sync/months';
+import { readGrainedFacts } from './fact-read';
 import type { SearchReportingAdmin, SearchQuery } from './load';
 import type { LedgerDayInput, LedgerDeliverableInput, LedgerFactInput, LedgerSource } from './ledger';
 import { normalizeShipDate } from './proof';
@@ -10,8 +11,6 @@ export interface LedgerLoadInput {
     clientId: string;
     now: Date;
 }
-
-const PAGE_GRAIN = ['page'];
 
 function integer(value: unknown): number | null {
     if (typeof value === 'number' && Number.isInteger(value) && value >= 0) return value;
@@ -101,6 +100,8 @@ export async function loadLedger(
         days: [],
         facts: [],
         deliverables,
+        factsDegraded: false,
+        historyUnreadable: false,
     };
     if (!property) return empty;
 
@@ -112,15 +113,21 @@ export async function loadLedger(
 
     const today = ptToday(input.now);
     const spanStart = dateOffset(ships[0], -28);
-    const dayRows = await readPages(() => admin.from('gsc_history_days')
-        .select('id, data_date, is_incomplete')
-        .eq('organization_id', input.organizationId)
-        .eq('client_id', input.clientId)
-        .eq('property', property)
-        .eq('search_type', 'web')
-        .gte('data_date', spanStart)
-        .lte('data_date', today)
-        .order('data_date', { ascending: true }));
+    let historyUnreadable = false;
+    let dayRows: Record<string, unknown>[] = [];
+    try {
+        dayRows = await readPages(() => admin.from('gsc_history_days')
+            .select('id, data_date, is_incomplete')
+            .eq('organization_id', input.organizationId)
+            .eq('client_id', input.clientId)
+            .eq('property', property)
+            .eq('search_type', 'web')
+            .gte('data_date', spanStart)
+            .lte('data_date', today)
+            .order('data_date', { ascending: true }));
+    } catch {
+        historyUnreadable = true;
+    }
     const days: LedgerDayInput[] = dayRows.map(row => {
         if (typeof row.id !== 'string' || typeof row.data_date !== 'string') throw new Error('Unable to read the results ledger');
         return { id: row.id, date: row.data_date, isIncomplete: row.is_incomplete === true };
@@ -139,13 +146,15 @@ export async function loadLedger(
 
     const facts: LedgerFactInput[] = [];
     let unsurfacedRows = 0;
-    if (needed.size > 0) {
-        const factRows = await readPages(() => admin.from('gsc_history_facts')
-            .select('day_id, grain, page, clicks, impressions, position, surface')
-            .in('day_id', [...needed])
-            .in('grain', PAGE_GRAIN)
-            .order('id', { ascending: true }));
-        for (const row of factRows) {
+    let factsDegraded = false;
+    if (needed.size > 0 && !historyUnreadable) {
+        const factRead = await readGrainedFacts(admin, {
+            dayIds: [...needed],
+            grains: ['page'],
+            columns: 'day_id, grain, page, clicks, impressions, position, surface',
+        });
+        if (factRead.failedGrains.includes('page')) factsDegraded = true;
+        for (const row of factsDegraded ? [] : factRead.rows) {
             if (row.grain !== 'page') continue;
             if (row.surface !== 'organic' && row.surface !== 'gbp_link') {
                 unsurfacedRows += 1;
@@ -177,5 +186,7 @@ export async function loadLedger(
         unsurfacedRows,
         days,
         facts,
+        factsDegraded,
+        historyUnreadable,
     };
 }

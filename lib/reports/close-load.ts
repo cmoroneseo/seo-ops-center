@@ -71,6 +71,8 @@ export async function loadCloseBoard(
         .from('clients')
         .select('id, name, domain, account_manager_id, account_manager_name, seo_hours')
         .eq('organization_id', organizationId)
+        // Monthly drafts run for status=active only. The sidebar Active tab also
+        // includes Onboarding, so this count is the monthly-report population.
         .eq('status', 'active')
         .order('id')
         .range(range, range + PAGE - 1));

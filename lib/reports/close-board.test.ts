@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCloseBoard, closeTitle, filterCloseBoard, moveSelection, type CloseRaw } from './close-board';
-import { reportsNavHref } from './close-nav';
+import { reportsBuilderHref, reportsNavHref } from './close-nav';
 
 const NOW = new Date('2026-10-09T18:00:00.000Z');
 const PROPERTY = 'sc-domain:secret.example';
@@ -129,7 +129,7 @@ test('sixty clients land in the close columns without a second query shape', () 
     assert.equal(board.noSearchConsole.length, 27);
     assert.equal(board.pendingDrafts.length, 23);
     assert.equal(board.waitingOnData, 50);
-    assert.equal(board.meta, '60 active clients · 7 drafts · 50 waiting on data');
+    assert.equal(board.meta, '60 clients on monthly reports · 7 drafts · 50 waiting on data');
     assert.equal(board.hoursLoggedWithoutConsole, 6);
     assert.equal(board.columns.blocked.length, 4);
     assert.equal(board.columns.ready.length, 3);
@@ -190,9 +190,10 @@ test('the reports nav opens the close board only when reporting is on', () => {
     const previous = process.env.NEXT_PUBLIC_SEARCH_REPORTING;
     try {
         delete process.env.NEXT_PUBLIC_SEARCH_REPORTING;
-        assert.equal(reportsNavHref(), '/reports');
+        assert.equal(reportsNavHref(new Date('2026-10-09T18:00:00.000Z')), '/reports');
         process.env.NEXT_PUBLIC_SEARCH_REPORTING = 'true';
-        assert.equal(reportsNavHref(), '/reports/close');
+        assert.equal(reportsNavHref(new Date('2026-10-09T18:00:00.000Z')), '/reports/close?month=2026-09');
+        assert.equal(reportsBuilderHref(), '/reports?builder=1');
     } finally {
         if (previous === undefined) delete process.env.NEXT_PUBLIC_SEARCH_REPORTING;
         else process.env.NEXT_PUBLIC_SEARCH_REPORTING = previous;

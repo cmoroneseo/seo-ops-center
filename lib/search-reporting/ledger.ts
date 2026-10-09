@@ -8,6 +8,7 @@
 import { dateOffset } from '@/lib/gsc/history';
 import { monthFinality } from '@/lib/gsc/monthly';
 import { FRESH_WINDOW_MS, formatAsOfDate } from '@/lib/reporting/freshness';
+import { STATES_COPY } from '@/lib/reporting/states-copy';
 import { searchInsightsHref } from '@/lib/reporting/receipt';
 import { ptToday } from '@/lib/sync/months';
 import { coverWindow, eachDate, inclusiveDays } from './range';
@@ -84,6 +85,10 @@ export interface LedgerSource {
     days: LedgerDayInput[];
     facts: LedgerFactInput[];
     deliverables: LedgerDeliverableInput[];
+    /** Page-grain read failed. Days may still be present. */
+    factsDegraded?: boolean;
+    /** Day metadata could not be read. Do not describe that as an empty history. */
+    historyUnreadable?: boolean;
 }
 
 export interface LedgerCount {
@@ -379,13 +384,16 @@ export function buildLedger(source: LedgerSource, now: Date): LedgerModel {
     entries.sort((a, b) => b.shippedOn.localeCompare(a.shippedOn) || a.title.localeCompare(b.title));
     missingProof.sort((a, b) => a.title.localeCompare(b.title));
 
+    const degraded = source.factsDegraded === true || source.historyUnreadable === true;
     const partial = entries.some(entry => entry.verdict === 'inconclusive');
-    const state = !source.connected ? 'not_connected' : stale ? 'stale' : partial ? 'partial' : 'fresh';
+    const state = !source.connected ? 'not_connected' : degraded ? 'partial' : stale ? 'stale' : partial ? 'partial' : 'fresh';
     const banner = !source.connected
         ? LEDGER_COPY.notConnected
-        : stale
-            ? footnote
-            : null;
+        : degraded
+            ? STATES_COPY.partialHistory
+            : stale
+                ? footnote
+                : null;
     const latest = entries[0]
         ? { id: entries[0].id, title: entries[0].title, verdict: entries[0].chip }
         : null;
@@ -402,10 +410,12 @@ export function buildLedger(source: LedgerSource, now: Date): LedgerModel {
         {
             id: 'page-facts',
             label: 'Page facts',
-            value: source.connected && source.historyDays > 0 ? String(source.historyDays) : '—',
-            detail: source.connected
-                ? 'Results use page facts and the surface column. Device and organic-only page grains are not read.'
-                : LEDGER_COPY.notConnected,
+            value: degraded || !(source.connected && source.historyDays > 0) ? '—' : String(source.historyDays),
+            detail: degraded
+                ? STATES_COPY.partialHistory
+                : source.connected
+                    ? 'Results use page facts and the surface column. Device and organic-only page grains are not read.'
+                    : LEDGER_COPY.notConnected,
         },
     ];
     if (source.historyStart) {
@@ -427,9 +437,11 @@ export function buildLedger(source: LedgerSource, now: Date): LedgerModel {
             id: 'history',
             label: 'History',
             value: '—',
-            detail: source.connected
-                ? 'No Search Console days are stored in this read.'
-                : LEDGER_COPY.notConnected,
+            detail: source.historyUnreadable
+                ? STATES_COPY.partialHistory
+                : source.connected
+                    ? 'No Search Console days are stored in this read.'
+                    : LEDGER_COPY.notConnected,
         });
     }
     const month = today.slice(0, 7);

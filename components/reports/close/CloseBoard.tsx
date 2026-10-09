@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { reportsBuilderHref } from '@/lib/reports/close-nav';
 import {
     closeMonthName,
     filterCloseBoard,
@@ -116,7 +117,7 @@ export function CloseBoard({
                             {closeMonthName(board.nextMonth)}{board.nextInProgress ? ' · in progress' : ''}
                         </Link>
                     )}
-                    <Link href="/reports" className="rounded-md px-3 py-1.5 text-muted-foreground hover:text-foreground">Builder</Link>
+                    <Link href={reportsBuilderHref()} className="rounded-md px-3 py-1.5 text-muted-foreground hover:text-foreground">Builder</Link>
                 </div>
             </div>
 
@@ -198,11 +199,22 @@ export function CloseBoard({
                                 </button>
                             )}
                         </div>
-                        {visible.pendingDrafts.length > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                                No drafts yet for {visible.pendingDrafts.length} connected {visible.pendingDrafts.length === 1 ? 'client' : 'clients'}. Drafts appear once a client’s {board.monthName} days are final, usually about 3 days after month end.
+                        <div>
+                            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Not drafted yet · {visible.pendingDrafts.length}</h2>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                Search Console is connected, but the {board.monthName} draft has not been created yet. Drafts appear once that month’s days are final, usually about 3 days after month end.
                             </p>
-                        )}
+                            <ul className="mt-2 flex flex-wrap gap-2">
+                                {visible.pendingDrafts.map(client => (
+                                    <li key={client.clientId} className="flex items-center gap-2 rounded-full border border-border px-2 py-1 text-xs">
+                                        <span>{client.clientName}</span>
+                                        <span className="text-muted-foreground">{client.hoursLabel}</span>
+                                        <span className="text-muted-foreground">{board.monthName} draft not created yet</span>
+                                    </li>
+                                ))}
+                                {visible.pendingDrafts.length === 0 && <li className="text-xs text-muted-foreground">No clients in this group.</li>}
+                            </ul>
+                        </div>
                         <div>
                             <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tracker error (doesn’t block)</h2>
                             <ul className="mt-2 flex flex-wrap gap-2">

@@ -226,7 +226,7 @@ export function evaluatePresendChecks(input: PresendInput): PresendResult {
             id: 'missing_proof',
             severity: 'warn',
             ok: false,
-            message: `${input.missingProofCount} published ${input.missingProofCount === 1 ? 'item is' : 'items are'} missing a live URL or ship date.`,
+            message: `${input.missingProofCount} published ${input.missingProofCount === 1 ? 'deliverable' : 'deliverables'} this month ${input.missingProofCount === 1 ? 'is' : 'are'} missing a live URL or ship date.`,
         });
     }
 

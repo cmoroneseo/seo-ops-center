@@ -50,6 +50,7 @@ export function createSearchReportingHandler(deps: SearchReportingDeps) {
                 range: range.key,
                 now,
                 cityTokens: cityList(params.get('cities')),
+                device,
             });
             if (loaded.connected) {
                 try { deps.schedule(auth.organizationId, auth.clientId); } catch { /* cron retries */ }

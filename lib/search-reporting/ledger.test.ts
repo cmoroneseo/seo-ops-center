@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { dateOffset } from '@/lib/gsc/history';
+import { STATES_COPY } from '@/lib/reporting/states-copy';
 import {
     IMPACT_WINDOWS,
     buildLedger,
@@ -259,6 +260,40 @@ test('verdict vocabulary follows the window, the baseline, and the connection', 
     assert.equal(frozen.state, 'stale');
     assert.match(frozen.entries[0].footnote ?? '', /^Results as of /);
     assert.equal(frozen.empty, null);
+});
+
+test('a failed history read degrades instead of claiming the days are empty', () => {
+    const degraded = buildLedger(base({
+        factsDegraded: true,
+        historyDays: 0,
+        historyStart: null,
+        earliestStoredDay: null,
+        days: [],
+    }), TODAY);
+    assert.equal(degraded.state, 'partial');
+    assert.equal(degraded.banner, STATES_COPY.partialHistory);
+    assert.equal(degraded.gaps.find(gap => gap.id === 'page-facts')?.value, '—');
+    assert.equal(degraded.gaps.find(gap => gap.id === 'page-facts')?.detail, STATES_COPY.partialHistory);
+
+    const unreadable = buildLedger(base({
+        historyUnreadable: true,
+        historyStart: null,
+        earliestStoredDay: null,
+        historyDays: 0,
+        days: [],
+    }), TODAY);
+    assert.equal(unreadable.state, 'partial');
+    const history = unreadable.gaps.find(gap => gap.id === 'history');
+    assert.equal(history?.detail, STATES_COPY.partialHistory);
+    assert.equal((history?.detail ?? '').includes('No Search Console days'), false);
+
+    const empty = buildLedger(base({
+        historyStart: null,
+        earliestStoredDay: null,
+        historyDays: 0,
+        days: [],
+    }), TODAY);
+    assert.match(empty.gaps.find(gap => gap.id === 'history')?.detail ?? '', /No Search Console days are stored in this read/);
 });
 
 test('no shipped work uses the empty state and does not invent a latest result', () => {
