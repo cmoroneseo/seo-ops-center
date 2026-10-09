@@ -2,12 +2,24 @@ import { scheduleGscSync } from '@/lib/gsc/schedule';
 import { parseSearchInsightsAggregate } from '@/lib/gsc/insights';
 import { historyDates, historyWindow } from '@/lib/gsc/history';
 import { requireClientOrgMember } from '@/lib/security/tenant-authz';
+import { searchReportingEnabled } from '@/lib/search-reporting/flag';
+import { loadSearchReporting } from '@/lib/search-reporting/load';
+import { createSearchReportingHandler } from '@/lib/search-reporting/route';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export const maxDuration = 90;
 
+const searchReportingV2 = createSearchReportingHandler({
+    authorize: requireClientOrgMember,
+    enabled: searchReportingEnabled,
+    load: loadSearchReporting,
+    schedule: scheduleGscSync,
+    now: () => new Date(),
+});
+
 export async function GET(req: Request) {
     const params = new URL(req.url).searchParams;
+    if (params.get('view') === 'v2') return searchReportingV2(req);
     const auth = await requireClientOrgMember(params.get('clientId'));
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status });
 
