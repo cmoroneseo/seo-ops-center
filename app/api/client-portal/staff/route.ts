@@ -2,7 +2,7 @@ import { deliverPortalEmails } from '@/lib/portal/email-delivery';
 import { after, NextRequest, NextResponse } from 'next/server';
 import {
     loadStaffPortal, staffReply, staffInvite, staffRevoke, staffSharePlan, staffShareReport, staffWaiting,
-    staffPublishUpdate, staffAnalytics, staffDeliveryTiming, staffConversation,
+    staffPublishUpdate, staffAnalytics, staffWeeklyDigest, staffDeliveryTiming, staffConversation,
 } from '@/lib/portal/staff';
 
 export const dynamic = 'force-dynamic';
@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
         : action === 'reply' ? await staffReply(record)
         : action === 'publish_update' ? await staffPublishUpdate(record)
         : action === 'analytics' ? await staffAnalytics(record)
+        : action === 'weekly_digest' ? await staffWeeklyDigest(record)
         : action === 'delivery_timing' ? await staffDeliveryTiming(record)
         : action === 'conversation' ? await staffConversation(record)
         : { ok: false as const, status: 400, error: 'Unknown action' };

@@ -10,6 +10,7 @@ export interface ManagementExtrasData {
     readiness: { key: string; label: string; complete: boolean }[];
     latestUpdate: PortalUpdate | null;
     analyticsShared: boolean;
+    weeklyDigest: boolean;
     pendingEmails: number; failedEmails: number; emailAvailable: boolean;
     members: { id: string; name: string }[];
     visits: { contact_id: string; visited_at: string; visited_on: string }[];
@@ -65,6 +66,7 @@ export function PortalUpdateManager({ data, act, disabled }: { data: ManagementE
             </fieldset>
         </form>
         <details className="mt-5 text-sm"><summary className="cursor-pointer font-medium">Search performance visibility</summary><p className="mt-2 text-muted-foreground">Share Google Search Console totals for completed months between reports. This setting does not publish reports or expose other analytics.</p><button disabled={disabled} type="button" className={`${buttonClass} mt-3`} onClick={() => act({ action: 'analytics', shared: !data.analyticsShared })}>{data.analyticsShared ? 'Stop sharing search totals' : 'Share search totals between reports'}</button><p className="mt-2 text-xs text-muted-foreground">Currently {data.analyticsShared ? 'shared' : 'limited to explicitly shared reports'}.</p></details>
+        <details className="mt-5 text-sm"><summary className="cursor-pointer font-medium">Weekly email</summary><p className="mt-2 text-muted-foreground">On Mondays, invited contacts can get a short note: what shipped, with the live link, what is in progress, and what is waiting on them. No search numbers and no hours. Off until you turn it on for this client. Nothing is sent until weekly digests are also turned on for the agency.</p><button disabled={disabled} type="button" className={`${buttonClass} mt-3`} onClick={() => act({ action: 'weekly_digest', enabled: data.weeklyDigest !== true })}>{data.weeklyDigest ? 'Turn off the weekly email' : 'Turn on the weekly email'}</button><p className="mt-2 text-xs text-muted-foreground">Currently {data.weeklyDigest ? 'on' : 'off'}.</p></details>
     </section>;
 }
 

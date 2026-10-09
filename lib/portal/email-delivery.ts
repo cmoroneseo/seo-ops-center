@@ -28,6 +28,13 @@ export async function deliverPortalEmails(limit = 10) {
             admin.from('organizations').select('name').eq('id', job.organization_id).maybeSingle(),
         ]);
         try {
+            if (job.event_kind === 'weekly_digest') {
+                await admin.from('client_portal_email_queue').update({
+                    claimed_at: null,
+                    attempts: Math.max(0, Number(job.attempts) - 1),
+                }).eq('id', job.id);
+                continue;
+            }
             if (job.event_kind === 'report_send') {
                 if (!sendWindowOpen(new Date())) {
                     await admin.from('client_portal_email_queue').update({

@@ -21,6 +21,17 @@ type StaffActor = {
     role: 'owner' | 'admin' | 'member' | 'viewer';
 };
 
+function missingDigestColumn(error: { code?: string; message?: string } | null): boolean {
+    if (!error) return false;
+    const message = error.message ?? '';
+    return message.includes('weekly_digest') && (
+        error.code === '42703'
+        || error.code === 'PGRST204'
+        || /schema cache/i.test(message)
+        || /does not exist/i.test(message)
+    );
+}
+
 async function authorize(clientId: unknown, write: boolean): Promise<{ ok: true; actor: StaffActor } | StaffFailure> {
     const auth = await requireClientOrgMember(clientId);
     if (!auth.ok) return auth;
@@ -104,7 +115,7 @@ export async function loadStaffPortal(clientId: unknown) {
     const [draft, updates, settings, timing, conversations, members, client, visits, emails] = await Promise.all([
         capturePlan(actor),
         admin.from('client_portal_updates').select('*').eq('client_id', actor.clientId).eq('organization_id', actor.organizationId).order('published_at', { ascending: false }).limit(1).maybeSingle(),
-        admin.from('client_portal_settings').select('analytics_shared').eq('client_id', actor.clientId).eq('organization_id', actor.organizationId).maybeSingle(),
+        admin.from('client_portal_settings').select('analytics_shared, weekly_digest').eq('client_id', actor.clientId).eq('organization_id', actor.organizationId).maybeSingle(),
         admin.from('client_portal_delivery_updates').select('*').eq('client_id', actor.clientId).eq('organization_id', actor.organizationId),
         admin.from('client_portal_conversations').select('subject_type,subject_id,owner_id,handled_through_at').eq('client_id', actor.clientId).eq('organization_id', actor.organizationId),
         admin.from('organization_members').select('user_id,role,user:users(full_name)').eq('organization_id', actor.organizationId),
@@ -112,7 +123,18 @@ export async function loadStaffPortal(clientId: unknown) {
         admin.from('client_portal_visits').select('contact_id,visited_at,visited_on').eq('client_id', actor.clientId).eq('organization_id', actor.organizationId).order('visited_at', { ascending: false }).limit(1000),
         admin.from('client_portal_email_queue').select('sent_at,failed_at,canceled_at').eq('client_id', actor.clientId).eq('organization_id', actor.organizationId).is('sent_at', null).is('canceled_at', null),
     ]);
-    if ([updates, settings, timing, conversations, members, client, visits, emails].some(result => result.error)) return { ok: false as const, status: 500, error: 'Could not load portal readiness' };
+    const digestColumnMissing = missingDigestColumn(settings.error);
+    if ((settings.error && !digestColumnMissing) || [updates, timing, conversations, members, client, visits, emails].some(result => result.error)) {
+        return { ok: false as const, status: 500, error: 'Could not load portal readiness' };
+    }
+    let analyticsShared = settings.data?.analytics_shared === true;
+    let weeklyDigest = settings.data?.weekly_digest === true;
+    if (digestColumnMissing) {
+        const fallback = await admin.from('client_portal_settings').select('analytics_shared').eq('client_id', actor.clientId).eq('organization_id', actor.organizationId).maybeSingle();
+        if (fallback.error) return { ok: false as const, status: 500, error: 'Could not load portal readiness' };
+        analyticsShared = fallback.data?.analytics_shared === true;
+        weeklyDigest = false;
+    }
     const share = shareResult.data;
     const latest = decisionsResult.data?.find(row => row.plan_share_id === share?.id);
     const entries = feedbackFrom(feedbackResult.data ?? []);
@@ -148,7 +170,8 @@ export async function loadStaffPortal(clientId: unknown) {
         emailAvailable: Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL),
         readiness: portalReadiness({ sharedPlan: Boolean(share?.snapshot), items: draft?.items ?? [], hasUpdate: Boolean(updates.data), deliverables: deliveryRows.filter(row => !(row.status === 'Approved' && row.delivered_on)), today: portalToday() }),
         latestUpdate: updates.data ? rowToPortalUpdate(updates.data) : null,
-        analyticsShared: settings.data?.analytics_shared === true,
+        analyticsShared,
+        weeklyDigest,
         threads,
         members: (members.data ?? []).filter(row => row.role !== 'viewer').map(row => ({ id: row.user_id, name: (row.user as unknown as { full_name: string } | null)?.full_name ?? 'Team member' })),
         visits: visits.data ?? [],
@@ -444,6 +467,20 @@ export async function staffAnalytics(input: Record<string, unknown>) {
     const { error } = await createAdminClient().from('client_portal_settings').upsert({ client_id: auth.actor.clientId,
         organization_id: auth.actor.organizationId, analytics_shared: input.shared }, { onConflict: 'client_id' });
     if (error) return { ok: false as const, status: 500, error: 'Could not save performance visibility' };
+    return { ok: true as const };
+}
+
+export async function staffWeeklyDigest(input: Record<string, unknown>) {
+    const auth = await authorize(input.clientId, true);
+    if (!auth.ok) return auth;
+    if (typeof input.enabled !== 'boolean') return { ok: false as const, status: 400, error: 'Choose a weekly email setting' };
+    const { error } = await createAdminClient().from('client_portal_settings').upsert({
+        client_id: auth.actor.clientId,
+        organization_id: auth.actor.organizationId,
+        weekly_digest: input.enabled,
+    }, { onConflict: 'client_id' });
+    if (missingDigestColumn(error)) return { ok: false as const, status: 503, error: 'Weekly email is not available yet.' };
+    if (error) return { ok: false as const, status: 500, error: 'Could not save the weekly email setting' };
     return { ok: true as const };
 }
 
