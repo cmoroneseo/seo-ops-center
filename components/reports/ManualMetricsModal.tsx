@@ -6,9 +6,9 @@ import { ClientProject } from '@/lib/types';
 
 interface Props {
     client: ClientProject;
-    orgId: string;
     source: string;
     month: string;
+    sourceType?: string | null;
     existingData?: Record<string, any>;
     onClose: () => void;
     onSaved: (data: Record<string, any>) => void;
@@ -52,7 +52,7 @@ const FIELDS: Record<string, { key: string; label: string; type: 'number' | 'dec
     ],
 };
 
-export function ManualMetricsModal({ client, orgId, source, month, existingData, onClose, onSaved }: Props) {
+export function ManualMetricsModal({ client, source, month, sourceType, existingData, onClose, onSaved }: Props) {
     const fields = FIELDS[source] ?? [];
     const monthLabel = new Date(month + '-15').toLocaleString('default', { month: 'long', year: 'numeric' });
 
@@ -89,7 +89,7 @@ export function ManualMetricsModal({ client, orgId, source, month, existingData,
         const res = await fetch('/api/metrics', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId: client.id, orgId, source, metricMonth: month, data }),
+            body: JSON.stringify({ clientId: client.id, source, metricMonth: month, data }),
         });
 
         setSaving(false);
@@ -101,6 +101,19 @@ export function ManualMetricsModal({ client, orgId, source, month, existingData,
 
         setSaved(true);
         setTimeout(() => onSaved(data), 600);
+    };
+
+    const revert = async () => {
+        setSaving(true);
+        setError('');
+        const params = new URLSearchParams({ clientId: client.id, source, metricMonth: month });
+        const res = await fetch(`/api/metrics?${params}`, { method: 'DELETE' });
+        setSaving(false);
+        if (!res.ok) {
+            setError('Could not revert this entry.');
+            return;
+        }
+        onSaved({});
     };
 
     return (
@@ -123,7 +136,15 @@ export function ManualMetricsModal({ client, orgId, source, month, existingData,
 
                     {/* Fields */}
                     <div className="px-6 py-5 space-y-4">
-                        {existingData && (
+                        {sourceType === 'manual' && (
+                            <p className="text-xs text-muted-foreground bg-muted/30 border border-border/40 rounded-lg px-3 py-2">
+                                Manual values override synced values.{' '}
+                                <button type="button" onClick={revert} disabled={saving} className="underline hover:text-foreground disabled:opacity-60">
+                                    Revert to synced
+                                </button>
+                            </p>
+                        )}
+                        {existingData && sourceType !== 'manual' && (
                             <div className="text-xs text-muted-foreground bg-muted/30 border border-border/40 rounded-lg px-3 py-2">
                                 Editing existing manual entry — leave fields blank to keep current values.
                             </div>

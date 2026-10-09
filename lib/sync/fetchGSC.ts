@@ -1,41 +1,52 @@
-import { getGoogleAccessToken, markIntegrationError } from './token';
+import { fetchError, noData, notConfigured, ok, type FetchResult } from './fetch-result';
+import { isClosedMonth, monthBounds } from './months';
+import { getGoogleAccessToken, GoogleAuthError } from './token';
 
-/**
- * Fetch GSC metrics for a client for a given month.
- * Returns { organic_clicks, impressions, avg_position, ctr } or null on failure.
- *
- * Uses only the GSC connection; GA4 grants are independent.
- */
-export async function fetchGSC(clientId: string, metricMonth: string, deps = { getToken: getGoogleAccessToken, fetch, markError: markIntegrationError }): Promise<Record<string, number> | null> {
-    const auth = await deps.getToken(clientId, 'gsc');
-    if (!auth) return null;
-    return fetchGSCWithToken(clientId, metricMonth, auth.token, auth.creds, deps);
+export interface GscDeps {
+    getToken: typeof getGoogleAccessToken;
+    fetch: typeof fetch;
+    now: () => Date;
 }
 
-async function fetchGSCWithToken(
-    clientId: string,
-    metricMonth: string,
-    token: string,
-    creds: Record<string, any>,
-    deps: { fetch: typeof fetch; markError: typeof markIntegrationError },
-): Promise<Record<string, number> | null> {
-    const siteUrl = creds.site_url as string | undefined;
-    if (!siteUrl) throw new Error('Select a primary Search Console property before syncing.');
+const defaultDeps: GscDeps = {
+    getToken: getGoogleAccessToken,
+    fetch,
+    now: () => new Date(),
+};
 
-    const [y, m] = metricMonth.split('-').map(Number);
-    const startDate = `${metricMonth}-01`;
-    const lastDay = new Date(y, m, 0).getDate();
-    const endDate = `${metricMonth}-${String(lastDay).padStart(2, '0')}`;
+/**
+ * Monthly Search Console totals for one property.
+ * A closed month with no rows is a real zero. The current month with no rows
+ * is not written yet. Ratios are null when there are no impressions.
+ */
+export async function fetchGSC(clientId: string, metricMonth: string, deps: Partial<GscDeps> = {}): Promise<FetchResult> {
+    const resolved = { ...defaultDeps, ...deps };
+    let auth: Awaited<ReturnType<GscDeps['getToken']>>;
+    try {
+        auth = await resolved.getToken(clientId, 'gsc');
+    } catch (error) {
+        if (error instanceof GoogleAuthError) {
+            return fetchError(error.message, error.kind === 'transient', error.kind === 'reauth_required');
+        }
+        throw error;
+    }
+    if (!auth) return notConfigured('Search Console not connected');
 
-    const res = await deps.fetch(
+    const siteUrl = auth.creds.site_url;
+    if (typeof siteUrl !== 'string' || siteUrl.length === 0) {
+        return notConfigured('Select a Search Console property');
+    }
+
+    const bounds = monthBounds(metricMonth);
+    const res = await resolved.fetch(
         `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`,
         {
             method: 'POST',
             signal: AbortSignal.timeout(20000),
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                startDate,
-                endDate,
+                startDate: bounds.start,
+                endDate: bounds.end,
                 type: 'web',
                 aggregationType: 'auto',
             }),
@@ -43,34 +54,32 @@ async function fetchGSCWithToken(
     );
 
     if (!res.ok) {
-        const message = `Search Console request failed (HTTP ${res.status}). Check property access or reconnect.`;
-        await deps.markError(clientId, 'gsc', message);
-        throw new Error(message);
+        return fetchError(
+            `Search Console request failed (HTTP ${res.status})`,
+            res.status >= 500 || res.status === 429,
+        );
     }
 
     const data = await res.json();
-    const totals = data.rows?.reduce(
-        (acc: Record<string, number>, row: any) => ({
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    if (rows.length === 0) {
+        if (!isClosedMonth(metricMonth, resolved.now())) return noData('no data yet for this month');
+        return ok({ organic_clicks: 0, impressions: 0, avg_position: null, ctr: null });
+    }
+
+    const totals = rows.reduce(
+        (acc: { clicks: number; impressions: number; positionSum: number }, row: { clicks?: number; impressions?: number; position?: number }) => ({
             clicks: acc.clicks + (row.clicks ?? 0),
             impressions: acc.impressions + (row.impressions ?? 0),
-            position_sum: acc.position_sum + (row.position ?? 0) * (row.impressions ?? 0),
-            impression_count: acc.impression_count + (row.impressions ?? 0),
+            positionSum: acc.positionSum + (row.position ?? 0) * (row.impressions ?? 0),
         }),
-        { clicks: 0, impressions: 0, position_sum: 0, impression_count: 0 },
-    ) ?? { clicks: 0, impressions: 0, position_sum: 0, impression_count: 0 };
-
+        { clicks: 0, impressions: 0, positionSum: 0 },
+    );
     const impressions = totals.impressions;
-    const avg_position = impressions > 0
-        ? Math.round((totals.position_sum / impressions) * 10) / 10
-        : 0;
-    const ctr = impressions > 0
-        ? Math.round((totals.clicks / impressions) * 10000) / 10000
-        : 0;
-
-    return {
+    return ok({
         organic_clicks: Math.round(totals.clicks),
         impressions: Math.round(impressions),
-        avg_position,
-        ctr,
-    };
+        avg_position: impressions > 0 ? Math.round((totals.positionSum / impressions) * 10) / 10 : null,
+        ctr: impressions > 0 ? Math.round((totals.clicks / impressions) * 10000) / 10000 : null,
+    });
 }

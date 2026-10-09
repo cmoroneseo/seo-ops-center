@@ -75,27 +75,29 @@ export async function createReport(params: {
     if (createdBy && createdBy !== 'user-1') insert.created_by = createdBy;
 
     const { data, error } = await admin.from('reports').insert(insert).select('*').single();
-    if (error) return { error: error.message };
+    if (error) return { error: 'Unable to create report' };
     return { report: data as ReportRow };
 }
 
 export async function updateReport(
     id: string,
-    patch: Partial<Pick<ReportRow, 'title' | 'executive_summary' | 'recommendations' | 'sections' | 'status' | 'pdf_url' | 'client_id' | 'report_month'>>,
+    organizationId: string,
+    patch: Partial<Pick<ReportRow, 'title' | 'executive_summary' | 'recommendations' | 'sections' | 'status' | 'client_id' | 'report_month'>>,
 ): Promise<{ report?: ReportRow; error?: string }> {
     const admin = createAdminClient();
     const { data, error } = await admin
         .from('reports')
         .update({ ...patch, updated_at: new Date().toISOString() })
         .eq('id', id)
+        .eq('organization_id', organizationId)
         .select('*')
         .single();
-    if (error) return { error: error.message };
+    if (error) return { error: 'Unable to save report' };
     return { report: data as ReportRow };
 }
 
-export async function deleteReport(id: string): Promise<{ error?: string }> {
+export async function deleteReport(id: string, organizationId: string): Promise<{ error?: string }> {
     const admin = createAdminClient();
-    const { error } = await admin.from('reports').delete().eq('id', id);
-    return error ? { error: error.message } : {};
+    const { error } = await admin.from('reports').delete().eq('id', id).eq('organization_id', organizationId);
+    return error ? { error: 'Unable to delete report' } : {};
 }

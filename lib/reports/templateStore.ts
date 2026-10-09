@@ -20,6 +20,13 @@ export async function listTemplates(organizationId: string): Promise<ReportTempl
     return (data ?? []) as ReportTemplateRow[];
 }
 
+export async function getTemplate(id: string): Promise<ReportTemplateRow | null> {
+    const admin = createAdminClient();
+    const { data, error } = await admin.from('report_templates').select('*').eq('id', id).maybeSingle();
+    if (error || !data) return null;
+    return data as ReportTemplateRow;
+}
+
 export async function createTemplate(params: {
     organizationId: string;
     name: string;
@@ -35,12 +42,12 @@ export async function createTemplate(params: {
     if (params.createdBy && params.createdBy !== 'user-1') insert.created_by = params.createdBy;
 
     const { data, error } = await admin.from('report_templates').insert(insert).select('*').single();
-    if (error) return { error: error.message };
+    if (error) return { error: 'Unable to save template' };
     return { template: data as ReportTemplateRow };
 }
 
-export async function deleteTemplate(id: string): Promise<{ error?: string }> {
+export async function deleteTemplate(id: string, organizationId: string): Promise<{ error?: string }> {
     const admin = createAdminClient();
-    const { error } = await admin.from('report_templates').delete().eq('id', id);
-    return error ? { error: error.message } : {};
+    const { error } = await admin.from('report_templates').delete().eq('id', id).eq('organization_id', organizationId);
+    return error ? { error: 'Unable to delete template' } : {};
 }

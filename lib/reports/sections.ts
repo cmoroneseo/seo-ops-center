@@ -79,11 +79,19 @@ export interface Delta {
     isGood: boolean;    // good given lowerIsBetter
 }
 
-/** Month-over-month delta for a single metric. */
+function missingMetric(value: unknown): boolean {
+    if (value == null || value === '') return true;
+    if (typeof value === 'number') return !Number.isFinite(value);
+    if (typeof value === 'string' && !Number.isFinite(Number(value))) return true;
+    return false;
+}
+
+/** Month-over-month delta for a single metric. Missing values stay missing. */
 export function computeDelta(current: unknown, previous: unknown, lowerIsBetter = false): Delta | null {
+    if (missingMetric(current) || missingMetric(previous)) return null;
     const cur = Number(current);
     const prev = Number(previous);
-    if (isNaN(cur) || isNaN(prev) || prev === 0) return null;
+    if (!Number.isFinite(cur) || !Number.isFinite(prev) || prev === 0) return null;
     const pct = ((cur - prev) / Math.abs(prev)) * 100;
     const direction: Delta['direction'] = pct > 0.05 ? 'up' : pct < -0.05 ? 'down' : 'flat';
     const rising = direction === 'up';
@@ -91,13 +99,7 @@ export function computeDelta(current: unknown, previous: unknown, lowerIsBetter 
     return { pct, direction, isGood };
 }
 
-/** 'YYYY-MM' → previous month 'YYYY-MM'. */
-export function previousMonth(month: string): string {
-    const [y, m] = month.split('-').map(Number);
-    const d = new Date(y, m - 1, 1);
-    d.setMonth(d.getMonth() - 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
+export { previousMonth } from '@/lib/sync/months';
 
 /** 'YYYY-MM' → 'June 2026'. */
 export function monthLabel(month: string): string {

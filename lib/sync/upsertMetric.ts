@@ -1,75 +1,116 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 
-/**
- * Upsert one month's metric row for a client+source.
- * Uses client_id + source + metric_month as the natural key.
- * source_type='auto' means it came from the sync engine.
- */
-export async function upsertMetric(params: {
+export type MetricSource = 'ga4' | 'gsc' | 'gbp' | 'ahrefs';
+export type WriteOutcome = 'inserted' | 'updated' | 'skipped_manual';
+
+export interface WriteMetricParams {
     organizationId: string;
     clientId: string;
-    source: 'ga4' | 'gsc' | 'gbp' | 'ahrefs';
-    metricMonth: string;   // 'YYYY-MM'
+    source: MetricSource;
+    metricMonth: string;
     data: Record<string, unknown>;
-    syncRunId?: string;
-    sourceType?: 'auto' | 'manual';
-}): Promise<{ success: boolean; error?: string }> {
-    const admin = createAdminClient();
-    const { organizationId, clientId, source, metricMonth, data, syncRunId, sourceType = 'auto' } = params;
+    sourceType: 'auto' | 'manual';
+    syncRunId?: string | null;
+    enteredBy?: string | null;
+}
 
+export interface MetricRow {
+    source: string;
+    metric_month: string;
+    data: Record<string, unknown>;
+    source_type: string;
+    updated_at: string | null;
+}
+
+type RpcClient = {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message?: string } | null }>;
+    from: (table: string) => MetricQuery;
+};
+
+interface MetricQuery {
+    select: (columns: string) => MetricQuery;
+    eq: (column: string, value: string) => MetricQuery;
+    order: (column: string, options: { ascending: boolean }) => MetricQuery;
+    delete: () => MetricQuery;
+    then?: unknown;
+}
+
+const genericWriteError = 'Unable to save metrics';
+
+function adminClient(): RpcClient {
+    return createAdminClient() as unknown as RpcClient;
+}
+
+/** Write one month through the service-only RPC. Manual rows are never downgraded to auto. */
+export async function writeMetric(
+    params: WriteMetricParams,
+    deps: { admin: () => RpcClient } = { admin: adminClient },
+): Promise<{ success: true; outcome: WriteOutcome } | { success: false; error: string }> {
     try {
-        // Check for existing row
-        const { data: existing } = await admin
-            .from('metrics')
-            .select('id')
-            .eq('client_id', clientId)
-            .eq('source', source)
-            .eq('metric_month', metricMonth)
-            .maybeSingle();
-
-        if (existing) {
-            const { error } = await admin.from('metrics').update({
-                data,
-                source_type: sourceType,
-                sync_run_id: syncRunId ?? null,
-                date: `${metricMonth}-01`,
-            }).eq('id', existing.id);
-            if (error) throw error;
-        } else {
-            const { error } = await admin.from('metrics').insert({
-                organization_id: organizationId,
-                client_id: clientId,
-                source,
-                metric_month: metricMonth,
-                source_type: sourceType,
-                data,
-                date: `${metricMonth}-01`,
-                sync_run_id: syncRunId ?? null,
-            });
-            if (error) throw error;
+        const { data, error } = await deps.admin().rpc('write_metric', {
+            p_organization_id: params.organizationId,
+            p_client_id: params.clientId,
+            p_source: params.source,
+            p_metric_month: params.metricMonth,
+            p_data: params.data,
+            p_source_type: params.sourceType,
+            p_sync_run_id: params.syncRunId ?? null,
+            p_entered_by: params.enteredBy ?? null,
+        });
+        if (error) return { success: false, error: genericWriteError };
+        if (data !== 'inserted' && data !== 'updated' && data !== 'skipped_manual') {
+            return { success: false, error: genericWriteError };
         }
-        return { success: true };
-    } catch (err: any) {
-        return { success: false, error: err.message };
+        return { success: true, outcome: data };
+    } catch {
+        return { success: false, error: genericWriteError };
     }
 }
 
-/** Fetch metric rows for a client, optionally filtered by month and/or source. */
+/** Alias kept for callers that still say "upsert". Automatic sync is the default. */
+export async function upsertMetric(
+    params: Omit<WriteMetricParams, 'sourceType'> & { sourceType?: 'auto' | 'manual' },
+    deps?: { admin: () => RpcClient },
+): Promise<{ success: boolean; error?: string; outcome?: WriteOutcome }> {
+    const result = await writeMetric({ ...params, sourceType: params.sourceType ?? 'auto' }, deps);
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, outcome: result.outcome };
+}
+
+/** Metric rows for one client inside one organization. */
 export async function getClientMetrics(
     clientId: string,
-    opts: { month?: string; source?: string } = {},
-): Promise<{ source: string; metric_month: string; data: Record<string, any>; source_type: string }[]> {
-    const admin = createAdminClient();
-    let q = admin
+    opts: { organizationId: string; month?: string; source?: string },
+    deps: { admin: () => RpcClient } = { admin: adminClient },
+): Promise<MetricRow[]> {
+    let query = deps.admin()
         .from('metrics')
-        .select('source, metric_month, data, source_type')
+        .select('source, metric_month, data, source_type, updated_at')
         .eq('client_id', clientId)
+        .eq('organization_id', opts.organizationId)
         .order('metric_month', { ascending: false });
-
-    if (opts.month) q = q.eq('metric_month', opts.month);
-    if (opts.source) q = q.eq('source', opts.source);
-
-    const { data, error } = await q;
+    if (opts.month) query = query.eq('metric_month', opts.month);
+    if (opts.source) query = query.eq('source', opts.source);
+    const { data, error } = await (query as unknown as Promise<{ data: MetricRow[] | null; error: { message?: string } | null }>);
     if (error) return [];
-    return (data ?? []) as any;
+    return data ?? [];
+}
+
+/** Remove a manual row so the next sync can fill it. Synced rows are left alone. */
+export async function deleteManualMetric(
+    params: { clientId: string; organizationId: string; source: string; metricMonth: string },
+    deps: { admin: () => RpcClient } = { admin: adminClient },
+): Promise<'deleted' | 'not_found'> {
+    const query = deps.admin()
+        .from('metrics')
+        .delete()
+        .eq('client_id', params.clientId)
+        .eq('organization_id', params.organizationId)
+        .eq('source', params.source)
+        .eq('metric_month', params.metricMonth)
+        .eq('source_type', 'manual')
+        .select('id');
+    const { data, error } = await (query as unknown as Promise<{ data: { id: string }[] | null; error: { message?: string } | null }>);
+    if (error || !data?.length) return 'not_found';
+    return 'deleted';
 }
