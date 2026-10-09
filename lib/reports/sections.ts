@@ -11,12 +11,12 @@ export interface SectionDef {
     blurb: string;         // Short description shown under the title
 }
 
-/** Ordered list of report sections, mapped to our 4 data sources. */
+/** Ordered list of report sections. Ahrefs stays last: it is the appendix. */
 export const REPORT_SECTIONS: SectionDef[] = [
-    { key: 'gsc', name: 'Organic Search', source: 'gsc', icon: '🔍', blurb: 'Search Console — clicks, impressions & rankings' },
-    { key: 'ga4', name: 'Website Traffic', source: 'ga4', icon: '📊', blurb: 'Google Analytics — sessions, users & engagement' },
-    { key: 'gbp', name: 'Google Business Profile', source: 'gbp', icon: '📍', blurb: 'Business Profile — calls, directions & reviews' },
-    { key: 'ahrefs', name: 'Authority & Rankings', source: 'ahrefs', icon: '🔗', blurb: 'Ahrefs — domain rating & keyword positions' },
+    { key: 'gsc', name: 'Organic Search', source: 'gsc', icon: '🔍', blurb: 'Search Console — clicks, times shown, and average position' },
+    { key: 'ga4', name: 'Website Traffic', source: 'ga4', icon: '📊', blurb: 'Google Analytics — sessions, users, and engagement' },
+    { key: 'gbp', name: 'Google Business Profile', source: 'gbp', icon: '📍', blurb: 'Business Profile — call-button taps, directions, and website clicks' },
+    { key: 'ahrefs', name: 'Authority (Ahrefs, appendix)', source: 'ahrefs', icon: '🔗', blurb: 'Ahrefs appendix — domain rating' },
 ];
 
 export interface MetricDef {
@@ -29,8 +29,8 @@ export interface MetricDef {
 /** Per-source metric definitions, in display order. */
 export const METRIC_DEFS: Record<ReportSourceKey, MetricDef[]> = {
     gsc: [
-        { key: 'organic_clicks', label: 'Organic Clicks', format: 'number' },
-        { key: 'impressions', label: 'Impressions', format: 'number' },
+        { key: 'organic_clicks', label: 'Clicks to your website from Google', format: 'number' },
+        { key: 'impressions', label: 'Times shown', format: 'number' },
         { key: 'avg_position', label: 'Avg Position', format: 'decimal', lowerIsBetter: true },
         { key: 'ctr', label: 'CTR', format: 'percent' },
     ],
@@ -42,7 +42,7 @@ export const METRIC_DEFS: Record<ReportSourceKey, MetricDef[]> = {
     ],
     gbp: [
         { key: 'impressions', label: 'Impressions', format: 'number' },
-        { key: 'calls', label: 'Calls', format: 'number' },
+        { key: 'calls', label: 'Call-button taps', format: 'number' },
         { key: 'direction_requests', label: 'Directions', format: 'number' },
         { key: 'website_clicks', label: 'Website Clicks', format: 'number' },
         { key: 'review_count', label: 'Reviews', format: 'number' },
@@ -57,7 +57,58 @@ export const METRIC_DEFS: Record<ReportSourceKey, MetricDef[]> = {
     ],
 };
 
-/** Format a raw metric value for display. */
+/** Ahrefs estimates that are not measured counts. Never shown on a client report. */
+const MODELED_METRIC_KEYS = new Set([
+    'traffic',
+    'org_traffic',
+    'organic_traffic',
+    'paid_traffic',
+    'traffic_value',
+    'keyword_difficulty',
+    'volume',
+]);
+
+export function isModeledMetricKey(key: string): boolean {
+    return MODELED_METRIC_KEYS.has(key);
+}
+
+export function clientSafeMetricData(data: Record<string, unknown> | null | undefined): Record<string, unknown> {
+    if (!data) return {};
+    return Object.fromEntries(Object.entries(data).filter(([key]) => !isModeledMetricKey(key)));
+}
+
+const SOURCE_CAPTION: Record<ReportSourceKey, string> = {
+    gsc: 'Google Search Console',
+    ga4: 'Google Analytics',
+    gbp: 'Google Business Profile',
+    ahrefs: 'Ahrefs',
+};
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function lastDayOfMonth(year: number, month: number): number {
+    return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/** "Google Search Console · Sep 1–30, 2026 · as of Oct 2, 2026". */
+export function formatMetricCaption(source: ReportSourceKey, month: string, updatedAt?: string | null): string {
+    const [yearText, monthText] = month.split('-');
+    const year = Number(yearText);
+    const monthIndex = Number(monthText);
+    const last = lastDayOfMonth(year, monthIndex);
+    const range = `${MONTHS[monthIndex - 1]} 1–${last}, ${year}`;
+    const name = SOURCE_CAPTION[source];
+    if (!updatedAt) return `${name} · ${range}`;
+    const asOf = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Los_Angeles',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    }).format(new Date(updatedAt));
+    return `${name} · ${range} · as of ${asOf}`;
+}
+
+/** Format a raw metric value for display. Missing values stay an em dash, never 0. */
 export function formatMetric(value: unknown, format: MetricDef['format']): string {
     if (value == null || value === '' || (typeof value === 'number' && isNaN(value))) return '—';
     const num = Number(value);

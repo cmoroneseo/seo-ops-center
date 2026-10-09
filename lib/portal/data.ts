@@ -48,7 +48,11 @@ export interface PortalReportDetail extends PortalReportSummary {
     executiveSummary: string;
     recommendations: string;
     sections: ReportSectionsField;
-    metrics: { current: Record<string, Record<string, unknown>>; previous: Record<string, Record<string, unknown>> };
+    metrics: {
+        current: Record<string, Record<string, unknown>>;
+        previous: Record<string, Record<string, unknown>>;
+        updatedAt?: Record<string, string | null>;
+    };
     history: Record<string, { month: string; data: Record<string, unknown> }[]>;
     planSnapshot: { plan: MarketingPlan } | null;
 }

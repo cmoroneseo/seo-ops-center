@@ -12,13 +12,14 @@ import {
 } from 'recharts';
 import { ClientProject, MarketingPlan } from '@/lib/types';
 import {
-    METRIC_DEFS, REPORT_SECTIONS, formatMetric, computeDelta,
-    monthLabel, ReportSourceKey,
+    METRIC_DEFS, REPORT_SECTIONS, formatMetric, formatMetricCaption,
+    isModeledMetricKey, monthLabel, ReportSourceKey,
 } from '@/lib/reports/sections';
 import { Block } from '@/lib/reports/blocks';
+import { rankTrackerViewResult, type RankTrackerViewResult } from '@/lib/reports/rank-tracker-view';
 import { MarketingPlanReportBlock } from './MarketingPlanReportBlock';
+import { MoMDelta } from './MoMDelta';
 import { createClient } from '@/lib/supabase/client';
-import type { RankTrackerResult } from '@/lib/sync/fetchAhrefsRankTracker';
 
 const ACCENT = '#ef4444';
 const CHART_COLORS = ['#ef4444', '#3b82f6', '#f59e0b', '#10b981'];
@@ -32,9 +33,11 @@ export interface ReportContext {
     reportMonth: string;
     executiveSummary: string;
     recommendations: string;
-    metrics: { current: MetricMap; previous: MetricMap };
+    metrics: { current: MetricMap; previous: MetricMap; updatedAt?: Partial<Record<ReportSourceKey, string | null>> };
     history: HistoryMap;
     hideEmpty: boolean;
+    /** Portal, read-only client preview, and print. Hides staff-only blocks. */
+    clientFacing?: boolean;
     /** Editing callbacks — undefined in read-only/print contexts. */
     onEditText?: (blockId: string, patch: Record<string, any>) => void;
     onEditField?: (field: 'executive_summary' | 'recommendations', value: string) => void;
@@ -84,6 +87,24 @@ function fullDateOrdinal(dateStr: string): string {
     const date = new Date(y, m - 1, d);
     const monthAbbr = date.toLocaleString('default', { month: 'short' });
     return `${monthAbbr} ${ordinal(d)}`;
+}
+
+function staffOnlyHidden(ctx: ReportContext): boolean {
+    return ctx.clientFacing === true || ctx.client?.id === 'portal-client';
+}
+
+function finiteOrNull(value: unknown): number | null {
+    if (value == null || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+}
+
+function MetricCaption({ source, ctx }: { source: ReportSourceKey; ctx: ReportContext }) {
+    return (
+        <p className="text-[11px] mb-3" style={{ color: '#6b7280' }}>
+            {formatMetricCaption(source, ctx.reportMonth, ctx.metrics.updatedAt?.[source])}
+        </p>
+    );
 }
 
 function EmptyNote({ text }: { text: string }) {
@@ -535,32 +556,25 @@ export function MetricsOverviewBlock({ block, ctx }: { block: Block; ctx: Report
     const def = REPORT_SECTIONS.find(s => s.key === source);
     const cur = ctx.metrics.current[source];
     const prev = ctx.metrics.previous[source] ?? {};
-    const empty = !cur || Object.keys(cur).length === 0;
+    const defs = METRIC_DEFS[source].filter(metric => !(staffOnlyHidden(ctx) && isModeledMetricKey(metric.key)));
+    const empty = !cur || defs.every(metric => cur[metric.key] == null);
     if (empty && ctx.hideEmpty) return null;
 
     return (
         <div>
-            <div className="flex items-center gap-2 border-b-2 pb-2 mb-4" style={{ borderColor: ACCENT }}>
+            <div className="flex items-center gap-2 border-b-2 pb-2 mb-1" style={{ borderColor: ACCENT }}>
                 <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>{def?.name}</h2>
             </div>
+            <MetricCaption source={source} ctx={ctx} />
             {empty ? <EmptyNote text="No data for this source — sync or enter it manually on the Reports page." /> : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {METRIC_DEFS[source].map(m => cur![m.key] == null ? null : (() => {
-                        const d = computeDelta(cur![m.key], prev[m.key], m.lowerIsBetter);
-                        return (
-                            <div key={m.key} className="rounded-xl p-3.5 border" style={{ borderColor: '#e5e7eb' }}>
-                                <div className="text-[10px] uppercase tracking-wide" style={{ color: '#6b7280' }}>{m.label}</div>
-                                <div className="flex items-baseline gap-1.5 mt-1">
-                                    <span className="text-xl font-bold" style={{ color: '#111827' }}>{formatMetric(cur![m.key], m.format)}</span>
-                                    {d && d.direction !== 'flat' && (
-                                        <span className="text-[11px] font-semibold" style={{ color: d.isGood ? '#16a34a' : '#dc2626' }}>
-                                            {d.direction === 'up' ? '▲' : '▼'} {Math.abs(d.pct).toFixed(1)}%
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })())}
+                    {defs.map(m => cur![m.key] == null ? null : (
+                        <div key={m.key} className="rounded-xl p-3.5 border" style={{ borderColor: '#e5e7eb' }}>
+                            <div className="text-[10px] uppercase tracking-wide" style={{ color: '#6b7280' }}>{m.label}</div>
+                            <div className="text-xl font-bold mt-1" style={{ color: '#111827' }}>{formatMetric(cur![m.key], m.format)}</div>
+                            <MoMDelta current={cur![m.key]} previous={prev[m.key]} lowerIsBetter={m.lowerIsBetter} scale={m.format === 'percent' ? 100 : 1} />
+                        </div>
+                    ))}
                 </div>
             )}
         </div>
@@ -569,7 +583,8 @@ export function MetricsOverviewBlock({ block, ctx }: { block: Block; ctx: Report
 
 export function TrendBlock({ block, ctx }: { block: Block; ctx: ReportContext }) {
     const source = block.props.source as ReportSourceKey;
-    const metricKeys = (block.props.metrics ?? []) as string[];
+    const metricKeys = ((block.props.metrics ?? []) as string[]).filter(key => !(staffOnlyHidden(ctx) && isModeledMetricKey(key)));
+    if (metricKeys.length === 0 && staffOnlyHidden(ctx)) return null;
     const rows = ctx.history[source] ?? [];
     const data = rows.map(r => ({
         month: shortMonth(r.month),
@@ -580,10 +595,11 @@ export function TrendBlock({ block, ctx }: { block: Block; ctx: ReportContext })
 
     return (
         <div>
-            <div className="flex items-center gap-2 border-b-2 pb-2 mb-4" style={{ borderColor: ACCENT }}>
+            <div className="flex items-center gap-2 border-b-2 pb-2 mb-1" style={{ borderColor: ACCENT }}>
                 <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>{block.props.title || 'Trend'}</h2>
                 <span className="text-xs" style={{ color: '#6b7280' }}>last {rows.length} month{rows.length === 1 ? '' : 's'}</span>
             </div>
+            <MetricCaption source={source} ctx={ctx} />
             {!hasEnough ? (
                 <EmptyNote text="Trend data builds up as monthly syncs run — check back next month." />
             ) : (
@@ -612,10 +628,13 @@ export function DistributionBlock({ ctx }: { ctx: ReportContext }) {
     const empty = !cur || cur.ranked_keywords == null;
     if (empty && ctx.hideEmpty) return null;
 
-    const top10 = Number(cur?.top_10_keywords ?? 0);
-    const top20 = Math.max(0, Number(cur?.top_20_keywords ?? 0) - top10);
-    const top50 = Math.max(0, Number(cur?.top_50_keywords ?? 0) - top10 - top20);
-    const beyond = Math.max(0, Number(cur?.ranked_keywords ?? 0) - top10 - top20 - top50);
+    const top10 = finiteOrNull(cur?.top_10_keywords);
+    const top20Total = finiteOrNull(cur?.top_20_keywords);
+    const top50Total = finiteOrNull(cur?.top_50_keywords);
+    const ranked = finiteOrNull(cur?.ranked_keywords);
+    const top20 = top10 == null || top20Total == null ? null : Math.max(0, top20Total - top10);
+    const top50 = top50Total == null || top10 == null || top20 == null ? null : Math.max(0, top50Total - top10 - top20);
+    const beyond = ranked == null || top10 == null || top20 == null || top50 == null ? null : Math.max(0, ranked - top10 - top20 - top50);
     const data = [
         { bucket: 'Top 1–10', count: top10 },
         { bucket: '11–20', count: top20 },
@@ -625,9 +644,10 @@ export function DistributionBlock({ ctx }: { ctx: ReportContext }) {
 
     return (
         <div>
-            <div className="flex items-center gap-2 border-b-2 pb-2 mb-4" style={{ borderColor: ACCENT }}>
+            <div className="flex items-center gap-2 border-b-2 pb-2 mb-1" style={{ borderColor: ACCENT }}>
                 <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>Distribution of Keywords by Top Positions</h2>
             </div>
+            <MetricCaption source="ahrefs" ctx={ctx} />
             {empty ? <EmptyNote text="No Ahrefs data — sync or enter it manually on the Reports page." /> : (
                 <div style={{ width: '100%', height: 220 }}>
                     <ResponsiveContainer>
@@ -658,14 +678,16 @@ export function OrganicTableBlock({ ctx }: { ctx: ReportContext }) {
 
     return (
         <div>
-            <div className="flex items-center gap-2 border-b-2 pb-2 mb-4" style={{ borderColor: ACCENT }}>
+            <div className="flex items-center gap-2 border-b-2 pb-2 mb-1" style={{ borderColor: ACCENT }}>
                 <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>Organic Traffic Overview</h2>
             </div>
+            <MetricCaption source="gsc" ctx={ctx} />
+            <MetricCaption source="ga4" ctx={ctx} />
             {months.length === 0 ? <EmptyNote text="No monthly history yet — data accrues as syncs run." /> : (
                 <table className="w-full text-sm" style={{ color: '#374151' }}>
                     <thead>
                         <tr className="border-b" style={{ borderColor: '#e5e7eb' }}>
-                            {['Month', 'Organic Sessions', 'Clicks', 'Impressions', 'CTR', 'Avg Position'].map(h => (
+                            {['Month', 'Organic Sessions', 'Clicks', 'Times shown', 'CTR', 'Avg Position'].map(h => (
                                 <th key={h} className="text-left py-2 pr-3 text-[11px] uppercase tracking-wide font-medium" style={{ color: '#6b7280' }}>{h}</th>
                             ))}
                         </tr>
@@ -709,10 +731,8 @@ const RANK_TRACKER_SORT_FIELDS: { value: string; label: string }[] = [
 
 const RANK_TRACKER_RESULT_LIMITS = [10, 25, 50, 100];
 
-type RankTrackerApiResult = RankTrackerResult & { dateStart?: string; dateEnd?: string };
-
 export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: ReportContext }) {
-    const [result, setResult] = useState<RankTrackerApiResult | null>(null);
+    const [result, setResult] = useState<RankTrackerViewResult | null>(null);
     // Opened via the pencil icon on the shared block hover toolbar (see
     // BLOCK_TYPES_WITH_SETTINGS in lib/reports/blocks.ts) rather than a
     // button inside the widget itself — the two controls used to overlap.
@@ -733,6 +753,7 @@ export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: R
     });
 
     useEffect(() => {
+        if (staffOnlyHidden(ctx)) return;
         let cancelled = false;
         setResult(null);
         const params = new URLSearchParams({
@@ -740,12 +761,12 @@ export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: R
             columns: columns.filter(c => c === 'traffic' || c === 'keyword_difficulty').join(','),
         });
         fetch(`/api/reports/${ctx.reportId}/rank-tracker?${params}`)
-            .then(r => r.json())
-            .then(d => { if (!cancelled) setResult(d); })
+            .then(r => r.json().catch(() => null))
+            .then(d => { if (!cancelled) setResult(rankTrackerViewResult(d)); })
             .catch(() => { if (!cancelled) setResult({ status: 'error', message: 'Failed to load' }); });
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ctx.reportId, period, device, limit, sortBy, sortDir, columns.join(',')]);
+    }, [ctx.reportId, ctx.clientFacing, ctx.client?.id, period, device, limit, sortBy, sortDir, columns.join(',')]);
 
     // Unlike "no data yet" for a synced metric, an unconnected Rank Tracker
     // project is actionable setup guidance — never auto-hide it, even when
@@ -765,6 +786,8 @@ export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: R
     const showTraffic = columns.includes('traffic');
     const showKd = columns.includes('keyword_difficulty');
     const showUrl = columns.includes('url');
+    const rows = result?.status === 'ok' ? result.rows : null;
+    if (staffOnlyHidden(ctx)) return null;
 
     return (
         <div>
@@ -849,9 +872,9 @@ export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: R
                 <p className="text-sm" style={{ color: '#9ca3af' }}>Loading tracked keywords…</p>
             ) : result.status === 'not_configured' ? (
                 <EmptyNote text="No Ahrefs Rank Tracker project connected for this client — add a project ID in Client → Integrations." />
-            ) : result.status === 'error' ? (
-                <EmptyNote text={result.message} />
-            ) : result.rows.length === 0 ? (
+            ) : result.status !== 'ok' || !rows ? (
+                <EmptyNote text={'message' in result ? result.message : 'Could not load keyword rankings.'} />
+            ) : rows.length === 0 ? (
                 <EmptyNote text="No tracked keywords found in this Rank Tracker project." />
             ) : (
                 <table className="w-full text-sm" style={{ color: '#374151' }}>
@@ -871,7 +894,7 @@ export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: R
                         </tr>
                     </thead>
                     <tbody>
-                        {result.rows.map((row, i) => (
+                        {rows.map((row, i) => (
                             <tr key={`${row.keyword}-${row.location ?? i}`} className="border-b" style={{ borderColor: '#f3f4f6' }}>
                                 {showLocation && (
                                     <td className="py-2 pr-3 whitespace-nowrap" style={{ color: '#6b7280' }}>{row.location?.split(',')[0] ?? '—'}</td>
@@ -910,12 +933,14 @@ export function RenderBlock({ block, ctx }: { block: Block; ctx: ReportContext }
         case 'title': return <TitleBlock block={block} ctx={ctx} />;
         case 'text': return <TextBlock block={block} ctx={ctx} />;
         case 'image': return <ImageBlock block={block} ctx={ctx} />;
-        case 'grid_comparison': return <GridComparisonBlock block={block} ctx={ctx} />;
+        case 'grid_comparison':
+            return staffOnlyHidden(ctx) ? null : <div className="report-staff-only"><GridComparisonBlock block={block} ctx={ctx} /></div>;
         case 'metrics_overview': return <MetricsOverviewBlock block={block} ctx={ctx} />;
         case 'trend': return <TrendBlock block={block} ctx={ctx} />;
         case 'distribution': return <DistributionBlock ctx={ctx} />;
         case 'organic_table': return <OrganicTableBlock ctx={ctx} />;
-        case 'keyword_rankings_table': return <KeywordRankingsTableBlock block={block} ctx={ctx} />;
+        case 'keyword_rankings_table':
+            return staffOnlyHidden(ctx) ? null : <div className="report-staff-only"><KeywordRankingsTableBlock block={block} ctx={ctx} /></div>;
         case 'marketing_plan': return <MarketingPlanReportBlock block={block} ctx={ctx} />;
         case 'page_break': return null; // handled by the canvas (page split)
         default: return null;

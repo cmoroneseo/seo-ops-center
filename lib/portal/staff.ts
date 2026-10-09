@@ -4,6 +4,7 @@ import { SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import { cleanDisplayName, cleanFeedbackBody, cleanShortText, isUuid, normalizeEmail } from './access-policy';
 import { planDecisionState } from './progress';
 import { capturePlan, captureReport, samePlanScope, type PortalPlanSnapshot } from './publication';
+import { ClientCopyRejected } from '@/lib/reports/copy-rules';
 import { loadPortalPlan, feedbackFrom } from './data';
 import { conversationNeedsReply, portalReadiness, rowToPortalUpdate, validPortalDate, reportTitleMonthMismatch } from './readiness';
 import { portalToday } from './dashboard';
@@ -302,8 +303,14 @@ export async function staffShareReport(body: Record<string, unknown>, share: boo
         .maybeSingle();
     if (live) return { ok: true as const };
     const publishedPlan = await loadPortalPlan({ ...auth.actor, clientName: '', organizationName: '' });
-    const snapshot = await captureReport({ ...auth.actor, clientName: '', organizationName: '' }, String(report.id),
-        publishedPlan.shared && publishedPlan.planId ? { planId: publishedPlan.planId, title: publishedPlan.title, steps: publishedPlan.steps, items: publishedPlan.items, createdAt: publishedPlan.createdAt ?? '' } : null);
+    let snapshot;
+    try {
+        snapshot = await captureReport({ ...auth.actor, clientName: '', organizationName: '' }, String(report.id),
+            publishedPlan.shared && publishedPlan.planId ? { planId: publishedPlan.planId, title: publishedPlan.title, steps: publishedPlan.steps, items: publishedPlan.items, createdAt: publishedPlan.createdAt ?? '' } : null);
+    } catch (error) {
+        if (error instanceof ClientCopyRejected) return { ok: false as const, status: 409, error: error.message };
+        throw error;
+    }
     if (!snapshot) return { ok: false as const, status: 409, error: 'Publish the report before sharing it' };
     const { error } = await admin.from('client_portal_report_shares').insert({
         snapshot,

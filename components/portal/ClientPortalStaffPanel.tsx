@@ -227,7 +227,9 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
                                         {shared ? 'Unshare' : 'Share'}
                                     </button>
                                 ) : (
-                                    <span className="text-xs text-muted-foreground">Publish before sharing</span>
+                                    <Link href={`/reports/${report.id}`} className="text-xs font-medium text-primary hover:underline">
+                                        Publish before sharing
+                                    </Link>
                                 )}
                             </li>
                         );

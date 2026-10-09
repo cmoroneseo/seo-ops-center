@@ -1,10 +1,11 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import { displaySeoPlanTitle, SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
-import { previousMonth } from '@/lib/reports/sections';
+import { clientSafeMetricData, previousMonth } from '@/lib/reports/sections';
 import type { PortalClientScope } from './session';
 import { checklistPlan, portalPlanItem, type PortalPlanItem, type PortalPlanStep } from './progress';
 import type { PortalReportDetail } from './data';
-import type { ReportSectionsField } from '@/lib/reports/blocks';
+import { blocksForClientRender, type ReportSectionsField } from '@/lib/reports/blocks';
+import { assertShareCopy, copySourcesForMetrics } from '@/lib/reports/copy-rules';
 
 export interface PortalPlanSnapshot {
     planId: string; title: string; steps: PortalPlanStep[]; items: PortalPlanItem[]; createdAt: string;
@@ -54,21 +55,28 @@ export async function captureReport(scope: PortalClientScope, reportId: string, 
     const [{ data: report, error }, { data: rows, error: metricError }] = await Promise.all([
         admin.from('reports').select('id,title,report_month,executive_summary,recommendations,sections')
             .eq('id', reportId).eq('client_id', scope.clientId).eq('organization_id', scope.organizationId).eq('status', 'published').maybeSingle(),
-        admin.from('metrics').select('source,metric_month,data').eq('client_id', scope.clientId).eq('organization_id', scope.organizationId)
+        admin.from('metrics').select('source,metric_month,data,updated_at').eq('client_id', scope.clientId).eq('organization_id', scope.organizationId)
             .order('metric_month', { ascending: false }),
     ]);
     if (error || metricError) throw new Error('Could not capture the report');
     if (!report) return null;
     const month = String(report.report_month);
-    const metrics = (key: string) => Object.fromEntries((rows ?? []).filter(row => row.metric_month === key).map(row => [row.source, row.data as Record<string, unknown>]));
+    const metricData = (row: { data?: Record<string, unknown> | null }) => clientSafeMetricData((row.data ?? {}) as Record<string, unknown>);
+    const metrics = (key: string) => Object.fromEntries((rows ?? []).filter(row => row.metric_month === key).map(row => [row.source, metricData(row)]));
     const history: PortalReportDetail['history'] = {};
     for (const row of rows ?? []) {
         if (!row.metric_month || row.metric_month > month) continue;
-        (history[row.source] ??= []).push({ month: row.metric_month, data: row.data });
+        (history[row.source] ??= []).push({ month: row.metric_month, data: metricData(row) });
     }
     for (const source of Object.keys(history)) history[source] = history[source].sort((a, b) => a.month.localeCompare(b.month)).slice(-12);
+    const current = metrics(month);
+    const blocks = blocksForClientRender(report.sections as ReportSectionsField);
+    const executiveSummary = String(report.executive_summary ?? '');
+    const recommendations = String(report.recommendations ?? '');
+    assertShareCopy({ executiveSummary, recommendations, blocks, sources: copySourcesForMetrics(current) });
+    const updatedAt = Object.fromEntries((rows ?? []).filter(row => row.metric_month === month).map(row => [row.source, row.updated_at ?? null]));
     return { id: String(report.id), title: String(report.title), reportMonth: month, sharedAt: '',
-        executiveSummary: String(report.executive_summary ?? ''), recommendations: String(report.recommendations ?? ''),
-        sections: report.sections as ReportSectionsField, metrics: { current: metrics(month), previous: metrics(previousMonth(month)) }, history,
+        executiveSummary, recommendations,
+        sections: { version: 2 as const, blocks }, metrics: { current, previous: metrics(previousMonth(month)), updatedAt }, history,
         planSnapshot: plan ? { plan: checklistPlan({ ...plan, organizationId: scope.organizationId, clientId: scope.clientId }) } : null };
 }

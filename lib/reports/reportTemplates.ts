@@ -18,7 +18,7 @@ export const STOCK_TEMPLATES: StockTemplate[] = [
         key: 'monthly_seo',
         name: 'Monthly SEO Report',
         description: 'The full monthly client report — summary, all four sources, recommendations.',
-        outline: ['Cover', 'Executive Summary', 'Organic Search', 'Website Traffic', 'Local Presence', 'Authority & Rankings', SEO_PLAN_LABEL, 'Recommendations'],
+        outline: ['Cover', 'Executive Summary', 'Organic Search', 'Website Traffic', 'Local Presence', 'Authority (Ahrefs, appendix)', SEO_PLAN_LABEL, 'Recommendations'],
         build: () => [
             makeBlock('cover', {}),
             makeBlock('text', { field: 'executive_summary', label: 'Executive Summary' }),
@@ -33,15 +33,14 @@ export const STOCK_TEMPLATES: StockTemplate[] = [
     {
         key: 'rankings_overview',
         name: 'Rankings Overview',
-        description: 'Ranking-focused: key metrics, position trends, top-position distribution and tracked keywords.',
-        outline: ['Cover', 'Key ranking metrics', 'Average position trend', 'Keywords in top trend', 'Distribution by top positions', 'All keywords rankings', 'Recommendations'],
+        description: 'Ranking-focused: key metrics, position trends, and top-position distribution.',
+        outline: ['Cover', 'Key ranking metrics', 'Average position trend', 'Keywords in top trend', 'Distribution by top positions', 'Recommendations'],
         build: () => [
             makeBlock('cover', {}),
             makeBlock('metrics_overview', { source: 'ahrefs' }),
             makeBlock('trend', { source: 'gsc', metrics: ['avg_position'], title: 'Average Position', invertY: true }),
             makeBlock('trend', { source: 'ahrefs', metrics: ['top_10_keywords', 'top_20_keywords', 'top_50_keywords'], title: 'Keywords in Top Positions' }),
             makeBlock('distribution', {}),
-            makeBlock('keyword_rankings_table', {}),
             makeBlock('text', { field: 'recommendations', label: 'Recommendations' }),
         ],
     },

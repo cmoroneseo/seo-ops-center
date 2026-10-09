@@ -63,6 +63,48 @@ export function resolveBlocks(sections: ReportSectionsField): Block[] {
     return blocksFromLegacy(Array.isArray(sections) ? sections : null);
 }
 
+/** Single-keyword ranks and map-grid screenshots stay off client reports and PDFs. */
+export const CLIENT_OMITTED_BLOCK_TYPES = new Set<BlockType>(['keyword_rankings_table', 'grid_comparison']);
+
+export function omitClientHiddenBlocks(blocks: Block[]): Block[] {
+    return blocks.filter(block => !CLIENT_OMITTED_BLOCK_TYPES.has(block.type));
+}
+
+/**
+ * Blocks a client (or an old share snapshot) is allowed to see.
+ * Accepts a v2 document, a legacy section list, or a raw `{ blocks }` snapshot.
+ */
+export function blocksForClientRender(sections: ReportSectionsField | { blocks?: Block[] } | null | undefined): Block[] {
+    if (sections && typeof sections === 'object' && !Array.isArray(sections) && Array.isArray(sections.blocks)) {
+        return omitClientHiddenBlocks(sections.blocks);
+    }
+    return omitClientHiddenBlocks(resolveBlocks(sections as ReportSectionsField));
+}
+
+/**
+ * Canvas pages. A cover is its own page. A page break after that cover does not
+ * insert a second blank page, and a leading page break does not print a blank
+ * first page.
+ */
+export function splitReportPages(blocks: Block[]): Block[][] {
+    const pages: Block[][] = [];
+    let current: Block[] = [];
+    const flush = () => {
+        if (current.length > 0) pages.push(current);
+        current = [];
+    };
+    for (const block of blocks) {
+        if (block.type === 'page_break') {
+            flush();
+            continue;
+        }
+        current.push(block);
+        if (block.type === 'cover') flush();
+    }
+    flush();
+    return pages.length > 0 ? pages : [[]];
+}
+
 // ─── Widget library (left panel, grouped like SE Ranking's section list) ─────
 
 export interface LibraryItem {
@@ -80,9 +122,8 @@ export interface LibraryGroup {
     items: LibraryItem[];
 }
 
-export const WIDGET_LIBRARY: LibraryGroup[] = [
-    {
-        name: 'Rankings',
+const AHREFS_LIBRARY_GROUP: LibraryGroup = {
+        name: 'Authority (Ahrefs, appendix)',
         source: 'ahrefs',
         items: [
             {
@@ -107,18 +148,20 @@ export const WIDGET_LIBRARY: LibraryGroup[] = [
             },
             {
                 key: 'all_keywords_rankings', name: 'All keywords rankings',
-                description: 'Tracked keywords: start vs end-of-period position',
+                description: 'Staff only. Omitted from client reports and PDFs.',
                 type: 'keyword_rankings_table', props: {},
             },
         ],
-    },
+};
+
+export const WIDGET_LIBRARY: LibraryGroup[] = [
     {
         name: 'Google Search Console',
         source: 'gsc',
         items: [
             {
                 key: 'gsc_overview', name: 'Organic search overview',
-                description: 'Clicks, impressions, CTR & position',
+                description: 'Clicks, times shown, CTR & position',
                 type: 'metrics_overview', props: { source: 'gsc' },
             },
             {
@@ -127,9 +170,9 @@ export const WIDGET_LIBRARY: LibraryGroup[] = [
                 type: 'trend', props: { source: 'gsc', metrics: ['avg_position'], title: 'Average Position', invertY: true },
             },
             {
-                key: 'clicks_impressions_trend', name: 'Clicks & impressions trend',
+                key: 'clicks_impressions_trend', name: 'Clicks and times shown trend',
                 description: 'Search performance over time',
-                type: 'trend', props: { source: 'gsc', metrics: ['organic_clicks', 'impressions'], title: 'Clicks & Impressions' },
+                type: 'trend', props: { source: 'gsc', metrics: ['organic_clicks', 'impressions'], title: 'Clicks and times shown' },
             },
         ],
     },
@@ -160,7 +203,7 @@ export const WIDGET_LIBRARY: LibraryGroup[] = [
         items: [
             {
                 key: 'gbp_overview', name: 'Business Profile overview',
-                description: 'Calls, directions, clicks & reviews',
+                description: 'Call-button taps, directions, website clicks, and reviews',
                 type: 'metrics_overview', props: { source: 'gbp' },
             },
         ],
@@ -175,6 +218,7 @@ export const WIDGET_LIBRARY: LibraryGroup[] = [
             },
         ],
     },
+    AHREFS_LIBRARY_GROUP,
 ];
 
 export interface FormattingItem {
@@ -192,7 +236,7 @@ export const FORMATTING_ITEMS: FormattingItem[] = [
     { key: 'image', name: 'Image', description: 'Embed an image by URL', type: 'image', props: { url: '', caption: '' } },
     { key: 'page_break', name: 'Page break', description: 'Start a new page in the PDF', type: 'page_break', props: {} },
     {
-        key: 'grid_comparison', name: 'Keyword Visibility Heatmaps', description: 'Before/after ranking grid screenshots, side-by-side or slider',
+        key: 'grid_comparison', name: 'Keyword Visibility Heatmaps', description: 'Staff only. Map grids are omitted from client reports and PDFs.',
         type: 'grid_comparison', props: { viewMode: 'slider' },
     },
 ];
@@ -208,7 +252,7 @@ export function blockLabel(block: Block): string {
         case 'metrics_overview': {
             const names: Record<string, string> = {
                 gsc: 'Organic search overview', ga4: 'Traffic overview',
-                gbp: 'Business Profile overview', ahrefs: 'Key ranking metrics',
+                gbp: 'Business Profile overview', ahrefs: 'Authority (Ahrefs, appendix)',
             };
             return names[block.props.source] ?? 'Metrics overview';
         }
