@@ -1,5 +1,7 @@
 import { Resend } from 'resend';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { deliverQueuedReportSend } from '@/lib/reports/report-sends';
+import { sendWindowOpen } from '@/lib/reports/schedule';
 import { safePortalNext } from './access-policy';
 
 const SUBJECTS: Record<string, string> = {
@@ -26,6 +28,30 @@ export async function deliverPortalEmails(limit = 10) {
             admin.from('organizations').select('name').eq('id', job.organization_id).maybeSingle(),
         ]);
         try {
+            if (job.event_kind === 'report_send') {
+                if (!sendWindowOpen(new Date())) {
+                    await admin.from('client_portal_email_queue').update({
+                        claimed_at: null,
+                        attempts: Math.max(0, Number(job.attempts) - 1),
+                    }).eq('id', job.id);
+                    continue;
+                }
+                const outcome = await deliverQueuedReportSend(job, async email => {
+                    const response = await resend.emails.send({
+                        from: email.from,
+                        to: email.to,
+                        replyTo: email.replyTo,
+                        subject: email.subject,
+                        html: email.html,
+                        text: email.text,
+                    }, { idempotencyKey: `report-send-${job.id}` });
+                    return !response.error;
+                });
+                if (outcome === 'failed') throw new Error('Report send will retry');
+                if (outcome === 'sent') result.sent++;
+                else result.canceled++;
+                continue;
+            }
             if ([contactResult, clientResult, orgResult].some(item => item.error)) throw new Error('Could not verify recipient');
             const contact = contactResult.data, client = clientResult.data, org = orgResult.data;
             if (!contact || !client || !org || !await eventStillVisible(job)) {
