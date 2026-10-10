@@ -8,6 +8,10 @@ export const V2_BACKFILL_HISTORY_DAYS = 486;
 export const V2_BACKFILL_DAYS_PER_CLAIM = 2;
 /** 100ms gap is at most 600 requests/minute, under the 1,200 QPM per-site quota. */
 export const V2_REQUEST_GAP_MS = 100;
+/**
+ * The old daily cron would not start a day unless this much time remained, so a
+ * 90s budget saved one day. The backfill route uses BACKFILL_MIN_DAY_MS instead.
+ */
 export const V2_DAY_BUDGET_MS = 70_000;
 
 export function backgroundWindowLength(env: NodeJS.ProcessEnv = process.env): number {
