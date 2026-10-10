@@ -13,6 +13,22 @@ export const ORGANIC_TOTALS_LABEL = 'page-level totals';
 
 const DEVICES = new Set<GscDevice>(['DESKTOP', 'MOBILE', 'TABLET']);
 
+/** Defaults for one Search Analytics day. v2 facts stay under replace_gsc_history_day's 25k cap. */
+export const GSC_DAY_ROW_LIMIT = 1000;
+export const GSC_DAY_MAX_PAGES = 5;
+export const GSC_HISTORY_FACT_LIMIT = 25_000;
+
+async function gscHistoryHttpError(response: Response): Promise<Error> {
+    if (response.status === 429) return new Error('GSC history request failed (HTTP 429, quota)');
+    if (response.status === 403) {
+        const body = await response.text().catch(() => '');
+        if (/quotaExceeded|rateLimitExceeded|quota exceeded|rate limit/i.test(body)) {
+            return new Error('GSC history request failed (HTTP 403, quota)');
+        }
+    }
+    return new Error(`GSC history request failed (HTTP ${response.status})`);
+}
+
 export interface GscFact {
     grain: GscGrain;
     page: string;
@@ -163,8 +179,8 @@ function dimensionKeys(row: MetricRow, dimensions: string[]) {
 export async function fetchGscDay(property: string, token: string, date: string, options: FetchGscDayOptions = {}): Promise<GscDay> {
     historyDates(date, date);
     const request = options.fetch ?? fetch;
-    const rowLimit = options.rowLimit ?? 1000;
-    const maxPages = options.maxPages ?? 5;
+    const rowLimit = options.rowLimit ?? GSC_DAY_ROW_LIMIT;
+    const maxPages = options.maxPages ?? GSC_DAY_MAX_PAGES;
     if (!Number.isInteger(rowLimit) || rowLimit < 1 || rowLimit > 25000 || !Number.isInteger(maxPages) || maxPages < 1 || rowLimit * maxPages > 50000) throw new Error('Invalid pagination limits');
     const landingUrls = options.gbpLandingUrls ?? [];
     const result: GscDay = {
@@ -194,7 +210,7 @@ export async function fetchGscDay(property: string, token: string, date: string,
             body: JSON.stringify(body),
             signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000),
         });
-        if (!response.ok) throw new Error(`GSC history request failed (HTTP ${response.status})`);
+        if (!response.ok) throw await gscHistoryHttpError(response);
         return response.json() as Promise<{ rows?: unknown; metadata?: { first_incomplete_date?: unknown }; responseAggregationType?: unknown }>;
     };
 

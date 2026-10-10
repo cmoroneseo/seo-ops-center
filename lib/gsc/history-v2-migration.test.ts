@@ -189,6 +189,29 @@ test('v2 backfill jobs are leased apart from the daily sync and resume from the 
     }
 });
 
+test('a parked idle backfill job is not claimed and is not woken by enqueue', async () => {
+    const db = await database();
+    try {
+        await db.exec('set role service_role');
+        assert.equal((await db.query('select public.enqueue_gsc_v2_backfill($1,$2) as queued', [org, client])).rows[0].queued, true);
+        await db.query(
+            "update gsc_sync_jobs set status = 'idle', available_at = now() + interval '30 days', cursor_date = '2026-08-01' where kind = 'v2_backfill'",
+        );
+        const before = (await db.query<{ status: string; available_at: Date }>(
+            "select status, available_at from gsc_sync_jobs where kind = 'v2_backfill'",
+        )).rows[0];
+        assert.equal((await db.query('select public.enqueue_gsc_v2_backfill($1,$2) as queued', [org, client])).rows[0].queued, true);
+        const after = (await db.query<{ status: string; available_at: Date }>(
+            "select status, available_at from gsc_sync_jobs where kind = 'v2_backfill'",
+        )).rows[0];
+        assert.equal(after.status, 'idle');
+        assert.equal(new Date(after.available_at).toISOString(), new Date(before.available_at).toISOString());
+        assert.equal((await db.query("select * from public.claim_gsc_sync(null, 'v2_backfill')")).rows.length, 0);
+    } finally {
+        await db.close();
+    }
+});
+
 test('schema.sql mirrors the GSC history v2 migration', () => {
     const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
     assert.equal(schema.includes(migration), true);

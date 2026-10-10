@@ -43,6 +43,19 @@ test('failed pagination rejects entire day instead of returning partial facts',a
   const body=JSON.parse(String(init?.body));return Response.json({rows:[row(body.aggregationType==='byProperty'?['2026-09-01']:['https://example.com/a'])]});
  }}),/HTTP 429/);
 });
+test('quota responses are labeled without copying the provider body', async () => {
+ await assert.rejects(fetchGscDay('sc-domain:example.com', 'token', '2026-09-01', {
+  fetch: async () => new Response('quotaExceeded secret-token', { status: 403 }),
+ }), (error: unknown) => {
+  assert.ok(error instanceof Error);
+  assert.match(error.message, /HTTP 403, quota/);
+  assert.equal(error.message.includes('secret-token'), false);
+  return true;
+ });
+ await assert.rejects(fetchGscDay('sc-domain:example.com', 'token', '2026-09-01', {
+  fetch: async () => new Response('forbidden', { status: 403 }),
+ }), /HTTP 403\)/);
+});
 test('duplicate pagination rows fail rather than double-counting',async()=>{
  await assert.rejects(fetchGscDay('sc-domain:example.com','token','2026-09-01',{rowLimit:1,maxPages:2,fetch:async(_url,init)=>{
   const body=JSON.parse(String(init?.body));return Response.json({rows:[row(body.aggregationType==='byProperty'?['2026-09-01']:['https://example.com/a'])]});
