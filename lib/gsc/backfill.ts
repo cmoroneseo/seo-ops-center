@@ -67,8 +67,44 @@ export function chainGapMs(
     return Math.min(gap, Math.max(0, maxHoldMs - elapsedMs));
 }
 
+const CONTINUATION_HOST = /^[a-z0-9.-]+$/i;
+
+/**
+ * Production continuations use the production domain. That host is outside
+ * Standard Protection. Every other environment keeps the deployment host.
+ */
+export function backfillContinuationOrigin(env: {
+    vercelEnv?: string;
+    productionUrl?: string;
+    deploymentUrl?: string;
+}): string {
+    const host = env.vercelEnv === 'production' ? env.productionUrl : env.deploymentUrl;
+    if (host && CONTINUATION_HOST.test(host)) return `https://${host}`;
+    return 'http://localhost:3000';
+}
+
+/** Preview can still send a protection bypass. Production does not need one. */
+export function continuationUsesProtectionBypass(vercelEnv: string | undefined): boolean {
+    return vercelEnv !== 'production';
+}
+
 export function continuationAccepted(status: number, body: { skipped?: boolean } | null): boolean {
     return status >= 200 && status < 300 && body?.skipped !== true;
+}
+
+/** A failed kick, stored on the sync run. Hobby keeps runtime logs for an hour. */
+export function continuationNotice(status: number | null): string {
+    if (status == null || !Number.isInteger(status) || status < 100 || status > 599) return 'continuation_failed';
+    if (status >= 200 && status < 300) return 'continuation_skipped';
+    return `continuation_http_${status}`;
+}
+
+export function backfillLockStatusAfterContinuation(
+    status: 'completed' | 'partial' | 'failed',
+    notice: string | null,
+): 'completed' | 'partial' | 'failed' {
+    if (!notice) return status;
+    return status === 'failed' ? 'failed' : 'partial';
 }
 
 export function parseBackfillChain(value: string | null, limit = BACKFILL_CHAIN_LIMIT): number | null {

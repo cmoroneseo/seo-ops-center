@@ -7,6 +7,7 @@ import {
 } from '@/lib/gsc/background';
 import {
     AUTH_SKIP_DELAY_SECONDS, BACKFILL_BUDGET_MS, BACKFILL_LOCK_STALE_MS, BACKFILL_MAX_DAYS, BACKFILL_MIN_DAY_MS,
+    backfillLockStatusAfterContinuation,
     backfillLockIsLive, canStartBackfillDay, daysDoneFromCursor, isGscQuotaError, quotaDelaySeconds,
 } from '@/lib/gsc/backfill';
 import { gscHistoryV2BackfillEnabled, gscHistoryV2Enabled } from '@/lib/gsc/flags';
@@ -441,11 +442,20 @@ export async function recordGscBackfillProgress(input: {
     }
 }
 
-export async function finishGscBackfillLock(runId: string, status: 'completed' | 'partial' | 'failed'): Promise<void> {
+export async function finishGscBackfillLock(
+    runId: string,
+    status: 'completed' | 'partial' | 'failed',
+    notice?: string,
+): Promise<void> {
     const admin = createAdminClient();
+    const finished = backfillLockStatusAfterContinuation(status, notice ?? null);
     const { error } = await admin.from('sync_runs').update({
-        status,
+        status: finished,
         finished_at: new Date().toISOString(),
+        ...(notice ? {
+            error_summary: [{ service: 'gsc', message: notice }],
+            source_outcomes: [{ service: 'gsc_v2_backfill', notice }],
+        } : {}),
     }).eq('id', runId).eq('status', 'running');
     if (error) console.warn('gsc_v2_backfill lock was not released');
 }
