@@ -1,6 +1,7 @@
 import { after, NextRequest, NextResponse } from 'next/server';
 import {
-    backfillWorkRemains, chainGapMs, continuationAccepted, parseBackfillChain, shouldContinueBackfill,
+    backfillContinuationOrigin, backfillWorkRemains, chainGapMs, continuationAccepted, continuationNotice,
+    continuationUsesProtectionBypass, parseBackfillChain, shouldContinueBackfill,
 } from '@/lib/gsc/backfill';
 import { gscHistoryV2BackfillEnabled } from '@/lib/gsc/flags';
 import {
@@ -20,9 +21,13 @@ const RUN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9
  *
  * Hobby cron can run once per day per expression, so vercel.json registers one
  * wake per hour. Each wake saves a few days, then kicks the next link after
- * the remainder of a 4-minute gap. A live sync_runs lock keeps the next hour
- * from starting a second chain. Idle jobs with a future available_at (parked
- * demos, quota backoff, missing Google tokens) are not claimed.
+ * the remainder of a 4-minute gap. Production kicks the production domain,
+ * which Standard Protection leaves open. Preview kicks the deployment URL and
+ * may send a protection bypass. A live sync_runs lock keeps the next hour
+ * from starting a second chain. A kick that does not return 2xx is stored on
+ * that lock as error_summary.message (for example continuation_http_302).
+ * Idle jobs with a future available_at (parked demos, quota backoff, missing
+ * Google tokens) are not claimed.
  *
  * Days saved out of 486, per client:
  *   select client_id, status, cursor_date,
@@ -43,9 +48,11 @@ function authorized(req: NextRequest): boolean {
 }
 
 function continuationOrigin(): string {
-    const host = process.env.VERCEL_URL;
-    if (host && /^[a-z0-9.-]+$/i.test(host)) return `https://${host}`;
-    return 'http://localhost:3000';
+    return backfillContinuationOrigin({
+        vercelEnv: process.env.VERCEL_ENV,
+        productionUrl: process.env.VERCEL_PROJECT_PRODUCTION_URL,
+        deploymentUrl: process.env.VERCEL_URL,
+    });
 }
 
 function continuationHeaders(): Record<string, string> {
@@ -53,11 +60,13 @@ function continuationHeaders(): Record<string, string> {
         authorization: `Bearer ${process.env.CRON_SECRET ?? ''}`,
     };
     const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
-    if (bypass) headers['x-vercel-protection-bypass'] = bypass;
+    if (bypass && continuationUsesProtectionBypass(process.env.VERCEL_ENV)) {
+        headers['x-vercel-protection-bypass'] = bypass;
+    }
     return headers;
 }
 
-async function kickBackfill(chain: number, runId: string): Promise<boolean> {
+async function kickBackfill(chain: number, runId: string): Promise<{ ok: true } | { ok: false; notice: string }> {
     const url = new URL('/api/cron/backfill-gsc-history', continuationOrigin());
     url.searchParams.set('chain', String(chain));
     url.searchParams.set('run', runId);
@@ -71,13 +80,14 @@ async function kickBackfill(chain: number, runId: string): Promise<boolean> {
         });
         const body = await response.json().catch(() => null) as { skipped?: boolean } | null;
         if (!continuationAccepted(response.status, body)) {
-            if (response.status >= 400) console.warn(`gsc_v2_backfill continuation returned HTTP ${response.status}`);
-            return false;
+            const notice = continuationNotice(response.status);
+            console.warn(`gsc_v2_backfill ${notice}`);
+            return { ok: false, notice };
         }
-        return true;
+        return { ok: true };
     } catch {
-        console.warn('gsc_v2_backfill continuation did not start');
-        return false;
+        console.warn('gsc_v2_backfill continuation_failed');
+        return { ok: false, notice: continuationNotice(null) };
     }
 }
 
@@ -139,7 +149,7 @@ async function continueOrFinish(chain: number, runId: string, outcome: Awaited<R
     const gap = chainGapMs(outcome.elapsedMs);
     if (gap > 0) await wait(gap);
     const started = await kickBackfill(chain + 1, runId);
-    if (!started) await finishGscBackfillLock(runId, lockStatus(outcome.result));
+    if (!started.ok) await finishGscBackfillLock(runId, lockStatus(outcome.result), started.notice);
 }
 
 export async function GET(req: NextRequest) {

@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import {
     AUTH_SKIP_DELAY_SECONDS, BACKFILL_CHAIN_LIMIT, BACKFILL_LINK_SPACING_MS, BACKFILL_MAX_DAYS,
     BACKFILL_MAX_HOLD_MS, BACKFILL_MIN_DAY_MS, QUOTA_BACKOFF_BASE_SECONDS, QUOTA_BACKOFF_CAP_SECONDS,
-    backfillLockIsLive, backfillWorkRemains, canStartBackfillDay, chainGapMs, continuationAccepted, daysDoneFromCursor,
-    gscBackfillJobClaimable, historyFactsWithinLimit, isGscQuotaError, parseBackfillChain,
+    backfillContinuationOrigin, backfillLockIsLive, backfillLockStatusAfterContinuation, backfillWorkRemains,
+    canStartBackfillDay, chainGapMs, continuationAccepted, continuationNotice, continuationUsesProtectionBypass,
+    daysDoneFromCursor, gscBackfillJobClaimable, historyFactsWithinLimit, isGscQuotaError, parseBackfillChain,
     quotaDelaySeconds, shouldContinueBackfill, v2DayFactUpperBound,
 } from './backfill';
 import { backgroundHistoryDates, planV2Backfill, V2_BACKFILL_HISTORY_DAYS } from './background';
@@ -124,6 +125,34 @@ test('links wait out the remainder of the spacing interval', () => {
     assert.equal(continuationAccepted(200, { skipped: true }), false);
     assert.equal(continuationAccepted(401, null), false);
     assert.equal(continuationAccepted(302, null), false);
+    assert.equal(backfillContinuationOrigin({
+        vercelEnv: 'production',
+        productionUrl: 'seo-ops-center.vercel.app',
+        deploymentUrl: 'seo-ops-center-83owld8sx-carlos-projects-05ca8f2b.vercel.app',
+    }), 'https://seo-ops-center.vercel.app');
+    assert.equal(backfillContinuationOrigin({
+        vercelEnv: 'preview',
+        productionUrl: 'seo-ops-center.vercel.app',
+        deploymentUrl: 'seo-ops-center-83owld8sx-carlos-projects-05ca8f2b.vercel.app',
+    }), 'https://seo-ops-center-83owld8sx-carlos-projects-05ca8f2b.vercel.app');
+    assert.equal(backfillContinuationOrigin({
+        vercelEnv: 'production',
+        productionUrl: 'https://seo-ops-center.vercel.app/api',
+        deploymentUrl: 'seo-ops-center-83owld8sx-carlos-projects-05ca8f2b.vercel.app',
+    }), 'http://localhost:3000');
+    assert.equal(backfillContinuationOrigin({ vercelEnv: 'production', productionUrl: '' }), 'http://localhost:3000');
+    assert.equal(backfillContinuationOrigin({}), 'http://localhost:3000');
+    assert.equal(continuationUsesProtectionBypass('production'), false);
+    assert.equal(continuationUsesProtectionBypass('preview'), true);
+    assert.equal(continuationUsesProtectionBypass(undefined), true);
+    assert.equal(continuationNotice(401), 'continuation_http_401');
+    assert.equal(continuationNotice(302), 'continuation_http_302');
+    assert.equal(continuationNotice(200), 'continuation_skipped');
+    assert.equal(continuationNotice(null), 'continuation_failed');
+    assert.equal(continuationNotice(99), 'continuation_failed');
+    assert.equal(backfillLockStatusAfterContinuation('completed', 'continuation_http_302'), 'partial');
+    assert.equal(backfillLockStatusAfterContinuation('failed', 'continuation_http_401'), 'failed');
+    assert.equal(backfillLockStatusAfterContinuation('completed', null), 'completed');
     const fresh = new Date(now.getTime() - 60_000).toISOString();
     const stale = new Date(now.getTime() - 11 * 60_000).toISOString();
     assert.equal(backfillLockIsLive(fresh, now.getTime()), true);
