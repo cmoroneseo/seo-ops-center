@@ -12,8 +12,12 @@ export const dynamic = 'force-dynamic';
  * first follow-up message; each batch publishes the next. The handler continues
  * a run only while that run's sync_runs lock is still held, and it ignores a
  * payload that is not a run id plus a chain number.
+ *
+ * Next.js route handlers must accept `Request`. `handleCallback` also accepts
+ * `{ request }`, which the App Router type check rejects, so the export
+ * forwards the request itself.
  */
-export const POST = handleCallback(async (message) => {
+const handleQueueMessage = handleCallback(async (message) => {
     const parsed = parseBackfillQueueMessage(message);
     if (!parsed) return;
     if (process.env.GSC_HISTORY_ENABLED !== 'true' || !gscHistoryV2BackfillEnabled()) {
@@ -27,3 +31,7 @@ export const POST = handleCallback(async (message) => {
     const outcome = await runBackfillBatch(parsed.chain);
     await continueBackfill(parsed.chain, parsed.runId, outcome);
 }, { visibilityTimeoutSeconds: 300 });
+
+export function POST(request: Request) {
+    return handleQueueMessage(request);
+}
