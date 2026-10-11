@@ -147,6 +147,12 @@
             "schedule": "0 16 * * *"
         }
     ],
+    "functions": {
+        "app/api/queues/gsc-v2-backfill/route.ts": {
+            "maxDuration": 300,
+            "experimentalTriggers": [{ "type": "queue/v2beta", "topic": "gsc-v2-backfill" }]
+        }
+    },
     "headers": [
         {
             "source": "/(.*)",
