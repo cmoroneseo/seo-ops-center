@@ -4,24 +4,29 @@ import { GSC_DAY_MAX_PAGES, GSC_DAY_ROW_LIMIT, GSC_HISTORY_FACT_LIMIT } from './
 /** 486-day window. cursor_date is the newest day already saved. */
 export const BACKFILL_WINDOW_DAYS = 486;
 /**
- * One link fetches several days, then waits out the rest of this interval
- * before the next link. That spreads Search Analytics load through the hour
- * instead of bursting the 10-minute quota.
+ * One message saves a batch, then the next message waits out the rest of this
+ * interval. The wait is a queue delay, not a request back into this deployment,
+ * so Vercel loop detection never sees a chain. It also keeps a 10-minute
+ * Search Analytics window to a few batches.
  */
-export const BACKFILL_LINK_SPACING_MS = 4 * 60 * 1000;
-/** Leave room inside a 300s function for the spacing wait and the next kick. */
-export const BACKFILL_BUDGET_MS = 170_000;
-/** A day that cannot finish before the deadline is left for the next link. */
+export const BACKFILL_LINK_SPACING_MS = 3 * 60 * 1000;
+/** Leave about a minute of the 300s limit for the database writes and the queue send. */
+export const BACKFILL_BUDGET_MS = 240_000;
+/** A day that cannot finish before the deadline is left for the next message. */
 export const BACKFILL_MIN_DAY_MS = 20_000;
-/** Several property-days per invocation, still a small slice of the 10-minute load window. */
-export const BACKFILL_MAX_DAYS = 8;
+/** Cap one message so a burst stays well under the per-site queries-per-minute limit. */
+export const BACKFILL_MAX_DAYS = 12;
 /**
- * Safety cap for one wake. Links are 4 minutes apart, so this is about a day.
- * The chain stops earlier when a link saves nothing or Google returns a quota error.
+ * Safety cap for one wake. Messages are about 3 minutes apart, so this is
+ * a little more than a day. The chain stops earlier when a message saves
+ * nothing or Google returns a quota error.
  */
-export const BACKFILL_CHAIN_LIMIT = 360;
-/** A crashed chain stops blocking the next hourly wake after this. */
-export const BACKFILL_LOCK_STALE_MS = 10 * 60 * 1000;
+export const BACKFILL_CHAIN_LIMIT = 600;
+/** A delayed queue message can still own the run. The next hourly cron resumes after this. */
+export const BACKFILL_LOCK_STALE_MS = 20 * 60 * 1000;
+export const BACKFILL_QUEUE_TOPIC = 'gsc-v2-backfill';
+export const BACKFILL_QUEUE_FAILURE_NOTICE = 'continuation_queue_failed';
+export const BACKFILL_QUEUE_RETENTION_SECONDS = 6 * 60 * 60;
 /** Google says to wait 15 minutes after a short-term load-quota error. */
 export const QUOTA_BACKOFF_BASE_SECONDS = 15 * 60;
 export const QUOTA_BACKOFF_CAP_SECONDS = 6 * 60 * 60;
@@ -54,49 +59,54 @@ export function canStartBackfillDay(input: {
     return input.remainingMs >= minDayMs;
 }
 
-/** Stay inside a 300s function after the link's own work. */
-export const BACKFILL_MAX_HOLD_MS = 270_000;
+const RUN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export function chainGapMs(
-    elapsedMs: number,
-    spacingMs = BACKFILL_LINK_SPACING_MS,
-    maxHoldMs = BACKFILL_MAX_HOLD_MS,
-): number {
-    if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return Math.min(spacingMs, maxHoldMs);
-    const gap = Math.max(0, spacingMs - elapsedMs);
-    return Math.min(gap, Math.max(0, maxHoldMs - elapsedMs));
+/** Seconds until the next queue message. The function itself does not sleep. */
+export function backfillQueueDelaySeconds(elapsedMs: number, spacingMs = BACKFILL_LINK_SPACING_MS): number {
+    if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return Math.ceil(spacingMs / 1000);
+    return Math.ceil(Math.max(0, spacingMs - elapsedMs) / 1000);
 }
 
-const CONTINUATION_HOST = /^[a-z0-9.-]+$/i;
-
-/**
- * Production continuations use the production domain. That host is outside
- * Standard Protection. Every other environment keeps the deployment host.
- */
-export function backfillContinuationOrigin(env: {
-    vercelEnv?: string;
-    productionUrl?: string;
-    deploymentUrl?: string;
-}): string {
-    const host = env.vercelEnv === 'production' ? env.productionUrl : env.deploymentUrl;
-    if (host && CONTINUATION_HOST.test(host)) return `https://${host}`;
-    return 'http://localhost:3000';
+export function backfillPropertyDaysPerHour(daysPerMessage: number, spacingMs = BACKFILL_LINK_SPACING_MS): number {
+    if (!Number.isFinite(daysPerMessage) || daysPerMessage <= 0 || spacingMs <= 0) return 0;
+    return daysPerMessage * (3_600_000 / spacingMs);
 }
 
-/** Preview can still send a protection bypass. Production does not need one. */
-export function continuationUsesProtectionBypass(vercelEnv: string | undefined): boolean {
-    return vercelEnv !== 'production';
+export function backfillContinuationKey(runId: string, chain: number): string {
+    return `gsc-v2-backfill:${runId}:${chain}`;
 }
 
-export function continuationAccepted(status: number, body: { skipped?: boolean } | null): boolean {
-    return status >= 200 && status < 300 && body?.skipped !== true;
+export interface BackfillQueueMessage {
+    runId: string;
+    chain: number;
 }
 
-/** A failed kick, stored on the sync run. Hobby keeps runtime logs for an hour. */
-export function continuationNotice(status: number | null): string {
-    if (status == null || !Number.isInteger(status) || status < 100 || status > 599) return 'continuation_failed';
-    if (status >= 200 && status < 300) return 'continuation_skipped';
-    return `continuation_http_${status}`;
+export function parseBackfillQueueMessage(value: unknown, limit = BACKFILL_CHAIN_LIMIT): BackfillQueueMessage | null {
+    if (!value || typeof value !== 'object') return null;
+    const candidate = value as { runId?: unknown; chain?: unknown };
+    if (typeof candidate.runId !== 'string' || !RUN_ID.test(candidate.runId)) return null;
+    if (typeof candidate.chain !== 'number' || !Number.isInteger(candidate.chain) || candidate.chain < 1 || candidate.chain > limit) return null;
+    return { runId: candidate.runId, chain: candidate.chain };
+}
+
+export function nextBackfillQueueMessage(input: {
+    runId: string;
+    chain: number;
+    elapsedMs: number;
+    continueChain: boolean;
+    chainLimit?: number;
+}): (BackfillQueueMessage & { delaySeconds: number; idempotencyKey: string; retentionSeconds: number }) | null {
+    if (!input.continueChain) return null;
+    const chain = input.chain + 1;
+    const limit = input.chainLimit ?? BACKFILL_CHAIN_LIMIT;
+    if (!RUN_ID.test(input.runId) || !Number.isInteger(chain) || chain < 1 || chain > limit) return null;
+    return {
+        runId: input.runId,
+        chain,
+        delaySeconds: backfillQueueDelaySeconds(input.elapsedMs),
+        idempotencyKey: backfillContinuationKey(input.runId, chain),
+        retentionSeconds: BACKFILL_QUEUE_RETENTION_SECONDS,
+    };
 }
 
 export function backfillLockStatusAfterContinuation(

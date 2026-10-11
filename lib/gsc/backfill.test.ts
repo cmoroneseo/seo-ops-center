@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
     AUTH_SKIP_DELAY_SECONDS, BACKFILL_CHAIN_LIMIT, BACKFILL_LINK_SPACING_MS, BACKFILL_MAX_DAYS,
-    BACKFILL_MAX_HOLD_MS, BACKFILL_MIN_DAY_MS, QUOTA_BACKOFF_BASE_SECONDS, QUOTA_BACKOFF_CAP_SECONDS,
-    backfillContinuationOrigin, backfillLockIsLive, backfillLockStatusAfterContinuation, backfillWorkRemains,
-    canStartBackfillDay, chainGapMs, continuationAccepted, continuationNotice, continuationUsesProtectionBypass,
-    daysDoneFromCursor, gscBackfillJobClaimable, historyFactsWithinLimit, isGscQuotaError, parseBackfillChain,
+    BACKFILL_MIN_DAY_MS, BACKFILL_QUEUE_RETENTION_SECONDS, BACKFILL_QUEUE_TOPIC, QUOTA_BACKOFF_BASE_SECONDS,
+    QUOTA_BACKOFF_CAP_SECONDS, backfillLockIsLive, backfillLockStatusAfterContinuation, backfillPropertyDaysPerHour,
+    backfillQueueDelaySeconds, backfillWorkRemains, canStartBackfillDay, daysDoneFromCursor, gscBackfillJobClaimable,
+    historyFactsWithinLimit, isGscQuotaError, nextBackfillQueueMessage, parseBackfillChain, parseBackfillQueueMessage,
     quotaDelaySeconds, shouldContinueBackfill, v2DayFactUpperBound,
 } from './backfill';
 import { backgroundHistoryDates, planV2Backfill, V2_BACKFILL_HISTORY_DAYS } from './background';
@@ -114,48 +115,39 @@ test('the chain continues only while a link saved days and work is still claimab
     assert.equal(parseBackfillChain('-1'), null);
 });
 
-test('links wait out the remainder of the spacing interval', () => {
-    assert.equal(chainGapMs(0), BACKFILL_LINK_SPACING_MS);
-    assert.equal(chainGapMs(BACKFILL_LINK_SPACING_MS - 1000), 1000);
-    assert.equal(chainGapMs(BACKFILL_LINK_SPACING_MS + 5000), 0);
-    assert.equal(chainGapMs(0, 240_000, 100_000), 100_000);
-    assert.ok(chainGapMs(200_000) <= BACKFILL_MAX_HOLD_MS - 200_000);
-    assert.equal(continuationAccepted(200, { skipped: false }), true);
-    assert.equal(continuationAccepted(200, { accepted: true } as { skipped?: boolean }), true);
-    assert.equal(continuationAccepted(200, { skipped: true }), false);
-    assert.equal(continuationAccepted(401, null), false);
-    assert.equal(continuationAccepted(302, null), false);
-    assert.equal(backfillContinuationOrigin({
-        vercelEnv: 'production',
-        productionUrl: 'seo-ops-center.vercel.app',
-        deploymentUrl: 'seo-ops-center-83owld8sx-carlos-projects-05ca8f2b.vercel.app',
-    }), 'https://seo-ops-center.vercel.app');
-    assert.equal(backfillContinuationOrigin({
-        vercelEnv: 'preview',
-        productionUrl: 'seo-ops-center.vercel.app',
-        deploymentUrl: 'seo-ops-center-83owld8sx-carlos-projects-05ca8f2b.vercel.app',
-    }), 'https://seo-ops-center-83owld8sx-carlos-projects-05ca8f2b.vercel.app');
-    assert.equal(backfillContinuationOrigin({
-        vercelEnv: 'production',
-        productionUrl: 'https://seo-ops-center.vercel.app/api',
-        deploymentUrl: 'seo-ops-center-83owld8sx-carlos-projects-05ca8f2b.vercel.app',
-    }), 'http://localhost:3000');
-    assert.equal(backfillContinuationOrigin({ vercelEnv: 'production', productionUrl: '' }), 'http://localhost:3000');
-    assert.equal(backfillContinuationOrigin({}), 'http://localhost:3000');
-    assert.equal(continuationUsesProtectionBypass('production'), false);
-    assert.equal(continuationUsesProtectionBypass('preview'), true);
-    assert.equal(continuationUsesProtectionBypass(undefined), true);
-    assert.equal(continuationNotice(401), 'continuation_http_401');
-    assert.equal(continuationNotice(302), 'continuation_http_302');
-    assert.equal(continuationNotice(200), 'continuation_skipped');
-    assert.equal(continuationNotice(null), 'continuation_failed');
-    assert.equal(continuationNotice(99), 'continuation_failed');
-    assert.equal(backfillLockStatusAfterContinuation('completed', 'continuation_http_302'), 'partial');
-    assert.equal(backfillLockStatusAfterContinuation('failed', 'continuation_http_401'), 'failed');
+test('the next batch is a queue message, spaced so a 10-minute window stays small', () => {
+    const runId = '11111111-1111-4111-8111-111111111111';
+    assert.equal(backfillQueueDelaySeconds(0), BACKFILL_LINK_SPACING_MS / 1000);
+    assert.equal(backfillQueueDelaySeconds(100_000), 80);
+    assert.equal(backfillQueueDelaySeconds(BACKFILL_LINK_SPACING_MS + 5_000), 0);
+    assert.equal(backfillPropertyDaysPerHour(BACKFILL_MAX_DAYS), 240);
+    assert.equal(backfillPropertyDaysPerHour(8), 160);
+    assert.equal(backfillPropertyDaysPerHour(0), 0);
+    const next = nextBackfillQueueMessage({ runId, chain: 4, elapsedMs: 40_000, continueChain: true });
+    assert.equal(next?.chain, 5);
+    assert.equal(next?.delaySeconds, 140);
+    assert.equal(next?.idempotencyKey, `gsc-v2-backfill:${runId}:5`);
+    assert.equal(next?.retentionSeconds, BACKFILL_QUEUE_RETENTION_SECONDS);
+    assert.ok((next?.idempotencyKey.length ?? 0) <= 256);
+    assert.equal(nextBackfillQueueMessage({ runId, chain: 4, elapsedMs: 40_000, continueChain: false }), null);
+    assert.equal(nextBackfillQueueMessage({ runId, chain: BACKFILL_CHAIN_LIMIT, elapsedMs: 0, continueChain: true }), null);
+    assert.equal(parseBackfillQueueMessage({ runId, chain: 5 })?.chain, 5);
+    assert.equal(parseBackfillQueueMessage({ runId, chain: 0 }), null);
+    assert.equal(parseBackfillQueueMessage({ runId: 'not-a-uuid', chain: 5 }), null);
+    assert.equal(parseBackfillQueueMessage({ runId, chain: '5' }), null);
+    assert.equal(parseBackfillQueueMessage(null), null);
+    assert.equal(backfillLockStatusAfterContinuation('completed', 'continuation_queue_failed'), 'partial');
+    assert.equal(backfillLockStatusAfterContinuation('failed', 'continuation_queue_failed'), 'failed');
     assert.equal(backfillLockStatusAfterContinuation('completed', null), 'completed');
     const fresh = new Date(now.getTime() - 60_000).toISOString();
-    const stale = new Date(now.getTime() - 11 * 60_000).toISOString();
+    const stale = new Date(now.getTime() - 21 * 60_000).toISOString();
     assert.equal(backfillLockIsLive(fresh, now.getTime()), true);
     assert.equal(backfillLockIsLive(stale, now.getTime()), false);
     assert.equal(backfillLockIsLive(null, now.getTime()), false);
+    const vercel = JSON.parse(readFileSync(new URL('../../vercel.json', import.meta.url), 'utf8')) as {
+        functions: Record<string, { experimentalTriggers: { type: string; topic: string }[] }>;
+    };
+    const trigger = vercel.functions['app/api/queues/gsc-v2-backfill/route.ts'].experimentalTriggers[0];
+    assert.equal(trigger.type, 'queue/v2beta');
+    assert.equal(trigger.topic, BACKFILL_QUEUE_TOPIC);
 });
