@@ -7,8 +7,10 @@ export interface AIInsight {
 }
 
 /**
- * Simulates a call to Google Gemini or OpenAI to analyze SEO data.
- * In a real production app, this would be a server action calling the LLM API.
+ * Simulated SEO insights. This does not call a model.
+ *
+ * New LLM work goes through lib/llm/run.ts (Vercel AI Gateway, audited in
+ * llm_calls). Do not add provider calls here.
  */
 export async function generateSEOAnalysis(data: DashboardData): Promise<AIInsight> {
     // Simulate network delay
