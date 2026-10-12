@@ -1,21 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Check, ExternalLink, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
     MapRecordAction, PageType, TopicalMapRecord, TopicalMapSilo,
 } from '@/lib/types';
-import { approveRecord, declineRecord, updateRecord } from '@/lib/supabase/topical-map';
+import { approveRecord, declineRecord, updateRecord, updateRecordSpec } from '@/lib/supabase/topical-map';
+import { PAGE_TYPES, type SpecFieldPatch } from '@/lib/topical-map/spec';
+import { PILL_CLASS, RECORD_STATUS_STYLES, SPEC_STATUS_STYLES } from './constants';
+import { SpecSection } from './SpecSection';
+import { useOverlayA11y } from './useOverlayA11y';
 
-const PAGE_TYPES: PageType[] = [
-    'pillar', 'service', 'landing', 'product', 'collection', 'city',
-    'blog_post', 'guide', 'faq', 'resource_center', 'knowledge_base',
-    'homepage', 'comparison', 'case_study', 'other',
-];
 const ACTIONS: MapRecordAction[] = ['create', 'replace', 'improve', 'keep'];
 
-const inputClasses = 'mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm';
+const inputClasses = 'mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring';
+const labelClass = 'text-xs font-medium uppercase tracking-wider text-muted-foreground';
 
 interface RecordDetailPanelProps {
     record: TopicalMapRecord | null;
@@ -26,11 +26,27 @@ interface RecordDetailPanelProps {
     organizationId: string;
     clientId: string;
     userId?: string;
+    specEnabled?: boolean;
+    readOnly?: boolean;
+}
+
+function numberField(value: number | undefined): string {
+    return value === undefined ? '' : String(value);
+}
+
+/** Word counts and search volume use 0 as "not set". Difficulty keeps a real 0. */
+function emptyCount(value: number | undefined): string {
+    if (value == null || value <= 0) return '';
+    return String(value);
 }
 
 export function RecordDetailPanel({
     record, silos, isOpen, onClose, onUpdated, organizationId, clientId, userId,
+    specEnabled = false, readOnly = false,
 }: RecordDetailPanelProps) {
+    const headingId = useId();
+    const open = isOpen && Boolean(record);
+    const panelRef = useOverlayA11y(open, onClose);
     const [draft, setDraft] = useState<TopicalMapRecord | null>(record);
     const [notesDraft, setNotesDraft] = useState('');
     const [isApproving, setIsApproving] = useState(false);
@@ -41,19 +57,44 @@ export function RecordDetailPanel({
         setDraft(record);
         setNotesDraft(record?.reviewerNotes ?? '');
         setError('');
+        // Reset only when a different page opens. Depending on `record` would
+        // wipe an unsaved title when a spec save refreshes the same id.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [record?.id]);
 
-    if (!isOpen || !record || !draft) return null;
+    if (!open || !record || !draft) return null;
 
-    const patch = async (p: Partial<TopicalMapRecord>) => {
-        const next = { ...draft, ...p };
+    const patch = async (nextPatch: Partial<TopicalMapRecord>) => {
+        const next = { ...draft, ...nextPatch };
         setDraft(next);
-        const res = await updateRecord(record.id, p);
-        if (res.success) {
-            onUpdated(next);
-        } else {
-            setError(res.error ?? 'Failed to save change');
+        const res = await updateRecord(record.id, nextPatch);
+        if (res.success) onUpdated(next);
+        else setError(res.error ?? 'Failed to save change');
+    };
+
+    const saveSpec = async (specPatch: SpecFieldPatch) => {
+        const res = await updateRecordSpec(clientId, record.id, specPatch);
+        if (!res.record) {
+            setError(res.error ?? 'Unable to save the spec.');
+            return;
         }
+        const next: TopicalMapRecord = {
+            ...draft,
+            targetQuery: res.record.targetQuery,
+            wordCountMin: res.record.wordCountMin,
+            wordCountMax: res.record.wordCountMax,
+            answerFirst60: res.record.answerFirst60,
+            uniqueAngle: res.record.uniqueAngle,
+            scheduledFor: res.record.scheduledFor,
+            specStatus: res.record.specStatus,
+            scopeExclusions: res.record.scopeExclusions,
+            outgoingLinks: res.record.outgoingLinks,
+            source: res.record.source,
+            updatedAt: res.record.updatedAt,
+        };
+        setDraft(next);
+        onUpdated(next);
+        setError('');
     };
 
     const handleApprove = async () => {
@@ -82,58 +123,84 @@ export function RecordDetailPanel({
         }
     };
 
-    const numberField = (value: number | undefined) => (value === undefined ? '' : String(value));
-
     return (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm" onClick={onClose}>
             <div
-                className="h-full w-full max-w-md animate-in slide-in-from-right overflow-y-auto border-l border-border bg-card shadow-xl duration-200"
-                onClick={e => e.stopPropagation()}
+                ref={panelRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={headingId}
+                className={cn(
+                    'h-full w-full animate-in slide-in-from-right overflow-y-auto border-l border-border bg-card shadow-xl duration-200',
+                    specEnabled ? 'max-w-xl' : 'max-w-md',
+                )}
+                onClick={event => event.stopPropagation()}
             >
                 <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-border/50 bg-card p-4">
                     <div className="min-w-0 flex-1">
+                        <h2 id={headingId} className="sr-only">{specEnabled ? 'Page spec' : 'Record details'}</h2>
                         <input
+                            aria-label="Page title"
+                            data-autofocus="true"
                             value={draft.title}
-                            onChange={e => setDraft({ ...draft, title: e.target.value })}
+                            disabled={readOnly}
+                            onChange={event => setDraft({ ...draft, title: event.target.value })}
                             onBlur={() => draft.title !== record.title && patch({ title: draft.title })}
                             className="w-full truncate bg-transparent text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-ring rounded"
                         />
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                            Status: <span className="font-medium text-foreground">{draft.status}</span>
-                        </p>
+                        {specEnabled ? (
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <span className={cn(PILL_CLASS, 'uppercase', RECORD_STATUS_STYLES[draft.status])}>{draft.status}</span>
+                                {draft.specStatus ? (
+                                    <span className={cn(PILL_CLASS, SPEC_STATUS_STYLES[draft.specStatus])}>
+                                        {draft.specStatus === 'draft' ? 'Draft' : 'Ready'}
+                                    </span>
+                                ) : (
+                                    <span className="text-xs text-muted-foreground">Spec —</span>
+                                )}
+                            </div>
+                        ) : (
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                                Status: <span className="font-medium text-foreground">{draft.status}</span>
+                            </p>
+                        )}
                     </div>
-                    <button onClick={onClose} className="shrink-0 text-muted-foreground hover:text-foreground">
+                    <button type="button" onClick={onClose} aria-label="Close record" className="shrink-0 rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                         <X className="h-4 w-4" />
                     </button>
                 </div>
 
                 <div className="space-y-5 p-4">
                     {error && (
-                        <p className="rounded-lg border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-500">{error}</p>
+                        <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-500">{error}</p>
                     )}
 
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Silo</label>
+                            <label htmlFor="record-silo" className={labelClass}>Silo</label>
                             <select
+                                id="record-silo"
                                 value={draft.siloId}
-                                onChange={e => patch({ siloId: e.target.value })}
+                                disabled={readOnly}
+                                onChange={event => patch({ siloId: event.target.value })}
                                 className={inputClasses}
                             >
-                                {silos.map(s => (
-                                    <option key={s.id} value={s.id}>{s.name}</option>
+                                {silos.map(silo => (
+                                    <option key={silo.id} value={silo.id}>{silo.name}</option>
                                 ))}
                             </select>
                         </div>
                         <div>
-                            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Page Type</label>
+                            <label htmlFor="record-page-type" className={labelClass}>Page Type</label>
                             <select
+                                id="record-page-type"
                                 value={draft.pageType}
-                                onChange={e => patch({ pageType: e.target.value as PageType })}
+                                disabled={readOnly}
+                                onChange={event => patch({ pageType: event.target.value as PageType })}
                                 className={inputClasses}
                             >
-                                {PAGE_TYPES.map(pt => (
-                                    <option key={pt} value={pt}>{pt.replaceAll('_', ' ')}</option>
+                                {PAGE_TYPES.map(pageType => (
+                                    <option key={pageType} value={pageType}>{pageType.replaceAll('_', ' ')}</option>
                                 ))}
                             </select>
                         </div>
@@ -141,78 +208,108 @@ export function RecordDetailPanel({
 
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Action</label>
+                            <label htmlFor="record-action" className={labelClass}>Action</label>
                             <select
+                                id="record-action"
                                 value={draft.action}
-                                onChange={e => patch({ action: e.target.value as MapRecordAction })}
+                                disabled={readOnly}
+                                onChange={event => patch({ action: event.target.value as MapRecordAction })}
                                 className={inputClasses}
                             >
-                                {ACTIONS.map(a => (
-                                    <option key={a} value={a}>{a}</option>
+                                {ACTIONS.map(action => (
+                                    <option key={action} value={action}>{action}</option>
                                 ))}
                             </select>
                         </div>
                         <div>
-                            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Category</label>
+                            <label htmlFor="record-category" className={labelClass}>Category</label>
                             <input
+                                id="record-category"
                                 value={draft.contentCategory ?? ''}
-                                onChange={e => setDraft({ ...draft, contentCategory: e.target.value })}
+                                disabled={readOnly}
+                                onChange={event => setDraft({ ...draft, contentCategory: event.target.value })}
                                 onBlur={() => patch({ contentCategory: draft.contentCategory || undefined })}
                                 className={inputClasses}
                             />
                         </div>
                     </div>
 
-                    <div>
-                        <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Target Query</label>
-                        <input
-                            value={draft.targetQuery}
-                            onChange={e => setDraft({ ...draft, targetQuery: e.target.value })}
-                            onBlur={() => draft.targetQuery !== record.targetQuery && patch({ targetQuery: draft.targetQuery })}
-                            className={inputClasses}
+                    {!specEnabled && (
+                        <div>
+                            <label htmlFor="record-query" className={labelClass}>Target Query</label>
+                            <input
+                                id="record-query"
+                                value={draft.targetQuery}
+                                disabled={readOnly}
+                                onChange={event => setDraft({ ...draft, targetQuery: event.target.value })}
+                                onBlur={() => draft.targetQuery !== record.targetQuery && patch({ targetQuery: draft.targetQuery })}
+                                className={inputClasses}
+                            />
+                        </div>
+                    )}
+
+                    {!specEnabled && (
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label htmlFor="record-words-min" className={labelClass}>Word Count Min</label>
+                                <input
+                                    id="record-words-min"
+                                    type="number"
+                                    value={emptyCount(draft.wordCountMin)}
+                                    placeholder="—"
+                                    disabled={readOnly}
+                                    onChange={event => setDraft({ ...draft, wordCountMin: Number(event.target.value) })}
+                                    onBlur={() => patch({ wordCountMin: draft.wordCountMin })}
+                                    className={inputClasses}
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="record-words-max" className={labelClass}>Word Count Max</label>
+                                <input
+                                    id="record-words-max"
+                                    type="number"
+                                    value={emptyCount(draft.wordCountMax)}
+                                    placeholder="—"
+                                    disabled={readOnly}
+                                    onChange={event => setDraft({ ...draft, wordCountMax: Number(event.target.value) })}
+                                    onBlur={() => patch({ wordCountMax: draft.wordCountMax })}
+                                    className={inputClasses}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {specEnabled && (
+                        <SpecSection
+                            record={record}
+                            draft={draft}
+                            readOnly={readOnly}
+                            onDraft={next => setDraft(current => current ? { ...current, ...next } : current)}
+                            onSave={saveSpec}
                         />
-                    </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Word Count Min</label>
+                            <label htmlFor="record-phase" className={labelClass}>Build Phase</label>
                             <input
-                                type="number"
-                                value={numberField(draft.wordCountMin)}
-                                onChange={e => setDraft({ ...draft, wordCountMin: Number(e.target.value) })}
-                                onBlur={() => patch({ wordCountMin: draft.wordCountMin })}
-                                className={inputClasses}
-                            />
-                        </div>
-                        <div>
-                            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Word Count Max</label>
-                            <input
-                                type="number"
-                                value={numberField(draft.wordCountMax)}
-                                onChange={e => setDraft({ ...draft, wordCountMax: Number(e.target.value) })}
-                                onBlur={() => patch({ wordCountMax: draft.wordCountMax })}
-                                className={inputClasses}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Build Phase</label>
-                            <input
+                                id="record-phase"
                                 type="number"
                                 value={numberField(draft.buildPhase)}
-                                onChange={e => setDraft({ ...draft, buildPhase: Number(e.target.value) })}
+                                disabled={readOnly}
+                                onChange={event => setDraft({ ...draft, buildPhase: Number(event.target.value) })}
                                 onBlur={() => patch({ buildPhase: draft.buildPhase })}
                                 className={inputClasses}
                             />
                         </div>
                         <div>
-                            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Refresh (days)</label>
+                            <label htmlFor="record-refresh" className={labelClass}>Refresh (days)</label>
                             <input
+                                id="record-refresh"
                                 type="number"
                                 value={numberField(draft.refreshIntervalDays)}
-                                onChange={e => setDraft({ ...draft, refreshIntervalDays: e.target.value ? Number(e.target.value) : undefined })}
+                                disabled={readOnly}
+                                onChange={event => setDraft({ ...draft, refreshIntervalDays: event.target.value ? Number(event.target.value) : undefined })}
                                 onBlur={() => patch({ refreshIntervalDays: draft.refreshIntervalDays })}
                                 className={inputClasses}
                             />
@@ -221,23 +318,29 @@ export function RecordDetailPanel({
 
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Search Volume</label>
+                            <label htmlFor="record-volume" className={labelClass}>Search Volume</label>
                             <input
+                                id="record-volume"
                                 type="number"
-                                value={numberField(draft.searchVolumeMonthly)}
-                                onChange={e => setDraft({ ...draft, searchVolumeMonthly: e.target.value ? Number(e.target.value) : undefined })}
+                                value={emptyCount(draft.searchVolumeMonthly)}
+                                placeholder="—"
+                                disabled={readOnly}
+                                onChange={event => setDraft({ ...draft, searchVolumeMonthly: event.target.value ? Number(event.target.value) : undefined })}
                                 onBlur={() => patch({ searchVolumeMonthly: draft.searchVolumeMonthly })}
                                 className={inputClasses}
                             />
                         </div>
                         <div>
-                            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Keyword Difficulty</label>
+                            <label htmlFor="record-difficulty" className={labelClass}>Keyword Difficulty</label>
                             <input
+                                id="record-difficulty"
                                 type="number"
                                 min={0}
                                 max={100}
                                 value={numberField(draft.keywordDifficulty)}
-                                onChange={e => setDraft({ ...draft, keywordDifficulty: e.target.value ? Number(e.target.value) : undefined })}
+                                placeholder="—"
+                                disabled={readOnly}
+                                onChange={event => setDraft({ ...draft, keywordDifficulty: event.target.value ? Number(event.target.value) : undefined })}
                                 onBlur={() => patch({ keywordDifficulty: draft.keywordDifficulty })}
                                 className={inputClasses}
                             />
@@ -246,7 +349,7 @@ export function RecordDetailPanel({
 
                     {draft.sitePageId && (
                         <div className="rounded-lg border border-border bg-muted/30 p-3">
-                            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Matched Page</p>
+                            <p className={labelClass}>Matched Page</p>
                             <div className="mt-1.5 flex items-center gap-2">
                                 <span className="min-w-0 flex-1 truncate font-mono text-xs">{draft.matchedUrl}</span>
                                 {draft.matchedUrl && (
@@ -255,6 +358,7 @@ export function RecordDetailPanel({
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="shrink-0 text-muted-foreground hover:text-primary"
+                                        aria-label="Open matched page"
                                     >
                                         <ExternalLink className="h-3.5 w-3.5" />
                                     </a>
@@ -263,26 +367,26 @@ export function RecordDetailPanel({
                         </div>
                     )}
 
-                    {draft.scopeExclusions.length > 0 && (
+                    {!specEnabled && draft.scopeExclusions.length > 0 && (
                         <div>
-                            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Scope Exclusions</label>
+                            <p className={labelClass}>Scope Exclusions</p>
                             <ul className="mt-1.5 space-y-1">
-                                {draft.scopeExclusions.map((e, i) => (
-                                    <li key={i} className="truncate rounded border border-border bg-muted/30 px-2 py-1 font-mono text-xs">
-                                        {e.url}{e.reason ? ` — ${e.reason}` : ''}
+                                {draft.scopeExclusions.map((item, index) => (
+                                    <li key={index} className="truncate rounded border border-border bg-muted/30 px-2 py-1 font-mono text-xs">
+                                        {item.url}{item.reason ? ` — ${item.reason}` : ''}
                                     </li>
                                 ))}
                             </ul>
                         </div>
                     )}
 
-                    {draft.outgoingLinks.length > 0 && (
+                    {!specEnabled && draft.outgoingLinks.length > 0 && (
                         <div>
-                            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Outgoing Links</label>
+                            <p className={labelClass}>Outgoing Links</p>
                             <ul className="mt-1.5 space-y-1">
-                                {draft.outgoingLinks.map((l, i) => (
-                                    <li key={i} className="truncate rounded border border-border bg-muted/30 px-2 py-1 text-xs">
-                                        {l.anchorText} → <span className="font-mono">{l.destinationUrl}</span>
+                                {draft.outgoingLinks.map((link, index) => (
+                                    <li key={index} className="truncate rounded border border-border bg-muted/30 px-2 py-1 text-xs">
+                                        {link.anchorText} → <span className="font-mono">{link.destinationUrl}</span>
                                     </li>
                                 ))}
                             </ul>
@@ -290,10 +394,12 @@ export function RecordDetailPanel({
                     )}
 
                     <div>
-                        <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Reviewer Notes</label>
+                        <label htmlFor="record-notes" className={labelClass}>Reviewer Notes</label>
                         <textarea
+                            id="record-notes"
                             value={notesDraft}
-                            onChange={e => setNotesDraft(e.target.value)}
+                            disabled={readOnly}
+                            onChange={event => setNotesDraft(event.target.value)}
                             onBlur={() => notesDraft !== (draft.reviewerNotes ?? '') && patch({ reviewerNotes: notesDraft || undefined })}
                             rows={3}
                             className={inputClasses}
@@ -303,10 +409,11 @@ export function RecordDetailPanel({
 
                 <div className="sticky bottom-0 flex gap-2 border-t border-border/50 bg-card p-4">
                     <button
+                        type="button"
                         onClick={handleDecline}
                         disabled={isDeclining || isApproving || draft.status === 'declined'}
                         className={cn(
-                            'flex-1 inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50',
+                            'flex-1 inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
                             'border-red-500/30 text-red-500 hover:bg-red-500/10',
                         )}
                     >
@@ -314,9 +421,10 @@ export function RecordDetailPanel({
                         Decline
                     </button>
                     <button
+                        type="button"
                         onClick={handleApprove}
                         disabled={isApproving || isDeclining || draft.status === 'approved'}
-                        className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                        className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                     >
                         {isApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                         Approve

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Loader2, Map, Sparkles } from 'lucide-react';
 
-import { getTopicalMapByClient } from '@/lib/supabase/topical-map';
+import { fetchSpecEnabled, getTopicalMapByClient } from '@/lib/supabase/topical-map';
+import { selectVisibleSilos } from '@/lib/topical-map/visible-silos';
 import { MapGenerationWizard } from '@/components/topical-map/MapGenerationWizard';
 import { MapProgressCard } from '@/components/topical-map/MapProgressCard';
 import { TopicalMapHeader } from '@/components/topical-map/TopicalMapHeader';
@@ -39,7 +40,7 @@ interface TopicalMapTabProps {
 }
 
 export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalMapTabProps) {
-    const { userId } = useCurrentMember();
+    const { userId, role } = useCurrentMember();
     const [loading, setLoading] = useState(true);
     const [loaded, setLoaded] = useState<LoadedMap>({ map: null, silos: [], records: [] });
     const [wizardOpen, setWizardOpen] = useState(false);
@@ -159,6 +160,7 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
         silos={silos}
         records={records}
         userId={userId}
+        readOnly={role === 'viewer'}
         activeSiloId={activeSiloId}
         setActiveSiloId={setActiveSiloId}
         filters={filters}
@@ -182,6 +184,7 @@ interface TopicalMapReadyProps {
     silos: TopicalMapSilo[];
     records: TopicalMapRecord[];
     userId?: string;
+    readOnly?: boolean;
     activeSiloId: string | 'all';
     setActiveSiloId: (id: string | 'all') => void;
     filters: SiloFilters;
@@ -197,11 +200,21 @@ interface TopicalMapReadyProps {
 }
 
 function TopicalMapReady({
-    organizationId, clientId, clientName, map, silos, records, userId,
+    organizationId, clientId, clientName, map, silos, records, userId, readOnly = false,
     activeSiloId, setActiveSiloId, filters, setFilters,
     selectedRecord, setSelectedRecord, detailOpen, setDetailOpen,
     wizardOpen, setWizardOpen, onReload, setLoaded,
 }: TopicalMapReadyProps) {
+    const [specEnabled, setSpecEnabled] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        void fetchSpecEnabled(clientId).then(enabled => {
+            if (!cancelled) setSpecEnabled(enabled);
+        });
+        return () => { cancelled = true; };
+    }, [clientId]);
+
     const filteredRecords = useMemo(() => {
         const matched = records.filter(r => {
             if (activeSiloId !== 'all' && r.siloId !== activeSiloId) return false;
@@ -231,13 +244,25 @@ function TopicalMapReady({
         return restoredParents.length > 0 ? [...matched, ...restoredParents] : matched;
     }, [records, activeSiloId, filters]);
 
+    const editsLocked = specEnabled && readOnly;
+
     const visibleSilos = useMemo(
-        () => silos.filter(s => filteredRecords.some(r => r.siloId === s.id)),
-        [silos, filteredRecords],
+        () => selectVisibleSilos(silos, filteredRecords, activeSiloId, filters, specEnabled),
+        [silos, filteredRecords, activeSiloId, filters, specEnabled],
     );
 
     const handleSelectRecord = (record: TopicalMapRecord) => {
         setSelectedRecord(record);
+        setDetailOpen(true);
+    };
+
+    const handleRecordCreated = (created: TopicalMapRecord) => {
+        setLoaded({
+            map,
+            silos,
+            records: [...records.filter(existing => existing.id !== created.id), created],
+        });
+        setSelectedRecord(created);
         setDetailOpen(true);
     };
 
@@ -280,6 +305,10 @@ function TopicalMapReady({
                         silo={silo}
                         records={filteredRecords}
                         onSelectRecord={handleSelectRecord}
+                        specEnabled={specEnabled}
+                        readOnly={editsLocked}
+                        clientId={clientId}
+                        onRecordCreated={handleRecordCreated}
                     />
                 ))}
             </div>
@@ -295,6 +324,8 @@ function TopicalMapReady({
                 organizationId={organizationId}
                 clientId={clientId}
                 userId={userId}
+                specEnabled={specEnabled}
+                readOnly={editsLocked}
             />
 
             {wizardOpen && (

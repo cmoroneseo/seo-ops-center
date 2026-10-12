@@ -51,6 +51,11 @@ describe('reconcileRecord', () => {
 });
 
 describe('determineAction', () => {
+    it('keeps the word-count boundary used when a matched page is approved later', () => {
+        assert.equal(determineAction({ wordCount: 299, title: 'Title', h1s: ['H1'] }, 1000), 'replace');
+        assert.equal(determineAction({ wordCount: 300, title: 'Title', h1s: ['H1'] }, 1000), 'improve');
+    });
+
     it('returns replace when word count < 300', () => {
         assert.equal(determineAction({ wordCount: 150, title: 'Some Title', h1s: ['H1'] }, 1000), 'replace');
     });

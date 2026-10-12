@@ -1125,6 +1125,8 @@ export type PageType =
     | 'homepage' | 'comparison' | 'case_study' | 'other';
 export type MapRecordAction = 'create' | 'replace' | 'improve' | 'keep';
 export type MapRecordStatus = 'pending' | 'approved' | 'declined';
+export type RecordSource = 'generated' | 'manual' | 'crawl' | 'gsc';
+export type SpecStatus = 'draft' | 'ready';
 export type SearchIntent = 'transactional' | 'commercial' | 'informational' | 'navigational';
 
 export interface TopicalMap {
@@ -1178,6 +1180,16 @@ export interface TopicalMapRecord {
     keywordDifficulty?: number;
     scopeExclusions: MapScopeExclusion[];
     outgoingLinks: MapOutgoingLink[];
+    /** Answer the page should give in the first 60 words. Empty when unset. */
+    answerFirst60?: string;
+    /** What this page covers that sibling pages do not. Empty when unset. */
+    uniqueAngle?: string;
+    /** Production date (YYYY-MM-DD). Empty when unset. */
+    scheduledFor?: string;
+    /** Completeness of the spec. Separate from approval status. */
+    specStatus?: SpecStatus;
+    /** Where the record came from. Empty on rows created before migration 083. */
+    source?: RecordSource;
     status: MapRecordStatus;
     sitePageId?: string;
     matchedUrl?: string;

@@ -1,9 +1,11 @@
 /**
- * Content writer switches. Both default off.
+ * Content writer switches. All default off.
  *
  * `content_writer` is the master switch (`CONTENT_WRITER_ENABLED`).
  * `content_writer_llm` allows model calls (`CONTENT_WRITER_LLM_ENABLED`)
  * and also requires the master switch.
+ * `content_writer_spec` shows the page spec drawer and manual add
+ * (`CONTENT_WRITER_SPEC_ENABLED`) and also requires the master switch.
  *
  * Unset, empty, or any value other than the exact string `true` stays off.
  * `CONTENT_WRITER_ORG_IDS`, when set, is a comma-separated organization
@@ -12,6 +14,7 @@
 
 export const CONTENT_WRITER_FLAG = 'content_writer';
 export const CONTENT_WRITER_LLM_FLAG = 'content_writer_llm';
+export const CONTENT_WRITER_SPEC_FLAG = 'content_writer_spec';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -52,4 +55,12 @@ export function contentWriterLlmEnabled(
 ): boolean {
     return contentWriterEnabled(env, organizationId)
         && enabled(env.CONTENT_WRITER_LLM_ENABLED);
+}
+
+export function contentWriterSpecEnabled(
+    env: NodeJS.ProcessEnv = process.env,
+    organizationId?: string,
+): boolean {
+    return contentWriterEnabled(env, organizationId)
+        && enabled(env.CONTENT_WRITER_SPEC_ENABLED);
 }
