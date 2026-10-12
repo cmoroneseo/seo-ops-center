@@ -2,7 +2,8 @@
 
 import { cn } from '@/lib/utils';
 import type { MapRecordStatus, TopicalMapRecord } from '@/lib/types';
-import { ACTION_STYLES } from './constants';
+import { ACTION_STYLES, PILL_CLASS, SOURCE_STYLES } from './constants';
+import { SOURCE_TITLE } from '@/lib/topical-map/spec';
 
 const STATUS_DOT: Record<MapRecordStatus, string> = {
     pending: 'bg-muted-foreground/40',
@@ -49,7 +50,12 @@ export function RecordRow({ record, isChild, onClick }: RecordRowProps) {
             role="button"
             tabIndex={0}
             onClick={() => onClick(record)}
-            onKeyDown={e => { if (e.key === 'Enter') onClick(record); }}
+            onKeyDown={event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onClick(record);
+                }
+            }}
             className={cn(
                 'grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto_auto_auto_auto] items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/40',
                 isChild && 'ml-6',
@@ -57,8 +63,13 @@ export function RecordRow({ record, isChild, onClick }: RecordRowProps) {
         >
             <span className={cn('h-2 w-2 shrink-0 rounded-full', STATUS_DOT[record.status])} aria-label={`Status: ${record.status}`} />
             <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">{record.title}</span>
-                <span className="block truncate text-xs text-muted-foreground">{record.targetQuery}</span>
+                <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-sm font-medium">{record.title}</span>
+                    {record.source === 'manual' && (
+                        <span title={SOURCE_TITLE.manual} className={cn(PILL_CLASS, SOURCE_STYLES.manual)}>manual</span>
+                    )}
+                </span>
+                <span className="block truncate text-xs text-muted-foreground">{record.targetQuery.trim() || '—'}</span>
             </span>
             <span className="hidden shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] uppercase text-muted-foreground sm:inline-block">
                 {record.pageType.replaceAll('_', ' ')}
@@ -72,7 +83,7 @@ export function RecordRow({ record, isChild, onClick }: RecordRowProps) {
                 {action.label}
             </span>
             <span className="hidden shrink-0 text-xs tabular-nums text-muted-foreground lg:inline-block">
-                {record.searchVolumeMonthly !== undefined ? record.searchVolumeMonthly.toLocaleString() : '—'}
+                {record.searchVolumeMonthly ? record.searchVolumeMonthly.toLocaleString() : '—'}
             </span>
             <span className="hidden shrink-0 lg:inline-block">
                 <DifficultyBar value={record.keywordDifficulty} />

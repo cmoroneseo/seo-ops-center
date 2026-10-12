@@ -33,6 +33,25 @@ describe('computeMapStats', () => {
     });
 });
 
+describe('approval counts with a spec', () => {
+    it('still counts approved and declined records that carry spec fields', () => {
+        const records = [
+            makeRecord({
+                status: 'approved',
+                source: 'manual',
+                answerFirst60: 'Short answer.',
+                specStatus: 'ready',
+                scheduledFor: '2026-10-12',
+            }),
+            makeRecord({ id: 'r-2', status: 'declined', source: 'generated' }),
+        ];
+        const stats = computeMapStats(records);
+        assert.equal(stats.approvedCount, 1);
+        assert.equal(stats.declinedCount, 1);
+        assert.equal(stats.totalRecords, 2);
+    });
+});
+
 describe('computeSiloStats', () => {
     it('groups by page type', () => {
         const records = [

@@ -4,15 +4,26 @@ import type {
     TopicalMapSilo,
     TopicalMapRecord,
     TopicalMapProfile,
-    MapScopeExclusion,
-    MapOutgoingLink,
     TopicalMapStatus,
     PageType,
     MapRecordAction,
     MapRecordStatus,
     SearchIntent,
 } from '../types';
-import { createTask, type TaskInsert } from './tasks';
+import { createTask } from './tasks';
+import {
+    approveUpdate,
+    approvalTaskDescription,
+    cleanOptionalText,
+    declineUpdate,
+    isRecordSource,
+    isSpecStatus,
+    normalizeOutgoingLinks,
+    normalizeScopeExclusions,
+    scheduledForValue,
+    type ManualRecordDraft,
+    type SpecFieldPatch,
+} from '../topical-map/spec';
 
 // ─── Row Mappers ────────────────────────────────────────────────────────────
 
@@ -64,8 +75,13 @@ export function rowToRecord(row: Record<string, unknown>): TopicalMapRecord {
         refreshIntervalDays: row.refresh_interval_days != null ? Number(row.refresh_interval_days) : undefined,
         searchVolumeMonthly: row.search_volume_monthly != null ? Number(row.search_volume_monthly) : undefined,
         keywordDifficulty: row.keyword_difficulty != null ? Number(row.keyword_difficulty) : undefined,
-        scopeExclusions: (row.scope_exclusions as MapScopeExclusion[]) ?? [],
-        outgoingLinks: (row.outgoing_links as MapOutgoingLink[]) ?? [],
+        scopeExclusions: normalizeScopeExclusions(row.scope_exclusions),
+        outgoingLinks: normalizeOutgoingLinks(row.outgoing_links),
+        answerFirst60: cleanOptionalText(row.answer_first_60),
+        uniqueAngle: cleanOptionalText(row.unique_angle),
+        scheduledFor: scheduledForValue(row.scheduled_for),
+        specStatus: isSpecStatus(row.spec_status) ? row.spec_status : undefined,
+        source: isRecordSource(row.source) ? row.source : undefined,
         status: (row.status as MapRecordStatus) ?? 'pending',
         sitePageId: row.site_page_id ? String(row.site_page_id) : undefined,
         matchedUrl: row.matched_url ? String(row.matched_url) : undefined,
@@ -195,6 +211,10 @@ export async function updateRecord(
     if (patch.keywordDifficulty !== undefined) row.keyword_difficulty = patch.keywordDifficulty;
     if (patch.scopeExclusions !== undefined) row.scope_exclusions = patch.scopeExclusions;
     if (patch.outgoingLinks !== undefined) row.outgoing_links = patch.outgoingLinks;
+    if (patch.answerFirst60 !== undefined) row.answer_first_60 = patch.answerFirst60.trim() ? patch.answerFirst60.trim() : null;
+    if (patch.uniqueAngle !== undefined) row.unique_angle = patch.uniqueAngle.trim() ? patch.uniqueAngle.trim() : null;
+    if (patch.scheduledFor !== undefined) row.scheduled_for = patch.scheduledFor || null;
+    if (patch.specStatus !== undefined) row.spec_status = patch.specStatus;
     if (patch.reviewerNotes !== undefined) row.reviewer_notes = patch.reviewerNotes;
     if (patch.status !== undefined) row.status = patch.status;
     row.updated_at = new Date().toISOString();
@@ -210,20 +230,7 @@ export async function approveRecord(
     clientId: string,
     userId?: string,
 ): Promise<{ success: boolean; taskId?: string; error?: string }> {
-    const description = [
-        `**Target Query:** ${record.targetQuery}`,
-        `**Page Type:** ${record.pageType}`,
-        record.contentCategory ? `**Category:** ${record.contentCategory}` : '',
-        `**Word Count:** ${record.wordCountMin}–${record.wordCountMax}`,
-        `**Build Phase:** ${record.buildPhase}`,
-        record.refreshIntervalDays ? `**Refresh:** every ${record.refreshIntervalDays} days` : '',
-        record.scopeExclusions.length > 0
-            ? `**Stays out of:** ${record.scopeExclusions.map(e => e.url).join(', ')}`
-            : '',
-        record.outgoingLinks.length > 0
-            ? `**Links out:** ${record.outgoingLinks.map(l => `${l.anchorText} → ${l.destinationUrl}`).join(', ')}`
-            : '',
-    ].filter(Boolean).join('\n');
+    const description = approvalTaskDescription(record);
 
     const taskResult = await createTask({
         organizationId,
@@ -240,10 +247,7 @@ export async function approveRecord(
         return { success: false, error: taskResult.error ?? 'Failed to create task' };
     }
 
-    const updateResult = await updateRecord(record.id, {
-        status: 'approved',
-        taskId: taskResult.data.id,
-    });
+    const updateResult = await updateRecord(record.id, approveUpdate(taskResult.data.id));
 
     if (!updateResult.success) {
         return { success: false, error: updateResult.error };
@@ -253,7 +257,53 @@ export async function approveRecord(
 }
 
 export async function declineRecord(recordId: string): Promise<{ success: boolean; error?: string }> {
-    return updateRecord(recordId, { status: 'declined' });
+    return updateRecord(recordId, declineUpdate());
+}
+
+export async function fetchSpecEnabled(clientId: string): Promise<boolean> {
+    try {
+        const response = await fetch(`/api/topical-map/records?clientId=${encodeURIComponent(clientId)}`);
+        if (!response.ok) return false;
+        const body = await response.json() as { enabled?: unknown };
+        return body.enabled === true;
+    } catch {
+        return false;
+    }
+}
+
+export async function createManualRecord(
+    input: ManualRecordDraft & { clientId: string; siloId: string },
+): Promise<{ record: TopicalMapRecord | null; error?: string }> {
+    return sendRecord('/api/topical-map/records', 'POST', input);
+}
+
+export async function updateRecordSpec(
+    clientId: string,
+    recordId: string,
+    patch: SpecFieldPatch,
+): Promise<{ record: TopicalMapRecord | null; error?: string }> {
+    return sendRecord('/api/topical-map/records', 'PATCH', { clientId, recordId, ...patch });
+}
+
+async function sendRecord(
+    url: string,
+    method: 'POST' | 'PATCH',
+    body: unknown,
+): Promise<{ record: TopicalMapRecord | null; error?: string }> {
+    try {
+        const response = await fetch(url, {
+            method,
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const payload = await response.json().catch(() => ({})) as { record?: TopicalMapRecord; error?: unknown };
+        if (!response.ok || !payload.record) {
+            return { record: null, error: typeof payload.error === 'string' ? payload.error : 'Unable to save the record.' };
+        }
+        return { record: payload.record };
+    } catch {
+        return { record: null, error: 'Unable to save the record.' };
+    }
 }
 
 // ─── Business Profile ───────────────────────────────────────────────────────

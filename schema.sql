@@ -5773,6 +5773,21 @@ create table public.topical_map_records (
     matched_url text,
     task_id uuid references public.tasks(id) on delete set null,
     reviewer_notes text,
+    -- 083 spec fields. Nullable. Existing rows stay null until an AM edits them.
+    answer_first_60 text check (
+        answer_first_60 is null
+        or (
+            char_length(answer_first_60) <= 2000
+            and (
+                btrim(answer_first_60) = ''
+                or cardinality(regexp_split_to_array(btrim(answer_first_60), '\s+')) <= 60
+            )
+        )
+    ),
+    unique_angle text check (unique_angle is null or char_length(unique_angle) <= 4000),
+    scheduled_for date,
+    spec_status text check (spec_status is null or spec_status in ('draft', 'ready')),
+    source text check (source is null or source in ('generated', 'manual', 'crawl', 'gsc')),
     sort_order integer not null default 0,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
