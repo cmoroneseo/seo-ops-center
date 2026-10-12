@@ -29,6 +29,13 @@ function record(overrides: Partial<TopicalMapRecord> = {}): TopicalMapRecord {
     };
 }
 
+function tag(html: string, id: string): string {
+    const idAt = html.indexOf(`id="${id}"`);
+    assert.ok(idAt >= 0, id);
+    const open = html.lastIndexOf('<', idAt);
+    return html.slice(open, html.indexOf('>', idAt) + 1);
+}
+
 function buttonDisabled(html: string, label: string): boolean {
     const end = html.indexOf(`>${label}<`);
     assert.ok(end >= 0, label);
@@ -67,6 +74,12 @@ test('the spec drawer shows the spec, an em dash for empty fields, and approve a
     assert.match(html, /Planned links/);
     assert.match(html, /Source/);
     assert.match(html, /\u2014/);
+    assert.match(html, /aria-live="polite"/);
+    assert.match(tag(html, 'record-refresh'), /placeholder="\u2014"/);
+    assert.match(tag(html, 'record-notes'), /placeholder="\u2014"/);
+    assert.match(tag(html, 'spec-date'), /placeholder="\u2014"/);
+    const afterDate = html.slice(html.indexOf('id="spec-date"'), html.indexOf('Spec status'));
+    assert.equal(/<p[^>]*>\s*\u2014\s*<\/p>/.test(afterDate), false);
     assert.equal(html.includes('value="0"'), false);
     assert.equal(html.includes('0 of 60'), false);
     assert.equal(buttonDisabled(html, 'Approve'), false);
