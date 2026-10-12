@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { AlertTriangle, Loader2, Map, Sparkles } from 'lucide-react';
 
 import { fetchSpecEnabled, getTopicalMapByClient } from '@/lib/supabase/topical-map';
@@ -196,7 +196,7 @@ interface TopicalMapReadyProps {
     wizardOpen: boolean;
     setWizardOpen: (open: boolean) => void;
     onReload: () => Promise<void>;
-    setLoaded: (l: LoadedMap) => void;
+    setLoaded: Dispatch<SetStateAction<LoadedMap>>;
 }
 
 function TopicalMapReady({
@@ -268,11 +268,10 @@ function TopicalMapReady({
 
     const handleRecordUpdated = (updated: TopicalMapRecord) => {
         setSelectedRecord(updated);
-        setLoaded({
-            map,
-            silos,
-            records: records.map(r => (r.id === updated.id ? updated : r)),
-        });
+        setLoaded(current => ({
+            ...current,
+            records: current.records.map(existing => existing.id === updated.id ? updated : existing),
+        }));
     };
 
     return (

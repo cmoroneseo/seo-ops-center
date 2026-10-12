@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Check, ExternalLink, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -8,6 +8,20 @@ import type {
 } from '@/lib/types';
 import { approveRecord, declineRecord, updateRecord, updateRecordSpec } from '@/lib/supabase/topical-map';
 import { PAGE_TYPES, type SpecFieldPatch } from '@/lib/topical-map/spec';
+import {
+    advanceBaseline,
+    bumpRevisions,
+    changedSpecPatch,
+    createSerialQueue,
+    mergeSpecSave,
+    pickSpecFields,
+    snapshotRevisions,
+    specBaseline,
+    specPatchKey,
+    specSaveLabel,
+    type FieldRevisions,
+    type SpecSaveState,
+} from '@/lib/topical-map/spec-save';
 import { PILL_CLASS, RECORD_STATUS_STYLES, SPEC_STATUS_STYLES } from './constants';
 import { SpecSection } from './SpecSection';
 import { useOverlayA11y } from './useOverlayA11y';
@@ -46,15 +60,46 @@ export function RecordDetailPanel({
 }: RecordDetailPanelProps) {
     const headingId = useId();
     const open = isOpen && Boolean(record);
-    const panelRef = useOverlayA11y(open, onClose);
+    const closeRef = useRef<() => void>(onClose);
+    const panelRef = useOverlayA11y(open, () => closeRef.current());
     const [draft, setDraft] = useState<TopicalMapRecord | null>(record);
+    const [saved, setSaved] = useState<SpecFieldPatch>(() => record ? specBaseline(record) : {});
     const [notesDraft, setNotesDraft] = useState('');
     const [isApproving, setIsApproving] = useState(false);
     const [isDeclining, setIsDeclining] = useState(false);
     const [error, setError] = useState('');
+    const [saveState, setSaveState] = useState<SpecSaveState>('idle');
+    const draftRef = useRef<TopicalMapRecord | null>(record);
+    const savedRef = useRef<SpecFieldPatch>(saved);
+    const revisions = useRef<FieldRevisions>({});
+    const pendingWrites = useRef(0);
+    const saveFailed = useRef(false);
+    const inflight = useRef(new Map<string, Promise<boolean>>());
+    const enqueueRef = useRef(createSerialQueue());
+    const onUpdatedRef = useRef(onUpdated);
+    onUpdatedRef.current = onUpdated;
+
+    const replaceDraft = (next: TopicalMapRecord) => {
+        draftRef.current = next;
+        setDraft(next);
+    };
+
+    const editDraft = (partial: Partial<TopicalMapRecord>) => {
+        const base = draftRef.current;
+        if (!base) return;
+        const specky = pickSpecFields(partial);
+        if (specky) revisions.current = bumpRevisions(revisions.current, specky);
+        replaceDraft({ ...base, ...partial });
+    };
 
     useEffect(() => {
         setDraft(record);
+        draftRef.current = record;
+        const baseline = record ? specBaseline(record) : {};
+        savedRef.current = baseline;
+        setSaved(baseline);
+        revisions.current = {};
+        setSaveState('idle');
         setNotesDraft(record?.reviewerNotes ?? '');
         setError('');
         // Reset only when a different page opens. Depending on `record` would
@@ -62,48 +107,104 @@ export function RecordDetailPanel({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [record?.id]);
 
+    const persist = (patch: SpecFieldPatch): Promise<boolean> => {
+        if (!specEnabled || !record) return Promise.resolve(true);
+        const meaningful = changedSpecPatch(patch, savedRef.current);
+        if (!meaningful) return Promise.resolve(true);
+        const key = specPatchKey(meaningful);
+        const existing = inflight.current.get(key);
+        if (existing) return existing;
+        const sentRevisions = snapshotRevisions(revisions.current, meaningful);
+        const recordId = record.id;
+        pendingWrites.current += 1;
+        setSaveState('saving');
+        const job = enqueueRef.current(async () => {
+            try {
+                const res = await updateRecordSpec(clientId, recordId, meaningful);
+                if (!res.record) {
+                    saveFailed.current = true;
+                    setError(res.error ?? 'Unable to save the spec.');
+                    return false;
+                }
+                if (!draftRef.current || draftRef.current.id !== recordId) {
+                    onUpdatedRef.current(res.record);
+                    saveFailed.current = false;
+                    return true;
+                }
+                const merged = mergeSpecSave(draftRef.current, res.record, meaningful, sentRevisions, revisions.current);
+                const nextSaved = advanceBaseline(savedRef.current, merged, meaningful, sentRevisions, revisions.current);
+                savedRef.current = nextSaved;
+                setSaved(nextSaved);
+                replaceDraft(merged);
+                onUpdatedRef.current(merged);
+                saveFailed.current = false;
+                setError('');
+                return true;
+            } catch {
+                saveFailed.current = true;
+                setError('Unable to save the spec.');
+                return false;
+            }
+        });
+        inflight.current.set(key, job);
+        void job.finally(() => {
+            if (inflight.current.get(key) === job) inflight.current.delete(key);
+            pendingWrites.current = Math.max(0, pendingWrites.current - 1);
+            if (pendingWrites.current === 0) {
+                const dirty = draftRef.current ? changedSpecPatch(specBaseline(draftRef.current), savedRef.current) : null;
+                setSaveState(saveFailed.current ? 'error' : dirty ? 'idle' : 'saved');
+            }
+        });
+        return job;
+    };
+
+    const flushPending = async (): Promise<boolean> => {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && panelRef.current?.contains(active)) active.blur();
+        if (!specEnabled) return true;
+        const current = draftRef.current;
+        if (!current) return true;
+        const pending = changedSpecPatch(specBaseline(current), savedRef.current);
+        if (!pending) return true;
+        return persist(pending);
+    };
+
+    closeRef.current = () => { void requestClose(); };
+
+    async function requestClose() {
+        const ok = await flushPending();
+        if (ok) onClose();
+    }
+
     if (!open || !record || !draft) return null;
 
     const patch = async (nextPatch: Partial<TopicalMapRecord>) => {
-        const next = { ...draft, ...nextPatch };
-        setDraft(next);
-        const res = await updateRecord(record.id, nextPatch);
-        if (res.success) onUpdated(next);
+        const base = draftRef.current;
+        if (!base) return;
+        const next = { ...base, ...nextPatch };
+        replaceDraft(next);
+        const res = await updateRecord(base.id, nextPatch);
+        if (res.success) onUpdatedRef.current(draftRef.current ?? next);
         else setError(res.error ?? 'Failed to save change');
     };
 
     const saveSpec = async (specPatch: SpecFieldPatch) => {
-        const res = await updateRecordSpec(clientId, record.id, specPatch);
-        if (!res.record) {
-            setError(res.error ?? 'Unable to save the spec.');
-            return;
-        }
-        const next: TopicalMapRecord = {
-            ...draft,
-            targetQuery: res.record.targetQuery,
-            wordCountMin: res.record.wordCountMin,
-            wordCountMax: res.record.wordCountMax,
-            answerFirst60: res.record.answerFirst60,
-            uniqueAngle: res.record.uniqueAngle,
-            scheduledFor: res.record.scheduledFor,
-            specStatus: res.record.specStatus,
-            scopeExclusions: res.record.scopeExclusions,
-            outgoingLinks: res.record.outgoingLinks,
-            source: res.record.source,
-            updatedAt: res.record.updatedAt,
-        };
-        setDraft(next);
-        onUpdated(next);
-        setError('');
+        await persist(specPatch);
     };
 
     const handleApprove = async () => {
         setIsApproving(true);
         setError('');
-        const res = await approveRecord(draft, organizationId, clientId, userId);
+        const flushed = await flushPending();
+        if (!flushed) {
+            setIsApproving(false);
+            return;
+        }
+        const current = draftRef.current ?? draft;
+        const res = await approveRecord(current, organizationId, clientId, userId);
         setIsApproving(false);
         if (res.success) {
-            onUpdated({ ...draft, status: 'approved', taskId: res.taskId });
+            onUpdatedRef.current({ ...current, status: 'approved', taskId: res.taskId });
             onClose();
         } else {
             setError(res.error ?? 'Failed to approve record');
@@ -113,10 +214,15 @@ export function RecordDetailPanel({
     const handleDecline = async () => {
         setIsDeclining(true);
         setError('');
+        const flushed = await flushPending();
+        if (!flushed) {
+            setIsDeclining(false);
+            return;
+        }
         const res = await declineRecord(record.id);
         setIsDeclining(false);
         if (res.success) {
-            onUpdated({ ...draft, status: 'declined' });
+            onUpdatedRef.current({ ...(draftRef.current ?? draft), status: 'declined' });
             onClose();
         } else {
             setError(res.error ?? 'Failed to decline record');
@@ -124,7 +230,7 @@ export function RecordDetailPanel({
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm" onClick={onClose}>
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm" onClick={() => { void requestClose(); }}>
             <div
                 ref={panelRef}
                 role="dialog"
@@ -144,8 +250,8 @@ export function RecordDetailPanel({
                             data-autofocus="true"
                             value={draft.title}
                             disabled={readOnly}
-                            onChange={event => setDraft({ ...draft, title: event.target.value })}
-                            onBlur={() => draft.title !== record.title && patch({ title: draft.title })}
+                            onChange={event => editDraft({ title: event.target.value })}
+                            onBlur={event => event.currentTarget.value !== record.title && patch({ title: event.currentTarget.value })}
                             className="w-full truncate bg-transparent text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-ring rounded"
                         />
                         {specEnabled ? (
@@ -165,7 +271,7 @@ export function RecordDetailPanel({
                             </p>
                         )}
                     </div>
-                    <button type="button" onClick={onClose} aria-label="Close record" className="shrink-0 rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <button type="button" onClick={() => { void requestClose(); }} aria-label="Close record" className="shrink-0 rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                         <X className="h-4 w-4" />
                     </button>
                 </div>
@@ -227,8 +333,9 @@ export function RecordDetailPanel({
                                 id="record-category"
                                 value={draft.contentCategory ?? ''}
                                 disabled={readOnly}
-                                onChange={event => setDraft({ ...draft, contentCategory: event.target.value })}
-                                onBlur={() => patch({ contentCategory: draft.contentCategory || undefined })}
+                                placeholder="—"
+                                onChange={event => editDraft({ contentCategory: event.target.value })}
+                                onBlur={event => patch({ contentCategory: event.currentTarget.value || undefined })}
                                 className={inputClasses}
                             />
                         </div>
@@ -241,8 +348,9 @@ export function RecordDetailPanel({
                                 id="record-query"
                                 value={draft.targetQuery}
                                 disabled={readOnly}
-                                onChange={event => setDraft({ ...draft, targetQuery: event.target.value })}
-                                onBlur={() => draft.targetQuery !== record.targetQuery && patch({ targetQuery: draft.targetQuery })}
+                                placeholder="—"
+                                onChange={event => editDraft({ targetQuery: event.target.value })}
+                                onBlur={event => event.currentTarget.value !== record.targetQuery && patch({ targetQuery: event.currentTarget.value })}
                                 className={inputClasses}
                             />
                         </div>
@@ -258,8 +366,8 @@ export function RecordDetailPanel({
                                     value={emptyCount(draft.wordCountMin)}
                                     placeholder="—"
                                     disabled={readOnly}
-                                    onChange={event => setDraft({ ...draft, wordCountMin: Number(event.target.value) })}
-                                    onBlur={() => patch({ wordCountMin: draft.wordCountMin })}
+                                    onChange={event => editDraft({ wordCountMin: Number(event.target.value) })}
+                                    onBlur={event => patch({ wordCountMin: Number(event.currentTarget.value) || 0 })}
                                     className={inputClasses}
                                 />
                             </div>
@@ -271,8 +379,8 @@ export function RecordDetailPanel({
                                     value={emptyCount(draft.wordCountMax)}
                                     placeholder="—"
                                     disabled={readOnly}
-                                    onChange={event => setDraft({ ...draft, wordCountMax: Number(event.target.value) })}
-                                    onBlur={() => patch({ wordCountMax: draft.wordCountMax })}
+                                    onChange={event => editDraft({ wordCountMax: Number(event.target.value) })}
+                                    onBlur={event => patch({ wordCountMax: Number(event.currentTarget.value) || 0 })}
                                     className={inputClasses}
                                 />
                             </div>
@@ -281,10 +389,12 @@ export function RecordDetailPanel({
 
                     {specEnabled && (
                         <SpecSection
-                            record={record}
+                            key={record.id}
                             draft={draft}
+                            saved={saved}
                             readOnly={readOnly}
-                            onDraft={next => setDraft(current => current ? { ...current, ...next } : current)}
+                            saveLabel={specSaveLabel(saveState)}
+                            onDraft={editDraft}
                             onSave={saveSpec}
                         />
                     )}
@@ -297,8 +407,8 @@ export function RecordDetailPanel({
                                 type="number"
                                 value={numberField(draft.buildPhase)}
                                 disabled={readOnly}
-                                onChange={event => setDraft({ ...draft, buildPhase: Number(event.target.value) })}
-                                onBlur={() => patch({ buildPhase: draft.buildPhase })}
+                                onChange={event => editDraft({ buildPhase: Number(event.target.value) })}
+                                onBlur={event => patch({ buildPhase: Number(event.currentTarget.value) || draft.buildPhase })}
                                 className={inputClasses}
                             />
                         </div>
@@ -307,10 +417,14 @@ export function RecordDetailPanel({
                             <input
                                 id="record-refresh"
                                 type="number"
-                                value={numberField(draft.refreshIntervalDays)}
+                                value={emptyCount(draft.refreshIntervalDays)}
+                                placeholder="—"
                                 disabled={readOnly}
-                                onChange={event => setDraft({ ...draft, refreshIntervalDays: event.target.value ? Number(event.target.value) : undefined })}
-                                onBlur={() => patch({ refreshIntervalDays: draft.refreshIntervalDays })}
+                                onChange={event => editDraft({ refreshIntervalDays: event.target.value ? Number(event.target.value) : undefined })}
+                                onBlur={event => {
+                                    const raw = event.currentTarget.value;
+                                    void patch({ refreshIntervalDays: raw ? Number(raw) : undefined });
+                                }}
                                 className={inputClasses}
                             />
                         </div>
@@ -325,8 +439,11 @@ export function RecordDetailPanel({
                                 value={emptyCount(draft.searchVolumeMonthly)}
                                 placeholder="—"
                                 disabled={readOnly}
-                                onChange={event => setDraft({ ...draft, searchVolumeMonthly: event.target.value ? Number(event.target.value) : undefined })}
-                                onBlur={() => patch({ searchVolumeMonthly: draft.searchVolumeMonthly })}
+                                onChange={event => editDraft({ searchVolumeMonthly: event.target.value ? Number(event.target.value) : undefined })}
+                                onBlur={event => {
+                                    const raw = event.currentTarget.value;
+                                    void patch({ searchVolumeMonthly: raw ? Number(raw) : undefined });
+                                }}
                                 className={inputClasses}
                             />
                         </div>
@@ -340,8 +457,11 @@ export function RecordDetailPanel({
                                 value={numberField(draft.keywordDifficulty)}
                                 placeholder="—"
                                 disabled={readOnly}
-                                onChange={event => setDraft({ ...draft, keywordDifficulty: event.target.value ? Number(event.target.value) : undefined })}
-                                onBlur={() => patch({ keywordDifficulty: draft.keywordDifficulty })}
+                                onChange={event => editDraft({ keywordDifficulty: event.target.value ? Number(event.target.value) : undefined })}
+                                onBlur={event => {
+                                    const raw = event.currentTarget.value;
+                                    void patch({ keywordDifficulty: raw ? Number(raw) : undefined });
+                                }}
                                 className={inputClasses}
                             />
                         </div>
@@ -398,9 +518,13 @@ export function RecordDetailPanel({
                         <textarea
                             id="record-notes"
                             value={notesDraft}
+                            placeholder="—"
                             disabled={readOnly}
                             onChange={event => setNotesDraft(event.target.value)}
-                            onBlur={() => notesDraft !== (draft.reviewerNotes ?? '') && patch({ reviewerNotes: notesDraft || undefined })}
+                            onBlur={event => {
+                                const value = event.currentTarget.value;
+                                if (value !== (draft.reviewerNotes ?? '')) void patch({ reviewerNotes: value || undefined });
+                            }}
                             rows={3}
                             className={inputClasses}
                         />

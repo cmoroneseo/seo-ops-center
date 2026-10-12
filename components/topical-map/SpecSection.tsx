@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import type { MapOutgoingLink, MapScopeExclusion, TopicalMapRecord } from '@/lib/types';
 import {
@@ -12,6 +12,7 @@ import {
     SOURCE_TITLE,
     type SpecFieldPatch,
 } from '@/lib/topical-map/spec';
+import { dateFieldPatch, textFieldPatch, wordRangePatch, type TextSpecField } from '@/lib/topical-map/spec-save';
 import { PILL_CLASS, SOURCE_STYLES } from './constants';
 import { cn } from '@/lib/utils';
 
@@ -19,9 +20,10 @@ const labelClass = 'text-xs font-medium uppercase tracking-wider text-muted-fore
 const fieldClass = 'mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring';
 
 interface SpecSectionProps {
-    record: TopicalMapRecord;
     draft: TopicalMapRecord;
+    saved: SpecFieldPatch;
     readOnly: boolean;
+    saveLabel: string;
     onDraft: (patch: Partial<TopicalMapRecord>) => void;
     onSave: (patch: SpecFieldPatch) => Promise<void>;
 }
@@ -31,9 +33,20 @@ function countValue(value: number | undefined): string {
     return String(value);
 }
 
-export function SpecSection({ record, draft, readOnly, onDraft, onSave }: SpecSectionProps) {
+function savedText(saved: SpecFieldPatch, field: TextSpecField): string | null {
+    const value = saved[field];
+    return typeof value === 'string' ? value : null;
+}
+
+export function SpecSection({ draft, saved, readOnly, saveLabel, onDraft, onSave }: SpecSectionProps) {
     const [answerError, setAnswerError] = useState('');
+    const [angleError, setAngleError] = useState('');
     const [rangeError, setRangeError] = useState('');
+    const [dateError, setDateError] = useState('');
+    const range = useRef({
+        min: draft.wordCountMin > 0 ? String(draft.wordCountMin) : '',
+        max: draft.wordCountMax > 0 ? String(draft.wordCountMax) : '',
+    });
     const answer = draft.answerFirst60 ?? '';
     const words = countWords(answer);
 
@@ -41,12 +54,37 @@ export function SpecSection({ record, draft, readOnly, onDraft, onSave }: SpecSe
         const parsed = parseSpecPatch(patch);
         if (!parsed.ok) {
             if (patch.answerFirst60 !== undefined) setAnswerError(parsed.error);
+            if (patch.uniqueAngle !== undefined) setAngleError(parsed.error);
             if (patch.wordCountMin !== undefined || patch.wordCountMax !== undefined) setRangeError(parsed.error);
+            if (patch.scheduledFor !== undefined) setDateError(parsed.error);
             return;
         }
         if (patch.answerFirst60 !== undefined) setAnswerError('');
+        if (patch.uniqueAngle !== undefined) setAngleError('');
         if (patch.wordCountMin !== undefined || patch.wordCountMax !== undefined) setRangeError('');
+        if (patch.scheduledFor !== undefined) setDateError('');
         await onSave(parsed.patch);
+    };
+
+    const commitText = (event: 'change' | 'blur', field: TextSpecField, value: string) => {
+        onDraft({ [field]: value });
+        const patch = textFieldPatch(event, field, value, savedText(saved, field));
+        if (patch) void save(patch);
+    };
+
+    const commitDate = (value: string) => {
+        onDraft({ scheduledFor: value });
+        const result = dateFieldPatch(value, typeof saved.scheduledFor === 'string' ? saved.scheduledFor : null);
+        if (!result.ok) {
+            setDateError(result.error);
+            return;
+        }
+        setDateError('');
+        if (result.patch) void save(result.patch);
+    };
+
+    const commitRange = () => {
+        void save(wordRangePatch(range.current.min, range.current.max));
     };
 
     const commitExclusions = (items: MapScopeExclusion[]) => {
@@ -61,7 +99,10 @@ export function SpecSection({ record, draft, readOnly, onDraft, onSave }: SpecSe
 
     return (
         <section aria-label="Page spec" className="space-y-4 border-t border-border/60 pt-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Spec</h3>
+            <div className="flex items-center justify-between gap-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Spec</h3>
+                <p role="status" aria-live="polite" className="text-xs text-muted-foreground">{saveLabel}</p>
+            </div>
 
             <div>
                 <label htmlFor="spec-query" className={labelClass}>Target query</label>
@@ -70,10 +111,8 @@ export function SpecSection({ record, draft, readOnly, onDraft, onSave }: SpecSe
                     value={draft.targetQuery}
                     placeholder={EMPTY_SPEC}
                     disabled={readOnly}
-                    onChange={event => onDraft({ targetQuery: event.target.value })}
-                    onBlur={() => {
-                        if (draft.targetQuery !== record.targetQuery) void save({ targetQuery: draft.targetQuery });
-                    }}
+                    onChange={event => commitText('change', 'targetQuery', event.target.value)}
+                    onBlur={event => commitText('blur', 'targetQuery', event.currentTarget.value)}
                     className={fieldClass}
                 />
             </div>
@@ -90,8 +129,12 @@ export function SpecSection({ record, draft, readOnly, onDraft, onSave }: SpecSe
                         value={countValue(draft.wordCountMin)}
                         placeholder={EMPTY_SPEC}
                         disabled={readOnly}
-                        onChange={event => onDraft({ wordCountMin: event.target.value ? Number(event.target.value.replace(/\D/g, '')) : 0 })}
-                        onBlur={() => void save({ wordCountMin: draft.wordCountMin > 0 ? draft.wordCountMin : null, wordCountMax: draft.wordCountMax > 0 ? draft.wordCountMax : null })}
+                        onChange={event => {
+                            const raw = event.target.value.replace(/\D/g, '');
+                            range.current.min = raw;
+                            onDraft({ wordCountMin: raw ? Number(raw) : 0 });
+                        }}
+                        onBlur={commitRange}
                         className={fieldClass}
                     />
                     <input
@@ -100,8 +143,12 @@ export function SpecSection({ record, draft, readOnly, onDraft, onSave }: SpecSe
                         value={countValue(draft.wordCountMax)}
                         placeholder={EMPTY_SPEC}
                         disabled={readOnly}
-                        onChange={event => onDraft({ wordCountMax: event.target.value ? Number(event.target.value.replace(/\D/g, '')) : 0 })}
-                        onBlur={() => void save({ wordCountMin: draft.wordCountMin > 0 ? draft.wordCountMin : null, wordCountMax: draft.wordCountMax > 0 ? draft.wordCountMax : null })}
+                        onChange={event => {
+                            const raw = event.target.value.replace(/\D/g, '');
+                            range.current.max = raw;
+                            onDraft({ wordCountMax: raw ? Number(raw) : 0 });
+                        }}
+                        onBlur={commitRange}
                         className={fieldClass}
                     />
                 </div>
@@ -119,10 +166,10 @@ export function SpecSection({ record, draft, readOnly, onDraft, onSave }: SpecSe
                     aria-invalid={answerError ? true : undefined}
                     aria-describedby="spec-answer-count"
                     onChange={event => {
-                        onDraft({ answerFirst60: event.target.value });
+                        commitText('change', 'answerFirst60', event.target.value);
                         if (answerError && countWords(event.target.value) <= 60) setAnswerError('');
                     }}
-                    onBlur={() => void save({ answerFirst60: answer })}
+                    onBlur={event => commitText('blur', 'answerFirst60', event.currentTarget.value)}
                     className={fieldClass}
                 />
                 <p id="spec-answer-count" className={cn('mt-1 text-xs', words > 60 ? 'text-red-500' : 'text-muted-foreground')}>
@@ -139,12 +186,11 @@ export function SpecSection({ record, draft, readOnly, onDraft, onSave }: SpecSe
                     placeholder={EMPTY_SPEC}
                     disabled={readOnly}
                     rows={3}
-                    onChange={event => onDraft({ uniqueAngle: event.target.value })}
-                    onBlur={() => {
-                        if ((draft.uniqueAngle ?? '') !== (record.uniqueAngle ?? '')) void save({ uniqueAngle: draft.uniqueAngle ?? '' });
-                    }}
+                    onChange={event => commitText('change', 'uniqueAngle', event.target.value)}
+                    onBlur={event => commitText('blur', 'uniqueAngle', event.currentTarget.value)}
                     className={fieldClass}
                 />
+                {angleError && <p role="alert" className="mt-1 text-xs text-red-500">{angleError}</p>}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -154,16 +200,13 @@ export function SpecSection({ record, draft, readOnly, onDraft, onSave }: SpecSe
                         id="spec-date"
                         type="date"
                         value={draft.scheduledFor ?? ''}
+                        placeholder={EMPTY_SPEC}
                         disabled={readOnly}
-                        onChange={event => onDraft({ scheduledFor: event.target.value })}
-                        onBlur={() => {
-                            if ((draft.scheduledFor ?? '') !== (record.scheduledFor ?? '')) {
-                                void save({ scheduledFor: draft.scheduledFor || null });
-                            }
-                        }}
+                        onChange={event => commitDate(event.target.value)}
+                        onBlur={event => commitDate(event.currentTarget.value)}
                         className={fieldClass}
                     />
-                    {!draft.scheduledFor && <p className="mt-1 text-sm text-muted-foreground">{EMPTY_SPEC}</p>}
+                    {dateError && <p role="alert" className="mt-1 text-xs text-red-500">{dateError}</p>}
                 </div>
                 <div>
                     <label htmlFor="spec-status" className={labelClass}>Spec status</label>
@@ -222,6 +265,11 @@ function ExclusionList({
     onChange: (items: MapScopeExclusion[]) => void;
     onCommit: (items: MapScopeExclusion[]) => void;
 }) {
+    const latest = useRef(items);
+    const change = (next: MapScopeExclusion[]) => {
+        latest.current = next;
+        onChange(next);
+    };
     return (
         <div>
             <p className={labelClass}>Stays out of</p>
@@ -235,10 +283,9 @@ function ExclusionList({
                             placeholder={EMPTY_SPEC}
                             disabled={readOnly}
                             onChange={event => {
-                                const next = items.map((entry, entryIndex) => entryIndex === index ? { ...entry, url: event.target.value } : entry);
-                                onChange(next);
+                                change(latest.current.map((entry, entryIndex) => entryIndex === index ? { ...entry, url: event.target.value } : entry));
                             }}
-                            onBlur={() => onCommit(items)}
+                            onBlur={() => onCommit(latest.current)}
                             className={fieldClass}
                         />
                         <input
@@ -248,10 +295,9 @@ function ExclusionList({
                             disabled={readOnly}
                             onChange={event => {
                                 const reason = event.target.value;
-                                const next = items.map((entry, entryIndex) => entryIndex === index ? { ...entry, reason } : entry);
-                                onChange(next);
+                                change(latest.current.map((entry, entryIndex) => entryIndex === index ? { ...entry, reason } : entry));
                             }}
-                            onBlur={() => onCommit(items)}
+                            onBlur={() => onCommit(latest.current)}
                             className={fieldClass}
                         />
                         {!readOnly && (
@@ -260,7 +306,7 @@ function ExclusionList({
                                 aria-label={`Remove stays out of ${index + 1}`}
                                 onClick={() => {
                                     const next = items.filter((_, entryIndex) => entryIndex !== index);
-                                    onChange(next);
+                                    change(next);
                                     onCommit(next);
                                 }}
                                 className="mt-1.5 rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -274,7 +320,7 @@ function ExclusionList({
             {!readOnly && (
                 <button
                     type="button"
-                    onClick={() => onChange([...items, { url: '' }])}
+                    onClick={() => change([...items, { url: '' }])}
                     className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                     <Plus className="h-3.5 w-3.5" /> Add a page or topic
@@ -295,6 +341,11 @@ function LinkList({
     onChange: (items: MapOutgoingLink[]) => void;
     onCommit: (items: MapOutgoingLink[]) => void;
 }) {
+    const latest = useRef(items);
+    const change = (next: MapOutgoingLink[]) => {
+        latest.current = next;
+        onChange(next);
+    };
     return (
         <div>
             <p className={labelClass}>Planned links</p>
@@ -308,10 +359,9 @@ function LinkList({
                             placeholder={EMPTY_SPEC}
                             disabled={readOnly}
                             onChange={event => {
-                                const next = items.map((entry, entryIndex) => entryIndex === index ? { ...entry, anchorText: event.target.value } : entry);
-                                onChange(next);
+                                change(latest.current.map((entry, entryIndex) => entryIndex === index ? { ...entry, anchorText: event.target.value } : entry));
                             }}
-                            onBlur={() => onCommit(items)}
+                            onBlur={() => onCommit(latest.current)}
                             className={fieldClass}
                         />
                         <input
@@ -320,10 +370,9 @@ function LinkList({
                             placeholder="/path or title"
                             disabled={readOnly}
                             onChange={event => {
-                                const next = items.map((entry, entryIndex) => entryIndex === index ? { ...entry, destinationUrl: event.target.value } : entry);
-                                onChange(next);
+                                change(latest.current.map((entry, entryIndex) => entryIndex === index ? { ...entry, destinationUrl: event.target.value } : entry));
                             }}
-                            onBlur={() => onCommit(items)}
+                            onBlur={() => onCommit(latest.current)}
                             className={fieldClass}
                         />
                         {!readOnly && (
@@ -332,7 +381,7 @@ function LinkList({
                                 aria-label={`Remove planned link ${index + 1}`}
                                 onClick={() => {
                                     const next = items.filter((_, entryIndex) => entryIndex !== index);
-                                    onChange(next);
+                                    change(next);
                                     onCommit(next);
                                 }}
                                 className="mt-1.5 rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -346,7 +395,7 @@ function LinkList({
             {!readOnly && (
                 <button
                     type="button"
-                    onClick={() => onChange([...items, { anchorText: '', destinationUrl: '' }])}
+                    onClick={() => change([...items, { anchorText: '', destinationUrl: '' }])}
                     className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                     <Plus className="h-3.5 w-3.5" /> Add a link
