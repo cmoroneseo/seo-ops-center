@@ -3,7 +3,7 @@
 import {useState} from 'react';
 import {Dialog,DialogContent,DialogDescription,DialogTitle} from '@/components/ui/dialog';
 import {Button} from '@/components/ui/button';
-import {agreementCoverageEnd,agreementLabel} from '@/lib/agreements/logic';
+import {agreementCoverageEnd,agreementLabel,NO_AGREEMENT_RECORDED} from '@/lib/agreements/logic';
 import type {ClientAgreement} from '@/lib/agreements/types';
 import {agreementDateLabel} from './AgreementFlow';
 
@@ -20,23 +20,33 @@ interface Props {
     onChangeScope:()=>void;
     onCancel:(agreement:ClientAgreement)=>Promise<void>;
 }
-export function AgreementHistoryDialog({open,onOpenChange,clientName,history,today,currentId,canManage,busy,error,onChangeScope,onCancel}:Props) {
+export function AgreementHistoryHeading({label,onOpen}:{label:string;onOpen:()=>void}) {
+    return <button type="button" className="rounded text-left text-sm font-medium underline decoration-border underline-offset-4 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-haspopup="dialog" onClick={onOpen}>{label}</button>;
+}
+
+export function AgreementHistoryPanel({history,today,currentId,canManage,busy,error,onChangeScope,onCancel}:Omit<Props,'open'|'onOpenChange'|'clientName'>) {
     const latest=history.filter(a=>!a.cancelledAt).at(-1);
     const future=history.some(a=>!a.cancelledAt && a.startsOn>today);
+    return <>
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+        {history.length===0 ? error ? null : <p className="text-sm leading-relaxed text-muted-foreground">{NO_AGREEMENT_RECORDED}</p> : <div className="divide-y divide-border">
+            {[...history].reverse().map(agreement=><AgreementHistoryEntry key={agreement.id} agreement={agreement} agreements={history}
+                active={currentId===agreement.id} scheduled={!agreement.cancelledAt && agreement.startsOn>today}
+                canAmend={canManage && currentId===agreement.id && !future}
+                canCancel={canManage && latest?.id===agreement.id && agreement.startsOn>today && !agreement.cancelledAt}
+                busy={busy} onChangeScope={onChangeScope} onCancel={()=>onCancel(agreement)} />)}
+        </div>}
+    </>;
+}
+
+export function AgreementHistoryDialog({open,onOpenChange,clientName,history,today,currentId,canManage,busy,error,onChangeScope,onCancel}:Props) {
     return <Dialog open={open} onOpenChange={value=>{if(!busy)onOpenChange(value);}}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
             <div className="space-y-2 pr-6">
                 <DialogTitle className="text-xl">Agreement history</DialogTitle>
                 <DialogDescription>{clientName} · Accepted terms and the SEO Plan at each confirmation.</DialogDescription>
             </div>
-            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-            <div className="divide-y divide-border">
-                {[...history].reverse().map(agreement=><AgreementHistoryEntry key={agreement.id} agreement={agreement} agreements={history}
-                    active={currentId===agreement.id} scheduled={!agreement.cancelledAt && agreement.startsOn>today}
-                    canAmend={canManage && currentId===agreement.id && !future}
-                    canCancel={canManage && latest?.id===agreement.id && agreement.startsOn>today && !agreement.cancelledAt}
-                    busy={busy} onChangeScope={onChangeScope} onCancel={()=>onCancel(agreement)} />)}
-            </div>
+            <AgreementHistoryPanel history={history} today={today} currentId={currentId} canManage={canManage} busy={busy} error={error} onChangeScope={onChangeScope} onCancel={onCancel} />
         </DialogContent>
     </Dialog>;
 }
