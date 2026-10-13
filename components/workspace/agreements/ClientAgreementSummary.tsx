@@ -54,10 +54,10 @@ export function ClientAgreementSummary({client,onChanged}:{client:ClientProject;
         setCancelling(agreement.id);setError(null);
         try {await cancelScheduledAgreement(client.id,agreement.id);await load();await onChanged();setSuccess('Scheduled agreement cancelled. Earlier terms are preserved.');}catch(e){setError(e instanceof Error ? e.message : 'Could not cancel the scheduled agreement.');}finally{setCancelling(null);}
     };
-    if(loading && !history.length) return <p role="status" className="text-xs text-muted-foreground">Loading agreement…</p>;
+    if(loading && !history.length) return <section aria-busy="true" aria-label="Client agreement" className="flex min-h-16 items-center border-y border-border py-3"><p role="status" className="text-xs text-muted-foreground">Loading agreement…</p></section>;
     if(!available && !error) return null;
     return <>
-        <section aria-label="Client agreement" className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-y border-border py-3">
+        <section aria-label="Client agreement" className="flex min-h-16 flex-wrap items-center justify-between gap-x-6 gap-y-3 border-y border-border py-3">
             <div className="flex min-w-0 items-start gap-2.5"><CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /><div className="min-w-0 space-y-1">{heading.opensHistory ? <AgreementHistoryHeading label={heading.label} onOpen={()=>setShowHistory(true)} /> : <p className="text-sm font-medium">{heading.label}</p>}<p className="text-xs text-muted-foreground">{current ? `${agreementDateLabel(current.startsOn)} — ${agreementDateLabel(agreementCoverageEnd(current,live))}` : latest ? 'Review the next agreement; unfinished work remains available.' : 'Record the agreed terms before adding a renewal.'}{future && ` · Next agreement ${agreementDateLabel(future.startsOn)}`}</p></div></div>
             <div className="flex flex-wrap items-center gap-2">{history.length>0 && <Button type="button" variant="outline" size="lg" onClick={()=>setShowHistory(true)}><History className="h-4 w-4" />Agreement history</Button>}{canManage && !future && !latest && <Button type="button" size="lg" disabled={preparing || !!error} onClick={()=>void start('initial')}>{preparing && <Loader2 className="h-4 w-4 animate-spin" />}Record agreement</Button>}{canManage && !future && latest && <>
                 <Button type="button" variant="outline" size="lg" disabled={preparing || !!error} onClick={()=>void start('supersede')}>Supersede on date</Button>

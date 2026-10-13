@@ -8,11 +8,14 @@ export function SearchReporting({
     clientId,
     clientName,
     clientDomain,
+    sharePageFreshness = false,
 }: {
     organizationId: string;
     clientId: string;
     clientName: string;
     clientDomain: string | null;
+    /** Search already shows the window and one as-of. Don't add a second date. */
+    sharePageFreshness?: boolean;
 }) {
     return (
         <section className="mt-10 border-t border-border pt-8" aria-label="Reporting">
@@ -24,6 +27,7 @@ export function SearchReporting({
                         clientId={clientId}
                         clientName={clientName}
                         clientDomain={clientDomain}
+                        sharePageFreshness={sharePageFreshness}
                     />
                 </div>
             ) : (

@@ -33,6 +33,10 @@ export function SummaryStrip({ summary }: { summary: PlanSummary }) {
                         <span className="font-semibold">{s.todo}</span>
                     </div>
                     <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-primary" /> In progress</span>
+                        <span className="font-semibold">{s.inProgress}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
                         <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green-500" /> Done</span>
                         <span className="font-semibold">{s.done}</span>
                     </div>

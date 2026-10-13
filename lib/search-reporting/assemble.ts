@@ -70,6 +70,17 @@ function wants(surface: SurfaceFilter, kind: ReportingSurface): boolean {
     return surface === 'organic' ? kind === 'organic' : kind === 'gbp_link';
 }
 
+/** Days with no stored rows for this predicate are uncollected, not a measured zero. */
+function measured(
+    span: { start: string; end: string },
+    byDate: Map<string, StoredDay>,
+    dated: DatedMetric[],
+    predicate: (row: DatedMetric) => boolean,
+) {
+    const stored = dated.some(row => predicate(row) && row.date >= span.start && row.date <= span.end);
+    return stored ? pointsFor(span, byDate, dated, predicate) : null;
+}
+
 export function buildSearchReporting(input: BuildInput): SearchReportingResponse {
     const preset = parseRange(input.range);
     if (!preset) throw new Error('Invalid range');
@@ -169,11 +180,13 @@ export function buildSearchReporting(input: BuildInput): SearchReportingResponse
     const propertyReady = !unavailable.has(propertyGrain) && (device == null || hasPropertyDevice);
     const queriesReady = device == null && !unavailable.has('query_page');
 
+    const organicPredicate = (row: DatedMetric) => row.grain === pageGrain && row.surface === 'organic' && deviceMatch(row);
+    const mapPredicate = (row: DatedMetric) => row.grain === pageGrain && row.surface === 'gbp_link' && deviceMatch(row);
     const organicCurrent = surfaceReady && wants(input.surface, 'organic')
-        ? pointsFor(resolved.current, byDate, dated, row => row.grain === pageGrain && row.surface === 'organic' && deviceMatch(row))
+        ? measured(resolved.current, byDate, dated, organicPredicate)
         : null;
     const mapCurrent = surfaceReady && wants(input.surface, 'gbp_link')
-        ? pointsFor(resolved.current, byDate, dated, row => row.grain === pageGrain && row.surface === 'gbp_link' && deviceMatch(row))
+        ? measured(resolved.current, byDate, dated, mapPredicate)
         : null;
     const allCurrent = propertyReady && input.surface === 'all'
         ? pointsFor(resolved.current, byDate, dated, row => row.grain === propertyGrain && deviceMatch(row))
@@ -198,6 +211,7 @@ export function buildSearchReporting(input: BuildInput): SearchReportingResponse
     );
 
     const queryFacts = queriesReady ? factsFor(input.facts, byId, currentDates, 'query_page') : [];
+    const queriesStored = queryFacts.length > 0;
     const pageFacts = surfaceReady ? factsFor(input.facts, byId, currentDates, pageGrain, device) : [];
     const priorQuery = queriesReady ? impressionsByQuery(input.facts, byId, priorDates, 'query_page') : new Map<string, number>();
     const currentQuery = queriesReady ? impressionsByQuery(input.facts, byId, currentDates, 'query_page') : new Map<string, number>();
@@ -295,12 +309,12 @@ export function buildSearchReporting(input: BuildInput): SearchReportingResponse
         },
         queries: queriesReady ? {
             bands: {
-                organic: wants(input.surface, 'organic') ? positionBands(queryFacts, 'organic') : null,
-                map: wants(input.surface, 'gbp_link') ? positionBands(queryFacts, 'gbp_link') : null,
+                organic: wants(input.surface, 'organic') ? (queriesStored ? positionBands(queryFacts, 'organic') : []) : null,
+                map: wants(input.surface, 'gbp_link') ? (queriesStored ? positionBands(queryFacts, 'gbp_link') : []) : null,
             },
             investigations: {
-                organic: wants(input.surface, 'organic') ? investigationsFor(queryFacts, pageFacts, 'organic', input.clientName) : null,
-                map: wants(input.surface, 'gbp_link') ? investigationsFor(queryFacts, pageFacts, 'gbp_link', input.clientName) : null,
+                organic: wants(input.surface, 'organic') && queriesStored ? investigationsFor(queryFacts, pageFacts, 'organic', input.clientName) : null,
+                map: wants(input.surface, 'gbp_link') && queriesStored ? investigationsFor(queryFacts, pageFacts, 'gbp_link', input.clientName) : null,
             },
             receipt: sharedReceipt(METHODS.queries),
             comparison: distortionComparison(distortion),
