@@ -3,11 +3,11 @@
 import {useCallback,useEffect,useState} from 'react';
 import {CalendarClock,History,Loader2} from 'lucide-react';
 import {Button} from '@/components/ui/button';
-import {AgreementHistoryDialog} from './AgreementHistoryDialog';
+import {AgreementHistoryDialog,AgreementHistoryHeading} from './AgreementHistoryDialog';
 import {useCurrentMember} from '@/lib/hooks/useCurrentMember';
 import {getAgreementHistory,previewAgreement,confirmAgreement,cancelScheduledAgreement} from '@/lib/supabase/agreements';
 import {getCommitments} from '@/lib/supabase/commitments';
-import {agreementCoverageEnd,agreementForDate,agreementToday,agreementLabel} from '@/lib/agreements/logic';
+import {agreementCoverageEnd,agreementForDate,agreementToday,agreementHistoryHeading,clientCurrentSetup} from '@/lib/agreements/logic';
 import type {AgreementAction,AgreementInput,ClientAgreement} from '@/lib/agreements/types';
 import type {ClientProject} from '@/lib/types';
 import {AgreementFlow,agreementDateLabel} from './AgreementFlow';
@@ -35,6 +35,7 @@ export function ClientAgreementSummary({client,onChanged}:{client:ClientProject;
     const today=agreementToday(timezone);
     const current=agreementForDate(live,today);
     const future=live.find(a=>a.startsOn>today);
+    const heading=agreementHistoryHeading(current,!!latest);
     const start=async(kind:AgreementAction)=>{
         setPreparing(true);setError(null);setSuccess(null);
         try {
@@ -57,7 +58,7 @@ export function ClientAgreementSummary({client,onChanged}:{client:ClientProject;
     if(!available && !error) return null;
     return <>
         <section aria-label="Client agreement" className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-y border-border py-3">
-            <div className="flex min-w-0 items-start gap-2.5"><CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /><div className="min-w-0 space-y-1"><p className="text-sm font-medium">{current ? `${agreementLabel(current)} · ${current.title}` : latest ? 'Agreement ended' : 'Agreement history'}</p><p className="text-xs text-muted-foreground">{current ? `${agreementDateLabel(current.startsOn)} — ${agreementDateLabel(agreementCoverageEnd(current,live))}` : latest ? 'Review the next agreement; unfinished work remains available.' : 'Record the agreed terms before adding a renewal.'}{future && ` · Next agreement ${agreementDateLabel(future.startsOn)}`}</p></div></div>
+            <div className="flex min-w-0 items-start gap-2.5"><CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /><div className="min-w-0 space-y-1">{heading.opensHistory ? <AgreementHistoryHeading label={heading.label} onOpen={()=>setShowHistory(true)} /> : <p className="text-sm font-medium">{heading.label}</p>}<p className="text-xs text-muted-foreground">{current ? `${agreementDateLabel(current.startsOn)} — ${agreementDateLabel(agreementCoverageEnd(current,live))}` : latest ? 'Review the next agreement; unfinished work remains available.' : 'Record the agreed terms before adding a renewal.'}{future && ` · Next agreement ${agreementDateLabel(future.startsOn)}`}</p></div></div>
             <div className="flex flex-wrap items-center gap-2">{history.length>0 && <Button type="button" variant="outline" size="lg" onClick={()=>setShowHistory(true)}><History className="h-4 w-4" />Agreement history</Button>}{canManage && !future && !latest && <Button type="button" size="lg" disabled={preparing || !!error} onClick={()=>void start('initial')}>{preparing && <Loader2 className="h-4 w-4 animate-spin" />}Record agreement</Button>}{canManage && !future && latest && <>
                 <Button type="button" variant="outline" size="lg" disabled={preparing || !!error} onClick={()=>void start('supersede')}>Supersede on date</Button>
                 <Button type="button" variant="outline" size="lg" disabled={preparing || !!error} onClick={()=>void start('end')}>End on date</Button>
@@ -67,7 +68,7 @@ export function ClientAgreementSummary({client,onChanged}:{client:ClientProject;
         {success && <p role="status" className="text-sm text-muted-foreground">{success}</p>}
         {error && <p role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive">{error}<Button type="button" variant="outline" size="sm" onClick={()=>void load()}>Retry</Button></p>}
         <AgreementHistoryDialog open={showHistory} onOpenChange={setShowHistory} clientName={client.clientName} history={history} today={today} currentId={current?.id} canManage={canManage} busy={preparing || cancelling!==null} error={error} onChangeScope={()=>void start('amendment')} onCancel={cancelled} />
-        {flow && <AgreementFlow clientName={client.clientName} initial={flow.input} previous={flow.previous} agreements={history} onClose={()=>setFlow(null)} onReview={input=>previewAgreement({...client,agreements:history},input)} onConfirm={async(input,preview,requestId)=>{
+        {flow && <AgreementFlow clientName={client.clientName} initial={flow.input} previous={flow.previous} agreements={history} currentSetup={clientCurrentSetup(client)} onClose={()=>setFlow(null)} onReview={input=>previewAgreement({...client,agreements:history},input)} onConfirm={async(input,preview,requestId)=>{
             await confirmAgreement(client.id,input,preview.token,requestId,history);
             setFlow(null);await load();await onChanged();setSuccess(input.kind==='end' ? 'Signed end date recorded. Coverage includes that date.' : input.startsOn>today ? 'Agreement scheduled. Current terms stay in effect until its start date.' : 'Agreement saved. The client workspace and prior history are preserved.');
         }} />}
