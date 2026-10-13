@@ -26,6 +26,7 @@ import { ExistingTaskDialog } from './ExistingTaskDialog';
 import { GenerateTasksPanel } from './GenerateTasksPanel';
 import { ExecutionWorkspace, ExecutionTaskPatch, ScheduleFields } from './ExecutionWorkspace';
 import { monthKey } from '@/lib/marketing-plan-execution';
+import type { HoursNarrative } from '@/lib/seo-plan/overview';
 import {getSeoHoursForMonth} from '@/lib/supabase/change-log';
 import { getTask, updateTask } from '@/lib/supabase/tasks';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
@@ -39,12 +40,14 @@ interface MarketingPlanTabProps {
     clientName: string;
     monthlyBudget?: number | null;
     scopeMode?:'monthly'|'custom';
+    presentation?: 'classic' | 'v2';
+    hoursNarrative?: 'default' | HoursNarrative;
 }
 
-export function MarketingPlanTab({ organizationId, clientId, clientName, monthlyBudget = 0,scopeMode='monthly' }: MarketingPlanTabProps) {
+export function MarketingPlanTab({ organizationId, clientId, clientName, monthlyBudget = 0,scopeMode='monthly', presentation = 'classic', hoursNarrative = 'default' }: MarketingPlanTabProps) {
     const [addChooserOpen, setAddChooserOpen] = useState(false);
     const [basecampOnly, setBasecampOnly] = useState(false);
-    const [planLayout, setPlanLayout] = useState<'list' | 'board'>('list');
+    const [planLayout, setPlanLayout] = useState<'list' | 'board'>(presentation === 'v2' ? 'board' : 'list');
     const [roadmapMonth, setRoadmapMonth] = useState<'all' | RoadmapPhase>('all');
     const [existingOpen, setExistingOpen] = useState(false);
     const [month, setMonth] = useState(monthKey);
@@ -454,7 +457,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     );
     return <>
         {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/40 p-3 text-sm">{error}<button className="ml-3 text-primary underline" onClick={() => refresh()}>Retry</button></p>}
-        <ExecutionWorkspace onAddExisting={() => setAddChooserOpen(true)} plan={plan} month={month} budget={periodBudget} capacityMode={capacityMode} budgetTaskIds={budgetTaskIds} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} />
+        <ExecutionWorkspace onAddExisting={() => setAddChooserOpen(true)} plan={plan} month={month} budget={periodBudget} capacityMode={capacityMode} budgetTaskIds={budgetTaskIds} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} variant={presentation} hoursNarrative={presentation !== 'v2' ? 'default' : hoursNarrative === 'prelaunch' ? 'prelaunch' : capacityMode === 'unavailable' ? 'unavailable' : hoursNarrative === 'custom' || capacityMode === 'scoped' ? 'custom' : 'monthly'} />
         <AddPlanItemDialog open={addChooserOpen} onClose={() => setAddChooserOpen(false)} onSelect={source => {
             if (source === 'custom') setShowAddForm(true);
             else if (source === 'suggest') setShowSuggest(true);

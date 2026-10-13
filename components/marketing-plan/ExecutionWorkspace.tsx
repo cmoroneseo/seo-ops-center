@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import type { MarketingPlan, MarketingPlanItem, Task } from '@/lib/types';
 import { executionCapacity, monthlyExecution, taskIsComplete, TASK_STATUS_LABELS } from '@/lib/marketing-plan-execution';
+import { planSurfaceViews, scheduleHoursNote, type HoursNarrative } from '@/lib/seo-plan/overview';
 import type { MemberOption } from './ItemRow';
 
 export interface ExecutionTaskPatch {
@@ -35,6 +36,8 @@ export interface ExecutionWorkspaceProps {
     onSchedule: (item: MarketingPlanItem, fields: ScheduleFields) => Promise<void>;
     onSaveGoal: (goal: string) => Promise<void>;
     onOpenTask: (task: Task, complete?: boolean) => void;
+    variant?: 'classic' | 'v2';
+    hoursNarrative?: 'default' | HoursNarrative;
 }
 
 const field = 'w-full min-h-10 rounded-lg border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50';
@@ -49,8 +52,10 @@ function Status({ task }: { task: Task }) {
     </span>;
 }
 
-export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',budgetTaskIds, loggedHours, taskHours, members, fullPlan, onAddExisting, onMonthChange, onSaveTask, onSchedule, onSaveGoal, onOpenTask }: ExecutionWorkspaceProps) {
-    const [view, setView] = useState<'month' | 'full' | 'results'>('month');
+export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',budgetTaskIds, loggedHours, taskHours, members, fullPlan, onAddExisting, onMonthChange, onSaveTask, onSchedule, onSaveGoal, onOpenTask, variant = 'classic', hoursNarrative = 'default' }: ExecutionWorkspaceProps) {
+    const [view, setView] = useState<'month' | 'full' | 'results' | 'roadmap'>('month');
+    const views = planSurfaceViews(variant === 'v2');
+    const narrative: HoursNarrative = hoursNarrative === 'default' ? 'monthly' : hoursNarrative;
     const [selectedId, setSelectedId] = useState<string>();
     const [scheduling, setScheduling] = useState(false);
     const [editingGoal, setEditingGoal] = useState(false);
@@ -80,7 +85,7 @@ export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',
                 : <button className="mt-1 text-left text-sm font-medium hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" onClick={() => { setGoal(plan.goal ?? ''); setEditingGoal(true); }}>{plan.goal || 'Set a goal for this plan'}<span className="ml-2 text-xs font-normal text-muted-foreground">Edit</span></button>}
             </div></div>
 </div>            <section aria-label={capacityMode==='monthly' ? 'Monthly capacity' : 'Planned work'} className="min-w-0 lg:pt-7">
-                {capacityMode!=='monthly' ? <div className="space-y-3 text-sm"><p className="font-medium">{capacityMode==='unavailable' ? 'Agreement hours unavailable' : 'Planned work this month'}</p><p className="text-muted-foreground">{loggedHours==null ? 'Time unavailable' : `${formatHours(loggedHours)} logged`} · {formatHours(plannedHours)} remaining estimate</p><p className="text-xs leading-relaxed text-muted-foreground">{capacityMode==='unavailable' ? 'Reload to see the correct scope and allowance.' : 'Work spans custom scope or partial coverage. Review each agreement’s allowance in the workspace overview.'}</p></div> : <>
+                {variant==='v2' && narrative==='prelaunch' ? <div className="space-y-2 text-sm"><p className="font-medium">These hours start after launch.</p><p className="text-muted-foreground">Work can be scheduled now. It is not counted against a monthly allowance yet.</p></div> : variant==='v2' && narrative==='unavailable' ? <div className="space-y-2 text-sm"><p className="font-medium">Scope</p><p className="text-2xl font-semibold tracking-tight">—</p></div> : variant==='v2' && narrative==='custom' ? <div className="space-y-2 text-sm"><p className="font-medium">Custom scope</p><p className="text-muted-foreground">This work is not a monthly hour allowance.</p></div> : capacityMode!=='monthly' ? <div className="space-y-3 text-sm"><p className="font-medium">{capacityMode==='unavailable' ? 'Agreement hours unavailable' : 'Planned work this month'}</p><p className="text-muted-foreground">{loggedHours==null ? 'Time unavailable' : `${formatHours(loggedHours)} logged`} · {formatHours(plannedHours)} remaining estimate</p><p className="text-xs leading-relaxed text-muted-foreground">{capacityMode==='unavailable' ? 'Reload to see the correct scope and allowance.' : 'Work spans custom scope or partial coverage. Review each agreement’s allowance in the workspace overview.'}</p></div> : <>
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2">Monthly capacity{budget > 0 ? ` (${formatHours(budget)})` : ''}<span title="Logged: confirmed budget-counting client time this month. Planned: remaining estimates for open tasks in this plan, after subtracting their logged time this month. Other unscheduled work is not included." tabIndex={0} aria-label="Capacity calculation: logged client time plus remaining estimates for open tasks in this plan."><Info className="h-4 w-4 text-muted-foreground" /></span></span><span className={cn('font-medium', consumed > budget && budget > 0 && 'text-amber-500')}>{loggedHours === null ? 'Time unavailable' : budget <= 0 ? 'No budget set' : consumed > budget ? `${formatHours(consumed - budget)} over capacity` : `${formatHours(available)} available`}</span></div>
                 <div className="flex h-3 overflow-hidden rounded-full bg-muted sm:h-4" role="img" aria-label={`Monthly capacity: ${loggedHours === null ? 'unknown' : formatHours(loggedHours)} logged, ${formatHours(plannedHours)} planned, ${budget > 0 && loggedHours !== null ? formatHours(available) : 'unknown'} available`}>
                     {loggedHours !== null && <><span className="bg-primary transition-[width]" style={{ width: `${loggedHours / scale * 100}%` }} /><span className="bg-primary/40 transition-[width]" style={{ width: `${plannedHours / scale * 100}%` }} /></>}
@@ -91,7 +96,7 @@ export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',
             </section></header>
         <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex rounded-lg border border-border p-1" role="group" aria-label="Plan views">
-                {([['month', 'This month'], ['full', 'Full plan'], ['results', 'Results']] as const).map(([key, label]) => <button key={key} aria-pressed={view === key} onClick={() => setView(key)} className={cn('min-h-10 rounded-md px-4 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary', view === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>{label}</button>)}
+                {views.map(entry => <button key={entry.id} aria-pressed={view === entry.id} onClick={() => setView(entry.id)} className={cn('min-h-10 rounded-md px-4 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary', view === entry.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>{entry.label}</button>)}
             </div>
             <div className="flex items-center gap-1">
                 <button className={secondary} aria-label="Previous month" onClick={() => changeMonth(-1)}><ChevronLeft className="h-4 w-4" /></button>
@@ -99,9 +104,9 @@ export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',
                 <input id="execution-month" type="month" value={month} onChange={event => { if (/^\d{4}-\d{2}$/.test(event.target.value)) onMonthChange(event.target.value); }} className={cn(field, 'w-auto')} />
                 <button className={secondary} aria-label="Next month" onClick={() => changeMonth(1)}><ChevronRight className="h-4 w-4" /></button>
             </div>
-            <div className="flex flex-wrap gap-2">{view !== 'full' && <button className={secondary} onClick={() => { setView('full'); onAddExisting(); }}>Add Item</button>}<button className={primary} onClick={() => setScheduling(true)}><CalendarDays className="h-4 w-4" />Schedule work</button></div>
+            <div className="flex flex-wrap gap-2">{view !== 'full' && view !== 'roadmap' && <button className={secondary} onClick={() => { setView(variant === 'v2' ? 'roadmap' : 'full'); onAddExisting(); }}>Add Item</button>}<button className={primary} onClick={() => setScheduling(true)}><CalendarDays className="h-4 w-4" />Schedule work</button></div>
         </div>
-        {view === 'full' ? fullPlan : view === 'results' ? <section className="space-y-4" aria-label="Monthly results">
+        {view === 'full' || view === 'roadmap' ? fullPlan : view === 'results' ? <section className="space-y-4" aria-label="Monthly results">
             <h3 className="text-lg font-semibold">Delivered in {title}</h3><p className="text-sm text-muted-foreground">{summary.completed.length} of {summary.tasks.length} planned tasks completed. Completion reflects Tasks; estimated effort includes completed work.</p>
             {summary.completed.length ? <ul className="divide-y divide-border">{summary.completed.map(task => <li key={task.id}><button className="flex min-h-14 w-full items-center justify-between gap-4 py-3 text-left text-sm hover:text-primary" onClick={() => onOpenTask(task)}><span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-green-500" />{task.title}</span><ArrowUpRight className="h-4 w-4 shrink-0" /></button></li>)}</ul> : <p className="py-8 text-sm text-muted-foreground">Completed tasks due this month will appear here.</p>}
             <p className="flex items-start gap-2 text-xs text-muted-foreground"><Info className="h-4 w-4 shrink-0" />This is a delivery summary. Search performance and conversions are available in Search Insights.</p>
@@ -119,7 +124,7 @@ export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',
                 {selected && <TaskPane key={selected.id} task={selected} category={plan.steps.find(step => step.key === source?.stepKey)?.name} members={members} onSave={onSaveTask} onOpen={onOpenTask} />}
             </div>}
         </>}
-        <ScheduleDialog open={scheduling} onClose={() => setScheduling(false)} month={month} plan={plan} members={members} remaining={budget - consumed} budget={budget} onSchedule={onSchedule} />
+        <ScheduleDialog open={scheduling} onClose={() => setScheduling(false)} month={month} plan={plan} members={members} remaining={budget - consumed} budget={budget} onSchedule={onSchedule} variant={variant} hoursNarrative={narrative} />
     </div>;
 }
 
@@ -157,7 +162,7 @@ function TaskPane({ task, category, members, onSave, onOpen }: { task: Task; cat
     </aside>;
 }
 
-function ScheduleDialog({ open, onClose, month, plan, members, remaining, budget, onSchedule }: { open: boolean; onClose: () => void; month: string; plan: MarketingPlan; members: MemberOption[]; remaining: number; budget: number; onSchedule: ExecutionWorkspaceProps['onSchedule'] }) {
+function ScheduleDialog({ open, onClose, month, plan, members, remaining, budget, onSchedule, variant = 'classic', hoursNarrative = 'monthly' }: { open: boolean; onClose: () => void; month: string; plan: MarketingPlan; members: MemberOption[]; remaining: number; budget: number; onSchedule: ExecutionWorkspaceProps['onSchedule']; variant?: 'classic' | 'v2'; hoursNarrative?: HoursNarrative }) {
     const [query, setQuery] = useState('');
     const [itemId, setItemId] = useState('');
     const [owner, setOwner] = useState('');
@@ -175,11 +180,11 @@ function ScheduleDialog({ open, onClose, month, plan, members, remaining, budget
         <form className="space-y-4" onSubmit={async event => { event.preventDefault(); if (!picked || submitting.current) return; submitting.current = true; setBusy(true); setError(''); try { await onSchedule(picked, { dueDate: due, assigneeId: owner, estimatedHours: Number(effort) }); onClose(); } catch (e) { setError(e instanceof Error ? e.message : 'Could not schedule work'); } finally { submitting.current = false; setBusy(false); } }}>
             <fieldset disabled={busy} className="space-y-4 disabled:opacity-60">
                 <label className="block text-sm">Find work<input className={cn(field, 'mt-1')} placeholder="Search your plan…" value={query} onChange={e => setQuery(e.target.value)} /></label>
-                <div role="radiogroup" aria-label="Plan item" className="max-h-52 overflow-y-auto rounded-lg border border-border">{options.map(item => <label key={item.id} className={cn('flex cursor-pointer items-start gap-3 border-b border-border p-3 text-sm last:border-b-0 hover:bg-muted/50', itemId === item.id && 'bg-primary/10')}><input type="radio" className="mt-1 accent-primary" name="schedule-item" value={item.id} checked={itemId === item.id} onChange={() => { setItemId(item.id); setOwner(item.assigneeId ?? ''); setEffort(item.linkedTask?.estimatedHours?.toString() ?? '1'); }} /><span>{item.title}<span className="mt-1 block text-xs text-muted-foreground">{plan.steps.find(step => step.key === item.stepKey)?.name}{item.taskId ? ` · Linked task${item.dueDate ? ` · Due ${shortDate(item.dueDate)}` : ''}` : ''}</span></span></label>)}{!options.length && <p className="p-4 text-sm text-muted-foreground">{query ? 'No matching items. Try a different search.' : 'All open items are already planned for this month. Add new work in Full plan.'}</p>}</div>
+                <div role="radiogroup" aria-label="Plan item" className="max-h-52 overflow-y-auto rounded-lg border border-border">{options.map(item => <label key={item.id} className={cn('flex cursor-pointer items-start gap-3 border-b border-border p-3 text-sm last:border-b-0 hover:bg-muted/50', itemId === item.id && 'bg-primary/10')}><input type="radio" className="mt-1 accent-primary" name="schedule-item" value={item.id} checked={itemId === item.id} onChange={() => { setItemId(item.id); setOwner(item.assigneeId ?? ''); setEffort(item.linkedTask?.estimatedHours?.toString() ?? '1'); }} /><span>{item.title}<span className="mt-1 block text-xs text-muted-foreground">{plan.steps.find(step => step.key === item.stepKey)?.name}{item.taskId ? ` · Linked task${item.dueDate ? ` · Due ${shortDate(item.dueDate)}` : ''}` : ''}</span></span></label>)}{!options.length && <p className="p-4 text-sm text-muted-foreground">{query ? 'No matching items. Try a different search.' : variant === 'v2' ? 'All open items are already planned for this month. Add new work on the Roadmap.' : 'All open items are already planned for this month. Add new work in Full plan.'}</p>}</div>
                 {picked && !options.some(item => item.id === picked.id) && <p className="text-sm">Selected: {picked.title}</p>}
                 {picked?.linkedTask?.dueDate && <p className="text-sm text-amber-500">This moves the existing task from {shortDate(picked.linkedTask.dueDate)} to the new due date.</p>}
                 <div className="grid gap-3 sm:grid-cols-3"><label className="text-sm">Owner<select className={cn(field, 'mt-1')} required value={owner} onChange={e => setOwner(e.target.value)}><option value="">Select owner</option>{members.map(member => <option key={member.userId} value={member.userId}>{member.displayName}</option>)}</select></label><label className="text-sm">Due date<input type="date" className={cn(field, 'mt-1')} min={`${month}-01`} max={`${month}-${new Date(Number(month.slice(0, 4)), Number(month.slice(5)), 0).getDate()}`} required value={due} onChange={e => setDue(e.target.value)} /></label><label className="text-sm">Estimated hours<input className={cn(field, 'mt-1')} type="number" min="0.25" max="1000" step="0.25" required value={effort} onChange={e => setEffort(e.target.value)} /></label></div>
-                {budget > 0 && <p className={cn('text-sm', Number(effort) > remaining ? 'text-amber-500' : 'text-muted-foreground')}>{Number(effort) > remaining ? `This puts the plan ${formatHours(Number(effort) - remaining)} over budget. You can still schedule it.` : `${formatHours(remaining - Number(effort))} available after scheduling.`}</p>}
+                {variant === 'v2' ? <p className="text-sm text-muted-foreground">{scheduleHoursNote(hoursNarrative, budget, remaining, Number(effort))}</p> : budget > 0 && <p className={cn('text-sm', Number(effort) > remaining ? 'text-amber-500' : 'text-muted-foreground')}>{Number(effort) > remaining ? `This puts the plan ${formatHours(Number(effort) - remaining)} over budget. You can still schedule it.` : `${formatHours(remaining - Number(effort))} available after scheduling.`}</p>}
                 <div className="flex justify-end gap-2"><button type="button" className={secondary} onClick={onClose}>Cancel</button><button type="submit" className={primary} disabled={!picked}>{busy ? 'Scheduling…' : 'Schedule task'}</button></div>
             </fieldset>{error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </form>
