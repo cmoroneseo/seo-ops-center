@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { notFound } from 'next/navigation';
+import { MissingClient } from '@/components/workspace/MissingClient';
 import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck, Plug, Target, ScanSearch, Map, FileCheck2, Globe, Archive } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -183,7 +183,7 @@ export default function ClientDetailPage() {
     }
 
     if (client === null) {
-        notFound();
+        return <MissingClient organizationName={organization?.name} />;
     }
 
     const atRisk = isClientAtRisk(client);

@@ -9,15 +9,23 @@ test('admins operate, members propose, viewers only read', () => {
         assert.equal(canProposeVault(role), true);
         assert.equal(vaultWriteLabel(role), 'Save to vault');
         assert.equal(vaultEmptyState(role).action, 'Save to vault');
+        assert.match(vaultEmptyState(role).body, /Save to vault/);
+        assert.doesNotMatch(vaultEmptyState(role).body, /live here once the SEO department saves them/);
     }
     assert.equal(canAdministerVault('member'), false);
     assert.equal(canProposeVault('member'), true);
     assert.equal(vaultWriteLabel('member'), 'Propose to vault');
     assert.equal(vaultEmptyState('member').action, 'Propose to vault');
+    assert.match(vaultEmptyState('member').body, /Propose to vault/);
+    assert.doesNotMatch(vaultEmptyState('member').body, /live here once the SEO department saves them/);
     assert.equal(canReadVault('viewer'), true);
     assert.equal(canProposeVault('viewer'), false);
     assert.equal(vaultWriteLabel('viewer'), null);
     assert.equal(vaultEmptyState('viewer').action, null);
+    assert.equal(
+        vaultEmptyState('viewer').body,
+        'Decisions, rules, approvals, contacts, and precedents live here once the SEO department saves them.',
+    );
 });
 
 test('counts stay an em dash until a real number arrives', () => {

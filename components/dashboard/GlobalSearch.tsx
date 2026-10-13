@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, X, Briefcase, CheckSquare, FileText, Command } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { Search, X, Command } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
 import { useClients } from '@/lib/hooks/use-clients';
 import { clientScopeLabel } from '@/lib/agreements/logic';
-import { VaultCommandItems } from '@/components/vault/vault-commands';
+import { clientIdFromPath, openVaultCommand, useVaultCommandList } from '@/components/vault/vault-commands';
+import { CommandPaletteResults } from '@/components/dashboard/CommandPaletteResults';
 
 interface GlobalSearchProps {
     isOpen: boolean;
@@ -71,57 +72,16 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
                 </div>
 
                 <div className="max-h-[60vh] overflow-y-auto p-2">
-                    {query.length > 1 ? (
-                        <div className="space-y-4">
-                            {results.length > 0 ? (
-                                <div>
-                                    <h3 className="px-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Clients</h3>
-                                    <div className="space-y-1">
-                                        {results.map(client => (
-                                            <button
-                                                key={client.id}
-                                                onClick={() => handleSelect(client.id)}
-                                                className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-primary/10 transition-colors text-left"
-                                            >
-                                                <div className="h-8 w-8 rounded bg-primary/20 flex items-center justify-center text-primary">
-                                                    <Briefcase className="h-4 w-4" />
-                                                </div>
-                                                <div className="flex-1 overflow-hidden">
-                                                    <p className="font-medium text-sm truncate">{client.clientName}</p>
-                                                    <p className="text-xs text-muted-foreground truncate">
-                                                        {client.accountManager} · T{client.tier} · {clientScopeLabel(client)}
-                                                    </p>
-                                                </div>
-                                                <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded border border-border text-muted-foreground">Jump to</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="space-y-4">
-                                    <VaultCommandItems query={query} onClose={onClose} />
-                                    <div className="py-12 text-center">
-                                        <p className="text-muted-foreground">No matches for "{query}"</p>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    ) : (
-                        <div className="space-y-4 p-4">
-                            <VaultCommandItems query={query} onClose={onClose} />
-                            <h3 className="text-sm font-medium mb-4">Quick Links</h3>
-                            <div className="grid grid-cols-2 gap-2">
-                                <button className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left">
-                                    <CheckSquare className="h-4 w-4 text-orange-500" />
-                                    <span className="text-sm">My Tasks</span>
-                                </button>
-                                <button className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left">
-                                    <FileText className="h-4 w-4 text-blue-500" />
-                                    <span className="text-sm">Reports</span>
-                                </button>
-                            </div>
-                        </div>
-                    )}
+                    <SearchResults
+                        query={query}
+                        clients={results.map(client => ({
+                            id: client.id,
+                            name: client.clientName,
+                            detail: `${client.accountManager} · T${client.tier} · ${clientScopeLabel(client)}`,
+                        }))}
+                        onSelectClient={handleSelect}
+                        onClose={() => { onClose(); setQuery(''); }}
+                    />
                 </div>
 
                 <div className="p-3 border-t border-border bg-muted/30 flex items-center justify-between text-[10px] text-muted-foreground">
@@ -133,5 +93,36 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
                 </div>
             </div>
         </div>
+    );
+}
+
+function SearchResults({
+    query,
+    clients,
+    onSelectClient,
+    onClose,
+}: {
+    query: string;
+    clients: { id: string; name: string; detail: string }[];
+    onSelectClient: (id: string) => void;
+    onClose: () => void;
+}) {
+    const router = useRouter();
+    const pathname = usePathname() ?? '';
+    const vault = useVaultCommandList(query);
+    return (
+        <CommandPaletteResults
+            query={query}
+            clients={clients}
+            vault={vault.commands.map(command => ({ id: command.id, label: command.label }))}
+            vaultPending={!vault.ready}
+            onSelectClient={onSelectClient}
+            onSelectVault={(id) => {
+                const command = vault.commands.find(item => item.id === id);
+                if (!command) return;
+                openVaultCommand(command, pathname, clientIdFromPath(pathname), href => router.push(href));
+                onClose();
+            }}
+        />
     );
 }

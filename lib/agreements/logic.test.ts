@@ -109,7 +109,7 @@ test('supersede, end, and renew are explicit, and a gap is not a zero budget',()
     assert.equal(forked.added.length,1);
     const gapped={...before,endsOn:'2026-09-10'};
     const gapLines=monthCoverageLines([gapped],{...input,kind:'renewal',startsOn:'2026-09-20'}).map(line=>line.text);
-    assert.deepEqual(gapLines,['Sep 1–10 · 6.67h prorated retainer · 10 days','Sep 11–19 · —','Sep 20–30 · Custom allowance']);
+    assert.deepEqual(gapLines,['Sep 1–10 · 6.67h prorated retainer · 10 days','Sep 11–19 · Not covered','Sep 20–30 · Custom allowance']);
     assert.equal(diff.carried.length,0);
 });
 test('a fully covered month is a retainer, and prorated is only a partial slice',()=>{
@@ -117,7 +117,7 @@ test('a fully covered month is a retainer, and prorated is only a partial slice'
     assert.deepEqual(monthCoverageLines([],full).map(line=>line.text),['Mar 1–31 · 10h retainer']);
     assert.equal(monthCoverageLines([],full).some(line=>/prorated/i.test(line.text)),false);
     const partial:AgreementInput={...full,startsOn:'2026-03-19',hours:30};
-    assert.deepEqual(monthCoverageLines([],partial).map(line=>line.text),['Mar 1–18 · —','Mar 19–31 · 12.58h prorated retainer · 13 days']);
+    assert.deepEqual(monthCoverageLines([],partial).map(line=>line.text),['Mar 1–18 · Not covered','Mar 19–31 · 12.58h prorated retainer · 13 days']);
     const fullPeriod:AgreementInput={...full,proration:'full_period',startsOn:'2026-03-19',hours:10};
     assert.equal(monthCoverageLines([],fullPeriod).some(line=>/prorated/i.test(line.text)),false);
     assert.match(monthCoverageLines([],fullPeriod).at(-1)!.text,/full-period allowance/);

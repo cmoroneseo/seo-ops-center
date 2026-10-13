@@ -24,24 +24,27 @@ export function formatVaultCount(value: number | null | undefined): string {
     return String(value);
 }
 
+const VAULT_EMPTY_TITLE = 'Nothing saved for this client yet';
+
+/** Viewers wait on the department. Admins and members get the action their role can take. */
 export function vaultEmptyState(role: VaultRole): { title: string; body: string; action: 'Save to vault' | 'Propose to vault' | null } {
     if (canAdministerVault(role)) {
         return {
-            title: 'Nothing saved for this client yet',
-            body: 'Decisions, rules, approvals, contacts, and precedents live here once the SEO department saves them.',
+            title: VAULT_EMPTY_TITLE,
+            body: 'Save to vault to record a decision, rule, approval, contact, or precedent for this client.',
             action: 'Save to vault',
         };
     }
     if (canProposeVault(role)) {
         return {
-            title: 'Nothing saved for this client yet',
-            body: 'Propose a decision or rule. An admin on the SEO team reviews it before it is saved.',
+            title: VAULT_EMPTY_TITLE,
+            body: 'Propose to vault when a decision or rule should be saved. An admin on the SEO team reviews it first.',
             action: 'Propose to vault',
         };
     }
     return {
-        title: 'Nothing saved for this client yet',
-        body: 'The SEO department saves decisions and rules here. You can read them once they are saved.',
+        title: VAULT_EMPTY_TITLE,
+        body: 'Decisions, rules, approvals, contacts, and precedents live here once the SEO department saves them.',
         action: null,
     };
 }

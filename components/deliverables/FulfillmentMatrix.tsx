@@ -5,6 +5,7 @@ import { Grid3X3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DeliverableType, FulfillmentCell } from '@/lib/types';
 import { fulfillmentStatus } from '@/lib/seo-ops-logic';
+import { fulfillmentCellLabel } from '@/lib/deliverables/fulfillment-cells';
 import { severityBadgeClass } from './deliverable-ui';
 
 const TYPES: DeliverableType[] = ['Content', 'Backlink', 'GBP', 'Other'];
@@ -67,22 +68,22 @@ export function FulfillmentMatrix({ clients, cells, daysLeftInMonth, onCellClick
                             <div className="flex flex-wrap gap-2 mt-2">
                                 {clientCells.map(({ t, cell }) => {
                                     const c = cell!;
-                                    const pace = fulfillmentStatus({
+                                    const pace = c.promisedConfigured ? fulfillmentStatus({
                                         promised: c.promised, delivered: c.delivered,
                                         inProgress: c.inProgress, overdue: c.overdue, daysLeftInMonth,
-                                    });
-                                    const promisedShown = c.promised || c.generated;
+                                    }) : null;
                                     return (
                                         <button
                                             key={t}
                                             onClick={() => onCellClick(client.id, t)}
+                                            title={pace ? `${pace.status} — ${pace.reason}` : 'No promise configured for this month'}
                                             className={cn(
                                                 'inline-flex items-center gap-1.5 min-h-[44px] px-3 rounded-xl text-sm font-bold border active:scale-95 transition-transform',
-                                                severityBadgeClass(pace.severity),
+                                                pace ? severityBadgeClass(pace.severity) : 'text-muted-foreground bg-muted border-border',
                                             )}
                                         >
                                             <span className="text-[11px] font-semibold uppercase tracking-wide opacity-70">{t}</span>
-                                            {c.delivered}/{promisedShown}
+                                            {fulfillmentCellLabel(c)}
                                         </button>
                                     );
                                 })}
@@ -119,25 +120,24 @@ export function FulfillmentMatrix({ clients, cells, daysLeftInMonth, onCellClick
                                     if (!cell || (cell.promised === 0 && cell.generated === 0)) {
                                         return <td key={t} className="text-center px-3 py-2.5 text-muted-foreground/40">—</td>;
                                     }
-                                    const pace = fulfillmentStatus({
+                                    const pace = cell.promisedConfigured ? fulfillmentStatus({
                                         promised: cell.promised,
                                         delivered: cell.delivered,
                                         inProgress: cell.inProgress,
                                         overdue: cell.overdue,
                                         daysLeftInMonth,
-                                    });
-                                    const promisedShown = cell.promised || cell.generated;
+                                    }) : null;
                                     return (
                                         <td key={t} className="text-center px-3 py-2.5">
                                             <button
                                                 onClick={() => onCellClick(client.id, t)}
-                                                title={`${pace.status} — ${pace.reason}${cell.generated > cell.promised && cell.promised > 0 ? ` (${cell.generated} generated / ${cell.promised} promised)` : ''}`}
+                                                title={pace ? `${pace.status} — ${pace.reason}${cell.generated > cell.promised && cell.promised > 0 ? ` (${cell.generated} generated / ${cell.promised} promised)` : ''}` : 'No promise configured for this month'}
                                                 className={cn(
                                                     'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border transition-transform hover:scale-105',
-                                                    severityBadgeClass(pace.severity),
+                                                    pace ? severityBadgeClass(pace.severity) : 'text-muted-foreground bg-muted border-border',
                                                 )}
                                             >
-                                                {cell.delivered}/{promisedShown}
+                                                {fulfillmentCellLabel(cell)}
                                             </button>
                                         </td>
                                     );

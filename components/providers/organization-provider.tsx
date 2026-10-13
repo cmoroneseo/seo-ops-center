@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Organization, OrganizationMember } from '@/lib/types'
 import { parseTheme } from '@/lib/theme/palette'
 import { SELECTED_ORG_COOKIE } from '@/lib/theme/cookie'
+import { routeAfterOrganizationChange } from '@/lib/organization/route-after-switch'
 import { useRouter } from 'next/navigation'
 
 interface OrganizationContextType {
@@ -151,9 +152,13 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
     }, [supabase]);
 
     const handleSetOrganization = (org: Organization) => {
+        const switching = Boolean(organization?.id && organization.id !== org.id)
         setOrganization(org)
         localStorage.setItem('selectedOrgId', org.id)
         writeSelectedOrgCookie(org.id)
+        if (!switching || typeof window === 'undefined') return
+        const next = routeAfterOrganizationChange(window.location.pathname)
+        if (next) router.replace(next)
     }
 
     return (

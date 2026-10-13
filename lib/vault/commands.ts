@@ -27,3 +27,10 @@ export function vaultCommands(input: {
     }
     return items;
 }
+
+/** Short queries keep the full command list. A search matches the label or keywords. */
+export function matchingVaultCommands(commands: VaultCommand[], query: string): VaultCommand[] {
+    const needle = query.trim().toLowerCase();
+    if (needle.length < 2) return commands;
+    return commands.filter(command => `${command.label} ${command.keywords}`.toLowerCase().includes(needle));
+}
