@@ -104,6 +104,10 @@ export async function getTimeLogs(
     organizationId: string,
     opts: {
         clientId?: string;
+        /** Limit to one member. An org-wide read must not be treated as that member's day. */
+        userId?: string;
+        /** Exact `time_logs.date` (YYYY-MM-DD). Use the member's local calendar date. */
+        onDate?: string;
         /** Let capacity surfaces distinguish unavailable data from zero hours. */
         throwOnError?: boolean;
         month?: string;
@@ -121,7 +125,9 @@ export async function getTimeLogs(
         if (!opts.includeInProgress) q = q.eq('status', 'logged');
         if (!opts.includeUnreviewedImports) q = q.eq('import_status', COUNTABLE_IMPORT_STATUS);
         if (opts.clientId) q = q.eq('client_id', opts.clientId);
-        if (opts.month) {
+        if (opts.userId) q = q.eq('user_id', opts.userId);
+        if (opts.onDate) q = q.eq('date', opts.onDate);
+        else if (opts.month) {
             const [y, m] = opts.month.split('-').map(Number);
             const lastDay = new Date(y, m, 0).getDate();
             const end = `${opts.month}-${String(lastDay).padStart(2, '0')}`;

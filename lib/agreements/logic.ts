@@ -2,7 +2,10 @@ import type { AgreementInput, AgreementPeriod, AgreementService, ClientAgreement
 
 export interface CoverageLine { startsOn: string; endsOn: string; text: string }
 export interface OutputChange { before: AgreementService; after: AgreementService }
-export interface OutputDiff { kept: AgreementService[]; renamed: OutputChange[]; stopped: AgreementService[]; added: AgreementService[] }
+export interface OutputDiff { kept: AgreementService[]; renamed: OutputChange[]; stopped: AgreementService[]; added: AgreementService[]; carried: AgreementService[] }
+/** Hours already on the client record, before an original agreement is recorded. Null hours are unknown, never a fake zero. */
+export interface SetupAllowance { mode: 'monthly' | 'custom' | null; hours: number | null }
+export interface AllowanceReconciliation { text: string; mismatch: boolean }
 
 const DAY = 86400000;
 function day(date: string): number { return Date.parse(`${date}T00:00:00Z`); }
@@ -19,6 +22,20 @@ export function agreementToday(timezone: string, now = new Date()): string {
 export function formatHourAmount(value: number): string {
     if (!Number.isFinite(value)) return '—';
     return String(Math.round(value * 100) / 100);
+}
+export function agreementDateLabel(value: string | null): string {
+    return value ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`)) : 'Open-ended';
+}
+/** Dialog title for each agreement action. The original-agreement button says "Record agreement". */
+export const agreementFlowTitle: Record<AgreementInput['kind'], string> = {
+    initial: 'Record agreement',
+    renewal: 'Renew',
+    amendment: 'Change scope',
+    supersede: 'Supersede on date',
+    end: 'End on date',
+};
+export function agreementDialogTitle(kind: AgreementInput['kind'], reviewing: boolean): string {
+    return reviewing ? 'Review agreement' : agreementFlowTitle[kind];
 }
 /** Monthly quota. Null is a gap or a month with no monthly agreement, never a fake zero. */
 export function formatHourQuota(budget: number | null | undefined): string {
@@ -111,7 +128,7 @@ export function monthCoverageLines(existing: ClientAgreement[], input: Agreement
         }
         const range = rangeLabel(segment.startsOn, segment.endsOn);
         const text = segment.agreement.mode === 'monthly' && segment.budget != null
-            ? `${range} · ${formatHourAmount(segment.budget)}h ${segment.agreement.proration === 'full_period' ? 'full-period allowance' : 'prorated retainer'}`
+            ? `${range} · ${monthlyCoverageHours(segment.startsOn, segment.endsOn, segment.budget, segment.agreement, monthStart, monthEnd)}`
             : segment.agreement.mode === 'monthly' ? `${range} · —` : `${range} · Custom allowance`;
         lines.push({ startsOn: segment.startsOn, endsOn: segment.endsOn, text });
         cursor = shift(segment.endsOn, 1);
@@ -119,12 +136,28 @@ export function monthCoverageLines(existing: ClientAgreement[], input: Agreement
     if (cursor <= monthEnd) lines.push({ startsOn: cursor, endsOn: monthEnd, text: `${rangeLabel(cursor, monthEnd)} · —` });
     return lines;
 }
+function inclusiveDays(startsOn: string, endsOn: string): number {
+    return (day(endsOn) - day(startsOn)) / DAY + 1;
+}
+/**
+ * A daily-proration month that covers every day is the full retainer.
+ * "Prorated" is only for a partial slice, and that slice names the days covered.
+ */
+function monthlyCoverageHours(startsOn: string, endsOn: string, budget: number, agreement: ClientAgreement, monthStart: string, monthEnd: string): string {
+    const amount = `${formatHourAmount(budget)}h`;
+    if (agreement.proration === 'full_period') return `${amount} full-period allowance`;
+    if (startsOn === monthStart && endsOn === monthEnd) return `${amount} retainer`;
+    const covered = inclusiveDays(startsOn, endsOn);
+    return `${amount} prorated retainer · ${covered} ${covered === 1 ? 'day' : 'days'}`;
+}
 function sameOutputIdentity(left: AgreementService, right: AgreementService): boolean {
     return left.cadence === right.cadence && left.type === right.type && (left.subtype ?? '') === (right.subtype ?? '') && left.quantity === right.quantity && !!left.countsTowardHours === !!right.countsTowardHours;
 }
 /** Kept and renamed outputs continue. A quantity, cadence, type, or subtype change stops the old output and adds the new one. */
 export function outputDiff(previous: AgreementService[] | undefined, next: AgreementService[]): OutputDiff {
     const prior = previous ?? [];
+    // An original agreement has no predecessor. sourceId marks a row prefilled from the current setup.
+    const carried = previous ? [] : next.filter(service => !!service.sourceId);
     const kept: AgreementService[] = [];
     const renamed: OutputChange[] = [];
     const stopped: AgreementService[] = [];
@@ -134,10 +167,72 @@ export function outputDiff(previous: AgreementService[] | undefined, next: Agree
         if (continued.title.trim() === old.title.trim()) kept.push(continued); else renamed.push({ before: old, after: continued });
     }
     const added = next.filter(service => {
+        if (!previous && service.sourceId) return false;
         const old = service.sourceId ? prior.find(item => item.sourceId === service.sourceId) : undefined;
         return !old || !sameOutputIdentity(old, service);
     });
-    return { kept, renamed, stopped, added };
+    return { kept, renamed, stopped, added, carried };
+}
+export function clientCurrentSetup(client: {
+    setupScope?: { mode?: 'monthly' | 'custom' } | null;
+    engagementModel?: string;
+    seoHours?: number | null;
+    campaignConfig?: { totalHours?: number | null } | null;
+}): SetupAllowance {
+    const mode = client.setupScope?.mode ?? (client.engagementModel === 'Campaign' ? 'custom' : client.engagementModel ? 'monthly' : null);
+    if (mode === 'custom') {
+        const hours = client.campaignConfig?.totalHours;
+        return { mode, hours: typeof hours === 'number' && Number.isFinite(hours) && hours > 0 ? hours : null };
+    }
+    if (mode === 'monthly') {
+        const hours = client.seoHours;
+        return { mode, hours: typeof hours === 'number' && Number.isFinite(hours) ? hours : null };
+    }
+    return { mode: null, hours: null };
+}
+function allowanceLabel(mode: SetupAllowance['mode'], hours: number | null): string {
+    if (mode === 'custom') return hours == null ? 'Custom scope' : `Custom scope · ${formatHourAmount(hours)}h`;
+    if (mode === 'monthly' && hours != null && Number.isFinite(hours)) return `${formatHourAmount(hours)}h / month`;
+    return '—';
+}
+/** Original-agreement review, compared with the allowance already on the client. */
+export function allowanceReconciliation(current: SetupAllowance, next: { mode: AgreementInput['mode']; hours: number | null }): AllowanceReconciliation {
+    const currentLabel = allowanceLabel(current.mode, current.hours);
+    const nextLabel = allowanceLabel(next.mode, next.hours);
+    return {
+        text: `Current setup: ${currentLabel} → Agreement: ${nextLabel}`,
+        mismatch: currentLabel !== '—' && nextLabel !== '—' && currentLabel !== nextLabel,
+    };
+}
+export const NO_AGREEMENT_RECORDED = 'No agreement recorded yet. Record the original terms to start this history.';
+export function agreementHistoryHeading(current: ClientAgreement | null, ended: boolean): { label: string; opensHistory: boolean } {
+    if (current) return { label: `${agreementLabel(current)} · ${current.title}`, opensHistory: false };
+    if (ended) return { label: 'Agreement ended', opensHistory: false };
+    return { label: 'Agreement history', opensHistory: true };
+}
+/** What already-recorded budget hours will do once backdated terms are confirmed. */
+export function historicalHoursNote(input: {
+    hours: number | null;
+    startsOn: string;
+    endsOn: string | null;
+    agreementTitle: string;
+    previousTitle: string | null;
+    kind: AgreementInput['kind'];
+}): string {
+    const when = agreementDateLabel(input.startsOn);
+    const title = input.agreementTitle.trim() || 'this agreement';
+    const budgets = 'Budgets for those months will follow the recorded terms.';
+    if (input.hours == null || !Number.isFinite(input.hours)) {
+        return `Confirmed budget hours recorded on or after ${when} could not be counted. Those hours count against ${title} once the count is available. ${budgets}`;
+    }
+    if (input.hours === 0) return `No confirmed budget hours were recorded on or after ${when}. ${budgets}`;
+    const amount = `${formatHourAmount(input.hours)} confirmed budget hours recorded on or after ${when}`;
+    if (input.kind === 'initial') {
+        const coverage = input.endsOn ? `count against ${title} through ${agreementDateLabel(input.endsOn)}` : `count against ${title}`;
+        return `${amount} ${coverage}. Work dates stay unchanged. ${budgets}`;
+    }
+    const previous = input.previousTitle?.trim() || 'the previous agreement';
+    return `${amount} keep their work dates. Hours on tasks you selected count against ${title}. Hours left on the previous scope count against ${previous}. ${budgets}`;
 }
 /** An output stops when it is dropped or continued under a different cadence, type, or subtype. A rename does not stop it. */
 export function stoppingOutputs(previous: AgreementService[] | undefined, next: AgreementService[]): AgreementService[] {
