@@ -311,7 +311,7 @@ function Summary({ view }: { view: InsightsPresentation }) {
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1.7fr)_minmax(16rem,0.8fr)]">
                 <PanelCard title="Daily search visibility" extra={<CardSource source={view.source} />}>
                     {view.chart ? <SurfaceCharts chart={view.chart} /> : (
-                        <p className="text-sm text-muted-foreground">{view.banner?.body ?? 'No saved days in this window.'}</p>
+                        <p className="text-sm text-muted-foreground">{view.banner?.id === 'empty' ? view.banner.body : 'No saved days in this window.'}</p>
                     )}
                 </PanelCard>
                 {view.tracker?.verdict ? (

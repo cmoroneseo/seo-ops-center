@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { dateOffset } from '@/lib/gsc/history';
 import { deriveMonthlyGsc, monthFinality, type DaySnapshot } from '@/lib/gsc/monthly';
 import { monthBounds } from '@/lib/sync/months';
+import { NOT_COLLECTED_COPY, presentInsights } from '@/lib/search-insights/view';
 import { buildSearchReporting, type BuildInput } from './assemble';
 import { buildCityRows } from './cities';
 import { buildMovers } from './movers';
@@ -158,6 +159,40 @@ test('the default range is the last 28 final Pacific days', () => {
     assert.equal(report.range?.finality.days_expected, 28);
     assert.equal(report.summary?.totals.allGoogleSearch?.clicks, 28);
     assert.equal(report.summary?.mask.some(item => item.reason === 'preliminary'), false);
+});
+
+test('property-only history does not zero-fill organic, map, or query bands', () => {
+    const final = dates('2026-09-09', '2026-10-06').map((date, index) => day(`f-${index}`, date));
+    const report = buildSearchReporting(base({
+        range: '28d',
+        days: final,
+        facts: final.map(stored => fact(stored.id, { grain: 'property', clicks: 1, impressions: 10, position: 4 })),
+        cityTokens: ['Riverside'],
+    }));
+    assert.equal(report.summary?.series.organic, null);
+    assert.equal(report.summary?.series.map, null);
+    assert.equal(report.summary?.totals.organic, null);
+    assert.equal(report.summary?.totals.map, null);
+    assert.equal(report.summary?.totals.allGoogleSearch?.impressions, 280);
+    assert.deepEqual(report.queries?.bands.organic, []);
+    assert.deepEqual(report.queries?.bands.map, []);
+    assert.equal(report.grains?.pageOrganic.reason, NOT_COLLECTED_REASON);
+    assert.equal(report.grains?.device.reason, NOT_COLLECTED_REASON);
+    assert.equal(JSON.stringify(report.summary?.series).includes('"clicks":0'), false);
+
+    const view = presentInsights(report, { now: NOW });
+    const distinct = view.kpis.find(kpi => kpi.label === 'Distinct search queries');
+    const top = view.kpis.find(kpi => kpi.label === 'Queries averaging top 10');
+    assert.equal(distinct?.splits.find(split => split.label === 'Organic')?.value, '—');
+    assert.equal(distinct?.splits.find(split => split.label === 'Map pack')?.value, '—');
+    assert.equal(top?.splits.find(split => split.label === 'Organic')?.value, '—');
+    assert.equal(top?.splits.find(split => split.label === 'Map pack')?.value, '—');
+    assert.equal(view.queries?.surfaces.every(surface => surface.collected === false), true);
+    assert.equal(view.chart?.panels.every(panel => panel.drawn === false), true);
+    assert.match(view.chart?.panels[0]?.unavailable ?? '', /Partial · not collected yet/);
+    assert.ok(view.grainNotes.some(note => note === `Queries · ${NOT_COLLECTED_COPY}`));
+    assert.equal(view.cities?.empty, `Queries · ${NOT_COLLECTED_COPY}`);
+    assert.equal(view.kpis.some(kpi => kpi.value === '280' || kpi.value === '28'), true);
 });
 
 test('v1 history keeps the page surface split and leaves uncollected grains null', () => {

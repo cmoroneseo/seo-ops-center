@@ -197,6 +197,28 @@ test('the period label is the window, and freshness is a separate line', () => {
     const rollingView = presentInsights(rolling, { now: EXAMPLE_NOW });
     assert.equal(rollingView.rangeLabel.includes('final days'), false);
     assert.equal(rollingView.rangeLabel, view.rangeLabel);
+    assert.equal(view.source?.rangeLabel, '');
+    assert.equal(view.source?.staleLabel, null);
+    assert.equal(view.queries?.source?.rangeLabel, '');
+    assert.equal(view.queries?.source?.staleLabel, null);
+});
+
+test('a stale window keeps one freshness line and does not repeat it on the card', () => {
+    const response = exampleInsights();
+    response.freshness = {
+        ...response.freshness,
+        state: 'stale',
+        asOf: 'as of Oct 8, 2026',
+        copy: 'Search Console last synced more than a day ago.',
+    };
+    const view = presentInsights(response, { now: EXAMPLE_NOW });
+    assert.equal(view.freshnessLabel, 'as of Oct 8, 2026');
+    assert.equal(view.freshnessLabel.includes(view.rangeLabel), false);
+    assert.equal(view.banner, null);
+    assert.equal(view.source?.rangeLabel, '');
+    assert.equal(view.source?.staleLabel, null);
+    assert.equal(JSON.stringify(view.source).includes('Search Console last synced'), false);
+    assert.equal(JSON.stringify(view.queries?.source).includes(view.rangeLabel), false);
 });
 
 test('a real zero stays a neutral 0 with no chart path', () => {

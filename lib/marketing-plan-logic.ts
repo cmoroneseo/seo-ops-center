@@ -9,6 +9,7 @@ export interface PlanSummary {
     done: number;
     todo: number;
     ignored: number;
+    inProgress: number;
     progressPercent: number;
     priorityCounts: { high: number; medium: number; low: number };
 }
@@ -17,7 +18,8 @@ export function computePlanSummary(items: MarketingPlanItem[]): PlanSummary {
     const total = items.length;
     const done = items.filter(i => i.status === 'done').length;
     const ignored = items.filter(i => i.status === 'ignored').length;
-    const todo = total - done - ignored;
+    const inProgress = items.filter(i => i.status === 'todo' && i.linkedTask?.status === 'in_progress').length;
+    const todo = total - done - ignored - inProgress;
     const denominator = total - ignored;
     const progressPercent = denominator === 0 ? 0 : Math.round((done / denominator) * 100);
     const active = items.filter(i => i.status !== 'ignored');
@@ -26,7 +28,7 @@ export function computePlanSummary(items: MarketingPlanItem[]): PlanSummary {
         medium: active.filter(i => i.priority === 'medium').length,
         low: active.filter(i => i.priority === 'low').length,
     };
-    return { total, done, todo, ignored, progressPercent, priorityCounts };
+    return { total, done, todo, ignored, inProgress, progressPercent, priorityCounts };
 }
 
 export type GroupMode = 'step' | 'priority' | 'status';

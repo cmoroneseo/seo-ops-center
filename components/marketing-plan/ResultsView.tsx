@@ -84,11 +84,11 @@ function MetricTile({
     );
 }
 
-function receiptFor(entry: LedgerEntry, clientId: string, property: string | null, title: string, value: string, surface: 'organic' | 'map') {
+function receiptFor(entry: LedgerEntry, clientId: string, property: string | null, title: string, value: string, surface: 'organic' | 'map', sharePageFreshness: boolean) {
     return {
         title,
         value,
-        freshness: entry.footnote ?? 'Final',
+        freshness: sharePageFreshness ? 'Shown in the Search header' : (entry.footnote ?? 'Final'),
         source: 'Google Search Console',
         property,
         dates: entry.datesLabel ?? entry.range,
@@ -103,7 +103,7 @@ function receiptFor(entry: LedgerEntry, clientId: string, property: string | nul
     };
 }
 
-function ResultCard({ entry, clientId, property }: { entry: LedgerEntry; clientId: string; property: string | null }) {
+function ResultCard({ entry, clientId, property, sharePageFreshness }: { entry: LedgerEntry; clientId: string; property: string | null; sharePageFreshness: boolean }) {
     const when = shipLabel(entry.shippedOn);
     const organic = entry.organic;
     const map = entry.map;
@@ -126,7 +126,7 @@ function ResultCard({ entry, clientId, property }: { entry: LedgerEntry; clientI
                         <MetricTile
                             label="Organic impressions"
                             surface="organic"
-                            value={<Receipt input={receiptFor(entry, clientId, property, 'Organic impressions', count(organic.after.impressions), 'organic')} />}
+                            value={<Receipt input={receiptFor(entry, clientId, property, 'Organic impressions', count(organic.after.impressions), 'organic', sharePageFreshness)} />}
                         >
                             <Sparkline points={organic.after.series} label={`Organic impressions by day after ${entry.title} shipped`} />
                             {organic.before.impressions > 0 && (
@@ -141,11 +141,11 @@ function ResultCard({ entry, clientId, property }: { entry: LedgerEntry; clientI
                         <MetricTile
                             label="Map pack impressions"
                             surface="map"
-                            value={<Receipt input={receiptFor(entry, clientId, property, 'Business Profile link impressions', count(map.after.impressions), 'map')} />}
+                            value={<Receipt input={receiptFor(entry, clientId, property, 'Business Profile link impressions', count(map.after.impressions), 'map', sharePageFreshness)} />}
                         />
                     </div>
                 )}
-                {entry.footnote && <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">{entry.footnote} No new verdict until sync recovers.</p>}
+                {entry.footnote && !sharePageFreshness && <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">{entry.footnote} No new verdict until sync recovers.</p>}
                 <Link href={entry.insightsHref} className="mt-3 inline-block text-xs font-medium underline underline-offset-2">Open in Search Insights</Link>
             </div>
         </article>
@@ -157,11 +157,13 @@ export function ResultsView({
     clientId,
     clientName,
     clientDomain,
+    sharePageFreshness = false,
 }: {
     organizationId: string;
     clientId: string;
     clientName: string;
     clientDomain: string | null;
+    sharePageFreshness?: boolean;
 }) {
     const [model, setModel] = useState<LedgerModel | null>(null);
     const [error, setError] = useState(false);
@@ -236,7 +238,7 @@ export function ResultsView({
                         {model.state === 'partial' && model.banner && (
                             <p role="status" className="text-sm text-muted-foreground">{model.banner}</p>
                         )}
-                        {model.state === 'stale' && model.banner && (
+                        {model.state === 'stale' && model.banner && !sharePageFreshness && (
                             <p role="status" className="text-sm text-amber-700 dark:text-amber-400">{model.banner} Verdicts stay frozen until sync recovers.</p>
                         )}
                         <SourceChip source={model.sourceLabel} rangeLabel={model.historyRangeLabel} />
@@ -248,7 +250,7 @@ export function ResultsView({
                             </div>
                         )}
                         {filter === 'work' && model.entries.map(entry => (
-                            <ResultCard key={entry.id} entry={entry} clientId={clientId} property={model.property} />
+                            <ResultCard key={entry.id} entry={entry} clientId={clientId} property={model.property} sharePageFreshness={sharePageFreshness} />
                         ))}
                         {filter === 'proof' && model.missingProof.length === 0 && (
                             <p className="text-sm text-muted-foreground">Every published deliverable has a page URL and a ship date.</p>

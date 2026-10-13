@@ -42,11 +42,23 @@ test('computePlanSummary counts statuses and priorities', () => {
     assert.equal(s.total, 4);
     assert.equal(s.done, 1);
     assert.equal(s.todo, 2);
+    assert.equal(s.inProgress, 0);
     assert.equal(s.ignored, 1);
     // done / (total - ignored) = 1/3 → 33
     assert.equal(s.progressPercent, 33);
     // ignored items excluded from priority counts
     assert.deepEqual(s.priorityCounts, { high: 1, medium: 2, low: 0 });
+});
+
+test('computePlanSummary counts a linked in-progress task apart from to do', () => {
+    const s = computePlanSummary([
+        item({ id: 'a', status: 'todo', linkedTask: { id: 't1', status: 'in_progress' } as NonNullable<MarketingPlanItem['linkedTask']> }),
+        item({ id: 'b', status: 'todo' }),
+        item({ id: 'c', status: 'done', linkedTask: { id: 't2', status: 'in_progress' } as NonNullable<MarketingPlanItem['linkedTask']> }),
+    ]);
+    assert.equal(s.inProgress, 1);
+    assert.equal(s.todo, 1);
+    assert.equal(s.done, 1);
 });
 
 test('computePlanSummary handles empty list', () => {

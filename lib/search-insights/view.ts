@@ -9,6 +9,7 @@ import { dateOffset } from '@/lib/gsc/history';
 import { STATES_COPY } from '@/lib/reporting/states-copy';
 import { deltaColumnHeader, type FormattedDelta } from '@/lib/reporting/delta';
 import type { ReceiptInput } from '@/lib/reporting/receipt';
+import { POSITION_BANDS } from '@/lib/search-reporting/queries';
 import { inclusiveDays, parseRange } from '@/lib/search-reporting/range';
 import {
     NOT_COLLECTED_DETAIL,
@@ -16,6 +17,7 @@ import {
     type BlockReceipt,
     type DayPoint,
     type GrainSlot,
+    type PositionBand,
     type SearchReportingResponse,
     type SurfaceFilter,
 } from '@/lib/search-reporting/types';
@@ -412,13 +414,13 @@ function receiptRange(receipt: BlockReceipt | null | undefined): { start: string
     return { start, end };
 }
 
-function sourceLine(response: SearchReportingResponse, receipt: BlockReceipt | null | undefined): SourceLine | null {
-    const span = receiptRange(receipt);
-    if (!receipt || !span) return null;
+function sourceLine(_response: SearchReportingResponse, receipt: BlockReceipt | null | undefined): SourceLine | null {
+    if (!receipt || !receiptRange(receipt)) return null;
+    // The toolbar already shows the window and the one freshness line.
     return {
         source: receipt.source,
-        rangeLabel: formatSpan(span.start, span.end),
-        staleLabel: response.freshness.state === 'stale' ? response.freshness.asOf : null,
+        rangeLabel: '',
+        staleLabel: null,
     };
 }
 
@@ -430,23 +432,33 @@ function freshnessLabelFor(response: SearchReportingResponse, receipt: BlockRece
     return response.freshness.copy;
 }
 
-/** Zero-filled bands are not a measured zero when that surface was never stored. */
+const UNCOLLECTED_QUERY_BANDS: PositionBand[] = POSITION_BANDS.map(band => ({
+    id: band.id,
+    label: band.label,
+    queries: 0,
+    impressions: 0,
+    clicks: 0,
+}));
+
+/** An empty band list means the query grain was not stored. A zero-filled list can still be a measured zero. */
 function surfaceQueryCollected(
     bands: { queries: number; impressions: number }[],
     series: DayPoint[] | null | undefined,
 ): boolean {
+    if (bands.length === 0) return false;
     const queries = bands.reduce((sum, band) => sum + band.queries, 0);
     const impressions = bands.reduce((sum, band) => sum + band.impressions, 0);
     if (queries === 0 && impressions === 0 && seriesKind(series) === 'absent') return false;
     return true;
 }
 
-function surfaceQueryLabel(
-    bands: { queries: number; impressions: number }[],
+function querySurface(
+    bands: PositionBand[] | null | undefined,
     series: DayPoint[] | null | undefined,
-    count: number,
-): string {
-    return surfaceQueryCollected(bands, series) ? formatCount(count) : '—';
+): { bands: PositionBand[]; collected: boolean } | null {
+    if (bands == null) return null;
+    if (bands.length === 0) return { bands: UNCOLLECTED_QUERY_BANDS, collected: false };
+    return { bands, collected: surfaceQueryCollected(bands, series) };
 }
 
 function freshnessLine(response: SearchReportingResponse, receipt: BlockReceipt): string {
@@ -581,7 +593,7 @@ function buildChart(response: SearchReportingResponse): ChartModel | null {
     const map = response.surface === 'organic' ? null : summary.series.map;
     const organicKind = seriesKind(organic);
     const mapKind = seriesKind(map);
-    if (organicKind !== 'data' && mapKind !== 'data') return null;
+    if (organicKind !== 'data' && mapKind !== 'data' && organicKind !== 'absent' && mapKind !== 'absent') return null;
     const panels: ChartPanel[] = [];
     if (response.surface !== 'map') {
         const cap = organic && organicKind === 'data' ? axisCap(organic) : null;
@@ -673,7 +685,6 @@ export function presentInsights(
     response: SearchReportingResponse,
     options: { example?: boolean; domain?: string; now?: Date; clientId?: string | null } = {},
 ): InsightsPresentation {
-    const now = options.now ?? new Date();
     const domain = response.property || options.domain?.trim() || 'this site';
     const clientId = options.clientId ?? null;
     const position = positionHeader();
@@ -685,6 +696,11 @@ export function presentInsights(
         grainNote('Organic totals', response.grains?.pageOrganic),
         grainNote('Device', response.grains?.device),
     ].filter((note): note is string => Boolean(note));
+    const organicQueryBands = response.queries?.bands.organic ?? null;
+    const mapQueryBands = response.queries?.bands.map ?? null;
+    const storedQueryBands = [organicQueryBands, mapQueryBands].filter((bands): bands is PositionBand[] => bands != null);
+    const queriesUncollected = response.queries != null && storedQueryBands.length > 0 && storedQueryBands.every(bands => bands.length === 0);
+    if (queriesUncollected) grainNotes.push(`Queries · ${NOT_COLLECTED_COPY}`);
     if (response.connected && response.queries == null && response.grains?.device.requested == null) {
         grainNotes.push(`Queries · ${STATES_COPY.partialHistory}`);
     }
@@ -740,12 +756,8 @@ export function presentInsights(
     const reason = summary?.comparison.reason ?? null;
     let banner: InsightsBanner | null = null;
     if (response.freshness.state === 'stale') {
-        banner = {
-            id: 'stale',
-            body: receipt?.synced_at ? staleBanner(receipt.synced_at, now) : response.freshness.copy,
-            action: 'retry',
-            actionLabel: 'Retry sync',
-        };
+        // The toolbar freshness line is the only as-of. A second last-synced banner repeats it.
+        banner = null;
     } else if (response.freshness.state === 'empty' || (seriesKind(summary?.series.organic) !== 'data' && seriesKind(summary?.series.map) !== 'data' && seriesKind(summary?.series.organic) === 'empty')) {
         banner = {
             id: 'empty',
@@ -827,18 +839,18 @@ export function presentInsights(
         });
     }
 
-    const organicBands = response.queries?.bands.organic;
-    const mapBands = response.queries?.bands.map;
     const organicSeries = summary?.series.organic;
     const mapSeries = summary?.series.map;
+    const organicSurface = response.surface === 'map' ? null : querySurface(organicQueryBands, organicSeries);
+    const mapSurface = response.surface === 'organic' ? null : querySurface(mapQueryBands, mapSeries);
     const distinct: KpiModel['splits'] = [];
-    if (organicBands && response.surface !== 'map') {
-        const total = organicBands.reduce((sum, band) => sum + band.queries, 0);
-        distinct.push({ label: 'Organic', value: surfaceQueryLabel(organicBands, organicSeries, total), colorToken: 'organic' });
+    if (organicSurface) {
+        const total = organicSurface.bands.reduce((sum, band) => sum + band.queries, 0);
+        distinct.push({ label: 'Organic', value: organicSurface.collected ? formatCount(total) : '—', colorToken: 'organic' });
     }
-    if (mapBands && response.surface !== 'organic') {
-        const total = mapBands.reduce((sum, band) => sum + band.queries, 0);
-        distinct.push({ label: 'Map pack', value: surfaceQueryLabel(mapBands, mapSeries, total), colorToken: 'map' });
+    if (mapSurface) {
+        const total = mapSurface.bands.reduce((sum, band) => sum + band.queries, 0);
+        distinct.push({ label: 'Map pack', value: mapSurface.collected ? formatCount(total) : '—', colorToken: 'map' });
     }
     if (distinct.length > 0) {
         kpis.push({
@@ -852,12 +864,12 @@ export function presentInsights(
         });
     }
     const topSplits: KpiModel['splits'] = [];
-    const topOf = (bands: NonNullable<typeof organicBands>, series: DayPoint[] | null | undefined, token: 'organic' | 'map', label: string) => {
-        const top = bands.filter(band => band.id === '1-3' || band.id === '4-10').reduce((sum, band) => sum + band.queries, 0);
-        topSplits.push({ label, value: surfaceQueryLabel(bands, series, top), colorToken: token });
+    const topOf = (surface: { bands: PositionBand[]; collected: boolean }, token: 'organic' | 'map', label: string) => {
+        const top = surface.bands.filter(band => band.id === '1-3' || band.id === '4-10').reduce((sum, band) => sum + band.queries, 0);
+        topSplits.push({ label, value: surface.collected ? formatCount(top) : '—', colorToken: token });
     };
-    if (organicBands && response.surface !== 'map') topOf(organicBands, organicSeries, 'organic', 'Organic');
-    if (mapBands && response.surface !== 'organic') topOf(mapBands, mapSeries, 'map', 'Map pack');
+    if (organicSurface) topOf(organicSurface, 'organic', 'Organic');
+    if (mapSurface) topOf(mapSurface, 'map', 'Map pack');
     if (topSplits.length > 0) {
         kpis.push({
             id: 'top10',
@@ -873,8 +885,8 @@ export function presentInsights(
     const queries: QueriesModel | null = response.queries ? {
         source: sourceLine(response, response.queries.receipt),
         surfaces: [
-            organicBands && response.surface !== 'map' ? { id: 'organic' as const, label: 'Organic', bands: bandShare(organicBands), collected: surfaceQueryCollected(organicBands, organicSeries) } : null,
-            mapBands && response.surface !== 'organic' ? { id: 'map' as const, label: 'Map pack', bands: bandShare(mapBands), collected: surfaceQueryCollected(mapBands, mapSeries) } : null,
+            organicSurface ? { id: 'organic' as const, label: 'Organic', bands: bandShare(organicSurface.bands), collected: organicSurface.collected } : null,
+            mapSurface ? { id: 'map' as const, label: 'Map pack', bands: bandShare(mapSurface.bands), collected: mapSurface.collected } : null,
         ].filter((item): item is QueriesModel['surfaces'][number] => Boolean(item)),
     } : null;
 
@@ -895,12 +907,14 @@ export function presentInsights(
                 : null,
         })),
         hidden: Math.max(0, cityRows.length - TABLE_RECEIPT_CAP),
-        empty: citiesEmptyCopy({
-            matched: cityRows.length > 0,
-            tokens: response.cities?.tokens ?? [],
-            queriesAvailable: response.cities != null,
-            device: response.grains?.device.requested ?? null,
-        }),
+        empty: queriesUncollected
+            ? `Queries · ${NOT_COLLECTED_COPY}`
+            : citiesEmptyCopy({
+                matched: cityRows.length > 0,
+                tokens: response.cities?.tokens ?? [],
+                queriesAvailable: response.cities != null,
+                device: response.grains?.device.requested ?? null,
+            }),
     };
 
     const movers: MoversModel | null = response.movers ? {

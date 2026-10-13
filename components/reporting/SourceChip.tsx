@@ -12,8 +12,12 @@ export function SourceChip({
     return (
         <p className="reporting-source-chip text-xs text-muted-foreground">
             <span>{source}</span>
-            <span aria-hidden="true"> · </span>
-            <span>{rangeLabel}</span>
+            {rangeLabel ? (
+                <>
+                    <span aria-hidden="true"> · </span>
+                    <span>{rangeLabel}</span>
+                </>
+            ) : null}
             {staleLabel ? (
                 <>
                     <span aria-hidden="true"> · </span>
