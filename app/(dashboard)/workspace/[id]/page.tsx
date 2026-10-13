@@ -50,7 +50,9 @@ import { VaultPage } from '@/components/vault/VaultPage';
 import { useVaultEnabled } from '@/components/vault/use-vault-enabled';
 import { useSeoPlanV2 } from '@/components/seo-plan/use-seo-plan-v2';
 import { WorkspaceNav } from '@/components/seo-plan/WorkspaceNav';
+import { PanelSkeleton } from '@/components/seo-plan/PanelSkeleton';
 import { PlanOverviewPanel } from '@/components/seo-plan/PlanOverviewPanel';
+import { prefetchClientWorkspace } from '@/lib/seo-plan/prefetch';
 import { TaskToolbar } from '@/components/seo-plan/TaskToolbar';
 import { SearchReporting } from '@/components/seo-plan/SearchReporting';
 import { monthKey } from '@/lib/marketing-plan-execution';
@@ -157,6 +159,10 @@ export default function ClientDetailPage() {
     };
 
     useEffect(() => {
+        prefetchClientWorkspace(id);
+    }, [id]);
+
+    useEffect(() => {
         const organizationId = organization?.id;
         if (!organizationId) return;
         let cancelled = false;
@@ -203,7 +209,21 @@ export default function ClientDetailPage() {
     }, []);
 
     if (client === undefined) {
-        return <div className="p-8 text-muted-foreground">Loading client...</div>;
+        return (
+            <div className="space-y-6" aria-busy="true">
+                <div className="h-8 w-64 animate-pulse rounded bg-muted" />
+                {seoPlanV2 === true ? (
+                    <WorkspaceNav active="overview" vault={false} onSelect={() => {}} />
+                ) : (
+                    <div className="flex h-10 items-center gap-3 border-b border-border/50" aria-hidden="true">
+                        {Array.from({ length: 6 }, (_, index) => (
+                            <span key={index} className="h-4 w-16 animate-pulse rounded bg-muted" />
+                        ))}
+                    </div>
+                )}
+                <PanelSkeleton label="Loading client" />
+            </div>
+        );
     }
 
     if (client === null) {
@@ -261,7 +281,9 @@ export default function ClientDetailPage() {
                             </div>
                             <div className="flex items-center gap-1.5">
                                 <Clock className="h-4 w-4" />
-                                <span>{v2On ? planHourLabel({
+                                <span>{seoPlanV2 == null ? (
+                                    <span className="inline-block h-4 w-28 animate-pulse rounded bg-muted" aria-label="Loading hours" />
+                                ) : v2On ? planHourLabel({
                                     failed: client.agreementHistoryUnavailable === true,
                                     coverage: client.agreementCoverage,
                                     seoHours: client.seoHours,
@@ -347,7 +369,11 @@ export default function ClientDetailPage() {
 
             {/* Tab bar */}
             {seoPlanV2 === null ? (
-                <div className="h-10 border-b border-border/50" aria-hidden="true" />
+                <div className="flex h-10 items-center gap-3 border-b border-border/50" aria-hidden="true">
+                    {Array.from({ length: 6 }, (_, index) => (
+                        <span key={index} className="h-4 w-16 animate-pulse rounded bg-muted" />
+                    ))}
+                </div>
             ) : v2On ? (
                 <WorkspaceNav
                     active={activeTab}

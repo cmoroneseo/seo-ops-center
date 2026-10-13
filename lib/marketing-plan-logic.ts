@@ -128,6 +128,20 @@ export function itemsEligibleForTaskGeneration(items: MarketingPlanItem[]): Mark
     return items.filter(item => isInRoadmap(item) && item.status === 'todo' && !item.taskId);
 }
 
+/**
+ * The create-tasks count is open to-dos with no task yet.
+ * A phase column counts every selected item, including done and already linked.
+ */
+export function createTasksLabel(openCount: number): string {
+    if (openCount <= 0) return 'Create tasks';
+    return `Create tasks (${openCount} open)`;
+}
+
+export function phaseItemsLabel(shown: number, openCount: number): string {
+    if (shown === openCount) return `${shown} items`;
+    return `${shown} items · ${openCount} open`;
+}
+
 /** Fields copied onto a real Task. Priority, assignee, and due date pass through. */
 export function taskFieldsFromPlanItem(item: MarketingPlanItem): {
     organizationId: string;

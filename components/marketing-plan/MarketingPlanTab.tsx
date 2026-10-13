@@ -5,16 +5,18 @@ import { ClipboardList, FileDown, ListChecks, Plus, Printer, Search, Sparkles } 
 import { cn } from '@/lib/utils';
 import { MarketingPlan, MarketingPlanItem, Task } from '@/lib/types';
 import {
-    getMarketingPlan, createMarketingPlanFromTemplate, addCustomItem, promoteItemToTask, updateMarketingPlanGoal, promoteItemsToTasks, addExistingTaskToPlan,
+    createMarketingPlanFromTemplate, addCustomItem, promoteItemToTask, updateMarketingPlanGoal, promoteItemsToTasks, addExistingTaskToPlan,
 } from '@/lib/supabase/marketing-plans';
+import { loadMarketingPlan } from '@/lib/seo-plan/prefetch';
 import { createClient } from '@/lib/supabase/client';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { logActivity } from '@/lib/supabase/client-activity';
 import { buildMarketingPlanExportHtml } from '@/lib/marketing-plan-export';
 import { displaySeoPlanTitle, SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import {
-    computePlanSummary, groupItems, filterItems, itemsEligibleForTaskGeneration, GroupMode,
+    computePlanSummary, groupItems, filterItems, itemsEligibleForTaskGeneration, createTasksLabel, phaseItemsLabel, GroupMode,
 } from '@/lib/marketing-plan-logic';
+import { PanelSkeleton } from '@/components/seo-plan/PanelSkeleton';
 import { AddPlanItemDialog } from './AddPlanItemDialog';
 import { isInRoadmap, ROADMAP_PHASES, roadmapItemsForPhase, type RoadmapPhase } from '@/lib/marketing-plan-roadmap';
 import { SummaryStrip } from './SummaryStrip';
@@ -79,7 +81,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
         const sequence = ++loadSequence.current;
         if (!silent) setLoading(true);
         try {
-            const p = await getMarketingPlan(clientId);
+            const p = await loadMarketingPlan(clientId, silent);
             if (sequence === loadSequence.current) { setPlan(p); setError(null); }
         } catch (e) { if (sequence === loadSequence.current) setError(e instanceof Error ? e.message : 'Could not load plan'); }
         finally { if (sequence === loadSequence.current) setLoading(false); }
@@ -169,7 +171,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
             alert(res.error ?? 'Failed to create plan');
         }
         setCreating(false);
-        await loadPlan();
+        await loadPlan(true);
     };
 
     const openTaskDraft = (label: string, source: MarketingPlanItem[]) => {
@@ -222,7 +224,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     };
 
     if (loading) {
-        return <div className="text-center py-12 text-muted-foreground text-sm italic">Loading {SEO_PLAN_LABEL}…</div>;
+        return <PanelSkeleton label={`Loading ${SEO_PLAN_LABEL}`} />;
     }
 
     if (error && !plan) return <div role="alert" className="space-y-3 rounded-xl border border-destructive/40 p-6"><p>Could not load your plan: {error}</p><button className="text-primary underline" onClick={() => loadPlan()}>Try again</button></div>;
@@ -254,7 +256,10 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     const items = plan.items ?? [];
     const summary = computePlanSummary(items.filter(isInRoadmap));
     const visibleItems = filterItems(items, query);
-    const visibleEligible = itemsEligibleForTaskGeneration(visibleItems);
+    const countedItems = planLayout === 'board' && roadmapMonth !== 'all'
+        ? roadmapItemsForPhase(visibleItems.filter(item => !activeStepKey || item.stepKey === activeStepKey), roadmapMonth)
+        : visibleItems;
+    const visibleEligible = itemsEligibleForTaskGeneration(countedItems);
     const groups = groupItems(visibleItems, plan.steps, groupMode)
         .filter(g => groupMode !== 'step' || !activeStepKey || g.key === activeStepKey);
 
@@ -362,7 +367,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                             className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
                         >
                             <ListChecks className="h-4 w-4" />
-                            Create tasks{visibleEligible.length > 0 ? ` (${visibleEligible.length})` : ''}
+                            {createTasksLabel(visibleEligible.length)}
                         </button>
                         <button onClick={() => setAddChooserOpen(true)} className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-green-700"><Plus className="h-4 w-4" /> Add Item</button>
                     </div>
@@ -414,7 +419,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                                                 disabled={creatingTasks}
                                                 className="print:hidden text-xs font-semibold text-primary hover:underline disabled:opacity-50"
                                             >
-                                                Create tasks ({eligible.length})
+                                                {createTasksLabel(eligible.length)}
                                             </button>
                                         )}
                                         <span className="text-sm text-muted-foreground">
@@ -447,7 +452,8 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                         <div className={cn('grid gap-4', roadmapMonth === 'all' && 'xl:grid-cols-2 2xl:grid-cols-4')}>
                             {ROADMAP_PHASES.filter(([key]) => roadmapMonth === 'all' || roadmapMonth === key).map(([key, label]) => {
                                 const phaseItems = roadmapItemsForPhase(visibleItems.filter(item => !activeStepKey || item.stepKey === activeStepKey), key);
-                                return <section key={key} className="min-w-0 rounded-xl border border-border bg-muted/30 p-4"><div className="mb-3 flex items-center justify-between"><h4 className="font-semibold">{label}</h4><span className="text-xs text-muted-foreground">{phaseItems.length} items</span></div>{phaseItems.length ? phaseItems.map(item => <div key={item.id} className="mb-3 rounded-lg border border-border bg-card px-3"><ItemRow item={item} members={members} currentUser={currentUser} onChanged={refresh} onOpenTask={task => openTask(task)} /></div>) : <p className="py-6 text-sm text-muted-foreground">No selected work in this phase.</p>}</section>;
+                                const phaseOpen = itemsEligibleForTaskGeneration(phaseItems).length;
+                                return <section key={key} className="min-w-0 rounded-xl border border-border bg-muted/30 p-4"><div className="mb-3 flex items-center justify-between"><h4 className="font-semibold">{label}</h4><span className="text-xs text-muted-foreground">{phaseItemsLabel(phaseItems.length, phaseOpen)}</span></div>{phaseItems.length ? phaseItems.map(item => <div key={item.id} className="mb-3 rounded-lg border border-border bg-card px-3"><ItemRow item={item} members={members} currentUser={currentUser} onChanged={refresh} onOpenTask={task => openTask(task)} /></div>) : <p className="py-6 text-sm text-muted-foreground">No selected work in this phase.</p>}</section>;
                             })}
                         </div>
                     </div>}
