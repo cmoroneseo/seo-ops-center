@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { getClientOverview } from '@/lib/supabase/client-overview';
 import type { ClientOverview, NextBestAction } from '@/lib/supabase/client-overview';
 import { severityBadgeClass } from '@/components/deliverables/deliverable-ui';
+import { formatPromisedTotal } from '@/lib/deliverables/fulfillment-cells';
 
 interface ClientOverviewWidgetProps {
     client: ClientProject;
@@ -99,6 +100,7 @@ export function ClientOverviewWidget({ client, organizationId }: ClientOverviewW
 
     const primaryAction = overview.nextBestActions[0];
     const healthSeverity = overview.healthScore >= 85 ? 'ok' : overview.healthScore >= 70 ? 'warn' : 'critical';
+    const promisedLabel = formatPromisedTotal(overview.deliverables.cells);
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -138,9 +140,16 @@ export function ClientOverviewWidget({ client, organizationId }: ClientOverviewW
             <OverviewCard
                 icon={<FileText className="h-4 w-4 text-primary" />}
                 label="Deliverables"
-                value={<>{overview.deliverables.delivered}<span className="text-sm font-medium text-muted-foreground"> / {overview.deliverables.promised}</span></>}
+                value={<>{overview.deliverables.delivered}<span className="text-sm font-medium text-muted-foreground"> / {promisedLabel}</span></>}
                 badge={(() => {
                     const { overdue, atRisk, delivered, promised } = overview.deliverables;
+                    if (promisedLabel === '—') {
+                        return (
+                            <span className="px-2 py-0.5 rounded text-xs font-medium border text-muted-foreground bg-muted border-border">
+                                Not configured
+                            </span>
+                        );
+                    }
                     if (overdue > 0) {
                         return (
                             <span className={cn('px-2 py-0.5 rounded text-xs font-medium border', severityBadgeClass('critical'))}>
@@ -169,11 +178,12 @@ export function ClientOverviewWidget({ client, organizationId }: ClientOverviewW
                     );
                 })()}
                 detail={(() => {
-                    const { delivered, promised, inProgress, atRisk, cells } = overview.deliverables;
+                    const { delivered, inProgress, atRisk, cells } = overview.deliverables;
+                    if (promisedLabel === '—') return 'Delivered work has no monthly promise configured.';
                     const behindCells = cells.filter((c) => c.status.severity === 'critical' || c.status.severity === 'warn');
                     if (behindCells.length > 0) {
                         const typeLabels = behindCells.map((c) => c.type.replace(/_/g, ' ')).join(', ');
-                        return `${delivered}/${promised} delivered — ${typeLabels} at risk`;
+                        return `${delivered}/${promisedLabel} delivered — ${typeLabels} at risk`;
                     }
                     return `${inProgress} in production, ${atRisk} at risk groups.`;
                 })()}

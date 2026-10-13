@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { AgreementHistoryHeading, AgreementHistoryPanel } from '../../components/workspace/agreements/AgreementHistoryDialog.tsx';
-import { AgreementOutputGroups, AgreementServiceFields, AllowanceComparison } from '../../components/workspace/agreements/AgreementFlow.tsx';
+import { AgreementOutputGroups, AgreementReviewScopeNote, AgreementServiceFields, AllowanceComparison } from '../../components/workspace/agreements/AgreementFlow.tsx';
 import { allowanceReconciliation, historicalHoursNote, monthCoverageLines } from './logic.ts';
 import type { AgreementInput, AgreementService } from './types.ts';
 
@@ -18,7 +18,9 @@ test('carried-over deliverable rows are labeled and can be removed', () => {
         services: [blogs],
         onChange: () => undefined,
     }));
-    assert.match(html, /Carried over from current setup/);
+    assert.match(html, /Prefilled from the current setup/);
+    assert.doesNotMatch(html, /Deliverables carried over from the current setup/);
+    assert.doesNotMatch(html, /Scope carried over from the current setup/);
     assert.match(html, /aria-label="Remove Blog Posts"/);
     assert.match(html, />Remove</);
     const button = html.match(/<button[^>]*aria-label="Remove Blog Posts"[^>]*>/)?.[0] ?? '';
@@ -36,7 +38,12 @@ test('original review lists prefilled outputs as carried over and flags an hours
         added: [],
         stopped: [],
     }));
-    assert.match(groups, /Carried over from current setup/);
+    assert.match(groups, /Deliverables carried over from the current setup/);
+    assert.doesNotMatch(groups, /Prefilled from the current setup/);
+    assert.doesNotMatch(groups, /Scope carried over from the current setup/);
+    const scope = renderToStaticMarkup(createElement(AgreementReviewScopeNote));
+    assert.match(scope, /Scope carried over from the current setup/);
+    assert.equal(scope.includes('Deliverables carried over'), false);
     assert.match(groups, /4 Blog Posts · Content · per month · consumes SEO hours/);
     const added = groups.split('Added')[1] ?? '';
     assert.match(added, /None/);

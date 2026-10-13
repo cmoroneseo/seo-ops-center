@@ -110,6 +110,9 @@ function rangeLabel(startsOn: string, endsOn: string): string {
     if (start.month === end.month) return `${start.month} ${start.day}–${end.day}`;
     return `${start.month} ${start.day}–${end.month} ${end.day}`;
 }
+/** Uncovered days in a review month. Unknown hours stay an em dash. */
+export const UNCOVERED_COVERAGE = 'Not covered';
+
 /** Boundary-month slices, including gaps. Custom and uncovered days never become 0h. */
 export function monthCoverageLines(existing: ClientAgreement[], input: AgreementInput): CoverageLine[] {
     const month = reviewMonth(input);
@@ -119,13 +122,11 @@ export function monthCoverageLines(existing: ClientAgreement[], input: Agreement
     const monthStart = `${month}-01`;
     const monthEnd = `${month}-${String(days).padStart(2, '0')}`;
     const shift = (date: string, amount: number) => iso(day(date) + amount * DAY);
+    const uncovered = (startsOn: string, endsOn: string): CoverageLine => ({ startsOn, endsOn, text: `${rangeLabel(startsOn, endsOn)} · ${UNCOVERED_COVERAGE}` });
     const lines: CoverageLine[] = [];
     let cursor = monthStart;
     for (const segment of period.segments) {
-        if (segment.startsOn > cursor) {
-            const gapEnd = shift(segment.startsOn, -1);
-            lines.push({ startsOn: cursor, endsOn: gapEnd, text: `${rangeLabel(cursor, gapEnd)} · —` });
-        }
+        if (segment.startsOn > cursor) lines.push(uncovered(cursor, shift(segment.startsOn, -1)));
         const range = rangeLabel(segment.startsOn, segment.endsOn);
         const text = segment.agreement.mode === 'monthly' && segment.budget != null
             ? `${range} · ${monthlyCoverageHours(segment.startsOn, segment.endsOn, segment.budget, segment.agreement, monthStart, monthEnd)}`
@@ -133,7 +134,7 @@ export function monthCoverageLines(existing: ClientAgreement[], input: Agreement
         lines.push({ startsOn: segment.startsOn, endsOn: segment.endsOn, text });
         cursor = shift(segment.endsOn, 1);
     }
-    if (cursor <= monthEnd) lines.push({ startsOn: cursor, endsOn: monthEnd, text: `${rangeLabel(cursor, monthEnd)} · —` });
+    if (cursor <= monthEnd) lines.push(uncovered(cursor, monthEnd));
     return lines;
 }
 function inclusiveDays(startsOn: string, endsOn: string): number {

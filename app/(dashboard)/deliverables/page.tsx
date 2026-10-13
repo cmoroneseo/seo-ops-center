@@ -12,6 +12,7 @@ import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { useClients } from '@/lib/hooks/use-clients';
 import { getFulfillmentMatrix, FulfillmentMatrixData, daysLeftInMonth } from '@/lib/supabase/fulfillment';
+import { formatPromisedTotal } from '@/lib/deliverables/fulfillment-cells';
 import { KPICard } from '@/components/dashboard/KPICard';
 import { FulfillmentMatrix } from '@/components/deliverables/FulfillmentMatrix';
 import { AtRiskRail } from '@/components/deliverables/AtRiskRail';
@@ -120,13 +121,14 @@ export default function DeliverablesPage() {
     // KPIs
     const daysLeft = daysLeftInMonth(month);
     const today = new Date().toISOString().slice(0, 10);
-    const promised = lensCells.reduce((s, c) => s + Math.max(c.promised, 0), 0);
+    const promisedLabel = formatPromisedTotal(data ? lensCells : null);
+    const promised = promisedLabel === '—' ? null : Number(promisedLabel);
     const delivered = lensDeliverables.filter((d) => DELIVERED.includes(d.status)).length;
     const inProduction = lensDeliverables.filter((d) => ['In Progress', 'Review'].includes(d.status)).length;
     const overdueCount = lensDeliverables.filter(
         (d) => d.dueDate && String(d.dueDate).slice(0, 10) < today && !DELIVERED.includes(d.status),
     ).length;
-    const fulfillmentPct = promised > 0 ? Math.round((delivered / promised) * 100) : null;
+    const fulfillmentPct = promised != null && promised > 0 ? Math.round((delivered / promised) * 100) : null;
 
     // Cell drill-down list
     const cellItems = cellFilter
@@ -198,10 +200,10 @@ export default function DeliverablesPage() {
 
             {/* KPI strip */}
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-                <KPICard title="Promised" value={String(promised)} change={monthDisplay(month)} trend="neutral" icon={Package} />
-                <KPICard title="Delivered" value={String(delivered)} change={promised > 0 ? `of ${promised}` : ''} trend={delivered >= promised && promised > 0 ? 'up' : 'neutral'} icon={PackageCheck} />
-                <KPICard title="In Production" value={String(inProduction)} change="" trend="neutral" icon={Factory} />
-                <KPICard title="Overdue" value={String(overdueCount)} change="" trend={overdueCount > 0 ? 'down' : 'neutral'} icon={AlertTriangle} />
+                <KPICard title="Promised" value={promisedLabel} change={monthDisplay(month)} trend="neutral" icon={Package} />
+                <KPICard title="Delivered" value={data ? String(delivered) : '—'} change={promised != null && promised > 0 ? `of ${promised}` : ''} trend={promised != null && delivered >= promised && promised > 0 ? 'up' : 'neutral'} icon={PackageCheck} />
+                <KPICard title="In Production" value={data ? String(inProduction) : '—'} change="" trend="neutral" icon={Factory} />
+                <KPICard title="Overdue" value={data ? String(overdueCount) : '—'} change="" trend={overdueCount > 0 ? 'down' : 'neutral'} icon={AlertTriangle} />
                 <KPICard title="Fulfillment" value={fulfillmentPct === null ? '—' : `${fulfillmentPct}%`} change={`${daysLeft}d left`} trend={fulfillmentPct !== null && fulfillmentPct >= 100 ? 'up' : 'neutral'} icon={Percent} />
             </div>
 

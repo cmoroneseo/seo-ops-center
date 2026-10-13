@@ -140,6 +140,8 @@ export interface FulfillmentCell {
     clientId: string;
     type: DeliverableType;
     promised: number;
+    /** False when no commitment defines this client and type. That is unknown, not a promise of zero. */
+    promisedConfigured: boolean;
     generated: number;
     delivered: number;
     inProgress: number;
