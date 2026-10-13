@@ -1032,6 +1032,10 @@ export interface MarketingPlanItem {
     taskId?: string; // set when promoted to a real Task
     linkedTask?: Task; // authoritative execution state, populated on read
     isCustom: boolean;
+    /** Stable catalog key. Null on rows created before template identity. */
+    templateKey?: string;
+    /** How the row was added. Absent until migration 087 is applied. */
+    source?: 'template' | 'onboarding' | 'custom' | 'basecamp';
     createdAt: string;
     updatedAt: string;
 }

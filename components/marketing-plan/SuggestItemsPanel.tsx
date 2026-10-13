@@ -17,9 +17,11 @@ interface SuggestItemsPanelProps {
     clientName: string;
     onAdded: () => void;
     onClose: () => void;
+    /** Flagged plans label accepted suggestions as custom. Unflagged inserts omit source. */
+    source?: 'custom';
 }
 
-export function SuggestItemsPanel({ plan, clientName, onAdded, onClose }: SuggestItemsPanelProps) {
+export function SuggestItemsPanel({ plan, clientName, onAdded, onClose, source }: SuggestItemsPanelProps) {
     const [loading, setLoading] = useState(false);
     const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -61,6 +63,7 @@ export function SuggestItemsPanel({ plan, clientName, onAdded, onClose }: Sugges
             description: s.description,
             priority: s.priority,
             sortOrder: maxSort + 1,
+            ...(source ? { source } : {}),
         });
         setAccepting(null);
         if (!res.success) {

@@ -5,7 +5,7 @@ import { ClipboardList, FileDown, ListChecks, Plus, Printer, Search, Sparkles } 
 import { cn } from '@/lib/utils';
 import { MarketingPlan, MarketingPlanItem, Task } from '@/lib/types';
 import {
-    createMarketingPlanFromTemplate, addCustomItem, promoteItemToTask, updateMarketingPlanGoal, promoteItemsToTasks, addExistingTaskToPlan,
+    createMarketingPlanFromTemplate, addCustomItem, addCatalogItem, promoteItemToTask, updateMarketingPlanGoal, promoteItemsToTasks, addExistingTaskToPlan,
 } from '@/lib/supabase/marketing-plans';
 import { loadMarketingPlan } from '@/lib/seo-plan/prefetch';
 import { createClient } from '@/lib/supabase/client';
@@ -18,6 +18,7 @@ import {
 } from '@/lib/marketing-plan-logic';
 import { PanelSkeleton } from '@/components/seo-plan/PanelSkeleton';
 import { AddPlanItemDialog } from './AddPlanItemDialog';
+import { LibraryCatalogDialog } from './LibraryCatalogDialog';
 import { isInRoadmap, ROADMAP_PHASES, roadmapItemsForPhase, type RoadmapPhase } from '@/lib/marketing-plan-roadmap';
 import { SummaryStrip } from './SummaryStrip';
 import { StepRail } from './StepRail';
@@ -44,10 +45,13 @@ interface MarketingPlanTabProps {
     scopeMode?:'monthly'|'custom';
     presentation?: 'classic' | 'v2';
     hoursNarrative?: 'default' | HoursNarrative;
+    /** GBP and listings checklist rows follow the client’s saved scope. */
+    checklistScope?: { gbp?: boolean; listings?: boolean };
 }
 
-export function MarketingPlanTab({ organizationId, clientId, clientName, monthlyBudget = 0,scopeMode='monthly', presentation = 'classic', hoursNarrative = 'default' }: MarketingPlanTabProps) {
+export function MarketingPlanTab({ organizationId, clientId, clientName, monthlyBudget = 0,scopeMode='monthly', presentation = 'classic', hoursNarrative = 'default', checklistScope }: MarketingPlanTabProps) {
     const [addChooserOpen, setAddChooserOpen] = useState(false);
+    const [libraryOpen, setLibraryOpen] = useState(false);
     const [basecampOnly, setBasecampOnly] = useState(false);
     const [planLayout, setPlanLayout] = useState<'list' | 'board'>(presentation === 'v2' ? 'board' : 'list');
     const [roadmapMonth, setRoadmapMonth] = useState<'all' | RoadmapPhase>('all');
@@ -164,7 +168,9 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
 
     const handleCreate = async () => {
         setCreating(true);
-        const res = await createMarketingPlanFromTemplate({ organizationId, clientId, clientName });
+        const res = await createMarketingPlanFromTemplate(presentation === 'v2'
+            ? { organizationId, clientId, clientName, seed: 'onboarding', scope: checklistScope }
+            : { organizationId, clientId, clientName });
         if (res.success) {
             logActivity({ clientId, eventType: 'campaign.created', metadata: { source: 'marketing_plan_template' } });
         } else {
@@ -217,6 +223,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
         const result = await addCustomItem({
             marketingPlanId: plan.id, organizationId, clientId,
             ...fields, sortOrder: maxSort + 1,
+            ...(presentation === 'v2' ? { source: 'custom' as const } : {}),
         });
         if (!result.success) throw new Error(result.error ?? 'Could not add item');
         setShowAddForm(false);
@@ -236,10 +243,11 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                 <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
                     <ClipboardList className="h-8 w-8 text-primary" />
                 </div>
-                <h3 className="text-lg font-semibold">Build a focused SEO plan</h3>
+                <h3 className="text-lg font-semibold">{presentation === 'v2' ? 'Start the onboarding checklist' : 'Build a focused SEO plan'}</h3>
                 <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                    Start with an SEO work library for {clientName}, then choose a few priorities
-                    for your first month. Assign owners and dates as you schedule work.
+                    {presentation === 'v2'
+                        ? `Create the onboarding checklist for ${clientName}. Other work stays in the library until you add it.`
+                        : `Start with an SEO work library for ${clientName}, then choose a few priorities for your first month. Assign owners and dates as you schedule work.`}
                 </p>
                 <button
                     onClick={handleCreate}
@@ -399,6 +407,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                             clientName={clientName}
                             onAdded={refresh}
                             onClose={() => setShowSuggest(false)}
+                            source={presentation === 'v2' ? 'custom' : undefined}
                         />
                     )}
 
@@ -464,11 +473,31 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     return <>
         {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/40 p-3 text-sm">{error}<button className="ml-3 text-primary underline" onClick={() => refresh()}>Retry</button></p>}
         <ExecutionWorkspace onAddExisting={() => setAddChooserOpen(true)} plan={plan} month={month} budget={periodBudget} capacityMode={capacityMode} budgetTaskIds={budgetTaskIds} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} variant={presentation} hoursNarrative={presentation !== 'v2' ? 'default' : hoursNarrative === 'prelaunch' ? 'prelaunch' : capacityMode === 'unavailable' ? 'unavailable' : hoursNarrative === 'custom' || capacityMode === 'scoped' ? 'custom' : 'monthly'} />
-        <AddPlanItemDialog open={addChooserOpen} onClose={() => setAddChooserOpen(false)} onSelect={source => {
-            if (source === 'custom') setShowAddForm(true);
+        <AddPlanItemDialog showLibrary={presentation === 'v2'} open={addChooserOpen} onClose={() => setAddChooserOpen(false)} onSelect={source => {
+            if (source === 'library') setLibraryOpen(true);
+            else if (source === 'custom') setShowAddForm(true);
             else if (source === 'suggest') setShowSuggest(true);
             else { setBasecampOnly(source === 'basecamp'); setExistingOpen(true); }
         }} />
+        <LibraryCatalogDialog
+            open={libraryOpen}
+            existing={(plan?.items ?? []).map(item => ({ templateKey: item.templateKey, title: item.title }))}
+            onClose={() => setLibraryOpen(false)}
+            onAdd={async title => {
+                if (!plan) return;
+                const maxSort = Math.max(0, ...(plan.items ?? []).map(item => item.sortOrder));
+                const result = await addCatalogItem({
+                    marketingPlanId: plan.id,
+                    organizationId,
+                    clientId,
+                    title,
+                    sortOrder: maxSort + 1,
+                    existing: (plan.items ?? []).map(item => ({ templateKey: item.templateKey, title: item.title })),
+                });
+                if (!result.success) throw new Error(result.error ?? 'Could not add that item.');
+                refresh();
+            }}
+        />
         {existingOpen && <ExistingTaskDialog open basecampOnly={basecampOnly} plan={plan} month={month} onClose={() => setExistingOpen(false)} onAttach={async (task, step, due) => {
             await addExistingTaskToPlan(plan.id, task.id, step);
             const result = await updateTask(task.id, { dueDate: due, updatedBy: currentUser.id });
