@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     computePlanSummary, groupItems, filterItems,
-    itemsEligibleForTaskGeneration, taskFieldsFromPlanItem,
+    itemsEligibleForTaskGeneration, createTasksLabel, phaseItemsLabel, taskFieldsFromPlanItem,
     nextChecklistStatusForTask, checklistTogglePlan,
     TASK_STATUSES_THAT_COMPLETE_CHECKLIST,
     readPlanReportView, fulfillmentCounts, stepFulfillmentBuckets,
@@ -14,6 +14,7 @@ import {
     monthFulfillmentBuckets, planFulfillmentBuckets,
 } from './marketing-plan-logic.ts';
 import { displaySeoPlanTitle, SEO_PLAN_LABEL } from './marketing-plan-template.ts';
+import { roadmapItemsForPhase } from './marketing-plan-roadmap.ts';
 import type { MarketingPlanItem, MarketingPlanStep } from './types.ts';
 
 function item(over: Partial<MarketingPlanItem>): MarketingPlanItem {
@@ -98,6 +99,21 @@ test('filterItems matches title and description, case-insensitive', () => {
     assert.deepEqual(filterItems(items, 'gsc').map(i => i.id), ['b']);
     assert.deepEqual(filterItems(items, 'google').map(i => i.id), ['a']);
     assert.equal(filterItems(items, '  ').length, 3);
+});
+
+test('create-tasks counts open items and the phase label keeps the full set', () => {
+    const items = [
+        ...Array.from({ length: 55 }, (_, index) => item({ id: `open-${index}` })),
+        item({ id: 'linked', taskId: 'task-1' }),
+    ];
+    const shown = roadmapItemsForPhase(items, 'backlog');
+    const open = itemsEligibleForTaskGeneration(shown);
+    assert.equal(shown.length, 56);
+    assert.equal(open.length, 55);
+    assert.equal(createTasksLabel(open.length), 'Create tasks (55 open)');
+    assert.equal(phaseItemsLabel(shown.length, open.length), '56 items · 55 open');
+    assert.equal(phaseItemsLabel(56, 56), '56 items');
+    assert.equal(createTasksLabel(0), 'Create tasks');
 });
 
 test('task generation skips done, ignored, and already-linked items', () => {

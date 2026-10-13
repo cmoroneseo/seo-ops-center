@@ -150,6 +150,55 @@ test('not connected replaces the body and draws no chart', () => {
     assert.notEqual(view.domain, EXAMPLE_PROPERTY);
 });
 
+test('uncollected query bands render an em dash, and a collected zero stays 0', () => {
+    const missing = exampleInsights();
+    missing.summary!.series.organic = null;
+    missing.queries!.bands.organic = (missing.queries?.bands.organic ?? []).map(band => ({
+        ...band,
+        queries: 0,
+        impressions: 0,
+        clicks: 0,
+    }));
+    const absent = presentInsights(missing, { now: EXAMPLE_NOW });
+    const organicDistinct = absent.kpis.find(kpi => kpi.label === 'Distinct search queries')?.splits.find(split => split.label === 'Organic');
+    const organicTop = absent.kpis.find(kpi => kpi.label === 'Queries averaging top 10')?.splits.find(split => split.label === 'Organic');
+    assert.equal(organicDistinct?.value, '—');
+    assert.equal(organicTop?.value, '—');
+    assert.equal(absent.queries?.surfaces.find(surface => surface.id === 'organic')?.collected, false);
+
+    const zero = exampleInsights();
+    for (const point of zero.summary?.series.organic ?? []) {
+        if (!point.missing) point.impressions = 0;
+    }
+    zero.queries!.bands.organic = (zero.queries?.bands.organic ?? []).map(band => ({
+        ...band,
+        queries: 0,
+        impressions: 0,
+        clicks: 0,
+    }));
+    const collected = presentInsights(zero, { now: EXAMPLE_NOW });
+    assert.equal(collected.kpis.find(kpi => kpi.label === 'Distinct search queries')?.splits.find(split => split.label === 'Organic')?.value, '0');
+    assert.equal(collected.kpis.find(kpi => kpi.label === 'Queries averaging top 10')?.splits.find(split => split.label === 'Organic')?.value, '0');
+    assert.equal(collected.queries?.surfaces.find(surface => surface.id === 'organic')?.collected, true);
+});
+
+test('the period label is the window, and freshness is a separate line', () => {
+    const view = presentInsights(exampleInsights(), { now: EXAMPLE_NOW });
+    assert.equal(view.rangeLabel.includes('last 28'), false);
+    assert.equal(view.rangeLabel.includes('calendar month'), false);
+    assert.match(view.rangeLabel, /–/);
+    assert.match(view.freshnessLabel, /Final|Preliminary|as of/);
+    assert.equal(view.freshnessLabel.includes(view.rangeLabel), false);
+    const history = view.health.find(chip => chip.id === 'history');
+    assert.match(history?.detail ?? '', /^\d+ of \d+ days$/);
+    assert.equal(history?.detail.includes(view.rangeLabel), false);
+    const rolling = exampleInsights();
+    rolling.range = rolling.range && { ...rolling.range, preset: '28d' };
+    const rollingView = presentInsights(rolling, { now: EXAMPLE_NOW });
+    assert.equal(rollingView.rangeLabel.includes('final days'), false);
+    assert.equal(rollingView.rangeLabel, view.rangeLabel);
+});
+
 test('a real zero stays a neutral 0 with no chart path', () => {
     const response = exampleInsights();
     for (const point of response.summary?.series.organic ?? []) {

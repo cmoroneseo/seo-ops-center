@@ -4,8 +4,7 @@ import { useEffect, useState } from 'react';
 import { OverviewCommand } from '@/components/seo-plan/OverviewCommand';
 import { monthKey } from '@/lib/marketing-plan-execution';
 import { onboardingProgress, taskDateCounts } from '@/lib/seo-plan/overview';
-import { getMarketingPlan } from '@/lib/supabase/marketing-plans';
-import { getTasksByClient } from '@/lib/supabase/tasks';
+import { loadClientTasks, loadMarketingPlan } from '@/lib/seo-plan/prefetch';
 import type { MarketingPlanItem, Task } from '@/lib/types';
 
 type Load = { status: 'loading' } | { status: 'failed' } | { status: 'ready'; items: MarketingPlanItem[]; tasks: Task[] };
@@ -32,8 +31,8 @@ export function PlanOverviewPanel({
         let cancelled = false;
         setLoad({ status: 'loading' });
         Promise.all([
-            getMarketingPlan(clientId),
-            getTasksByClient(clientId, true),
+            loadMarketingPlan(clientId),
+            loadClientTasks(clientId),
         ]).then(([plan, tasks]) => {
             if (cancelled) return;
             setLoad({ status: 'ready', items: plan?.items ?? [], tasks });

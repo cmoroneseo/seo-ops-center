@@ -11,6 +11,7 @@ import {
     type InsightsPresentation,
     type SectionId,
 } from '@/lib/search-insights/view';
+import { PanelSkeleton } from '@/components/seo-plan/PanelSkeleton';
 import { CardSource, DeltaReadout, InsightTable, PanelCard, PositionCell, SurfaceMark, useSurfaceColors } from './bits';
 import { SurfaceCharts } from './SurfaceCharts';
 
@@ -116,7 +117,16 @@ export function SearchInsightsV2({
                     <button type="button" className="mt-3 text-sm text-primary underline" onClick={() => setReloadKey(value => value + 1)}>Retry</button>
                 </div>
             ) : null}
-            {loading && !view ? <p role="status" className="rounded-xl border border-border bg-card p-8 text-muted-foreground">Loading Search Insights…</p> : null}
+            {loading && !view ? (
+                <div className="space-y-4">
+                    <div className="flex gap-2 overflow-x-auto border-b border-border py-2" aria-hidden="true">
+                        {['Summary', 'Queries', 'Cities', 'Movers', 'Pages', 'Tracker check'].map(label => (
+                            <span key={label} className="rounded-md px-3 py-1.5 text-sm text-muted-foreground/50">{label}</span>
+                        ))}
+                    </div>
+                    <PanelSkeleton label="Loading Search Insights" />
+                </div>
+            ) : null}
             {view && !view.connected ? (
                 <div className="rounded-xl border border-border bg-card p-6" role="status">
                     <p className="max-w-2xl text-sm text-foreground">{view.connect?.body}</p>
@@ -133,7 +143,7 @@ export function SearchInsightsV2({
                     surface={surface}
                     onSurface={setSurface}
                     range={range}
-                    monthValue={response?.range?.preset === 'month' ? response.range.key : (response?.range?.end.slice(0, 7) ?? '')}
+                    monthValue={response?.range?.preset === 'month' ? response.range.key : ''}
                     onRange={setRange}
                     onRetry={() => setReloadKey(value => value + 1)}
                     onConnections={onConnections}
@@ -227,7 +237,10 @@ function ConnectedView({
                             </button>
                         ))}
                     </div>
-                    <p className="text-xs text-muted-foreground">{view.rangeLabel}</p>
+                    <p className="text-xs text-muted-foreground">
+                        <span>{view.rangeLabel}</span>
+                        {view.freshnessLabel ? <span> · {view.freshnessLabel}</span> : null}
+                    </p>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                     <div role="group" aria-label="Surface" className="flex rounded-lg border border-border p-1">
@@ -238,7 +251,7 @@ function ConnectedView({
                         ))}
                     </div>
                     <button type="button" aria-pressed={range === '28d'} className={`rounded-lg border border-border px-2 py-1 text-xs ${range === '28d' ? 'text-foreground' : 'text-muted-foreground'}`} onClick={() => onRange('28d')}>
-                        28 final days
+                        Last 28 days
                     </button>
                     <label className="text-xs text-muted-foreground">
                         <span className="sr-only">Calendar month</span>
@@ -255,7 +268,6 @@ function ConnectedView({
                 </div>
             </div>
             {view.preliminaryLegend ? <p className="text-xs text-amber-700 dark:text-amber-400">{view.preliminaryLegend}</p> : null}
-            {view.staleAsOf ? <p className="text-xs text-amber-700 dark:text-amber-400">{view.staleAsOf}</p> : null}
 
             <div role="tabpanel" id={`insights-panel-${section}`} aria-labelledby={`insights-tab-${section}`} className="min-w-0 space-y-4">
                 {section === 'summary' ? <Summary view={view} /> : null}
@@ -347,8 +359,8 @@ function Queries({
                                 {item.bands.map(band => (
                                     <li key={band.id}>
                                         <p className="text-xs text-muted-foreground">{band.label}</p>
-                                        <p className="font-semibold tabular-nums">{band.queries}</p>
-                                        <p className="text-xs text-muted-foreground">{band.impressions.toLocaleString('en-US')} impressions</p>
+                                        <p className="font-semibold tabular-nums">{item.collected ? band.queries : '—'}</p>
+                                        <p className="text-xs text-muted-foreground">{item.collected ? `${band.impressions.toLocaleString('en-US')} impressions` : '—'}</p>
                                     </li>
                                 ))}
                             </ul>

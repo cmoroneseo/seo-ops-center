@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { createClient } from '@/lib/supabase/client';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
+import { formatMyTimeHours, summarizeMyTime } from '@/lib/dashboard/my-time';
 
 interface AgencyWidgetProps {
     tasks: Task[];
@@ -254,64 +255,56 @@ interface ClientHours {
 
 export function MyTimeWidget() {
     const { organization } = useOrganization();
-    const [hoursThisWeek, setHoursThisWeek] = useState(0);
-    const [hoursThisMonth, setHoursThisMonth] = useState(0);
+    const [hoursThisWeek, setHoursThisWeek] = useState<number | null>(null);
+    const [hoursThisMonth, setHoursThisMonth] = useState<number | null>(null);
     const [byClient, setByClient] = useState<ClientHours[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         if (!organization) return;
+        let cancelled = false;
 
         const load = async () => {
-            const supabase = createClient();
-            let userId: string | undefined;
-            if (supabase) {
-                const { data } = await supabase.auth.getUser();
-                userId = data.user?.id;
-            }
-
-            const today = new Date();
-            const month = today.toISOString().slice(0, 7);
-            const logs = await getTimeLogs(organization.id, { month });
-
-            // Filter to current user if we have an ID
-            const myLogs = userId ? logs.filter(l => l.userId === userId) : logs;
-
-            // Week boundary (Mon–Sun)
-            const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1;
-            const weekStart = new Date(today);
-            weekStart.setDate(today.getDate() - dayOfWeek);
-            weekStart.setHours(0, 0, 0, 0);
-
-            let week = 0;
-            let monthTotal = 0;
-            const clientMap: Record<string, ClientHours> = {};
-
-            for (const l of myLogs) {
-                monthTotal += l.hours;
-                const logDate = new Date(l.date + 'T00:00:00');
-                if (logDate >= weekStart) week += l.hours;
-                // Internal work counts toward the totals but has no client to
-                // break down by (migration 030).
-                const clientId = l.clientId;
-                if (!clientId) continue;
-                if (!clientMap[clientId]) {
-                    clientMap[clientId] = { clientId, clientName: l.clientName || clientId, hours: 0 };
+            setLoading(true);
+            try {
+                const supabase = createClient();
+                const userId = supabase ? (await supabase.auth.getUser()).data.user?.id : undefined;
+                if (!userId) throw new Error('Time data unavailable');
+                const today = new Date();
+                const month = today.toISOString().slice(0, 7);
+                const logs = await getTimeLogs(organization.id, { month, throwOnError: true });
+                const totals = summarizeMyTime(logs, userId, today);
+                const clientMap: Record<string, ClientHours> = {};
+                for (const log of logs) {
+                    if (log.userId !== userId || !log.clientId) continue;
+                    const existing = clientMap[log.clientId] ?? {
+                        clientId: log.clientId,
+                        clientName: log.clientName || log.clientId,
+                        hours: 0,
+                    };
+                    existing.hours += log.hours;
+                    clientMap[log.clientId] = existing;
                 }
-                clientMap[clientId].hours += l.hours;
+                if (cancelled) return;
+                setHoursThisWeek(totals?.week ?? null);
+                setHoursThisMonth(totals?.month ?? null);
+                setByClient(
+                    Object.values(clientMap)
+                        .sort((a, b) => b.hours - a.hours)
+                        .slice(0, 5),
+                );
+            } catch {
+                if (cancelled) return;
+                setHoursThisWeek(null);
+                setHoursThisMonth(null);
+                setByClient([]);
+            } finally {
+                if (!cancelled) setLoading(false);
             }
-
-            setHoursThisWeek(Math.round(week * 10) / 10);
-            setHoursThisMonth(Math.round(monthTotal * 10) / 10);
-            setByClient(
-                Object.values(clientMap)
-                    .sort((a, b) => b.hours - a.hours)
-                    .slice(0, 5)
-            );
-            setLoading(false);
         };
 
-        load();
+        void load();
+        return () => { cancelled = true; };
     }, [organization?.id]);
 
     const maxHours = byClient[0]?.hours || 1;
@@ -331,16 +324,16 @@ export function MyTimeWidget() {
                 <>
                     <div className="grid grid-cols-2 gap-3">
                         <div className="rounded-lg bg-muted/50 p-3 text-center">
-                            <div className="text-2xl font-bold tabular-nums">{hoursThisWeek}h</div>
+                            <div className="text-2xl font-bold tabular-nums">{formatMyTimeHours(hoursThisWeek)}</div>
                             <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">This Week</div>
                         </div>
                         <div className="rounded-lg bg-primary/8 p-3 text-center">
-                            <div className="text-2xl font-bold tabular-nums text-primary">{hoursThisMonth}h</div>
+                            <div className="text-2xl font-bold tabular-nums text-primary">{formatMyTimeHours(hoursThisMonth)}</div>
                             <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">This Month</div>
                         </div>
                     </div>
 
-                    {byClient.length > 0 ? (
+                    {hoursThisMonth == null ? null : byClient.length > 0 ? (
                         <div className="space-y-2.5 pt-1">
                             <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">By Client</p>
                             {byClient.map(c => (

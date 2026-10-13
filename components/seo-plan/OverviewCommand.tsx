@@ -62,7 +62,7 @@ export function OverviewCommand({
                     <div className="mb-4 flex items-baseline justify-between gap-3">
                         <h3 className="text-base font-semibold">Onboarding</h3>
                         <p className="text-sm text-muted-foreground">
-                            {onboarding.status === 'loading' && 'Loading…'}
+                            {onboarding.status === 'loading' && <span className="inline-block h-4 w-16 animate-pulse rounded bg-muted" aria-label="Loading onboarding" />}
                             {onboarding.status === 'failed' && '—'}
                             {onboarding.status === 'ready' && (onboarding.total ?? 0) === 0 && 'No onboarding work selected'}
                             {onboarding.status === 'ready' && (onboarding.total ?? 0) > 0 && `${onboarding.done ?? 0} of ${onboarding.total}`}
@@ -86,7 +86,13 @@ export function OverviewCommand({
                         <h3 className="text-base font-semibold">Due this month</h3>
                         <button type="button" onClick={onOpenPlan} className="text-sm font-medium text-primary hover:underline">Open plan</button>
                     </div>
-                    {tasks.status === 'loading' && <p className="text-sm text-muted-foreground">Loading…</p>}
+                    {tasks.status === 'loading' && (
+                        <div role="status" aria-label="Loading tasks" className="space-y-2">
+                            <span className="sr-only">Loading tasks</span>
+                            <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
+                            <div className="h-4 w-1/2 animate-pulse rounded bg-muted" />
+                        </div>
+                    )}
                     {tasks.status === 'failed' && <p className="text-sm text-muted-foreground">—</p>}
                     {tasks.status === 'ready' && due.length === 0 && <p className="text-sm text-muted-foreground">Nothing due this month.</p>}
                     {tasks.status === 'ready' && due.length > 0 && (
