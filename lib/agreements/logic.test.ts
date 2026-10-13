@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { agreementForDate, agreementPeriod, validateAgreement, agreementHoursSummary, agreementLabel,monthlyAgreementLogs,monthlyAgreementTaskIds } from './logic';
+import { agreementForDate, agreementPeriod, validateAgreement, agreementHoursSummary, agreementLabel,monthlyAgreementLogs,monthlyAgreementTaskIds,reviewMonthQuota,stoppingOutputs } from './logic';
 import type { ClientAgreement, AgreementInput } from './types';
 const original: ClientAgreement = {id:'old', organizationId:'org',clientId:'client',previousId:null,kind:'initial',title:'Original retainer',startsOn:'2026-03-19',endsOn:'2026-09-19',mode:'monthly',hours:30,hoursMode:'committed',proration:'daily',timezone:'America/Los_Angeles',scope:'SEO',services:[],evidence:null,note:null,recordedAt:'2026-10-06',recordedBy:'owner',planSnapshot:null};
 const renewed: ClientAgreement = {...original,id:'new',previousId:'old',kind:'renewal',title:'Custom renewal',startsOn:'2026-09-20',endsOn:null,mode:'custom',hours:40,hoursMode:'estimate'};
@@ -55,6 +55,18 @@ test('late prior work has no new monthly allowance; onboarding allocation preser
     const onboarding={date:'2026-02-25',budgetMonth:'2026-03',hours:2,agreementId:'old',countsTowardBudget:true};
     assert.equal(agreementHoursSummary([original],'2026-03',[onboarding]).rows[0].periodLogged,2);
     assert.equal(onboarding.date,'2026-02-25');
+});
+test('a September 19 custom renewal keeps the prorated monthly slice and does not invent a later quota',()=>{
+    const before={...original,startsOn:'2026-01-01',endsOn:'2026-09-18',hours:20};
+    const after={...renewed,startsOn:'2026-09-19',hours:null,hoursMode:'estimate' as const};
+    assert.equal(agreementForDate([before,after],'2026-09-18')?.id,'old');
+    assert.equal(agreementForDate([before,after],'2026-09-19')?.id,'new');
+    assert.equal(agreementPeriod([before,after],'2026-09').monthlyBudget,12);
+    assert.equal(agreementPeriod([before,after],'2026-10').monthlyBudget,null);
+    assert.equal(reviewMonthQuota([before],{...after,kind:'renewal',previousId:'old',fundedTaskIds:[]}),12);
+    const blogs={sourceId:'blog',title:'Blogs',type:'Content' as const,quantity:2,cadence:'monthly' as const,countsTowardHours:false};
+    assert.equal(stoppingOutputs([blogs],[{...blogs,cadence:'one_time'}]).length,1);
+    assert.equal(stoppingOutputs([blogs],[{...blogs,title:'Articles'}]).length,0);
 });
 test('monthly planning excludes prior owed work and honors cancelled funding decisions',()=>{
     const monthly={...renewed,mode:'monthly' as const,hoursMode:'allowance' as const,hours:20};

@@ -66,7 +66,8 @@ export interface AgreementSegment {
 export interface AgreementPeriod {
     month: string;
     segments: AgreementSegment[];
-    monthlyBudget: number;
+    /** Null when the month has no monthly agreement. Zero is a real deliverables-only quota. */
+    monthlyBudget: number | null;
     mixed: boolean;
     uncoveredDays: number;
 }
@@ -84,6 +85,7 @@ export interface AgreementPreview {
     affectedHours: number;
     affectedReports: number;
     commitmentCount: number;
+    issuedByOutput?: Record<string, number>;
 }
 
 export interface AgreementWorkFunding {taskId:string;agreementId:string;transitionId:string;effectiveOn:string;recordedAt:string}

@@ -169,6 +169,7 @@ export function MonthlyPlannerCard({ client, selectedMonth, onMonthChange }: Mon
     const [timeLogs, setTimeLogs] = useState<TimeLog[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [deleteError, setDeleteError] = useState<string | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(new Set());
     const [editingWeek, setEditingWeek] = useState<number | null>(null);
     const [editedPlanned, setEditedPlanned] = useState('');
@@ -186,12 +187,13 @@ export function MonthlyPlannerCard({ client, selectedMonth, onMonthChange }: Mon
     const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Historical-aware hours target for the currently viewed month
-    const [effectiveSeoHours, setEffectiveSeoHours] = useState(client.seoHours);
+    const [effectiveSeoHours, setEffectiveSeoHours] = useState<number | null>(client.agreements?.length ? null : client.seoHours);
 
     const load = useCallback(async () => {
         if (!organization) return;
         setIsLoading(true);
         setDeleteError(null);
+        setLoadError(null);
         try {
         const [plans, logs, historicalHours] = await Promise.all([
             getMonthlyPlans(organization.id, { clientId: client.id, month }),
@@ -203,7 +205,7 @@ export function MonthlyPlannerCard({ client, selectedMonth, onMonthChange }: Mon
         setMonthNotes(p?.notes ?? '');
         setTimeLogs(client.agreements?.length ? monthlyAgreementLogs(logs,client.agreements,month) : logs);
         setEffectiveSeoHours(historicalHours);
-        } catch {setTimeLogs([]);setEffectiveSeoHours(0);setDeleteError('Hours could not be loaded. Reload before planning against the allowance.');} finally {setIsLoading(false);}
+        } catch {setTimeLogs([]);setEffectiveSeoHours(null);setLoadError('Hours could not be loaded. Reload before planning against the allowance.');} finally {setIsLoading(false);}
     }, [organization?.id, client.id, month, client.seoHours,client.agreements]);
 
     useEffect(() => { load(); }, [load]);
@@ -242,9 +244,9 @@ export function MonthlyPlannerCard({ client, selectedMonth, onMonthChange }: Mon
 
     const totalPlanned = weeks.reduce((s, w) => s + w.planned, 0);
     const totalLogged = Object.values(loggedByWeek).reduce((s, h) => s + h, 0);
-    const remaining = effectiveSeoHours - totalLogged;
-    const pct = effectiveSeoHours > 0 ? Math.min((totalLogged / effectiveSeoHours) * 100, 100) : 0;
-    const pace = getPaceStatus(effectiveSeoHours, totalLogged, month);
+    const remaining = effectiveSeoHours == null ? null : effectiveSeoHours - totalLogged;
+    const pct = effectiveSeoHours != null && effectiveSeoHours > 0 ? Math.min((totalLogged / effectiveSeoHours) * 100, 100) : 0;
+    const pace = effectiveSeoHours == null ? null : getPaceStatus(effectiveSeoHours, totalLogged, month);
     const monthLabel = new Date(month + '-15').toLocaleString('default', { month: 'long', year: 'numeric' });
 
     // Week preview for log form
@@ -374,6 +376,15 @@ export function MonthlyPlannerCard({ client, selectedMonth, onMonthChange }: Mon
                 </div>
             </div>
 
+            {loadError && (
+                <div role="alert" className="flex items-start justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
+                    <span>{loadError}</span>
+                    <button type="button" onClick={() => setLoadError(null)} aria-label="Dismiss hours error" className="rounded p-0.5 hover:bg-red-500/10">
+                        <X className="h-3.5 w-3.5" />
+                    </button>
+                </div>
+            )}
+
             {deleteError && (
                 <div role="alert" className="flex items-start justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
                     <span>{deleteError} The SEO PM entry was kept so you can retry.</span>
@@ -392,11 +403,11 @@ export function MonthlyPlannerCard({ client, selectedMonth, onMonthChange }: Mon
             <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">
-                        <span className="font-semibold text-foreground">{totalLogged.toFixed(1)}</span> of {effectiveSeoHours}h used
+                        {effectiveSeoHours == null ? '—' : <><span className="font-semibold text-foreground">{totalLogged.toFixed(1)}</span> of {effectiveSeoHours}h used</>}
                     </span>
-                    <span className={cn('font-medium text-sm', remaining < 0 ? 'text-red-500' : 'text-muted-foreground')}>
+                    {remaining != null && <span className={cn('font-medium text-sm', remaining < 0 ? 'text-red-500' : 'text-muted-foreground')}>
                         {remaining >= 0 ? `${remaining.toFixed(1)}h remaining` : `${Math.abs(remaining).toFixed(1)}h over budget`}
-                    </span>
+                    </span>}
                 </div>
                 <div className="h-2 bg-muted rounded-full overflow-hidden">
                     <div
@@ -405,6 +416,7 @@ export function MonthlyPlannerCard({ client, selectedMonth, onMonthChange }: Mon
                         style={{ width: `${pct}%` }}
                     />
                 </div>
+                {client.agreements?.length ? <p className="text-xs text-muted-foreground">Monthly allowance only. Custom scope and prior-term time stay on their agreements.</p> : null}
             </div>
 
             {/* Week table */}

@@ -37,7 +37,7 @@ interface MarketingPlanTabProps {
     organizationId: string;
     clientId: string;
     clientName: string;
-    monthlyBudget?: number;
+    monthlyBudget?: number | null;
     scopeMode?:'monthly'|'custom';
 }
 
@@ -48,7 +48,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     const [roadmapMonth, setRoadmapMonth] = useState<'all' | RoadmapPhase>('all');
     const [existingOpen, setExistingOpen] = useState(false);
     const [month, setMonth] = useState(monthKey);
-    const [periodBudget,setPeriodBudget]=useState(monthlyBudget);
+    const [periodBudget,setPeriodBudget]=useState(monthlyBudget ?? 0);
     const [capacityMode,setCapacityMode]=useState<'monthly'|'scoped'|'unavailable'>('unavailable');
     const [budgetTaskIds,setBudgetTaskIds]=useState<string[]|undefined>();
     const [taskHours, setTaskHours] = useState<Record<string, number>>({});
@@ -102,11 +102,11 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
         setCapacityMode('unavailable');
         Promise.all([getTimeLogs(organizationId, { clientId, month, budgetMonth: true, throwOnError: true }),getAgreementHistory(organizationId,clientId)]).then(async([logs,history]) => {
             const period=history.agreements.length ? agreementPeriod(history.agreements,month) : null;
-            const mode=period ? period.uncoveredDays>0 || period.segments.some(s=>s.agreement.mode==='custom') ? 'scoped' : 'monthly' : scopeMode==='custom' ? 'scoped' : 'monthly';
-            const hours=period?.monthlyBudget ?? (scopeMode==='monthly' ? await getSeoHoursForMonth(organizationId,clientId,month,monthlyBudget) : 0);
+            const hours=period ? period.monthlyBudget : scopeMode==='monthly' ? await getSeoHoursForMonth(organizationId,clientId,month,monthlyBudget ?? 0) : null;
+            const mode=period ? hours==null || period.uncoveredDays>0 || period.segments.some(s=>s.agreement.mode==='custom') ? 'scoped' : 'monthly' : scopeMode==='custom' ? 'scoped' : 'monthly';
             const funding=period ? await getAgreementWorkFunding(organizationId,clientId) : [];
             if (cancelled) return;
-            setPeriodBudget(hours);setCapacityMode(mode);
+            setPeriodBudget(hours ?? 0);setCapacityMode(mode);
             setBudgetTaskIds(period && mode==='monthly' ? monthlyAgreementTaskIds((plan?.items ?? []).flatMap(item=>item.linkedTask ? [item.linkedTask] : []),history.agreements,funding,month) : undefined);
             const budgetLogs = period && mode==='monthly' ? monthlyAgreementLogs(logs,history.agreements,month) : logs.filter(log => log.countsTowardBudget);
             setLoggedHours(budgetLogs.reduce((sum, log) => sum + log.hours, 0));

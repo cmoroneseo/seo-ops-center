@@ -338,6 +338,9 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
                         <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-1.5">
                                 <label className="text-xs text-muted-foreground">Monthly SEO Hours</label>
+                                {client.agreementCoverage === 'none' || client.agreementCoverage === 'custom' ? (
+                                    <p className="px-3 py-2 text-sm text-muted-foreground">{client.agreementCoverage === 'none' ? '—' : 'Custom scope'}</p>
+                                ) : (
                                 <input
                                     type="number"
                                     min="0"
@@ -347,6 +350,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
                                     onChange={e => setSeoHours(e.target.value)}
                                     className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40"
                                 />
+                                )}
                             </div>
                             <div className="space-y-1.5">
                                 <label className="text-xs text-muted-foreground">{client.setupScope ? 'Content pieces / month' : 'Blogs / Month'}</label>

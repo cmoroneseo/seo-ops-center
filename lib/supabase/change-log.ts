@@ -41,7 +41,7 @@ export async function getSeoHoursForMonth(
     clientId: string,
     month: string,
     currentHours: number,
-): Promise<number> {
+): Promise<number | null> {
     const history=await getAgreementHistory(organizationId,clientId);
     if(history.agreements.length) return agreementPeriod(history.agreements,month).monthlyBudget;
     const entries = await getClientChangeLog(organizationId, clientId);

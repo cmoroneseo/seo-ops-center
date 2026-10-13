@@ -503,6 +503,8 @@ export interface ClientProject {
     /** Accepted commercial history. Client identity and original launch stay permanent. */
     agreements?: import('./agreements/types').ClientAgreement[];
     agreementHistoryUnavailable?: boolean;
+    /** monthly: a live monthly agreement covers today. custom: a live custom agreement covers today. none: history exists and today is uncovered. */
+    agreementCoverage?: 'monthly' | 'custom' | 'none';
     onboardingDate?: string;
     setupScope?: import('./client-setup').ClientSetupScope;
     id: string;

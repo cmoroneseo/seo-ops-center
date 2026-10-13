@@ -13,7 +13,7 @@ Production rollout requires applying the migration before enabling agreement con
 ## Staff workflow
 
 1. Open the existing client workspace. An owner or administrator records verified original terms once: dates, monthly or custom scope, hours treatment, and promised outputs. Existing work is adopted without being recreated. The launch date remains a separate fact.
-2. Choose **Renew agreement** when a dated term ends, or **Change scope** to amend an ongoing term. Confirm the new effective date and scope. A scheduled agreement leaves today's terms in effect until its start date.
+2. Choose **Renew agreement** when a dated term ends, or **Change scope** to amend an ongoing term. A renewal starts the day after the recorded end date, so a custom scope effective 2026-09-19 requires the original agreement to end on 2026-09-18. An open-ended agreement offers **Change scope** until an end date exists. Confirm the new effective date and scope. A scheduled agreement leaves today's terms in effect until its start date.
 3. Review unfinished tasks. Selected tasks use the new agreement for effort from its effective date; unselected tasks keep their existing funding agreement. Past work dates, completed outputs, comments, and approvals remain available.
 4. Save the review. **Agreement history** shows accepted terms, scope, references, and a saved roadmap/commitment snapshot. The working roadmap stays in place.
 
@@ -25,7 +25,7 @@ Backdated acceptance can reattribute time and change live report calculations. P
 
 1. Apply `migrations/084_client_agreements.sql` to a staging database containing the existing schema. It is mirrored in `schema.sql` and wrapped in a transaction. Run real Supabase checks for owner/admin acceptance, read-only members, tenant isolation, scheduled activation/cancellation, and deliverable cron generation.
 2. Deploy this branch to staging after the migration. Verify the workspace summary and monthly/custom hour views with representative historical records. Database regression tests use a PostgreSQL fixture, not a copy of production.
-3. For production, apply migration 072 before deploying the application. If the agreement table is absent, legacy clients continue using existing terms and the new controls stay hidden. Once a client has accepted history, commercial changes and output changes go through the agreement workflow.
+3. For production, apply migration 084 before deploying the application. If the agreement table is absent, legacy clients continue using existing terms and the new controls stay hidden. Once a client has accepted history, commercial changes and output changes go through the agreement workflow.
 4. Pilot with a small set of verified clients. For 12 Volt, confirm the original contract dates and new custom scope before recording the renewal. For Scott Cole, confirm the year, original allocation, and September 1 effective date before recording 20 monthly hours. These examples have not been entered into any real client record.
 
 An incorrect future agreement can be cancelled with its evidence retained. Effective agreements are corrected through a dated amendment; they are not overwritten. If an application rollback is needed, retain the ledger and migration: the old editor cannot safely manage accepted commercial fields. Releasing an older UI after clients begin using the feature requires keeping agreement management available.

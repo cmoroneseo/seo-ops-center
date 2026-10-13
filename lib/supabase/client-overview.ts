@@ -71,7 +71,8 @@ export async function getClientOverview(
 
     const hoursLogged = hoursByClient[client.id] ?? 0;
     const agreementSummary=client.agreements?.length ? await getAgreementHours(orgId,client.id,month,client.agreements) : null;
-    const hoursBudget = agreementSummary ? agreementSummary.period.monthlyBudget : client.setupScope?.mode === 'custom' ? 0 : await getSeoHoursForMonth(orgId,client.id,month,client.seoHours);
+    const quota = agreementSummary ? agreementSummary.period.monthlyBudget : client.setupScope?.mode === 'custom' ? null : await getSeoHoursForMonth(orgId,client.id,month,client.seoHours);
+    const hoursBudget = quota ?? 0;
     const hoursStatus = agreementSummary ? {status:'By agreement',severity:'info' as const,reason:'View each scope and its allowance in the workspace hours summary.',pct:null} : client.setupScope ? setupHoursStatus(client.setupScope, client.status, client.launchDate, hoursLogged, hoursBudget, month) : hoursUsageStatus(hoursLogged, hoursBudget);
     const daysLeft = daysLeftInMonth(month);
     const cells = fulfillment.cells.map((cell) => ({

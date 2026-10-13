@@ -34,13 +34,14 @@ export async function getAgreementHistory(organizationId:string,clientId?:string
 }
 export function withClientAgreements(client:ClientProject,agreements:ClientAgreement[]):ClientProject {
     if(!agreements.length) return client;
-    const current=agreementForDate(agreements,agreementToday(agreements[0].timezone));
-    const hours=current?.hours ?? 0;
-    return {...client,agreements,
-        seoHours:current?.mode==='monthly' ? hours : 0,
-        engagementModel:current?.mode==='monthly' ? 'Retainer' : 'Campaign',
-        setupScope:{version:1,mode:current?.mode ?? 'custom',hoursMode:current?.hoursMode==='committed' ? 'committed' : 'allowance',contentPieces:current?.services.filter(s=>s.type==='Content' && s.cadence==='monthly').reduce((n,s)=>n+s.quantity,0) ?? 0,gbp:client.setupScope?.gbp ?? false,gbpUsesSeoHours:client.setupScope?.gbpUsesSeoHours ?? false,listings:client.setupScope?.listings ?? false,onboardingBudget:client.setupScope?.onboardingBudget ?? 'separate',targetDate:current?.endsOn ?? undefined},
-        retainerConfig:{...client.retainerConfig,monthlyHours:current?.mode==='monthly' ? hours : 0,hoursUsed:0,recurringDeliverables:client.retainerConfig?.recurringDeliverables ?? []}};
+    const timezone=agreements.find(item=>!item.cancelledAt)?.timezone ?? agreements[0].timezone;
+    const current=agreementForDate(agreements,agreementToday(timezone));
+    if(!current) return {...client,agreements,agreementCoverage:'none'};
+    const setupScope:NonNullable<ClientProject['setupScope']>={version:1,mode:current.mode,hoursMode:current.hoursMode==='committed' ? 'committed' : 'allowance',contentPieces:current.services.filter(s=>s.type==='Content' && s.cadence==='monthly').reduce((n,s)=>n+s.quantity,0),gbp:client.setupScope?.gbp ?? false,gbpUsesSeoHours:client.setupScope?.gbpUsesSeoHours ?? false,listings:client.setupScope?.listings ?? false,onboardingBudget:client.setupScope?.onboardingBudget ?? 'separate',targetDate:current.endsOn ?? undefined};
+    if(current.mode==='custom') return {...client,agreements,agreementCoverage:'custom',engagementModel:'Campaign',setupScope};
+    const hours=current.hours ?? 0;
+    return {...client,agreements,agreementCoverage:'monthly',seoHours:hours,engagementModel:'Retainer',setupScope,
+        retainerConfig:{...client.retainerConfig,monthlyHours:hours,hoursUsed:client.retainerConfig?.hoursUsed ?? 0,recurringDeliverables:client.retainerConfig?.recurringDeliverables ?? []}};
 }
 export async function previewAgreement(client:ClientProject,input:AgreementInput):Promise<AgreementPreview> {
     const invalid=validateAgreement(input);if(invalid) throw new Error(invalid);

@@ -36,6 +36,15 @@ const EMPTY_FORM = {
     defaultAssigneeId: '',
 };
 
+function oneTimeLabel(commitment: DeliverableCommitment): string {
+    const agreed = Number(commitment.customFields?.agreedTotalQuantity);
+    const hasAgreed = Number.isFinite(agreed);
+    const total = hasAgreed ? agreed : commitment.totalQuantity;
+    if (total == null) return '— total';
+    if (hasAgreed && commitment.totalQuantity != null && agreed !== commitment.totalQuantity) return `${agreed} agreed · ${commitment.totalQuantity} remaining`;
+    return `${total} total`;
+}
+
 export function CommitmentsManager({
     isOpen, onClose, organizationId, clientId, clientName, commitments, onChanged,
 }: CommitmentsManagerProps) {
@@ -281,8 +290,8 @@ export function CommitmentsManager({
                                     <div className="flex-1 min-w-0">
                                         <div className="text-sm font-medium truncate">{c.title}</div>
                                         <div className="text-xs text-muted-foreground">
-                                            {c.cadence==='one_time' ? `${c.totalQuantity ?? 0} total` : `${c.quantityPerMonth}/mo`} · {c.engagementModel}
-                                            {c.totalQuantity ? ` (cap ${c.totalQuantity})` : ''}
+                                            {c.cadence==='one_time' ? oneTimeLabel(c) : `${c.quantityPerMonth}/mo`} · {c.engagementModel}
+                                            {c.cadence!=='one_time' && c.totalQuantity ? ` (cap ${c.totalQuantity})` : ''}
                                             {' · from '}{c.startsOn}
                                             {c.endsOn ? ` to ${c.endsOn}` : ''}
                                             {!c.isActive ? ' · Ended' : ''}

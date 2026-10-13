@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import {requireOrganizationMember} from '@/lib/security/tenant-authz';
 import { proratedQuantity } from '@/lib/seo-ops-logic';
-import {rowToAgreement} from '@/lib/supabase/agreements';
+import {AGREEMENT_TERM_COLUMNS,rowToAgreement} from '@/lib/supabase/agreements';
 import {agreementToday} from '@/lib/agreements/logic';
 import {commitmentWindow,customOutputQuantity} from '@/lib/agreements/commitments';
 import {rowToCommitment} from '@/lib/supabase/commitments';
@@ -36,6 +36,21 @@ function dueDateFor(month: string, dueDay?: number | null): string {
     if (!dueDay) return lastBusinessDay(month);
     const last=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5)),0)).getUTCDate();
     return `${month}-${String(Math.min(dueDay,last)).padStart(2, '0')}`;
+}
+
+const PAGE = 1000;
+const COMMITMENT_COLUMNS = 'id, organization_id, client_id, title, agreement_id, cadence, quantity_per_month, starts_on, ends_on, due_day, engagement_model, total_quantity, type, subtype, counts_toward_hours, default_assignee_id, custom_fields, is_active, clients!inner(id, status)';
+
+async function readAll<T>(query: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { code?: string; message?: string } | null }>): Promise<{ rows: T[]; error: { code?: string; message?: string } | null }> {
+    const rows: T[] = [];
+    for (let from = 0; from < 50000; from += PAGE) {
+        const page = await query(from, from + PAGE - 1);
+        if (page.error) return { rows: [], error: page.error };
+        const data = page.data ?? [];
+        rows.push(...data);
+        if (data.length < PAGE) return { rows, error: null };
+    }
+    return { rows: [], error: { code: 'limit', message: 'Too many rows' } };
 }
 
 const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -76,22 +91,38 @@ export async function POST(req: NextRequest) {
 
         for (const org of orgs ?? []) {
             results.orgsProcessed++;
-            const {data:agreementRows,error:agreementError}=await admin.from('client_agreements').select('*').eq('organization_id',org.id);
-            if(agreementError && !['42P01','PGRST205'].includes(agreementError.code))throw agreementError;
-            const agreements=(agreementRows ?? []).map(rowToAgreement);
+            const agreementPage = await readAll<Record<string, unknown>>(range => admin.from('client_agreements').select(AGREEMENT_TERM_COLUMNS).eq('organization_id', org.id).order('id').range(range, range + PAGE - 1));
+            const agreementMissing = !!agreementPage.error && ['42P01', 'PGRST205'].includes(agreementPage.error.code ?? '');
+            if (agreementPage.error && !agreementMissing) throw agreementPage.error;
+            const agreementError = agreementMissing ? agreementPage.error : null;
+            const agreements = agreementMissing ? [] : agreementPage.rows.map(row => rowToAgreement(row));
 
             // Active commitments overlapping the current month, with client status
-            const { data: commitments, error: cErr } = await admin
-                .from('deliverable_commitments')
-                .select('*, clients!inner(id, status)')
-                .eq('organization_id', org.id)
-                .eq('is_active', true);
+            type CommitmentRow = {
+                id: string; organization_id: string; client_id: string; title: string; agreement_id: string | null;
+                cadence: string; quantity_per_month: number | null; starts_on: string; ends_on: string | null; due_day: number | null;
+                engagement_model: string; total_quantity: number | null; type: string; subtype: string | null;
+                counts_toward_hours: boolean | null; default_assignee_id: string | null; custom_fields: { agreementOutputRoot?: string; agreedTotalQuantity?: number } | null;
+                is_active: boolean; clients?: { id?: string; status?: string } | null;
+            };
+            const commitmentPage = await readAll<CommitmentRow>(async (from, to) => {
+                const page = await admin
+                    .from('deliverable_commitments')
+                    .select(COMMITMENT_COLUMNS)
+                    .eq('organization_id', org.id)
+                    .eq('is_active', true)
+                    .order('id')
+                    .range(from, to);
+                const rows = (page.data ?? []).map(row => ({ ...row, clients: Array.isArray(row.clients) ? row.clients[0] ?? null : row.clients })) as CommitmentRow[];
+                return { data: rows, error: page.error ? { code: page.error.code, message: page.error.message } : null };
+            });
 
-            if (cErr) {
-                console.error(`Error fetching commitments for org ${org.id}:`, cErr);
+            if (commitmentPage.error) {
+                console.error(`Error fetching commitments for org ${org.id}:`, commitmentPage.error);
                 results.errors++;
                 continue;
             }
+            const commitments = commitmentPage.rows;
 
             for (const c of commitments ?? []) {
                 results.commitmentsChecked++;

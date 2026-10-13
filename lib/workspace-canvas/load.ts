@@ -9,6 +9,7 @@ import { getTimeLogs } from '../supabase/time-logs';
 import { sumBudgetHoursByClient } from '../time-budget-logic';
 import {getAgreementHours} from '../supabase/agreements';
 import {getSeoHoursForMonth} from '../supabase/change-log';
+import {agreementPeriod} from '../agreements/logic';
 import type { ClientProject, Task } from '../types';
 import {
     buildDailySeries,
@@ -96,7 +97,7 @@ export async function loadWorkspaceCanvas(args: {
     const custom = client.setupScope?.mode === 'custom';
     const campaign = !custom && client.engagementModel === 'Campaign';
     const agreementPromise=client.agreementHistoryUnavailable ? Promise.reject(new Error('Agreement history unavailable')) : client.agreements?.length ? getAgreementHours(organizationId,client.id,month,client.agreements) : Promise.resolve(null);
-    const historicalBudgetPromise=client.agreements?.length ? Promise.resolve(0) : getSeoHoursForMonth(organizationId,client.id,month,client.seoHours);
+    const historicalBudgetPromise=client.agreements?.length ? Promise.resolve(agreementPeriod(client.agreements,month).monthlyBudget) : getSeoHoursForMonth(organizationId,client.id,month,client.seoHours);
 
     const tasksPromise = getTasksByClient(client.id, true);
     const membersPromise = getOrganizationMembers(organizationId);
@@ -173,8 +174,8 @@ export async function loadWorkspaceCanvas(args: {
             engagementModel: client.engagementModel,
             status: client.status,
             launchDate: client.launchDate,
-            seoHours: historicalBudget ?? 0,
-            retainerMonthlyHours: historicalBudget ?? null,
+            seoHours: historicalBudget ?? client.seoHours,
+            retainerMonthlyHours: historicalBudget,
             setupScope: client.setupScope ?? null,
             campaignConfig: client.campaignConfig
                 ? { startDate: client.campaignConfig.startDate, endDate: client.campaignConfig.endDate, totalHours: client.campaignConfig.totalHours }

@@ -1,4 +1,4 @@
-import type { AgreementInput, AgreementPeriod, ClientAgreement, AgreementHoursSummary,AgreementWorkFunding } from './types';
+import type { AgreementInput, AgreementPeriod, AgreementService, ClientAgreement, AgreementHoursSummary,AgreementWorkFunding } from './types';
 
 const DAY = 86400000;
 function day(date: string): number { return Date.parse(`${date}T00:00:00Z`); }
@@ -40,8 +40,34 @@ export function agreementPeriod(agreements: ClientAgreement[], month: string): A
         const budget=agreement.mode==='monthly' ? (agreement.hours ?? 0)*(agreement.proration==='daily' ? count/days : 1) : null;
         return [{agreement,startsOn,endsOn,budget}];
     }).sort((a,b)=>a.startsOn.localeCompare(b.startsOn));
-    return {month,segments,monthlyBudget:Math.round(segments.reduce((n,item)=>n+(item.budget ?? 0),0)*100)/100,
+    const monthly=segments.flatMap(item=>item.budget==null ? [] : [item.budget]);
+    return {month,segments,monthlyBudget:monthly.length ? Math.round(monthly.reduce((n,item)=>n+item,0)*100)/100 : null,
         mixed:segments.length>1,uncoveredDays:Math.max(0,days-segments.reduce((n,item)=>n+(day(item.endsOn)-day(item.startsOn))/DAY+1,0))};
+}
+/** The month that contains the new effective date, including the draft terms. Null means no monthly quota. */
+export function reviewMonthQuota(existing: ClientAgreement[], input: AgreementInput): number | null {
+    const draft: ClientAgreement = {
+        id: 'draft', organizationId: existing[0]?.organizationId ?? '', clientId: existing[0]?.clientId ?? '',
+        previousId: input.previousId, kind: input.kind, title: input.title, startsOn: input.startsOn, endsOn: input.endsOn,
+        mode: input.mode, hours: input.hours, hoursMode: input.hoursMode, proration: input.proration, timezone: input.timezone,
+        scope: input.scope, services: input.services, evidence: input.evidence, note: input.note,
+        recordedAt: input.startsOn, recordedBy: '', planSnapshot: null,
+    };
+    return agreementPeriod([...existing.filter(item => item.id !== draft.id), draft], input.startsOn.slice(0, 7)).monthlyBudget;
+}
+/** An output stops when it is dropped or continued under a different cadence, type, or subtype. A rename does not stop it. */
+export function stoppingOutputs(previous: AgreementService[] | undefined, next: AgreementService[]): AgreementService[] {
+    return (previous ?? []).filter(old => {
+        const continued = next.find(service => !!service.sourceId && service.sourceId === old.sourceId);
+        if (!continued) return true;
+        return continued.cadence !== old.cadence || continued.type !== old.type || (continued.subtype ?? '') !== (old.subtype ?? '');
+    });
+}
+export function clientScopeLabel(client: { agreementHistoryUnavailable?: boolean; agreementCoverage?: 'monthly' | 'custom' | 'none'; setupScope?: { mode?: string } | null; seoHours: number }): string {
+    if (client.agreementHistoryUnavailable) return 'Scope unavailable';
+    if (client.agreementCoverage === 'none') return '—';
+    if (client.agreementCoverage === 'custom' || client.setupScope?.mode === 'custom') return 'Custom scope';
+    return `${client.seoHours}h/mo`;
 }
 export function agreementHoursSummary(agreements:ClientAgreement[],month:string,logs:Array<{date:string;budgetMonth?:string|null;hours:number;agreementId?:string|null;countsTowardBudget:boolean}>):AgreementHoursSummary {
     const period=agreementPeriod(agreements,month);

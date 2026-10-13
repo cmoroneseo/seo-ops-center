@@ -16,7 +16,7 @@ async function database() {
         create table tasks(id uuid primary key,organization_id uuid,client_id uuid,title text,status text,created_at timestamptz default now());
         create table time_logs(id uuid primary key default gen_random_uuid(),organization_id uuid,client_id uuid,task_id uuid,date date,hours numeric,status text default 'logged',import_status text default 'mapped',counts_toward_budget boolean default true);
         create table deliverable_commitments(id uuid primary key default gen_random_uuid(),organization_id uuid,client_id uuid,type text,title text,subtype text,quantity_per_month numeric,cadence text,engagement_model text,total_quantity int,starts_on date,ends_on date,is_active boolean,counts_toward_hours boolean,custom_fields jsonb);
-        create table deliverables(id uuid primary key default gen_random_uuid(),organization_id uuid,client_id uuid,commitment_id uuid,generated_by text);
+        create table deliverables(id uuid primary key default gen_random_uuid(),organization_id uuid,client_id uuid,commitment_id uuid,generated_by text,status text,month text);
         create table marketing_plans(id uuid primary key default gen_random_uuid(),organization_id uuid,client_id uuid,title text);
         create table marketing_plan_items(id uuid primary key default gen_random_uuid(),organization_id uuid,client_id uuid,marketing_plan_id uuid,title text,sort_order int);
         create table reports(id uuid primary key default gen_random_uuid(),organization_id uuid,client_id uuid,status text,report_month text);
@@ -48,7 +48,7 @@ test('original and renewed terms are atomic, idempotent, and effective-dated wit
         assert.equal((await db.query<{ends_on:string}>('select ends_on::text from client_agreements where id=$1',[old])).rows[0].ends_on,'2020-01-31');
         assert.equal((await db.query<{launch_date:string}>('select launch_date::text from clients')).rows[0].launch_date,'2020-01-01');
         await assert.rejects(confirm(db,{...input,hours:25},'00000000-0000-0000-0000-000000000041'),/different terms/);
-        await assert.rejects(db.query('update clients set seo_hours=20'),/Manage agreements/);
+        await assert.rejects(db.query('update clients set seo_hours=99'),/Manage agreements/);
         await assert.rejects(db.query('update client_agreements set hours=99'),/permission denied/);
         await assert.rejects(db.query('delete from client_agreements'),/permission denied/);
     }finally{await db.close();}
@@ -132,5 +132,71 @@ test('custom cron writes reject stale scopes and cannot exceed a revised total',
         await db.query("insert into deliverables(organization_id,client_id,commitment_id,generated_by) select $1,$2,$3,'cron' from generate_series(1,8)",[org,client,revised]);
         assert.equal((await db.query<{n:number}>('select count(*)::int n from deliverables')).rows[0].n,5);
         await assert.rejects(db.query("update deliverable_commitments set custom_fields=jsonb_set(custom_fields,'{agreedTotalQuantity}','99') where id=$1",[revised]),/Change scope/);
+    }finally{await db.close();}
+});
+test('a backdated September 19 custom renewal preserves earlier time, tasks, and deliverables',async()=>{
+    const db=await database();try{
+        const evening='00000000-0000-0000-0000-000000000032',morning='00000000-0000-0000-0000-000000000033';
+        await db.query("insert into tasks(id,organization_id,client_id,title,status,created_at) values($1,$2,$3,'Evening before','todo','2026-09-19 06:00:00+00'),($4,$2,$3,'After the term','todo','2026-09-19 08:00:00+00')",[evening,org,client,morning]);
+        await db.query("insert into time_logs(organization_id,client_id,date,hours) values($1,$2,'2026-09-10',1.5),($1,$2,'2026-09-18',2),($1,$2,'2026-09-19',4)",[org,client]);
+        const services=[{title:'Blog posts',type:'Content',quantity:2,cadence:'monthly',countsTowardHours:false}];
+        const initial=await confirm(db,{...original,title:'Original monthly',startsOn:'2026-01-01',endsOn:'2026-09-18',hours:20,services},'00000000-0000-0000-0000-000000000070');
+        assert.equal((await db.query<{ok:boolean}>('select seo_hours=10 as ok from clients')).rows[0].ok,true);
+        const tasks=(await db.query<{id:string;agreement_id:string|null}>('select id::text,agreement_id from tasks where id in ($1,$2)',[evening,morning])).rows;
+        assert.equal(tasks.find(task=>task.id===evening)?.agreement_id,initial);
+        assert.equal(tasks.find(task=>task.id===morning)?.agreement_id,null);
+        const output=(await db.query<{id:string}>('select id from deliverable_commitments where agreement_id=$1',[initial])).rows[0].id;
+        await db.query("insert into deliverables(organization_id,client_id,commitment_id,status,month) values($1,$2,$3,'Published','2026-09')",[org,client,output]);
+        const renewal=await confirm(db,{...original,kind:'renewal',previousId:initial,title:'Custom SEO',startsOn:'2026-09-19',endsOn:null,mode:'custom',hours:null,hoursMode:'estimate',services:[{title:'Custom audit',type:'Other',quantity:1,cadence:'one_time',countsTowardHours:false}]},'00000000-0000-0000-0000-000000000071');
+        const logs=(await db.query<{date:string;agreement_id:string|null}>("select date::text,agreement_id from time_logs where date>='2026-09-01' order by date")).rows;
+        assert.deepEqual(logs.map(log=>log.date),['2026-09-10','2026-09-18','2026-09-19']);
+        assert.equal(logs[0].agreement_id,initial);assert.equal(logs[1].agreement_id,initial);assert.equal(logs[2].agreement_id,renewal);
+        assert.equal((await db.query<{agreement_id:string}>('select agreement_id from deliverables where commitment_id=$1',[output])).rows[0].agreement_id,initial);
+        const clientRow=(await db.query<{seo_hours:string|null;engagement_model:string}>('select seo_hours::text,engagement_model from clients')).rows[0];
+        assert.equal(clientRow.seo_hours,null);assert.equal(clientRow.engagement_model,'Campaign');
+    }finally{await db.close();}
+});
+test('a timer stop does not stale the review, and an issued deliverable does',async()=>{
+    const db=await database();try{
+        await db.query("insert into time_logs(organization_id,client_id,date,hours) values($1,$2,'2026-09-10',1)",[org,client]);
+        const review=await preview(db,'2026-01-01');
+        await db.query("update time_logs set hours=9 where date='2026-09-10'");
+        const input={...original,startsOn:'2026-01-01',endsOn:'2026-09-18',hours:20};
+        const initial=(await db.query<{id:string}>('select confirm_client_agreement($1,$2,$3,$4) id',[client,'00000000-0000-0000-0000-000000000080',input,review.token])).rows[0].id;
+        assert.ok(initial);
+        const next=await preview(db,'2026-09-19');
+        await db.query("insert into deliverables(organization_id,client_id,status,month) values($1,$2,'Pending','2026-09')",[org,client]);
+        await assert.rejects(db.query('select confirm_client_agreement($1,$2,$3,$4)',[client,'00000000-0000-0000-0000-000000000081',{...input,kind:'renewal',previousId:initial,startsOn:'2026-09-19',endsOn:null,mode:'custom',hours:null,hoursMode:'estimate',services:[]},next.token]),/out of date/);
+    }finally{await db.close();}
+});
+test('renaming an output amends it in place',async()=>{
+    const db=await database();try{
+        const services=[{title:'Technical reviews',type:'Other',quantity:3,cadence:'one_time',countsTowardHours:true}];
+        const first=await confirm(db,{...original,mode:'custom',hoursMode:'allowance',hours:30,services},'00000000-0000-0000-0000-000000000082');
+        const output=(await db.query<{id:string}>('select id from deliverable_commitments')).rows[0].id;
+        await confirm(db,{...original,mode:'custom',hoursMode:'allowance',hours:30,kind:'amendment',previousId:first,startsOn:'2020-01-15',services:[{...services[0],sourceId:output,title:'Site reviews'}]},'00000000-0000-0000-0000-000000000083');
+        const rows=(await db.query<{n:number;title:string}>('select count(*)::int n,min(title) title from deliverable_commitments')).rows[0];
+        assert.equal(rows.n,1);assert.equal(rows.title,'Site reviews');
+    }finally{await db.close();}
+});
+test('cancelling a scheduled agreement releases its commitments inside the client organization',async()=>{
+    const db=await database();try{
+        const first=await confirm(db,{...original,endsOn:'2099-12-31',mode:'custom',hoursMode:'allowance',hours:30,services:[{title:'Kept',type:'Other',quantity:1,cadence:'one_time',countsTowardHours:false}]},'00000000-0000-0000-0000-000000000084');
+        const next=await confirm(db,{...original,kind:'renewal',previousId:first,startsOn:'2100-01-01',endsOn:null,mode:'custom',hoursMode:'estimate',hours:null,services:[{title:'Scheduled output',type:'Other',quantity:1,cadence:'one_time',countsTowardHours:false}]},'00000000-0000-0000-0000-000000000085');
+        const output=(await db.query<{id:string}>('select id from deliverable_commitments where agreement_id=$1',[next])).rows[0].id;
+        await db.query('select cancel_scheduled_agreement($1,$2)',[client,next]);
+        assert.equal((await db.query<{is_active:boolean}>('select is_active from deliverable_commitments where id=$1',[output])).rows[0].is_active,false);
+        await db.query("update deliverable_commitments set title='Released' where id=$1",[output]);
+        await db.query('delete from deliverable_commitments where id=$1',[output]);
+        assert.equal((await db.query<{n:number}>('select count(*)::int n from deliverable_commitments where agreement_id=$1',[first])).rows[0].n,1);
+        await assert.rejects(db.exec('delete from deliverable_commitments'),/cannot be deleted/);
+    }finally{await db.close();}
+});
+test('non-numeric hours fail with a readable error and save nothing',async()=>{
+    const db=await database();try{
+        const review=await preview(db,original.startsOn);
+        await assert.rejects(db.query('select confirm_client_agreement($1,$2,$3,$4)',[client,'00000000-0000-0000-0000-000000000090',{...original,hours:'NaN'},review.token]),/Invalid hours/);
+        await assert.rejects(db.query('select confirm_client_agreement($1,$2,$3,$4)',[client,'00000000-0000-0000-0000-000000000091',{...original,hours:'abc'},review.token]),/Invalid hours/);
+        assert.equal((await db.query<{n:number}>('select count(*)::int n from client_agreements')).rows[0].n,0);
     }finally{await db.close();}
 });

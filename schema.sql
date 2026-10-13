@@ -8901,8 +8901,11 @@ declare v_timezone text;
 begin
     if tg_op='INSERT' and new.agreement_id is null then
         if tg_table_name='deliverable_commitments' and exists(select 1 from public.client_agreements where client_id=new.client_id) then raise exception 'Use Change scope to add accepted agreement outputs'; end if;
-        if tg_table_name='deliverables' and new.commitment_id is not null then
-            select agreement_id into new.agreement_id from public.deliverable_commitments where id=new.commitment_id and client_id=new.client_id and organization_id=new.organization_id;
+        if tg_table_name='deliverables' then
+            -- Nested so task and commitment rows, which have no commitment_id, never read that field.
+            if new.commitment_id is not null then
+                select agreement_id into new.agreement_id from public.deliverable_commitments where id=new.commitment_id and client_id=new.client_id and organization_id=new.organization_id;
+            end if;
         end if;
         if new.agreement_id is null then
             select timezone into v_timezone from public.client_agreements where client_id=new.client_id and cancelled_at is null order by starts_on desc limit 1;
@@ -8930,6 +8933,12 @@ create trigger commitments_require_agreement_transaction before insert or update
 
 create function public.protect_agreement_commitment() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
+    -- The agreement transaction and a cancelled scheduled agreement may revise or remove the outputs they own.
+    if current_setting('app.agreement_write', true) = 'on'
+       or (old.agreement_id is not null and exists(select 1 from public.client_agreements a where a.id = old.agreement_id and a.cancelled_at is not null)) then
+        if tg_op = 'DELETE' then return old; end if;
+        return new;
+    end if;
     if old.agreement_id is not null then
         if tg_op='DELETE' then raise exception 'Accepted agreement outputs cannot be deleted'; end if;
         if new.title is distinct from old.title or new.counts_toward_hours is distinct from old.counts_toward_hours or new.is_active is distinct from old.is_active or new.quantity_per_month is distinct from old.quantity_per_month or new.total_quantity is distinct from old.total_quantity or new.starts_on is distinct from old.starts_on or new.ends_on is distinct from old.ends_on or new.cadence is distinct from old.cadence or new.engagement_model is distinct from old.engagement_model or new.type is distinct from old.type or new.subtype is distinct from old.subtype or new.custom_fields is distinct from old.custom_fields then
@@ -8961,8 +8970,14 @@ $$;
 
 create function public.protect_agreement_client_terms() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
-    if exists(select 1 from public.client_agreements where client_id=old.id) and
-       (new.seo_hours is distinct from old.seo_hours or new.engagement_model is distinct from old.engagement_model or new.setup_scope is distinct from old.setup_scope or new.blogs_due_per_month is distinct from old.blogs_due_per_month or new.campaign_total_hours is distinct from old.campaign_total_hours or new.campaign_start is distinct from old.campaign_start or new.campaign_end is distinct from old.campaign_end) then
+    if exists(select 1 from public.client_agreements where client_id=old.id) and (
+        (current_setting('app.agreement_write', true) is distinct from 'on' and (new.seo_hours is distinct from old.seo_hours or new.engagement_model is distinct from old.engagement_model))
+        or new.setup_scope is distinct from old.setup_scope
+        or new.blogs_due_per_month is distinct from old.blogs_due_per_month
+        or new.campaign_total_hours is distinct from old.campaign_total_hours
+        or new.campaign_start is distinct from old.campaign_start
+        or new.campaign_end is distinct from old.campaign_end
+    ) then
         raise exception 'Use Manage agreements to change commercial terms';
     end if;
     if new.organization_id is distinct from old.organization_id and exists(select 1 from public.client_agreements where client_id=old.id) then raise exception 'An accepted client workspace cannot be moved to another organization'; end if;
@@ -8974,13 +8989,13 @@ create trigger clients_protect_agreement_terms before update on public.clients f
 create function public.agreement_review_token(p_client uuid) returns text
 language sql stable security definer set search_path=pg_catalog,public as $$
     select md5(jsonb_build_object(
-        'client',(select to_jsonb(c) from public.clients c where c.id=p_client),
+        'client',(select jsonb_build_object('id',c.id,'organization_id',c.organization_id,'seo_hours',c.seo_hours,'engagement_model',c.engagement_model,'setup_scope',c.setup_scope,'blogs_due_per_month',c.blogs_due_per_month,'campaign_total_hours',c.campaign_total_hours,'campaign_start',c.campaign_start,'campaign_end',c.campaign_end,'status',c.status,'launch_date',c.launch_date,'onboarding_date',c.onboarding_date) from public.clients c where c.id=p_client),
         'agreements',(select jsonb_agg(to_jsonb(a) order by a.starts_on) from public.client_agreements a where a.client_id=p_client),
         'commitments',(select jsonb_agg(to_jsonb(c) order by c.id) from public.deliverable_commitments c where c.client_id=p_client),
         'tasks',(select jsonb_agg(jsonb_build_array(t.id,t.title,t.status) order by t.id) from public.tasks t where t.client_id=p_client and t.status not in ('done','approved')),
         'plan',(select jsonb_agg(to_jsonb(i) order by i.id) from public.marketing_plan_items i where i.client_id=p_client),
         'planHeader',(select jsonb_agg(to_jsonb(p) order by p.id) from public.marketing_plans p where p.client_id=p_client),
-        'time',(select jsonb_agg(jsonb_build_array(t.id,t.date,t.hours,t.task_id,t.status,t.import_status,t.counts_toward_budget) order by t.id) from public.time_logs t where t.client_id=p_client),
+        'deliverables',(select jsonb_agg(jsonb_build_array(d.id,d.commitment_id,d.status,d.month) order by d.id) from public.deliverables d where d.client_id=p_client),
         'reports',(select jsonb_agg(jsonb_build_array(r.id,r.status,r.report_month) order by r.id) from public.reports r where r.client_id=p_client)
     )::text);
 $$;
@@ -8996,7 +9011,8 @@ begin
         'openTasks',coalesce((select jsonb_agg(jsonb_build_object('id',id,'title',title,'status',status) order by created_at) from public.tasks where client_id=p_client and organization_id=v_org and status not in ('done','approved')),'[]'::jsonb),
         'affectedHours',coalesce((select sum(hours) from public.time_logs where client_id=p_client and organization_id=v_org and date>=p_start and status='logged' and import_status='mapped' and counts_toward_budget),0),
         'affectedReports',(select count(*) from public.reports where client_id=p_client and organization_id=v_org and status='published' and report_month>=to_char(p_start,'YYYY-MM')),
-        'commitmentCount',(select count(*) from public.deliverable_commitments where client_id=p_client and organization_id=v_org));
+        'commitmentCount',(select count(*) from public.deliverable_commitments where client_id=p_client and organization_id=v_org),
+        'issuedByOutput',coalesce((select jsonb_object_agg(commitment_id::text, issued) from (select commitment_id, count(*)::int as issued from public.deliverables where client_id=p_client and organization_id=v_org and commitment_id is not null group by commitment_id) issued_rows),'{}'::jsonb));
 end;
 $$;
 revoke all on function public.preview_client_agreement(uuid,date) from public,anon;
@@ -9005,8 +9021,8 @@ grant execute on function public.preview_client_agreement(uuid,date) to authenti
 create function public.confirm_client_agreement(p_client uuid,p_request uuid,p_input jsonb,p_token text) returns uuid
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare
-    v_org uuid; v_client public.clients%rowtype; v_old public.client_agreements%rowtype; v_existing public.client_agreements%rowtype;
-    v_id uuid:=gen_random_uuid(); v_start date; v_end date; v_hours numeric; v_service jsonb; v_task record; v_plan jsonb; v_old_id uuid; v_cadence text;
+    v_org uuid; v_client public.clients%rowtype; v_old public.client_agreements%rowtype; v_existing public.client_agreements%rowtype; v_live public.client_agreements%rowtype;
+    v_id uuid:=gen_random_uuid(); v_start date; v_end date; v_hours numeric; v_service jsonb; v_task record; v_plan jsonb; v_old_id uuid; v_cadence text; v_cover uuid;
     v_source public.deliverable_commitments%rowtype; v_commitment uuid; v_root text; v_quantity integer; v_issued integer; v_services jsonb:='[]'::jsonb;
 begin
     select * into v_client from public.clients where id=p_client for update; v_org:=v_client.organization_id;
@@ -9018,13 +9034,23 @@ begin
     end if;
     if p_token is null or p_token<>public.agreement_review_token(p_client) then raise exception 'Agreement review is out of date. Review the terms again'; end if;
     if p_input is null or jsonb_typeof(p_input)<>'object' or length(p_input::text)>100000 then raise exception 'Invalid agreement'; end if;
-    v_start:=(p_input->>'startsOn')::date; v_end:=nullif(p_input->>'endsOn','')::date; v_hours:=nullif(p_input->>'hours','')::numeric;
+    if coalesce(p_input->>'startsOn','') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' or (nullif(p_input->>'endsOn','') is not null and p_input->>'endsOn' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$') then raise exception 'Choose valid agreement dates'; end if;
+    begin
+        v_start:=(p_input->>'startsOn')::date; v_end:=nullif(p_input->>'endsOn','')::date;
+    exception when datetime_field_overflow or invalid_datetime_format then
+        raise exception 'Choose valid agreement dates';
+    end;
     if v_start is null or (v_end is not null and v_end<v_start) then raise exception 'Choose valid agreement dates'; end if;
+    if nullif(trim(p_input->>'hours'),'') is null then v_hours:=null;
+    elsif trim(p_input->>'hours') !~ '^[0-9]{1,4}(\.[0-9]{1,2})?$' then raise exception 'Invalid hours';
+    else v_hours:=trim(p_input->>'hours')::numeric; end if;
+    if v_hours<0 or v_hours>9999 or (p_input->>'mode'='monthly' and v_hours is null) then raise exception 'Invalid hours'; end if;
     if coalesce(p_input->>'kind','') not in ('initial','renewal','amendment') or coalesce(p_input->>'mode','') not in ('monthly','custom') or coalesce(p_input->>'hoursMode','') not in ('committed','allowance','estimate') or coalesce(p_input->>'proration','') not in ('daily','full_period') then raise exception 'Invalid agreement terms'; end if;
     if not exists(select 1 from pg_timezone_names where name=p_input->>'timezone') then raise exception 'Choose a valid time zone'; end if;
-    if v_hours='NaN'::numeric or v_hours<0 or v_hours>9999 then raise exception 'Invalid hours'; end if;
     if length(coalesce(trim(p_input->>'scope'),'')) not between 1 and 12000 or length(coalesce(trim(p_input->>'title'),'')) not between 1 and 160 then raise exception 'Describe and name the agreed scope'; end if;
     if jsonb_typeof(p_input->'services') is distinct from 'array' or jsonb_array_length(p_input->'services')>50 or jsonb_typeof(p_input->'fundedTaskIds') is distinct from 'array' or jsonb_array_length(p_input->'fundedTaskIds')>250 then raise exception 'Invalid scope selections'; end if;
+    if nullif(p_input->>'previousId','') is not null and p_input->>'previousId' !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' then raise exception 'Review the latest agreement before changing terms'; end if;
+    if exists(select 1 from jsonb_array_elements_text(p_input->'fundedTaskIds') picked where picked.value !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') then raise exception 'Selected work is no longer available'; end if;
     if (select count(*) from jsonb_array_elements_text(p_input->'fundedTaskIds'))<>(select count(distinct value) from jsonb_array_elements_text(p_input->'fundedTaskIds')) then raise exception 'Duplicate task selections'; end if;
     if (select count(*) from jsonb_array_elements(p_input->'services') s where s->>'sourceId' is not null)<>(select count(distinct s->>'sourceId') from jsonb_array_elements(p_input->'services') s where s->>'sourceId' is not null) then raise exception 'Duplicate output selections'; end if;
     select * into v_old from public.client_agreements where client_id=p_client and cancelled_at is null order by starts_on desc limit 1;
@@ -9042,19 +9068,25 @@ begin
     if exists(select 1 from jsonb_array_elements_text(p_input->'fundedTaskIds') picked where not exists(select 1 from public.tasks t where t.id=picked.value::uuid and t.client_id=p_client and t.organization_id=v_org and t.status not in ('done','approved'))) then raise exception 'Selected work is no longer available'; end if;
     select jsonb_build_object('plan',to_jsonb(p),'items',coalesce((select jsonb_agg(to_jsonb(i) order by i.sort_order,i.id) from public.marketing_plan_items i where i.marketing_plan_id=p.id),'[]'::jsonb)) into v_plan from public.marketing_plans p where p.client_id=p_client and p.organization_id=v_org;
     v_plan:=coalesce(v_plan,'{}'::jsonb)||jsonb_build_object('commitments',coalesce((select jsonb_agg(to_jsonb(c) order by c.id) from public.deliverable_commitments c where c.client_id=p_client and c.organization_id=v_org),'[]'::jsonb));
+    perform set_config('app.agreement_write','on',true);
     insert into public.client_agreements(id,organization_id,client_id,previous_id,request_id,request_payload,kind,title,starts_on,ends_on,mode,hours,hours_mode,proration,timezone,scope,services,evidence,note,plan_snapshot,recorded_by)
     values(v_id,v_org,p_client,v_old_id,p_request,p_input,p_input->>'kind',trim(p_input->>'title'),v_start,v_end,p_input->>'mode',v_hours,p_input->>'hoursMode',p_input->>'proration',p_input->>'timezone',trim(p_input->>'scope'),p_input->'services',nullif(trim(p_input->>'evidence'),''),nullif(trim(p_input->>'note'),''),v_plan,auth.uid());
 
     for v_service in select value from jsonb_array_elements(p_input->'services') loop
         v_cadence:=v_service->>'cadence';
-        if length(coalesce(trim(v_service->>'title'),'')) not between 1 and 200 or coalesce(v_service->>'type','') not in ('Content','Backlink','GBP','Other') or coalesce(v_cadence,'') not in ('monthly','one_time') or (v_service->>'quantity')::numeric not between 1 and 999 or (v_service->>'quantity')::numeric<>trunc((v_service->>'quantity')::numeric) or v_service->>'quantity' is null then raise exception 'Invalid deliverable quantity or service'; end if;
+        if length(coalesce(trim(v_service->>'title'),'')) not between 1 and 200 or coalesce(v_service->>'type','') not in ('Content','Backlink','GBP','Other') or coalesce(v_cadence,'') not in ('monthly','one_time') or coalesce(v_service->>'quantity','') !~ '^[0-9]{1,3}$' or (v_service->>'quantity')::numeric not between 1 and 999 then raise exception 'Invalid deliverable quantity or service'; end if;
+        if v_service ? 'countsTowardHours' and jsonb_typeof(v_service->'countsTowardHours') <> 'boolean' then raise exception 'Invalid deliverable quantity or service'; end if;
+        if nullif(v_service->>'sourceId','') is not null and v_service->>'sourceId' !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' then raise exception 'Output does not belong to this client'; end if;
         if p_input->>'mode'='custom' and v_cadence='monthly' then raise exception 'Custom scope uses one-time outputs'; end if;
         if v_service->>'sourceId' is not null and not exists(select 1 from public.deliverable_commitments where id=(v_service->>'sourceId')::uuid and organization_id=v_org and client_id=p_client) then raise exception 'Output does not belong to this client'; end if;
         if p_input->>'kind'='initial' and v_service->>'sourceId' is not null and not exists(select 1 from public.deliverable_commitments where id=(v_service->>'sourceId')::uuid and (case when cadence='one_time' then total_quantity else quantity_per_month end)=(v_service->>'quantity')::numeric and cadence=v_cadence and type=v_service->>'type' and title=v_service->>'title' and counts_toward_hours=coalesce((v_service->>'countsTowardHours')::boolean,false)) then raise exception 'Original outputs must match existing commitments. Record a scope change to revise them'; end if;
         select * into v_source from public.deliverable_commitments where id=nullif(v_service->>'sourceId','')::uuid and client_id=p_client and organization_id=v_org;
-        if p_input->>'kind'='initial' and v_source.id is not null or p_input->>'kind'='amendment' and v_source.id is not null and v_source.cadence=v_cadence and v_source.type=v_service->>'type' and v_source.subtype is not distinct from v_service->>'subtype' and v_source.title=v_service->>'title' and v_source.counts_toward_hours=coalesce((v_service->>'countsTowardHours')::boolean,false) and (case when v_cadence='one_time' then coalesce((v_source.custom_fields->>'agreedTotalQuantity')::integer,v_source.total_quantity) else v_source.quantity_per_month end)=(v_service->>'quantity')::numeric then
-            -- An hours-only amendment keeps the existing outputs and their identity.
+        if p_input->>'kind'='initial' and v_source.id is not null or p_input->>'kind'='amendment' and v_source.id is not null and v_source.cadence=v_cadence and v_source.type=v_service->>'type' and v_source.subtype is not distinct from v_service->>'subtype' and v_source.counts_toward_hours=coalesce((v_service->>'countsTowardHours')::boolean,false) and (case when v_cadence='one_time' then coalesce((v_source.custom_fields->>'agreedTotalQuantity')::integer,v_source.total_quantity) else v_source.quantity_per_month end)=(v_service->>'quantity')::numeric then
+            -- A rename keeps the same obligation. Quantity, cadence, type, and subtype still start a new row.
             v_commitment:=v_source.id;
+            if v_source.title is distinct from trim(v_service->>'title') then
+                update public.deliverable_commitments set title=trim(v_service->>'title') where id=v_source.id and organization_id=v_org and client_id=p_client;
+            end if;
         else
             v_commitment:=gen_random_uuid();
             v_root:=case when p_input->>'kind'='amendment' and v_source.cadence=v_cadence and v_source.type=v_service->>'type' and v_source.subtype is not distinct from v_service->>'subtype' then coalesce(v_source.custom_fields->>'agreementOutputRoot',v_source.id::text) else v_commitment::text end;
@@ -9073,7 +9105,7 @@ begin
         -- Adopt existing records without recreating work or changing original quantities.
         update public.deliverable_commitments set agreement_id=v_id where client_id=p_client and organization_id=v_org and agreement_id is null and starts_on<=coalesce(v_end,'infinity'::date) and (ends_on is null or ends_on>=v_start);
         update public.deliverables d set agreement_id=v_id from public.deliverable_commitments c where d.commitment_id=c.id and c.agreement_id=v_id and d.client_id=p_client and d.organization_id=v_org and d.agreement_id is null;
-        update public.tasks set agreement_id=v_id where client_id=p_client and organization_id=v_org and agreement_id is null and created_at::date>=v_start and created_at::date<=coalesce(v_end,'infinity'::date);
+        update public.tasks set agreement_id=v_id where client_id=p_client and organization_id=v_org and agreement_id is null and (created_at at time zone (p_input->>'timezone'))::date>=v_start and (created_at at time zone (p_input->>'timezone'))::date<=coalesce(v_end,'infinity'::date);
     else
         for v_task in select id,agreement_id from public.tasks where client_id=p_client and organization_id=v_org and status not in ('done','approved') loop
             insert into public.client_agreement_work_funding(organization_id,client_id,task_id,agreement_id,transition_id,effective_on,recorded_by)
@@ -9082,6 +9114,11 @@ begin
     end if;
     -- The reviewed effective date reclassifies affected entries; original work dates remain unchanged.
     update public.time_logs set agreement_id=null where client_id=p_client and organization_id=v_org and date>=case when p_input->>'kind'='initial' and v_client.setup_scope->>'onboardingBudget'='first_month' then least(v_start,v_client.onboarding_date) else v_start end;
+    v_cover:=public.agreement_at_date(p_client,(now() at time zone (p_input->>'timezone'))::date);
+    if v_cover is not null then
+        select * into v_live from public.client_agreements where id=v_cover;
+        update public.clients set seo_hours=case when v_live.mode='monthly' then v_live.hours else null end, engagement_model=case when v_live.mode='monthly' then 'Retainer' else 'Campaign' end where id=p_client and organization_id=v_org;
+    end if;
     insert into public.client_activity_log(organization_id,client_id,event_type,actor_id,operation_id,metadata)
     values(v_org,p_client,'agreement.'||(p_input->>'kind'),auth.uid(),p_request,jsonb_build_object('agreementId',v_id,'previousId',v_old_id,'effectiveDate',v_start,'recordedAt',now()));
     return v_id;
@@ -9092,15 +9129,22 @@ grant execute on function public.confirm_client_agreement(uuid,uuid,jsonb,text) 
 
 create function public.cancel_scheduled_agreement(p_client uuid,p_id uuid) returns void
 language plpgsql security definer set search_path=pg_catalog,public as $$
-declare v_agreement public.client_agreements%rowtype;
+declare v_agreement public.client_agreements%rowtype; v_live public.client_agreements%rowtype; v_cover uuid;
 begin
     perform 1 from public.clients where id=p_client for update;
     select * into v_agreement from public.client_agreements where id=p_id and client_id=p_client for update;
     if auth.uid() is null or not exists(select 1 from public.organization_members where organization_id=v_agreement.organization_id and user_id=auth.uid() and role in ('owner','admin')) then raise exception 'Only organization owners and admins can manage agreements'; end if;
     if v_agreement.cancelled_at is not null then return; end if;
     if v_agreement.starts_on<=(now() at time zone v_agreement.timezone)::date or exists(select 1 from public.client_agreements where previous_id=p_id and cancelled_at is null) then raise exception 'Only the latest future agreement can be cancelled'; end if;
+    perform set_config('app.agreement_write','on',true);
     update public.client_agreements set cancelled_at=now() where id=p_id;
-    update public.time_logs set agreement_id=null where client_id=p_client and date>=v_agreement.starts_on;
+    update public.deliverable_commitments set is_active=false where agreement_id=p_id and organization_id=v_agreement.organization_id and client_id=p_client;
+    update public.time_logs set agreement_id=null where client_id=p_client and organization_id=v_agreement.organization_id and date>=v_agreement.starts_on;
+    v_cover:=public.agreement_at_date(p_client,(now() at time zone v_agreement.timezone)::date);
+    if v_cover is not null then
+        select * into v_live from public.client_agreements where id=v_cover;
+        update public.clients set seo_hours=case when v_live.mode='monthly' then v_live.hours else null end, engagement_model=case when v_live.mode='monthly' then 'Retainer' else 'Campaign' end where id=p_client and organization_id=v_agreement.organization_id;
+    end if;
     insert into public.client_activity_log(organization_id,client_id,event_type,actor_id,metadata) values(v_agreement.organization_id,p_client,'agreement.cancelled',auth.uid(),jsonb_build_object('agreementId',p_id));
 end;
 $$;
