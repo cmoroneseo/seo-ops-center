@@ -9,7 +9,7 @@ create table public.client_agreements (
     previous_id uuid references public.client_agreements(id),
     request_id uuid not null unique,
     request_payload jsonb not null,
-    kind text not null check (kind in ('initial','renewal','amendment')),
+    kind text not null check (kind in ('initial','renewal','amendment','supersede')),
     title text not null check (length(trim(title)) between 1 and 160),
     starts_on date not null,
     ends_on date,
@@ -246,6 +246,36 @@ begin
         if v_existing.client_id<>p_client or v_existing.organization_id<>v_org or v_existing.request_payload<>p_input then raise exception 'Request already used with different terms'; end if;
         return v_existing.id;
     end if;
+    -- End-on-date records a signed end once. It does not insert a successor or rewrite coverage.
+    if coalesce(p_input->>'kind','') = 'end' then
+        if p_input is null or jsonb_typeof(p_input)<>'object' then raise exception 'Invalid agreement'; end if;
+        if coalesce(p_input->>'endsOn','') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then raise exception 'Choose valid agreement dates'; end if;
+        if nullif(p_input->>'previousId','') is null or p_input->>'previousId' !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' then raise exception 'Review the latest agreement before changing terms'; end if;
+        begin
+            v_end:=(p_input->>'endsOn')::date;
+        exception when datetime_field_overflow or invalid_datetime_format then
+            raise exception 'Choose valid agreement dates';
+        end;
+        select * into v_old from public.client_agreements where client_id=p_client and cancelled_at is null order by starts_on desc limit 1;
+        if v_old.id is null or v_old.id is distinct from (p_input->>'previousId')::uuid then raise exception 'Review the latest agreement before changing terms'; end if;
+        if exists(select 1 from public.client_agreements where previous_id=v_old.id and cancelled_at is null) then raise exception 'Cancel the scheduled successor before recording an end date'; end if;
+        if v_old.ends_on is not null and v_old.ends_on=v_end then return v_old.id; end if;
+        if p_token is null or p_token<>public.agreement_review_token(p_client) then raise exception 'Agreement review is out of date. Review the terms again'; end if;
+        if v_old.ends_on is not null then raise exception 'This agreement already has a signed end date'; end if;
+        if v_end<v_old.starts_on then raise exception 'The end date must follow the start date'; end if;
+        if coalesce(p_input->>'timezone','')<>'' and v_old.timezone<>p_input->>'timezone' then raise exception 'Keep the agreement time zone consistent'; end if;
+        if length(coalesce(p_input->>'note',''))>2000 then raise exception 'Keep references and notes under 2,000 characters'; end if;
+        perform set_config('app.agreement_write','on',true);
+        update public.client_agreements set ends_on=v_end, note=coalesce(note, nullif(trim(p_input->>'note'),'')) where id=v_old.id and organization_id=v_org and ends_on is null;
+        v_cover:=public.agreement_at_date(p_client,(now() at time zone v_old.timezone)::date);
+        if v_cover is not null then
+            select * into v_live from public.client_agreements where id=v_cover;
+            update public.clients set seo_hours=case when v_live.mode='monthly' then v_live.hours else null end, engagement_model=case when v_live.mode='monthly' then 'Retainer' else 'Campaign' end where id=p_client and organization_id=v_org;
+        end if;
+        insert into public.client_activity_log(organization_id,client_id,event_type,actor_id,operation_id,metadata)
+        values(v_org,p_client,'agreement.end',auth.uid(),p_request,jsonb_build_object('agreementId',v_old.id,'endsOn',v_end,'note',nullif(trim(p_input->>'note'),''),'recordedAt',now()));
+        return v_old.id;
+    end if;
     if p_token is null or p_token<>public.agreement_review_token(p_client) then raise exception 'Agreement review is out of date. Review the terms again'; end if;
     if p_input is null or jsonb_typeof(p_input)<>'object' or length(p_input::text)>100000 then raise exception 'Invalid agreement'; end if;
     if coalesce(p_input->>'startsOn','') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' or (nullif(p_input->>'endsOn','') is not null and p_input->>'endsOn' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$') then raise exception 'Choose valid agreement dates'; end if;
@@ -259,7 +289,7 @@ begin
     elsif trim(p_input->>'hours') !~ '^[0-9]{1,4}(\.[0-9]{1,2})?$' then raise exception 'Invalid hours';
     else v_hours:=trim(p_input->>'hours')::numeric; end if;
     if v_hours<0 or v_hours>9999 or (p_input->>'mode'='monthly' and v_hours is null) then raise exception 'Invalid hours'; end if;
-    if coalesce(p_input->>'kind','') not in ('initial','renewal','amendment') or coalesce(p_input->>'mode','') not in ('monthly','custom') or coalesce(p_input->>'hoursMode','') not in ('committed','allowance','estimate') or coalesce(p_input->>'proration','') not in ('daily','full_period') then raise exception 'Invalid agreement terms'; end if;
+    if coalesce(p_input->>'kind','') not in ('initial','renewal','amendment','supersede') or coalesce(p_input->>'mode','') not in ('monthly','custom') or coalesce(p_input->>'hoursMode','') not in ('committed','allowance','estimate') or coalesce(p_input->>'proration','') not in ('daily','full_period') then raise exception 'Invalid agreement terms'; end if;
     if not exists(select 1 from pg_timezone_names where name=p_input->>'timezone') then raise exception 'Choose a valid time zone'; end if;
     if length(coalesce(trim(p_input->>'scope'),'')) not between 1 and 12000 or length(coalesce(trim(p_input->>'title'),'')) not between 1 and 160 then raise exception 'Describe and name the agreed scope'; end if;
     if jsonb_typeof(p_input->'services') is distinct from 'array' or jsonb_array_length(p_input->'services')>50 or jsonb_typeof(p_input->'fundedTaskIds') is distinct from 'array' or jsonb_array_length(p_input->'fundedTaskIds')>250 then raise exception 'Invalid scope selections'; end if;
@@ -275,7 +305,8 @@ begin
         if v_old.id is null or v_old.id is distinct from nullif(p_input->>'previousId','')::uuid then raise exception 'Review the latest agreement before changing terms'; end if;
         if v_start<=v_old.starts_on then raise exception 'The effective date must follow the previous agreement start'; end if;
         if v_old.timezone<>p_input->>'timezone' then raise exception 'Keep the agreement time zone consistent'; end if;
-        if p_input->>'kind'='renewal' and (v_old.ends_on is null or v_start<=v_old.ends_on) then raise exception 'Renewal must follow the previous end date. Use a scope amendment within the term'; end if;
+        if p_input->>'kind'='renewal' and (v_old.ends_on is null or v_start<=v_old.ends_on) then raise exception 'Renewal must follow the previous end date. Use Supersede on date when the signed end stays open'; end if;
+        if p_input->>'kind'='supersede' and v_old.ends_on is not null and v_start>v_old.ends_on then raise exception 'This date is after the signed end. Use Renew'; end if;
         if p_input->>'kind'='amendment' and (v_old.ends_on is not null and v_start>v_old.ends_on or v_end is distinct from v_old.ends_on) then raise exception 'A scope amendment keeps the current term end date'; end if;
         v_old_id:=v_old.id;
     end if;

@@ -10,7 +10,7 @@ import { MonthlyPlan, WeeklyPlan, ClientProject, TimeLog } from '@/lib/types';
 import { getMonthlyPlans, upsertMonthlyPlan } from '@/lib/supabase/monthly-plans';
 import { getTimeLogs, createTimeLog, updateTimeLog, deleteTimeLog } from '@/lib/supabase/time-logs';
 import { getSeoHoursForMonth } from '@/lib/supabase/change-log';
-import {monthlyAgreementLogs} from '@/lib/agreements/logic';
+import {formatHoursAgainstQuota, monthlyAgreementLogs} from '@/lib/agreements/logic';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { createClient } from '@/lib/supabase/client';
 
@@ -403,19 +403,19 @@ export function MonthlyPlannerCard({ client, selectedMonth, onMonthChange }: Mon
             <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">
-                        {effectiveSeoHours == null ? '—' : <><span className="font-semibold text-foreground">{totalLogged.toFixed(1)}</span> of {effectiveSeoHours}h used</>}
+                        {loadError || isLoading ? '—' : formatHoursAgainstQuota(totalLogged, effectiveSeoHours)}
                     </span>
-                    {remaining != null && <span className={cn('font-medium text-sm', remaining < 0 ? 'text-red-500' : 'text-muted-foreground')}>
+                    {!loadError && !isLoading && effectiveSeoHours != null && remaining != null && <span className={cn('font-medium text-sm', remaining < 0 ? 'text-red-500' : 'text-muted-foreground')}>
                         {remaining >= 0 ? `${remaining.toFixed(1)}h remaining` : `${Math.abs(remaining).toFixed(1)}h over budget`}
                     </span>}
                 </div>
-                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                {!loadError && !isLoading && effectiveSeoHours != null && <div className="h-2 bg-muted rounded-full overflow-hidden">
                     <div
                         className={cn('h-full rounded-full transition-all duration-700',
                             pct >= 100 ? 'bg-red-500' : pct >= 85 ? 'bg-yellow-500' : 'bg-primary')}
                         style={{ width: `${pct}%` }}
                     />
-                </div>
+                </div>}
                 {client.agreements?.length ? <p className="text-xs text-muted-foreground">Monthly allowance only. Custom scope and prior-term time stay on their agreements.</p> : null}
             </div>
 

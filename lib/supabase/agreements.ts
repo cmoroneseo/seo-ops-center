@@ -1,5 +1,5 @@
 import {createClient} from './client';
-import {agreementForDate,agreementToday,validateAgreement,agreementHoursSummary} from '../agreements/logic';
+import {agreementForDate,agreementToday,validateAgreement,validateAgreementChain,agreementHoursSummary} from '../agreements/logic';
 import type {AgreementInput,AgreementPreview,ClientAgreement,AgreementHoursSummary,AgreementWorkFunding} from '../agreements/types';
 import type {ClientProject} from '../types';
 import {setupBudgetMonth,type ClientSetupScope} from '../client-setup';
@@ -11,23 +11,38 @@ export function rowToAgreement(row:Record<string,unknown>):ClientAgreement {
         hours:row.hours==null ? null : Number(row.hours),hoursMode:row.hours_mode as ClientAgreement['hoursMode'],
         proration:row.proration as ClientAgreement['proration'],timezone:String(row.timezone),scope:String(row.scope),
         services:(row.services ?? []) as ClientAgreement['services'],evidence:row.evidence ? String(row.evidence) : null,note:row.note ? String(row.note) : null,
-        recordedAt:String(row.recorded_at),recordedBy:String(row.recorded_by),planSnapshot:(row.plan_snapshot ?? null) as ClientAgreement['planSnapshot'],
+        recordedAt:String(row.recorded_at),recordedBy:String(row.recorded_by),recordedByName:actorName(row.users),planSnapshot:(row.plan_snapshot ?? null) as ClientAgreement['planSnapshot'],
         cancelledAt:row.cancelled_at ? String(row.cancelled_at) : null};
 }
+function actorName(value: unknown): string | null {
+    const row = Array.isArray(value) ? value[0] : value;
+    if (!row || typeof row !== 'object' || !('full_name' in row)) return null;
+    const name = (row as { full_name?: unknown }).full_name;
+    return typeof name === 'string' && name.trim() ? name.trim() : null;
+}
 export const AGREEMENT_TERM_COLUMNS='id,organization_id,client_id,previous_id,kind,title,starts_on,ends_on,mode,hours,hours_mode,proration,timezone,scope,services,evidence,note,recorded_at,recorded_by,cancelled_at';
-export async function getAgreementHistory(organizationId:string,clientId?:string,includeSnapshots=true):Promise<{available:boolean;agreements:ClientAgreement[]}> {
+export async function getAgreementHistory(organizationId:string,clientId?:string,includeSnapshots=true,includeActor=false):Promise<{available:boolean;agreements:ClientAgreement[]}> {
     const db=createClient();
     if(!db) return {available:false,agreements:[]};
     const agreements:ClientAgreement[]=[];
-    for(let page=0;;page++) {
-        let query=db.from('client_agreements').select(AGREEMENT_TERM_COLUMNS+(includeSnapshots ? ',plan_snapshot' : '')).eq('organization_id',organizationId).order('starts_on',{ascending:true}).order('id').range(page*500,page*500+499);
+    const columns=AGREEMENT_TERM_COLUMNS+(includeSnapshots ? ',plan_snapshot' : '');
+    const loadPage=async(select:string,page:number)=>{
+        let query=db.from('client_agreements').select(select).eq('organization_id',organizationId).order('starts_on',{ascending:true}).order('id').range(page*500,page*500+499);
         if(clientId) query=query.eq('client_id',clientId);
-        const {data,error}=await query;
+        return query;
+    };
+    for(let page=0;;page++) {
+        let select=columns+(includeActor ? ',users(full_name)' : '');
+        let {data,error}=await loadPage(select,page);
+        if(error && includeActor && !['42P01','PGRST205'].includes(error.code ?? '')) {
+            select=columns;
+            ({data,error}=await loadPage(select,page));
+        }
         if(error) {
-            if(['42P01','PGRST205'].includes(error.code)) return {available:false,agreements:[]};
+            if(['42P01','PGRST205'].includes(error.code ?? '')) return {available:false,agreements:[]};
             throw new Error('Agreement history could not be loaded. Try again.');
         }
-        agreements.push(...(data ?? []).map(rowToAgreement));
+        agreements.push(...((data ?? []) as Record<string,unknown>[]).map(row=>rowToAgreement(row)));
         if((data?.length ?? 0)<500) break;
     }
     return {available:true,agreements};
@@ -43,15 +58,20 @@ export function withClientAgreements(client:ClientProject,agreements:ClientAgree
     return {...client,agreements,agreementCoverage:'monthly',seoHours:hours,engagementModel:'Retainer',setupScope,
         retainerConfig:{...client.retainerConfig,monthlyHours:hours,hoursUsed:client.retainerConfig?.hoursUsed ?? 0,recurringDeliverables:client.retainerConfig?.recurringDeliverables ?? []}};
 }
+function agreementError(input:AgreementInput,agreements:ClientAgreement[]):string|null {
+    let today='1970-01-01';
+    try { today=agreementToday(input.timezone || agreements.find(item=>item.id===input.previousId)?.timezone || 'UTC'); } catch { today=agreementToday('UTC'); }
+    return validateAgreement(input) ?? validateAgreementChain(agreements,input,today);
+}
 export async function previewAgreement(client:ClientProject,input:AgreementInput):Promise<AgreementPreview> {
-    const invalid=validateAgreement(input);if(invalid) throw new Error(invalid);
+    const invalid=agreementError(input,client.agreements ?? []);if(invalid) throw new Error(invalid);
     const db=createClient();if(!db) throw new Error('Connect to the workspace to manage agreements.');
     const {data,error}=await db.rpc('preview_client_agreement',{p_client:client.id,p_start:input.startsOn});
     if(error) throw new Error(error.message);
     return {...data,agreements:client.agreements ?? []} as AgreementPreview;
 }
-export async function confirmAgreement(clientId:string,input:AgreementInput,token:string,requestId:string):Promise<string> {
-    const invalid=validateAgreement(input);if(invalid) throw new Error(invalid);
+export async function confirmAgreement(clientId:string,input:AgreementInput,token:string,requestId:string,agreements:ClientAgreement[]=[]):Promise<string> {
+    const invalid=agreementError(input,agreements);if(invalid) throw new Error(invalid);
     const db=createClient();if(!db) throw new Error('Connect to the workspace to manage agreements.');
     const {data,error}=await db.rpc('confirm_client_agreement',{p_client:clientId,p_request:requestId,p_input:input,p_token:token});
     if(error) throw new Error(error.message);

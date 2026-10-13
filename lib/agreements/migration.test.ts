@@ -200,3 +200,35 @@ test('non-numeric hours fail with a readable error and save nothing',async()=>{
         assert.equal((await db.query<{n:number}>('select count(*)::int n from client_agreements')).rows[0].n,0);
     }finally{await db.close();}
 });
+test('supersede on an open agreement keeps the signed end and ends coverage the day before',async()=>{
+    const db=await database();try{
+        const services=[{title:'Blog posts',type:'Content',quantity:2,cadence:'monthly',countsTowardHours:false}];
+        const initial=await confirm(db,{...original,title:'Original monthly',startsOn:'2026-01-01',endsOn:null,hours:20,services},'00000000-0000-0000-0000-000000000092');
+        await assert.rejects(confirm(db,{...original,kind:'renewal',previousId:initial,startsOn:'2026-09-19',endsOn:null,mode:'custom',hours:null,hoursMode:'estimate',services:[]},'00000000-0000-0000-0000-000000000093'),/Renewal must follow/);
+        assert.equal((await db.query<{n:number}>('select count(*)::int n from client_agreements')).rows[0].n,1);
+        await db.query("insert into time_logs(organization_id,client_id,date,hours) values($1,$2,'2026-09-18',2),($1,$2,'2026-09-19',4)",[org,client]);
+        const next=await confirm(db,{...original,kind:'supersede',previousId:initial,title:'Custom SEO',startsOn:'2026-09-19',endsOn:null,mode:'custom',hours:null,hoursMode:'estimate',services:[{title:'Custom audit',type:'Other',quantity:1,cadence:'one_time',countsTowardHours:false}]},'00000000-0000-0000-0000-000000000094');
+        assert.equal((await db.query<{ends_on:string|null}>('select ends_on::text from client_agreements where id=$1',[initial])).rows[0].ends_on,null);
+        await db.exec('reset role');
+        assert.equal((await db.query<{end:string}>('select agreement_coverage_end($1)::text as end',[initial])).rows[0].end,'2026-09-18');
+        await db.exec('set role authenticated');
+        const logs=(await db.query<{date:string;agreement_id:string|null}>("select date::text,agreement_id from time_logs where date>='2026-09-01' order by date")).rows;
+        assert.equal(logs[0].agreement_id,initial);assert.equal(logs[1].agreement_id,next);
+        const clientRow=(await db.query<{seo_hours:string|null;engagement_model:string}>('select seo_hours::text,engagement_model from clients')).rows[0];
+        assert.equal(clientRow.seo_hours,null);assert.equal(clientRow.engagement_model,'Campaign');
+    }finally{await db.close();}
+});
+test('end on date records a signed end once and does not add a successor',async()=>{
+    const db=await database();try{
+        const initial=await confirm(db,{...original,startsOn:'2026-01-01',endsOn:null,hours:20},'00000000-0000-0000-0000-000000000096');
+        const endInput={...original,kind:'end',previousId:initial,startsOn:'2026-01-01',endsOn:'2026-09-30',hours:20};
+        assert.equal(await confirm(db,endInput,'00000000-0000-0000-0000-000000000097'),initial);
+        assert.equal((await db.query<{n:number}>('select count(*)::int n from client_agreements')).rows[0].n,1);
+        assert.equal((await db.query<{ends_on:string}>('select ends_on::text from client_agreements')).rows[0].ends_on,'2026-09-30');
+        const stale=await preview(db,'2026-01-01');
+        await db.query("update tasks set title='Changed after end preview' where id=$1",[task1]);
+        assert.equal((await db.query<{id:string}>('select confirm_client_agreement($1,$2,$3,$4) id',[client,'00000000-0000-0000-0000-000000000098',endInput,stale.token])).rows[0].id,initial);
+        await assert.rejects(confirm(db,{...endInput,endsOn:'2026-10-31'},'00000000-0000-0000-0000-000000000099'),/already has a signed end/);
+        await assert.rejects(confirm(db,{...original,kind:'supersede',previousId:initial,startsOn:'2026-10-01',endsOn:null,mode:'custom',hours:null,hoursMode:'estimate',services:[]},'00000000-0000-0000-0000-000000000095'),/Use Renew/);
+    }finally{await db.close();}
+});

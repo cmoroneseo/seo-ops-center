@@ -1,5 +1,7 @@
 export type AgreementMode = 'monthly' | 'custom';
-export type AgreementKind = 'initial' | 'renewal' | 'amendment';
+export type AgreementKind = 'initial' | 'renewal' | 'amendment' | 'supersede';
+/** End records a signed end on the current agreement. It does not insert a row. */
+export type AgreementAction = AgreementKind | 'end';
 export type AgreementHoursMode = 'committed' | 'allowance' | 'estimate';
 
 export interface AgreementService {
@@ -33,12 +35,13 @@ export interface ClientAgreement {
     note: string | null;
     recordedAt: string;
     recordedBy: string;
+    recordedByName?: string | null;
     planSnapshot: Record<string, unknown> | null;
     cancelledAt?: string | null;
 }
 
 export interface AgreementInput {
-    kind: AgreementKind;
+    kind: AgreementAction;
     previousId: string | null;
     title: string;
     startsOn: string;
