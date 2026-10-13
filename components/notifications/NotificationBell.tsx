@@ -20,6 +20,9 @@ function NotificationIcon({ type }: { type: NotificationType }) {
 
 // ── Navigation URL helper ───────────────────────────────────────────────────
 function buildUrl(n: AppNotification): string {
+  if (n.clientId && (n.type === 'vault_proposal_accepted' || n.type === 'vault_proposal_dismissed')) {
+    return `/workspace/${n.clientId}?tab=vault`;
+  }
   if (n.clientId && n.type === 'portal_feedback') return `/workspace/${n.clientId}?tab=portal`;
   if (n.clientId && (n.type === 'task_assigned' || n.type === 'task_mentioned')) {
     return `/workspace/${n.clientId}?tab=tasks`;

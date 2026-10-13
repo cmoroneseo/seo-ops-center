@@ -5,6 +5,7 @@ import { Search, X, Briefcase, CheckSquare, FileText, Command } from 'lucide-rea
 import { useRouter } from 'next/navigation';
 import { useClients } from '@/lib/hooks/use-clients';
 import { clientScopeLabel } from '@/lib/agreements/logic';
+import { VaultCommandItems } from '@/components/vault/vault-commands';
 
 interface GlobalSearchProps {
     isOpen: boolean;
@@ -97,13 +98,17 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
                                     </div>
                                 </div>
                             ) : (
-                                <div className="py-12 text-center">
-                                    <p className="text-muted-foreground">No matches for "{query}"</p>
+                                <div className="space-y-4">
+                                    <VaultCommandItems query={query} onClose={onClose} />
+                                    <div className="py-12 text-center">
+                                        <p className="text-muted-foreground">No matches for "{query}"</p>
+                                    </div>
                                 </div>
                             )}
                         </div>
                     ) : (
-                        <div className="p-4">
+                        <div className="space-y-4 p-4">
+                            <VaultCommandItems query={query} onClose={onClose} />
                             <h3 className="text-sm font-medium mb-4">Quick Links</h3>
                             <div className="grid grid-cols-2 gap-2">
                                 <button className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left">
