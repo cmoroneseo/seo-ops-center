@@ -6,6 +6,7 @@ import { useClients } from '@/lib/hooks/use-clients';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { clientScopeLabel } from '@/lib/agreements/logic';
 
 export function ClientListPanel({
     variant = 'sidebar',
@@ -122,7 +123,7 @@ export function ClientListPanel({
                                     {isActive && (
                                         <div className="flex items-center gap-2 mt-1">
                                             <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">
-                                                T{client.tier} · {client.seoHours}h/mo
+                                                T{client.tier} · {clientScopeLabel(client)}
                                             </span>
                                             {client.blogProgress.pastDue > 0 && (
                                                 <span className="text-[10px] bg-orange-500/10 text-orange-500 px-1.5 py-0.5 rounded italic">

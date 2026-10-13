@@ -7,6 +7,7 @@ import { copySourcesForMetrics } from './copy-rules';
 import { evaluatePresendChecks, type SourceHealth } from './presend-checks';
 import { copyTextForSnapshot, gscMonthReadout, type GscDayInput } from './versions';
 import { closeCard, emptyReview, ownerApprovalPending, type ReviewState } from './workflow';
+import { formatHoursAgainstQuota } from '@/lib/agreements/logic';
 import { isMissingProof, normalizeShipDate } from '@/lib/search-reporting/proof';
 import { ptMonth } from '@/lib/sync/months';
 import type { ReportSectionsField } from './blocks';
@@ -59,9 +60,7 @@ export function formatHours(value: number): string {
 }
 
 export function hoursLabel(logged: number, budget: number | null): string {
-    const shown = formatHours(logged);
-    if (budget == null) return `${shown}h logged`;
-    return `${shown}/${formatHours(budget)}h`;
+    return formatHoursAgainstQuota(logged, budget);
 }
 
 export interface CloseRawClient {

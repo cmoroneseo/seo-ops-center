@@ -28,6 +28,7 @@ import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { useTimer } from '@/components/providers/timer-provider';
 import { ClientProject } from '@/lib/types';
+import { clientScopeLabel } from '@/lib/agreements/logic';
 import { Pencil, Play, Pause, Plus } from 'lucide-react';
 import { TaskListView } from '@/components/tasks/TaskListView';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
@@ -43,6 +44,7 @@ import { parsePlanView, type PlanView } from '@/lib/search-reporting/ledger';
 import { BasecampImportModal } from '@/components/workspace/BasecampImportModal';
 import { ClientApprovalsTab } from '@/components/approvals/ClientApprovalsTab';
 import { ClientPortalStaffPanel } from '@/components/portal/ClientPortalStaffPanel';
+import {ClientAgreementSummary} from '@/components/workspace/agreements/ClientAgreementSummary';
 
 type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'inventory' | 'topical-map' | 'approvals' | 'portal';
 
@@ -211,7 +213,7 @@ export default function ClientDetailPage() {
                             </div>
                             <div className="flex items-center gap-1.5">
                                 <Clock className="h-4 w-4" />
-                                <span>{client.seoHours}h/mo</span>
+                                <span>{clientScopeLabel(client)}</span>
                             </div>
                             {canvasEnabled && <div className="flex flex-wrap items-center gap-2">
                                 <UserCheck className="h-4 w-4" />
@@ -253,6 +255,14 @@ export default function ClientDetailPage() {
                     </div>
                 </div>
             </div>
+
+            <ClientAgreementSummary client={client} onChanged={async()=>{
+                if(!organization?.id)return;
+                const refreshed=(await getClients(organization.id)).find(item=>item.id===client.id);
+                if(refreshed)setClient(refreshed);
+                setActivityRefreshKey(key=>key+1);
+                window.dispatchEvent(new Event('client-activity:data-changed'));
+            }} />
 
             {timerTaskRequired && (
                 <p className="-mt-3 text-sm text-muted-foreground">
@@ -351,7 +361,8 @@ export default function ClientDetailPage() {
                     organizationId={organization?.id ?? ''}
                     clientId={client.id}
                     clientName={client.clientName}
-                    monthlyBudget={client.setupScope?.mode === 'custom' ? 0 : client.seoHours || client.retainerConfig?.monthlyHours || 0}
+                    monthlyBudget={client.agreementCoverage === 'none' || client.agreementCoverage === 'custom' || client.setupScope?.mode === 'custom' ? null : client.seoHours || client.retainerConfig?.monthlyHours || 0}
+                    scopeMode={client.agreementCoverage === 'none' || client.agreementCoverage === 'custom' || client.setupScope?.mode === 'custom' ? 'custom' : 'monthly'}
                 />
             )}
 

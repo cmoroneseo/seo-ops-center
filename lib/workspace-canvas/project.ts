@@ -166,6 +166,7 @@ export interface CanvasClient {
 export type SourceResult<T> = { ok: true; value: T } | { ok: false };
 
 export interface WorkspaceCanvasInput {
+    agreementHours?: SourceResult<import('../agreements/types').AgreementHoursSummary>;
     month: string;
     today: string;
     availableThrough: string;
@@ -246,6 +247,8 @@ export interface HoursGauge {
 }
 
 export interface HoursModel {
+    agreementRows?: Array<{id:string;title:string;label:string;logged:number;budget:number|null;unit:string}>;
+    unassignedHours?: number;
     kind: 'monthly' | 'campaign_total' | 'custom';
     label: string;
     detail: string;
@@ -481,6 +484,17 @@ function arcGauge(logged: number, budget: number): HoursGauge {
 }
 
 function projectHours(input: WorkspaceCanvasInput): HoursModel {
+    if(input.agreementHours) {
+        if(!input.agreementHours.ok) return {kind:'custom',label:'Agreement hours',detail:'Agreement hours could not be loaded. Reload to see the correct historical allowance.',status:'Unavailable',monthLogged:null,monthUnavailable:true,gauge:emptyGauge('unavailable')};
+        const summary=input.agreementHours.value;
+        const rows=summary.rows.map(row=>({id:row.agreement.id,title:row.agreement.title,label:row.agreement.mode==='monthly' ? row.budget==null ? 'Prior monthly agreement' : 'Monthly' : 'Custom',logged:row.agreement.mode==='monthly' ? row.periodLogged : row.logged,budget:row.budget,unit:row.agreement.mode==='monthly' ? 'work logged this month' : 'agreement total'}));
+        const total=summary.rows.reduce((n,row)=>n+row.periodLogged,summary.unassigned);
+        const single=rows.length===1 && summary.unassigned===0 ? rows[0] : null;
+        return {kind:single?.label==='Monthly' ? 'monthly' : 'custom',label:single?.label==='Monthly' ? 'Monthly hours' : 'Agreement hours',status:'Tracked',monthLogged:total,monthUnavailable:false,
+            gauge:single && single.budget!=null && single.budget>0 ? arcGauge(single.logged,single.budget) : {...emptyGauge('none'),logged:total},
+            agreementRows:rows,unassignedHours:summary.unassigned,
+            detail:summary.period.mixed ? 'This month spans multiple scopes. Each allowance is shown against its own work.' : summary.period.uncoveredDays>0 ? `${summary.period.uncoveredDays} days have no agreement coverage. Prior owed work stays visible.` : 'Hours use the agreement effective for the selected period.'};
+    }
     const custom = input.client.setupScope?.mode === 'custom';
     const campaign = !custom && input.client.engagementModel === 'Campaign';
     const monthLogged = input.monthHours.ok ? input.monthHours.value : null;

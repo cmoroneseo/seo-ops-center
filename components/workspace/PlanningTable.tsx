@@ -4,6 +4,7 @@ import { ClientProject, MonthlyPlan, WeeklyPlan } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ChevronLeft, ChevronRight, Calendar, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useState } from 'react';
+import { clientScopeLabel } from '@/lib/agreements/logic';
 
 interface PlanningTableProps {
     clients: ClientProject[];
@@ -99,7 +100,7 @@ export function PlanningTable({ clients, plans }: PlanningTableProps) {
                                             {client.clientName}
                                         </td>
                                         <td className="px-2 py-2 text-center text-xs text-muted-foreground">T{client.tier}</td>
-                                        <td className="px-2 py-2 text-center font-medium">{client.seoHours}</td>
+                                        <td className="px-2 py-2 text-center font-medium">{client.agreementHistoryUnavailable || client.agreementCoverage === 'none' ? '—' : client.agreementCoverage === 'custom' || (!client.agreementCoverage && client.setupScope?.mode === 'custom') ? 'Custom' : clientScopeLabel(client).replace('h/mo', '')}</td>
                                         <td className={cn(
                                             "px-2 py-2 text-center font-bold border-r border-border/50",
                                             plan.totalVariance < 0 ? "text-red-500" : "text-green-500"

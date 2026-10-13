@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Search, X, Briefcase, CheckSquare, FileText, Command } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useClients } from '@/lib/hooks/use-clients';
+import { clientScopeLabel } from '@/lib/agreements/logic';
 
 interface GlobalSearchProps {
     isOpen: boolean;
@@ -87,7 +88,7 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
                                                 <div className="flex-1 overflow-hidden">
                                                     <p className="font-medium text-sm truncate">{client.clientName}</p>
                                                     <p className="text-xs text-muted-foreground truncate">
-                                                        {client.accountManager} · T{client.tier} · {client.seoHours}h/mo
+                                                        {client.accountManager} · T{client.tier} · {clientScopeLabel(client)}
                                                     </p>
                                                 </div>
                                                 <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded border border-border text-muted-foreground">Jump to</span>
