@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck, Plug, Target, ScanSearch, Map, FileCheck2, Globe } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck, Plug, Target, ScanSearch, Map, FileCheck2, Globe, Archive } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { ClientNotesPanel } from '@/components/workspace/ClientNotesPanel';
@@ -45,8 +45,11 @@ import { BasecampImportModal } from '@/components/workspace/BasecampImportModal'
 import { ClientApprovalsTab } from '@/components/approvals/ClientApprovalsTab';
 import { ClientPortalStaffPanel } from '@/components/portal/ClientPortalStaffPanel';
 import {ClientAgreementSummary} from '@/components/workspace/agreements/ClientAgreementSummary';
+import { VaultHeaderPill } from '@/components/vault/VaultHeaderPill';
+import { VaultPage } from '@/components/vault/VaultPage';
+import { useVaultEnabled } from '@/components/vault/use-vault-enabled';
 
-type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'inventory' | 'topical-map' | 'approvals' | 'portal';
+type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'inventory' | 'topical-map' | 'approvals' | 'portal' | 'vault';
 
 export default function ClientDetailPage() {
     const params = useParams();
@@ -54,6 +57,7 @@ export default function ClientDetailPage() {
     const id = params.id as string;
     const { organization } = useOrganization();
     const { isOwner } = useCurrentMember();
+    const vaultEnabled = useVaultEnabled(organization?.id);
     const [client, setClient] = useState<ClientProject | null | undefined>(undefined); // undefined = loading
     const [showReassign, setShowReassign] = useState(false);
     const [showEditPanel, setShowEditPanel] = useState(false);
@@ -85,6 +89,26 @@ export default function ClientDetailPage() {
         if (!tab && (query.has('range') || query.has('section'))) setActiveTabState('insights');
         if (query.has('integrationSuccess') || query.has('integrationError')) setActiveTabState('integrations');
     }, [id]);
+
+    // The vault tab exists only after the allowlist resolves true. A shared
+    // ?tab=vault link stays on Overview while the flag is off.
+    useEffect(() => {
+        if (vaultEnabled === false) {
+            setActiveTabState(current => (current === 'vault' ? 'overview' : current));
+            return;
+        }
+        if (vaultEnabled !== true) return;
+        if (new URLSearchParams(window.location.search).get('tab') === 'vault') setActiveTabState('vault');
+    }, [vaultEnabled, id]);
+
+    useEffect(() => {
+        const openVault = () => {
+            if (vaultEnabled !== true) return;
+            setActiveTabState('vault');
+        };
+        window.addEventListener('vault:navigate', openVault);
+        return () => window.removeEventListener('vault:navigate', openVault);
+    }, [vaultEnabled]);
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
     const [loggedHours, setLoggedHours] = useState<number | undefined>(undefined);
     const [calendarDueDate, setCalendarDueDate] = useState<string | undefined>();
@@ -226,6 +250,7 @@ export default function ClientDetailPage() {
                     </div>{/* end flex items-center gap-4 (logo + text) */}
 
                     <div className="flex items-center gap-3 pr-2">
+                        <VaultHeaderPill clientId={client.id} organizationId={organization?.id} onOpen={() => setActiveTab('vault')} />
                         <div className={cn(
                             "px-3 py-1 rounded-full text-sm font-medium border",
                             client.status === 'Active' ? "bg-green-500/10 text-green-500 border-green-500/20" :
@@ -295,6 +320,20 @@ export default function ClientDetailPage() {
                 >
                     Overview
                 </button>
+                {vaultEnabled === true && (
+                    <button
+                        onClick={() => setActiveTab('vault')}
+                        className={cn(
+                            'flex shrink-0 whitespace-nowrap items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                            activeTab === 'vault'
+                                ? 'border-primary text-foreground'
+                                : 'border-transparent text-muted-foreground hover:text-foreground',
+                        )}
+                    >
+                        <Archive className="h-3.5 w-3.5" />
+                        Vault
+                    </button>
+                )}
                 <button
                     onClick={() => setActiveTab('campaign', { phase: null })}
                     className={cn(
@@ -415,6 +454,10 @@ export default function ClientDetailPage() {
                     )}
 
                 </div>
+            )}
+
+            {vaultEnabled === true && activeTab === 'vault' && (
+                <VaultPage clientId={client.id} clientName={client.clientName} />
             )}
 
             {activeTab === 'insights' && client.organizationId === organization?.id && (

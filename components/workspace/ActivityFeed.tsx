@@ -31,6 +31,7 @@ function eventDomain(eventType: string): Exclude<ActivityType, 'all'> {
     if (eventType.startsWith('client.') || eventType === 'retainer.amended') return 'updates';
     if (eventType.startsWith('timesheet.')) return 'hours';
     if (eventType.startsWith('campaign.')) return 'updates';
+    if (eventType.startsWith('vault.')) return 'updates';
     return 'integrations';
 }
 
@@ -656,6 +657,33 @@ function TimesheetApprovalRow({ event }: { event: ClientActivityEvent }) {
     );
 }
 
+const VAULT_VERBS: Record<string, string> = {
+    'vault.entry_created': 'saved a vault entry',
+    'vault.entry_superseded': 'superseded a vault entry',
+    'vault.entry_archived': 'archived a vault entry',
+    'vault.entry_pin_review': 'updated a vault entry',
+    'vault.suggestion_proposed': 'proposed a vault entry',
+    'vault.suggestion_accepted': 'accepted a vault proposal',
+    'vault.suggestion_dismissed': 'dismissed a vault proposal',
+    'vault.suggestion_withdrawn': 'withdrew a vault proposal',
+};
+
+function VaultEventRow({ event }: { event: ClientActivityEvent }) {
+    const title = typeof event.metadata.title === 'string' ? event.metadata.title : null;
+    return (
+        <div className="flex items-start gap-3 py-3">
+            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                <History className="h-3.5 w-3.5 text-primary" />
+            </div>
+            <p className="text-sm leading-snug">
+                {event.actorName && <span className="font-semibold">{event.actorName} </span>}
+                <span className="text-foreground/80">{VAULT_VERBS[event.eventType] ?? 'updated the vault'}</span>
+                {title && <span className="font-medium"> “{title}”</span>}
+            </p>
+        </div>
+    );
+}
+
 function EventRow({ event }: { event: ClientActivityEvent }) {
     const t = event.eventType;
     if (t === 'retainer.amended') return <RetainerAmendedRow event={event} />;
@@ -664,6 +692,7 @@ function EventRow({ event }: { event: ClientActivityEvent }) {
     if (t.startsWith('client.')) return <ClientEventRow event={event} />;
     if (t.startsWith('campaign.')) return <CampaignEventRow event={event} />;
     if (t.startsWith('timesheet.')) return <TimesheetApprovalRow event={event} />;
+    if (t.startsWith('vault.')) return <VaultEventRow event={event} />;
     return <IntegrationEventRow event={event} />;
 }
 
