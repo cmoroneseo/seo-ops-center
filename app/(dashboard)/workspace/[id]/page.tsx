@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useRef, useState, Suspense } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { MissingClient } from '@/components/workspace/MissingClient';
 import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck, Plug, Target, ScanSearch, Map, FileCheck2, Globe, Archive } from 'lucide-react';
@@ -29,7 +29,7 @@ import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { useTimer } from '@/components/providers/timer-provider';
 import { ClientProject } from '@/lib/types';
 import { clientScopeLabel } from '@/lib/agreements/logic';
-import { Pencil, Play, Pause, Plus } from 'lucide-react';
+import { Pencil, Play, Pause } from 'lucide-react';
 import { TaskListView } from '@/components/tasks/TaskListView';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
@@ -48,6 +48,13 @@ import {ClientAgreementSummary} from '@/components/workspace/agreements/ClientAg
 import { VaultHeaderPill } from '@/components/vault/VaultHeaderPill';
 import { VaultPage } from '@/components/vault/VaultPage';
 import { useVaultEnabled } from '@/components/vault/use-vault-enabled';
+import { useSeoPlanV2 } from '@/components/seo-plan/use-seo-plan-v2';
+import { WorkspaceNav } from '@/components/seo-plan/WorkspaceNav';
+import { PlanOverviewPanel } from '@/components/seo-plan/PlanOverviewPanel';
+import { TaskToolbar } from '@/components/seo-plan/TaskToolbar';
+import { SearchReporting } from '@/components/seo-plan/SearchReporting';
+import { monthKey } from '@/lib/marketing-plan-execution';
+import { managerIsAssigned, planHourLabel, planHoursNarrative } from '@/lib/seo-plan/overview';
 
 type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'inventory' | 'topical-map' | 'approvals' | 'portal' | 'vault';
 
@@ -58,6 +65,10 @@ export default function ClientDetailPage() {
     const { organization } = useOrganization();
     const { isOwner } = useCurrentMember();
     const vaultEnabled = useVaultEnabled(organization?.id);
+    const seoPlanV2 = useSeoPlanV2(organization?.id);
+    const v2On = seoPlanV2 === true;
+    const v2Ref = useRef(v2On);
+    v2Ref.current = v2On;
     const [client, setClient] = useState<ClientProject | null | undefined>(undefined); // undefined = loading
     const [showReassign, setShowReassign] = useState(false);
     const [showEditPanel, setShowEditPanel] = useState(false);
@@ -66,12 +77,14 @@ export default function ClientDetailPage() {
     const [planView, setPlanView] = useState<PlanView>('plan');
     const [importOpen, setImportOpen] = useState(false);
     const setActiveTab = (tab: Tab, extras?: Record<string, string | null>) => {
-        setActiveTabState(tab === 'tasks' ? 'campaign' : tab);
-        if (tab === 'tasks') setPlanView('tasks');
-        else if (tab === 'campaign') setPlanView('plan');
+        const v2 = v2Ref.current;
+        const next: Tab = !v2 && tab === 'tasks' ? 'campaign' : tab;
+        setActiveTabState(next);
+        if (!v2 && tab === 'tasks') setPlanView('tasks');
+        else if (tab === 'campaign' || tab === 'tasks') setPlanView('plan');
         const url = new URL(window.location.href);
-        url.searchParams.set('tab', tab === 'tasks' ? 'campaign' : tab);
-        if (tab === 'tasks') url.searchParams.set('planView', 'tasks');
+        url.searchParams.set('tab', next);
+        if (!v2 && tab === 'tasks') url.searchParams.set('planView', 'tasks');
         else url.searchParams.delete('planView');
         for (const [key, value] of Object.entries(extras ?? {})) {
             if (value == null) url.searchParams.delete(key);
@@ -109,6 +122,16 @@ export default function ClientDetailPage() {
         window.addEventListener('vault:navigate', openVault);
         return () => window.removeEventListener('vault:navigate', openVault);
     }, [vaultEnabled]);
+
+    useEffect(() => {
+        if (seoPlanV2 !== true) return;
+        const query = new URLSearchParams(window.location.search);
+        const tab = query.get('tab');
+        const view = query.get('planView');
+        if (tab === 'tasks' || view === 'tasks') setActiveTabState('tasks');
+        else if (tab === 'plan') setActiveTabState('campaign');
+        else if ((tab === 'campaign' || tab === 'plan') && view === 'results') setActiveTabState('insights');
+    }, [seoPlanV2, id]);
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
     const [loggedHours, setLoggedHours] = useState<number | undefined>(undefined);
     const [calendarDueDate, setCalendarDueDate] = useState<string | undefined>();
@@ -146,8 +169,9 @@ export default function ClientDetailPage() {
         return () => { cancelled = true; };
     }, [organization?.id, id]);
 
+    const showClientTasks = v2On ? activeTab === 'tasks' : activeTab === 'campaign' && planView === 'tasks';
     useEffect(() => {
-        if (activeTab !== 'campaign' || planView !== 'tasks' || !id) return;
+        if (!showClientTasks || !id) return;
         let cancelled = false;
         setTasksLoading(true);
         getTasksByClient(id).then(tasks => {
@@ -156,7 +180,7 @@ export default function ClientDetailPage() {
             setTasksLoading(false);
         });
         return () => { cancelled = true; };
-    }, [activeTab, planView, id]);
+    }, [showClientTasks, id]);
 
     // Budget-consuming hours for this month — excludes internal work and client
     // meetings flagged as not counting toward budget. Re-read whenever confirmed
@@ -237,14 +261,28 @@ export default function ClientDetailPage() {
                             </div>
                             <div className="flex items-center gap-1.5">
                                 <Clock className="h-4 w-4" />
-                                <span>{clientScopeLabel(client)}</span>
+                                <span>{v2On ? planHourLabel({
+                                    failed: client.agreementHistoryUnavailable === true,
+                                    coverage: client.agreementCoverage,
+                                    seoHours: client.seoHours,
+                                    scopeMode: client.setupScope?.mode,
+                                    status: client.status,
+                                    launchDate: client.launchDateOverride ?? client.launchDate,
+                                    month: monthKey(),
+                                }) : clientScopeLabel(client)}</span>
                             </div>
-                            {canvasEnabled && <div className="flex flex-wrap items-center gap-2">
+                            {(v2On || canvasEnabled) && <div className="flex flex-wrap items-center gap-2">
                                 <UserCheck className="h-4 w-4" />
-                                <span>Manager: {client.accountManager || 'Unassigned'}</span>
-                                {isOwner && <button type="button" onClick={() => setShowReassign(true)} className="rounded px-1 text-xs font-medium text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring">Reassign</button>}
+                                {v2On && !managerIsAssigned(client.accountManager) ? (
+                                    <button type="button" onClick={() => setShowReassign(true)} className="rounded px-1 text-sm font-medium text-foreground underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring">Assign manager</button>
+                                ) : (
+                                    <>
+                                        <span>Manager: {client.accountManager || 'Unassigned'}</span>
+                                        {isOwner && <button type="button" onClick={() => setShowReassign(true)} className="rounded px-1 text-xs font-medium text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring">Reassign</button>}
+                                    </>
+                                )}
                             </div>}
-                            {canvasEnabled && client.domain && <a href={/^https?:\/\//i.test(client.domain) ? client.domain : `https://${client.domain}`} target="_blank" rel="noreferrer" className="hover:text-foreground hover:underline">{client.domain}</a>}
+                            {(v2On || canvasEnabled) && client.domain && <a href={/^https?:\/\//i.test(client.domain) ? client.domain : `https://${client.domain}`} target="_blank" rel="noreferrer" className="hover:text-foreground hover:underline">{client.domain}</a>}
                         </div>
                         </div>{/* end inner space-y-1 */}
                     </div>{/* end flex items-center gap-4 (logo + text) */}
@@ -308,6 +346,15 @@ export default function ClientDetailPage() {
             )}
 
             {/* Tab bar */}
+            {seoPlanV2 === null ? (
+                <div className="h-10 border-b border-border/50" aria-hidden="true" />
+            ) : v2On ? (
+                <WorkspaceNav
+                    active={activeTab}
+                    vault={vaultEnabled === true}
+                    onSelect={tab => setActiveTab(tab as Tab, tab === 'campaign' ? { phase: null } : undefined)}
+                />
+            ) : (
             <div className="flex items-center gap-1 overflow-x-auto border-b border-border/50">
                 <button
                     onClick={() => setActiveTab('overview')}
@@ -379,9 +426,10 @@ export default function ClientDetailPage() {
                     Integrations
                 </button>
             </div>
+            )}
 
             {/* SEO Marketing Plan tab */}
-            {activeTab === 'campaign' && <nav aria-label="SEO Plan sections" className="mb-5 flex flex-wrap items-center gap-2 border-b border-border pb-3">
+            {activeTab === 'campaign' && seoPlanV2 === false && <nav aria-label="SEO Plan sections" className="mb-5 flex flex-wrap items-center gap-2 border-b border-border pb-3">
                 {([
                     ['plan', 'Monthly plan'],
                     ['tasks', 'All client tasks'],
@@ -395,17 +443,28 @@ export default function ClientDetailPage() {
                     window.history.replaceState(null, '', url);
                 }} className={cn('rounded-lg px-4 py-2 text-sm font-medium', planView === view ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>{label}</button>)}
             </nav>}
-            {activeTab === 'campaign' && planView === 'plan' && (
+            {(v2On ? activeTab === 'campaign' : activeTab === 'campaign' && planView === 'plan') && (
                 <MarketingPlanTab
+                    key={v2On ? 'plan-v2' : 'plan-classic'}
                     organizationId={organization?.id ?? ''}
                     clientId={client.id}
                     clientName={client.clientName}
                     monthlyBudget={client.agreementCoverage === 'none' || client.agreementCoverage === 'custom' || client.setupScope?.mode === 'custom' ? null : client.seoHours || client.retainerConfig?.monthlyHours || 0}
                     scopeMode={client.agreementCoverage === 'none' || client.agreementCoverage === 'custom' || client.setupScope?.mode === 'custom' ? 'custom' : 'monthly'}
+                    presentation={v2On ? 'v2' : 'classic'}
+                    hoursNarrative={planHoursNarrative({
+                        failed: client.agreementHistoryUnavailable === true,
+                        coverage: client.agreementCoverage,
+                        seoHours: client.seoHours,
+                        scopeMode: client.setupScope?.mode,
+                        status: client.status,
+                        launchDate: client.launchDateOverride ?? client.launchDate,
+                        month: monthKey(),
+                    })}
                 />
             )}
 
-            {activeTab === 'campaign' && planView === 'results' && (
+            {!v2On && activeTab === 'campaign' && planView === 'results' && (
                 <ResultsView
                     organizationId={organization?.id ?? ''}
                     clientId={client.id}
@@ -415,26 +474,16 @@ export default function ClientDetailPage() {
             )}
 
             {/* Tasks tab */}
-            {activeTab === 'campaign' && planView === 'tasks' && (
+            {(v2On ? activeTab === 'tasks' : activeTab === 'campaign' && planView === 'tasks') && (
                 <div className="space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                            <h3 className="font-semibold text-foreground">All tasks for {client.clientName}</h3>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                                {clientTasks.filter(t => t.status !== 'done' && t.status !== 'approved').length} active · {clientTasks.filter(t => (t.status === 'done' || t.status === 'approved')).length} completed
-                            </p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                        <button onClick={() => setImportOpen(true)} className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted">Import from Basecamp</button>
-                        <button
-                            onClick={() => setIsCreateTaskOpen(true)}
-                            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-primary-foreground hover:opacity-90 transition-colors shadow-sm"
-                        >
-                            <Plus className="h-4 w-4" />
-                            New Task
-                        </button>
-                        </div>
-                    </div>
+                    <TaskToolbar
+                        clientName={client.clientName}
+                        activeCount={clientTasks.filter(t => t.status !== 'done' && t.status !== 'approved').length}
+                        completedCount={clientTasks.filter(t => t.status === 'done' || t.status === 'approved').length}
+                        overflowImport={v2On}
+                        onImport={() => setImportOpen(true)}
+                        onCreate={() => setIsCreateTaskOpen(true)}
+                    />
 
                     <p className="text-sm text-muted-foreground">All client work, including Basecamp imports and ad hoc requests. Monthly plan shows the work selected for your SEO priorities.</p>
                     {importOpen && organization && <BasecampImportModal isOpen onClose={() => setImportOpen(false)} onSuccess={() => {
@@ -461,7 +510,17 @@ export default function ClientDetailPage() {
             )}
 
             {activeTab === 'insights' && client.organizationId === organization?.id && (
+                <>
                 <SearchInsightsTab key={`${organization.id}:${client.id}`} organizationId={organization.id} clientId={client.id} clientName={client.clientName} onConnections={() => setActiveTab('integrations')} onSiteInventory={() => setActiveTab('inventory')} />
+                {v2On && (
+                    <SearchReporting
+                        organizationId={organization.id}
+                        clientId={client.id}
+                        clientName={client.clientName}
+                        clientDomain={client.domain ?? null}
+                    />
+                )}
+                </>
             )}
 
             {activeTab === 'inventory' && client.organizationId === organization?.id && (
@@ -500,7 +559,31 @@ export default function ClientDetailPage() {
             )}
 
             {/* Overview tab content */}
-            {activeTab === 'overview' && canvasEnabled && <>
+            {activeTab === 'overview' && v2On && (
+                <>
+                <PlanOverviewPanel
+                    clientId={client.id}
+                    domain={client.domain}
+                    hoursLabel={planHourLabel({
+                        failed: client.agreementHistoryUnavailable === true,
+                        coverage: client.agreementCoverage,
+                        seoHours: client.seoHours,
+                        scopeMode: client.setupScope?.mode,
+                        status: client.status,
+                        launchDate: client.launchDateOverride ?? client.launchDate,
+                        month: monthKey(),
+                    })}
+                    agreement={client.agreementHistoryUnavailable ? 'unknown' : client.agreementCoverage === 'monthly' || client.agreementCoverage === 'custom' ? 'recorded' : 'missing'}
+                    onOpenPlan={() => setActiveTab('campaign', { phase: null })}
+                    onOpenTasks={() => setActiveTab('tasks')}
+                />
+                <div className="mt-8">
+                    <ActivityFeed client={client} refreshKey={activityRefreshKey} />
+                </div>
+                </>
+            )}
+
+            {activeTab === 'overview' && seoPlanV2 === false && canvasEnabled && <>
             <ClientWorkspaceCanvas
                 client={client}
                 organizationId={organization?.id ?? ''}
@@ -527,7 +610,7 @@ export default function ClientDetailPage() {
             <ActivityFeed client={client} refreshKey={activityRefreshKey} />
             </>}
 
-            {activeTab === 'overview' && !canvasEnabled && <>
+            {activeTab === 'overview' && seoPlanV2 === false && !canvasEnabled && <>
 
             <ClientSetupScopeCard client={client} />
             <ClientOverviewWidget client={client} organizationId={organization?.id ?? ''} />
