@@ -4,6 +4,7 @@ import {
     MarketingPlanItemPriority,
 } from '../types';
 import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS, SEO_PLAN_LABEL } from '../marketing-plan-template';
+import { catalogAddBlocked, onboardingSeedItems, type PlanItemSource } from '../seo-plan/onboarding';
 import { createTask, rowToTask } from './tasks';
 import { itemsEligibleForTaskGeneration } from '../marketing-plan-logic';
 import { resolvePlanItem } from '../marketing-plan-execution';
@@ -44,6 +45,8 @@ function rowToItem(r: any): MarketingPlanItem {
         comments: r.comments ?? [],
         taskId: r.task_id ?? undefined,
         isCustom: r.is_custom ?? false,
+        templateKey: r.template_key ?? undefined,
+        source: r.source ?? undefined,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
     };
@@ -78,6 +81,9 @@ export async function createMarketingPlanFromTemplate(input: {
     organizationId: string;
     clientId: string;
     clientName: string;
+    /** Flagged orgs seed the onboarding checklist. The library stays in code. */
+    seed?: 'library' | 'onboarding';
+    scope?: { gbp?: boolean; listings?: boolean };
 }): Promise<{ success: boolean; data?: MarketingPlan; error?: string }> {
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'No client' };
@@ -95,16 +101,32 @@ export async function createMarketingPlanFromTemplate(input: {
     if (error) return { success: false, error: error.message };
     const plan = rowToPlan(data);
 
-    const rows = MARKETING_PLAN_TEMPLATE_ITEMS.map((t, i) => ({
-        marketing_plan_id: plan.id,
-        organization_id: input.organizationId,
-        client_id: input.clientId,
-        step_key: t.stepKey,
-        title: t.title,
-        description: t.description,
-        priority: t.priority,
-        sort_order: i,
-    }));
+    const rows = input.seed === 'onboarding'
+        ? onboardingSeedItems({ gbp: input.scope?.gbp === true, listings: input.scope?.listings === true }).map((item, i) => ({
+            marketing_plan_id: plan.id,
+            organization_id: input.organizationId,
+            client_id: input.clientId,
+            step_key: item.stepKey,
+            title: item.title,
+            description: item.description,
+            priority: item.priority,
+            sort_order: i,
+            is_custom: false,
+            roadmap_included: true,
+            roadmap_phase: 'onboarding',
+            template_key: item.templateKey,
+            source: 'onboarding',
+        }))
+        : MARKETING_PLAN_TEMPLATE_ITEMS.map((t, i) => ({
+            marketing_plan_id: plan.id,
+            organization_id: input.organizationId,
+            client_id: input.clientId,
+            step_key: t.stepKey,
+            title: t.title,
+            description: t.description,
+            priority: t.priority,
+            sort_order: i,
+        }));
     const { error: itemsError } = await supabase.from('marketing_plan_items').insert(rows);
     if (itemsError) {
         await supabase.from('marketing_plans').delete().eq('id', plan.id);
@@ -176,6 +198,8 @@ export async function addCustomItem(input: {
     description?: string;
     priority?: MarketingPlanItemPriority;
     sortOrder: number;
+    /** Set only for flagged orgs, after migration 087. Unflagged inserts omit it. */
+    source?: Extract<PlanItemSource, 'custom'>;
 }): Promise<{ success: boolean; data?: MarketingPlanItem; error?: string }> {
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'No client' };
@@ -192,10 +216,53 @@ export async function addCustomItem(input: {
             sort_order: input.sortOrder,
             is_custom: true,
             roadmap_included: true,
+            ...(input.source ? { source: input.source } : {}),
         })
         .select()
         .single();
     if (error) return { success: false, error: error.message };
+    return { success: true, data: rowToItem(data) };
+}
+
+/** One library row. Refuses a second copy of the same template key or title. */
+export async function addCatalogItem(input: {
+    marketingPlanId: string;
+    organizationId: string;
+    clientId: string;
+    title: string;
+    sortOrder: number;
+    existing: Array<{ templateKey?: string | null; title: string }>;
+}): Promise<{ success: boolean; data?: MarketingPlanItem; error?: string }> {
+    const catalog = MARKETING_PLAN_TEMPLATE_ITEMS.find(item => item.title === input.title);
+    if (!catalog) return { success: false, error: 'That library item is not available.' };
+    if (catalogAddBlocked(input.existing, { templateKey: catalog.templateKey, title: catalog.title })) {
+        return { success: false, error: 'Already on this plan.' };
+    }
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'No client' };
+    const { data, error } = await supabase
+        .from('marketing_plan_items')
+        .insert({
+            marketing_plan_id: input.marketingPlanId,
+            organization_id: input.organizationId,
+            client_id: input.clientId,
+            step_key: catalog.stepKey,
+            title: catalog.title,
+            description: catalog.description,
+            priority: catalog.priority,
+            sort_order: input.sortOrder,
+            is_custom: false,
+            roadmap_included: true,
+            roadmap_phase: 'backlog',
+            template_key: catalog.templateKey ?? null,
+            source: 'template',
+        })
+        .select()
+        .single();
+    if (error) {
+        if (error.code === '23505') return { success: false, error: 'Already on this plan.' };
+        return { success: false, error: error.message };
+    }
     return { success: true, data: rowToItem(data) };
 }
 

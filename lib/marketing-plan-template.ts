@@ -15,6 +15,12 @@ export interface TemplateItem {
     title: string;
     description: string;
     priority: MarketingPlanItemPriority;
+    /**
+     * Stable catalog key. Shared with the onboarding checklist when the row
+     * is the same work, so a plan cannot store two copies.
+     * Unflagged setup does not write this onto client rows.
+     */
+    templateKey?: string;
 }
 
 export const MARKETING_PLAN_STEPS: MarketingPlanStep[] = [
@@ -29,21 +35,21 @@ export const MARKETING_PLAN_STEPS: MarketingPlanStep[] = [
 
 export const MARKETING_PLAN_TEMPLATE_ITEMS: TemplateItem[] = [
     // --- Step 1: Introduction & Setup -------------------------------------
-    { stepKey: 'setup', priority: 'high', title: 'Confirm website and CMS access',
+    { stepKey: 'setup', priority: 'high', templateKey: 'access.cms', title: 'Confirm website and CMS access',
       description: 'Collect admin credentials for the website/CMS (WordPress, Shopify, etc.) and hosting. Verify we can edit pages, templates, and redirects.' },
-    { stepKey: 'setup', priority: 'high', title: 'Connect Google Search Console',
+    { stepKey: 'setup', priority: 'high', templateKey: 'access.analytics', title: 'Connect Google Search Console',
       description: 'Verify the client\'s domain property in GSC and add our agency account. Confirm impressions/clicks data is flowing into the Analytics tab.' },
-    { stepKey: 'setup', priority: 'high', title: 'Connect Google Analytics 4',
+    { stepKey: 'setup', priority: 'high', templateKey: 'access.analytics', title: 'Connect Google Analytics 4',
       description: 'Get admin or editor access to the GA4 property. Confirm the tracking tag fires on all pages and data appears in our nightly sync.' },
-    { stepKey: 'setup', priority: 'high', title: 'Verify Google Business Profile access',
+    { stepKey: 'setup', priority: 'high', templateKey: 'local.gbp', title: 'Verify Google Business Profile access',
       description: 'Request manager access to the client\'s GBP listing(s). Confirm ownership, correct primary category, and that insights are visible.' },
-    { stepKey: 'setup', priority: 'medium', title: 'Add client to Ahrefs tracking',
+    { stepKey: 'setup', priority: 'medium', templateKey: 'tracking.rank', title: 'Add client to Ahrefs tracking',
       description: 'Create the Ahrefs project, set target keywords for rank tracking, and run the first Site Audit crawl.' },
     { stepKey: 'setup', priority: 'high', title: 'Confirm conversion events and goals',
       description: 'Agree with the client on what counts as a conversion (calls, forms, purchases, bookings). Verify each event is tracked in GA4.' },
     { stepKey: 'setup', priority: 'low', title: 'Collect brand assets and guidelines',
       description: 'Gather logo files, brand colors, tone-of-voice notes, and any existing style guide for use in content and GBP posts.' },
-    { stepKey: 'setup', priority: 'high', title: 'Hold kickoff call and set expectations',
+    { stepKey: 'setup', priority: 'high', templateKey: 'kickoff.call', title: 'Hold kickoff call and set expectations',
       description: 'Walk the client through the plan, timeline, and communication cadence. Document commitments and open questions.' },
 
     // --- Step 2: Technical SEO ---------------------------------------------
@@ -125,7 +131,7 @@ export const MARKETING_PLAN_TEMPLATE_ITEMS: TemplateItem[] = [
       description: 'Review referring domains, anchor distribution, and authority trend in Ahrefs. Record baseline DR and referring-domain count.' },
     { stepKey: 'links', priority: 'low', title: 'Review for toxic links',
       description: 'Check for spammy link patterns. Only prepare a disavow if there\'s a genuinely manipulative profile — most sites don\'t need one.' },
-    { stepKey: 'links', priority: 'medium', title: 'Build the citation and directory foundation',
+    { stepKey: 'links', priority: 'medium', templateKey: 'local.listings', title: 'Build the citation and directory foundation',
       description: 'Submit consistent NAP to the core directories and relevant industry/local directories. Log each listing.' },
     { stepKey: 'links', priority: 'medium', title: 'Prospect from competitor link intersect',
       description: 'Work the saved link-intersect list: qualify each referring domain and add outreach-worthy ones to the pipeline.' },
@@ -137,7 +143,7 @@ export const MARKETING_PLAN_TEMPLATE_ITEMS: TemplateItem[] = [
       description: 'Review Ahrefs new/lost backlink alerts monthly. Reclaim valuable lost links and flag suspicious new ones.' },
 
     // --- Step 7: Local SEO -----------------------------------------------------
-    { stepKey: 'local', priority: 'high', title: 'Complete the GBP profile',
+    { stepKey: 'local', priority: 'high', templateKey: 'local.gbp', title: 'Complete the GBP profile',
       description: 'Fill every GBP field: description, services, hours, attributes, service areas, booking links. Completeness drives ranking.' },
     { stepKey: 'local', priority: 'high', title: 'Review GBP categories and services',
       description: 'Set the most specific primary category and add all relevant secondary categories. Mirror the service list to the website.' },

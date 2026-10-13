@@ -15,7 +15,27 @@ test('only explicit onboarding work is selected; foundation remains available to
     assert.equal(selected.length, 3);
     assert.ok(selected.every(item => item.phase === 'onboarding'));
     assert.ok(items.some(item => !item.included && item.stepKey === 'technical'));
+    assert.equal(items.filter(item => item.templateKey).length, 0);
     assert.equal(setupPlanItems({ ...input, template: 'blank', customItems: ['Fix critical redirects'] }).filter(item => item.included).length, 4);
+});
+test('flagged setup seeds the onboarding checklist and leaves the library in code', () => {
+    const items = setupPlanItems(input, { v2: true });
+    const titles = items.map(item => item.title);
+    assert.equal(items.length, 9);
+    assert.ok(items.every(item => item.included && item.phase === 'onboarding' && item.source === 'onboarding'));
+    assert.equal(titles.filter(title => title === 'Connect GA4 and Search Console').length, 1);
+    assert.equal(titles.includes('Connect Google Search Console'), false);
+    assert.equal(titles.includes('Connect Google Analytics 4'), false);
+    assert.equal(items.some(item => item.stepKey === 'technical'), false);
+    assert.equal(new Set(items.map(item => item.templateKey)).size, items.length);
+    const withoutLocal = setupPlanItems({ ...input, scope: { ...input.scope, gbp: false, listings: false } }, { v2: true });
+    assert.equal(withoutLocal.length, 7);
+    assert.equal(withoutLocal.some(item => item.templateKey === 'local.gbp' || item.templateKey === 'local.listings'), false);
+    const withCustom = setupPlanItems({ ...input, template: 'blank', customItems: ['Fix critical redirects'] }, { v2: true });
+    const custom = withCustom.find(item => item.title === 'Fix critical redirects');
+    assert.equal(custom?.source, 'custom');
+    assert.equal(custom?.templateKey, undefined);
+    assert.equal(withCustom.filter(item => item.source === 'onboarding').length, 9);
 });
 test('onboarding hours are allocated at launch without moving their recording date', () => {
     const scope = input.scope;

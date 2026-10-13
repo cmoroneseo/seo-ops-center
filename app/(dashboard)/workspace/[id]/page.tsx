@@ -478,6 +478,7 @@ export default function ClientDetailPage() {
                     monthlyBudget={client.agreementCoverage === 'none' || client.agreementCoverage === 'custom' || client.setupScope?.mode === 'custom' ? null : client.seoHours || client.retainerConfig?.monthlyHours || 0}
                     scopeMode={client.agreementCoverage === 'none' || client.agreementCoverage === 'custom' || client.setupScope?.mode === 'custom' ? 'custom' : 'monthly'}
                     presentation={v2On ? 'v2' : 'classic'}
+                    checklistScope={{ gbp: client.setupScope?.gbp === true, listings: client.setupScope?.listings === true }}
                     hoursNarrative={planHoursNarrative({
                         failed: client.agreementHistoryUnavailable === true,
                         coverage: client.agreementCoverage,
