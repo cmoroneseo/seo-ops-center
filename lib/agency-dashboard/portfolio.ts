@@ -64,6 +64,8 @@ export interface DashboardCard {
     /** Set when the previous window exists but does not cover every day, so the percent would compare unequal history. */
     changeNote: string | null;
     links: { insights: string; plan: string; gsc: string };
+    /** Present when Bing is enabled for this organization. Absent keeps the Google dashboard. */
+    bing?: import('./bing').BingCardView | null;
 }
 
 export interface DashboardModel {
@@ -81,6 +83,8 @@ export interface DashboardModel {
     kpis: Record<MetricKey, MetricView>;
     kpiSeries: Record<MetricKey, Array<number | null>>;
     cards: DashboardCard[];
+    /** True when the Bing Webmaster flag is on for this organization. The toggle stays hidden otherwise. */
+    bingEnabled: boolean;
 }
 
 const METRIC_KEYS: MetricKey[] = ['clicks', 'impressions', 'ctr', 'position'];
@@ -255,6 +259,7 @@ export function assembleDashboard(input: {
         kpis,
         kpiSeries,
         cards,
+        bingEnabled: false,
     };
 }
 
