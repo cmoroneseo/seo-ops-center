@@ -1,5 +1,5 @@
 import { bingWebmasterAllowlist, bingWebmasterApiKey, bingWebmasterEnabled } from './flags';
-import { mapUserSites } from './map';
+import { mapUserSites, type BingSite } from './map';
 import { planBingAutoMap, type BingClientRow, type BingIntegrationRow } from './match';
 import {
     BING_HARD_FAIL_DELAY_SECONDS, BING_PARK_SECONDS, BING_SITE_DELAY_SECONDS, BING_SYNC_FAILED_MESSAGE,
@@ -30,7 +30,7 @@ export interface BingStore {
     insertMapping(action: { organizationId: string; clientId: string; siteUrl: string }): Promise<boolean>;
     markUnverified(action: { organizationId: string; clientId: string; siteUrl: string }): Promise<void>;
     enqueue(organizationId: string, clientId: string): Promise<boolean>;
-    claim(): Promise<BingJob | null>;
+    claim(clientId?: string | null): Promise<BingJob | null>;
     release(input: BingRelease): Promise<void>;
     replace(input: {
         organizationId: string;
@@ -89,29 +89,7 @@ export async function runBingCron(deps: BingRunDeps): Promise<BingCronResult> {
     }
     let enqueued = 0;
     for (const organizationId of bingWebmasterAllowlist(deps.env)) {
-        const clients = await deps.store.listClients(organizationId);
-        const integrations = await deps.store.listIntegrations(organizationId);
-        const actions = planBingAutoMap({ sites, clients, integrations });
-        for (const action of actions) {
-            if (action.kind === 'markUnverified') {
-                await deps.store.markUnverified({
-                    organizationId: action.organizationId,
-                    clientId: action.clientId,
-                    siteUrl: action.siteUrl,
-                });
-                continue;
-            }
-            if (action.kind === 'insert') {
-                const inserted = await deps.store.insertMapping({
-                    organizationId: action.organizationId,
-                    clientId: action.clientId,
-                    siteUrl: action.siteUrl,
-                });
-                if (!inserted) continue;
-            }
-            const woke = await deps.store.enqueue(action.organizationId, action.clientId);
-            if (woke) enqueued += 1;
-        }
+        enqueued += (await mapAndEnqueueBingOrg(organizationId, sites, deps)).length;
     }
     const start = bingCronStartSend(deps.now(), deps.newRunId());
     if (!start) return { error: 'Bing sync will retry on the next run.' };
@@ -135,35 +113,61 @@ async function publishNext(deps: BingRunDeps, current: { runId: string; chain: n
     await deps.publish(next);
 }
 
-/** One claimed site. Flag-off and a bad payload return without writing. */
-export async function runBingQueueMessage(message: unknown, deps: BingRunDeps): Promise<void> {
-    const parsed = parseBingQueueMessage(message);
-    if (!parsed) return;
-    if (!syncCronGate(deps.env).ok) return;
-    const job = await deps.store.claim();
-    if (!job) return;
-    if (!bingWebmasterEnabled(deps.env, job.organizationId)) {
-        await releaseJob(deps, job, 'idle', BING_PARK_SECONDS, false);
-        await publishNext(deps, parsed, BING_SITE_DELAY_SECONDS);
-        return;
+/** Map and enqueue one organization. Does not publish a queue message. */
+export async function mapAndEnqueueBingOrg(organizationId: string, sites: BingSite[], deps: BingRunDeps): Promise<string[]> {
+    const clients = await deps.store.listClients(organizationId);
+    const integrations = await deps.store.listIntegrations(organizationId);
+    const actions = planBingAutoMap({ sites, clients, integrations });
+    const enqueued: string[] = [];
+    for (const action of actions) {
+        if (action.kind === 'markUnverified') {
+            await deps.store.markUnverified({
+                organizationId: action.organizationId,
+                clientId: action.clientId,
+                siteUrl: action.siteUrl,
+            });
+            continue;
+        }
+        if (action.kind === 'insert') {
+            const inserted = await deps.store.insertMapping({
+                organizationId: action.organizationId,
+                clientId: action.clientId,
+                siteUrl: action.siteUrl,
+            });
+            if (!inserted) continue;
+        }
+        const woke = await deps.store.enqueue(action.organizationId, action.clientId);
+        if (woke) enqueued.push(action.clientId);
     }
+    return enqueued;
+}
+
+export type BingJobSync =
+    | { kind: 'synced'; backoff: boolean; status: number | null }
+    | { kind: 'backoff'; status: number | null }
+    | { kind: 'failed'; status: number | null };
+
+function statusOf(outcome: SiteReadOutcome): number | null {
+    return typeof outcome.status === 'number' ? outcome.status : null;
+}
+
+/** Read and write one claimed site. Does not publish the next queue message. */
+export async function syncBingJob(job: BingJob, deps: BingRunDeps): Promise<BingJobSync> {
     let outcome: SiteReadOutcome;
     try {
         outcome = await deps.readSite(job.siteUrl);
     } catch {
         outcome = { action: 'fail' };
     }
+    const status = statusOf(outcome);
     if (outcome.action === 'skip') {
-        const delay = bingBackoffSeconds(job.attempts);
-        await releaseJob(deps, job, 'pending', delay, false);
-        await publishNext(deps, parsed, delay);
-        return;
+        await releaseJob(deps, job, 'pending', bingBackoffSeconds(job.attempts), false);
+        return { kind: 'backoff', status };
     }
     if (outcome.action === 'fail') {
         await deps.store.markFailed(job, BING_SYNC_FAILED_MESSAGE);
         await releaseJob(deps, job, 'idle', BING_HARD_FAIL_DELAY_SECONDS, false);
-        await publishNext(deps, parsed, BING_SITE_DELAY_SECONDS);
-        return;
+        return { kind: 'failed', status };
     }
     try {
         await deps.store.replace({
@@ -178,11 +182,29 @@ export async function runBingQueueMessage(message: unknown, deps: BingRunDeps): 
     } catch {
         await deps.store.markFailed(job, BING_SYNC_FAILED_MESSAGE);
         await releaseJob(deps, job, 'idle', BING_HARD_FAIL_DELAY_SECONDS, false);
-        await publishNext(deps, parsed, BING_SITE_DELAY_SECONDS);
-        return;
+        return { kind: 'failed', status: null };
     }
     await deps.store.markSynced(job);
     await releaseJob(deps, job, 'idle', 0, true);
-    const delay = outcome.backoff ? bingBackoffSeconds(job.attempts) : BING_SITE_DELAY_SECONDS;
-    await publishNext(deps, parsed, delay);
+    return { kind: 'synced', backoff: outcome.backoff, status };
+}
+
+/** One claimed site. Flag-off and a bad payload return without writing. */
+export async function runBingQueueMessage(message: unknown, deps: BingRunDeps): Promise<void> {
+    const parsed = parseBingQueueMessage(message);
+    if (!parsed) return;
+    if (!syncCronGate(deps.env).ok) return;
+    const job = await deps.store.claim();
+    if (!job) return;
+    if (!bingWebmasterEnabled(deps.env, job.organizationId)) {
+        await releaseJob(deps, job, 'idle', BING_PARK_SECONDS, false);
+        await publishNext(deps, parsed, BING_SITE_DELAY_SECONDS);
+        return;
+    }
+    const result = await syncBingJob(job, deps);
+    if (result.kind === 'backoff' || (result.kind === 'synced' && result.backoff)) {
+        await publishNext(deps, parsed, bingBackoffSeconds(job.attempts));
+        return;
+    }
+    await publishNext(deps, parsed, BING_SITE_DELAY_SECONDS);
 }

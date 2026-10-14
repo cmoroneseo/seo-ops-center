@@ -133,11 +133,14 @@ test('the API URL allowlist redacts the key and rejects deferred methods', () =>
 
 test('Bing sync source does not log and the example env leaves the key empty', () => {
     const files = readdirSync(new URL('.', import.meta.url))
-        .filter(name => name.endsWith('.ts') && !name.endsWith('.test.ts'));
+        .filter(name => name.endsWith('.ts') && !name.endsWith('.test.ts') && name !== 'log.ts');
     for (const name of files) {
         const source = readFileSync(new URL(name, import.meta.url), 'utf8');
         assert.equal(source.split('console.').length, 1, name);
     }
+    const log = readFileSync(new URL('./log.ts', import.meta.url), 'utf8');
+    assert.equal(log.split('console.log').length, 2);
+    assert.equal(log.split('BING_WEBMASTER_API_KEY').length, 1);
     const example = readFileSync(new URL('../../.env.example', import.meta.url), 'utf8');
     assert.match(example, /^BING_WEBMASTER_API_KEY=$/m);
     assert.doesNotMatch(example, /NEXT_PUBLIC_BING/);

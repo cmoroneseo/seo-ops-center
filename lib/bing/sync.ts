@@ -1,4 +1,4 @@
-import { bingJson, isBingBackoffError, type BingJsonRequest } from './client';
+import { BingRequestError, bingJson, isBingBackoffError, type BingJsonRequest } from './client';
 import {
     mapPageWeeks, mapQueryWeeks, mapTraffic,
     type BingPageRow, type BingQueryRow, type BingTrafficRow,
@@ -87,12 +87,18 @@ export type SiteReadOutcome =
     | {
         action: 'write';
         backoff: boolean;
+        /** Set when a later read hit 429 or 503 and the chain should wait. */
+        status?: number;
         traffic: BingTrafficRow[];
         queries: BingQueryRow[] | null;
         pages: BingPageRow[] | null;
     }
-    | { action: 'skip'; backoff: true }
-    | { action: 'fail' };
+    | { action: 'skip'; backoff: true; status?: number }
+    | { action: 'fail'; status?: number };
+
+function httpStatus(error: unknown): number | undefined {
+    return error instanceof BingRequestError ? error.status : undefined;
+}
 
 async function readMethod(
     method: BingJsonRequest['method'],
@@ -119,8 +125,8 @@ export async function readBingSite(
     try {
         trafficPayload = await readMethod('GetRankAndTrafficStats', siteUrl, apiKey, fetchImpl, signal);
     } catch (error) {
-        if (isBingBackoffError(error)) return { action: 'skip', backoff: true };
-        return { action: 'fail' };
+        if (isBingBackoffError(error)) return { action: 'skip', backoff: true, status: httpStatus(error) };
+        return { action: 'fail', status: httpStatus(error) };
     }
     const traffic = mapTraffic(trafficPayload);
     if (!traffic.ok) return { action: 'fail' };
@@ -132,7 +138,7 @@ export async function readBingSite(
         else queries = mapped.rows;
     } catch (error) {
         if (isBingBackoffError(error)) {
-            return { action: 'write', backoff: true, traffic: traffic.rows, queries: null, pages: null };
+            return { action: 'write', backoff: true, status: httpStatus(error), traffic: traffic.rows, queries: null, pages: null };
         }
         queries = null;
     }
@@ -144,7 +150,7 @@ export async function readBingSite(
         else pages = mapped.rows;
     } catch (error) {
         if (isBingBackoffError(error)) {
-            return { action: 'write', backoff: true, traffic: traffic.rows, queries, pages: null };
+            return { action: 'write', backoff: true, status: httpStatus(error), traffic: traffic.rows, queries, pages: null };
         }
         pages = null;
     }

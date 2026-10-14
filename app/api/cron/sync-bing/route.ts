@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleBingCron } from '@/lib/bing/live';
+import { logBingSyncSummary, summarizeBingCron } from '@/lib/bing/log';
 import { cronAuthorized } from '@/lib/bing/run';
 
 export const maxDuration = 300;
@@ -26,6 +27,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const result = await handleBingCron();
+    logBingSyncSummary(summarizeBingCron(result));
     if ('error' in result) return NextResponse.json({ error: result.error }, { status: 500 });
     return NextResponse.json(result);
 }

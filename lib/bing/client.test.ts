@@ -71,7 +71,7 @@ test('a site read stops on backoff and keeps a failed query side empty', async (
         if (url.pathname.endsWith('GetRankAndTrafficStats')) return jsonResponse(429, { apikey: KEY });
         return jsonResponse(200, { d: [] });
     };
-    assert.deepEqual(await readBingSite(SITE, KEY, quota), { action: 'skip', backoff: true });
+    assert.deepEqual(await readBingSite(SITE, KEY, quota), { action: 'skip', backoff: true, status: 429 });
     assert.deepEqual(calls, ['/webmaster/api.svc/json/GetRankAndTrafficStats']);
 
     const calls503: string[] = [];
@@ -86,6 +86,7 @@ test('a site read stops on backoff and keeps a failed query side empty', async (
     assert.deepEqual(await readBingSite(SITE, KEY, partial), {
         action: 'write',
         backoff: true,
+        status: 503,
         traffic: [{ data_date: '2011-09-16', clicks: 4, impressions: 8 }],
         queries: null,
         pages: null,

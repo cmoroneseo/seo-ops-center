@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client';
 import { User as UserType, OrganizationMember } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { AppearanceTab } from '@/components/settings/AppearanceTab';
+import { SyncBingButton } from '@/components/settings/SyncBingButton';
 
 interface MemberWithUser extends OrganizationMember {
     user: UserType;
@@ -54,7 +55,8 @@ const TAB_IDS: SettingsTab[] = ['general', 'appearance', 'feedback'];
 
 export default function SettingsPage() {
     const { organization } = useOrganization();
-    const { displayName, isOwner } = useCurrentMember();
+    const { displayName, isOwner, role } = useCurrentMember();
+    const canSyncBing = role === 'owner' || role === 'admin';
     const [activeTab, setActiveTab] = useState<SettingsTab>('general');
     const [members, setMembers] = useState<MemberWithUser[]>([]);
     const [isInviteLoading, setIsInviteLoading] = useState(false);
@@ -215,6 +217,7 @@ export default function SettingsPage() {
             {/* ── General Tab ── */}
             {activeTab === 'general' && (
                 <div className="grid gap-6">
+                    {canSyncBing && <SyncBingButton variant="settings" />}
                     {/* Profile */}
                     <div className="rounded-xl border border-border bg-card p-6">
                         <div className="flex items-center gap-4 mb-6">

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import Link from 'next/link';
 import { LayoutGrid, List, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
 import { useOrganization } from '@/components/providers/organization-provider';
+import { SyncBingButton } from '@/components/settings/SyncBingButton';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { Sparkline } from '@/components/agency-dashboard/Sparkline';
 import {
     DASHBOARD_RANGES,
@@ -66,6 +68,7 @@ const SUPPORTING_LABEL: Record<MetricKey, string> = {
 
 export function AgencyDashboard() {
     const { organization } = useOrganization();
+    const { role } = useCurrentMember();
     const organizationId = organization?.id ?? null;
     const [range, setRange] = useState<DashboardRange>('28d');
     const [model, setModel] = useState<DashboardModel | null>(null);
@@ -126,6 +129,7 @@ export function AgencyDashboard() {
             onRange={setRange}
             onRefresh={() => setRefresh(value => value + 1)}
             onLoadQueries={loadQueries}
+            canSyncBing={role === 'owner' || role === 'admin'}
         />
     );
 }
@@ -143,6 +147,7 @@ export function AgencyDashboardView({
     initialQuery = '',
     initialOpenClient = null,
     initialFiltersOpen = false,
+    canSyncBing = false,
 }: {
     model: DashboardModel | null;
     loading?: boolean;
@@ -156,6 +161,7 @@ export function AgencyDashboardView({
     initialQuery?: string;
     initialOpenClient?: string | null;
     initialFiltersOpen?: boolean;
+    canSyncBing?: boolean;
 }) {
     const activeRange = range ?? model?.range ?? '28d';
     const [metric, setMetric] = useState<MetricKey>('clicks');
@@ -242,6 +248,7 @@ export function AgencyDashboardView({
                             {METRICS.map(item => <option key={item} value={item}>{METRIC_LABEL[item]}</option>)}
                         </select>
                     </Field>
+                    {canSyncBing && <SyncBingButton variant="toolbar" />}
                     <div className="relative" ref={filtersRef}>
                         <button
                             type="button"
