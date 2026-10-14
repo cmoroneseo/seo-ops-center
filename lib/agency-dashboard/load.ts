@@ -3,9 +3,11 @@ import 'server-only';
 import { agreementToday } from '@/lib/agreements/logic';
 import type { ClientAgreement } from '@/lib/agreements/types';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { parseAgencyAggregate } from './aggregate';
+import { parseAgencyAggregate, parseTopQueries, QUERY_GAP_LABEL } from './aggregate';
+import { dashboardManagerLabel } from './managers';
 import { assembleDashboard, type DashboardClientInput, type DashboardModel } from './portfolio';
 import { dashboardWindow, type DashboardRange } from './range';
+import type { ManagerIdentity } from '@/lib/workspace/client-managers';
 
 type DbError = { code?: string; message?: string } | null;
 type Page<T> = { data: T[] | null; error: DbError };
@@ -24,7 +26,7 @@ function num(value: unknown): number | null {
 
 function unavailable(error: DbError): boolean {
     const message = error?.message ?? '';
-    return error?.code === '42883' || error?.code === 'PGRST202' || error?.code === '42P01' || /agency_dashboard_(as_of|gsc)/.test(message);
+    return error?.code === '42883' || error?.code === 'PGRST202' || error?.code === '42P01' || /agency_dashboard_(as_of|gsc|top_queries)/.test(message);
 }
 
 async function readAll<T>(query: (from: number, to: number) => PromiseLike<Page<T>>): Promise<{ rows: T[]; error: DbError }> {
@@ -82,11 +84,12 @@ export async function loadAgencyDashboard(
     const hoursMonth = today.slice(0, 7);
     const bounds = monthBounds(hoursMonth);
 
-    const [clients, integrations, agreements, timeLogs] = await Promise.all([
-        readAll<Record<string, unknown>>(span => admin.from('clients').select('id, name, domain, account_manager_name, seo_hours').eq('organization_id', organizationId).eq('status', 'active').order('id').range(span, span + PAGE - 1)),
+    const [clients, integrations, agreements, timeLogs, membersResult] = await Promise.all([
+        readAll<Record<string, unknown>>(span => admin.from('clients').select('id, name, domain, account_manager_id, account_manager_name, seo_hours').eq('organization_id', organizationId).eq('status', 'active').order('id').range(span, span + PAGE - 1)),
         readAll<Record<string, unknown>>(span => admin.from('client_integrations').select('client_id, sync_status, last_synced_at, site_url:credentials->>site_url').eq('organization_id', organizationId).eq('service', 'gsc').in('sync_status', ['active', 'error']).order('client_id').range(span, span + PAGE - 1)),
         readAll<Record<string, unknown>>(span => admin.from('client_agreements').select('id, organization_id, client_id, previous_id, kind, title, starts_on, ends_on, mode, hours, hours_mode, proration, timezone, cancelled_at').eq('organization_id', organizationId).order('id').range(span, span + PAGE - 1)),
         readAll<Record<string, unknown>>(span => admin.from('time_logs').select('id, client_id, hours').eq('organization_id', organizationId).eq('status', 'logged').eq('import_status', 'mapped').eq('counts_toward_budget', true).is('voided_at', null).gte('date', bounds.start).lte('date', bounds.end).order('id').range(span, span + PAGE - 1)),
+        admin.from('organization_members').select('user_id, user:users(full_name, email)').eq('organization_id', organizationId),
     ]);
 
     if (clients.error || integrations.error) return { ok: false, status: 500, error: 'Could not load the dashboard.' };
@@ -122,6 +125,7 @@ export async function loadAgencyDashboard(
         }
     }
 
+    const members = memberDirectory(membersResult.data);
     const inputClients: DashboardClientInput[] = clients.rows.flatMap(row => {
         const id = text(row.id);
         const link = id ? connected.get(id) : undefined;
@@ -130,7 +134,7 @@ export async function loadAgencyDashboard(
             id,
             name: text(row.name) ?? 'Client',
             domain: text(row.domain),
-            accountManager: text(row.account_manager_name),
+            accountManager: dashboardManagerLabel(text(row.account_manager_name), text(row.account_manager_id), members),
             seoHours: num(row.seo_hours),
             property: link.property,
             syncStatus: link.syncStatus,
@@ -198,4 +202,53 @@ export async function loadAgencyDashboard(
             freshness: parsed.freshness,
         }),
     };
+}
+
+const CLIENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export async function loadTopQueries(
+    organizationId: string,
+    clientId: string,
+    range: DashboardRange,
+): Promise<{ ok: true; queries: Array<{ query: string; clicks: number }>; reason: string | null } | { ok: false; status: number; error: string }> {
+    if (!CLIENT_ID.test(clientId)) return { ok: false, status: 400, error: 'Choose a client.' };
+    const admin = createAdminClient();
+    const asOfResult = await admin.rpc('agency_dashboard_as_of', { p_organization_id: organizationId });
+    if (asOfResult.error) {
+        if (unavailable(asOfResult.error)) return { ok: false, status: 503, error: 'Apply migration 090 before using the agency dashboard.' };
+        return { ok: false, status: 500, error: 'Could not load queries.' };
+    }
+    const asOf = text(asOfResult.data)?.slice(0, 10) ?? (asOfResult.data instanceof Date ? asOfResult.data.toISOString().slice(0, 10) : null);
+    if (!asOf) return { ok: true, queries: [], reason: QUERY_GAP_LABEL.not_stored };
+    const window = dashboardWindow(range, asOf);
+    const result = await admin.rpc('agency_dashboard_top_queries', {
+        p_organization_id: organizationId,
+        p_client_id: clientId,
+        p_start: window.current.start,
+        p_end: window.current.end,
+    });
+    if (result.error) {
+        if (unavailable(result.error)) return { ok: false, status: 503, error: 'Apply migration 091 before loading top queries.' };
+        return { ok: false, status: 500, error: 'Could not load queries.' };
+    }
+    try {
+        const parsed = parseTopQueries(result.data);
+        return { ok: true, queries: parsed.queries, reason: parsed.reason ? QUERY_GAP_LABEL[parsed.reason] : null };
+    } catch {
+        return { ok: false, status: 500, error: 'Could not load queries.' };
+    }
+}
+
+function memberDirectory(rows: unknown): ManagerIdentity[] {
+    if (!Array.isArray(rows)) return [];
+    return rows.flatMap(row => {
+        if (!row || typeof row !== 'object') return [];
+        const record = row as Record<string, unknown>;
+        const id = text(record.user_id);
+        const user = Array.isArray(record.user) ? record.user[0] : record.user;
+        const profile = user && typeof user === 'object' ? user as Record<string, unknown> : null;
+        const name = text(profile?.full_name);
+        if (!id || !name) return [];
+        return [{ id, name, email: text(profile?.email) ?? undefined }];
+    });
 }

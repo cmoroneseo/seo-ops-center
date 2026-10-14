@@ -1,18 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { ClientAgreement } from '@/lib/agreements/types';
-import { parseAgencyAggregate } from './aggregate.ts';
+import { parseAgencyAggregate, parseTopQueries } from './aggregate.ts';
 import {
     cardTint,
     changeTone,
     compareCards,
+    formatAbsolute,
     formatChange,
     formatMetric,
     metricValue,
     percentChange,
     type SortState,
 } from './metrics.ts';
-import { assembleDashboard, filterCards, type DashboardClientInput } from './portfolio.ts';
+import { assembleDashboard, filterCards, summarizeSelection, type DashboardClientInput } from './portfolio.ts';
 import { bucketStart, dashboardWindow, daysInclusive } from './range.ts';
 
 const today = '2026-10-14';
@@ -87,6 +88,12 @@ test('CTR and position are weighted, and a missing period is not a zero', () => 
     assert.equal(formatMetric('ctr', null), '—');
     assert.equal(formatMetric('position', null), '—');
     assert.equal(formatChange(null), '—');
+    assert.equal(formatChange(0), '0.0%');
+    assert.equal(formatChange(-0.0002), '−<0.1%');
+    assert.equal(formatAbsolute('ctr', 0), '0.0 pts');
+    assert.equal(formatAbsolute('ctr', -0.0004), '−<0.1 pts');
+    assert.equal(formatAbsolute('position', -0.04), '−<0.1');
+    assert.equal(formatAbsolute('clicks', 0.2), '<1');
 });
 
 test('position movement is colored by rank, not by the sign of the number', () => {
@@ -152,6 +159,7 @@ test('the portfolio keeps gaps honest and compares only clients with both period
     assert.equal(paired.metrics.clicks.value, 80);
     assert.equal(paired.metrics.ctr.value, 0.08);
     assert.equal(paired.phaseLabel, 'Month 3');
+    assert.equal(paired.phaseReason, null);
     assert.equal(paired.hoursLabel, '18 / 40h');
     assert.equal(paired.queries[0].query, 'emergency plumber');
     assert.equal(paired.links.insights, '/workspace/paired?tab=insights');
@@ -159,6 +167,8 @@ test('the portfolio keeps gaps honest and compares only clients with both period
     assert.match(paired.links.gsc, /resource_id=sc-domain%3Aexample.com/);
 
     const first = model.cards.find(card => card.clientId === 'first')!;
+    assert.equal(first.phaseLabel, null);
+    assert.equal(first.phaseReason, 'No agreement');
     assert.equal(first.metrics.clicks.value, 50);
     assert.equal(first.metrics.clicks.change, null);
     assert.equal(first.metrics.ctr.value, null);
@@ -170,6 +180,10 @@ test('the portfolio keeps gaps honest and compares only clients with both period
     assert.equal(model.cards.find(card => card.clientId === 'fresh')?.metrics.clicks.value, null);
     assert.equal(model.cards.find(card => card.clientId === 'broken')?.reasonLabel, 'Sync failed');
     assert.equal(formatMetric('clicks', model.cards.find(card => card.clientId === 'fresh')?.metrics.clicks.value ?? null), '—');
+    const selection = summarizeSelection(model, model.cards);
+    assert.equal(selection.pairedClients, 1);
+    assert.equal(selection.clientsWithData, 2);
+    assert.match(selection.comparison ?? '', /1 of 2 clients/);
 });
 
 test('sort puts the biggest declines first and never treats a gap as zero', () => {
@@ -207,6 +221,16 @@ test('sort puts the biggest declines first and never treats a gap as zero', () =
 
     const filtered = filterCards(model.cards, { query: 'rank', manager: null, coverage: 'all' });
     assert.deepEqual(filtered.map(card => card.clientId), ['rank']);
+    const slice = summarizeSelection(model, filtered);
+    assert.match(slice.summary, /1 of 1 clients/);
+    assert.equal(slice.kpis.clicks.value, 10);
+    assert.equal(slice.comparison, null);
+    const partial = summarizeSelection(model, model.cards.filter(card => card.clientId === 'down' || card.clientId === 'gap'));
+    assert.equal(partial.clientsWithData, 1);
+    assert.equal(partial.pairedClients, 1);
+    const mixed = summarizeSelection(model, model.cards);
+    assert.equal(mixed.comparison, null);
+    assert.equal(model.cards.find(card => card.clientId === 'down')?.queriesReason, 'No queries with clicks in this range');
     assert.equal(model.settling, true);
 });
 
@@ -228,4 +252,27 @@ test('a bad aggregate is rejected instead of being read as zero', () => {
     assert.equal(parsed.clients[0].current?.clicks, 0);
     assert.equal(parsed.clients[0].current?.positionWeight, 80);
     assert.equal(parsed.clients[0].queries[0].clicks, 4);
+    const deferred = parseAgencyAggregate({
+        current: [{ clientId: 'a', clicks: 1, impressions: 2, positionWeight: 4, days: 1 }],
+        previous: [],
+        series: [],
+        queries: null,
+        freshness: { latestDataDate: null, latestImportedAt: null, settling: false },
+    });
+    assert.equal(deferred.queriesKnown, false);
+    assert.equal(deferred.clients[0].queriesKnown, false);
+    const lazyCard = assembleDashboard({
+        range: '7d',
+        window: dashboardWindow('7d', '2026-10-07'),
+        asOf: '2026-10-07',
+        today,
+        hoursMonth: month,
+        freshness: { latestDataDate: '2026-10-07', latestImportedAt: null, settling: false },
+        clients: [client({ id: 'a', name: 'Lazy' })],
+        aggregates: [deferred.clients[0]],
+    });
+    assert.equal(lazyCard.cards[0].queriesKnown, false);
+    assert.equal(lazyCard.cards[0].queriesReason, null);
+    assert.deepEqual(parseTopQueries({ queries: [], reason: 'not_stored' }).reason, 'not_stored');
+    assert.throws(() => parseTopQueries({ queries: [], reason: null }), /Invalid dashboard aggregate/);
 });
