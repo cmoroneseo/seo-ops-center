@@ -10,7 +10,16 @@ export interface AgencyFreshness {
 export interface AgencyAggregate {
     clients: AggregateClient[];
     freshness: AgencyFreshness;
+    /** False when the payload left queries null so the page can load them per card. */
+    queriesKnown: boolean;
 }
+
+export type QueryGap = 'not_stored' | 'no_clicks';
+
+export const QUERY_GAP_LABEL: Record<QueryGap, string> = {
+    not_stored: 'Query detail was not stored for this range',
+    no_clicks: 'No queries with clicks in this range',
+};
 
 function record(value: unknown): Record<string, unknown> | null {
     return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -41,9 +50,11 @@ function totals(value: unknown): Totals | null {
 /** Reject a payload that is missing pieces instead of turning them into zeros. */
 export function parseAgencyAggregate(value: unknown): AgencyAggregate {
     const body = record(value);
-    if (!body || !Array.isArray(body.current) || !Array.isArray(body.previous) || !Array.isArray(body.series) || !Array.isArray(body.queries)) {
+    if (!body || !Array.isArray(body.current) || !Array.isArray(body.previous) || !Array.isArray(body.series) || !Object.prototype.hasOwnProperty.call(body, 'queries')) {
         throw new Error('Invalid dashboard aggregate');
     }
+    if (body.queries != null && !Array.isArray(body.queries)) throw new Error('Invalid dashboard aggregate');
+    const queriesKnown = Array.isArray(body.queries);
     const current = new Map<string, Totals>();
     const previous = new Map<string, Totals>();
     const series = new Map<string, SeriesPoint[]>();
@@ -78,7 +89,7 @@ export function parseAgencyAggregate(value: unknown): AgencyAggregate {
         list.push({ bucket, clicks, impressions, positionWeight: impressions > 0 ? weight : null });
         series.set(clientId, list);
     }
-    for (const item of body.queries) {
+    for (const item of queriesKnown ? body.queries as unknown[] : []) {
         const row = record(item);
         const clientId = text(row?.clientId);
         const query = text(row?.query);
@@ -98,12 +109,32 @@ export function parseAgencyAggregate(value: unknown): AgencyAggregate {
             previous: previous.get(clientId) ?? null,
             series: series.get(clientId) ?? [],
             queries: (queries.get(clientId) ?? []).slice(0, 3),
+            queriesKnown,
             incomplete: incomplete.has(clientId),
         })),
+        queriesKnown,
         freshness: {
             latestDataDate: text(freshness?.latestDataDate)?.slice(0, 10) ?? null,
             latestImportedAt: text(freshness?.latestImportedAt),
             settling: freshness?.settling === true,
         },
     };
+}
+
+export function parseTopQueries(value: unknown): { queries: Array<{ query: string; clicks: number }>; reason: QueryGap | null } {
+    const body = record(value);
+    if (!body || !Array.isArray(body.queries)) throw new Error('Invalid dashboard aggregate');
+    const queries: Array<{ query: string; clicks: number }> = [];
+    for (const item of body.queries) {
+        const row = record(item);
+        const query = text(row?.query);
+        const clicks = num(row?.clicks);
+        if (!query || clicks == null || clicks <= 0) throw new Error('Invalid dashboard aggregate');
+        queries.push({ query, clicks });
+    }
+    const reason = body.reason == null ? null : text(body.reason);
+    if (reason != null && reason !== 'not_stored' && reason !== 'no_clicks') throw new Error('Invalid dashboard aggregate');
+    if (queries.length > 0 && reason != null) throw new Error('Invalid dashboard aggregate');
+    if (queries.length === 0 && reason == null) throw new Error('Invalid dashboard aggregate');
+    return { queries: queries.slice(0, 3), reason };
 }

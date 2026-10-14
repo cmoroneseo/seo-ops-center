@@ -46,6 +46,8 @@ export interface AggregateClient {
     previous: Totals | null;
     series: SeriesPoint[];
     queries: Array<{ query: string; clicks: number }>;
+    /** False when the aggregate did not compute queries. The card loads them on open. Omitted means the queries array is complete. */
+    queriesKnown?: boolean;
     incomplete: boolean;
 }
 
@@ -57,6 +59,11 @@ export interface DashboardCard {
     accountManager: string | null;
     hoursLabel: string;
     phaseLabel: string | null;
+    /** Why phaseLabel is empty. Null when a phase is shown. */
+    phaseReason: string | null;
+    currentTotals: Totals | null;
+    previousTotals: Totals | null;
+    points: SeriesPoint[];
     reason: GapReason | null;
     reasonLabel: string | null;
     coverageLabel: string | null;
@@ -64,6 +71,9 @@ export interface DashboardCard {
     metrics: Record<MetricKey, MetricView>;
     series: Record<MetricKey, Array<number | null>>;
     queries: Array<{ query: string; clicks: number }>;
+    queriesKnown: boolean;
+    /** Shown next to an em dash when the query list is empty. */
+    queriesReason: string | null;
     links: { insights: string; plan: string; gsc: string };
 }
 
@@ -72,6 +82,9 @@ export interface DashboardModel {
     currentLabel: string;
     previousLabel: string;
     summary: string;
+    /** Dates and freshness, without the client count, so a filter can rewrite the count. */
+    rangeLine: string;
+    buckets: string[];
     clientsWithData: number;
     clientsConnected: number;
     pairedClients: number;
@@ -105,11 +118,14 @@ function gapReason(client: DashboardClientInput): GapReason {
     return 'no_data';
 }
 
-function phaseLabel(agreements: ClientAgreement[], today: string): string | null {
-    const anchor = phaseAnchor(agreements);
+export const NO_AGREEMENT_PHASE = 'No agreement';
+
+function phaseDisplay(client: DashboardClientInput, today: string): { phaseLabel: string | null; phaseReason: string | null } {
+    if (!client.agreementsKnown) return { phaseLabel: null, phaseReason: 'Agreement history unavailable' };
+    const anchor = phaseAnchor(client.agreements);
     const phase = phaseAt(anchor, today);
-    if (!phase) return null;
-    return phase === 'onboarding' ? 'Onboarding' : `Month ${phaseRank(phase)}`;
+    if (!phase) return { phaseLabel: null, phaseReason: NO_AGREEMENT_PHASE };
+    return { phaseLabel: phase === 'onboarding' ? 'Onboarding' : `Month ${phaseRank(phase)}`, phaseReason: null };
 }
 
 function hoursLabel(client: DashboardClientInput, month: string): string {
@@ -163,6 +179,11 @@ export function assembleDashboard(input: {
         const coverageLabel = !reason && current && expected > 0 && current.days < expected
             ? `${current.days} of ${expected} days`
             : null;
+        const phase = phaseDisplay(client, input.today);
+        // Omitted means the queries array is the answer, including an empty list.
+        // False means the aggregate skipped queries and the card loads them on open.
+        const queriesKnown = aggregate?.queriesKnown ?? true;
+        const queries = reason || !queriesKnown ? [] : (aggregate?.queries ?? []).slice(0, 3);
         return {
             clientId: client.id,
             name: client.name,
@@ -170,14 +191,20 @@ export function assembleDashboard(input: {
             property: client.property,
             accountManager: client.accountManager?.trim() || null,
             hoursLabel: hoursLabel(client, input.hoursMonth),
-            phaseLabel: client.agreementsKnown ? phaseLabel(client.agreements, input.today) : null,
+            phaseLabel: phase.phaseLabel,
+            phaseReason: phase.phaseReason,
+            currentTotals: current,
+            previousTotals: previous,
+            points: reason ? [] : aggregate?.series ?? [],
             reason,
             reasonLabel: reason ? GAP_LABEL[reason] : null,
             coverageLabel,
             syncWarning: !reason && client.syncStatus === 'error' ? 'Last sync failed' : null,
             metrics,
             series,
-            queries: reason ? [] : (aggregate?.queries ?? []).slice(0, 3),
+            queries,
+            queriesKnown: reason ? true : queriesKnown,
+            queriesReason: reason ? GAP_LABEL[reason] : queriesKnown && queries.length === 0 ? 'No queries with clicks in this range' : null,
             links: {
                 insights: `/workspace/${client.id}?tab=insights`,
                 plan: `/workspace/${client.id}?tab=campaign`,
@@ -229,13 +256,16 @@ export function assembleDashboard(input: {
     const ranges = input.window ? `${currentLabel} vs ${previousLabel}` : 'No Search Console history yet';
     const freshness = imported ? `imported ${imported}` : latestDay ? `latest day ${latestDay}` : null;
     const latest = latestDay && imported ? `latest day ${latestDay}` : null;
-    const summary = [count, ranges, latest, freshness].filter(Boolean).join(' · ');
+    const rangeLine = [ranges, latest, freshness].filter(Boolean).join(' · ');
+    const summary = [count, rangeLine].filter(Boolean).join(' · ');
 
     return {
         range: input.range,
         currentLabel,
         previousLabel,
         summary,
+        rangeLine,
+        buckets: spine,
         clientsWithData: withData.length,
         clientsConnected: cards.length,
         pairedClients: pairedIds.size,
@@ -251,6 +281,59 @@ function daysInWindow(window: DashboardWindow): number {
     const start = Date.parse(`${window.current.start}T00:00:00Z`);
     const end = Date.parse(`${window.current.end}T00:00:00Z`);
     return Math.round((end - start) / 86400000) + 1;
+}
+
+export function comparisonLabel(paired: number, withData: number): string | null {
+    if (withData <= 0 || paired >= withData) return null;
+    return `Change compares ${paired} of ${withData} clients that have both periods. The total includes every client in this view with current data.`;
+}
+
+/** KPIs for the cards currently on screen. Search and manager filters must not leave the unfiltered totals up. */
+export function summarizeSelection(model: Pick<DashboardModel, 'rangeLine' | 'buckets'>, cards: readonly DashboardCard[]): {
+    summary: string;
+    clientsWithData: number;
+    clientsConnected: number;
+    pairedClients: number;
+    comparison: string | null;
+    kpis: Record<MetricKey, MetricView>;
+    kpiSeries: Record<MetricKey, Array<number | null>>;
+} {
+    const withData = cards.filter(card => card.reason == null && card.currentTotals);
+    const paired = withData.filter(card => card.previousTotals);
+    const headline = withData.reduce((total, card) => addTotals(total, card.currentTotals!), emptyTotals());
+    const pairedCurrent = paired.reduce((total, card) => addTotals(total, card.currentTotals!), emptyTotals());
+    const pairedPrevious = paired.reduce((total, card) => addTotals(total, card.previousTotals!), emptyTotals());
+    const currentTotals = withData.length ? headline : null;
+    const previousTotals = paired.length ? pairedPrevious : null;
+    const currentForChange = paired.length ? pairedCurrent : null;
+    const kpis = Object.fromEntries(METRIC_KEYS.map(metric => {
+        const headlineValue = metricValue(currentTotals, metric);
+        const prior = metricValue(previousTotals, metric);
+        const change = metricView(currentForChange, previousTotals, metric);
+        return [metric, {
+            value: headlineValue,
+            previous: prior,
+            change: change.change,
+            absolute: headlineValue == null || prior == null || paired.length !== withData.length ? null : headlineValue - prior,
+        } satisfies MetricView];
+    })) as Record<MetricKey, MetricView>;
+    const agencyPoints = sumSeries(model.buckets, withData.map(card => ({ points: card.points })));
+    const kpiSeries = {
+        clicks: agencyPoints.map(point => point ? metricValue({ ...point, days: 1 }, 'clicks') : null),
+        impressions: agencyPoints.map(point => point ? metricValue({ ...point, days: 1 }, 'impressions') : null),
+        ctr: agencyPoints.map(point => point ? metricValue({ ...point, days: 1 }, 'ctr') : null),
+        position: agencyPoints.map(point => point ? metricValue({ ...point, days: 1 }, 'position') : null),
+    };
+    const summary = [`${withData.length} of ${cards.length} clients`, model.rangeLine].filter(Boolean).join(' · ');
+    return {
+        summary,
+        clientsWithData: withData.length,
+        clientsConnected: cards.length,
+        pairedClients: paired.length,
+        comparison: comparisonLabel(paired.length, withData.length),
+        kpis,
+        kpiSeries,
+    };
 }
 
 export function filterCards(cards: readonly DashboardCard[], input: {

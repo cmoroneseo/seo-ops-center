@@ -7,8 +7,11 @@ export const METRIC_LABEL: Record<MetricKey, string> = {
     clicks: 'Clicks',
     impressions: 'Impressions',
     ctr: 'CTR',
-    position: 'Position',
+    position: 'Avg. position',
 };
+
+/** Shown on the position label. The number is sum(position × impressions) / impressions. */
+export const POSITION_LABEL_TITLE = 'Impression-weighted average';
 
 export interface Totals {
     clicks: number;
@@ -173,27 +176,29 @@ export function formatMetric(metric: MetricKey, value: number | null): string {
     return formatCompact(value);
 }
 
+/** A non-zero value that rounds to 0.0 is "<0.1", never "-0.0". */
+function signedTenths(value: number, suffix: string): string {
+    const rounded = Number(value.toFixed(1));
+    if (rounded === 0) {
+        if (value === 0) return `0.0${suffix}`;
+        return value > 0 ? `<0.1${suffix}` : `−<0.1${suffix}`;
+    }
+    const text = `${Math.abs(rounded).toFixed(1)}${suffix}`;
+    return rounded > 0 ? `+${text}` : `-${text}`;
+}
+
 export function formatChange(change: number | null): string {
     if (change == null || !Number.isFinite(change)) return '—';
-    const percent = change * 100;
-    if (percent === 0) return '0.0%';
-    return `${percent > 0 ? '+' : ''}${percent.toFixed(1)}%`;
+    return signedTenths(change * 100, '%');
 }
 
 export function formatAbsolute(metric: MetricKey, absolute: number | null): string {
     if (absolute == null || !Number.isFinite(absolute)) return '—';
-    if (metric === 'position') {
-        const text = absolute.toFixed(1);
-        return absolute > 0 ? `+${text}` : text;
-    }
-    if (metric === 'ctr') {
-        const points = absolute * 100;
-        const text = `${Math.abs(points).toFixed(1)} pts`;
-        if (points === 0) return '0.0 pts';
-        return points > 0 ? `+${text}` : `-${text}`;
-    }
-    const text = formatCompact(Math.abs(absolute));
+    if (metric === 'position') return signedTenths(absolute, '');
+    if (metric === 'ctr') return signedTenths(absolute * 100, ' pts');
     if (absolute === 0) return '0';
+    if (Math.abs(absolute) < 0.5) return absolute > 0 ? '<1' : '−<1';
+    const text = formatCompact(Math.abs(absolute));
     return absolute > 0 ? `+${text}` : `-${text}`;
 }
 
