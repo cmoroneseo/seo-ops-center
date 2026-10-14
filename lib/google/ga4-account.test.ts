@@ -6,7 +6,7 @@ import { GoogleAccountEmptyHint } from '../../components/workspace/GoogleAccount
 import { Ga4PropertyOptions } from '../../components/workspace/GooglePropertyPicker.tsx';
 import { IntegrationGrid } from '../../components/workspace/IntegrationGrid.tsx';
 import { toPublicIntegration } from '../integrations/public-integration.ts';
-import { connectedAccountLabel, googleOAuthPrompt, googleOAuthScopes, publicGoogleEmail, readGoogleAccountEmail } from './account.ts';
+import { GOOGLE_OAUTH_GROUPS, connectedAccountLabel, googleOAuthPrompt, googleOAuthScopes, isGoogleOAuthGroup, publicGoogleEmail, readGoogleAccountEmail } from './account.ts';
 import { readGa4Properties } from './ga4-properties.ts';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
@@ -82,12 +82,14 @@ test('connect asks for openid email and an account chooser', () => {
         'openid',
         'email',
     ]);
-    assert.ok(googleOAuthScopes('gsc')?.includes('openid'));
-    assert.ok(googleOAuthScopes('ga4-gsc')?.includes('email'));
-    assert.ok(googleOAuthScopes('gbp')?.includes('openid'));
-    assert.equal(googleOAuthScopes('nope'), null);
-    assert.equal(googleOAuthScopes(null), null);
-    assert.equal(googleOAuthScopes(''), null);
+    assert.ok(googleOAuthScopes('gsc').includes('openid'));
+    assert.ok(googleOAuthScopes('ga4-gsc').includes('email'));
+    assert.ok(googleOAuthScopes('gbp').includes('openid'));
+    assert.deepEqual([...GOOGLE_OAUTH_GROUPS].sort(), ['ga4', 'ga4-gsc', 'gbp', 'gsc']);
+    assert.equal(isGoogleOAuthGroup('ga4'), true);
+    assert.equal(isGoogleOAuthGroup('nope'), false);
+    assert.equal(isGoogleOAuthGroup(null), false);
+    assert.equal(isGoogleOAuthGroup(''), false);
     assert.equal(googleOAuthPrompt(), 'consent select_account');
 });
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { googleOAuthPrompt, googleOAuthScopes } from '@/lib/google/account';
+import { googleOAuthPrompt, googleOAuthScopes, isGoogleOAuthGroup } from '@/lib/google/account';
 import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
 import { createGoogleOAuthState } from '@/lib/security/oauth-state';
 
@@ -14,17 +14,18 @@ export async function GET(req: NextRequest) {
     const { searchParams } = req.nextUrl;
     const clientId = searchParams.get('clientId');
     const orgId = searchParams.get('orgId');
-    const group = searchParams.get('group') as 'ga4-gsc' | 'ga4' | 'gsc' | 'gbp' | null;
-
-    const scopes = googleOAuthScopes(group);
-    if (!clientId || !orgId || !group || !scopes) {
-        return NextResponse.json({ error: 'Missing or invalid params' }, { status: 400 });
-    }
+    const group = searchParams.get('group');
 
     const authorization = await requireClientIntegrationManager(clientId, orgId);
     if (!authorization.ok) {
         return NextResponse.json({ error: authorization.error }, { status: authorization.status });
     }
+
+    if (!isGoogleOAuthGroup(group)) {
+        return NextResponse.json({ error: 'Missing or invalid params' }, { status: 400 });
+    }
+
+    const scopes = googleOAuthScopes(group);
 
     const clientIdEnv = process.env.GOOGLE_CLIENT_ID;
     const redirectUri = process.env.GOOGLE_REDIRECT_URI;

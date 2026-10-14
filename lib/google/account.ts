@@ -1,4 +1,14 @@
-const SERVICE_SCOPES: Record<string, string[]> = {
+export type GoogleOAuthGroup = 'ga4-gsc' | 'ga4' | 'gsc' | 'gbp';
+
+/** The only `group` query values the connect route will send to Google. */
+export const GOOGLE_OAUTH_GROUPS: ReadonlySet<string> = new Set<string>([
+    'ga4-gsc',
+    'ga4',
+    'gsc',
+    'gbp',
+]);
+
+const SERVICE_SCOPES: Record<GoogleOAuthGroup, readonly string[]> = {
     'ga4-gsc': [
         'https://www.googleapis.com/auth/analytics.readonly',
         'https://www.googleapis.com/auth/webmasters.readonly',
@@ -11,14 +21,13 @@ const SERVICE_SCOPES: Record<string, string[]> = {
 /** Identity scopes so the token exchange can record which Google account connected. */
 export const GOOGLE_IDENTITY_SCOPES = ['openid', 'email'] as const;
 
-export function googleOAuthScopes(group: string | null): string[] | null {
-    // Reject unknown groups here. The connect route must not branch on the
-    // raw query value before the OAuth redirect — CodeQL treats that as a
-    // user-controlled guard of the redirect.
-    if (!group) return null;
-    const scopes = SERVICE_SCOPES[group];
-    if (!scopes) return null;
-    return [...scopes, ...GOOGLE_IDENTITY_SCOPES];
+export function isGoogleOAuthGroup(group: string | null): group is GoogleOAuthGroup {
+    return group !== null && GOOGLE_OAUTH_GROUPS.has(group);
+}
+
+/** Scopes for a group that has already passed `GOOGLE_OAUTH_GROUPS`. */
+export function googleOAuthScopes(group: GoogleOAuthGroup): string[] {
+    return [...SERVICE_SCOPES[group], ...GOOGLE_IDENTITY_SCOPES];
 }
 
 /** Consent keeps the refresh token. select_account lets the user pick a different Google login. */
