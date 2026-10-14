@@ -45,13 +45,13 @@ interface TeamMember {
     basecampPersonId?: string;
 }
 
-export function TimesheetsShell() {
+export function TimesheetsShell({ initialTab }: { initialTab?: Tab }) {
     const { organization } = useOrganization();
     const { userId, isLoading: memberLoading } = useCurrentMember();
     const [members, setMembers] = useState<TeamMember[]>([]);
 
     const today = useMemo(() => formatLocalDate(new Date()), []);
-    const [tab, setTab] = useState<Tab>('mine');
+    const [tab, setTab] = useState<Tab>(initialTab ?? 'mine');
     const [weekStart, setWeekStart] = useState(() => weekStartFor(formatLocalDate(new Date())));
     const [viewUserId, setViewUserId] = useState<string | null>(null);
     const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
@@ -82,6 +82,11 @@ export function TimesheetsShell() {
     }, [organizationId, weekStart, targetUserId]);
 
     useEffect(() => { void load(); }, [load]);
+
+    useEffect(() => {
+        if (!data) return;
+        if (!data.isManager && (tab === 'team' || tab === 'review')) setTab('mine');
+    }, [data, tab]);
 
     // The member filter lists the organization's people, not the current
     // user's org memberships — those are two different things.

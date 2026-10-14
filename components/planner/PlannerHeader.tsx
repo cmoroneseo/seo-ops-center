@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -26,10 +27,12 @@ interface PlannerHeaderProps {
     onViewChange: (view: PlannerView) => void;
     prefs: PlannerPreferences;
     onPrefsChange: (next: PlannerPreferences) => void;
+    /** Owner/admin only. Rendered beside the Day/Week/Month toggle. */
+    forecastSync?: ReactNode;
 }
 
 export function PlannerHeader({
-    anchorDate, view, onPrev, onNext, onToday, onViewChange, prefs, onPrefsChange,
+    anchorDate, view, onPrev, onNext, onToday, onViewChange, prefs, onPrefsChange, forecastSync,
 }: PlannerHeaderProps) {
     return (
         <header className="flex shrink-0 flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center sm:gap-3 sm:px-4 sm:py-3">
@@ -66,6 +69,7 @@ export function PlannerHeader({
 
             <div className="flex min-w-0 items-center gap-2 sm:ml-auto sm:gap-3">
                 <span className="text-xs text-muted-foreground">{localTimezoneLabel()}</span>
+                {forecastSync}
                 <div className="ml-auto flex min-w-0 rounded-md border border-border p-0.5 sm:ml-0" role="group" aria-label="Planner view">
                     {VIEWS.map(v => (
                         <button

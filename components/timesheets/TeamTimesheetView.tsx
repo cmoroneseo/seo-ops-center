@@ -2,9 +2,18 @@
 
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
+import { ForecastSyncButton } from '@/components/forecast/ForecastSyncButton';
 import { cn } from '@/lib/utils';
+import { formatLocalDate } from '@/lib/planner/local-date';
 import { formatDayHeading, formatDuration } from '@/lib/timesheets/format';
 import type { TeamSummary } from '@/lib/timesheets/team';
+
+interface ForecastStatusResponse {
+    available: boolean;
+    lastSyncedLabel: string;
+    lastSyncedReason: string | null;
+    members: { userId: string; label: string; reason: string | null; tone: string }[];
+}
 
 interface TeamTimesheetViewProps {
     organizationId: string;
@@ -20,6 +29,8 @@ interface TeamTimesheetViewProps {
  */
 export function TeamTimesheetView({ organizationId, weekStart }: TeamTimesheetViewProps) {
     const [summary, setSummary] = useState<TeamSummary | null>(null);
+    const [forecast, setForecast] = useState<ForecastStatusResponse | null>(null);
+    const [forecastError, setForecastError] = useState<string | null>(null);
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -42,7 +53,28 @@ export function TeamTimesheetView({ organizationId, weekStart }: TeamTimesheetVi
         }
     }, [organizationId, weekStart]);
 
+    const loadForecast = useCallback(async () => {
+        if (!organizationId) return;
+        setForecastError(null);
+        try {
+            const params = new URLSearchParams({
+                organizationId,
+                weekStart,
+                today: formatLocalDate(new Date()),
+                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            });
+            const response = await fetch(`/api/forecast/status?${params}`);
+            const payload = await response.json() as ForecastStatusResponse & { error?: string };
+            if (!response.ok) throw new Error(payload.error ?? 'Forecast status could not be loaded.');
+            setForecast(payload);
+        } catch (loadError) {
+            setForecast(null);
+            setForecastError(loadError instanceof Error ? loadError.message : 'Forecast status could not be loaded.');
+        }
+    }, [organizationId, weekStart]);
+
     useEffect(() => { void load(); }, [load]);
+    useEffect(() => { void loadForecast(); }, [loadForecast]);
 
     const toggle = (userId: string) => {
         setExpanded(previous => {
@@ -65,10 +97,30 @@ export function TeamTimesheetView({ organizationId, weekStart }: TeamTimesheetVi
     }
     if (!summary) return null;
 
+    const forecastByUser = new Map((forecast?.members ?? []).map(member => [member.userId, member]));
+
     return (
-        <div className="flex min-h-0 flex-1 gap-4 overflow-y-auto p-6">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
+            <div className="flex flex-wrap items-center gap-3">
+                <p className="text-sm text-muted-foreground">
+                    {forecastError
+                        ? '—'
+                        : forecast?.lastSyncedLabel ?? 'Loading forecast status…'}
+                    {(forecastError || forecast?.lastSyncedReason) && (
+                        <span className="ml-2">{forecastError ?? forecast?.lastSyncedReason}</span>
+                    )}
+                </p>
+                <div className="ml-auto">
+                    <ForecastSyncButton
+                        organizationId={organizationId}
+                        variant="primary"
+                        onSynced={() => { void loadForecast(); }}
+                    />
+                </div>
+            </div>
+            <div className="flex min-h-0 flex-1 gap-4">
             <div className="min-w-0 flex-1 overflow-x-auto rounded-xl border border-border bg-card">
-                <table className="w-full min-w-[760px] border-collapse text-sm">
+                <table className="w-full min-w-[880px] border-collapse text-sm">
                     <caption className="sr-only">Team time by member for the week</caption>
                     <thead>
                         <tr className="border-b border-border">
@@ -89,6 +141,9 @@ export function TeamTimesheetView({ organizationId, weekStart }: TeamTimesheetVi
                             </th>
                             <th scope="col" className="px-3 py-3 text-right text-xs font-medium uppercase tracking-wide text-muted-foreground">
                                 Unmapped
+                            </th>
+                            <th scope="col" className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                Forecast
                             </th>
                         </tr>
                     </thead>
@@ -129,11 +184,16 @@ export function TeamTimesheetView({ organizationId, weekStart }: TeamTimesheetVi
                                         )}>
                                             {member.unmappedCount}
                                         </td>
+                                        <ForecastCell
+                                            status={forecastByUser.get(member.userId)}
+                                            pending={!forecast && !forecastError}
+                                            unavailable={forecastError ?? (forecast && !forecast.available ? forecast.lastSyncedReason : null)}
+                                        />
                                     </tr>
 
                                     {isOpen && (
                                         <tr className="border-b border-border bg-muted/20">
-                                            <td colSpan={6} className="px-4 py-3">
+                                            <td colSpan={7} className="px-4 py-3">
                                                 <ul className="flex flex-wrap gap-4">
                                                     {summary.days.map((day, index) => {
                                                         const heading = formatDayHeading(day);
@@ -175,6 +235,7 @@ export function TeamTimesheetView({ organizationId, weekStart }: TeamTimesheetVi
                             <td className="px-3 py-3 text-right tabular-nums">
                                 {summary.totals.unmappedCount}
                             </td>
+                            <td />
                         </tr>
                     </tfoot>
                 </table>
@@ -224,6 +285,45 @@ export function TeamTimesheetView({ organizationId, weekStart }: TeamTimesheetVi
                     )}
                 </div>
             </aside>
+            </div>
         </div>
+    );
+}
+
+function ForecastCell({
+    status,
+    pending,
+    unavailable,
+}: {
+    status?: { label: string; reason: string | null; tone: string };
+    pending: boolean;
+    unavailable: string | null;
+}) {
+    if (pending) return <td className="px-4 py-3 text-muted-foreground" />;
+    if (unavailable) {
+        return (
+            <td className="px-4 py-3 text-muted-foreground">
+                —
+                <span className="mt-0.5 block text-xs">{unavailable}</span>
+            </td>
+        );
+    }
+    if (!status) {
+        return (
+            <td className="px-4 py-3 text-muted-foreground">
+                —
+                <span className="mt-0.5 block text-xs">Forecast status could not be loaded.</span>
+            </td>
+        );
+    }
+    return (
+        <td className={cn(
+            'px-4 py-3',
+            status.tone === 'changed' ? 'text-amber-500' : 'text-foreground',
+            status.tone === 'not_mapped' || status.tone === 'unknown' ? 'text-muted-foreground' : '',
+        )}>
+            {status.label}
+            {status.reason && <span className="mt-0.5 block text-xs text-muted-foreground">{status.reason}</span>}
+        </td>
     );
 }
