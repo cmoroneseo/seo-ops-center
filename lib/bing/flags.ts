@@ -34,3 +34,20 @@ export function bingWebmasterEnabled(
     if (!organizationId) return false;
     return orgAllowlist(env.BING_WEBMASTER_ORG_IDS).includes(organizationId.toLowerCase());
 }
+
+/** Organization ids allowed to sync. Empty unless the master flag is exactly `true`. */
+export function bingWebmasterAllowlist(env: NodeJS.ProcessEnv = process.env): string[] {
+    if (!enabled(env.BING_WEBMASTER)) return [];
+    return orgAllowlist(env.BING_WEBMASTER_ORG_IDS);
+}
+
+/**
+ * Server-only Bing API key. Empty or whitespace is missing.
+ * Callers must not log the return value or put it in a response.
+ */
+export function bingWebmasterApiKey(env: NodeJS.ProcessEnv = process.env): string | null {
+    const raw = env === process.env ? process.env.BING_WEBMASTER_API_KEY : env.BING_WEBMASTER_API_KEY;
+    if (typeof raw !== 'string') return null;
+    const trimmed = raw.trim();
+    return trimmed === '' ? null : trimmed;
+}
