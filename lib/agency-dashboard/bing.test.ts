@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { assembleDashboard } from './portfolio.ts';
 import { dashboardWindow } from './range.ts';
 import {
+    BING_CONNECTED_NO_DATA,
+    BING_CONNECTED_NO_DATA_TITLE,
     BING_LINK_COLUMNS,
     BING_PAGE_COLUMNS,
     attachBingDashboard,
@@ -107,6 +109,43 @@ test('All mode combines CTR and Bing mode weights position across clients', () =
     assert.equal(bing.kpis.clicks.value, 60);
     assert.equal(bing.overlay, null);
 });
+
+test('a linked client with no rows in range says Bing is connected', () => {
+    const model = attachBingDashboard(assembleDashboard({
+        range: '7d',
+        window: dashboardWindow('7d', '2026-10-07'),
+        asOf: '2026-10-07',
+        freshness: { latestDataDate: '2026-10-07', latestImportedAt: null, settling: false },
+        clients: [
+            { id: 'idle', name: 'Idle Range', domain: 'idle.example', property: 'sc-domain:idle.example', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z' },
+            { id: 'fresh', name: 'Fresh', domain: 'fresh.example', property: 'sc-domain:fresh.example', syncStatus: 'active', lastSyncedAt: null },
+        ],
+        aggregates: [
+            { clientId: 'idle', current: { clicks: 4, impressions: 40, positionWeight: 200, days: 7 }, previous: null, series: [], queries: [], incomplete: false },
+        ],
+    }), {
+        bucket: 'day',
+        expectedDays: 7,
+        expectedPreviousDays: 7,
+        links: [
+            { clientId: 'idle', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z', siteUrl: 'https://idle.example/' },
+            { clientId: 'fresh', syncStatus: 'active', lastSyncedAt: null, siteUrl: 'https://fresh.example/' },
+        ],
+        payload: EMPTY_BING,
+        pages: [],
+    });
+    const idle = model.cards.find(card => card.clientId === 'idle')!;
+    assert.equal(idle.reason, null);
+    assert.equal(idle.metrics.clicks.value, 4);
+    assert.equal(idle.bing?.connected, true);
+    assert.equal(idle.bing?.reason, 'no_data');
+    assert.equal(idle.bing?.reasonLabel, BING_CONNECTED_NO_DATA);
+    assert.equal(idle.bing?.reasonTitle, BING_CONNECTED_NO_DATA_TITLE);
+    assert.equal(model.cards.find(card => card.clientId === 'fresh')?.bing?.reasonLabel, 'Not synced');
+    assert.equal(model.cards.find(card => card.clientId === 'fresh')?.bing?.reasonTitle, null);
+});
+
+const EMPTY_BING = { current: [], previous: [], series: [], positionSeries: [], queries: [] };
 
 test('a bad Bing payload keeps Google and uses a fixed reason', () => {
     const model = attachBingDashboard(assembleDashboard({
