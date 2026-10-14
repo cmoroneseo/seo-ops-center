@@ -8,10 +8,26 @@ import { cn } from '@/lib/utils';
 const DID_NOT_RUN = 'Bing sync did not run.';
 
 /**
+ * One finished sync. A skipped or failed response does not count: nothing
+ * was mapped, so the dashboard must not reload over the current numbers.
+ */
+export async function finishBingSync(onSynced?: () => void): Promise<string> {
+    try {
+        const response = await fetch('/api/integrations/bing/sync', { method: 'POST' });
+        const body: unknown = await response.json().catch(() => null);
+        const view = response.ok ? readBingManualView(body) : null;
+        if (view && view.skipped == null) onSynced?.();
+        return view ? formatBingSyncResult(view) : DID_NOT_RUN;
+    } catch {
+        return DID_NOT_RUN;
+    }
+}
+
+/**
  * Admin trigger for one organization. The parent decides who can see it.
  * The response is reduced to counts and HTTP status codes before display.
  */
-export function SyncBingButton({ variant }: { variant: 'settings' | 'toolbar' }) {
+export function SyncBingButton({ variant, onSynced }: { variant: 'settings' | 'toolbar'; onSynced?: () => void }) {
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
 
@@ -20,12 +36,7 @@ export function SyncBingButton({ variant }: { variant: 'settings' | 'toolbar' })
         setBusy(true);
         setMessage(null);
         try {
-            const response = await fetch('/api/integrations/bing/sync', { method: 'POST' });
-            const body: unknown = await response.json().catch(() => null);
-            const view = response.ok ? readBingManualView(body) : null;
-            setMessage(view ? formatBingSyncResult(view) : DID_NOT_RUN);
-        } catch {
-            setMessage(DID_NOT_RUN);
+            setMessage(await finishBingSync(onSynced));
         } finally {
             setBusy(false);
         }

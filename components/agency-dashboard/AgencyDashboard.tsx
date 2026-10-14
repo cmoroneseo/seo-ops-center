@@ -287,7 +287,7 @@ export function AgencyDashboardView({
                             {METRICS.map(item => <option key={item} value={item}>{METRIC_LABEL[item]}</option>)}
                         </select>
                     </Field>
-                    {canSyncBing && <SyncBingButton variant="toolbar" />}
+                    {canSyncBing && <SyncBingButton variant="toolbar" onSynced={onRefresh} />}
                     <div className="relative" ref={filtersRef}>
                         <button
                             type="button"
@@ -487,7 +487,7 @@ function PortfolioCard({
                             {face.reason ? (
                                 <>
                                     <p className="text-3xl font-semibold leading-none text-zinc-500">—</p>
-                                    <p className="mt-1 max-w-36 text-xs text-zinc-400">{face.reasonLabel}</p>
+                                    <p className="mt-1 max-w-48 text-xs text-zinc-400" title={face.reasonTitle ?? undefined}>{face.reasonLabel}</p>
                                 </>
                             ) : (
                                 <>
@@ -501,7 +501,7 @@ function PortfolioCard({
                         </div>
                     </div>
                     {share && (
-                        <p data-bing-share className="mt-3 inline-flex w-fit rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-zinc-200">{share}</p>
+                        <p data-bing-share title={card.bing?.reasonTitle ?? undefined} className="mt-3 inline-flex w-fit rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-zinc-200">{share}</p>
                     )}
                     <div className="-mx-4 mt-2 flex min-h-0 flex-1 items-end">
                         <Sparkline values={face.series[metric]} overlay={face.overlay?.[metric]} tone={heroTone} label={`${card.name} ${METRIC_LABEL[metric]} trend`} className="h-20 w-full" stretch />
@@ -562,7 +562,7 @@ function BingPanel({ card }: { card: DashboardCard }) {
             <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Bing</p>
             {bing.syncWarning && <p className="mt-1 text-[11px] text-zinc-400">{bing.syncWarning}</p>}
             {bing.reason ? (
-                <p className="mt-1 text-xs text-zinc-300">— {bing.reasonLabel}</p>
+                <p className="mt-1 text-xs text-zinc-300" title={bing.reasonTitle ?? undefined}>— {bing.reasonLabel}</p>
             ) : (
                 <>
                     {bing.changeNote && <p className="mt-1 text-[11px] text-zinc-500">{bing.changeNote}</p>}
@@ -720,8 +720,8 @@ function PortfolioTable({ cards, engine, metric, signal, onSort, queryCache }: {
                             <tr key={card.clientId} data-tone={tint.tone} className="border-t border-white/10" style={{ backgroundColor: WASH[tint.tone][Math.min(tint.strength, 2)] }}>
                                 <td className="px-3 py-3">
                                     <div className="font-medium">{card.name}</div>
-                                    <div className="text-xs text-zinc-400">{card.domain}{face.reasonLabel ? ` · ${face.reasonLabel}` : ''}</div>
-                                    {share && <div data-bing-share className="mt-1 text-xs text-zinc-300">{share}</div>}
+                                    <div className="text-xs text-zinc-400" title={engine === 'bing' ? face.reasonTitle ?? undefined : undefined}>{card.domain}{face.reasonLabel ? ` · ${face.reasonLabel}` : ''}</div>
+                                    {share && <div data-bing-share title={card.bing?.reasonTitle ?? undefined} className="mt-1 text-xs text-zinc-300">{share}</div>}
                                     <QueryPreview card={card} engine={engine} loaded={queryCache[card.clientId]} />
                                     <div className="mt-1 flex gap-3 text-xs">
                                         <Link href={card.links.insights} className="text-emerald-300 hover:underline">Search Insights</Link>

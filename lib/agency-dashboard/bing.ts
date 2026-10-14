@@ -19,10 +19,14 @@ export type SearchEngine = 'google' | 'bing' | 'all';
 
 export type BingGap = 'not_connected' | 'not_synced' | 'no_data' | 'sync_error' | 'unavailable';
 
+/** Linked, synced, and the selected range has no Bing rows. */
+export const BING_CONNECTED_NO_DATA = 'Bing: connected · no data yet';
+export const BING_CONNECTED_NO_DATA_TITLE = 'Bing has no data for this site in this range';
+
 export const BING_GAP_LABEL: Record<BingGap, string> = {
     not_connected: 'Bing: not connected',
     not_synced: 'Not synced',
-    no_data: 'No data in this range',
+    no_data: BING_CONNECTED_NO_DATA,
     sync_error: 'Sync failed',
     unavailable: 'Bing data could not be loaded',
 };
@@ -69,6 +73,8 @@ export interface BingCardView {
     connected: boolean;
     reason: BingGap | null;
     reasonLabel: string | null;
+    /** Shown on the no-data label. Other gaps have no extra explanation. */
+    reasonTitle: string | null;
     syncWarning: string | null;
     coverageLabel: string | null;
     changeNote: string | null;
@@ -484,10 +490,11 @@ export function topBingPages(rows: readonly BingPageSource[], limit = 3): Map<st
 function emptyView(length: number, card: DashboardCard, patch: Partial<BingCardView>): BingCardView {
     const current = patch.current ?? null;
     const previous = patch.previous ?? null;
-    return {
+    const view: BingCardView = {
         connected: false,
         reason: 'not_connected',
         reasonLabel: BING_GAP_LABEL.not_connected,
+        reasonTitle: null,
         syncWarning: null,
         coverageLabel: null,
         changeNote: null,
@@ -506,6 +513,8 @@ function emptyView(length: number, card: DashboardCard, patch: Partial<BingCardV
         combinedCtr: combinedCtrView(card, current, previous),
         ...patch,
     };
+    view.reasonTitle = view.reason === 'no_data' ? BING_CONNECTED_NO_DATA_TITLE : null;
+    return view;
 }
 
 function viewForCard(
@@ -610,6 +619,7 @@ export interface EngineFace {
     overlay: Record<MetricKey, Array<number | null>> | null;
     reason: string | null;
     reasonLabel: string | null;
+    reasonTitle: string | null;
     changeNote: string | null;
     coverageLabel: string | null;
 }
@@ -622,6 +632,7 @@ export function engineFace(card: DashboardCard, engine: SearchEngine): EngineFac
             overlay: null,
             reason: card.reason,
             reasonLabel: card.reasonLabel,
+            reasonTitle: null,
             changeNote: card.changeNote,
             coverageLabel: card.coverageLabel,
         };
@@ -633,6 +644,7 @@ export function engineFace(card: DashboardCard, engine: SearchEngine): EngineFac
             overlay: null,
             reason: card.bing.reason,
             reasonLabel: card.bing.reasonLabel,
+            reasonTitle: card.bing.reasonTitle,
             changeNote: card.bing.changeNote,
             coverageLabel: card.bing.coverageLabel,
         };
@@ -644,6 +656,7 @@ export function engineFace(card: DashboardCard, engine: SearchEngine): EngineFac
         overlay: card.bing.connected ? card.bing.series : null,
         reason: card.reason,
         reasonLabel: card.reasonLabel,
+        reasonTitle: null,
         changeNote: card.changeNote,
         coverageLabel: card.coverageLabel,
     };

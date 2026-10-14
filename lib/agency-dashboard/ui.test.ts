@@ -171,6 +171,7 @@ function bingDashboard() {
         clients: [
             { id: 'north', name: 'Northline Plumbing', domain: 'north.example', property: 'sc-domain:north.example', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z' },
             { id: 'harbor', name: 'Harbor Dental', domain: 'harbor.example', property: 'sc-domain:harbor.example', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z' },
+            { id: 'idle', name: 'Idle Range', domain: 'idle.example', property: 'sc-domain:idle.example', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z' },
             { id: 'quiet', name: 'Quiet Studio', domain: 'quiet.example', property: 'sc-domain:quiet.example', syncStatus: 'active', lastSyncedAt: null },
         ],
         aggregates: [
@@ -193,6 +194,7 @@ function bingDashboard() {
         expectedPreviousDays: 7,
         links: [
             { clientId: 'north', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z', siteUrl: 'https://north.example/' },
+            { clientId: 'idle', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z', siteUrl: 'https://idle.example/' },
             { clientId: 'quiet', syncStatus: 'active', lastSyncedAt: null, siteUrl: 'https://quiet.example/' },
         ],
         payload: {
@@ -225,6 +227,7 @@ test('the engine toggle defaults to Google and All mode draws Bing without rank 
     assert.equal(google.includes('Bing 18% of clicks'), false);
     assert.equal(google.includes('data-rank='), false);
     assert.equal(google.includes('>#<'), false);
+    assert.equal(google.includes('Bing: connected · no data yet'), false);
 
     const all = renderToStaticMarkup(createElement(AgencyDashboardView, { model, initialEngine: 'all' }));
     assert.match(all, /data-engine-option="all"[^>]*aria-pressed="true"/);
@@ -256,6 +259,11 @@ test('the engine toggle defaults to Google and All mode draws Bing without rank 
     const quietFront = quiet.slice(quiet.indexOf('data-face="front"'), quiet.indexOf('data-face="back"'));
     assert.match(quietFront, /—/);
     assert.match(quietFront, /Not synced/);
+    const idle = bing.slice(bing.indexOf('data-client="idle"'), bing.indexOf('data-client="quiet"'));
+    const idleFront = idle.slice(idle.indexOf('data-face="front"'), idle.indexOf('data-face="back"'));
+    assert.match(idleFront, /Bing: connected · no data yet/);
+    assert.match(idleFront, /title="Bing has no data for this site in this range"/);
+    assert.equal(idleFront.includes('Bing: not connected'), false);
     const northBing = bing.slice(bing.indexOf('data-client="north"'), bing.indexOf('data-client="harbor"'));
     assert.match(northBing, /15\.0/);
     assert.equal(northBing.includes('7.5'), false);
