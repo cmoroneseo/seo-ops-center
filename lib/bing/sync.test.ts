@@ -8,7 +8,8 @@ import {
 } from './run.ts';
 import {
     BING_CHAIN_LIMIT, BING_CRON_PATH, BING_CRON_SCHEDULE, BING_HARD_FAIL_DELAY_SECONDS,
-    BING_PARK_SECONDS, BING_QUEUE_PATH, BING_QUEUE_RETENTION_SECONDS, BING_SITE_DELAY_SECONDS,
+    BING_PARK_SECONDS, BING_QUEUE_PATH, BING_QUEUE_RETENTION_SECONDS, BING_RESYNC_COOLDOWN_SECONDS,
+    BING_SITE_DELAY_SECONDS,
     BING_SYNC_FAILED_MESSAGE, BING_UNVERIFIED_MESSAGE, bingBackoffSeconds, parseBingQueueMessage,
     type BingQueueSend, type SiteReadOutcome,
 } from './sync.ts';
@@ -200,6 +201,7 @@ function memory(seed?: { integrations?: BingIntegrationRow[]; job?: BingJob }): 
     const store: BingStore = {
         async listClients() { return []; },
         async listIntegrations() { return integrations; },
+        async listSyncRanks() { return []; },
         async insertMapping(action) {
             state.inserts.push(action);
             return true;
@@ -358,6 +360,7 @@ test('the worker writes traffic when queries fail and backs off without a snapsh
     assert.deepEqual(first.state.synced, ['c1']);
     assert.equal(first.state.releases[0]?.resetAttempts, true);
     assert.equal(first.state.releases[0]?.status, 'idle');
+    assert.equal(first.state.releases[0]?.availableAt, NOW.toISOString());
     assert.equal(queryFail.published[0]?.delaySeconds, BING_SITE_DELAY_SECONDS);
     assert.equal(queryFail.published[0]?.chain, 2);
     assert.equal(queryFail.published[0]?.idempotencyKey, `bing-webmaster-sync:${RUN}:2`);
@@ -440,6 +443,10 @@ test('queue messages stop at an empty claim, a bad payload, or the chain cap', a
     });
     await runBingQueueMessage({ runId: RUN, chain: BING_CHAIN_LIMIT }, end);
     assert.equal(capped.state.replaces.length, 1);
+    assert.equal(
+        capped.state.releases[0]?.availableAt,
+        new Date(NOW.getTime() + BING_RESYNC_COOLDOWN_SECONDS * 1000).toISOString(),
+    );
     assert.deepEqual(end.published, []);
     assert.equal(parseBingQueueMessage({ runId: RUN, chain: BING_CHAIN_LIMIT + 1 }), null);
     assert.equal(bingBackoffSeconds(1), 15 * 60);

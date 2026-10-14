@@ -1,7 +1,7 @@
 import { bingWebmasterApiKey, bingWebmasterEnabled } from './flags';
 import type { BingManualView } from './manual-view';
 import { mapUserSites } from './map';
-import { mapAndEnqueueBingOrg, syncBingJob, type BingRunDeps } from './run';
+import { mapAndEnqueueBingOrg, syncBingJob, type BingRunDeps, type BingSyncRank } from './run';
 
 /** A few sites per click, inside a short budget so the request can return. */
 export const BING_MANUAL_SITE_LIMIT = 3;
@@ -15,6 +15,31 @@ export interface BingManualLimits {
 
 function empty(skipped: BingManualView['skipped']): BingManualView {
     return { sitesMapped: 0, sitesSynced: 0, remaining: 0, errors: [], skipped };
+}
+
+/** Never synced, then an incomplete snapshot, then the oldest complete sync. */
+export function orderManualClientIds(clientIds: string[], ranks: BingSyncRank[]): string[] {
+    const byId = new Map(ranks.map(rank => [rank.clientId, rank]));
+    const bucket = (clientId: string): number => {
+        const rank = byId.get(clientId);
+        if (!rank || rank.lastSyncedAt == null) return 0;
+        if (!rank.complete) return 1;
+        return 2;
+    };
+    return clientIds
+        .map((clientId, index) => ({ clientId, index }))
+        .sort((left, right) => {
+            const bucketDiff = bucket(left.clientId) - bucket(right.clientId);
+            if (bucketDiff !== 0) return bucketDiff;
+            if (bucket(left.clientId) === 2) {
+                const leftTime = byId.get(left.clientId)?.lastSyncedAt ?? '';
+                const rightTime = byId.get(right.clientId)?.lastSyncedAt ?? '';
+                if (leftTime < rightTime) return -1;
+                if (leftTime > rightTime) return 1;
+            }
+            return left.index - right.index;
+        })
+        .map(item => item.clientId);
 }
 
 /**
@@ -35,7 +60,10 @@ export async function runBingManual(
     } catch {
         return empty('unavailable');
     }
-    const clientIds = await mapAndEnqueueBingOrg(organizationId, sites, deps);
+    const clientIds = orderManualClientIds(
+        await mapAndEnqueueBingOrg(organizationId, sites, deps),
+        await deps.store.listSyncRanks(organizationId),
+    );
     const siteLimit = limits.siteLimit ?? BING_MANUAL_SITE_LIMIT;
     const budgetMs = limits.budgetMs ?? BING_MANUAL_BUDGET_MS;
     const clock = limits.clock ?? Date.now;
