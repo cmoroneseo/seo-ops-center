@@ -49,6 +49,24 @@ export function createBingStore(admin: SupabaseClient, env: NodeJS.ProcessEnv = 
                 .eq('organization_id', organizationId)
                 .order('id', { ascending: true })
                 .range(from, to));
+            const gscRows = await readPages((from, to) => admin
+                .from('client_integrations')
+                .select('client_id, site_url:credentials->>site_url')
+                .eq('organization_id', organizationId)
+                .eq('service', 'gsc')
+                .order('client_id', { ascending: true })
+                .range(from, to));
+            const gscByClient = new Map<string, string | null>();
+            for (const row of gscRows) {
+                const clientId = text(row.client_id);
+                if (!clientId) fail();
+                const siteUrl = typeof row.site_url === 'string' && row.site_url.trim() !== '' ? row.site_url : null;
+                if (!gscByClient.has(clientId)) {
+                    gscByClient.set(clientId, siteUrl);
+                    continue;
+                }
+                if (gscByClient.get(clientId) !== siteUrl) gscByClient.set(clientId, null);
+            }
             return rows.map((row): BingClientRow => {
                 if (row.organization_id !== organizationId) fail();
                 const id = text(row.id);
@@ -57,6 +75,7 @@ export function createBingStore(admin: SupabaseClient, env: NodeJS.ProcessEnv = 
                     id,
                     organizationId,
                     domain: typeof row.domain === 'string' ? row.domain : null,
+                    gscSiteUrl: gscByClient.get(id) ?? null,
                     status: typeof row.status === 'string' ? row.status : '',
                 };
             });

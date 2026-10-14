@@ -27,8 +27,14 @@ function onEnv(): NodeJS.ProcessEnv {
     return env({ BING_WEBMASTER: 'true', BING_WEBMASTER_ORG_IDS: ORG, BING_WEBMASTER_API_KEY: KEY });
 }
 
-function client(id: string, domain: string, status = 'active', organizationId = ORG): BingClientRow {
-    return { id, organizationId, domain, status };
+function client(
+    id: string,
+    domain: string | null,
+    status = 'active',
+    organizationId = ORG,
+    gscSiteUrl: string | null = null,
+): BingClientRow {
+    return { id, organizationId, domain, status, gscSiteUrl };
 }
 
 function integration(
@@ -88,6 +94,41 @@ test('ambiguous, unverified, paused, and duplicate clients are not chosen', () =
         clients: [client('c1', 'paused.example.test', 'pending')],
         integrations: [],
     })), []);
+});
+
+test('a null domain maps from the Search Console property', () => {
+    assert.deepEqual(planBingAutoMap({
+        sites: [{ siteUrl: 'https://www.ecoworkz.net/', verified: true }],
+        clients: [client('c1', null, 'active', ORG, 'sc-domain:ecoworkz.net')],
+        integrations: [],
+    }), [{ kind: 'insert', organizationId: ORG, clientId: 'c1', siteUrl: 'https://www.ecoworkz.net/' }]);
+    assert.deepEqual(planBingAutoMap({
+        sites: [{ siteUrl: 'https://www.12voltpower.com/', verified: true }],
+        clients: [client('c2', null, 'active', ORG, 'https://www.12voltpower.com/')],
+        integrations: [],
+    }), [{ kind: 'insert', organizationId: ORG, clientId: 'c2', siteUrl: 'https://www.12voltpower.com/' }]);
+});
+
+test('a stored domain wins over the Search Console property', () => {
+    assert.deepEqual(planBingAutoMap({
+        sites: [
+            { siteUrl: 'https://www.12voltpower.com/', verified: true },
+            { siteUrl: 'https://www.ecoworkz.net/', verified: true },
+        ],
+        clients: [client('c1', 'www.12voltpower.com', 'active', ORG, 'sc-domain:ecoworkz.net')],
+        integrations: [],
+    }), [{ kind: 'insert', organizationId: ORG, clientId: 'c1', siteUrl: 'https://www.12voltpower.com/' }]);
+});
+
+test('two clients that share a Search Console host are not mapped', () => {
+    assert.deepEqual(planBingAutoMap({
+        sites: [{ siteUrl: 'https://www.ecoworkz.net/', verified: true }],
+        clients: [
+            client('c1', null, 'active', ORG, 'sc-domain:ecoworkz.net'),
+            client('c2', null, 'active', ORG, 'https://www.ecoworkz.net/'),
+        ],
+        integrations: [],
+    }), []);
 });
 
 test('existing rows are enqueued, left alone, or marked unverified', () => {

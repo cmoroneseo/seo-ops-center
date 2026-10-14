@@ -5,6 +5,8 @@ export interface BingClientRow {
     id: string;
     organizationId: string;
     domain: string | null;
+    /** Search Console property URL. Used only when domain has no host. */
+    gscSiteUrl: string | null;
     status: string;
 }
 
@@ -23,10 +25,12 @@ export type BingMapAction =
 const ENQUEUE_STATUSES = new Set(['active', 'error']);
 
 /**
- * Match verified Bing hosts to clients.domain. The stored value is the exact
- * URL Bing returned. Unverified and ambiguous hosts are never chosen.
- * An existing row with a different URL is left alone. Disconnected rows are
- * not revived. Only an active client is inserted or enqueued.
+ * Match verified Bing hosts to a client host. A stored domain wins. When it
+ * has no host, the Search Console property URL is the fallback. The stored
+ * value is the exact URL Bing returned. Unverified and ambiguous hosts are
+ * never chosen. An existing row with a different URL is left alone.
+ * Disconnected rows are not revived. Only an active client is inserted or
+ * enqueued.
  */
 export function planBingAutoMap(input: {
     sites: BingSite[];
@@ -52,7 +56,7 @@ export function planBingAutoMap(input: {
     for (const client of input.clients) {
         clientsById.set(client.id, client);
         if (client.status !== 'active') continue;
-        const host = hostKey(client.domain);
+        const host = hostKey(client.domain) ?? hostKey(client.gscSiteUrl);
         if (!host) continue;
         const group = activeByHost.get(host) ?? [];
         group.push(client);

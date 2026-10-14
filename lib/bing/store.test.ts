@@ -105,13 +105,20 @@ test('reads project the site URL only, and a driver error does not keep its mess
     });
     const store = createBingStore(admin as unknown as SupabaseClient, allowed(), () => NOW);
     assert.deepEqual(await store.listClients(ORG), [{
-        id: 'c1', organizationId: ORG, domain: 'example.test', status: 'active',
+        id: 'c1', organizationId: ORG, domain: 'example.test', status: 'active', gscSiteUrl: 'https://example.test/',
     }]);
     assert.deepEqual(await store.listIntegrations(ORG), [{
         clientId: 'c1', organizationId: ORG, syncStatus: 'active', siteUrl: 'https://example.test/',
     }]);
     assert.equal(admin.calls[0]?.columns, 'id, organization_id, domain, status');
-    assert.equal(admin.calls[1]?.columns, 'id, client_id, organization_id, sync_status, site_url:credentials->>site_url');
+    assert.equal(admin.calls[1]?.columns, 'client_id, site_url:credentials->>site_url');
+    assert.equal(admin.calls[1]?.columns?.split('token').length, 1);
+    assert.equal(admin.calls[1]?.table, 'client_integrations');
+    assert.deepEqual(admin.calls[1]?.filters, [
+        ['eq', 'organization_id', ORG],
+        ['eq', 'service', 'gsc'],
+    ]);
+    assert.equal(admin.calls[2]?.columns, 'id, client_id, organization_id, sync_status, site_url:credentials->>site_url');
     await assert.rejects(() => store.enqueue(ORG, 'c1'), (error: unknown) => {
         assert.ok(error instanceof Error);
         assert.equal(error.message, 'Bing sync storage failed');

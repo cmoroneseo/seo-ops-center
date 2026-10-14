@@ -17,6 +17,10 @@ test('host keys drop scheme, path, port, trailing dot, and a leading www', () =>
     assert.equal(hostKey('example.test.'), 'example.test');
     assert.equal(hostKey('http://example.test'), 'example.test');
     assert.equal(hostKey('//example.test/a'), 'example.test');
+    assert.equal(hostKey('sc-domain:ecoworkz.net'), 'ecoworkz.net');
+    assert.equal(hostKey(' SC-Domain:www.EcoWorkz.net '), 'ecoworkz.net');
+    assert.equal(hostKey('https://www.12voltpower.com/'), '12voltpower.com');
+    assert.equal(hostKey('sc-domain:'), null);
     assert.equal(hostKey(''), null);
     assert.equal(hostKey('not a host'), null);
     assert.equal(hostKey('localhost'), null);
