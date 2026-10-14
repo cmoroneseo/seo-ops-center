@@ -192,6 +192,13 @@ export function formatChange(change: number | null): string {
     return signedTenths(change * 100, '%');
 }
 
+/** Percent magnitude for an arrow pill. The arrow carries the direction. */
+export function formatChangeMagnitude(change: number | null): string {
+    if (change == null || !Number.isFinite(change)) return '—';
+    if (change === 0) return '0.0%';
+    return signedTenths(Math.abs(change) * 100, '%').replace(/^\+/, '');
+}
+
 export function formatAbsolute(metric: MetricKey, absolute: number | null): string {
     if (absolute == null || !Number.isFinite(absolute)) return '—';
     if (metric === 'position') return signedTenths(absolute, '');

@@ -1,17 +1,7 @@
-import type { ClientAgreement } from '@/lib/agreements/types';
 import { assembleDashboard, type DashboardClientInput } from './portfolio';
 import { dashboardWindow } from './range';
 import type { SeriesPoint, Totals } from './metrics';
 import { addDays } from './range';
-
-function agreement(clientId: string, startsOn: string): ClientAgreement {
-    return {
-        id: `ag-${clientId}`, organizationId: 'org', clientId, previousId: null, kind: 'initial', title: 'Retainer',
-        startsOn, endsOn: null, mode: 'monthly', hours: 40, hoursMode: 'committed', proration: 'full_period',
-        timezone: 'America/Los_Angeles', scope: '', services: [], evidence: null, note: null,
-        recordedAt: startsOn, recordedBy: 'user', planSnapshot: null,
-    };
-}
 
 const asOf = '2026-10-07';
 const window = dashboardWindow('28d', asOf);
@@ -44,13 +34,8 @@ function wave(seed: number, clicks: number, impressions: number, position: numbe
 
 function input(patch: Partial<DashboardClientInput> & Pick<DashboardClientInput, 'id' | 'name' | 'domain' | 'property'>): DashboardClientInput {
     return {
-        accountManager: 'Abel Miranda',
-        seoHours: 40,
         syncStatus: 'active',
         lastSyncedAt: '2026-10-12T18:00:00Z',
-        loggedHours: 18,
-        agreements: [],
-        agreementsKnown: true,
         ...patch,
     };
 }
@@ -65,16 +50,14 @@ export function exampleDashboard() {
         range: '28d',
         window,
         asOf,
-        today: '2026-10-14',
-        hoursMonth: '2026-10',
         freshness: { latestDataDate: asOf, latestImportedAt: '2026-10-12T18:40:00Z', settling: false },
         clients: [
-            input({ id: 'north', name: 'Northline Plumbing', domain: 'northline.example', property: 'sc-domain:northline.example', accountManager: 'Abel Miranda', agreements: [agreement('north', '2026-08-01')] }),
-            input({ id: 'harbor', name: 'Harbor Dental', domain: 'harbordental.example', property: 'sc-domain:harbordental.example', accountManager: 'Carlos Morones', loggedHours: 36, agreements: [agreement('harbor', '2026-09-15')] }),
-            input({ id: 'bright', name: 'Bright Path Legal', domain: 'brightpath.example', property: 'sc-domain:brightpath.example', accountManager: 'Abel Miranda', loggedHours: 12 }),
-            input({ id: 'summit', name: 'Summit Roofing', domain: 'summitroofing.example', property: 'sc-domain:summitroofing.example', accountManager: 'Carlos Morones', loggedHours: 8 }),
+            input({ id: 'north', name: 'Northline Plumbing', domain: 'northline.example', property: 'sc-domain:northline.example' }),
+            input({ id: 'harbor', name: 'Harbor Dental', domain: 'harbordental.example', property: 'sc-domain:harbordental.example' }),
+            input({ id: 'bright', name: 'Bright Path Legal', domain: 'brightpath.example', property: 'sc-domain:brightpath.example' }),
+            input({ id: 'summit', name: 'Summit Roofing', domain: 'summitroofing.example', property: 'sc-domain:summitroofing.example' }),
             input({ id: 'quiet', name: 'Quiet Studio', domain: 'quietstudio.example', property: 'sc-domain:quietstudio.example', lastSyncedAt: '2026-08-01T00:00:00Z' }),
-            input({ id: 'fresh', name: 'Fresh Start Co', domain: 'freshstart.example', property: 'sc-domain:freshstart.example', lastSyncedAt: null, loggedHours: 0 }),
+            input({ id: 'fresh', name: 'Fresh Start Co', domain: 'freshstart.example', property: 'sc-domain:freshstart.example', lastSyncedAt: null }),
         ],
         aggregates: [
             { clientId: 'north', current: north.totals, previous: { clicks: 11900, impressions: 198000, positionWeight: 8.8 * 198000, days: 28 }, series: north.series, queries: [{ query: 'emergency plumber', clicks: 840 }, { query: 'drain cleaning', clicks: 510 }, { query: 'water heater repair', clicks: 260 }], incomplete: false },

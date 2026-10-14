@@ -1,6 +1,3 @@
-import type { ClientAgreement } from '@/lib/agreements/types';
-import { agreementPeriod, formatHoursAgainstQuota } from '@/lib/agreements/logic';
-import { phaseAnchor, phaseAt, phaseRank } from '@/lib/agreements/phase';
 import {
     addTotals,
     alignSeries,
@@ -13,9 +10,10 @@ import {
     type MetricKey,
     type MetricView,
     type SeriesPoint,
+    type SortMode,
     type Totals,
 } from './metrics';
-import { bucketSpine, formatDay, formatImportedAt, formatSpan, type DashboardRange, type DashboardWindow } from './range';
+import { bucketSpine, daysInclusive, formatDay, formatImportedAt, formatSpan, type DashboardRange, type DashboardWindow } from './range';
 
 export type GapReason = 'not_synced' | 'no_data' | 'sync_error';
 
@@ -29,15 +27,9 @@ export interface DashboardClientInput {
     id: string;
     name: string;
     domain: string | null;
-    accountManager: string | null;
-    seoHours: number | null;
     property: string;
     syncStatus: 'active' | 'error';
     lastSyncedAt: string | null;
-    /** Null when the hours read failed. Zero means the ledger was read and nothing counted. */
-    loggedHours: number | null;
-    agreements: ClientAgreement[];
-    agreementsKnown: boolean;
 }
 
 export interface AggregateClient {
@@ -56,11 +48,6 @@ export interface DashboardCard {
     name: string;
     domain: string;
     property: string;
-    accountManager: string | null;
-    hoursLabel: string;
-    phaseLabel: string | null;
-    /** Why phaseLabel is empty. Null when a phase is shown. */
-    phaseReason: string | null;
     currentTotals: Totals | null;
     previousTotals: Totals | null;
     points: SeriesPoint[];
@@ -74,6 +61,8 @@ export interface DashboardCard {
     queriesKnown: boolean;
     /** Shown next to an em dash when the query list is empty. */
     queriesReason: string | null;
+    /** Set when the previous window exists but does not cover every day, so the percent would compare unequal history. */
+    changeNote: string | null;
     links: { insights: string; plan: string; gsc: string };
 }
 
@@ -92,7 +81,6 @@ export interface DashboardModel {
     kpis: Record<MetricKey, MetricView>;
     kpiSeries: Record<MetricKey, Array<number | null>>;
     cards: DashboardCard[];
-    managers: string[];
 }
 
 const METRIC_KEYS: MetricKey[] = ['clicks', 'impressions', 'ctr', 'position'];
@@ -118,25 +106,19 @@ function gapReason(client: DashboardClientInput): GapReason {
     return 'no_data';
 }
 
-export const NO_AGREEMENT_PHASE = 'No agreement';
+export const NOT_ENOUGH_HISTORY = 'Not enough history';
 
-function phaseDisplay(client: DashboardClientInput, today: string): { phaseLabel: string | null; phaseReason: string | null } {
-    if (!client.agreementsKnown) return { phaseLabel: null, phaseReason: 'Agreement history unavailable' };
-    const anchor = phaseAnchor(client.agreements);
-    const phase = phaseAt(anchor, today);
-    if (!phase) return { phaseLabel: null, phaseReason: NO_AGREEMENT_PHASE };
-    return { phaseLabel: phase === 'onboarding' ? 'Onboarding' : `Month ${phaseRank(phase)}`, phaseReason: null };
-}
-
-function hoursLabel(client: DashboardClientInput, month: string): string {
-    if (client.loggedHours == null) return '—';
-    let budget: number | null = null;
-    if (client.agreementsKnown && client.agreements.length > 0) {
-        budget = agreementPeriod(client.agreements, month).monthlyBudget;
-    } else if (client.agreementsKnown) {
-        budget = client.seoHours;
-    }
-    return formatHoursAgainstQuota(client.loggedHours, budget);
+/** Defaults are impressions, biggest declines, and all clients. Each departure counts. */
+export function activeFilterCount(input: {
+    signal: MetricKey;
+    sortMode: SortMode;
+    coverage: 'all' | 'data' | 'missing';
+}): number {
+    let count = 0;
+    if (input.signal !== 'impressions') count += 1;
+    if (input.sortMode !== 'declines') count += 1;
+    if (input.coverage !== 'all') count += 1;
+    return count;
 }
 
 function usable(totals: Totals | null): totals is Totals {
@@ -147,19 +129,24 @@ export function assembleDashboard(input: {
     range: DashboardRange;
     window: DashboardWindow | null;
     asOf: string | null;
-    today: string;
-    hoursMonth: string;
     clients: DashboardClientInput[];
     aggregates: AggregateClient[];
     freshness: { latestDataDate: string | null; latestImportedAt: string | null; settling: boolean };
 }): DashboardModel {
     const spine = input.window ? bucketSpine(input.window.current.start, input.window.current.end, input.window.bucket) : [];
     const expected = input.window ? spine.length === 0 ? 0 : daysInWindow(input.window) : 0;
+    // The previous window is the same length. A partial one (12M against ~16 months
+    // of stored history) is not a comparison — the missing months read as growth.
+    const expectedPrevious = input.window ? daysInclusive(input.window.previous.start, input.window.previous.end) : 0;
     const byClient = new Map(input.aggregates.map(row => [row.clientId, row]));
+    const coveredPrevious = (previous: Totals | null): previous is Totals =>
+        usable(previous) && (expectedPrevious <= 0 || previous.days >= expectedPrevious);
     const cards = input.clients.map(client => {
         const aggregate = byClient.get(client.id);
         const current = usable(aggregate?.current ?? null) ? aggregate!.current : null;
-        const previous = usable(aggregate?.previous ?? null) ? aggregate!.previous : null;
+        const rawPrevious = usable(aggregate?.previous ?? null) ? aggregate!.previous : null;
+        const previous = coveredPrevious(rawPrevious) ? rawPrevious : null;
+        const changeNote = rawPrevious && !previous ? NOT_ENOUGH_HISTORY : null;
         const reason = current ? null : gapReason(client);
         const metrics = reason
             ? blankMetrics()
@@ -179,7 +166,6 @@ export function assembleDashboard(input: {
         const coverageLabel = !reason && current && expected > 0 && current.days < expected
             ? `${current.days} of ${expected} days`
             : null;
-        const phase = phaseDisplay(client, input.today);
         // Omitted means the queries array is the answer, including an empty list.
         // False means the aggregate skipped queries and the card loads them on open.
         const queriesKnown = aggregate?.queriesKnown ?? true;
@@ -189,10 +175,6 @@ export function assembleDashboard(input: {
             name: client.name,
             domain: displayDomain(client.domain, client.property),
             property: client.property,
-            accountManager: client.accountManager?.trim() || null,
-            hoursLabel: hoursLabel(client, input.hoursMonth),
-            phaseLabel: phase.phaseLabel,
-            phaseReason: phase.phaseReason,
             currentTotals: current,
             previousTotals: previous,
             points: reason ? [] : aggregate?.series ?? [],
@@ -205,6 +187,7 @@ export function assembleDashboard(input: {
             queries,
             queriesKnown: reason ? true : queriesKnown,
             queriesReason: reason ? GAP_LABEL[reason] : queriesKnown && queries.length === 0 ? 'No queries with clicks in this range' : null,
+            changeNote: reason ? null : changeNote,
             links: {
                 insights: `/workspace/${client.id}?tab=insights`,
                 plan: `/workspace/${client.id}?tab=campaign`,
@@ -214,7 +197,7 @@ export function assembleDashboard(input: {
     });
 
     const withData = cards.filter(card => card.reason == null);
-    const pairedIds = new Set(input.aggregates.filter(row => usable(row.current) && usable(row.previous)).map(row => row.clientId));
+    const pairedIds = new Set(input.aggregates.filter(row => usable(row.current) && coveredPrevious(row.previous)).map(row => row.clientId));
     const headline = withData.reduce((total, card) => {
         const row = byClient.get(card.clientId);
         return row?.current ? addTotals(total, row.current) : total;
@@ -247,7 +230,6 @@ export function assembleDashboard(input: {
         ctr: agencyPoints.map(point => point ? metricValue({ ...point, days: 1 }, 'ctr') : null),
         position: agencyPoints.map(point => point ? metricValue({ ...point, days: 1 }, 'position') : null),
     };
-    const managers = [...new Set(cards.flatMap(card => card.accountManager ? [card.accountManager] : []))].sort((a, b) => a.localeCompare(b));
     const currentLabel = input.window ? formatSpan(input.window.current) : '—';
     const previousLabel = input.window ? formatSpan(input.window.previous) : '—';
     const latestDay = formatDay(input.freshness.latestDataDate ?? input.asOf);
@@ -273,7 +255,6 @@ export function assembleDashboard(input: {
         kpis,
         kpiSeries,
         cards,
-        managers,
     };
 }
 
@@ -283,12 +264,19 @@ function daysInWindow(window: DashboardWindow): number {
     return Math.round((end - start) / 86400000) + 1;
 }
 
-export function comparisonLabel(paired: number, withData: number): string | null {
+export function comparisonLabel(paired: number, withData: number, shortHistory = 0): string | null {
     if (withData <= 0 || paired >= withData) return null;
+    if (shortHistory > 0 && paired === 0 && shortHistory >= withData) return 'Not enough history to compare this range.';
+    if (shortHistory > 0 && shortHistory + paired >= withData) {
+        return `Change compares ${paired} of ${withData} clients with a full previous period. The others do not have enough history.`;
+    }
+    if (shortHistory > 0) {
+        return `Change compares ${paired} of ${withData} clients with a full previous period. ${shortHistory} do not have enough history. The total includes every client in this view with current data.`;
+    }
     return `Change compares ${paired} of ${withData} clients that have both periods. The total includes every client in this view with current data.`;
 }
 
-/** KPIs for the cards currently on screen. Search and manager filters must not leave the unfiltered totals up. */
+/** KPIs for the cards currently on screen. Search and coverage filters must not leave the unfiltered totals up. */
 export function summarizeSelection(model: Pick<DashboardModel, 'rangeLine' | 'buckets'>, cards: readonly DashboardCard[]): {
     summary: string;
     clientsWithData: number;
@@ -300,6 +288,7 @@ export function summarizeSelection(model: Pick<DashboardModel, 'rangeLine' | 'bu
 } {
     const withData = cards.filter(card => card.reason == null && card.currentTotals);
     const paired = withData.filter(card => card.previousTotals);
+    const shortHistory = withData.filter(card => card.changeNote != null).length;
     const headline = withData.reduce((total, card) => addTotals(total, card.currentTotals!), emptyTotals());
     const pairedCurrent = paired.reduce((total, card) => addTotals(total, card.currentTotals!), emptyTotals());
     const pairedPrevious = paired.reduce((total, card) => addTotals(total, card.previousTotals!), emptyTotals());
@@ -330,7 +319,7 @@ export function summarizeSelection(model: Pick<DashboardModel, 'rangeLine' | 'bu
         clientsWithData: withData.length,
         clientsConnected: cards.length,
         pairedClients: paired.length,
-        comparison: comparisonLabel(paired.length, withData.length),
+        comparison: comparisonLabel(paired.length, withData.length, shortHistory),
         kpis,
         kpiSeries,
     };
@@ -338,12 +327,10 @@ export function summarizeSelection(model: Pick<DashboardModel, 'rangeLine' | 'bu
 
 export function filterCards(cards: readonly DashboardCard[], input: {
     query: string;
-    manager: string | null;
     coverage: 'all' | 'data' | 'missing';
 }): DashboardCard[] {
     const query = input.query.trim().toLowerCase();
     return cards.filter(card => {
-        if (input.manager && card.accountManager !== input.manager) return false;
         if (input.coverage === 'data' && card.reason != null) return false;
         if (input.coverage === 'missing' && card.reason == null) return false;
         if (!query) return true;

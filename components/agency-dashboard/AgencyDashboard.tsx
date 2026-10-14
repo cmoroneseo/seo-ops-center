@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { LayoutGrid, List, RefreshCw, Search } from 'lucide-react';
+import { LayoutGrid, List, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { Sparkline } from '@/components/agency-dashboard/Sparkline';
 import {
     DASHBOARD_RANGES,
     dashboardRangeLabel,
+    dashboardRangePhrase,
     type DashboardRange,
 } from '@/lib/agency-dashboard/range';
 import {
@@ -18,21 +19,22 @@ import {
     changeTone,
     compareCards,
     formatAbsolute,
-    formatChange,
+    formatChangeMagnitude,
     formatMetric,
     type MetricKey,
     type SortMode,
+    type Tone,
 } from '@/lib/agency-dashboard/metrics';
 import { dashboardPortfolioPath, dashboardQueriesPath } from '@/lib/agency-dashboard/request';
-import { filterCards, summarizeSelection, type DashboardCard, type DashboardModel } from '@/lib/agency-dashboard/portfolio';
+import { activeFilterCount, filterCards, summarizeSelection, type DashboardCard, type DashboardModel } from '@/lib/agency-dashboard/portfolio';
 import { cn } from '@/lib/utils';
 
 interface LoadedQueries { queries: Array<{ query: string; clicks: number }>; reason: string | null }
 
 const WASH: Record<'up' | 'down' | 'flat', string[]> = {
-    flat: ['#16181d', '#16181d', '#16181d', '#16181d', '#16181d'],
-    up: ['#16181d', '#15211c', '#123028', '#0e3a2c', '#0a4632'],
-    down: ['#16181d', '#24181b', '#34191d', '#45181c', '#56151a'],
+    flat: ['#14161b', '#14161b', '#14161b', '#14161b', '#14161b'],
+    up: ['#14161b', '#15261e', '#12382a', '#0e4a34', '#0c5c40'],
+    down: ['#14161b', '#2a1a1e', '#3d1a20', '#521820', '#67161e'],
 };
 
 const TONE_TEXT = {
@@ -40,6 +42,27 @@ const TONE_TEXT = {
     down: 'text-rose-300',
     flat: 'text-zinc-400',
 } as const;
+
+const BAR: Record<Tone, string> = {
+    up: 'bg-emerald-400',
+    down: 'bg-rose-400',
+    flat: 'bg-zinc-500',
+};
+
+const KPI_DOT: Record<MetricKey, string> = {
+    clicks: 'bg-emerald-400',
+    impressions: 'bg-sky-400',
+    ctr: 'bg-amber-400',
+    position: 'bg-violet-400',
+};
+
+const SUPPORTING: MetricKey[] = ['position', 'ctr', 'impressions'];
+const SUPPORTING_LABEL: Record<MetricKey, string> = {
+    clicks: 'Clicks',
+    impressions: 'Impressions',
+    ctr: 'CTR',
+    position: 'Pos',
+};
 
 export function AgencyDashboard() {
     const { organization } = useOrganization();
@@ -118,6 +141,8 @@ export function AgencyDashboardView({
     onLoadQueries,
     initialView = 'grid',
     initialQuery = '',
+    initialOpenClient = null,
+    initialFiltersOpen = false,
 }: {
     model: DashboardModel | null;
     loading?: boolean;
@@ -129,6 +154,8 @@ export function AgencyDashboardView({
     onLoadQueries?: (clientId: string) => Promise<LoadedQueries>;
     initialView?: 'grid' | 'list';
     initialQuery?: string;
+    initialOpenClient?: string | null;
+    initialFiltersOpen?: boolean;
 }) {
     const activeRange = range ?? model?.range ?? '28d';
     const [metric, setMetric] = useState<MetricKey>('clicks');
@@ -137,25 +164,42 @@ export function AgencyDashboardView({
     const [direction, setDirection] = useState<'asc' | 'desc'>('desc');
     const [view, setView] = useState<'grid' | 'list'>(initialView);
     const [query, setQuery] = useState(initialQuery);
-    const [manager, setManager] = useState('');
     const [coverage, setCoverage] = useState<'all' | 'data' | 'missing'>('all');
+    const [filtersOpen, setFiltersOpen] = useState(initialFiltersOpen);
     const [queryCache, setQueryCache] = useState<Record<string, LoadedQueries>>({});
+    const filtersRef = useRef<HTMLDivElement>(null);
 
     const rememberQueries = useCallback((clientId: string, loaded: LoadedQueries) => {
         setQueryCache(cache => ({ ...cache, [clientId]: loaded }));
     }, []);
     useEffect(() => {
         setQuery('');
-        setManager('');
         setCoverage('all');
     }, [organizationId]);
     useEffect(() => { setQueryCache({}); }, [organizationId, activeRange]);
+    useEffect(() => {
+        if (!filtersOpen) return;
+        function onPointer(event: MouseEvent) {
+            if (!filtersRef.current?.contains(event.target as Node)) setFiltersOpen(false);
+        }
+        function onKey(event: KeyboardEvent) {
+            if (event.key === 'Escape') setFiltersOpen(false);
+        }
+        document.addEventListener('mousedown', onPointer);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('mousedown', onPointer);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [filtersOpen]);
 
     const cards = useMemo(() => {
-        const filtered = filterCards(model?.cards ?? [], { query, manager: manager || null, coverage });
+        const filtered = filterCards(model?.cards ?? [], { query, coverage });
         return [...filtered].sort((left, right) => compareCards(left, right, { mode: sortMode, metric, direction }));
-    }, [model, query, manager, coverage, sortMode, metric, direction]);
+    }, [model, query, coverage, sortMode, metric, direction]);
     const selection = useMemo(() => model ? summarizeSelection(model, cards) : null, [model, cards]);
+    const activeFilters = activeFilterCount({ signal, sortMode, coverage });
+    const legend = `Card color: ${METRIC_LABEL[signal].toLowerCase()} vs previous ${dashboardRangePhrase(activeRange)}, deeper = bigger move`;
 
     function chooseMetric(next: MetricKey) {
         setMetric(next);
@@ -198,26 +242,60 @@ export function AgencyDashboardView({
                             {METRICS.map(item => <option key={item} value={item}>{METRIC_LABEL[item]}</option>)}
                         </select>
                     </Field>
-                    <Field label="Color">
-                        <select aria-label="Color signal" value={signal} onChange={event => setSignal(event.target.value as MetricKey)} className={selectClass}>
-                            {METRICS.map(item => <option key={item} value={item}>{METRIC_LABEL[item]}</option>)}
-                        </select>
-                    </Field>
-                    <Field label="Sort">
-                        <select
-                            aria-label="Sort"
-                            value={sortMode}
-                            onChange={event => {
-                                const next = event.target.value as SortMode;
-                                setSortMode(next);
-                                if (next === 'metric') setDirection(metric === 'position' ? 'asc' : 'desc');
-                            }}
-                            className={selectClass}
+                    <div className="relative" ref={filtersRef}>
+                        <button
+                            type="button"
+                            aria-expanded={filtersOpen}
+                            aria-controls="agency-filters"
+                            aria-label={activeFilters > 0 ? `Filters, ${activeFilters} active` : 'Filters'}
+                            data-active-filters={activeFilters}
+                            onClick={() => setFiltersOpen(open => !open)}
+                            className={cn('inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 text-sm', filtersOpen && 'bg-white/10')}
                         >
-                            <option value="declines">Biggest declines</option>
-                            <option value="metric">By {METRIC_LABEL[metric].toLowerCase()}</option>
-                        </select>
-                    </Field>
+                            <SlidersHorizontal className="h-3.5 w-3.5 text-zinc-400" />
+                            Filters
+                            {activeFilters > 0 && (
+                                <span className="rounded-full bg-white/15 px-1.5 text-[11px] font-medium tabular-nums text-white">{activeFilters}</span>
+                            )}
+                        </button>
+                        <div
+                            id="agency-filters"
+                            role="dialog"
+                            aria-label="Filters"
+                            hidden={!filtersOpen}
+                            className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-white/10 bg-[#16181d] p-3 shadow-2xl"
+                        >
+                            <div className="space-y-3">
+                                <FilterField label="Color">
+                                    <select aria-label="Color signal" value={signal} onChange={event => setSignal(event.target.value as MetricKey)} className={cn(selectClass, 'w-full')}>
+                                        {METRICS.map(item => <option key={item} value={item}>{METRIC_LABEL[item]}</option>)}
+                                    </select>
+                                </FilterField>
+                                <FilterField label="Sort">
+                                    <select
+                                        aria-label="Sort"
+                                        value={sortMode}
+                                        onChange={event => {
+                                            const next = event.target.value as SortMode;
+                                            setSortMode(next);
+                                            if (next === 'metric') setDirection(metric === 'position' ? 'asc' : 'desc');
+                                        }}
+                                        className={cn(selectClass, 'w-full')}
+                                    >
+                                        <option value="declines">Biggest declines</option>
+                                        <option value="metric">By {METRIC_LABEL[metric].toLowerCase()}</option>
+                                    </select>
+                                </FilterField>
+                                <FilterField label="Data">
+                                    <select aria-label="Data coverage" value={coverage} onChange={event => setCoverage(event.target.value as 'all' | 'data' | 'missing')} className={cn(selectClass, 'w-full')}>
+                                        <option value="all">All clients</option>
+                                        <option value="data">With data</option>
+                                        <option value="missing">Missing data</option>
+                                    </select>
+                                </FilterField>
+                            </div>
+                        </div>
+                    </div>
                     <label className="relative">
                         <span className="sr-only">Search clients</span>
                         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
@@ -225,22 +303,9 @@ export function AgencyDashboardView({
                             value={query}
                             onChange={event => setQuery(event.target.value)}
                             placeholder="Search"
-                            className="h-9 w-36 rounded-lg border border-white/10 bg-white/5 pl-8 pr-2 text-sm text-zinc-100 placeholder:text-zinc-500"
+                            className="h-9 w-40 rounded-lg border border-white/10 bg-white/5 pl-8 pr-2 text-sm text-zinc-100 placeholder:text-zinc-500"
                         />
                     </label>
-                    <Field label="Manager">
-                        <select aria-label="Account manager" value={manager} onChange={event => setManager(event.target.value)} className={selectClass}>
-                            <option value="">All managers</option>
-                            {(model?.managers ?? []).map(name => <option key={name} value={name}>{name}</option>)}
-                        </select>
-                    </Field>
-                    <Field label="Data">
-                        <select aria-label="Data coverage" value={coverage} onChange={event => setCoverage(event.target.value as 'all' | 'data' | 'missing')} className={selectClass}>
-                            <option value="all">All clients</option>
-                            <option value="data">With data</option>
-                            <option value="missing">Missing data</option>
-                        </select>
-                    </Field>
                     <div role="group" aria-label="Layout" className="flex rounded-lg bg-white/5 p-0.5">
                         <button type="button" aria-pressed={view === 'grid'} aria-label="Grid" onClick={() => setView('grid')} className={cn('rounded-md p-1.5', view === 'grid' ? 'bg-white/15 text-white' : 'text-zinc-400')}>
                             <LayoutGrid className="h-4 w-4" />
@@ -265,34 +330,45 @@ export function AgencyDashboardView({
                     <p className="mt-8 text-sm text-zinc-400">No clients match.</p>
                 ) : (
                 <>
-                    <p className="mt-4 text-xs text-zinc-400">{selection.summary}{model.settling ? ' · includes days still settling' : ''}</p>
-                    {selection.comparison && (
-                        <p className="mt-1 text-xs text-zinc-500">{selection.comparison}</p>
-                    )}
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                         {METRICS.map(item => {
                             const tone = changeTone(item, selection.kpis[item].change);
                             return (
-                                <section key={item} className="rounded-xl border border-white/10 bg-[#16181d] p-3">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                            <p className="text-[11px] uppercase tracking-wide text-zinc-500" title={item === 'position' ? POSITION_LABEL_TITLE : undefined}>{METRIC_LABEL[item]}</p>
-                                            <p className="mt-1 text-2xl font-semibold tabular-nums">{formatMetric(item, selection.kpis[item].value)}</p>
-                                            <p data-tone={tone} className={cn('mt-1 text-xs tabular-nums', TONE_TEXT[tone])} title={selection.comparison ?? undefined}>
-                                                {formatChange(selection.kpis[item].change)}
-                                                {selection.comparison && <span className="ml-1 text-zinc-400">{selection.pairedClients} of {selection.clientsWithData}</span>}
-                                            </p>
-                                        </div>
-                                        <Sparkline values={selection.kpiSeries[item]} tone={tone} label={`${METRIC_LABEL[item]} trend`} />
+                                <section key={item} data-kpi={item} className="rounded-xl border border-white/10 bg-[#16181d] px-4 py-3">
+                                    <div className="flex items-center gap-2">
+                                        <span aria-hidden className={cn('h-2 w-2 rounded-full', KPI_DOT[item])} />
+                                        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400" title={item === 'position' ? POSITION_LABEL_TITLE : undefined}>{METRIC_LABEL[item]}</p>
                                     </div>
+                                    <div className="mt-2 flex items-center justify-between gap-3">
+                                        <p className="text-3xl font-semibold tabular-nums tracking-tight">{formatMetric(item, selection.kpis[item].value)}</p>
+                                        <Sparkline values={selection.kpiSeries[item]} tone={tone} label={`${METRIC_LABEL[item]} trend`} className="h-11 w-28 shrink-0" />
+                                    </div>
+                                    <p data-tone={tone} className={cn('mt-2 text-sm font-medium tabular-nums', TONE_TEXT[tone])} title={selection.comparison ?? undefined}>
+                                        <ChangeText metric={item} change={selection.kpis[item].change} />
+                                    </p>
                                 </section>
                             );
                         })}
                     </div>
+                    <p data-meta="summary" className="mt-4 text-xs leading-5 text-zinc-400">
+                        {selection.summary}{model.settling ? ' · includes days still settling' : ''}
+                        {' · '}{legend}
+                        {selection.comparison ? ` · ${selection.comparison}` : ''}
+                    </p>
                     {view === 'grid' ? (
                         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                             {cards.map((card, index) => (
-                                <PortfolioCard key={`${card.clientId}:${activeRange}`} card={card} rank={index + 1} metric={metric} signal={signal} loaded={queryCache[card.clientId]} onLoadQueries={onLoadQueries} onLoaded={rememberQueries} />
+                                <PortfolioCard
+                                    key={`${card.clientId}:${activeRange}`}
+                                    card={card}
+                                    rank={index + 1}
+                                    metric={metric}
+                                    signal={signal}
+                                    loaded={queryCache[card.clientId]}
+                                    initiallyOpen={initialOpenClient === card.clientId}
+                                    onLoadQueries={onLoadQueries}
+                                    onLoaded={rememberQueries}
+                                />
                             ))}
                         </div>
                     ) : (
@@ -305,9 +381,27 @@ export function AgencyDashboardView({
     );
 }
 
-function PortfolioCard({ card, rank, metric, signal, loaded, onLoadQueries, onLoaded }: { card: DashboardCard; rank: number; metric: MetricKey; signal: MetricKey; loaded?: LoadedQueries; onLoadQueries?: (clientId: string) => Promise<LoadedQueries>; onLoaded: (clientId: string, loaded: LoadedQueries) => void }) {
+function PortfolioCard({
+    card,
+    rank,
+    metric,
+    signal,
+    loaded,
+    initiallyOpen,
+    onLoadQueries,
+    onLoaded,
+}: {
+    card: DashboardCard;
+    rank: number;
+    metric: MetricKey;
+    signal: MetricKey;
+    loaded?: LoadedQueries;
+    initiallyOpen: boolean;
+    onLoadQueries?: (clientId: string) => Promise<LoadedQueries>;
+    onLoaded: (clientId: string, loaded: LoadedQueries) => void;
+}) {
     const [hover, setHover] = useState(false);
-    const [pinned, setPinned] = useState(false);
+    const [pinned, setPinned] = useState(initiallyOpen);
     const [queryError, setQueryError] = useState<string | null>(null);
     const [queryLoading, setQueryLoading] = useState(false);
     const open = hover || pinned;
@@ -325,70 +419,73 @@ function PortfolioCard({ card, rank, metric, signal, loaded, onLoadQueries, onLo
     const heroTone = changeTone(metric, card.metrics[metric].change);
     return (
         <article
+            data-client={card.clientId}
             data-tone={tint.tone}
             data-strength={tint.strength}
-            className="relative h-[292px] rounded-xl border border-white/10 [perspective:1200px]"
+            className="relative h-[340px] rounded-2xl border border-white/10 [perspective:1200px]"
             style={{ backgroundColor: WASH[tint.tone][tint.strength] }}
             onMouseEnter={() => setHover(true)}
             onMouseLeave={() => setHover(false)}
         >
             <div className={cn('relative h-full transition-transform duration-500 [transform-style:preserve-3d] motion-reduce:transition-none', open && '[transform:rotateY(180deg)]')}>
-                <div className="absolute inset-0 flex flex-col p-4 [backface-visibility:hidden]" style={{ pointerEvents: open ? 'none' : 'auto' }}>
+                <div data-face="front" className="absolute inset-0 flex flex-col p-4 [backface-visibility:hidden]" style={{ pointerEvents: open ? 'none' : 'auto' }}>
                     <div className="flex items-start justify-between gap-3">
-                        <p className="text-xs tabular-nums text-zinc-500">{rank}</p>
-                        <Sparkline values={card.series[metric]} tone={heroTone} label={`${card.name} ${METRIC_LABEL[metric]} trend`} />
+                        <div>
+                            <p data-rank={rank} className="text-[28px] font-bold leading-none tabular-nums text-white">{rank}</p>
+                            <span aria-hidden className="mt-1.5 block h-[3px] w-6 rounded-full bg-white" />
+                        </div>
+                        <div className="text-right">
+                            {card.reason ? (
+                                <>
+                                    <p className="text-3xl font-semibold leading-none text-zinc-500">—</p>
+                                    <p className="mt-1 text-xs text-zinc-400">{card.reasonLabel}</p>
+                                </>
+                            ) : (
+                                <>
+                                    <p className="text-3xl font-semibold leading-none tabular-nums tracking-tight">{formatMetric(metric, card.metrics[metric].value)}</p>
+                                    <div className="mt-1.5 flex justify-end">
+                                        <ChangePill metric={metric} change={card.metrics[metric].change} note={card.changeNote} />
+                                    </div>
+                                    <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-400">{METRIC_LABEL[metric]}</p>
+                                </>
+                            )}
+                        </div>
                     </div>
-                    <h2 className="mt-2 truncate text-base font-semibold">{card.name}</h2>
-                    <p className="truncate text-xs text-zinc-400">{card.domain}{card.coverageLabel ? ` · ${card.coverageLabel}` : ''}</p>
-                    {card.reason ? (
-                        <p className="mt-4 text-3xl font-semibold text-zinc-500">— <span className="text-sm font-normal text-zinc-400">{card.reasonLabel}</span></p>
-                    ) : (
-                        <>
-                            <p className="mt-3 text-3xl font-semibold tabular-nums tracking-tight">{formatMetric(metric, card.metrics[metric].value)}</p>
-                            <p data-tone={heroTone} className={cn('text-sm tabular-nums', TONE_TEXT[heroTone])}>{formatChange(card.metrics[metric].change)}</p>
-                        </>
-                    )}
-                    <div className="mt-auto grid grid-cols-3 gap-2 pt-3 text-xs">
-                        <Stat label="Avg. position" metric="position" card={card} />
-                        <Stat label="CTR" metric="ctr" card={card} />
-                        <Stat label="Impressions" metric="impressions" card={card} />
+                    <div className="mt-4 text-center">
+                        <h2 className="truncate text-lg font-semibold tracking-tight">{card.name}</h2>
+                        <p className="truncate text-xs text-zinc-400">{card.domain}{card.coverageLabel ? ` · ${card.coverageLabel}` : ''}</p>
                     </div>
-                    <p className="mt-3 truncate text-[11px] text-zinc-400">{contextLine(card)}{card.syncWarning ? ` · ${card.syncWarning}` : ''}</p>
+                    <div className="-mx-4 mt-2 flex min-h-0 flex-1 items-end">
+                        <Sparkline values={card.series[metric]} tone={heroTone} label={`${card.name} ${METRIC_LABEL[metric]} trend`} className="h-20 w-full" stretch />
+                    </div>
+                    <div className="mt-2 grid grid-cols-3 gap-2">
+                        {SUPPORTING.map(item => <Stat key={item} metric={item} card={card} />)}
+                    </div>
                     <button
                         type="button"
                         aria-expanded={open}
                         tabIndex={open ? -1 : 0}
                         aria-label={`Details for ${card.name}`}
                         onClick={() => setPinned(value => !value)}
-                        className="absolute inset-0 rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                        className="absolute inset-0 rounded-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                     />
                 </div>
-                <div className="absolute inset-0 flex flex-col overflow-auto p-4 [backface-visibility:hidden] [transform:rotateY(180deg)]" style={{ pointerEvents: open ? 'auto' : 'none' }}>
+                <div data-face="back" className="absolute inset-0 flex flex-col overflow-auto rounded-2xl bg-[#0e1014] p-4 [backface-visibility:hidden] [transform:rotateY(180deg)]" style={{ pointerEvents: open ? 'auto' : 'none' }}>
                     <div className="flex items-start justify-between gap-2">
                         <h2 className="truncate text-sm font-semibold">{card.name}</h2>
                         <button type="button" tabIndex={open ? 0 : -1} onClick={() => setPinned(false)} className="text-xs text-zinc-400 hover:text-zinc-200">Close</button>
                     </div>
+                    {card.syncWarning && <p className="mt-1 text-[11px] text-zinc-400">{card.syncWarning}</p>}
                     {card.reason ? (
                         <p className="mt-4 text-sm text-zinc-300">— {card.reasonLabel}</p>
                     ) : (
-                        <dl className="mt-3 space-y-1.5 text-xs">
-                            {METRICS.map(item => {
-                                const tone = changeTone(item, card.metrics[item].change);
-                                return (
-                                    <div key={item} className="flex items-baseline justify-between gap-2">
-                                        <dt className="text-zinc-400">{METRIC_LABEL[item]}</dt>
-                                        <dd className="text-right tabular-nums">
-                                            <span>{formatMetric(item, card.metrics[item].value)}</span>
-                                            <span data-tone={tone} className={cn('ml-2', TONE_TEXT[tone])}>{formatChange(card.metrics[item].change)}</span>
-                                            <span className="ml-2 text-zinc-500">· {formatAbsolute(item, card.metrics[item].absolute)}</span>
-                                        </dd>
-                                    </div>
-                                );
-                            })}
-                        </dl>
+                        <>
+                            {card.changeNote && <p className="mt-2 text-[11px] text-zinc-500">{card.changeNote}</p>}
+                            <DeltaList card={card} />
+                        </>
                     )}
                     <div className="mt-3">
-                        <p className="text-[11px] uppercase tracking-wide text-zinc-500">Top queries</p>
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Top queries</p>
                         <QueryList card={card} loaded={loaded} loading={queryLoading} error={queryError} />
                     </div>
                     <div className="mt-auto flex flex-wrap gap-x-3 gap-y-1 pt-3 text-xs">
@@ -399,6 +496,34 @@ function PortfolioCard({ card, rank, metric, signal, loaded, onLoadQueries, onLo
                 </div>
             </div>
         </article>
+    );
+}
+
+function DeltaList({ card }: { card: DashboardCard }) {
+    const max = Math.max(0.02, ...METRICS.map(metric => Math.abs(card.metrics[metric].change ?? 0)));
+    return (
+        <dl className="mt-3 space-y-2.5">
+            {METRICS.map(metric => {
+                const change = card.metrics[metric].change;
+                const tone = changeTone(metric, change);
+                const width = change == null || change === 0 ? 0 : Math.max(8, Math.round((Math.abs(change) / max) * 100));
+                return (
+                    <div key={metric}>
+                        <div className="flex items-baseline justify-between gap-2 text-xs">
+                            <dt className="text-zinc-400">{METRIC_LABEL[metric]}</dt>
+                            <dd className="text-right tabular-nums">
+                                <span>{formatMetric(metric, card.metrics[metric].value)}</span>
+                                <span className="ml-2 inline-flex"><ChangePill metric={metric} change={change} size="sm" /></span>
+                                <span data-absolute className="ml-2 text-zinc-500">· {formatAbsolute(metric, card.metrics[metric].absolute)}</span>
+                            </dd>
+                        </div>
+                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10" aria-hidden>
+                            <div data-tone={tone} className={cn('h-full rounded-full', BAR[tone])} style={{ width: `${width}%` }} />
+                        </div>
+                    </div>
+                );
+            })}
+        </dl>
     );
 }
 
@@ -423,21 +548,58 @@ function QueryList({ card, loaded, loading, error }: { card: DashboardCard; load
     return <p className="mt-1 text-xs text-zinc-500">— {reason ?? 'No queries with clicks in this range'}</p>;
 }
 
-function Stat({ label, metric, card }: { label: string; metric: MetricKey; card: DashboardCard }) {
-    const tone = changeTone(metric, card.metrics[metric].change);
+function Stat({ metric, card }: { metric: MetricKey; card: DashboardCard }) {
     return (
         <div>
-            <p className="text-zinc-500" title={metric === 'position' ? POSITION_LABEL_TITLE : undefined}>{label}</p>
-            <p className="mt-0.5 tabular-nums text-zinc-100">{formatMetric(metric, card.metrics[metric].value)}</p>
-            <p data-tone={tone} className={cn('tabular-nums', TONE_TEXT[tone])}>{formatChange(card.metrics[metric].change)}</p>
+            <p className="text-sm font-semibold tabular-nums text-zinc-100">{formatMetric(metric, card.metrics[metric].value)}</p>
+            <div className="mt-1">
+                <ChangePill metric={metric} change={card.metrics[metric].change} size="sm" />
+            </div>
+            <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-500" title={metric === 'position' ? POSITION_LABEL_TITLE : undefined}>{SUPPORTING_LABEL[metric]}</p>
         </div>
+    );
+}
+
+function ChangeText({ metric, change }: { metric: MetricKey; change: number | null }) {
+    if (change == null || !Number.isFinite(change)) return '—';
+    const tone = changeTone(metric, change);
+    const arrow = tone === 'up' ? '▲' : tone === 'down' ? '▼' : null;
+    return <>{arrow ? <span aria-hidden>{arrow} </span> : null}{formatChangeMagnitude(change)}</>;
+}
+
+function ChangePill({ metric, change, note, size = 'md' }: { metric: MetricKey; change: number | null; note?: string | null; size?: 'md' | 'sm' }) {
+    if (change == null || !Number.isFinite(change)) {
+        return (
+            <span className={cn('text-zinc-500', size === 'sm' ? 'text-[11px]' : 'text-xs')}>
+                —{note ? <span className="ml-1">{note}</span> : null}
+            </span>
+        );
+    }
+    const tone = changeTone(metric, change);
+    const arrow = tone === 'up' ? '▲' : tone === 'down' ? '▼' : null;
+    const direction = tone === 'up' ? 'Up' : tone === 'down' ? 'Down' : 'Flat';
+    return (
+        <span
+            data-tone={tone}
+            aria-label={`${direction} ${formatChangeMagnitude(change)}`}
+            className={cn(
+                'inline-flex items-center gap-1 rounded-full font-medium tabular-nums',
+                size === 'sm' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-xs',
+                tone === 'up' && 'bg-emerald-400/15 text-emerald-300',
+                tone === 'down' && 'bg-rose-400/15 text-rose-300',
+                tone === 'flat' && 'bg-white/10 text-zinc-300',
+            )}
+        >
+            {arrow ? <span aria-hidden>{arrow}</span> : null}
+            {formatChangeMagnitude(change)}
+        </span>
     );
 }
 
 function PortfolioTable({ cards, metric, signal, onSort, queryCache }: { cards: DashboardCard[]; metric: MetricKey; signal: MetricKey; onSort: (metric: MetricKey) => void; queryCache: Record<string, LoadedQueries> }) {
     return (
         <div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
-            <table className="w-full min-w-[880px] text-left text-sm">
+            <table className="w-full min-w-[640px] text-left text-sm">
                 <thead className="bg-white/5 text-xs uppercase tracking-wide text-zinc-500">
                     <tr>
                         <th className="px-3 py-2 font-medium">#</th>
@@ -450,15 +612,11 @@ function PortfolioTable({ cards, metric, signal, onSort, queryCache }: { cards: 
                             </th>
                         ))}
                         <th className="px-3 py-2 font-medium">Change</th>
-                        <th className="px-3 py-2 font-medium">Manager</th>
-                        <th className="px-3 py-2 font-medium">Hours</th>
-                                <th className="px-3 py-2 font-medium">Phase</th>
                     </tr>
                 </thead>
                 <tbody>
                     {cards.map((card, index) => {
                         const tint = cardTint(signal, card.metrics[signal].change);
-                        const tone = changeTone(metric, card.metrics[metric].change);
                         return (
                             <tr key={card.clientId} data-tone={tint.tone} className="border-t border-white/10" style={{ backgroundColor: WASH[tint.tone][Math.min(tint.strength, 2)] }}>
                                 <td className="px-3 py-3 tabular-nums text-zinc-500">{index + 1}</td>
@@ -475,10 +633,9 @@ function PortfolioTable({ cards, metric, signal, onSort, queryCache }: { cards: 
                                 {METRICS.map(item => (
                                     <td key={item} className="px-3 py-3 tabular-nums">{formatMetric(item, card.metrics[item].value)}</td>
                                 ))}
-                                <td data-tone={tone} className={cn('px-3 py-3 tabular-nums', TONE_TEXT[tone])}>{formatChange(card.metrics[metric].change)}</td>
-                                <td className="px-3 py-3 text-zinc-300">{card.accountManager ?? '—'}</td>
-                                <td className="px-3 py-3 tabular-nums text-zinc-300">{card.hoursLabel}</td>
-                                <td className="px-3 py-3 text-zinc-300">{card.phaseLabel ?? '—'}{!card.phaseLabel && card.phaseReason ? <div className="text-xs text-zinc-500">{card.phaseReason}</div> : null}</td>
+                                <td className="px-3 py-3">
+                                    <ChangePill metric={metric} change={card.metrics[metric].change} note={card.changeNote} size="sm" />
+                                </td>
                             </tr>
                         );
                     })}
@@ -495,16 +652,20 @@ function QueryPreview({ card, loaded }: { card: DashboardCard; loaded?: LoadedQu
     return <div className="mt-1 text-xs text-zinc-500">— {reason}</div>;
 }
 
-function contextLine(card: DashboardCard): string {
-    const phase = card.phaseLabel ?? (card.phaseReason ? `— ${card.phaseReason}` : null);
-    return [card.accountManager ?? 'Unassigned', card.hoursLabel, phase].filter(Boolean).join(' · ');
-}
-
 function Field({ label, children }: { label: string; children: ReactNode }) {
     return (
         <label className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-zinc-500">
             {label}
             {children}
+        </label>
+    );
+}
+
+function FilterField({ label, children }: { label: string; children: ReactNode }) {
+    return (
+        <label className="block text-[11px] uppercase tracking-wide text-zinc-500">
+            {label}
+            <div className="mt-1">{children}</div>
         </label>
     );
 }

@@ -6,13 +6,18 @@ import { exampleDashboard } from '@/lib/agency-dashboard/fixture';
 export default async function AgencyDashboardPreviewPage({
     searchParams,
 }: {
-    searchParams: Promise<{ view?: string }>;
+    searchParams: Promise<{ view?: string; card?: string; filters?: string }>;
 }) {
     if (process.env.NODE_ENV === 'production') notFound();
     const query = await searchParams;
     return (
         <main className="min-h-screen bg-[#0c0e12] p-4 sm:p-6">
-            <AgencyDashboardView model={exampleDashboard()} initialView={query.view === 'list' ? 'list' : 'grid'} />
+            <AgencyDashboardView
+                model={exampleDashboard()}
+                initialView={query.view === 'list' ? 'list' : 'grid'}
+                initialOpenClient={query.card ?? null}
+                initialFiltersOpen={query.filters === '1'}
+            />
         </main>
     );
 }

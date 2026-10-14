@@ -32,17 +32,39 @@ test('the grid shows honest gaps, the color signal, and the detail links', () =>
     assert.match(html, /Open in GSC/);
     assert.match(html, /href="\/workspace\/north\?tab=insights"/);
     assert.match(html, /href="\/workspace\/north\?tab=campaign"/);
-    assert.match(html, /Month 3/);
     assert.match(html, /data-tone="down"/);
     assert.match(html, /data-tone="up"/);
+    assert.match(html, /aria-label="Filters"/);
+    assert.match(html, /data-active-filters="0"/);
     assert.match(html, /aria-label="Color signal"/);
     assert.match(html, /Biggest declines/);
+    assert.match(html, /aria-label="Metric"/);
+    assert.match(html, /Card color: impressions vs previous 28 days, deeper = bigger move/);
     assert.equal(html.includes('>0<'), false);
-    const fresh = html.slice(html.indexOf('Fresh Start Co'), html.indexOf('Fresh Start Co') + 500);
+    const kpi = html.indexOf('data-kpi="clicks"');
+    const meta = html.indexOf('data-meta="summary"');
+    const north = html.indexOf('data-client="north"');
+    assert.equal(kpi !== -1 && kpi < meta && meta < north, true);
+    const nextCard = html.indexOf('data-client="', north + 'data-client="'.length);
+    const card = html.slice(north, nextCard === -1 ? undefined : nextCard);
+    const front = card.slice(card.indexOf('data-face="front"'), card.indexOf('data-face="back"'));
+    assert.match(html, /data-rank="1"/);
+    assert.match(front, /text-\[28px\] font-bold/);
+    assert.match(front, /Northline Plumbing/);
+    const back = card.slice(card.indexOf('data-face="back"'));
+    assert.match(back, /data-absolute/);
+    assert.match(back, /emergency plumber/);
+    assert.match(back, /Search Insights/);
+    assert.match(back, /SEO Plan/);
+    assert.match(back, /Open in GSC/);
+    assert.match(html, /linearGradient/);
+    const freshAt = html.indexOf('Fresh Start Co');
+    const fresh = html.slice(Math.max(0, freshAt - 500), freshAt + 200);
     assert.match(fresh, /Not synced/);
     assert.match(fresh, /—/);
-    assert.match(html, /%<\/span><span class="ml-2 text-zinc-500">· /);
-    assert.match(html, /No agreement/);
+    for (const gone of ['Abel Miranda', 'Month 3', 'No agreement', 'Account manager', 'aria-label="Manager"']) {
+        assert.equal(html.includes(gone), false, gone);
+    }
 });
 
 test('the list view is a table of the same clients', () => {
@@ -52,11 +74,12 @@ test('the list view is a table of the same clients', () => {
     assert.match(html, />Impressions</);
     assert.match(html, /Avg\. position/);
     assert.match(html, /Impression-weighted average/);
-    assert.match(html, /No agreement/);
     assert.match(html, /Northline Plumbing/);
     assert.match(html, /Not synced/);
     assert.match(html, /Search Insights/);
-    assert.match(html, /No agreement/);
+    for (const gone of ['>Manager<', '>Hours<', '>Phase<', 'No agreement', 'Abel Miranda']) {
+        assert.equal(html.includes(gone), false, gone);
+    }
 });
 
 test('an error hides the previous portfolio instead of leaving its numbers up', () => {
@@ -84,12 +107,10 @@ test('a partial period comparison is marked on the headline, and missing queries
         range: '7d',
         window: dashboardWindow('7d', '2026-10-07'),
         asOf: '2026-10-07',
-        today: '2026-10-14',
-        hoursMonth: '2026-10',
         freshness: { latestDataDate: '2026-10-07', latestImportedAt: null, settling: false },
         clients: [
-            { id: 'alpha', name: 'Alpha Co', domain: 'a.example', accountManager: 'Abel Miranda', seoHours: 10, property: 'sc-domain:a.example', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z', loggedHours: 1, agreements: [], agreementsKnown: true },
-            { id: 'beta', name: 'Beta Co', domain: 'b.example', accountManager: 'Abel Miranda', seoHours: 10, property: 'sc-domain:b.example', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z', loggedHours: 1, agreements: [], agreementsKnown: true },
+            { id: 'alpha', name: 'Alpha Co', domain: 'a.example', property: 'sc-domain:a.example', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z' },
+            { id: 'beta', name: 'Beta Co', domain: 'b.example', property: 'sc-domain:b.example', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z' },
         ],
         aggregates: [
             { clientId: 'alpha', current: { clicks: 10, impressions: 100, positionWeight: 800, days: 7 }, previous: { clicks: 8, impressions: 80, positionWeight: 640, days: 7 }, series: [], queries: [{ query: 'alpha query', clicks: 3 }], incomplete: false },
@@ -101,7 +122,38 @@ test('a partial period comparison is marked on the headline, and missing queries
     assert.match(html, /Change compares 1 of 2 clients that have both periods/);
     assert.match(html, /title="Change compares 1 of 2 clients that have both periods[^"]*"/);
     assert.match(html, /Open this card to load queries/);
-    assert.match(html, /No agreement/);
+    assert.equal(html.includes('No agreement'), false);
     const list = renderToStaticMarkup(createElement(AgencyDashboardView, { model: partial, initialView: 'list' }));
     assert.match(list, /Open this card to load queries/);
+    assert.equal(list.includes('No agreement'), false);
+});
+
+test('a short previous window renders an em dash and says why', () => {
+    const short = assembleDashboard({
+        range: '7d',
+        window: dashboardWindow('7d', '2026-10-07'),
+        asOf: '2026-10-07',
+        freshness: { latestDataDate: '2026-10-07', latestImportedAt: null, settling: false },
+        clients: [
+            { id: 'short', name: 'Short History', domain: 'short.example', property: 'sc-domain:short.example', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z' },
+        ],
+        aggregates: [
+            { clientId: 'short', current: { clicks: 40, impressions: 400, positionWeight: 2000, days: 7 }, previous: { clicks: 5, impressions: 50, positionWeight: 400, days: 2 }, series: [], queries: [], incomplete: false },
+        ],
+    });
+    const html = renderToStaticMarkup(createElement(AgencyDashboardView, { model: short }));
+    assert.match(html, /Not enough history/);
+    assert.match(html, /Not enough history to compare this range/);
+    const front = html.slice(html.indexOf('data-face="front"'), html.indexOf('data-face="back"'));
+    const back = html.slice(html.indexOf('data-face="back"'));
+    assert.match(front, /Not enough history/);
+    assert.match(back, /Search Insights/);
+    assert.match(back, /SEO Plan/);
+    assert.match(back, /Open in GSC/);
+    const list = renderToStaticMarkup(createElement(AgencyDashboardView, { model: short, initialView: 'list' }));
+    assert.match(list, /Not enough history/);
+    for (const gone of ['Carlos Morones', '0 / 15h', 'No agreement', '>Manager<', '>Hours<', '>Phase<']) {
+        assert.equal(html.includes(gone), false, gone);
+        assert.equal(list.includes(gone), false, gone);
+    }
 });

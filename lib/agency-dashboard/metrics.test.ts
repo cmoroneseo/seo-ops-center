@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { ClientAgreement } from '@/lib/agreements/types';
 import { parseAgencyAggregate, parseTopQueries } from './aggregate.ts';
 import {
     cardTint,
@@ -8,37 +7,21 @@ import {
     compareCards,
     formatAbsolute,
     formatChange,
+    formatChangeMagnitude,
     formatMetric,
     metricValue,
     percentChange,
     type SortState,
 } from './metrics.ts';
-import { assembleDashboard, filterCards, summarizeSelection, type DashboardClientInput } from './portfolio.ts';
-import { bucketStart, dashboardWindow, daysInclusive } from './range.ts';
-
-const today = '2026-10-14';
-const month = '2026-10';
-
-function agreement(startsOn: string): ClientAgreement {
-    return {
-        id: 'ag-1', organizationId: 'org', clientId: 'a', previousId: null, kind: 'initial', title: 'Retainer',
-        startsOn, endsOn: null, mode: 'monthly', hours: 40, hoursMode: 'committed', proration: 'full_period',
-        timezone: 'America/Los_Angeles', scope: '', services: [], evidence: null, note: null,
-        recordedAt: startsOn, recordedBy: 'user', planSnapshot: null,
-    };
-}
+import { activeFilterCount, assembleDashboard, filterCards, NOT_ENOUGH_HISTORY, summarizeSelection, type DashboardClientInput } from './portfolio.ts';
+import { bucketStart, dashboardRangePhrase, dashboardWindow, daysInclusive } from './range.ts';
 
 function client(patch: Partial<DashboardClientInput> & Pick<DashboardClientInput, 'id' | 'name'>): DashboardClientInput {
     return {
         domain: 'example.com',
-        accountManager: 'Abel Miranda',
-        seoHours: 10,
         property: 'sc-domain:example.com',
         syncStatus: 'active',
         lastSyncedAt: '2026-10-12T18:00:00Z',
-        loggedHours: 18,
-        agreements: [],
-        agreementsKnown: true,
         ...patch,
     };
 }
@@ -90,6 +73,12 @@ test('CTR and position are weighted, and a missing period is not a zero', () => 
     assert.equal(formatChange(null), '—');
     assert.equal(formatChange(0), '0.0%');
     assert.equal(formatChange(-0.0002), '−<0.1%');
+    assert.equal(formatChangeMagnitude(0.042), '4.2%');
+    assert.equal(formatChangeMagnitude(-0.35), '35.0%');
+    assert.equal(formatChangeMagnitude(null), '—');
+    assert.equal(dashboardRangePhrase('28d'), '28 days');
+    assert.equal(activeFilterCount({ signal: 'impressions', sortMode: 'declines', coverage: 'all' }), 0);
+    assert.equal(activeFilterCount({ signal: 'clicks', sortMode: 'metric', coverage: 'missing' }), 3);
     assert.equal(formatAbsolute('ctr', 0), '0.0 pts');
     assert.equal(formatAbsolute('ctr', -0.0004), '−<0.1 pts');
     assert.equal(formatAbsolute('position', -0.04), '−<0.1');
@@ -112,14 +101,12 @@ test('the portfolio keeps gaps honest and compares only clients with both period
         range: '7d',
         window: dashboardWindow('7d', '2026-10-07'),
         asOf: '2026-10-07',
-        today,
-        hoursMonth: month,
         freshness: { latestDataDate: '2026-10-07', latestImportedAt: '2026-10-12T18:00:00Z', settling: false },
         clients: [
-            client({ id: 'paired', name: 'Paired', agreements: [agreement('2026-08-01')] }),
+            client({ id: 'paired', name: 'Paired' }),
             client({ id: 'first', name: 'First sync', lastSyncedAt: '2026-10-12T18:00:00Z' }),
             client({ id: 'quiet', name: 'No rows', domain: 'quiet.example', lastSyncedAt: '2026-09-01T00:00:00Z' }),
-            client({ id: 'fresh', name: 'Never synced', syncStatus: 'active', lastSyncedAt: null, loggedHours: 0 }),
+            client({ id: 'fresh', name: 'Never synced', syncStatus: 'active', lastSyncedAt: null }),
             client({ id: 'broken', name: 'Broken', syncStatus: 'error', lastSyncedAt: null }),
         ],
         aggregates: [
@@ -158,17 +145,12 @@ test('the portfolio keeps gaps honest and compares only clients with both period
     assert.equal(paired.reason, null);
     assert.equal(paired.metrics.clicks.value, 80);
     assert.equal(paired.metrics.ctr.value, 0.08);
-    assert.equal(paired.phaseLabel, 'Month 3');
-    assert.equal(paired.phaseReason, null);
-    assert.equal(paired.hoursLabel, '18 / 40h');
     assert.equal(paired.queries[0].query, 'emergency plumber');
     assert.equal(paired.links.insights, '/workspace/paired?tab=insights');
     assert.equal(paired.links.plan, '/workspace/paired?tab=campaign');
     assert.match(paired.links.gsc, /resource_id=sc-domain%3Aexample.com/);
 
     const first = model.cards.find(card => card.clientId === 'first')!;
-    assert.equal(first.phaseLabel, null);
-    assert.equal(first.phaseReason, 'No agreement');
     assert.equal(first.metrics.clicks.value, 50);
     assert.equal(first.metrics.clicks.change, null);
     assert.equal(first.metrics.ctr.value, null);
@@ -180,10 +162,51 @@ test('the portfolio keeps gaps honest and compares only clients with both period
     assert.equal(model.cards.find(card => card.clientId === 'fresh')?.metrics.clicks.value, null);
     assert.equal(model.cards.find(card => card.clientId === 'broken')?.reasonLabel, 'Sync failed');
     assert.equal(formatMetric('clicks', model.cards.find(card => card.clientId === 'fresh')?.metrics.clicks.value ?? null), '—');
+    assert.equal(paired.changeNote, null);
     const selection = summarizeSelection(model, model.cards);
     assert.equal(selection.pairedClients, 1);
     assert.equal(selection.clientsWithData, 2);
     assert.match(selection.comparison ?? '', /1 of 2 clients/);
+});
+
+test('a short previous window is not a change and stays out of the headline', () => {
+    const window = dashboardWindow('12m', '2026-10-13');
+    const expected = daysInclusive(window.previous.start, window.previous.end);
+    assert.ok(expected > 129);
+    const model = assembleDashboard({
+        range: '12m',
+        window,
+        asOf: '2026-10-13',
+        freshness: { latestDataDate: '2026-10-13', latestImportedAt: '2026-10-14T04:00:00Z', settling: false },
+        clients: [
+            client({ id: 'short', name: '12 Volt Power' }),
+            client({ id: 'full', name: 'Full History' }),
+        ],
+        aggregates: [
+            { clientId: 'short', current: totals(800, 8000, 8, expected), previous: totals(100, 1000, 10, 129), series: [], queries: [], incomplete: false },
+            { clientId: 'full', current: totals(200, 2000, 6, expected), previous: totals(180, 1800, 7, expected), series: [], queries: [], incomplete: false },
+        ],
+    });
+    const short = model.cards.find(card => card.clientId === 'short')!;
+    const full = model.cards.find(card => card.clientId === 'full')!;
+    assert.equal(short.metrics.clicks.value, 800);
+    assert.equal(short.metrics.clicks.change, null);
+    assert.equal(short.metrics.clicks.absolute, null);
+    assert.equal(short.changeNote, NOT_ENOUGH_HISTORY);
+    assert.equal(short.previousTotals, null);
+    assert.equal(full.changeNote, null);
+    assert.equal(full.metrics.clicks.change, (200 - 180) / 180);
+    assert.equal(model.pairedClients, 1);
+    assert.equal(model.clientsWithData, 2);
+    assert.equal(model.kpis.clicks.value, 1000);
+    assert.equal(model.kpis.clicks.change, (200 - 180) / 180);
+    const selection = summarizeSelection(model, model.cards);
+    assert.equal(selection.pairedClients, 1);
+    assert.match(selection.comparison ?? '', /full previous period/);
+    assert.match(selection.comparison ?? '', /enough history/);
+    const onlyShort = summarizeSelection(model, model.cards.filter(card => card.clientId === 'short'));
+    assert.equal(onlyShort.kpis.clicks.change, null);
+    assert.equal(onlyShort.comparison, 'Not enough history to compare this range.');
 });
 
 test('sort puts the biggest declines first and never treats a gap as zero', () => {
@@ -191,8 +214,6 @@ test('sort puts the biggest declines first and never treats a gap as zero', () =
         range: '28d',
         window: dashboardWindow('28d', '2026-10-07'),
         asOf: '2026-10-07',
-        today,
-        hoursMonth: month,
         freshness: { latestDataDate: '2026-10-07', latestImportedAt: null, settling: true },
         clients: [
             client({ id: 'down', name: 'Down' }),
@@ -201,9 +222,9 @@ test('sort puts the biggest declines first and never treats a gap as zero', () =
             client({ id: 'rank', name: 'Rank' }),
         ],
         aggregates: [
-            { clientId: 'down', current: totals(40, 500, 9), previous: totals(80, 1000, 8), series: [], queries: [], incomplete: false },
-            { clientId: 'up', current: totals(90, 1200, 11), previous: totals(70, 1000, 14), series: [], queries: [], incomplete: false },
-            { clientId: 'rank', current: totals(10, 100, 4), previous: totals(10, 100, 6), series: [], queries: [], incomplete: false },
+            { clientId: 'down', current: totals(40, 500, 9, 28), previous: totals(80, 1000, 8, 28), series: [], queries: [], incomplete: false },
+            { clientId: 'up', current: totals(90, 1200, 11, 28), previous: totals(70, 1000, 14, 28), series: [], queries: [], incomplete: false },
+            { clientId: 'rank', current: totals(10, 100, 4, 28), previous: totals(10, 100, 6, 28), series: [], queries: [], incomplete: false },
         ],
     });
     const declines: SortState = { mode: 'declines', metric: 'impressions', direction: 'desc' };
@@ -219,7 +240,7 @@ test('sort puts the biggest declines first and never treats a gap as zero', () =
     const bestPosition = [...model.cards].sort((a, b) => compareCards(a, b, byValue)).map(card => card.clientId);
     assert.deepEqual(bestPosition.slice(0, 3), ['rank', 'down', 'up']);
 
-    const filtered = filterCards(model.cards, { query: 'rank', manager: null, coverage: 'all' });
+    const filtered = filterCards(model.cards, { query: 'rank', coverage: 'all' });
     assert.deepEqual(filtered.map(card => card.clientId), ['rank']);
     const slice = summarizeSelection(model, filtered);
     assert.match(slice.summary, /1 of 1 clients/);
@@ -265,8 +286,6 @@ test('a bad aggregate is rejected instead of being read as zero', () => {
         range: '7d',
         window: dashboardWindow('7d', '2026-10-07'),
         asOf: '2026-10-07',
-        today,
-        hoursMonth: month,
         freshness: { latestDataDate: '2026-10-07', latestImportedAt: null, settling: false },
         clients: [client({ id: 'a', name: 'Lazy' })],
         aggregates: [deferred.clients[0]],

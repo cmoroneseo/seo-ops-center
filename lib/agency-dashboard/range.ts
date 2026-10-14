@@ -21,12 +21,25 @@ const RANGE_LABEL: Record<DashboardRange, string> = {
     '12m': '12M',
 };
 
+const RANGE_PHRASE: Record<DashboardRange, string> = {
+    '7d': '7 days',
+    '28d': '28 days',
+    '3m': '3 months',
+    '6m': '6 months',
+    '12m': '12 months',
+};
+
 export function isDashboardRange(value: string | null | undefined): value is DashboardRange {
     return DASHBOARD_RANGES.includes(value as DashboardRange);
 }
 
 export function dashboardRangeLabel(range: DashboardRange): string {
     return RANGE_LABEL[range];
+}
+
+/** Spoken length of the selected window, for the card-color legend. */
+export function dashboardRangePhrase(range: DashboardRange): string {
+    return RANGE_PHRASE[range];
 }
 
 export function addDays(iso: string, days: number): string {

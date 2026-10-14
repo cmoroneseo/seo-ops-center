@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import type { Tone } from '@/lib/agency-dashboard/metrics';
 
 const STROKE: Record<Tone, string> = {
@@ -6,36 +7,103 @@ const STROKE: Record<Tone, string> = {
     flat: '#a1a1aa',
 };
 
-/** Breaks the line on missing days so a gap is not drawn as zero. */
-export function Sparkline({ values, tone, label }: { values: Array<number | null>; tone: Tone; label: string }) {
-    const width = 96;
-    const height = 32;
-    const known = values.flatMap((value, index) => value == null ? [] : [{ index, value }]);
-    if (known.length < 2) {
-        return <svg viewBox={`0 0 ${width} ${height}`} className="h-8 w-24" role="img" aria-label={label}><title>{label}</title></svg>;
+interface Point { x: number; y: number }
+
+/** Catmull-Rom through the points, as cubic beziers, so the area reads as a curve. */
+function smoothPath(points: Point[]): string {
+    if (points.length === 0) return '';
+    const command = (point: Point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`;
+    let path = `M${command(points[0])}`;
+    if (points.length === 1) return path;
+    for (let index = 0; index < points.length - 1; index += 1) {
+        const previous = points[index - 1] ?? points[index];
+        const current = points[index];
+        const next = points[index + 1];
+        const after = points[index + 2] ?? next;
+        const control1 = {
+            x: current.x + (next.x - previous.x) / 6,
+            y: current.y + (next.y - previous.y) / 6,
+        };
+        const control2 = {
+            x: next.x - (after.x - current.x) / 6,
+            y: next.y - (after.y - current.y) / 6,
+        };
+        path += ` C${command(control1)} ${command(control2)} ${command(next)}`;
     }
+    return path;
+}
+
+function runs(values: Array<number | null>, width: number, height: number): Point[][] {
+    const known = values.flatMap((value, index) => value == null ? [] : [{ index, value }]);
+    if (known.length === 0) return [];
     const min = Math.min(...known.map(point => point.value));
     const max = Math.max(...known.map(point => point.value));
     const span = max - min || 1;
-    const segments: string[] = [];
-    let commands: string[] = [];
+    const groups: Point[][] = [];
+    let current: Point[] = [];
     values.forEach((value, index) => {
         if (value == null) {
-            if (commands.length) segments.push(commands.join(' '));
-            commands = [];
+            if (current.length) groups.push(current);
+            current = [];
             return;
         }
         const x = values.length === 1 ? width / 2 : (index / (values.length - 1)) * width;
-        const y = height - ((value - min) / span) * (height - 4) - 2;
-        commands.push(`${commands.length === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`);
+        const y = height - ((value - min) / span) * (height - 6) - 3;
+        current.push({ x, y });
     });
-    if (commands.length) segments.push(commands.join(' '));
+    if (current.length) groups.push(current);
+    return groups;
+}
+
+/** Area sparkline. Missing days break the shape instead of being drawn as zero. */
+export function Sparkline({
+    values,
+    tone,
+    label,
+    className = 'h-10 w-28',
+    stretch = false,
+}: {
+    values: Array<number | null>;
+    tone: Tone;
+    label: string;
+    className?: string;
+    stretch?: boolean;
+}) {
+    const width = 120;
+    const height = 36;
+    const rawId = useId().replace(/:/g, '');
+    const gradientId = `spark-${rawId}`;
+    const groups = runs(values, width, height);
+    const drawable = groups.filter(group => group.length >= 2);
     return (
-        <svg viewBox={`0 0 ${width} ${height}`} className="h-8 w-24" role="img" aria-label={label}>
+        <svg
+            viewBox={`0 0 ${width} ${height}`}
+            className={className}
+            role="img"
+            aria-label={label}
+            preserveAspectRatio={stretch ? 'none' : 'xMidYMid meet'}
+        >
             <title>{label}</title>
-            {segments.map(path => (
-                <path key={path} d={path} fill="none" stroke={STROKE[tone]} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-            ))}
+            {drawable.length > 0 && (
+                <defs>
+                    <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={STROKE[tone]} stopOpacity="0.38" />
+                        <stop offset="100%" stopColor={STROKE[tone]} stopOpacity="0" />
+                    </linearGradient>
+                </defs>
+            )}
+            {drawable.map(group => {
+                const line = smoothPath(group);
+                const first = group[0];
+                const last = group[group.length - 1];
+                const area = `${line} L${last.x.toFixed(2)},${height} L${first.x.toFixed(2)},${height} Z`;
+                return (
+                    <g key={line}>
+                        <path d={area} fill={`url(#${gradientId})`} stroke="none" />
+                        <path d={line} fill="none" stroke={STROKE[tone]} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                    </g>
+                );
+            })}
         </svg>
     );
 }

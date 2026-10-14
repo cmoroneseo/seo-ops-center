@@ -5,6 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { parseAgencyAggregate, parseTopQueries } from './aggregate.ts';
 
 const migration = readFileSync(new URL('../../migrations/091_agency_dashboard_speed.sql', import.meta.url), 'utf8');
+const queryMigration = readFileSync(new URL('../../migrations/093_agency_dashboard_query_clicks.sql', import.meta.url), 'utf8');
 const org = '11111111-1111-4111-8111-111111111111';
 const active = '33333333-3333-4333-8333-333333333333';
 const paused = '44444444-4444-4444-8444-444444444444';
@@ -12,6 +13,11 @@ const switched = '55555555-5555-4555-8555-555555555555';
 
 test('migration 091 keeps property totals off the query grain and reserves 089', () => {
     assert.equal(migration.includes('089 stays reserved'), true);
+    assert.equal(queryMigration.includes('089 stays reserved'), true);
+    assert.equal(queryMigration.includes('gsc_history_facts_query_clicks_idx'), true);
+    assert.match(queryMigration, /where grain = 'query_page' and clicks > 0 and query <> ''/);
+    assert.equal(queryMigration.includes('security invoker'), true);
+    assert.equal(/security definer/i.test(queryMigration), false);
     assert.equal(migration.includes('gsc_history_facts_property_day_idx'), true);
     assert.match(migration, /where grain = 'property'/);
     assert.equal(migration.includes("grain = 'query_page'"), true);
@@ -153,6 +159,39 @@ test('property totals ignore query rows, and top queries load for one client', a
             ? JSON.parse(silent.rows[0].agency_dashboard_top_queries)
             : silent.rows[0].agency_dashboard_top_queries;
         assert.equal(parseTopQueries(silentPayload).reason, 'no_clicks');
+
+        await db.exec(queryMigration);
+        const indexed = await db.query<{ indexname: string }>(
+            "select indexname from pg_indexes where indexname = 'gsc_history_facts_query_clicks_idx'",
+        );
+        assert.equal(indexed.rows[0]?.indexname, 'gsc_history_facts_query_clicks_idx');
+        const covered = await db.query<{ agency_dashboard_top_queries: unknown }>(
+            'select public.agency_dashboard_top_queries($1,$2,$3,$4)',
+            [org, active, '2026-10-01', '2026-10-07'],
+        );
+        const coveredPayload = typeof covered.rows[0].agency_dashboard_top_queries === 'string'
+            ? JSON.parse(covered.rows[0].agency_dashboard_top_queries)
+            : covered.rows[0].agency_dashboard_top_queries;
+        const coveredTop = parseTopQueries(coveredPayload);
+        assert.deepEqual(coveredTop.queries.map(query => query.query), ['alpha', 'beta', 'gamma']);
+        assert.equal(coveredTop.reason, null);
+        const stillSilent = await db.query<{ agency_dashboard_top_queries: unknown }>(
+            'select public.agency_dashboard_top_queries($1,$2,$3,$4)',
+            [org, switched, '2026-10-01', '2026-10-07'],
+        );
+        const stillSilentPayload = typeof stillSilent.rows[0].agency_dashboard_top_queries === 'string'
+            ? JSON.parse(stillSilent.rows[0].agency_dashboard_top_queries)
+            : stillSilent.rows[0].agency_dashboard_top_queries;
+        assert.equal(parseTopQueries(stillSilentPayload).reason, 'no_clicks');
+        const stillMissing = await db.query<{ agency_dashboard_top_queries: unknown }>(
+            'select public.agency_dashboard_top_queries($1,$2,$3,$4)',
+            [org, paused, '2026-10-01', '2026-10-07'],
+        );
+        const stillMissingPayload = typeof stillMissing.rows[0].agency_dashboard_top_queries === 'string'
+            ? JSON.parse(stillMissing.rows[0].agency_dashboard_top_queries)
+            : stillMissing.rows[0].agency_dashboard_top_queries;
+        assert.equal(parseTopQueries(stillMissingPayload).reason, 'not_stored');
+
         assert.equal(parsed.clients.some(row => row.clientId === paused), false);
         const switchedRow = parsed.clients.find(row => row.clientId === switched)!;
         assert.equal(switchedRow.current?.clicks, 2);
