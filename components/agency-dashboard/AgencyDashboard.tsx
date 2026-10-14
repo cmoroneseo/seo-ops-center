@@ -27,6 +27,7 @@ import {
     type SortMode,
     type Tone,
 } from '@/lib/agency-dashboard/metrics';
+import { bingShareLabel, engineFace, engineHeadline, type SearchEngine } from '@/lib/agency-dashboard/bing';
 import { dashboardPortfolioPath, dashboardQueriesPath } from '@/lib/agency-dashboard/request';
 import { activeFilterCount, filterCards, summarizeSelection, type DashboardCard, type DashboardModel } from '@/lib/agency-dashboard/portfolio';
 import { cn } from '@/lib/utils';
@@ -148,6 +149,7 @@ export function AgencyDashboardView({
     initialOpenClient = null,
     initialFiltersOpen = false,
     canSyncBing = false,
+    initialEngine = 'google',
 }: {
     model: DashboardModel | null;
     loading?: boolean;
@@ -162,9 +164,11 @@ export function AgencyDashboardView({
     initialOpenClient?: string | null;
     initialFiltersOpen?: boolean;
     canSyncBing?: boolean;
+    initialEngine?: SearchEngine;
 }) {
     const activeRange = range ?? model?.range ?? '28d';
     const [metric, setMetric] = useState<MetricKey>('clicks');
+    const [selectedEngine, setSelectedEngine] = useState<SearchEngine>(initialEngine);
     const [signal, setSignal] = useState<MetricKey>('impressions');
     const [sortMode, setSortMode] = useState<SortMode>('declines');
     const [direction, setDirection] = useState<'asc' | 'desc'>('desc');
@@ -199,11 +203,28 @@ export function AgencyDashboardView({
         };
     }, [filtersOpen]);
 
+    const engine: SearchEngine = model?.bingEnabled ? selectedEngine : 'google';
     const cards = useMemo(() => {
-        const filtered = filterCards(model?.cards ?? [], { query, coverage });
-        return [...filtered].sort((left, right) => compareCards(left, right, { mode: sortMode, metric, direction }));
-    }, [model, query, coverage, sortMode, metric, direction]);
-    const selection = useMemo(() => model ? summarizeSelection(model, cards) : null, [model, cards]);
+        const filtered = filterCards(model?.cards ?? [], { query, coverage: engine === 'bing' ? 'all' : coverage });
+        const visible = engine === 'bing'
+            ? filtered.filter(card => {
+                const gap = engineFace(card, 'bing').reason != null;
+                if (coverage === 'data') return !gap;
+                if (coverage === 'missing') return gap;
+                return true;
+            })
+            : filtered;
+        return [...visible].sort((left, right) => compareCards(
+            { name: left.name, reason: engineFace(left, engine).reason, metrics: engineFace(left, engine).metrics },
+            { name: right.name, reason: engineFace(right, engine).reason, metrics: engineFace(right, engine).metrics },
+            { mode: sortMode, metric, direction },
+        ));
+    }, [model, query, coverage, sortMode, metric, direction, engine]);
+    const selection = useMemo(() => {
+        if (!model) return null;
+        const google = summarizeSelection(model, cards);
+        return { ...google, ...engineHeadline(google, cards, engine) };
+    }, [model, cards, engine]);
     const activeFilters = activeFilterCount({ signal, sortMode, coverage });
     const legend = `Card color: ${METRIC_LABEL[signal].toLowerCase()} vs previous ${dashboardRangePhrase(activeRange)}, deeper = bigger move`;
 
@@ -227,9 +248,27 @@ export function AgencyDashboardView({
             <div className="flex flex-wrap items-end justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-                    <p className="mt-1 text-sm text-zinc-400">Search Console across active clients</p>
+                    <p className="mt-1 text-sm text-zinc-400">
+                        {engine === 'bing' ? 'Bing Webmaster across active clients' : engine === 'all' ? 'Google and Bing across active clients' : 'Search Console across active clients'}
+                    </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                    {model?.bingEnabled && (
+                        <div role="group" aria-label="Search engine" className="flex rounded-lg bg-white/5 p-0.5">
+                            {(['google', 'bing', 'all'] as const).map(option => (
+                                <button
+                                    key={option}
+                                    type="button"
+                                    data-engine-option={option}
+                                    aria-pressed={engine === option}
+                                    onClick={() => setSelectedEngine(option)}
+                                    className={cn('rounded-md px-2.5 py-1.5 text-xs font-medium', engine === option ? 'bg-white/15 text-white' : 'text-zinc-400 hover:text-zinc-200')}
+                                >
+                                    {option === 'google' ? 'Google' : option === 'bing' ? 'Bing' : 'All'}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                     <div role="group" aria-label="Date range" className="flex rounded-lg bg-white/5 p-0.5">
                         {DASHBOARD_RANGES.map(item => (
                             <button
@@ -348,7 +387,7 @@ export function AgencyDashboardView({
                                     </div>
                                     <div className="mt-2 flex items-center justify-between gap-3">
                                         <p className="text-3xl font-semibold tabular-nums tracking-tight">{formatMetric(item, selection.kpis[item].value)}</p>
-                                        <Sparkline values={selection.kpiSeries[item]} tone={tone} label={`${METRIC_LABEL[item]} trend`} className="h-11 w-28 shrink-0" />
+                                        <Sparkline values={selection.kpiSeries[item]} overlay={selection.overlay?.[item]} tone={tone} label={`${METRIC_LABEL[item]} trend`} className="h-11 w-28 shrink-0" />
                                     </div>
                                     <p data-tone={tone} className={cn('mt-2 text-sm font-medium tabular-nums', TONE_TEXT[tone])} title={selection.comparison ?? undefined}>
                                         <ChangeText metric={item} change={selection.kpis[item].change} />
@@ -359,16 +398,17 @@ export function AgencyDashboardView({
                     </div>
                     <p data-meta="summary" className="mt-4 text-xs leading-5 text-zinc-400">
                         {selection.summary}{model.settling ? ' · includes days still settling' : ''}
+                        {engine === 'all' ? ' · Dashed line is Bing' : ''}
                         {' · '}{legend}
                         {selection.comparison ? ` · ${selection.comparison}` : ''}
                     </p>
                     {view === 'grid' ? (
                         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                            {cards.map((card, index) => (
+                            {cards.map(card => (
                                 <PortfolioCard
                                     key={`${card.clientId}:${activeRange}`}
                                     card={card}
-                                    rank={index + 1}
+                                    engine={engine}
                                     metric={metric}
                                     signal={signal}
                                     loaded={queryCache[card.clientId]}
@@ -379,7 +419,7 @@ export function AgencyDashboardView({
                             ))}
                         </div>
                     ) : (
-                        <PortfolioTable cards={cards} metric={metric} signal={signal} onSort={sortByColumn} queryCache={queryCache} />
+                        <PortfolioTable cards={cards} engine={engine} metric={metric} signal={signal} onSort={sortByColumn} queryCache={queryCache} />
                     )}
                 </>
                 )
@@ -390,7 +430,7 @@ export function AgencyDashboardView({
 
 function PortfolioCard({
     card,
-    rank,
+    engine,
     metric,
     signal,
     loaded,
@@ -399,7 +439,7 @@ function PortfolioCard({
     onLoaded,
 }: {
     card: DashboardCard;
-    rank: number;
+    engine: SearchEngine;
     metric: MetricKey;
     signal: MetricKey;
     loaded?: LoadedQueries;
@@ -422,8 +462,10 @@ function PortfolioCard({
             .finally(() => { if (!cancelled) setQueryLoading(false); });
         return () => { cancelled = true; };
     }, [open, card.clientId, card.queriesKnown, loaded, queryError, onLoadQueries, onLoaded]);
-    const tint = cardTint(signal, card.metrics[signal].change);
-    const heroTone = changeTone(metric, card.metrics[metric].change);
+    const face = engineFace(card, engine);
+    const tint = cardTint(signal, face.metrics[signal].change);
+    const heroTone = changeTone(metric, face.metrics[metric].change);
+    const share = engine === 'all' ? bingShareLabel(card) : null;
     return (
         <article
             data-client={card.clientId}
@@ -437,36 +479,35 @@ function PortfolioCard({
             <div className={cn('relative h-full transition-transform duration-500 [transform-style:preserve-3d] motion-reduce:transition-none', open && '[transform:rotateY(180deg)]')}>
                 <div data-face="front" className="absolute inset-0 flex flex-col p-4 [backface-visibility:hidden]" style={{ pointerEvents: open ? 'none' : 'auto' }}>
                     <div className="flex items-start justify-between gap-3">
-                        <div>
-                            <p data-rank={rank} className="text-[28px] font-bold leading-none tabular-nums text-white">{rank}</p>
-                            <span aria-hidden className="mt-1.5 block h-[3px] w-6 rounded-full bg-white" />
+                        <div className="min-w-0">
+                            <h2 className="truncate text-lg font-semibold tracking-tight">{card.name}</h2>
+                            <p className="truncate text-xs text-zinc-400">{card.domain}{face.coverageLabel ? ` · ${face.coverageLabel}` : ''}</p>
                         </div>
-                        <div className="text-right">
-                            {card.reason ? (
+                        <div className="shrink-0 text-right">
+                            {face.reason ? (
                                 <>
                                     <p className="text-3xl font-semibold leading-none text-zinc-500">—</p>
-                                    <p className="mt-1 text-xs text-zinc-400">{card.reasonLabel}</p>
+                                    <p className="mt-1 max-w-36 text-xs text-zinc-400">{face.reasonLabel}</p>
                                 </>
                             ) : (
                                 <>
-                                    <p className="text-3xl font-semibold leading-none tabular-nums tracking-tight">{formatMetric(metric, card.metrics[metric].value)}</p>
+                                    <p className="text-3xl font-semibold leading-none tabular-nums tracking-tight">{formatMetric(metric, face.metrics[metric].value)}</p>
                                     <div className="mt-1.5 flex justify-end">
-                                        <ChangePill metric={metric} change={card.metrics[metric].change} note={card.changeNote} />
+                                        <ChangePill metric={metric} change={face.metrics[metric].change} note={face.changeNote} />
                                     </div>
                                     <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-400">{METRIC_LABEL[metric]}</p>
                                 </>
                             )}
                         </div>
                     </div>
-                    <div className="mt-4 text-center">
-                        <h2 className="truncate text-lg font-semibold tracking-tight">{card.name}</h2>
-                        <p className="truncate text-xs text-zinc-400">{card.domain}{card.coverageLabel ? ` · ${card.coverageLabel}` : ''}</p>
-                    </div>
+                    {share && (
+                        <p data-bing-share className="mt-3 inline-flex w-fit rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-zinc-200">{share}</p>
+                    )}
                     <div className="-mx-4 mt-2 flex min-h-0 flex-1 items-end">
-                        <Sparkline values={card.series[metric]} tone={heroTone} label={`${card.name} ${METRIC_LABEL[metric]} trend`} className="h-20 w-full" stretch />
+                        <Sparkline values={face.series[metric]} overlay={face.overlay?.[metric]} tone={heroTone} label={`${card.name} ${METRIC_LABEL[metric]} trend`} className="h-20 w-full" stretch />
                     </div>
                     <div className="mt-2 grid grid-cols-3 gap-2">
-                        {SUPPORTING.map(item => <Stat key={item} metric={item} card={card} />)}
+                        {SUPPORTING.map(item => <Stat key={item} metric={item} view={face.metrics[item]} />)}
                     </div>
                     <button
                         type="button"
@@ -482,19 +523,26 @@ function PortfolioCard({
                         <h2 className="truncate text-sm font-semibold">{card.name}</h2>
                         <button type="button" tabIndex={open ? 0 : -1} onClick={() => setPinned(false)} className="text-xs text-zinc-400 hover:text-zinc-200">Close</button>
                     </div>
-                    {card.syncWarning && <p className="mt-1 text-[11px] text-zinc-400">{card.syncWarning}</p>}
-                    {card.reason ? (
-                        <p className="mt-4 text-sm text-zinc-300">— {card.reasonLabel}</p>
+                    {engine === 'bing' ? (
+                        <BingPanel card={card} />
                     ) : (
                         <>
-                            {card.changeNote && <p className="mt-2 text-[11px] text-zinc-500">{card.changeNote}</p>}
-                            <DeltaList card={card} />
+                            {card.syncWarning && <p className="mt-1 text-[11px] text-zinc-400">{card.syncWarning}</p>}
+                            {face.reason ? (
+                                <p className="mt-4 text-sm text-zinc-300">— {face.reasonLabel}</p>
+                            ) : (
+                                <>
+                                    {face.changeNote && <p className="mt-2 text-[11px] text-zinc-500">{face.changeNote}</p>}
+                                    <DeltaList metrics={face.metrics} />
+                                </>
+                            )}
+                            <div className="mt-3">
+                                <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Top queries</p>
+                                <QueryList card={card} loaded={loaded} loading={queryLoading} error={queryError} />
+                            </div>
+                            {engine === 'all' && <BingPanel card={card} />}
                         </>
                     )}
-                    <div className="mt-3">
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Top queries</p>
-                        <QueryList card={card} loaded={loaded} loading={queryLoading} error={queryError} />
-                    </div>
                     <div className="mt-auto flex flex-wrap gap-x-3 gap-y-1 pt-3 text-xs">
                         <Link href={card.links.insights} tabIndex={open ? 0 : -1} className="text-emerald-300 underline-offset-2 hover:underline">Search Insights</Link>
                         <Link href={card.links.plan} tabIndex={open ? 0 : -1} className="text-emerald-300 underline-offset-2 hover:underline">SEO Plan</Link>
@@ -506,12 +554,55 @@ function PortfolioCard({
     );
 }
 
-function DeltaList({ card }: { card: DashboardCard }) {
-    const max = Math.max(0.02, ...METRICS.map(metric => Math.abs(card.metrics[metric].change ?? 0)));
+function BingPanel({ card }: { card: DashboardCard }) {
+    const bing = card.bing;
+    if (!bing) return null;
+    return (
+        <div data-bing="panel" className="mt-3">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Bing</p>
+            {bing.syncWarning && <p className="mt-1 text-[11px] text-zinc-400">{bing.syncWarning}</p>}
+            {bing.reason ? (
+                <p className="mt-1 text-xs text-zinc-300">— {bing.reasonLabel}</p>
+            ) : (
+                <>
+                    {bing.changeNote && <p className="mt-1 text-[11px] text-zinc-500">{bing.changeNote}</p>}
+                    <BingRows title="Top queries" rows={bing.queries} reason={bing.queriesReason} note={bing.queriesNote} />
+                    <BingRows title="Top pages" rows={bing.pages} reason={bing.pagesReason} note={bing.pagesNote} />
+                </>
+            )}
+        </div>
+    );
+}
+
+function BingRows({ title, rows, reason, note }: { title: string; rows: Array<{ label: string; clicks: number; impressions: number; position: number | null }>; reason: string | null; note: string | null }) {
+    return (
+        <div className="mt-2">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">{title}</p>
+            {note && <p className="mt-1 text-[11px] text-zinc-500">{note}</p>}
+            {rows.length > 0 ? (
+                <ol className="mt-1 space-y-1 text-xs">
+                    {rows.map((row, index) => (
+                        <li key={`${row.label}:${index}`} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2">
+                            <span className="truncate">{row.label}</span>
+                            <span className="tabular-nums text-zinc-300" title="Clicks">{formatMetric('clicks', row.clicks)}</span>
+                            <span className="tabular-nums text-zinc-400" title="Impressions">{formatMetric('impressions', row.impressions)}</span>
+                            <span className="tabular-nums text-zinc-400" title={row.position == null ? 'No impression position' : POSITION_LABEL_TITLE}>{formatMetric('position', row.position)}</span>
+                        </li>
+                    ))}
+                </ol>
+            ) : (
+                <p className="mt-1 text-xs text-zinc-500">— {reason ?? 'No data in this range'}</p>
+            )}
+        </div>
+    );
+}
+
+function DeltaList({ metrics }: { metrics: DashboardCard['metrics'] }) {
+    const max = Math.max(0.02, ...METRICS.map(metric => Math.abs(metrics[metric].change ?? 0)));
     return (
         <dl className="mt-3 space-y-2.5">
             {METRICS.map(metric => {
-                const change = card.metrics[metric].change;
+                const change = metrics[metric].change;
                 const tone = changeTone(metric, change);
                 const width = change == null || change === 0 ? 0 : Math.max(8, Math.round((Math.abs(change) / max) * 100));
                 return (
@@ -519,9 +610,9 @@ function DeltaList({ card }: { card: DashboardCard }) {
                         <div className="flex items-baseline justify-between gap-2 text-xs">
                             <dt className="text-zinc-400">{METRIC_LABEL[metric]}</dt>
                             <dd className="text-right tabular-nums">
-                                <span>{formatMetric(metric, card.metrics[metric].value)}</span>
+                                <span>{formatMetric(metric, metrics[metric].value)}</span>
                                 <span className="ml-2 inline-flex"><ChangePill metric={metric} change={change} size="sm" /></span>
-                                <span data-absolute className="ml-2 text-zinc-500">· {formatAbsolute(metric, card.metrics[metric].absolute)}</span>
+                                <span data-absolute className="ml-2 text-zinc-500">· {formatAbsolute(metric, metrics[metric].absolute)}</span>
                             </dd>
                         </div>
                         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10" aria-hidden>
@@ -555,12 +646,12 @@ function QueryList({ card, loaded, loading, error }: { card: DashboardCard; load
     return <p className="mt-1 text-xs text-zinc-500">— {reason ?? 'No queries with clicks in this range'}</p>;
 }
 
-function Stat({ metric, card }: { metric: MetricKey; card: DashboardCard }) {
+function Stat({ metric, view }: { metric: MetricKey; view: DashboardCard['metrics'][MetricKey] }) {
     return (
         <div>
-            <p className="text-sm font-semibold tabular-nums text-zinc-100">{formatMetric(metric, card.metrics[metric].value)}</p>
+            <p className="text-sm font-semibold tabular-nums text-zinc-100">{formatMetric(metric, view.value)}</p>
             <div className="mt-1">
-                <ChangePill metric={metric} change={card.metrics[metric].change} size="sm" />
+                <ChangePill metric={metric} change={view.change} size="sm" />
             </div>
             <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-500" title={metric === 'position' ? POSITION_LABEL_TITLE : undefined}>{SUPPORTING_LABEL[metric]}</p>
         </div>
@@ -603,13 +694,12 @@ function ChangePill({ metric, change, note, size = 'md' }: { metric: MetricKey; 
     );
 }
 
-function PortfolioTable({ cards, metric, signal, onSort, queryCache }: { cards: DashboardCard[]; metric: MetricKey; signal: MetricKey; onSort: (metric: MetricKey) => void; queryCache: Record<string, LoadedQueries> }) {
+function PortfolioTable({ cards, engine, metric, signal, onSort, queryCache }: { cards: DashboardCard[]; engine: SearchEngine; metric: MetricKey; signal: MetricKey; onSort: (metric: MetricKey) => void; queryCache: Record<string, LoadedQueries> }) {
     return (
         <div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
             <table className="w-full min-w-[640px] text-left text-sm">
                 <thead className="bg-white/5 text-xs uppercase tracking-wide text-zinc-500">
                     <tr>
-                        <th className="px-3 py-2 font-medium">#</th>
                         <th className="px-3 py-2 font-medium">Client</th>
                         {METRICS.map(item => (
                             <th key={item} className="px-3 py-2 font-medium" title={item === 'position' ? POSITION_LABEL_TITLE : undefined}>
@@ -622,15 +712,17 @@ function PortfolioTable({ cards, metric, signal, onSort, queryCache }: { cards: 
                     </tr>
                 </thead>
                 <tbody>
-                    {cards.map((card, index) => {
-                        const tint = cardTint(signal, card.metrics[signal].change);
+                    {cards.map(card => {
+                        const face = engineFace(card, engine);
+                        const tint = cardTint(signal, face.metrics[signal].change);
+                        const share = engine === 'all' ? bingShareLabel(card) : null;
                         return (
                             <tr key={card.clientId} data-tone={tint.tone} className="border-t border-white/10" style={{ backgroundColor: WASH[tint.tone][Math.min(tint.strength, 2)] }}>
-                                <td className="px-3 py-3 tabular-nums text-zinc-500">{index + 1}</td>
                                 <td className="px-3 py-3">
                                     <div className="font-medium">{card.name}</div>
-                                    <div className="text-xs text-zinc-400">{card.domain}{card.reasonLabel ? ` · ${card.reasonLabel}` : ''}</div>
-                                    <QueryPreview card={card} loaded={queryCache[card.clientId]} />
+                                    <div className="text-xs text-zinc-400">{card.domain}{face.reasonLabel ? ` · ${face.reasonLabel}` : ''}</div>
+                                    {share && <div data-bing-share className="mt-1 text-xs text-zinc-300">{share}</div>}
+                                    <QueryPreview card={card} engine={engine} loaded={queryCache[card.clientId]} />
                                     <div className="mt-1 flex gap-3 text-xs">
                                         <Link href={card.links.insights} className="text-emerald-300 hover:underline">Search Insights</Link>
                                         <Link href={card.links.plan} className="text-emerald-300 hover:underline">SEO Plan</Link>
@@ -638,10 +730,10 @@ function PortfolioTable({ cards, metric, signal, onSort, queryCache }: { cards: 
                                     </div>
                                 </td>
                                 {METRICS.map(item => (
-                                    <td key={item} className="px-3 py-3 tabular-nums">{formatMetric(item, card.metrics[item].value)}</td>
+                                    <td key={item} className="px-3 py-3 tabular-nums">{formatMetric(item, face.metrics[item].value)}</td>
                                 ))}
                                 <td className="px-3 py-3">
-                                    <ChangePill metric={metric} change={card.metrics[metric].change} note={card.changeNote} size="sm" />
+                                    <ChangePill metric={metric} change={face.metrics[metric].change} note={face.changeNote} size="sm" />
                                 </td>
                             </tr>
                         );
@@ -652,7 +744,12 @@ function PortfolioTable({ cards, metric, signal, onSort, queryCache }: { cards: 
     );
 }
 
-function QueryPreview({ card, loaded }: { card: DashboardCard; loaded?: LoadedQueries }) {
+function QueryPreview({ card, engine, loaded }: { card: DashboardCard; engine: SearchEngine; loaded?: LoadedQueries }) {
+    if (engine === 'bing' && card.bing) {
+        if (card.bing.queries.length > 0) return <div className="mt-1 text-xs text-zinc-500">{card.bing.queries.map(query => query.label).join(' · ')}</div>;
+        const reason = card.bing.queriesReason ?? card.bing.reasonLabel ?? 'No queries with clicks in this range';
+        return <div className="mt-1 text-xs text-zinc-500">— {reason}</div>;
+    }
     const queries = loaded?.queries ?? card.queries;
     if (queries.length > 0) return <div className="mt-1 text-xs text-zinc-500">{queries.map(query => query.query).join(' · ')}</div>;
     const reason = loaded?.reason ?? card.queriesReason ?? (!card.queriesKnown && !loaded ? 'Open this card to load queries' : 'No queries with clicks in this range');

@@ -33,11 +33,11 @@ function smoothPath(points: Point[]): string {
     return path;
 }
 
-function runs(values: Array<number | null>, width: number, height: number): Point[][] {
-    const known = values.flatMap((value, index) => value == null ? [] : [{ index, value }]);
+function runs(values: Array<number | null>, width: number, height: number, scale: Array<number | null> = values): Point[][] {
+    const known = scale.flatMap(value => value == null || !Number.isFinite(value) ? [] : [value]);
     if (known.length === 0) return [];
-    const min = Math.min(...known.map(point => point.value));
-    const max = Math.max(...known.map(point => point.value));
+    const min = Math.min(...known);
+    const max = Math.max(...known);
     const span = max - min || 1;
     const groups: Point[][] = [];
     let current: Point[] = [];
@@ -58,12 +58,15 @@ function runs(values: Array<number | null>, width: number, height: number): Poin
 /** Area sparkline. Missing days break the shape instead of being drawn as zero. */
 export function Sparkline({
     values,
+    overlay,
     tone,
     label,
     className = 'h-10 w-28',
     stretch = false,
 }: {
     values: Array<number | null>;
+    /** Dashed series drawn on the same scale. Used for Bing in All mode. */
+    overlay?: Array<number | null> | null;
     tone: Tone;
     label: string;
     className?: string;
@@ -73,17 +76,20 @@ export function Sparkline({
     const height = 36;
     const rawId = useId().replace(/:/g, '');
     const gradientId = `spark-${rawId}`;
-    const groups = runs(values, width, height);
+    const scale = overlay ? [...values, ...overlay] : values;
+    const groups = runs(values, width, height, scale);
+    const overlayGroups = overlay ? runs(overlay, width, height, scale).filter(group => group.length >= 2) : [];
+    const caption = overlay ? `${label}. Dashed line is Bing.` : label;
     const drawable = groups.filter(group => group.length >= 2);
     return (
         <svg
             viewBox={`0 0 ${width} ${height}`}
             className={className}
             role="img"
-            aria-label={label}
+            aria-label={caption}
             preserveAspectRatio={stretch ? 'none' : 'xMidYMid meet'}
         >
-            <title>{label}</title>
+            <title>{caption}</title>
             {drawable.length > 0 && (
                 <defs>
                     <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -102,6 +108,22 @@ export function Sparkline({
                         <path d={area} fill={`url(#${gradientId})`} stroke="none" />
                         <path d={line} fill="none" stroke={STROKE[tone]} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
                     </g>
+                );
+            })}
+            {overlayGroups.map(group => {
+                const line = smoothPath(group);
+                return (
+                    <path
+                        key={`bing-${line}`}
+                        data-bing-overlay=""
+                        d={line}
+                        fill="none"
+                        stroke="#e4e4e7"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeDasharray="4 3"
+                    />
                 );
             })}
         </svg>
