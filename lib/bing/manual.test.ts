@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { runBingManual } from './manual.ts';
+import { orderManualClientIds, runBingManual } from './manual.ts';
 import type { BingClientRow } from './match.ts';
-import type { BingJob, BingRunDeps, BingStore } from './run.ts';
-import type { SiteReadOutcome } from './sync.ts';
+import type { BingJob, BingRelease, BingRunDeps, BingStore, BingSyncRank } from './run.ts';
+import { BING_RESYNC_COOLDOWN_SECONDS, type SiteReadOutcome } from './sync.ts';
 
 const ORG = '22222222-2222-4222-8222-222222222222';
 const OTHER = '33333333-3333-4333-8333-333333333333';
@@ -71,6 +71,7 @@ function harness(options: {
             return clients.filter(row => row.organizationId === organizationId);
         },
         async listIntegrations() { return []; },
+        async listSyncRanks() { return []; },
         async insertMapping() { return true; },
         async markUnverified() { calls.unverified += 1; },
         async enqueue(_organizationId, clientId) { return Boolean(clientId); },
@@ -222,3 +223,148 @@ test('the manual route and the cron route log a summary without the key', () => 
     assert.match(dashboard, /SyncBingButton variant="toolbar"/);
     assert.match(dashboard, /canSyncBing=\{role === 'owner' \|\| role === 'admin'\}/);
 });
+
+test('manual clicks move through every site, then wait out the cooldown', async () => {
+    const ids = ['alpha', 'beta', 'delta', 'echo', 'gamma'];
+    const clock = new Date('2026-10-14T12:00:00.000Z');
+    const { deps, claimed, releases } = cooldownStore(ids, clock, () => written);
+    const first = await runBingManual(ORG, deps, { siteLimit: 3 });
+    const second = await runBingManual(ORG, deps, { siteLimit: 3 });
+    const third = await runBingManual(ORG, deps, { siteLimit: 3 });
+    assert.equal(first.sitesSynced, 3);
+    assert.equal(second.sitesSynced, 2);
+    assert.equal(third.sitesSynced, 0);
+    assert.deepEqual(claimed, ['alpha', 'beta', 'delta', 'echo', 'gamma']);
+    assert.equal(releases.length, 5);
+    const cooled = new Date(clock.getTime() + BING_RESYNC_COOLDOWN_SECONDS * 1000).toISOString();
+    assert.deepEqual(releases.map(release => release.availableAt), [cooled, cooled, cooled, cooled, cooled]);
+});
+
+test('an incomplete snapshot is retried ahead of a complete one', async () => {
+    const clock = new Date('2026-10-14T12:00:00.000Z');
+    const incomplete: SiteReadOutcome = { action: 'write', backoff: false, traffic: [], queries: null, pages: [] };
+    const { deps, claimed, releases, expire } = cooldownStore(['broken', 'done'], clock, siteUrl => {
+        return siteUrl === 'https://broken.example.test/' ? incomplete : written;
+    });
+    const first = await runBingManual(ORG, deps, { siteLimit: 2 });
+    assert.equal(first.sitesSynced, 2);
+    assert.deepEqual(claimed, ['broken', 'done']);
+    assert.equal(releases[0]?.availableAt, clock.toISOString());
+    assert.equal(releases[1]?.availableAt, new Date(clock.getTime() + BING_RESYNC_COOLDOWN_SECONDS * 1000).toISOString());
+    expire('done');
+    const second = await runBingManual(ORG, deps, { siteLimit: 1 });
+    assert.equal(second.sitesSynced, 1);
+    assert.deepEqual(claimed.slice(2), ['broken']);
+});
+
+test('manual order is never synced, then incomplete, then oldest complete', () => {
+    const ranks: BingSyncRank[] = [
+        { clientId: 'old', lastSyncedAt: '2026-10-10T00:00:00.000Z', complete: true },
+        { clientId: 'older', lastSyncedAt: '2026-09-01T00:00:00.000Z', complete: true },
+        { clientId: 'partial', lastSyncedAt: '2026-10-13T00:00:00.000Z', complete: false },
+    ];
+    assert.deepEqual(
+        orderManualClientIds(['old', 'fresh', 'partial', 'older'], ranks),
+        ['fresh', 'partial', 'older', 'old'],
+    );
+});
+
+function cooldownStore(
+    ids: string[],
+    now: Date,
+    readSite: (siteUrl: string) => SiteReadOutcome,
+): { deps: BingRunDeps; claimed: string[]; releases: BingRelease[]; expire: (clientId: string) => void } {
+    interface Row {
+        status: 'pending' | 'idle' | 'running';
+        availableAt: string;
+        lastSyncedAt: string | null;
+        complete: boolean;
+        leaseToken: string;
+    }
+    const rows = new Map<string, Row>();
+    const claimed: string[] = [];
+    const releases: BingRelease[] = [];
+    const clients = ids.map(id => client(id, `${id}.example.test`));
+    const store: BingStore = {
+        async listClients(organizationId) {
+            return clients.filter(row => row.organizationId === organizationId);
+        },
+        async listIntegrations() { return []; },
+        async listSyncRanks() {
+            return [...rows.entries()].map(([clientId, row]): BingSyncRank => ({
+                clientId,
+                lastSyncedAt: row.lastSyncedAt,
+                complete: row.complete,
+            }));
+        },
+        async insertMapping() { return true; },
+        async markUnverified() {},
+        async enqueue(_organizationId, clientId) {
+            const row = rows.get(clientId);
+            if (!row) {
+                rows.set(clientId, {
+                    status: 'pending',
+                    availableAt: now.toISOString(),
+                    lastSyncedAt: null,
+                    complete: true,
+                    leaseToken: '',
+                });
+                return true;
+            }
+            if (row.status === 'idle' && row.availableAt <= now.toISOString()) {
+                row.status = 'pending';
+                row.availableAt = now.toISOString();
+            }
+            return true;
+        },
+        async claim(clientId) {
+            if (!clientId) return null;
+            const row = rows.get(clientId);
+            if (!row || row.status !== 'pending' || row.availableAt > now.toISOString()) return null;
+            row.status = 'running';
+            row.leaseToken = `lease-${clientId}`;
+            claimed.push(clientId);
+            return job(clientId);
+        },
+        async release(input) {
+            releases.push(input);
+            const clientId = input.id.slice('job-'.length);
+            const row = rows.get(clientId);
+            if (!row || row.leaseToken !== input.leaseToken) return;
+            row.status = input.status;
+            row.availableAt = input.availableAt;
+        },
+        async replace(input) {
+            const row = rows.get(input.clientId);
+            if (row) row.complete = input.queries != null && input.pages != null;
+            return true;
+        },
+        async markSynced(synced) {
+            const row = rows.get(synced.clientId);
+            if (row) row.lastSyncedAt = now.toISOString();
+        },
+        async markFailed() {},
+    };
+    const deps: BingRunDeps = {
+        env: onEnv(),
+        now: () => now,
+        newRunId: () => '11111111-1111-4111-8111-111111111111',
+        fetchSites: async () => ({
+            d: clients.map(row => ({ Url: `https://${row.domain}/`, IsVerified: true })),
+        }),
+        readSite: async siteUrl => readSite(siteUrl),
+        store,
+        publish: async () => {},
+    };
+    return {
+        deps,
+        claimed,
+        releases,
+        expire(clientId: string) {
+            const row = rows.get(clientId);
+            if (!row) return;
+            row.availableAt = now.toISOString();
+            row.status = 'idle';
+        },
+    };
+}

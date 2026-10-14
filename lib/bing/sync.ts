@@ -18,6 +18,8 @@ export const BING_BACKOFF_BASE_SECONDS = 15 * 60;
 export const BING_BACKOFF_CAP_SECONDS = 6 * 60 * 60;
 export const BING_HARD_FAIL_DELAY_SECONDS = 6 * 60 * 60;
 export const BING_PARK_SECONDS = 24 * 60 * 60;
+/** A complete snapshot stays idle this long so the next click takes other sites. */
+export const BING_RESYNC_COOLDOWN_SECONDS = 20 * 60 * 60;
 export const BING_UNVERIFIED_MESSAGE = 'Bing site is not verified';
 export const BING_SYNC_FAILED_MESSAGE = 'Bing sync failed';
 

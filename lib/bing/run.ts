@@ -2,7 +2,8 @@ import { bingWebmasterAllowlist, bingWebmasterApiKey, bingWebmasterEnabled } fro
 import { mapUserSites, type BingSite } from './map';
 import { planBingAutoMap, type BingClientRow, type BingIntegrationRow } from './match';
 import {
-    BING_HARD_FAIL_DELAY_SECONDS, BING_PARK_SECONDS, BING_SITE_DELAY_SECONDS, BING_SYNC_FAILED_MESSAGE,
+    BING_HARD_FAIL_DELAY_SECONDS, BING_PARK_SECONDS, BING_RESYNC_COOLDOWN_SECONDS, BING_SITE_DELAY_SECONDS,
+    BING_SYNC_FAILED_MESSAGE,
     bingBackoffSeconds, bingCronStartSend, nextBingQueueSend, parseBingQueueMessage,
     type BingQueueSend, type SiteReadOutcome,
 } from './sync';
@@ -24,9 +25,16 @@ export interface BingRelease {
     resetAttempts: boolean;
 }
 
+export interface BingSyncRank {
+    clientId: string;
+    lastSyncedAt: string | null;
+    complete: boolean;
+}
+
 export interface BingStore {
     listClients(organizationId: string): Promise<BingClientRow[]>;
     listIntegrations(organizationId: string): Promise<BingIntegrationRow[]>;
+    listSyncRanks(organizationId: string): Promise<BingSyncRank[]>;
     insertMapping(action: { organizationId: string; clientId: string; siteUrl: string }): Promise<boolean>;
     markUnverified(action: { organizationId: string; clientId: string; siteUrl: string }): Promise<void>;
     enqueue(organizationId: string, clientId: string): Promise<boolean>;
@@ -185,7 +193,8 @@ export async function syncBingJob(job: BingJob, deps: BingRunDeps): Promise<Bing
         return { kind: 'failed', status: null };
     }
     await deps.store.markSynced(job);
-    await releaseJob(deps, job, 'idle', 0, true);
+    const complete = outcome.queries != null && outcome.pages != null;
+    await releaseJob(deps, job, 'idle', complete ? BING_RESYNC_COOLDOWN_SECONDS : 0, true);
     return { kind: 'synced', backoff: outcome.backoff, status };
 }
 

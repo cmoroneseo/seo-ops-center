@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { bingWebmasterEnabled } from './flags';
 import type { BingClientRow, BingIntegrationRow } from './match';
 import { BING_PARK_SECONDS, BING_SYNC_FAILED_MESSAGE, BING_UNVERIFIED_MESSAGE } from './sync';
-import type { BingJob, BingRelease, BingStore } from './run';
+import type { BingJob, BingRelease, BingStore, BingSyncRank } from './run';
 
 const PAGE = 1000;
 const MAX_ROWS = 20000;
@@ -100,6 +100,41 @@ export function createBingStore(admin: SupabaseClient, env: NodeJS.ProcessEnv = 
                     siteUrl: typeof row.site_url === 'string' ? row.site_url : null,
                 };
             });
+        },
+        async listSyncRanks(organizationId) {
+            requireOrg(organizationId, env);
+            const integrations = await readPages((from, to) => admin
+                .from('client_integrations')
+                .select('client_id, last_synced_at')
+                .eq('organization_id', organizationId)
+                .eq('service', 'bing')
+                .order('client_id', { ascending: true })
+                .range(from, to));
+            const traffic = await readPages((from, to) => admin
+                .from('bing_traffic_days')
+                .select('client_id, queries_complete, pages_complete')
+                .eq('organization_id', organizationId)
+                .order('client_id', { ascending: true })
+                .range(from, to));
+            const incomplete = new Set<string>();
+            for (const row of traffic) {
+                const clientId = text(row.client_id);
+                if (!clientId) fail();
+                if (row.queries_complete === false || row.pages_complete === false) incomplete.add(clientId);
+            }
+            const ranks: BingSyncRank[] = [];
+            const seen = new Set<string>();
+            for (const row of integrations) {
+                const clientId = text(row.client_id);
+                if (!clientId || seen.has(clientId)) continue;
+                seen.add(clientId);
+                ranks.push({
+                    clientId,
+                    lastSyncedAt: typeof row.last_synced_at === 'string' && row.last_synced_at.length > 0 ? row.last_synced_at : null,
+                    complete: !incomplete.has(clientId),
+                });
+            }
+            return ranks;
         },
         async insertMapping(action) {
             requireOrg(action.organizationId, env);

@@ -77,10 +77,14 @@ function count(value: unknown): number | null {
     return value;
 }
 
-/** Missing position is stored as null. A non-finite value fails the whole batch. */
+/**
+ * Missing position is stored as null. Bing sends -1 when a position has no
+ * value, and that is null too. A non-number or non-finite value fails the batch.
+ */
 function position(value: unknown): number | null | undefined {
     if (value == null) return null;
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return undefined;
+    if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+    if (value < 0) return null;
     return value;
 }
 
