@@ -45,6 +45,7 @@ import { BasecampImportModal } from '@/components/workspace/BasecampImportModal'
 import { ClientApprovalsTab } from '@/components/approvals/ClientApprovalsTab';
 import { ClientPortalStaffPanel } from '@/components/portal/ClientPortalStaffPanel';
 import {ClientAgreementSummary} from '@/components/workspace/agreements/ClientAgreementSummary';
+import {AGREEMENT_SUMMARY_ROW_CLASS} from '@/lib/agreements/summary-row';
 import { VaultHeaderPill } from '@/components/vault/VaultHeaderPill';
 import { VaultPage } from '@/components/vault/VaultPage';
 import { useVaultEnabled } from '@/components/vault/use-vault-enabled';
@@ -227,7 +228,7 @@ export default function ClientDetailPage() {
                         </div>
                     </div>
                 </div>
-                <div className="flex min-h-16 items-center border-y border-border py-3" aria-hidden="true">
+                <div className={AGREEMENT_SUMMARY_ROW_CLASS} aria-hidden="true">
                     <div className="h-4 w-48 animate-pulse rounded bg-muted" />
                 </div>
                 {seoPlanV2 === true ? (

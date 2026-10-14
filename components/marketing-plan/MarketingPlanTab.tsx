@@ -34,7 +34,10 @@ import {getSeoHoursForMonth} from '@/lib/supabase/change-log';
 import { getTask, updateTask } from '@/lib/supabase/tasks';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
 import {getAgreementHistory,getAgreementWorkFunding} from '@/lib/supabase/agreements';
-import {monthlyAgreementLogs,monthlyAgreementTaskIds,agreementPeriod} from '@/lib/agreements/logic';
+import {monthlyAgreementLogs,monthlyAgreementTaskIds,agreementPeriod,agreementToday} from '@/lib/agreements/logic';
+import {buildTimeline,commitmentChoices,phaseAnchor,phaseWorkFromItems,phaseWrite,thisMonthBoard,type PhaseLog} from '@/lib/agreements/phase';
+import type {ClientAgreement} from '@/lib/agreements/types';
+import {AgreementTimeline} from '@/components/seo-plan/AgreementTimeline';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 
 interface MarketingPlanTabProps {
@@ -79,6 +82,10 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     const [taskDraftError, setTaskDraftError] = useState<string | null>(null);
     const [members, setMembers] = useState<MemberOption[]>([]);
     const [currentUser, setCurrentUser] = useState<{ id?: string; name: string }>({ name: 'Team' });
+    const [agreementRows, setAgreementRows] = useState<ClientAgreement[] | null>(null);
+    const [agreementsFailed, setAgreementsFailed] = useState(false);
+    const [timelineLogs, setTimelineLogs] = useState<PhaseLog[] | null>(null);
+    const [timelineLogsFailed, setTimelineLogsFailed] = useState(false);
 
     const loadSequence = useRef(0);
     const loadPlan = useCallback(async (silent = false) => {
@@ -124,6 +131,28 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
         return () => { cancelled = true; };
     }, [organizationId, clientId, month, timeVersion,monthlyBudget,scopeMode,plan]);
     useEffect(() => {
+        setAgreementRows(null);
+        setAgreementsFailed(false);
+        setTimelineLogs(null);
+        setTimelineLogsFailed(false);
+    }, [clientId, organizationId]);
+    useEffect(() => {
+        if (presentation !== 'v2') return;
+        let cancelled = false;
+        Promise.all([
+            getAgreementHistory(organizationId, clientId).then(value => ({ ok: true as const, value })).catch(() => ({ ok: false as const })),
+            getTimeLogs(organizationId, { clientId, throwOnError: true }).then(value => ({ ok: true as const, value })).catch(() => ({ ok: false as const })),
+        ]).then(([historyResult, logsResult]) => {
+            if (cancelled) return;
+            const historyOk = historyResult.ok && historyResult.value.available;
+            setAgreementsFailed(!historyOk);
+            setAgreementRows(historyOk ? historyResult.value.agreements : null);
+            setTimelineLogsFailed(!logsResult.ok);
+            setTimelineLogs(logsResult.ok ? logsResult.value.map(log => ({ taskId: log.taskId, date: log.date, hours: log.hours, countsTowardBudget: log.countsTowardBudget })) : null);
+        });
+        return () => { cancelled = true; };
+    }, [presentation, organizationId, clientId, timeVersion]);
+    useEffect(() => {
         const reload = () => { void refresh(); setTimeVersion(value => value + 1); };
         window.addEventListener('focus', reload);
         window.addEventListener('timer:data-changed', reload);
@@ -142,7 +171,8 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     const schedule = async (item: MarketingPlanItem, fields: ScheduleFields) => {
         const result = await promoteItemToTask(item, currentUser.name);
         if (!result.success || !result.taskId) throw new Error(result.error ?? 'Could not create task');
-        const updated = await updateTask(result.taskId, { dueDate: fields.dueDate, assigneeIds: [fields.assigneeId], estimatedHours: fields.estimatedHours, updatedBy: currentUser.id });
+        const scheduledPhase = presentation === 'v2' && agreementRows ? phaseWrite(phaseAnchor(agreementRows), fields.dueDate, null) : {};
+        const updated = await updateTask(result.taskId, { dueDate: fields.dueDate, assigneeIds: [fields.assigneeId], estimatedHours: fields.estimatedHours, ...scheduledPhase, updatedBy: currentUser.id });
         await refresh();
         if (!updated.success) throw new Error('Task is linked, but scheduling failed. Retry to update the same task. ' + (updated.error ?? ''));
     };
@@ -297,7 +327,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
         }
     };
 
-    const fullPlan = (
+    const classicPlan = (
         <div className="space-y-6" id="marketing-plan-root">
             {/* Header */}
             <div className="flex items-center justify-between">
@@ -470,9 +500,22 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
             </div>
         </div>
     );
+    const anchor = agreementRows ? phaseAnchor(agreementRows) : null;
+    const today = agreementToday(agreementRows?.find(item => !item.cancelledAt)?.timezone ?? 'America/Los_Angeles');
+    const phaseWork = phaseWorkFromItems(items, ids => ids.length ? ids.map(id => members.find(member => member.userId === id)?.displayName ?? 'Team member').join(', ') : 'Unassigned');
+    const timeline = presentation === 'v2' ? buildTimeline({ work: phaseWork, agreements: agreementsFailed ? null : agreementRows, agreementsFailed, today, logs: timelineLogs, logsFailed: timelineLogsFailed }) : null;
+    const board = presentation === 'v2' ? thisMonthBoard(phaseWork, { anchor, today, month }) : null;
+    const taskById = new Map(items.flatMap(item => item.linkedTask ? [[item.linkedTask.id, item.linkedTask] as const] : []));
+    const phaseMonth = board ? {
+        needsDate: board.needsDate.flatMap(id => { const task = taskById.get(id); return task ? [task] : []; }),
+        due: board.due.flatMap(id => { const task = taskById.get(id); return task ? [task] : []; }),
+        slipped: board.slipped.flatMap(row => { const task = taskById.get(row.id); return task ? [{ task, slipLabel: row.slipLabel }] : []; }),
+    } : null;
+    const phaseChoices = timeline?.columns.filter(column => column.key === 'onboarding' || column.key.startsWith('month_')).map(column => ({ value: column.key, label: column.title })) ?? [];
+    const fullPlan = presentation === 'v2' && timeline ? <AgreementTimeline model={timeline} /> : classicPlan;
     return <>
         {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/40 p-3 text-sm">{error}<button className="ml-3 text-primary underline" onClick={() => refresh()}>Retry</button></p>}
-        <ExecutionWorkspace onAddExisting={() => setAddChooserOpen(true)} plan={plan} month={month} budget={periodBudget} capacityMode={capacityMode} budgetTaskIds={budgetTaskIds} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} variant={presentation} hoursNarrative={presentation !== 'v2' ? 'default' : hoursNarrative === 'prelaunch' ? 'prelaunch' : capacityMode === 'unavailable' ? 'unavailable' : hoursNarrative === 'custom' || capacityMode === 'scoped' ? 'custom' : 'monthly'} />
+        <ExecutionWorkspace onAddExisting={() => setAddChooserOpen(true)} plan={plan} month={month} budget={periodBudget} capacityMode={capacityMode} budgetTaskIds={budgetTaskIds} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} variant={presentation} hoursNarrative={presentation !== 'v2' ? 'default' : hoursNarrative === 'prelaunch' ? 'prelaunch' : capacityMode === 'unavailable' ? 'unavailable' : hoursNarrative === 'custom' || capacityMode === 'scoped' ? 'custom' : 'monthly'} phaseMonth={phaseMonth} recordPhase={presentation === 'v2' && agreementRows !== null} phaseAnchorDate={anchor} phaseChoices={phaseChoices} commitmentOptions={agreementRows ? commitmentChoices(agreementRows) : []} />
         <AddPlanItemDialog showLibrary={presentation === 'v2'} open={addChooserOpen} onClose={() => setAddChooserOpen(false)} onSelect={source => {
             if (source === 'library') setLibraryOpen(true);
             else if (source === 'custom') setShowAddForm(true);

@@ -54,6 +54,9 @@ export function rowToTask(row: any): Task {
     return {
         id: row.id,
         agreementId:row.agreement_id ?? undefined,
+        planPhase: row.plan_phase ?? undefined,
+        planPhaseLocked: row.plan_phase_locked ?? undefined,
+        commitmentId: row.commitment_id ?? undefined,
         organizationId: row.organization_id,
         projectId: row.project_id ?? undefined,
         clientId: row.client_id ?? undefined,
@@ -455,6 +458,10 @@ export async function updateTask(
         scheduledMinutes?: number | null;
         sortOrder?: number;
         updatedBy?: string;
+        /** Omitted unless the caller is recording an agreement phase. */
+        planPhase?: string | null;
+        planPhaseLocked?: boolean;
+        commitmentId?: string | null;
     },
 ): Promise<{ success: boolean; data?: Task; error?: string }> {
     const supabase = createClient();
@@ -478,6 +485,9 @@ export async function updateTask(
             ...(patch.sortOrder !== undefined && { sort_order: patch.sortOrder }),
             ...(patch.recurrence !== undefined && { recurrence: patch.recurrence }),
             ...(patch.completedAt !== undefined && { completed_at: patch.completedAt }),
+            ...(patch.planPhase !== undefined && { plan_phase: patch.planPhase }),
+            ...(patch.planPhaseLocked !== undefined && { plan_phase_locked: patch.planPhaseLocked }),
+            ...(patch.commitmentId !== undefined && { commitment_id: patch.commitmentId }),
         };
 
         // Fetch current task row when status or assignees are changing

@@ -8,6 +8,7 @@ import {useCurrentMember} from '@/lib/hooks/useCurrentMember';
 import {getAgreementHistory,previewAgreement,confirmAgreement,cancelScheduledAgreement} from '@/lib/supabase/agreements';
 import {getCommitments} from '@/lib/supabase/commitments';
 import {agreementCoverageEnd,agreementForDate,agreementToday,agreementHistoryHeading,clientCurrentSetup} from '@/lib/agreements/logic';
+import {AGREEMENT_SUMMARY_ROW_CLASS,agreementSummaryPhase} from '@/lib/agreements/summary-row';
 import type {AgreementAction,AgreementInput,ClientAgreement} from '@/lib/agreements/types';
 import type {ClientProject} from '@/lib/types';
 import {AgreementFlow,agreementDateLabel} from './AgreementFlow';
@@ -54,12 +55,13 @@ export function ClientAgreementSummary({client,onChanged}:{client:ClientProject;
         setCancelling(agreement.id);setError(null);
         try {await cancelScheduledAgreement(client.id,agreement.id);await load();await onChanged();setSuccess('Scheduled agreement cancelled. Earlier terms are preserved.');}catch(e){setError(e instanceof Error ? e.message : 'Could not cancel the scheduled agreement.');}finally{setCancelling(null);}
     };
-    if(loading && !history.length) return <section aria-busy="true" aria-label="Client agreement" className="flex min-h-16 items-center border-y border-border py-3"><p role="status" className="text-xs text-muted-foreground">Loading agreement…</p></section>;
-    if(!available && !error) return null;
+    const phase=agreementSummaryPhase(loading,available,error);
+    if(phase==='loading') return <section aria-busy="true" aria-label="Client agreement" className={AGREEMENT_SUMMARY_ROW_CLASS}><p role="status" className="truncate text-xs text-muted-foreground">Loading agreement…</p></section>;
+    if(phase==='hidden') return null;
     return <>
-        <section aria-label="Client agreement" className="flex min-h-16 flex-wrap items-center justify-between gap-x-6 gap-y-3 border-y border-border py-3">
-            <div className="flex min-w-0 items-start gap-2.5"><CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /><div className="min-w-0 space-y-1">{heading.opensHistory ? <AgreementHistoryHeading label={heading.label} onOpen={()=>setShowHistory(true)} /> : <p className="text-sm font-medium">{heading.label}</p>}<p className="text-xs text-muted-foreground">{current ? `${agreementDateLabel(current.startsOn)} — ${agreementDateLabel(agreementCoverageEnd(current,live))}` : latest ? 'Review the next agreement; unfinished work remains available.' : 'Record the agreed terms before adding a renewal.'}{future && ` · Next agreement ${agreementDateLabel(future.startsOn)}`}</p></div></div>
-            <div className="flex flex-wrap items-center gap-2">{history.length>0 && <Button type="button" variant="outline" size="lg" onClick={()=>setShowHistory(true)}><History className="h-4 w-4" />Agreement history</Button>}{canManage && !future && !latest && <Button type="button" size="lg" disabled={preparing || !!error} onClick={()=>void start('initial')}>{preparing && <Loader2 className="h-4 w-4 animate-spin" />}Record agreement</Button>}{canManage && !future && latest && <>
+        <section aria-label="Client agreement" className={AGREEMENT_SUMMARY_ROW_CLASS}>
+            <div className="flex h-10 min-w-0 flex-1 items-center gap-2.5"><CalendarClock className="h-4 w-4 shrink-0 text-muted-foreground" /><div className="min-w-0">{heading.opensHistory ? <AgreementHistoryHeading label={heading.label} onOpen={()=>setShowHistory(true)} /> : <p className="truncate text-sm font-medium leading-5">{heading.label}</p>}<p className="truncate text-xs leading-4 text-muted-foreground">{current ? `${agreementDateLabel(current.startsOn)} — ${agreementDateLabel(agreementCoverageEnd(current,live))}` : latest ? 'Review the next agreement; unfinished work remains available.' : 'Record the agreed terms before adding a renewal.'}{future && ` · Next agreement ${agreementDateLabel(future.startsOn)}`}</p></div></div>
+            <div className="flex shrink-0 items-center gap-2 overflow-x-auto">{history.length>0 && <Button type="button" variant="outline" size="lg" onClick={()=>setShowHistory(true)}><History className="h-4 w-4" />Agreement history</Button>}{canManage && !future && !latest && <Button type="button" size="lg" disabled={preparing || !!error} onClick={()=>void start('initial')}>{preparing && <Loader2 className="h-4 w-4 animate-spin" />}Record agreement</Button>}{canManage && !future && latest && <>
                 <Button type="button" variant="outline" size="lg" disabled={preparing || !!error} onClick={()=>void start('supersede')}>Supersede on date</Button>
                 <Button type="button" variant="outline" size="lg" disabled={preparing || !!error} onClick={()=>void start('end')}>End on date</Button>
                 <Button type="button" variant="outline" size="lg" disabled={preparing || !!error} onClick={()=>void start('renewal')}>Renew</Button>
