@@ -31,3 +31,19 @@ test('the roadmap renders a slipped card in the current month and an em dash whe
     assert.equal(html.includes('0.0h'), false);
     assert.equal(html.includes('basecamp'), false);
 });
+
+test('an unphased task renders in Month columns with a slipped label and no calendar-only column', () => {
+    const model = buildTimeline({
+        work: [{
+            id: 'item', title: 'Pre-088 task',
+            task: { id: 'old', title: 'Pre-088 task', status: 'todo', dueDate: '2026-10-18', planPhase: null, planPhaseLocked: false },
+        }],
+        agreements: [agreement], agreementsFailed: false, today: '2026-11-15', logs: [], logsFailed: false,
+    });
+    const html = renderToStaticMarkup(createElement(AgreementTimeline, { model }));
+    assert.match(html, /Onboarding/);
+    assert.match(html, /Month 1 · Oct 2026/);
+    assert.match(html, /Month 2 · Nov 2026/);
+    assert.match(html, /Slipped · was Month 1/);
+    assert.equal(html.includes('>Oct 2026<'), false);
+});

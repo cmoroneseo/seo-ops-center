@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { ClientAgreement } from './types.ts';
 import {
-    AGREEMENT_NOT_RECORDED, buildTimeline, commitmentChoices, displayPhase, phaseAnchor, phaseAt, phaseWrite, slipLabel, thisMonthBoard,
+    AGREEMENT_NOT_RECORDED, buildTimeline, commitmentChoices, displayPhase, phaseAnchor, phaseAt, phaseWindowEnd, phaseWindowPassed, phaseWrite, roadmapAgreements, slipLabel, thisMonthBoard,
     type PhaseWork,
 } from './phase.ts';
 
@@ -160,6 +160,45 @@ test('planned hours skip missing estimates and delivered distinguishes a failed 
     assert.equal(logged.columns.find(column => column.key === 'month_1')?.meta, 'Planned 6h · Delivered 1.3h');
     assert.equal(commitmentChoices([start]).map(choice => choice.id).join(','), 'seo,gbp');
     assert.equal(commitmentChoices([start]).some(choice => !choice.id), false);
+});
+
+test('a null plan_phase derives Month columns from the root start and slips after the phase window', () => {
+    const start = agreement({ id: 'root', kind: 'initial', startsOn: '2026-10-13' });
+    const renewal = agreement({ id: 'renewal', kind: 'renewal', previousId: 'root', startsOn: '2026-11-01' });
+    const task = { id: 'old', title: 'Pre-088 rank tracking', status: 'todo', dueDate: '2026-10-18', planPhase: null, planPhaseLocked: false, estimatedHours: 2 };
+    assert.equal(phaseWindowEnd('2026-10-13', 'month_1'), '2026-10-31');
+    assert.equal(phaseWindowEnd('2026-10-13', 'onboarding'), '2026-09-30');
+    assert.equal(phaseWindowPassed('2026-10-13', 'month_1', '2026-10-31'), false);
+    assert.equal(phaseWindowPassed('2026-10-13', 'month_1', '2026-11-01'), true);
+    const inside = displayPhase({ anchor: '2026-10-13', today: '2026-10-31', dueDate: task.dueDate, status: 'todo', planPhase: null, locked: false });
+    assert.equal(inside.column, 'month_1');
+    assert.equal(inside.slipped, false);
+    assert.equal(/^\d{4}-\d{2}$/.test(inside.column), false);
+    const slipped = displayPhase({ anchor: phaseAnchor([renewal, start]), today: '2026-11-15', dueDate: task.dueDate, status: 'todo', planPhase: null });
+    assert.equal(slipped.column, 'month_2');
+    assert.equal(slipped.slipLabel, 'Slipped · was Month 1');
+    assert.equal(slipped.dueDate, '2026-10-18');
+    const before = displayPhase({ anchor: '2026-10-13', today: '2026-10-20', dueDate: '2026-09-02', status: 'todo', planPhase: null });
+    assert.equal(before.column, 'month_1');
+    assert.equal(before.slipLabel, 'Slipped · was Onboarding');
+    const model = buildTimeline({
+        work: [{ id: 'item', title: task.title, task }],
+        agreements: [renewal, start], agreementsFailed: false, today: '2026-11-15', logs: [], logsFailed: false,
+    });
+    assert.equal(task.planPhase, null);
+    assert.equal(model.columns.some(column => /^\d{4}-\d{2}$/.test(column.key) || column.title === 'Oct 2026'), false);
+    assert.equal(model.columns.some(column => column.title === 'Onboarding'), true);
+    assert.equal(model.columns.some(column => column.title.startsWith('Month 1')), true);
+    assert.equal(model.columns.some(column => column.title.startsWith('Month 2')), true);
+    const current = model.columns.find(column => column.key === 'month_2');
+    assert.equal(current?.cards.some(card => card.id === 'old' && card.slipLabel === 'Slipped · was Month 1' && card.dueDate === '2026-10-18'), true);
+    assert.equal(model.columns.find(column => column.key === 'month_1')?.cards.some(card => card.id === 'old'), false);
+    const known = roadmapAgreements({ fetched: null, failed: true, known: [start] });
+    assert.equal(known.failed, false);
+    assert.equal(phaseAnchor(known.agreements ?? []), '2026-10-13');
+    assert.deepEqual(roadmapAgreements({ fetched: [], failed: false, known: [start] }), { agreements: [], failed: false });
+    assert.deepEqual(roadmapAgreements({ fetched: null, failed: false, known: null }), { agreements: null, failed: false });
+    assert.deepEqual(roadmapAgreements({ fetched: null, failed: true, known: [] }), { agreements: null, failed: true });
 });
 
 test('onboarding checklist items without a task stay in Onboarding and other undated work needs a date', () => {

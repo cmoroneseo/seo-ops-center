@@ -35,8 +35,9 @@ import { getTask, updateTask } from '@/lib/supabase/tasks';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
 import {getAgreementHistory,getAgreementWorkFunding} from '@/lib/supabase/agreements';
 import {monthlyAgreementLogs,monthlyAgreementTaskIds,agreementPeriod,agreementToday} from '@/lib/agreements/logic';
-import {buildTimeline,commitmentChoices,phaseAnchor,phaseWorkFromItems,phaseWrite,thisMonthBoard,type PhaseLog} from '@/lib/agreements/phase';
+import {buildTimeline,commitmentChoices,phaseAnchor,phaseWorkFromItems,phaseWrite,roadmapAgreements,thisMonthBoard,type PhaseLog} from '@/lib/agreements/phase';
 import type {ClientAgreement} from '@/lib/agreements/types';
+import {SEO_PLAN_READ_ONLY_NOTE} from '@/lib/seo-plan/read-only';
 import {AgreementTimeline} from '@/components/seo-plan/AgreementTimeline';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 
@@ -50,9 +51,13 @@ interface MarketingPlanTabProps {
     hoursNarrative?: 'default' | HoursNarrative;
     /** GBP and listings checklist rows follow the client’s saved scope. */
     checklistScope?: { gbp?: boolean; listings?: boolean };
+    /** Archived and cancelled clients cannot schedule or add plan items. v2 only. */
+    readOnly?: boolean;
+    /** Agreements already on the client, so the roadmap keeps the root clock if the refresh fails. */
+    knownAgreements?: ClientAgreement[] | null;
 }
 
-export function MarketingPlanTab({ organizationId, clientId, clientName, monthlyBudget = 0,scopeMode='monthly', presentation = 'classic', hoursNarrative = 'default', checklistScope }: MarketingPlanTabProps) {
+export function MarketingPlanTab({ organizationId, clientId, clientName, monthlyBudget = 0,scopeMode='monthly', presentation = 'classic', hoursNarrative = 'default', checklistScope, readOnly = false, knownAgreements = null }: MarketingPlanTabProps) {
     const [addChooserOpen, setAddChooserOpen] = useState(false);
     const [libraryOpen, setLibraryOpen] = useState(false);
     const [basecampOnly, setBasecampOnly] = useState(false);
@@ -171,7 +176,8 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     const schedule = async (item: MarketingPlanItem, fields: ScheduleFields) => {
         const result = await promoteItemToTask(item, currentUser.name);
         if (!result.success || !result.taskId) throw new Error(result.error ?? 'Could not create task');
-        const scheduledPhase = presentation === 'v2' && agreementRows ? phaseWrite(phaseAnchor(agreementRows), fields.dueDate, null) : {};
+        const scheduledSource = roadmapAgreements({ fetched: agreementRows, failed: agreementsFailed, known: knownAgreements });
+        const scheduledPhase = presentation === 'v2' && scheduledSource.agreements ? phaseWrite(phaseAnchor(scheduledSource.agreements), fields.dueDate, null) : {};
         const updated = await updateTask(result.taskId, { dueDate: fields.dueDate, assigneeIds: [fields.assigneeId], estimatedHours: fields.estimatedHours, ...scheduledPhase, updatedBy: currentUser.id });
         await refresh();
         if (!updated.success) throw new Error('Task is linked, but scheduling failed. Retry to update the same task. ' + (updated.error ?? ''));
@@ -407,7 +413,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                             <ListChecks className="h-4 w-4" />
                             {createTasksLabel(visibleEligible.length)}
                         </button>
-                        <button onClick={() => setAddChooserOpen(true)} className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-green-700"><Plus className="h-4 w-4" /> Add Item</button>
+                        {readOnly ? <p className="text-sm text-muted-foreground">{SEO_PLAN_READ_ONLY_NOTE}</p> : <button onClick={() => setAddChooserOpen(true)} className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-green-700"><Plus className="h-4 w-4" /> Add Item</button>}
                     </div>
 
                     {showAddForm && (
@@ -500,10 +506,11 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
             </div>
         </div>
     );
-    const anchor = agreementRows ? phaseAnchor(agreementRows) : null;
-    const today = agreementToday(agreementRows?.find(item => !item.cancelledAt)?.timezone ?? 'America/Los_Angeles');
+    const agreementSource = roadmapAgreements({ fetched: agreementRows, failed: agreementsFailed, known: knownAgreements });
+    const anchor = agreementSource.agreements ? phaseAnchor(agreementSource.agreements) : null;
+    const today = agreementToday(agreementSource.agreements?.find(item => !item.cancelledAt)?.timezone ?? 'America/Los_Angeles');
     const phaseWork = phaseWorkFromItems(items, ids => ids.length ? ids.map(id => members.find(member => member.userId === id)?.displayName ?? 'Team member').join(', ') : 'Unassigned');
-    const timeline = presentation === 'v2' ? buildTimeline({ work: phaseWork, agreements: agreementsFailed ? null : agreementRows, agreementsFailed, today, logs: timelineLogs, logsFailed: timelineLogsFailed }) : null;
+    const timeline = presentation === 'v2' ? buildTimeline({ work: phaseWork, agreements: agreementSource.failed ? null : agreementSource.agreements, agreementsFailed: agreementSource.failed, today, logs: timelineLogs, logsFailed: timelineLogsFailed }) : null;
     const board = presentation === 'v2' ? thisMonthBoard(phaseWork, { anchor, today, month }) : null;
     const taskById = new Map(items.flatMap(item => item.linkedTask ? [[item.linkedTask.id, item.linkedTask] as const] : []));
     const phaseMonth = board ? {
@@ -515,7 +522,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     const fullPlan = presentation === 'v2' && timeline ? <AgreementTimeline model={timeline} /> : classicPlan;
     return <>
         {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/40 p-3 text-sm">{error}<button className="ml-3 text-primary underline" onClick={() => refresh()}>Retry</button></p>}
-        <ExecutionWorkspace onAddExisting={() => setAddChooserOpen(true)} plan={plan} month={month} budget={periodBudget} capacityMode={capacityMode} budgetTaskIds={budgetTaskIds} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} variant={presentation} hoursNarrative={presentation !== 'v2' ? 'default' : hoursNarrative === 'prelaunch' ? 'prelaunch' : capacityMode === 'unavailable' ? 'unavailable' : hoursNarrative === 'custom' || capacityMode === 'scoped' ? 'custom' : 'monthly'} phaseMonth={phaseMonth} recordPhase={presentation === 'v2' && agreementRows !== null} phaseAnchorDate={anchor} phaseChoices={phaseChoices} commitmentOptions={agreementRows ? commitmentChoices(agreementRows) : []} />
+        <ExecutionWorkspace readOnly={readOnly} onAddExisting={() => { if (!readOnly) setAddChooserOpen(true); }} plan={plan} month={month} budget={periodBudget} capacityMode={capacityMode} budgetTaskIds={budgetTaskIds} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} variant={presentation} hoursNarrative={presentation !== 'v2' ? 'default' : hoursNarrative === 'prelaunch' ? 'prelaunch' : capacityMode === 'unavailable' ? 'unavailable' : hoursNarrative === 'custom' || capacityMode === 'scoped' ? 'custom' : 'monthly'} phaseMonth={phaseMonth} recordPhase={presentation === 'v2' && agreementSource.agreements !== null} phaseAnchorDate={anchor} phaseChoices={phaseChoices} commitmentOptions={agreementSource.agreements ? commitmentChoices(agreementSource.agreements) : []} />
         <AddPlanItemDialog showLibrary={presentation === 'v2'} open={addChooserOpen} onClose={() => setAddChooserOpen(false)} onSelect={source => {
             if (source === 'library') setLibraryOpen(true);
             else if (source === 'custom') setShowAddForm(true);

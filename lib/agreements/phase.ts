@@ -55,6 +55,30 @@ export function phaseCalendarMonth(anchor: string, phase: StoredPhase): string |
     return `${year}-${String(month).padStart(2, '0')}`;
 }
 
+function isoDate(year: number, monthIndex: number, day: number): string {
+    return new Date(Date.UTC(year, monthIndex, day)).toISOString().slice(0, 10);
+}
+
+/**
+ * Inclusive last day of a phase window. Onboarding ends the day before the
+ * anchor month. Month N is that whole calendar month, including days before
+ * the anchor day in Month 1.
+ */
+export function phaseWindowEnd(anchor: string, phase: StoredPhase): string {
+    const [year, monthNumber] = anchor.slice(0, 7).split('-').map(Number);
+    if (phase === 'onboarding') return isoDate(year, monthNumber - 1, 0);
+    const month = phaseCalendarMonth(anchor, phase);
+    if (!month) return anchor.slice(0, 10);
+    const [phaseYear, phaseMonth] = month.split('-').map(Number);
+    return isoDate(phaseYear, phaseMonth, 0);
+}
+
+/** True once today is after the phase window. The window's last day still counts. */
+export function phaseWindowPassed(anchor: string, phase: StoredPhase, today: string): boolean {
+    const day = today.slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(day) && day > phaseWindowEnd(anchor, phase);
+}
+
 export function calendarMonthLabel(month: string): string {
     const [year, monthNumber] = month.split('-').map(Number);
     return new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, monthNumber - 1, 1)));
@@ -96,7 +120,14 @@ export interface PhasePlacement {
     dueDate: string | null;
 }
 
-/** Display phase. A lock wins. An open earlier phase rolls forward. The due date is not rewritten. */
+/**
+ * Display phase. A lock wins. Otherwise the column is derived from the due
+ * date against the root agreement start — including tasks whose plan_phase is
+ * still null from before migration 088. That derivation is display-only and
+ * must not be written back. With no anchor, the column stays a calendar month
+ * and never pretends to be Month 1. An open task whose due date is past its
+ * phase window rolls into the current column and keeps the original due date.
+ */
 export function displayPhase(input: {
     anchor: string | null;
     today: string;
@@ -110,14 +141,30 @@ export function displayPhase(input: {
         return { column: input.planPhase, slipped: false, slipLabel: null, dueDate: due };
     }
     if (!due) return { column: 'needs_date', slipped: false, slipLabel: null, dueDate: null };
-    if (!input.anchor) return { column: due.slice(0, 7), slipped: false, slipLabel: null, dueDate: due };
-    const scheduled = phaseAt(input.anchor, due)!;
+    const scheduled = input.anchor ? phaseAt(input.anchor, due) : null;
+    if (!input.anchor || !scheduled) return { column: due.slice(0, 7), slipped: false, slipLabel: null, dueDate: due };
     const current = phaseAt(input.anchor, input.today) ?? 'onboarding';
     const open = !input.status || !COMPLETE.has(input.status);
-    if (open && phaseRank(scheduled) < phaseRank(current)) {
+    if (open && phaseWindowPassed(input.anchor, scheduled, input.today)) {
         return { column: current, slipped: true, slipLabel: slipLabel(scheduled), dueDate: due };
     }
     return { column: scheduled, slipped: false, slipLabel: null, dueDate: due };
+}
+
+/**
+ * Agreements for the roadmap. A failed refresh must not drop a history the
+ * client page already loaded, or every unphased task falls back to a calendar
+ * month and never shows a slipped label.
+ */
+export function roadmapAgreements(input: {
+    fetched: ClientAgreement[] | null;
+    failed: boolean;
+    known: ClientAgreement[] | null | undefined;
+}): { agreements: ClientAgreement[] | null; failed: boolean } {
+    if (input.fetched) return { agreements: input.fetched, failed: false };
+    const known = input.known?.length ? input.known : null;
+    if (known) return { agreements: known, failed: false };
+    return { agreements: null, failed: input.failed };
 }
 
 /** Written when a due date is scheduled. A pin that matches the due date stays unlocked. */
@@ -255,13 +302,24 @@ function placeWork(work: PhaseWork, anchor: string | null, today: string): Place
             },
         };
     }
-    const column = work.onboardingChecklist ? 'onboarding' : !work.dueDate ? 'needs_date' : !anchor ? work.dueDate.slice(0, 7) : phaseAt(anchor, work.dueDate)!;
-    const due = work.dueDate?.slice(0, 10) || null;
+    if (work.onboardingChecklist) {
+        const due = work.dueDate?.slice(0, 10) || null;
+        return {
+            column: 'onboarding', task: null, month: null,
+            card: {
+                id: work.id, title: work.title, owner: work.owner || 'Unassigned', dueLabel: shortDueLabel(due), dueDate: due,
+                slipped: false, slipLabel: null, done: !!work.done,
+            },
+        };
+    }
+    const placement = displayPhase({ anchor, today, dueDate: work.dueDate, status: work.done ? 'done' : 'todo' });
+    const month = placement.column.startsWith('month_') && anchor ? phaseCalendarMonth(anchor, placement.column as StoredPhase) : /^\d{4}-\d{2}$/.test(placement.column) ? placement.column : null;
     return {
-        column, task: null, month: /^\d{4}-\d{2}$/.test(column) ? column : column.startsWith('month_') && anchor ? phaseCalendarMonth(anchor, column as StoredPhase) : null,
+        column: placement.column, task: null, month,
         card: {
-            id: work.id, title: work.title, owner: work.owner || 'Unassigned', dueLabel: shortDueLabel(due), dueDate: due,
-            slipped: false, slipLabel: null, done: !!work.done,
+            id: work.id, title: work.title, owner: work.owner || 'Unassigned',
+            dueLabel: shortDueLabel(placement.dueDate), dueDate: placement.dueDate,
+            slipped: placement.slipped, slipLabel: placement.slipLabel, done: !!work.done,
         },
     };
 }

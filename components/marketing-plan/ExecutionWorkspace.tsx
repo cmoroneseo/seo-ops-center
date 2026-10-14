@@ -11,6 +11,7 @@ import type { MarketingPlan, MarketingPlanItem, Task } from '@/lib/types';
 import { executionCapacity, monthlyExecution, taskIsComplete, TASK_STATUS_LABELS } from '@/lib/marketing-plan-execution';
 import { phaseWrite } from '@/lib/agreements/phase';
 import { planSurfaceViews, scheduleHoursNote, type HoursNarrative } from '@/lib/seo-plan/overview';
+import { SEO_PLAN_READ_ONLY_NOTE } from '@/lib/seo-plan/read-only';
 import type { MemberOption } from './ItemRow';
 
 export interface ExecutionTaskPatch {
@@ -52,6 +53,8 @@ export interface ExecutionWorkspaceProps {
     phaseAnchorDate?: string | null;
     phaseChoices?: Array<{ value: string; label: string }>;
     commitmentOptions?: Array<{ id: string; title: string; agreementId: string }>;
+    /** Archived and cancelled clients. Hides Schedule work and Add Item. */
+    readOnly?: boolean;
 }
 
 const field = 'w-full min-h-10 rounded-lg border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50';
@@ -66,7 +69,7 @@ function Status({ task }: { task: Task }) {
     </span>;
 }
 
-export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',budgetTaskIds, loggedHours, taskHours, members, fullPlan, onAddExisting, onMonthChange, onSaveTask, onSchedule, onSaveGoal, onOpenTask, variant = 'classic', hoursNarrative = 'default', phaseMonth = null, recordPhase = false, phaseAnchorDate = null, phaseChoices = [], commitmentOptions = [] }: ExecutionWorkspaceProps) {
+export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',budgetTaskIds, loggedHours, taskHours, members, fullPlan, onAddExisting, onMonthChange, onSaveTask, onSchedule, onSaveGoal, onOpenTask, variant = 'classic', hoursNarrative = 'default', phaseMonth = null, recordPhase = false, phaseAnchorDate = null, phaseChoices = [], commitmentOptions = [], readOnly = false }: ExecutionWorkspaceProps) {
     const [view, setView] = useState<'month' | 'full' | 'results' | 'roadmap'>('month');
     const views = planSurfaceViews(variant === 'v2');
     const narrative: HoursNarrative = hoursNarrative === 'default' ? 'monthly' : hoursNarrative;
@@ -121,7 +124,7 @@ export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',
                 <input id="execution-month" type="month" value={month} onChange={event => { if (/^\d{4}-\d{2}$/.test(event.target.value)) onMonthChange(event.target.value); }} className={cn(field, 'w-auto')} />
                 <button className={secondary} aria-label="Next month" onClick={() => changeMonth(1)}><ChevronRight className="h-4 w-4" /></button>
             </div>
-            <div className="flex flex-wrap gap-2">{view !== 'full' && view !== 'roadmap' && <button className={secondary} onClick={() => { setView(variant === 'v2' ? 'roadmap' : 'full'); onAddExisting(); }}>Add Item</button>}<button className={primary} onClick={() => setScheduling(true)}><CalendarDays className="h-4 w-4" />Schedule work</button></div>
+            {readOnly ? <p className="text-sm text-muted-foreground">{SEO_PLAN_READ_ONLY_NOTE}</p> : <div className="flex flex-wrap gap-2">{view !== 'full' && view !== 'roadmap' && <button className={secondary} onClick={() => { setView(variant === 'v2' ? 'roadmap' : 'full'); onAddExisting(); }}>Add Item</button>}<button className={primary} onClick={() => setScheduling(true)}><CalendarDays className="h-4 w-4" />Schedule work</button></div>}
         </div>
         {view === 'full' || view === 'roadmap' ? fullPlan : view === 'results' ? <section className="space-y-4" aria-label="Monthly results">
             <h3 className="text-lg font-semibold">Delivered in {title}</h3><p className="text-sm text-muted-foreground">{summary.completed.length} of {summary.tasks.length} planned tasks completed. Completion reflects Tasks; estimated effort includes completed work.</p>
@@ -130,7 +133,7 @@ export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',
         </section> : phaseMonth ? <div className="grid items-start gap-6 xl:grid-cols-[1.25fr_1fr]">
             <section aria-label="Monthly work" className="min-w-0">
                 {phaseMonth.needsDate.length > 0 && <div className="mb-4"><h3 className="mb-2 text-sm font-semibold">Needs a date</h3>{phaseMonth.needsDate.map(task => <PhaseTaskButton key={task.id} task={task} slipLabel={null} selected={selected?.id === task.id} members={members} onSelect={setSelectedId} />)}</div>}
-                {phaseMonth.due.length === 0 && phaseMonth.slipped.length === 0 ? <section className="flex min-h-72 flex-col items-center justify-center rounded-xl border border-dashed border-border p-8 text-center"><ListTodo className="mb-4 h-7 w-7 text-primary" /><h3 className="text-lg font-semibold">Nothing scheduled in {monthName}</h3><p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">{phaseMonth.needsDate.length ? 'The tasks above still need a date.' : 'Tasks due this month show up here.'}</p><button className={cn(primary, 'mt-5')} onClick={() => setScheduling(true)}><Plus className="h-4 w-4" />Schedule work</button></section> : <>
+                {phaseMonth.due.length === 0 && phaseMonth.slipped.length === 0 ? <section className="flex min-h-72 flex-col items-center justify-center rounded-xl border border-dashed border-border p-8 text-center"><ListTodo className="mb-4 h-7 w-7 text-primary" /><h3 className="text-lg font-semibold">Nothing scheduled in {monthName}</h3><p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">{phaseMonth.needsDate.length ? 'The tasks above still need a date.' : readOnly ? SEO_PLAN_READ_ONLY_NOTE : 'Tasks due this month show up here.'}</p>{!readOnly && <button className={cn(primary, 'mt-5')} onClick={() => setScheduling(true)}><Plus className="h-4 w-4" />Schedule work</button>}</section> : <>
                     {phaseMonth.due.map(task => <PhaseTaskButton key={task.id} task={task} slipLabel={null} selected={selected?.id === task.id} members={members} onSelect={setSelectedId} />)}
                     {phaseMonth.slipped.length > 0 && <h3 className="mb-2 mt-4 text-sm font-semibold">Slipped</h3>}
                     {phaseMonth.slipped.map(row => <PhaseTaskButton key={row.task.id} task={row.task} slipLabel={row.slipLabel} selected={selected?.id === row.task.id} members={members} onSelect={setSelectedId} />)}
@@ -139,8 +142,8 @@ export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',
             </section>
             {selected && <TaskPane key={selected.id} task={selected} category={plan.steps.find(step => step.key === source?.stepKey)?.name} members={members} onSave={onSaveTask} onOpen={onOpenTask} recordPhase={recordPhase} phaseAnchorDate={phaseAnchorDate} phaseChoices={phaseChoices} commitmentOptions={commitmentOptions} />}
         </div> : <>
-            {(summary.carryover.length > 0 || summary.unscheduled.length > 0) && <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground"><p>{summary.carryover.length > 0 && `${summary.carryover.length} unfinished from earlier months. `}{summary.unscheduled.length > 0 && `${summary.unscheduled.length} linked ${summary.unscheduled.length === 1 ? 'task has' : 'tasks have'} no due date.`}</p><button className="min-h-10 text-primary hover:underline" onClick={() => setScheduling(true)}>Review and schedule</button></div>}
-            {summary.tasks.length === 0 ? <section className="flex min-h-72 flex-col items-center justify-center rounded-xl border border-dashed border-border p-8 text-center"><ListTodo className="mb-4 h-7 w-7 text-primary" /><h3 className="text-lg font-semibold">Choose this month’s focus</h3><p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">Pick a few items from your plan, assign an owner, and set a due date. Your full checklist stays in the backlog.</p><button className={cn(primary, 'mt-5')} onClick={() => setScheduling(true)}><Plus className="h-4 w-4" />Schedule your first task</button></section>
+            {(summary.carryover.length > 0 || summary.unscheduled.length > 0) && <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground"><p>{summary.carryover.length > 0 && `${summary.carryover.length} unfinished from earlier months. `}{summary.unscheduled.length > 0 && `${summary.unscheduled.length} linked ${summary.unscheduled.length === 1 ? 'task has' : 'tasks have'} no due date.`}</p>{!readOnly && <button className="min-h-10 text-primary hover:underline" onClick={() => setScheduling(true)}>Review and schedule</button>}</div>}
+            {summary.tasks.length === 0 ? <section className="flex min-h-72 flex-col items-center justify-center rounded-xl border border-dashed border-border p-8 text-center"><ListTodo className="mb-4 h-7 w-7 text-primary" /><h3 className="text-lg font-semibold">Choose this month’s focus</h3><p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">{readOnly ? SEO_PLAN_READ_ONLY_NOTE : 'Pick a few items from your plan, assign an owner, and set a due date. Your full checklist stays in the backlog.'}</p>{!readOnly && <button className={cn(primary, 'mt-5')} onClick={() => setScheduling(true)}><Plus className="h-4 w-4" />Schedule your first task</button>}</section>
             : <div className="grid items-start gap-6 xl:grid-cols-[1.25fr_1fr]">
                 <section aria-label="Monthly work" className="min-w-0">
                     <div className="grid grid-cols-[minmax(0,1fr)_90px_72px] gap-3 border-b border-border px-3 pb-3 text-[11px] uppercase tracking-wide text-muted-foreground 2xl:grid-cols-[minmax(0,1fr)_100px_85px_65px]"><span>Task</span><span>Status</span><span>Due</span><span className="hidden 2xl:block">Effort</span></div>
@@ -150,7 +153,7 @@ export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',
                 {selected && <TaskPane key={selected.id} task={selected} category={plan.steps.find(step => step.key === source?.stepKey)?.name} members={members} onSave={onSaveTask} onOpen={onOpenTask} />}
             </div>}
         </>}
-        <ScheduleDialog open={scheduling} onClose={() => setScheduling(false)} month={month} plan={plan} members={members} remaining={budget - consumed} budget={budget} onSchedule={onSchedule} variant={variant} hoursNarrative={narrative} />
+        {!readOnly && <ScheduleDialog open={scheduling} onClose={() => setScheduling(false)} month={month} plan={plan} members={members} remaining={budget - consumed} budget={budget} onSchedule={onSchedule} variant={variant} hoursNarrative={narrative} />}
     </div>;
 }
 
