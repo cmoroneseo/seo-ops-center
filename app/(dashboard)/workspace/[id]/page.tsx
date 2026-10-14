@@ -45,11 +45,12 @@ import { BasecampImportModal } from '@/components/workspace/BasecampImportModal'
 import { ClientApprovalsTab } from '@/components/approvals/ClientApprovalsTab';
 import { ClientPortalStaffPanel } from '@/components/portal/ClientPortalStaffPanel';
 import {ClientAgreementSummary} from '@/components/workspace/agreements/ClientAgreementSummary';
-import {AGREEMENT_SUMMARY_ROW_CLASS} from '@/lib/agreements/summary-row';
+import {AGREEMENT_SUMMARY_ROW_CLASS,AGREEMENT_SUMMARY_ROW_HEIGHT} from '@/lib/agreements/summary-row';
 import { VaultHeaderPill } from '@/components/vault/VaultHeaderPill';
 import { VaultPage } from '@/components/vault/VaultPage';
 import { useVaultEnabled } from '@/components/vault/use-vault-enabled';
 import { useSeoPlanV2 } from '@/components/seo-plan/use-seo-plan-v2';
+import { seoPlanReadOnly } from '@/lib/seo-plan/read-only';
 import { WorkspaceNav } from '@/components/seo-plan/WorkspaceNav';
 import { PanelSkeleton } from '@/components/seo-plan/PanelSkeleton';
 import { PlanOverviewPanel } from '@/components/seo-plan/PlanOverviewPanel';
@@ -228,8 +229,10 @@ export default function ClientDetailPage() {
                         </div>
                     </div>
                 </div>
-                <div className={AGREEMENT_SUMMARY_ROW_CLASS} aria-hidden="true">
-                    <div className="h-4 w-48 animate-pulse rounded bg-muted" />
+                <div className={AGREEMENT_SUMMARY_ROW_CLASS} style={{ height: AGREEMENT_SUMMARY_ROW_HEIGHT }} aria-hidden="true">
+                    <div className="flex h-10 min-w-0 flex-1 items-center">
+                        <div className="h-4 w-48 animate-pulse rounded bg-muted" />
+                    </div>
                 </div>
                 {seoPlanV2 === true ? (
                     <WorkspaceNav active="overview" vault={false} onSelect={() => {}} />
@@ -498,6 +501,8 @@ export default function ClientDetailPage() {
                     scopeMode={client.agreementCoverage === 'none' || client.agreementCoverage === 'custom' || client.setupScope?.mode === 'custom' ? 'custom' : 'monthly'}
                     presentation={v2On ? 'v2' : 'classic'}
                     checklistScope={{ gbp: client.setupScope?.gbp === true, listings: client.setupScope?.listings === true }}
+                    readOnly={v2On && seoPlanReadOnly(client.status)}
+                    knownAgreements={v2On ? client.agreements ?? null : null}
                     hoursNarrative={planHoursNarrative({
                         failed: client.agreementHistoryUnavailable === true,
                         coverage: client.agreementCoverage,

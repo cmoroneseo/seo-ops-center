@@ -1,6 +1,7 @@
 @import "tailwindcss" source(none);
 @source "../app";
 @source "../components";
+@source "../lib/agreements/summary-row.ts";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));

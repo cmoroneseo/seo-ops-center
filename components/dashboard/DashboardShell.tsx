@@ -66,6 +66,10 @@ export function DashboardShell({
                         {showProjectSidebar && <ClientListPanel />}
                         <main className={cn(
                             "flex-1 min-w-0 overflow-y-auto",
+                            // Classic scrollbars are ~15px. Without a stable gutter, opening
+                            // Roadmap or Overview shows the bar and shifts the right-aligned
+                            // agreement actions. Overlay scrollbars ignore the gutter.
+                            isWorkspace && "[scrollbar-gutter:stable]",
                             isSetupPage
                                 ? "flex flex-col items-center justify-center"
                                 // The planner manages its own scrolling and rails, so it opts out
