@@ -2,12 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
+import { filterGa4Properties, ga4SearchEmptyMessage, type Ga4PropertySummary } from '@/lib/google/ga4-properties';
+import { PropertySearchInput } from './PropertySearchInput';
 
-interface GA4Property {
-    id: string;
-    displayName: string;
-    account: string;
-}
+type GA4Property = Ga4PropertySummary;
 
 interface GBPLocation {
     name: string;
@@ -48,8 +46,10 @@ function PickerList<T>({
                 return (
                     <button
                         key={key}
+                        type="button"
+                        aria-pressed={active}
                         onClick={() => onSelect(key)}
-                        className={`w-full text-left rounded-lg border px-3 py-2.5 text-sm transition-all ${
+                        className={`w-full text-left rounded-lg border px-3 py-2.5 text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                             active
                                 ? 'border-primary bg-primary/10 text-foreground'
                                 : 'border-border bg-muted/20 text-muted-foreground hover:border-primary/40 hover:text-foreground'
@@ -57,11 +57,56 @@ function PickerList<T>({
                     >
                         <div className="flex items-center justify-between gap-2">
                             <div className="min-w-0">{renderItem(item)}</div>
-                            {active && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />}
+                            {active && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />}
                         </div>
                     </button>
                 );
             })}
+        </div>
+    );
+}
+
+export function Ga4PropertyOptions({
+    properties,
+    selected,
+    query,
+    onQueryChange,
+    onSelect,
+}: {
+    properties: GA4Property[];
+    selected: string;
+    query: string;
+    onQueryChange: (query: string) => void;
+    onSelect: (id: string) => void;
+}) {
+    const visible = filterGa4Properties(properties, query);
+    const trimmed = query.trim();
+    return (
+        <div className="space-y-2">
+            <PropertySearchInput
+                value={query}
+                onChange={onQueryChange}
+                placeholder="Search by name, account, or ID…"
+                autoFocus
+            />
+            {visible.length === 0 ? (
+                trimmed
+                    ? <p role="status" className="py-8 text-center text-sm text-muted-foreground">{ga4SearchEmptyMessage(query)}</p>
+                    : <p className="text-xs text-muted-foreground italic">No options found on this account.</p>
+            ) : (
+                <PickerList
+                    items={visible}
+                    selected={selected}
+                    onSelect={onSelect}
+                    getKey={(property) => property.id}
+                    renderItem={(property) => (
+                        <>
+                            <div className="font-medium text-foreground">{property.displayName}</div>
+                            <div className="text-xs text-muted-foreground">{property.account} · {property.id.replace('properties/', 'ID: ')}</div>
+                        </>
+                    )}
+                />
+            )}
         </div>
     );
 }
@@ -73,6 +118,7 @@ export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCan
 
     // GA4 + GSC state
     const [ga4Properties, setGa4Properties] = useState<GA4Property[]>([]);
+    const [ga4Query, setGa4Query] = useState('');
     const [selectedGA4, setSelectedGA4] = useState('');
     const [selectedGA4Name, setSelectedGA4Name] = useState('');
 
@@ -162,20 +208,15 @@ export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCan
                     <div className="space-y-5">
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Google Analytics 4 Property</label>
-                            <PickerList
-                                items={ga4Properties}
+                            <Ga4PropertyOptions
+                                properties={ga4Properties}
                                 selected={selectedGA4}
+                                query={ga4Query}
+                                onQueryChange={setGa4Query}
                                 onSelect={(id) => {
                                     setSelectedGA4(id);
                                     setSelectedGA4Name(ga4Properties.find(p => p.id === id)?.displayName ?? '');
                                 }}
-                                getKey={(p) => p.id}
-                                renderItem={(p) => (
-                                    <>
-                                        <div className="font-medium text-foreground">{p.displayName}</div>
-                                        <div className="text-xs text-muted-foreground">{p.account} · {p.id.replace('properties/', 'ID: ')}</div>
-                                    </>
-                                )}
                             />
                         </div>
 
