@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Check, Globe2, Loader2, RefreshCw, Search, AlertCircle } from 'lucide-react';
+import { Check, Globe2, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
 import { PropertyLogo } from './PropertyLogo';
+import { PropertySearchInput } from './PropertySearchInput';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { describeProperty, filterProperties, isClientMatch, permissionLabel, selectGscProperty, type GscSite } from '@/lib/google/gsc-properties';
 import { cn } from '@/lib/utils';
@@ -86,11 +87,7 @@ export function GscPropertySelector({ clientId, clientName, website, onClose, on
                     </DialogDescription>
                 </DialogHeader>
                 <div className="px-6 pb-4 flex gap-2">
-                    <div className="relative flex-1 min-w-0">
-                        <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                        <input aria-label="Search properties" placeholder="Search by domain or URL…" value={query} onChange={e => setQuery(e.target.value)}
-                            className="w-full rounded-lg border border-input bg-background pl-9 pr-3 py-2.5 text-base sm:text-sm focus-visible:outline-2 focus-visible:outline-ring" />
-                    </div>
+                    <PropertySearchInput value={query} onChange={setQuery} placeholder="Search by domain or URL…" />
                     <button type="button" disabled={loading || saving} onClick={() => setReload(v => v + 1)} aria-label="Refresh property list"
                         className="rounded-lg border px-3 hover:bg-muted disabled:opacity-50"><RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} /></button>
                 </div>
