@@ -2,12 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, CheckSquare, Briefcase, ClipboardList, PackageCheck, CalendarRange, GraduationCap, Clock } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Briefcase, ClipboardList, PackageCheck, CalendarRange, GraduationCap, Clock, LayoutGrid } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { reportsNavHref } from '@/lib/reports/close-nav';
+import { agencyDashboardNav } from '@/lib/agency-dashboard/flags';
+import { useAgencyDashboardEnabled } from '@/components/agency-dashboard/use-enabled';
 
 export const navigation = [
   { name: 'Home', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Dashboard', href: '/agency', icon: LayoutGrid },
   { name: 'Workspace', href: '/workspace', icon: Briefcase },
   { name: 'Reports', href: '/reports', icon: ClipboardList },
   { name: 'Tasks', href: '/tasks', icon: CheckSquare },
@@ -19,6 +22,7 @@ export const navigation = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const items = agencyDashboardNav(navigation, useAgencyDashboardEnabled());
 
   return (
     <div className="hidden lg:flex h-full w-20 flex-col bg-card border-r border-border items-center py-4">
@@ -27,7 +31,7 @@ export function Sidebar() {
       </div>
 
       <nav className="mt-8 flex flex-col items-center gap-3 w-full px-2">
-        {navigation.map((item) => {
+        {items.map((item) => {
           const isActive = pathname === item.href || (item.href !== '/' && pathname?.startsWith(item.href));
           return (
             <Link

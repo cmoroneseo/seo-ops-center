@@ -15,6 +15,8 @@ import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { reportsNavHref } from '@/lib/reports/close-nav';
+import { agencyDashboardNav } from '@/lib/agency-dashboard/flags';
+import { useAgencyDashboardEnabled } from '@/components/agency-dashboard/use-enabled';
 
 // Primary destinations surfaced in the bottom tab bar (one-handed reach).
 const primaryTabs = [
@@ -37,6 +39,7 @@ function isActiveHref(pathname: string, href: string) {
 
 export function MobileNav({ showClientList }: { showClientList: boolean }) {
   const pathname = usePathname();
+  const drawerItems = agencyDashboardNav(drawerNavigation, useAgencyDashboardEnabled());
   const { organization, memberships, setOrganization } = useOrganization();
   const [menuOpen, setMenuOpen] = useState(false);
   const [clientsOpen, setClientsOpen] = useState(false);
@@ -184,7 +187,7 @@ export function MobileNav({ showClientList }: { showClientList: boolean }) {
             </div>
           )}
 
-          {drawerNavigation.map((item) => {
+          {drawerItems.map((item) => {
             const active = isActiveHref(pathname, item.href);
             return (
               <Link
