@@ -190,9 +190,8 @@ test('migration 094 does not touch Google history and is mirrored into schema.sq
     assert.match(migration, /unique \(client_id, site_url, data_date\)/);
     assert.match(migration, /unique \(client_id, site_url, week_ending, query_key\)/);
     assert.match(migration, /unique \(client_id, site_url, week_ending, page_key\)/);
-    assert.equal(migration.includes('12voltpower.com'), false);
-    assert.equal(migration.includes('marketingempiregroup.com'), false);
-    assert.equal(migration.includes('scottcoleplumbing.com'), false);
+    assert.equal(/insert into public\.clients\b/i.test(migration), false);
+    assert.equal(/insert into public\.client_integrations\b/i.test(migration), false);
     assert.equal(schema.includes('create table public.bing_traffic_days'), true);
     assert.equal(schema.includes('create function public.replace_bing_snapshot'), true);
     assert.equal(schema.includes('client_integrations_bing_site_url_check'), true);
