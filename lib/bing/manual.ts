@@ -1,0 +1,65 @@
+import { bingWebmasterApiKey, bingWebmasterEnabled } from './flags';
+import type { BingManualView } from './manual-view';
+import { mapUserSites } from './map';
+import { mapAndEnqueueBingOrg, syncBingJob, type BingRunDeps } from './run';
+
+/** A few sites per click, inside a short budget so the request can return. */
+export const BING_MANUAL_SITE_LIMIT = 3;
+export const BING_MANUAL_BUDGET_MS = 20_000;
+
+export interface BingManualLimits {
+    siteLimit?: number;
+    budgetMs?: number;
+    clock?: () => number;
+}
+
+function empty(skipped: BingManualView['skipped']): BingManualView {
+    return { sitesMapped: 0, sitesSynced: 0, remaining: 0, errors: [], skipped };
+}
+
+/**
+ * Same map-and-enqueue pass as the daily cron, for one organization, then
+ * sync a few of that org's sites in this request. Does not publish a queue
+ * message. 429 and 503 stop the rest of the click.
+ */
+export async function runBingManual(
+    organizationId: string,
+    deps: BingRunDeps,
+    limits: BingManualLimits = {},
+): Promise<BingManualView> {
+    if (!bingWebmasterEnabled(deps.env, organizationId)) return empty('flag_off');
+    if (!bingWebmasterApiKey(deps.env)) return empty('missing_key');
+    let sites;
+    try {
+        sites = mapUserSites(await deps.fetchSites());
+    } catch {
+        return empty('unavailable');
+    }
+    const clientIds = await mapAndEnqueueBingOrg(organizationId, sites, deps);
+    const siteLimit = limits.siteLimit ?? BING_MANUAL_SITE_LIMIT;
+    const budgetMs = limits.budgetMs ?? BING_MANUAL_BUDGET_MS;
+    const clock = limits.clock ?? Date.now;
+    const started = clock();
+    let cursor = 0;
+    let processed = 0;
+    let sitesSynced = 0;
+    const errors: number[] = [];
+    while (cursor < clientIds.length && processed < siteLimit && clock() - started < budgetMs) {
+        const clientId = clientIds[cursor];
+        cursor += 1;
+        const job = await deps.store.claim(clientId);
+        if (!job || job.organizationId !== organizationId) continue;
+        processed += 1;
+        const result = await syncBingJob(job, deps);
+        if (result.kind === 'synced') sitesSynced += 1;
+        if (result.status != null) errors.push(result.status);
+        if (result.kind === 'backoff' || (result.kind === 'synced' && result.backoff)) break;
+    }
+    return {
+        sitesMapped: clientIds.length,
+        sitesSynced,
+        remaining: clientIds.length - cursor,
+        errors,
+        skipped: null,
+    };
+}

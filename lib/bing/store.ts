@@ -128,8 +128,8 @@ export function createBingStore(admin: SupabaseClient, env: NodeJS.ProcessEnv = 
             if (error || typeof data !== 'boolean') fail();
             return data;
         },
-        async claim() {
-            const { data, error } = await admin.rpc('claim_bing_sync', { p_client_id: null });
+        async claim(requestedClientId?: string | null) {
+            const { data, error } = await admin.rpc('claim_bing_sync', { p_client_id: requestedClientId ?? null });
             if (error) fail();
             const row = Array.isArray(data) ? data[0] : null;
             if (!row || typeof row !== 'object') return null;
