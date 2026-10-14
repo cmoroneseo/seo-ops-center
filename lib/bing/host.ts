@@ -1,11 +1,12 @@
 /**
  * Host key for auto-map. The exact Bing URL is stored and sent unchanged.
- * This key is only the comparison form: lowercase, no scheme, path, port,
- * trailing dot, or leading www.
+ * This key is only the comparison form: lowercase, no sc-domain prefix,
+ * scheme, path, port, trailing dot, or leading www.
  */
 export function hostKey(value: string | null | undefined): string | null {
     if (value == null) return null;
     let host = value.trim().toLowerCase();
+    if (host.startsWith('sc-domain:')) host = host.slice('sc-domain:'.length).trim();
     if (host === '') return null;
     host = host.replace(/^[a-z][a-z0-9+.-]*:\/\//, '');
     host = host.replace(/^\/\//, '');

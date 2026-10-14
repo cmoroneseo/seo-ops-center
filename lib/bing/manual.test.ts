@@ -19,7 +19,7 @@ function onEnv(orgs = ORG): NodeJS.ProcessEnv {
 }
 
 function client(id: string, domain: string): BingClientRow {
-    return { id, organizationId: ORG, domain, status: 'active' };
+    return { id, organizationId: ORG, domain, status: 'active', gscSiteUrl: null };
 }
 
 function job(clientId: string, organizationId = ORG): BingJob {
