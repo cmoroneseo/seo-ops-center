@@ -11,7 +11,11 @@ const SERVICE_SCOPES: Record<string, string[]> = {
 /** Identity scopes so the token exchange can record which Google account connected. */
 export const GOOGLE_IDENTITY_SCOPES = ['openid', 'email'] as const;
 
-export function googleOAuthScopes(group: string): string[] | null {
+export function googleOAuthScopes(group: string | null): string[] | null {
+    // Reject unknown groups here. The connect route must not branch on the
+    // raw query value before the OAuth redirect — CodeQL treats that as a
+    // user-controlled guard of the redirect.
+    if (!group) return null;
     const scopes = SERVICE_SCOPES[group];
     if (!scopes) return null;
     return [...scopes, ...GOOGLE_IDENTITY_SCOPES];

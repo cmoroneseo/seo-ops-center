@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
     const orgId = searchParams.get('orgId');
     const group = searchParams.get('group') as 'ga4-gsc' | 'ga4' | 'gsc' | 'gbp' | null;
 
-    const scopes = group ? googleOAuthScopes(group) : null;
+    const scopes = googleOAuthScopes(group);
     if (!clientId || !orgId || !group || !scopes) {
         return NextResponse.json({ error: 'Missing or invalid params' }, { status: 400 });
     }

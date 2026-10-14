@@ -86,6 +86,8 @@ test('connect asks for openid email and an account chooser', () => {
     assert.ok(googleOAuthScopes('ga4-gsc')?.includes('email'));
     assert.ok(googleOAuthScopes('gbp')?.includes('openid'));
     assert.equal(googleOAuthScopes('nope'), null);
+    assert.equal(googleOAuthScopes(null), null);
+    assert.equal(googleOAuthScopes(''), null);
     assert.equal(googleOAuthPrompt(), 'consent select_account');
 });
 
