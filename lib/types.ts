@@ -229,6 +229,12 @@ export interface TaskTemplate {
 export interface Task {
     id: string;
     agreementId?: string;
+    /** Scheduled phase from migration 088. Absent until that column exists. */
+    planPhase?: string | null;
+    /** True only when an operator pinned a phase that disagrees with the due date. */
+    planPhaseLocked?: boolean;
+    /** Agreement service this task counts against. Absent until migration 088. */
+    commitmentId?: string | null;
     organizationId: string;
     projectId?: string;
     clientId?: string;

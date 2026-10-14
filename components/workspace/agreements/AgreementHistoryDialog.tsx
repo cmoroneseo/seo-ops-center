@@ -21,7 +21,7 @@ interface Props {
     onCancel:(agreement:ClientAgreement)=>Promise<void>;
 }
 export function AgreementHistoryHeading({label,onOpen}:{label:string;onOpen:()=>void}) {
-    return <button type="button" className="rounded text-left text-sm font-medium underline decoration-border underline-offset-4 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-haspopup="dialog" onClick={onOpen}>{label}</button>;
+    return <button type="button" className="block max-w-full truncate rounded text-left text-sm font-medium leading-5 underline decoration-border underline-offset-4 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-haspopup="dialog" onClick={onOpen}>{label}</button>;
 }
 
 export function AgreementHistoryPanel({history,today,currentId,canManage,busy,error,onChangeScope,onCancel}:Omit<Props,'open'|'onOpenChange'|'clientName'>) {

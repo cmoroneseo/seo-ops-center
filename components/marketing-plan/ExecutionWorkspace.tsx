@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import type { MarketingPlan, MarketingPlanItem, Task } from '@/lib/types';
 import { executionCapacity, monthlyExecution, taskIsComplete, TASK_STATUS_LABELS } from '@/lib/marketing-plan-execution';
+import { phaseWrite } from '@/lib/agreements/phase';
 import { planSurfaceViews, scheduleHoursNote, type HoursNarrative } from '@/lib/seo-plan/overview';
 import type { MemberOption } from './ItemRow';
 
@@ -18,6 +19,14 @@ export interface ExecutionTaskPatch {
     estimatedHours?: number | null;
     status?: Task['status'];
     description?: string;
+    planPhase?: string | null;
+    planPhaseLocked?: boolean;
+    commitmentId?: string | null;
+}
+export interface PhaseMonthLists {
+    needsDate: Task[];
+    due: Task[];
+    slipped: Array<{ task: Task; slipLabel: string }>;
 }
 export interface ScheduleFields { dueDate: string; assigneeId: string; estimatedHours: number }
 export interface ExecutionWorkspaceProps {
@@ -38,6 +47,11 @@ export interface ExecutionWorkspaceProps {
     onOpenTask: (task: Task, complete?: boolean) => void;
     variant?: 'classic' | 'v2';
     hoursNarrative?: 'default' | HoursNarrative;
+    phaseMonth?: PhaseMonthLists | null;
+    recordPhase?: boolean;
+    phaseAnchorDate?: string | null;
+    phaseChoices?: Array<{ value: string; label: string }>;
+    commitmentOptions?: Array<{ id: string; title: string; agreementId: string }>;
 }
 
 const field = 'w-full min-h-10 rounded-lg border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50';
@@ -52,7 +66,7 @@ function Status({ task }: { task: Task }) {
     </span>;
 }
 
-export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',budgetTaskIds, loggedHours, taskHours, members, fullPlan, onAddExisting, onMonthChange, onSaveTask, onSchedule, onSaveGoal, onOpenTask, variant = 'classic', hoursNarrative = 'default' }: ExecutionWorkspaceProps) {
+export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',budgetTaskIds, loggedHours, taskHours, members, fullPlan, onAddExisting, onMonthChange, onSaveTask, onSchedule, onSaveGoal, onOpenTask, variant = 'classic', hoursNarrative = 'default', phaseMonth = null, recordPhase = false, phaseAnchorDate = null, phaseChoices = [], commitmentOptions = [] }: ExecutionWorkspaceProps) {
     const [view, setView] = useState<'month' | 'full' | 'results' | 'roadmap'>('month');
     const views = planSurfaceViews(variant === 'v2');
     const narrative: HoursNarrative = hoursNarrative === 'default' ? 'monthly' : hoursNarrative;
@@ -65,7 +79,10 @@ export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',
     const summary = monthlyExecution(plan.items ?? [], month, budget);
     const capacityTasks=budgetTaskIds ? summary.tasks.filter(task=>budgetTaskIds.includes(task.id)) : summary.tasks;
     const { plannedHours, consumed, available, scale } = executionCapacity(capacityTasks, taskHours, loggedHours, budget);
-    const selected = summary.tasks.find(task => task.id === selectedId) ?? summary.tasks[0];
+    const phaseTasks = phaseMonth ? [...phaseMonth.needsDate, ...phaseMonth.due, ...phaseMonth.slipped.map(row => row.task)] : [];
+    const listTasks = phaseMonth ? phaseTasks : summary.tasks;
+    const selected = listTasks.find(task => task.id === selectedId) ?? listTasks[0];
+    const monthName = new Date(`${month}-01T12:00:00`).toLocaleDateString(undefined, { month: 'long' });
     const source = plan.items?.find(item => item.taskId === selected?.id);
     const title = new Date(`${month}-01T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
     const changeMonth = (offset: number) => {
@@ -110,15 +127,24 @@ export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',
             <h3 className="text-lg font-semibold">Delivered in {title}</h3><p className="text-sm text-muted-foreground">{summary.completed.length} of {summary.tasks.length} planned tasks completed. Completion reflects Tasks; estimated effort includes completed work.</p>
             {summary.completed.length ? <ul className="divide-y divide-border">{summary.completed.map(task => <li key={task.id}><button className="flex min-h-14 w-full items-center justify-between gap-4 py-3 text-left text-sm hover:text-primary" onClick={() => onOpenTask(task)}><span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-green-500" />{task.title}</span><ArrowUpRight className="h-4 w-4 shrink-0" /></button></li>)}</ul> : <p className="py-8 text-sm text-muted-foreground">Completed tasks due this month will appear here.</p>}
             <p className="flex items-start gap-2 text-xs text-muted-foreground"><Info className="h-4 w-4 shrink-0" />This is a delivery summary. Search performance and conversions are available in Search Insights.</p>
-        </section> : <>
+        </section> : phaseMonth ? <div className="grid items-start gap-6 xl:grid-cols-[1.25fr_1fr]">
+            <section aria-label="Monthly work" className="min-w-0">
+                {phaseMonth.needsDate.length > 0 && <div className="mb-4"><h3 className="mb-2 text-sm font-semibold">Needs a date</h3>{phaseMonth.needsDate.map(task => <PhaseTaskButton key={task.id} task={task} slipLabel={null} selected={selected?.id === task.id} members={members} onSelect={setSelectedId} />)}</div>}
+                {phaseMonth.due.length === 0 && phaseMonth.slipped.length === 0 ? <section className="flex min-h-72 flex-col items-center justify-center rounded-xl border border-dashed border-border p-8 text-center"><ListTodo className="mb-4 h-7 w-7 text-primary" /><h3 className="text-lg font-semibold">Nothing scheduled in {monthName}</h3><p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">{phaseMonth.needsDate.length ? 'The tasks above still need a date.' : 'Tasks due this month show up here.'}</p><button className={cn(primary, 'mt-5')} onClick={() => setScheduling(true)}><Plus className="h-4 w-4" />Schedule work</button></section> : <>
+                    {phaseMonth.due.map(task => <PhaseTaskButton key={task.id} task={task} slipLabel={null} selected={selected?.id === task.id} members={members} onSelect={setSelectedId} />)}
+                    {phaseMonth.slipped.length > 0 && <h3 className="mb-2 mt-4 text-sm font-semibold">Slipped</h3>}
+                    {phaseMonth.slipped.map(row => <PhaseTaskButton key={row.task.id} task={row.task} slipLabel={row.slipLabel} selected={selected?.id === row.task.id} members={members} onSelect={setSelectedId} />)}
+                </>}
+                <p className="mt-4 text-xs leading-5 text-muted-foreground">Slipped work stays on its original due date. Reschedule to write a new one.</p>
+            </section>
+            {selected && <TaskPane key={selected.id} task={selected} category={plan.steps.find(step => step.key === source?.stepKey)?.name} members={members} onSave={onSaveTask} onOpen={onOpenTask} recordPhase={recordPhase} phaseAnchorDate={phaseAnchorDate} phaseChoices={phaseChoices} commitmentOptions={commitmentOptions} />}
+        </div> : <>
             {(summary.carryover.length > 0 || summary.unscheduled.length > 0) && <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground"><p>{summary.carryover.length > 0 && `${summary.carryover.length} unfinished from earlier months. `}{summary.unscheduled.length > 0 && `${summary.unscheduled.length} linked ${summary.unscheduled.length === 1 ? 'task has' : 'tasks have'} no due date.`}</p><button className="min-h-10 text-primary hover:underline" onClick={() => setScheduling(true)}>Review and schedule</button></div>}
             {summary.tasks.length === 0 ? <section className="flex min-h-72 flex-col items-center justify-center rounded-xl border border-dashed border-border p-8 text-center"><ListTodo className="mb-4 h-7 w-7 text-primary" /><h3 className="text-lg font-semibold">Choose this month’s focus</h3><p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">Pick a few items from your plan, assign an owner, and set a due date. Your full checklist stays in the backlog.</p><button className={cn(primary, 'mt-5')} onClick={() => setScheduling(true)}><Plus className="h-4 w-4" />Schedule your first task</button></section>
             : <div className="grid items-start gap-6 xl:grid-cols-[1.25fr_1fr]">
                 <section aria-label="Monthly work" className="min-w-0">
                     <div className="grid grid-cols-[minmax(0,1fr)_90px_72px] gap-3 border-b border-border px-3 pb-3 text-[11px] uppercase tracking-wide text-muted-foreground 2xl:grid-cols-[minmax(0,1fr)_100px_85px_65px]"><span>Task</span><span>Status</span><span>Due</span><span className="hidden 2xl:block">Effort</span></div>
-                    {summary.tasks.map(task => <button key={task.id} onClick={() => setSelectedId(task.id)} aria-pressed={selected?.id === task.id} className={cn('grid min-h-20 w-full grid-cols-[minmax(0,1fr)_90px_72px] items-center gap-3 border-b border-border border-l-[3px] px-3 py-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary 2xl:grid-cols-[minmax(0,1fr)_100px_85px_65px]', selected?.id === task.id ? 'rounded-lg border-l-primary bg-primary/10' : 'border-l-transparent hover:bg-muted/40')}>
-                        <span className="min-w-0"><span className={cn('block text-sm font-medium', taskIsComplete(task) && 'text-muted-foreground')}>{task.title}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{task.assigneeIds?.length ? task.assigneeIds.map(id => members.find(member => member.userId === id)?.displayName ?? 'Team member').join(', ') : 'Unassigned'}</span></span><Status task={task} /><span className="text-xs text-muted-foreground">{shortDate(task.dueDate)}</span><span className="hidden text-xs text-muted-foreground 2xl:block">{task.estimatedHours == null ? '—' : formatHours(task.estimatedHours)}</span>
-                    </button>)}
+                    {summary.tasks.map(task => <PhaseTaskButton key={task.id} task={task} slipLabel={null} selected={selected?.id === task.id} members={members} onSelect={setSelectedId} />)}
                     <p className="mt-4 text-xs leading-5 text-muted-foreground">Work is grouped by due month. Estimates include completed tasks and are separate from time logged.</p>
                 </section>
                 {selected && <TaskPane key={selected.id} task={selected} category={plan.steps.find(step => step.key === source?.stepKey)?.name} members={members} onSave={onSaveTask} onOpen={onOpenTask} />}
@@ -128,22 +154,39 @@ export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',
     </div>;
 }
 
-function TaskPane({ task, category, members, onSave, onOpen }: { task: Task; category?: string; members: MemberOption[]; onSave: ExecutionWorkspaceProps['onSaveTask']; onOpen: ExecutionWorkspaceProps['onOpenTask'] }) {
+function PhaseTaskButton({ task, slipLabel, selected, members, onSelect }: { task: Task; slipLabel: string | null; selected: boolean; members: MemberOption[]; onSelect: (id: string) => void }) {
+    return <button onClick={() => onSelect(task.id)} aria-pressed={selected} className={cn('grid min-h-20 w-full grid-cols-[minmax(0,1fr)_90px_72px] items-center gap-3 border-b border-border border-l-[3px] px-3 py-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary 2xl:grid-cols-[minmax(0,1fr)_100px_85px_65px]', selected ? 'rounded-lg border-l-primary bg-primary/10' : 'border-l-transparent hover:bg-muted/40')}>
+        <span className="min-w-0"><span className={cn('block text-sm font-medium', taskIsComplete(task) && 'text-muted-foreground')}>{task.title}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{task.assigneeIds?.length ? task.assigneeIds.map(id => members.find(member => member.userId === id)?.displayName ?? 'Team member').join(', ') : 'Unassigned'}</span>{slipLabel && <span className="mt-1 block text-xs font-medium text-amber-600">{slipLabel}</span>}</span><Status task={task} /><span className="text-xs text-muted-foreground">{shortDate(task.dueDate)}</span><span className="hidden text-xs text-muted-foreground 2xl:block">{task.estimatedHours == null ? '—' : formatHours(task.estimatedHours)}</span>
+    </button>;
+}
+
+function TaskPane({ task, category, members, onSave, onOpen, recordPhase = false, phaseAnchorDate = null, phaseChoices = [], commitmentOptions = [] }: { task: Task; category?: string; members: MemberOption[]; onSave: ExecutionWorkspaceProps['onSaveTask']; onOpen: ExecutionWorkspaceProps['onOpenTask']; recordPhase?: boolean; phaseAnchorDate?: string | null; phaseChoices?: Array<{ value: string; label: string }>; commitmentOptions?: Array<{ id: string; title: string; agreementId: string }> }) {
     const [ownerIds, setOwnerIds] = useState(task.assigneeIds ?? []);
     const [due, setDue] = useState(task.dueDate ?? '');
     const [effort, setEffort] = useState(task.estimatedHours?.toString() ?? '');
     const [status, setStatus] = useState(task.status);
     const [description, setDescription] = useState(task.description ?? '');
+    const [phasePin, setPhasePin] = useState(task.planPhaseLocked && task.planPhase ? task.planPhase : '');
+    const [commitmentId, setCommitmentId] = useState(task.commitmentId ?? '');
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [saved, setSaved] = useState(false);
     const [dirty, setDirty] = useState(false);
-    useEffect(() => { if (dirty) return; setOwnerIds(task.assigneeIds ?? []); setDue(task.dueDate ?? ''); setEffort(task.estimatedHours?.toString() ?? ''); setStatus(task.status); setDescription(task.description ?? ''); }, [task, dirty]);
+    useEffect(() => { if (dirty) return; setOwnerIds(task.assigneeIds ?? []); setDue(task.dueDate ?? ''); setEffort(task.estimatedHours?.toString() ?? ''); setStatus(task.status); setDescription(task.description ?? ''); setPhasePin(task.planPhaseLocked && task.planPhase ? task.planPhase : ''); setCommitmentId(task.commitmentId ?? ''); }, [task, dirty]);
+    const linkedService = commitmentOptions.find(option => option.id === commitmentId);
+    const commitmentMismatch = !!linkedService && !!task.agreementId && linkedService.agreementId !== task.agreementId;
     return <aside className="min-w-0 border-t border-border pt-5 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0" aria-label="Selected task details">
         <div className="flex flex-wrap items-start justify-between gap-3"><h3 className="max-w-sm text-base font-semibold">{task.title}</h3><button className="flex min-h-8 items-center gap-1 text-xs text-primary hover:underline" onClick={() => onOpen(task)}>Open linked task<ArrowUpRight className="h-3.5 w-3.5" /></button></div>
         <form className="mt-3 space-y-3" onChange={() => { setSaved(false); setDirty(true); }} onSubmit={async event => {
             event.preventDefault(); setSaving(true); setError(''); setSaved(false);
-            try { await onSave(task, { assigneeIds: ownerIds, dueDate: due, estimatedHours: effort !== '' ? Number(effort) : null, status, description }); setDirty(false); setSaved(true); } catch (e) { setError(e instanceof Error ? e.message : 'Could not save task'); } finally { setSaving(false); }
+            try {
+                await onSave(task, {
+                    assigneeIds: ownerIds, dueDate: due, estimatedHours: effort !== '' ? Number(effort) : null, status, description,
+                    ...(recordPhase ? phaseWrite(phaseAnchorDate, due || null, phasePin || null) : {}),
+                    ...(recordPhase ? { commitmentId: commitmentId || null } : {}),
+                });
+                setDirty(false); setSaved(true);
+            } catch (e) { setError(e instanceof Error ? e.message : 'Could not save task'); } finally { setSaving(false); }
         }}>
             <fieldset disabled={saving} className="space-y-3 disabled:opacity-60">
                 <label className="block text-xs text-muted-foreground">Status<select className={cn(field, 'mt-1 max-w-48')} value={status} onChange={e => setStatus(e.target.value as Task['status'])}>{Object.entries(TASK_STATUS_LABELS).filter(([value]) => value !== 'done' && value !== 'approved' || value === task.status).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -152,6 +195,9 @@ function TaskPane({ task, category, members, onSave, onOpen }: { task: Task; cat
                     <label className="text-xs text-muted-foreground">Due date<input type="date" className={cn(field, 'mt-1')} required value={due} onChange={e => setDue(e.target.value)} /></label>
                     <label className="text-xs text-muted-foreground">Estimated hours<input type="number" className={cn(field, 'mt-1')} min="0" max="1000" step="0.25" placeholder="Not estimated" value={effort} onChange={e => setEffort(e.target.value)} /></label>
                 </div>
+                {recordPhase && phaseChoices.length > 0 && <label className="block text-xs text-muted-foreground">Phase<select className={cn(field, 'mt-1 max-w-xs')} value={phasePin} onChange={event => setPhasePin(event.target.value)}><option value="">Follow due date</option>{phaseChoices.map(choice => <option key={choice.value} value={choice.value}>{choice.label}</option>)}{phasePin && !phaseChoices.some(choice => choice.value === phasePin) && <option value={phasePin}>{phasePin}</option>}</select></label>}
+                {recordPhase && <label className="block text-xs text-muted-foreground">Agreement service<select className={cn(field, 'mt-1 max-w-xs')} value={commitmentId} onChange={event => setCommitmentId(event.target.value)}><option value="">Not linked</option>{commitmentOptions.map(option => <option key={option.id} value={option.id}>{option.title}</option>)}{commitmentId && !commitmentOptions.some(option => option.id === commitmentId) && <option value={commitmentId}>Linked service</option>}</select></label>}
+                {commitmentMismatch && <p className="text-xs text-amber-600">This service is on a different agreement. Hours count once, on that agreement.</p>}
                 <div className="border-t border-border pt-4"><label className="text-sm font-medium" htmlFor="execution-description">Why this matters &amp; completion notes</label><textarea id="execution-description" className={cn(field, 'mt-2 min-h-20 leading-6')} value={description} onChange={e => setDescription(e.target.value)} placeholder="Explain the expected outcome and how you will verify the work." /></div>
                 <p className="text-xs text-muted-foreground">Plan category<span className="mt-1 block text-sm text-foreground">{category ?? 'Custom work'}</span></p>
                 <div className="flex flex-wrap gap-2"><button className={primary} type="submit">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Save changes</button>{!taskIsComplete(task) && <button type="button" className={secondary} onClick={() => onOpen(task, true)}><CheckCircle2 className="h-4 w-4" />Review &amp; complete</button>}</div>
