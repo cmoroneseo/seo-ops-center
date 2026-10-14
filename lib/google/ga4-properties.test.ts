@@ -75,8 +75,8 @@ test('filtering keeps the selected card marked and shows the account name', () =
     assert.match(rows[0], /AccuPay, Inc - GA4/);
     assert.match(rows[0], /AccuPay, Inc · ID: 367930949/);
     assert.equal(rows[1].includes('bg-primary/10'), false);
-    assert.match(rows[1], /accupaysystems\.com/);
-    assert.equal(filtered.includes('topnotch-auto.com'), false);
+    assert.equal(rows[1].includes('379618386'), true);
+    assert.equal(filtered.includes('384233495'), false);
     assert.equal(filtered.includes('No properties match'), false);
 
     const restored = renderOptions('', 'properties/367930949');
