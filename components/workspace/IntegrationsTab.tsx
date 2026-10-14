@@ -11,6 +11,7 @@ import { GooglePropertyPicker } from './GooglePropertyPicker';
 import { BasecampImportModal } from './BasecampImportModal';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
+import { connectedAccountLabel } from '@/lib/google/account';
 import { authorizedProjectId } from '@/lib/basecamp/project-selection';
 import {
     emptyBasecampIntegrationScope,
@@ -366,8 +367,10 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
         const integration = getIntegration(cfg.service);
         const attention = integration?.syncStatus === 'error' || isPendingSetup(cfg.service) || integration?.needsPropertySetup || (service === 'gsc' && integration?.syncStatus === 'active' && !integration.selectedProperty);
         const connected = isConnected(cfg.service) && !attention;
+        const accountLabel = service === 'ga4' || service === 'gsc' ? connectedAccountLabel(integration?.googleEmail) : undefined;
         return { id: service as IntegrationCardId, name: cfg.label, description: cfg.description,
             tone: attention ? 'attention' : connected ? 'connected' : 'neutral',
+            accountLabel,
             status: integration?.syncStatus === 'error' ? 'Needs attention' : attention ? 'Complete setup' : connected ? 'Connected' : 'Click to set up' };
     });
     cards.push({ id: 'basecamp', name: 'Basecamp', description: 'Sync client tasks and time entries', tone: bcSyncEnabled && bcProjectId ? 'connected' : 'neutral', status: bcSyncEnabled && bcProjectId ? 'Sync enabled' : 'Click to set up' });
@@ -389,6 +392,8 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                     clientId={clientId}
                     orgId={orgId}
                     group={showPropertyPicker}
+                    googleEmail={showPropertyPicker === 'ga4-gsc' ? getIntegration('ga4')?.googleEmail : undefined}
+                    onReconnect={showPropertyPicker === 'ga4-gsc' ? () => connectGoogle('ga4-gsc') : undefined}
                     onComplete={async () => {
                         const label = showPropertyPicker === 'ga4-gsc' ? 'Google Analytics' : 'Google Business Profile';
                         setShowPropertyPicker(null);
@@ -399,7 +404,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                     onCancel={() => setShowPropertyPicker(null)}
                 />
             )}
-            {showGscPicker && <GscPropertySelector key={clientId} clientId={clientId} clientName={clientName} website={website}
+            {showGscPicker && <GscPropertySelector key={clientId} clientId={clientId} clientName={clientName} website={website} googleEmail={getIntegration('gsc')?.googleEmail}
                 onClose={() => setShowGscPicker(false)} onReconnect={() => connectGoogle('gsc')}
                 onSaved={() => { setShowGscPicker(false); setToast('Search Console property saved'); getClientIntegrations(clientId, orgId).then(setIntegrations).catch(() => setToast('Property saved. Reload to refresh connection status.')); }} />}
             {/* Toast */}
@@ -426,6 +431,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                     // back to 'active' after a successful run) — an error status
                     // doesn't mean the key needs re-entering.
                     const hasCredentials = !!integration && integration.syncStatus !== 'disconnected';
+                    const accountLabel = cfg.service === 'ga4' ? connectedAccountLabel(integration?.googleEmail) : undefined;
 
                     return (
                         <div
@@ -473,6 +479,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                                         )}
                                     </div>
                                     <p className="text-xs text-muted-foreground mt-0.5">{cfg.description}</p>
+                                    {accountLabel && <p className="text-xs text-muted-foreground mt-1">{accountLabel}</p>}
                                     {integration?.lastSyncedAt && (
                                         <p className="text-xs text-muted-foreground mt-1">
                                             Last synced: {new Date(integration.lastSyncedAt).toLocaleDateString()}

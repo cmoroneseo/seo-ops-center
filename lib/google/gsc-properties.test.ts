@@ -24,11 +24,19 @@ test('upstream API errors are not reported as empty catalogs', async () => {
   assert.deepEqual(await readGscSites('token', async () => Response.json({})), []);
 });
 test('reauthorization retains resource but never carries an old refresh token into a new grant', () => {
-  const merged = reconnectCredentials({ site_url: 'sc-domain:example.com', access_token: 'old', refresh_token: 'old-secret', permission_level: 'siteOwner' }, { access_token: 'new', expiry_date: 42 });
+  const merged = reconnectCredentials({ site_url: 'sc-domain:example.com', access_token: 'old', refresh_token: 'old-secret', permission_level: 'siteOwner', google_email: 'old@agency.test' }, { access_token: 'new', expiry_date: 42, google_email: 'new@agency.test' });
   assert.equal(merged.site_url, 'sc-domain:example.com');
   assert.equal(merged.access_token, 'new');
   assert.equal(merged.refresh_token, undefined);
   assert.equal(merged.permission_level, undefined);
+  assert.equal(merged.google_email, 'new@agency.test');
+  const dropped = reconnectCredentials({ site_url: 'sc-domain:example.com', google_email: 'old@agency.test' }, { access_token: 'new' });
+  assert.equal(dropped.google_email, undefined);
+});
+test('Search Console sites.list is one page, and a page token is not treated as the full catalog', async () => {
+  const sites = await readGscSites('token', async () => Response.json({ siteEntry: [{ siteUrl: 'sc-domain:a.com', permissionLevel: 'siteOwner' }, { siteUrl: 'sc-domain:b.com', permissionLevel: 'siteFullUser' }] }));
+  assert.deepEqual(sites.map(site => site.siteUrl), ['sc-domain:a.com', 'sc-domain:b.com']);
+  await assert.rejects(() => readGscSites('token', async () => Response.json({ siteEntry: [{ siteUrl: 'sc-domain:a.com', permissionLevel: 'siteOwner' }], nextPageToken: 'more' })), /partial/i);
 });
 test('signed state accepts independent Google services and detects tampering', () => {
   process.env.GOOGLE_OAUTH_STATE_SECRET = 'test-gsc-state-secret';

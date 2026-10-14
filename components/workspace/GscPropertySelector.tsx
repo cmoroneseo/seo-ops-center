@@ -5,6 +5,7 @@ import { Check, Globe2, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
 import { PropertyLogo } from './PropertyLogo';
 import { PropertySearchInput } from './PropertySearchInput';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { GoogleAccountEmptyHint } from './GoogleAccountEmptyHint';
 import { describeProperty, filterProperties, isClientMatch, permissionLabel, selectGscProperty, type GscSite } from '@/lib/google/gsc-properties';
 import { cn } from '@/lib/utils';
 
@@ -12,12 +13,13 @@ interface Props {
     clientId: string;
     clientName?: string;
     website?: string;
+    googleEmail?: string;
     onClose: () => void;
     onSaved: () => void;
     onReconnect: () => void;
 }
 
-export function GscPropertySelector({ clientId, clientName, website, onClose, onSaved, onReconnect }: Props) {
+export function GscPropertySelector({ clientId, clientName, website, googleEmail, onClose, onSaved, onReconnect }: Props) {
     const [sites, setSites] = useState<GscSite[]>([]);
     const [current, setCurrent] = useState<string | null>(null);
     const [selected, setSelected] = useState('');
@@ -97,7 +99,7 @@ export function GscPropertySelector({ clientId, clientName, website, onClose, on
                     </div>}
                     {loading ? <div role="status" className="py-12 text-center text-sm text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin mx-auto mb-3" />Loading your properties…</div> : <>
                         {current && !selectGscProperty(sites, current) && !error && <p className="text-sm text-amber-600 dark:text-amber-400">Your saved property ({current}) is not accessible from this account. Select another property or reconnect.</p>}
-                        {!error && sites.length === 0 && <div className="py-8 text-center"><Globe2 className="mx-auto h-8 w-8 text-muted-foreground mb-3" /><p className="font-medium">No Search Console properties found</p><p className="text-sm text-muted-foreground mt-1">Use a Google account that has access to this client’s property, then refresh the list.</p><button type="button" onClick={onReconnect} className="mt-4 text-sm underline">Connect a different Google account</button></div>}
+                        {!error && sites.length === 0 && <div className="py-8 text-center space-y-3"><Globe2 className="mx-auto h-8 w-8 text-muted-foreground" /><p className="font-medium">No Search Console properties found</p>{googleEmail ? <GoogleAccountEmptyHint email={googleEmail} onReconnect={onReconnect} /> : <><p className="text-sm text-muted-foreground">Use a Google account that has access to this client’s property, then refresh the list.</p><button type="button" onClick={onReconnect} className="text-sm underline">Connect a different Google account</button></>}</div>}
                         {sites.length > 0 && <>
                             <p className="text-xs text-muted-foreground" aria-live="polite">{visible.length} {visible.length === 1 ? 'property' : 'properties'}{website ? ' · Matching domains listed first' : ''}</p>
                             <fieldset disabled={saving} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -112,7 +114,7 @@ export function GscPropertySelector({ clientId, clientName, website, onClose, on
                                     </label>;
                                 })}
                             </fieldset>
-                            {visible.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No properties match “{query}”. Try another domain.</p>}
+                            {visible.length === 0 && <div className="py-8 text-center space-y-3"><p className="text-sm text-muted-foreground">No properties match “{query}”. Try another domain.</p><GoogleAccountEmptyHint email={googleEmail} onReconnect={onReconnect} /></div>}
                         </>}
                     </>}
                     {changed && <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">Future syncs will use the new property. Existing reports are retained and may describe the previous property. Compare periods only when their property scope matches.</p>}

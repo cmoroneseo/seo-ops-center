@@ -1,36 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireClientOrgMember } from '@/lib/security/tenant-authz';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { ClientIntegration, IntegrationService } from '@/lib/types';
-
-const PROPERTY_FIELD: Partial<Record<IntegrationService, string>> = {
-    ga4: 'property_id',
-    gsc: 'site_url',
-    gbp: 'location_name',
-};
-
-function toSafeIntegration(row: any): ClientIntegration {
-    const credentials = (row.credentials ?? {}) as Record<string, unknown>;
-    const service = row.service as IntegrationService;
-    const propertyField = PROPERTY_FIELD[service];
-
-    return {
-        id: row.id,
-        organizationId: row.organization_id,
-        clientId: row.client_id,
-        service,
-        connectedBy: row.connected_by ?? undefined,
-        connectedAt: row.connected_at,
-        lastSyncedAt: row.last_synced_at ?? undefined,
-        syncStatus: row.sync_status,
-        errorMessage: row.error_message ?? undefined,
-        selectedProperty: service === 'gsc' && row.sync_status !== 'disconnected' && typeof credentials.site_url === 'string' ? credentials.site_url : undefined,
-        needsPropertySetup: propertyField
-            ? row.sync_status === 'active' && !credentials[propertyField]
-            : false,
-        hasRankTrackerProjectId: service === 'ahrefs' ? !!credentials.rank_tracker_project_id : undefined,
-    };
-}
+import { toPublicIntegration } from '@/lib/integrations/public-integration';
 
 export async function GET(req: NextRequest) {
     const clientId = req.nextUrl.searchParams.get('clientId');
@@ -54,6 +25,6 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({
-        integrations: (data ?? []).map(toSafeIntegration),
+        integrations: (data ?? []).map(toPublicIntegration),
     });
 }
