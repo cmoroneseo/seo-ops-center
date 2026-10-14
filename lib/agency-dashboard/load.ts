@@ -19,6 +19,17 @@ function unavailable(error: DbError): boolean {
     return error?.code === '42883' || error?.code === 'PGRST202' || error?.code === '42P01' || /agency_dashboard_(as_of|gsc|top_queries)/.test(message);
 }
 
+/** authenticator's 8s statement_timeout survives SET ROLE service_role. */
+function statementTimeout(error: DbError): boolean {
+    const message = error?.message ?? '';
+    return error?.code === '57014' || /statement timeout|canceling statement/i.test(message);
+}
+
+function logDashboardError(scope: string, error: DbError): void {
+    const code = statementTimeout(error) ? 'statement_timeout' : (error?.code ?? 'unknown');
+    console.error(`[agency-dashboard] ${scope} failed`, code);
+}
+
 async function readAll<T>(query: (from: number, to: number) => PromiseLike<Page<T>>): Promise<{ rows: T[]; error: DbError }> {
     const rows: T[] = [];
     for (let from = 0; from < 20000; from += PAGE) {
@@ -42,7 +53,10 @@ export async function loadAgencyDashboard(
         readAll<Record<string, unknown>>(span => admin.from('client_integrations').select('client_id, sync_status, last_synced_at, site_url:credentials->>site_url').eq('organization_id', organizationId).eq('service', 'gsc').in('sync_status', ['active', 'error']).order('client_id').range(span, span + PAGE - 1)),
     ]);
 
-    if (clients.error || integrations.error) return { ok: false, status: 500, error: 'Could not load the dashboard.' };
+    if (clients.error || integrations.error) {
+        logDashboardError('clients', clients.error ?? integrations.error);
+        return { ok: false, status: 500, error: 'Could not load the dashboard.' };
+    }
 
     const connected = new Map<string, { property: string; syncStatus: 'active' | 'error'; lastSyncedAt: string | null }>();
     for (const row of integrations.rows) {
@@ -69,7 +83,9 @@ export async function loadAgencyDashboard(
 
     const asOfResult = await admin.rpc('agency_dashboard_as_of', { p_organization_id: organizationId });
     if (asOfResult.error) {
+        logDashboardError('as-of', asOfResult.error);
         if (unavailable(asOfResult.error)) return { ok: false, status: 503, error: 'Apply migration 090 before using the agency dashboard.' };
+        if (statementTimeout(asOfResult.error)) return { ok: false, status: 503, error: 'The dashboard took too long to load.' };
         return { ok: false, status: 500, error: 'Could not load the dashboard.' };
     }
     const asOf = text(asOfResult.data)?.slice(0, 10) ?? (asOfResult.data instanceof Date ? asOfResult.data.toISOString().slice(0, 10) : null);
@@ -97,7 +113,9 @@ export async function loadAgencyDashboard(
         p_bucket: window.bucket,
     });
     if (aggregate.error) {
+        logDashboardError('portfolio', aggregate.error);
         if (unavailable(aggregate.error)) return { ok: false, status: 503, error: 'Apply migration 090 before using the agency dashboard.' };
+        if (statementTimeout(aggregate.error)) return { ok: false, status: 503, error: 'The dashboard took too long to load.' };
         return { ok: false, status: 500, error: 'Could not load the dashboard.' };
     }
 
@@ -132,7 +150,9 @@ export async function loadTopQueries(
     const admin = createAdminClient();
     const asOfResult = await admin.rpc('agency_dashboard_as_of', { p_organization_id: organizationId });
     if (asOfResult.error) {
-        if (unavailable(asOfResult.error)) return { ok: false, status: 503, error: 'Apply migration 090 before using the agency dashboard.' };
+        logDashboardError('queries-as-of', asOfResult.error);
+        if (unavailable(asOfResult.error)) return { ok: false, status: 503, error: 'Apply migration 090 before loading top queries.' };
+        if (statementTimeout(asOfResult.error)) return { ok: false, status: 503, error: 'Top queries took too long to load.' };
         return { ok: false, status: 500, error: 'Could not load queries.' };
     }
     const asOf = text(asOfResult.data)?.slice(0, 10) ?? (asOfResult.data instanceof Date ? asOfResult.data.toISOString().slice(0, 10) : null);
@@ -145,13 +165,9 @@ export async function loadTopQueries(
         p_end: window.current.end,
     });
     if (result.error) {
+        logDashboardError('queries', result.error);
         if (unavailable(result.error)) return { ok: false, status: 503, error: 'Apply migration 091 before loading top queries.' };
-        // authenticator's 8s statement_timeout survives set role service_role.
-        // A 12-month query_page scan used to hit it. Migration 093 is the fix.
-        const message = result.error.message ?? '';
-        if (result.error.code === '57014' || /statement timeout|canceling statement/i.test(message)) {
-            return { ok: false, status: 500, error: 'Top queries took too long to load.' };
-        }
+        if (statementTimeout(result.error)) return { ok: false, status: 503, error: 'Top queries took too long to load.' };
         return { ok: false, status: 500, error: 'Could not load queries.' };
     }
     try {

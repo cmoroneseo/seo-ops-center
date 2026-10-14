@@ -84,6 +84,7 @@ export function Sparkline({
             preserveAspectRatio={stretch ? 'none' : 'xMidYMid meet'}
         >
             <title>{label}</title>
+            <line data-timeline="full" x1="0" x2={width} y1={height - 1} y2={height - 1} stroke="#a1a1aa" strokeOpacity="0.35" strokeWidth="1" />
             {drawable.length > 0 && (
                 <defs>
                     <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">

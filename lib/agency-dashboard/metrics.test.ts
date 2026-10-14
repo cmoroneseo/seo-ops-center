@@ -14,7 +14,7 @@ import {
     type SortState,
 } from './metrics.ts';
 import { activeFilterCount, assembleDashboard, filterCards, NOT_ENOUGH_HISTORY, summarizeSelection, type DashboardClientInput } from './portfolio.ts';
-import { bucketStart, dashboardRangePhrase, dashboardWindow, daysInclusive } from './range.ts';
+import { bucketSpine, bucketStart, dashboardRangePhrase, dashboardWindow, daysInclusive } from './range.ts';
 
 function client(patch: Partial<DashboardClientInput> & Pick<DashboardClientInput, 'id' | 'name'>): DashboardClientInput {
     return {
@@ -156,6 +156,9 @@ test('the portfolio keeps gaps honest and compares only clients with both period
     assert.equal(first.metrics.ctr.value, null);
     assert.equal(first.metrics.position.value, null);
     assert.equal(first.coverageLabel, '3 of 7 days');
+    assert.equal(first.changeNote, 'Partial current period: 3 of 7 days');
+    assert.equal(first.seriesStart, null);
+    assert.equal(paired.seriesStart, null);
 
     assert.equal(model.cards.find(card => card.clientId === 'quiet')?.reasonLabel, 'No data in this range');
     assert.equal(model.cards.find(card => card.clientId === 'fresh')?.reasonLabel, 'Not synced');
@@ -207,6 +210,39 @@ test('a short previous window is not a change and stays out of the headline', ()
     const onlyShort = summarizeSelection(model, model.cards.filter(card => card.clientId === 'short'));
     assert.equal(onlyShort.kpis.clicks.change, null);
     assert.equal(onlyShort.comparison, 'Not enough history to compare this range.');
+});
+
+test('a partial current window names the covered days and keeps the series on the full spine', () => {
+    const window = dashboardWindow('12m', '2026-10-13');
+    const expected = daysInclusive(window.current.start, window.current.end);
+    assert.equal(expected, 365);
+    const spine = bucketSpine(window.current.start, window.current.end, window.bucket);
+    const last = spine[spine.length - 1];
+    const model = assembleDashboard({
+        range: '12m',
+        window,
+        asOf: '2026-10-13',
+        freshness: { latestDataDate: '2026-10-13', latestImportedAt: null, settling: false },
+        clients: [client({ id: 'partial', name: 'Giselle Rodriguez' })],
+        aggregates: [{
+            clientId: 'partial',
+            current: totals(40, 400, 8, 203),
+            previous: null,
+            series: [{ bucket: last, clicks: 40, impressions: 400, positionWeight: 3200 }],
+            queries: [],
+            incomplete: false,
+        }],
+    });
+    const card = model.cards[0];
+    assert.equal(card.changeNote, `Partial current period: 203 of ${expected} days`);
+    assert.equal(card.metrics.clicks.change, null);
+    assert.equal(card.seriesStart, last);
+    assert.notEqual(card.seriesStart, spine[0]);
+    assert.equal(card.series.clicks.filter(value => value != null).length, 1);
+    assert.equal(card.series.clicks.length, spine.length);
+    const selection = summarizeSelection(model, model.cards);
+    assert.match(selection.comparison ?? '', /0 of 1 clients/);
+    assert.equal((selection.comparison ?? '').includes('Not enough history'), false);
 });
 
 test('sort puts the biggest declines first and never treats a gap as zero', () => {

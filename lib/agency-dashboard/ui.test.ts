@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { AgencyDashboardView } from '../../components/agency-dashboard/AgencyDashboard.tsx';
+import { Sparkline } from '../../components/agency-dashboard/Sparkline.tsx';
 import { exampleDashboard } from './fixture.ts';
 import { assembleDashboard } from './portfolio.ts';
-import { dashboardWindow } from './range.ts';
+import { bucketSpine, dashboardWindow, daysInclusive, formatDay } from './range.ts';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
@@ -119,12 +120,15 @@ test('a partial period comparison is marked on the headline, and missing queries
     });
     const html = renderToStaticMarkup(createElement(AgencyDashboardView, { model: partial }));
     assert.match(html, /1 of 2 clients/);
-    assert.match(html, /Change compares 1 of 2 clients that have both periods/);
-    assert.match(html, /title="Change compares 1 of 2 clients that have both periods[^"]*"/);
+    assert.match(html, /Change compares 1 of 2 clients with a full previous period/);
+    assert.match(html, /do not have enough history/);
+    assert.match(html, /title="Change compares 1 of 2 clients with a full previous period[^"]*"/);
     assert.match(html, /Open this card to load queries/);
     assert.equal(html.includes('No agreement'), false);
     const list = renderToStaticMarkup(createElement(AgencyDashboardView, { model: partial, initialView: 'list' }));
-    assert.match(list, /Open this card to load queries/);
+    assert.equal(list.includes('Open this card to load queries'), false);
+    assert.match(list, /Open in GSC/);
+    assert.equal(list.includes('>GSC<'), false);
     assert.equal(list.includes('No agreement'), false);
 });
 
@@ -156,4 +160,41 @@ test('a short previous window renders an em dash and says why', () => {
         assert.equal(html.includes(gone), false, gone);
         assert.equal(list.includes(gone), false, gone);
     }
+});
+
+test('a partial current period explains the dash and the sparkline keeps the full timeline', () => {
+    const window = dashboardWindow('12m', '2026-10-13');
+    const expected = daysInclusive(window.current.start, window.current.end);
+    const spine = bucketSpine(window.current.start, window.current.end, window.bucket);
+    const last = spine[spine.length - 1];
+    const partial = assembleDashboard({
+        range: '12m',
+        window,
+        asOf: '2026-10-13',
+        freshness: { latestDataDate: '2026-10-13', latestImportedAt: null, settling: false },
+        clients: [
+            { id: 'partial', name: 'Giselle Rodriguez', domain: 'giselle.example', property: 'sc-domain:giselle.example', syncStatus: 'active', lastSyncedAt: '2026-10-13T00:00:00Z' },
+        ],
+        aggregates: [{
+            clientId: 'partial',
+            current: { clicks: 40, impressions: 400, positionWeight: 3200, days: 203 },
+            previous: null,
+            series: [{ bucket: last, clicks: 40, impressions: 400, positionWeight: 3200 }],
+            queries: [],
+            incomplete: false,
+        }],
+    });
+    const html = renderToStaticMarkup(createElement(AgencyDashboardView, { model: partial }));
+    assert.match(html, new RegExp(`Partial current period: 203 of ${expected} days`));
+    assert.match(html, new RegExp(`Starts ${formatDay(last)}`));
+    assert.match(html, /data-timeline="full"/);
+    const line = renderToStaticMarkup(createElement(Sparkline, {
+        values: [null, null, null, 1, 2],
+        tone: 'up',
+        label: 'Partial trend',
+        stretch: true,
+    }));
+    assert.match(line, /data-timeline="full"/);
+    assert.match(line, /x2="120"/);
+    assert.match(line, /M90\.00/);
 });

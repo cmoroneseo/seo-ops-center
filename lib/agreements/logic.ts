@@ -1,4 +1,4 @@
-import type { AgreementInput, AgreementPeriod, AgreementService, ClientAgreement, AgreementHoursSummary,AgreementWorkFunding } from './types';
+import type { AgreementAction, AgreementInput, AgreementPeriod, AgreementService, ClientAgreement, AgreementHoursSummary,AgreementWorkFunding } from './types';
 
 export interface CoverageLine { startsOn: string; endsOn: string; text: string }
 export interface OutputChange { before: AgreementService; after: AgreementService }
@@ -14,6 +14,52 @@ export function validDate(value: unknown): value is string {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
     const valueDay = day(value);
     return Number.isFinite(valueDay) && iso(valueDay) === value;
+}
+/** Date inputs accept yyyy-MM-dd. Agreed-scope prose is not a date. */
+export function dateInputValue(value: unknown): string {
+    return validDate(value) ? value : '';
+}
+export function coerceAgreementDates(input: AgreementInput): AgreementInput {
+    const endsOn = input.endsOn == null || input.endsOn === '' ? null : dateInputValue(input.endsOn) || null;
+    return { ...input, startsOn: dateInputValue(input.startsOn), endsOn };
+}
+export function agreementFormInput(seed: {
+    kind: AgreementAction;
+    previous: ClientAgreement | null;
+    today: string;
+    launchDate?: string | null;
+    onboardingDate?: string | null;
+    deliverables?: string | null;
+    mode: AgreementInput['mode'];
+    hours: number | null;
+    hoursMode: AgreementInput['hoursMode'];
+    proration: AgreementInput['proration'];
+    timezone: string;
+    services: AgreementService[];
+}): AgreementInput {
+    const { kind, previous } = seed;
+    const renewalStart = previous?.endsOn && validDate(previous.endsOn) ? iso(day(previous.endsOn) + DAY) : '';
+    const initialStart = dateInputValue(seed.launchDate) || dateInputValue(seed.onboardingDate);
+    const rawStart = kind === 'end' ? previous?.startsOn ?? '' : kind === 'renewal' ? renewalStart : kind === 'initial' ? initialStart : seed.today;
+    const rawEnd = kind === 'amendment' || kind === 'end' ? previous?.endsOn ?? null : null;
+    const title = kind === 'initial' ? 'Original agreement' : kind === 'renewal' ? 'Renewed agreement' : kind === 'supersede' ? 'Superseding agreement' : kind === 'end' ? previous?.title ?? 'Agreement' : 'Scope amendment';
+    return coerceAgreementDates({
+        kind,
+        previousId: previous?.id ?? null,
+        title,
+        startsOn: rawStart,
+        endsOn: rawEnd,
+        mode: seed.mode,
+        hours: seed.hours,
+        hoursMode: seed.hoursMode,
+        proration: seed.proration,
+        timezone: seed.timezone,
+        scope: previous?.scope ?? seed.deliverables ?? '',
+        services: seed.services,
+        evidence: null,
+        note: null,
+        fundedTaskIds: [],
+    });
 }
 export function agreementToday(timezone: string, now = new Date()): string {
     const parts = new Intl.DateTimeFormat('en-US', {timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);

@@ -7,7 +7,7 @@ import {AgreementHistoryDialog,AgreementHistoryHeading} from './AgreementHistory
 import {useCurrentMember} from '@/lib/hooks/useCurrentMember';
 import {getAgreementHistory,previewAgreement,confirmAgreement,cancelScheduledAgreement} from '@/lib/supabase/agreements';
 import {getCommitments} from '@/lib/supabase/commitments';
-import {agreementCoverageEnd,agreementForDate,agreementToday,agreementHistoryHeading,clientCurrentSetup} from '@/lib/agreements/logic';
+import {agreementCoverageEnd,agreementForDate,agreementFormInput,agreementToday,agreementHistoryHeading,clientCurrentSetup} from '@/lib/agreements/logic';
 import {AGREEMENT_SUMMARY_ROW_CLASS,AGREEMENT_SUMMARY_ROW_HEIGHT,agreementSummaryPhase} from '@/lib/agreements/summary-row';
 import type {AgreementAction,AgreementInput,ClientAgreement} from '@/lib/agreements/types';
 import type {ClientProject} from '@/lib/types';
@@ -44,10 +44,8 @@ export function ClientAgreementSummary({client,onChanged}:{client:ClientProject;
             if(kind!=='initial' && !previous) throw new Error('Record the original agreement first.');
             const services=kind==='end' ? [] : previous?.services ?? (await getCommitments(client.organizationId,{clientId:client.id,throwOnError:true})).filter(c=>c.isActive && c.cadence!=='quarterly' && !/^SEO Hours$/i.test(c.title)).map(c=>({sourceId:c.id,title:c.title,type:c.type,subtype:c.subtype,quantity:c.cadence==='one_time' ? c.totalQuantity ?? 1 : c.quantityPerMonth,cadence:c.cadence as 'monthly'|'one_time',countsTowardHours:c.countsTowardHours}));
             const mode=previous?.mode ?? client.setupScope?.mode ?? (client.engagementModel==='Campaign' ? 'custom' : 'monthly');
-            const dayAfter=previous?.endsOn ? new Date(Date.parse(`${previous.endsOn}T00:00:00Z`)+86400000).toISOString().slice(0,10) : '';
-            const defaultStart=kind==='end' ? previous?.startsOn ?? '' : kind==='renewal' ? dayAfter : kind==='initial' ? client.launchDate ?? client.onboardingDate ?? '' : today;
-            const title=kind==='initial' ? 'Original agreement' : kind==='renewal' ? 'Renewed agreement' : kind==='supersede' ? 'Superseding agreement' : kind==='end' ? previous?.title ?? 'Agreement' : 'Scope amendment';
-            setFlow({previous,input:{kind,previousId:previous?.id ?? null,title,startsOn:defaultStart,endsOn:kind==='amendment' || kind==='end' ? previous?.endsOn ?? null : null,mode,hours:previous?.hours ?? (mode==='monthly' ? client.seoHours : client.campaignConfig?.totalHours ?? null),hoursMode:previous?.hoursMode ?? (mode==='custom' ? 'estimate' : client.setupScope?.hoursMode ?? 'committed'),proration:previous?.proration ?? 'daily',timezone,scope:previous?.scope ?? client.deliverables ?? '',services,evidence:null,note:null,fundedTaskIds:[]}});
+            const hours=previous?.hours ?? (mode==='monthly' ? client.seoHours : client.campaignConfig?.totalHours ?? null);
+            setFlow({previous,input:agreementFormInput({kind,previous,today,launchDate:client.launchDate,onboardingDate:client.onboardingDate,deliverables:client.deliverables,mode,hours:hours ?? null,hoursMode:previous?.hoursMode ?? (mode==='custom' ? 'estimate' : client.setupScope?.hoursMode ?? 'committed'),proration:previous?.proration ?? 'daily',timezone,services})});
             setShowHistory(false);
         } catch(e){setError(e instanceof Error ? e.message : 'Could not load agreement terms.');} finally{setPreparing(false);}
     };
