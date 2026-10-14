@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { agreementForDate, agreementPeriod, agreementCoverageEnd, validateAgreement, validateAgreementChain, agreementHoursSummary, agreementLabel,monthlyAgreementLogs,monthlyAgreementTaskIds,reviewMonthQuota,reviewAgreements,monthCoverageLines,outputDiff,stoppingOutputs,formatHourQuota,formatHoursAgainstQuota,agreementDialogTitle,allowanceReconciliation,clientCurrentSetup,historicalHoursNote,agreementHistoryHeading,NO_AGREEMENT_RECORDED } from './logic';
+import { agreementForDate, agreementPeriod, agreementCoverageEnd, validateAgreement, validateAgreementChain, agreementHoursSummary, agreementLabel,monthlyAgreementLogs,monthlyAgreementTaskIds,reviewMonthQuota,reviewAgreements,monthCoverageLines,outputDiff,stoppingOutputs,formatHourQuota,formatHoursAgainstQuota,agreementDialogTitle,allowanceReconciliation,clientCurrentSetup,historicalHoursNote,agreementHistoryHeading,NO_AGREEMENT_RECORDED,agreementFormInput,dateInputValue,coerceAgreementDates } from './logic';
 import type { ClientAgreement, AgreementInput } from './types';
 const original: ClientAgreement = {id:'old', organizationId:'org',clientId:'client',previousId:null,kind:'initial',title:'Original retainer',startsOn:'2026-03-19',endsOn:'2026-09-19',mode:'monthly',hours:30,hoursMode:'committed',proration:'daily',timezone:'America/Los_Angeles',scope:'SEO',services:[],evidence:null,note:null,recordedAt:'2026-10-06',recordedBy:'owner',planSnapshot:null};
 const renewed: ClientAgreement = {...original,id:'new',previousId:'old',kind:'renewal',title:'Custom renewal',startsOn:'2026-09-20',endsOn:null,mode:'custom',hours:40,hoursMode:'estimate'};
@@ -162,4 +162,27 @@ test('original review reconciles the current monthly allowance and names where h
     assert.equal(agreementHistoryHeading(null,false).label,'Agreement history');
     assert.equal(agreementHistoryHeading(original,false).opensHistory,false);
     assert.match(NO_AGREEMENT_RECORDED,/^No agreement recorded yet/);
+});
+test('agreed scope stays off the date inputs', () => {
+    const scope = 'Phase test agreement (test client). 10 SEO hours/month.';
+    assert.equal(dateInputValue(scope), '');
+    assert.equal(dateInputValue('2026-08-01'), '2026-08-01');
+    const terms = { mode: 'monthly' as const, hours: 10, hoursMode: 'committed' as const, proration: 'daily' as const, timezone: 'America/Los_Angeles', services: [] };
+    const initial = agreementFormInput({ kind: 'initial', previous: null, today: '2026-10-14', launchDate: null, onboardingDate: '2026-08-01', deliverables: scope, ...terms });
+    assert.equal(initial.startsOn, '2026-08-01');
+    assert.equal(initial.endsOn, null);
+    assert.equal(initial.scope, scope);
+    const previous = { ...original, scope, startsOn: '2026-08-01', endsOn: null, hours: 10, title: 'Original agreement' };
+    const amendment = agreementFormInput({ kind: 'amendment', previous, today: '2026-10-14', deliverables: '', ...terms });
+    assert.equal(amendment.startsOn, '2026-10-14');
+    assert.equal(amendment.endsOn, null);
+    assert.equal(amendment.scope, scope);
+    assert.equal(amendment.title, 'Scope amendment');
+    const renewal = agreementFormInput({ kind: 'renewal', previous: { ...previous, endsOn: '2026-09-30' }, today: '2026-10-14', deliverables: '', ...terms });
+    assert.equal(renewal.startsOn, '2026-10-01');
+    assert.equal(renewal.endsOn, null);
+    const swapped = coerceAgreementDates({ ...initial, startsOn: scope, endsOn: scope });
+    assert.equal(swapped.startsOn, '');
+    assert.equal(swapped.endsOn, null);
+    assert.equal(swapped.scope, scope);
 });

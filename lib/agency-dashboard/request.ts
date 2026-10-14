@@ -14,3 +14,8 @@ export function dashboardQueriesPath(range: string, organizationId: string, clie
 export function teamMatchesSession(team: string | null, organizationId: string): boolean {
     return team == null || team === '' || team === organizationId;
 }
+
+/** One quiet retry. A lock wait or cold statement timeout comes back as 5xx; a bad range does not. */
+export function dashboardRetryStatus(status: number): boolean {
+    return status === 500 || status === 502 || status === 503 || status === 504;
+}

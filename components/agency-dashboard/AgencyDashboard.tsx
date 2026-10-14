@@ -9,6 +9,7 @@ import {
     DASHBOARD_RANGES,
     dashboardRangeLabel,
     dashboardRangePhrase,
+    formatDay,
     type DashboardRange,
 } from '@/lib/agency-dashboard/range';
 import {
@@ -25,7 +26,7 @@ import {
     type SortMode,
     type Tone,
 } from '@/lib/agency-dashboard/metrics';
-import { dashboardPortfolioPath, dashboardQueriesPath } from '@/lib/agency-dashboard/request';
+import { dashboardPortfolioPath, dashboardQueriesPath, dashboardRetryStatus } from '@/lib/agency-dashboard/request';
 import { activeFilterCount, filterCards, summarizeSelection, type DashboardCard, type DashboardModel } from '@/lib/agency-dashboard/portfolio';
 import { cn } from '@/lib/utils';
 
@@ -81,12 +82,8 @@ export function AgencyDashboard() {
         setLoading(true);
         setError(null);
         if (shownKey.current !== requestKey) setModel(null);
-        fetch(dashboardPortfolioPath(range, organizationId), { cache: 'no-store', signal: controller.signal })
-            .then(async response => {
-                const body = await response.json().catch(() => ({}));
-                if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : 'Could not load the dashboard.');
-                return body as DashboardModel;
-            })
+        readJson(dashboardPortfolioPath(range, organizationId), controller.signal, 'Could not load the dashboard.')
+            .then(body => body as DashboardModel)
             .then(body => {
                 if (controller.signal.aborted) return;
                 shownKey.current = requestKey;
@@ -105,9 +102,9 @@ export function AgencyDashboard() {
 
     const loadQueries = useCallback((clientId: string): Promise<LoadedQueries> => {
         if (!organizationId) return Promise.reject(new Error('Could not load queries.'));
-        return fetch(dashboardQueriesPath(range, organizationId, clientId), { cache: 'no-store' }).then(async response => {
-            const body = await response.json().catch(() => ({}));
-            if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : 'Could not load queries.');
+        const controller = new AbortController();
+        return readJson(dashboardQueriesPath(range, organizationId, clientId), controller.signal, 'Could not load queries.').then(payload => {
+            const body = payload as { queries?: unknown; reason?: unknown };
             const queries = Array.isArray(body.queries) ? body.queries.flatMap((item: { query?: unknown; clicks?: unknown }) => {
                 if (typeof item?.query !== 'string' || typeof item.clicks !== 'number') return [];
                 return [{ query: item.query, clicks: item.clicks }];
@@ -443,7 +440,7 @@ function PortfolioCard({
                             ) : (
                                 <>
                                     <p className="text-3xl font-semibold leading-none tabular-nums tracking-tight">{formatMetric(metric, card.metrics[metric].value)}</p>
-                                    <div className="mt-1.5 flex justify-end">
+                                    <div className="mt-1.5 max-w-[12rem] text-right">
                                         <ChangePill metric={metric} change={card.metrics[metric].change} note={card.changeNote} />
                                     </div>
                                     <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-400">{METRIC_LABEL[metric]}</p>
@@ -455,8 +452,9 @@ function PortfolioCard({
                         <h2 className="truncate text-lg font-semibold tracking-tight">{card.name}</h2>
                         <p className="truncate text-xs text-zinc-400">{card.domain}{card.coverageLabel ? ` · ${card.coverageLabel}` : ''}</p>
                     </div>
-                    <div className="-mx-4 mt-2 flex min-h-0 flex-1 items-end">
-                        <Sparkline values={card.series[metric]} tone={heroTone} label={`${card.name} ${METRIC_LABEL[metric]} trend`} className="h-20 w-full" stretch />
+                    <div className="relative -mx-4 mt-2 flex min-h-0 flex-1 items-end">
+                        {card.seriesStart ? <p className="pointer-events-none absolute left-4 top-0 text-[10px] uppercase tracking-[0.14em] text-zinc-500">Starts {formatDay(card.seriesStart)}</p> : null}
+                        <Sparkline values={card.series[metric]} tone={heroTone} label={`${card.name} ${METRIC_LABEL[metric]} trend`} className="block h-20 w-full" stretch />
                     </div>
                     <div className="mt-2 grid grid-cols-3 gap-2">
                         {SUPPORTING.map(item => <Stat key={item} metric={item} card={card} />)}
@@ -570,7 +568,7 @@ function ChangeText({ metric, change }: { metric: MetricKey; change: number | nu
 function ChangePill({ metric, change, note, size = 'md' }: { metric: MetricKey; change: number | null; note?: string | null; size?: 'md' | 'sm' }) {
     if (change == null || !Number.isFinite(change)) {
         return (
-            <span className={cn('text-zinc-500', size === 'sm' ? 'text-[11px]' : 'text-xs')}>
+            <span className={cn('text-zinc-500', size === 'sm' ? 'text-[11px]' : 'text-xs', note && 'inline-block max-w-full text-right leading-snug')}>
                 —{note ? <span className="ml-1">{note}</span> : null}
             </span>
         );
@@ -627,7 +625,7 @@ function PortfolioTable({ cards, metric, signal, onSort, queryCache }: { cards: 
                                     <div className="mt-1 flex gap-3 text-xs">
                                         <Link href={card.links.insights} className="text-emerald-300 hover:underline">Search Insights</Link>
                                         <Link href={card.links.plan} className="text-emerald-300 hover:underline">SEO Plan</Link>
-                                        <a href={card.links.gsc} target="_blank" rel="noreferrer" className="text-emerald-300 hover:underline">GSC</a>
+                                        <a href={card.links.gsc} target="_blank" rel="noreferrer" className="text-emerald-300 hover:underline">Open in GSC</a>
                                     </div>
                                 </td>
                                 {METRICS.map(item => (
@@ -647,9 +645,8 @@ function PortfolioTable({ cards, metric, signal, onSort, queryCache }: { cards: 
 
 function QueryPreview({ card, loaded }: { card: DashboardCard; loaded?: LoadedQueries }) {
     const queries = loaded?.queries ?? card.queries;
-    if (queries.length > 0) return <div className="mt-1 text-xs text-zinc-500">{queries.map(query => query.query).join(' · ')}</div>;
-    const reason = loaded?.reason ?? card.queriesReason ?? (!card.queriesKnown && !loaded ? 'Open this card to load queries' : 'No queries with clicks in this range');
-    return <div className="mt-1 text-xs text-zinc-500">— {reason}</div>;
+    if (queries.length === 0) return null;
+    return <div className="mt-1 text-xs text-zinc-500">{queries.map(query => query.query).join(' · ')}</div>;
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -671,3 +668,27 @@ function FilterField({ label, children }: { label: string; children: ReactNode }
 }
 
 const selectClass = 'h-9 rounded-lg border border-white/10 bg-[#16181d] px-2 text-sm normal-case tracking-normal text-zinc-100';
+
+function aborted(error: unknown, signal: AbortSignal): boolean {
+    return signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
+}
+
+/** One quiet retry. The first 5xx often dies while a statement waits on a lock; the next request is a new invocation. */
+async function readJson(url: string, signal: AbortSignal, fallback: string): Promise<unknown> {
+    let lastMessage = fallback;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        let response: Response;
+        try {
+            response = await fetch(url, { cache: 'no-store', signal });
+        } catch (error) {
+            if (aborted(error, signal)) throw error;
+            if (attempt === 1 || !(error instanceof TypeError)) throw error;
+            continue;
+        }
+        const body = await response.json().catch(() => ({})) as { error?: unknown };
+        if (response.ok) return body;
+        lastMessage = typeof body.error === 'string' ? body.error : fallback;
+        if (!dashboardRetryStatus(response.status) || attempt === 1) throw new Error(lastMessage);
+    }
+    throw new Error(lastMessage);
+}

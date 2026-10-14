@@ -61,8 +61,10 @@ export interface DashboardCard {
     queriesKnown: boolean;
     /** Shown next to an em dash when the query list is empty. */
     queriesReason: string | null;
-    /** Set when the previous window exists but does not cover every day, so the percent would compare unequal history. */
+    /** Why the percent is an em dash: a short previous window, or a current window that is still partial. */
     changeNote: string | null;
+    /** First bucket with data, when the line does not begin at the start of the selected window. */
+    seriesStart: string | null;
     links: { insights: string; plan: string; gsc: string };
 }
 
@@ -108,6 +110,10 @@ function gapReason(client: DashboardClientInput): GapReason {
 
 export const NOT_ENOUGH_HISTORY = 'Not enough history';
 
+export function partialPeriodNote(days: number, expected: number): string {
+    return `Partial current period: ${days} of ${expected} days`;
+}
+
 /** Defaults are impressions, biggest declines, and all clients. Each departure counts. */
 export function activeFilterCount(input: {
     signal: MetricKey;
@@ -146,7 +152,10 @@ export function assembleDashboard(input: {
         const current = usable(aggregate?.current ?? null) ? aggregate!.current : null;
         const rawPrevious = usable(aggregate?.previous ?? null) ? aggregate!.previous : null;
         const previous = coveredPrevious(rawPrevious) ? rawPrevious : null;
-        const changeNote = rawPrevious && !previous ? NOT_ENOUGH_HISTORY : null;
+        const partialCurrent = current != null && expected > 0 && current.days < expected;
+        const changeNote = current != null && previous == null
+            ? (partialCurrent ? partialPeriodNote(current.days, expected) : NOT_ENOUGH_HISTORY)
+            : null;
         const reason = current ? null : gapReason(client);
         const metrics = reason
             ? blankMetrics()
@@ -168,6 +177,8 @@ export function assembleDashboard(input: {
             : null;
         // Omitted means the queries array is the answer, including an empty list.
         // False means the aggregate skipped queries and the card loads them on open.
+        const firstBucket = spine.find(bucket => points.some(point => point.bucket === bucket)) ?? null;
+        const seriesStart = firstBucket && spine[0] && firstBucket !== spine[0] ? firstBucket : null;
         const queriesKnown = aggregate?.queriesKnown ?? true;
         const queries = reason || !queriesKnown ? [] : (aggregate?.queries ?? []).slice(0, 3);
         return {
@@ -188,6 +199,7 @@ export function assembleDashboard(input: {
             queriesKnown: reason ? true : queriesKnown,
             queriesReason: reason ? GAP_LABEL[reason] : queriesKnown && queries.length === 0 ? 'No queries with clicks in this range' : null,
             changeNote: reason ? null : changeNote,
+            seriesStart: reason ? null : seriesStart,
             links: {
                 insights: `/workspace/${client.id}?tab=insights`,
                 plan: `/workspace/${client.id}?tab=campaign`,
@@ -288,7 +300,7 @@ export function summarizeSelection(model: Pick<DashboardModel, 'rangeLine' | 'bu
 } {
     const withData = cards.filter(card => card.reason == null && card.currentTotals);
     const paired = withData.filter(card => card.previousTotals);
-    const shortHistory = withData.filter(card => card.changeNote != null).length;
+    const shortHistory = withData.filter(card => card.changeNote === NOT_ENOUGH_HISTORY).length;
     const headline = withData.reduce((total, card) => addTotals(total, card.currentTotals!), emptyTotals());
     const pairedCurrent = paired.reduce((total, card) => addTotals(total, card.currentTotals!), emptyTotals());
     const pairedPrevious = paired.reduce((total, card) => addTotals(total, card.previousTotals!), emptyTotals());

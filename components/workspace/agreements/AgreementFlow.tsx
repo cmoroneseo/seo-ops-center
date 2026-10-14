@@ -4,7 +4,7 @@ import {useEffect,useId,useRef,useState,type ReactNode} from 'react';
 import {ArrowLeft,ArrowRight,Check,Loader2,Plus,Trash2} from 'lucide-react';
 import {Dialog,DialogContent,DialogDescription,DialogTitle} from '@/components/ui/dialog';
 import {Button} from '@/components/ui/button';
-import {agreementCoverageEnd,agreementDateLabel,agreementDialogTitle,agreementLabel,allowanceReconciliation,historicalHoursNote,validateAgreement,validateAgreementChain,agreementToday,monthCoverageLines,outputDiff,reviewAgreements,reviewMonthQuota,type SetupAllowance} from '@/lib/agreements/logic';
+import {agreementCoverageEnd,agreementDateLabel,agreementDialogTitle,agreementLabel,allowanceReconciliation,coerceAgreementDates,dateInputValue,historicalHoursNote,validateAgreement,validateAgreementChain,agreementToday,monthCoverageLines,outputDiff,reviewAgreements,reviewMonthQuota,type SetupAllowance} from '@/lib/agreements/logic';
 import type {AgreementInput,AgreementPreview,AgreementService,ClientAgreement} from '@/lib/agreements/types';
 export {agreementDateLabel};
 
@@ -24,7 +24,7 @@ export function AgreementFlow({clientName,initial,previous,agreements,currentSet
     onReview:(input:AgreementInput)=>Promise<AgreementPreview>;
     onConfirm:(input:AgreementInput,preview:AgreementPreview,requestId:string)=>Promise<void>;
 }) {
-    const [input,setInput]=useState(initial);
+    const [input,setInput]=useState(()=>coerceAgreementDates(initial));
     const [preview,setPreview]=useState<AgreementPreview|null>(null);
     const [busy,setBusy]=useState(false);
     const [error,setError]=useState<string|null>(null);
@@ -70,9 +70,9 @@ export function AgreementFlow({clientName,initial,previous,agreements,currentSet
             {input.kind==='end' && <p className="text-sm leading-relaxed text-muted-foreground">Record the signed end date on the current agreement. This does not add a successor. Coverage includes the date you enter.</p>}
             {input.kind==='amendment' && <p className="text-sm leading-relaxed text-muted-foreground">Change scope inside the current term. The signed end date stays the same.</p>}
             {input.kind!=='end' && <Field label="Agreement name">{id=><input id={id} className={fieldClass} value={input.title} maxLength={160} required onChange={e=>update('title',e.target.value)} />}</Field>}
-            {input.kind==='end' ? <Field label="Signed end date" hint="The final date is included. A later different date is rejected once this is saved.">{id=><input id={id} type="date" className={fieldClass} value={input.endsOn ?? ''} min={previous?.startsOn} required onChange={e=>update('endsOn',e.target.value || null)} />}</Field> : <div className="grid gap-4 sm:grid-cols-2">
-                <Field label={input.kind==='amendment' ? 'Change effective on' : 'Starts on'} hint={input.kind==='supersede' ? 'The previous agreement’s signed end is not rewritten.' : undefined}>{id=><input id={id} type="date" className={fieldClass} value={input.startsOn} required onChange={e=>update('startsOn',e.target.value)} />}</Field>
-                <Field label="Ends on" hint={input.kind==='amendment' ? 'The existing agreement term stays the same.' : input.kind==='supersede' ? 'Leave blank for an open-ended successor. This does not close the previous agreement.' : 'Leave blank for an open-ended agreement. The final date is included.'}>{id=><input id={id} type="date" className={fieldClass} value={input.endsOn ?? ''} min={input.startsOn} disabled={input.kind==='amendment'} onChange={e=>update('endsOn',e.target.value || null)} />}</Field>
+            {input.kind==='end' ? <Field label="Signed end date" hint="The final date is included. A later different date is rejected once this is saved.">{id=><input id={id} type="date" className={fieldClass} value={dateInputValue(input.endsOn)} min={dateInputValue(previous?.startsOn) || undefined} required onChange={e=>update('endsOn',e.target.value || null)} />}</Field> : <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={input.kind==='amendment' ? 'Change effective on' : 'Starts on'} hint={input.kind==='supersede' ? 'The previous agreement’s signed end is not rewritten.' : undefined}>{id=><input id={id} type="date" className={fieldClass} value={dateInputValue(input.startsOn)} required onChange={e=>update('startsOn',e.target.value)} />}</Field>
+                <Field label="Ends on" hint={input.kind==='amendment' ? 'The existing agreement term stays the same.' : input.kind==='supersede' ? 'Leave blank for an open-ended successor. This does not close the previous agreement.' : 'Leave blank for an open-ended agreement. The final date is included.'}>{id=><input id={id} type="date" className={fieldClass} value={dateInputValue(input.endsOn)} min={dateInputValue(input.startsOn) || undefined} disabled={input.kind==='amendment'} onChange={e=>update('endsOn',e.target.value || null)} />}</Field>
             </div>}
             {input.kind!=='end' && <>
             <fieldset className="space-y-2"><legend className="text-sm font-medium">Delivery scope</legend><div className="grid grid-cols-2 gap-2">{(['monthly','custom'] as const).map(mode=><Button key={mode} type="button" variant={input.mode===mode ? 'secondary' : 'outline'} size="lg" aria-pressed={input.mode===mode} onClick={()=>{
