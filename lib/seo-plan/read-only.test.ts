@@ -50,3 +50,35 @@ test('a read-only SEO Plan hides Schedule work and Add Item and says why', () =>
     assert.equal(html.includes('Add Item'), false);
     assert.equal(html.includes('>Schedule<'), false);
 });
+
+test('an archived pre-launch plan does not invite scheduling in the header', () => {
+    const plan: MarketingPlan = {
+        id: 'plan', organizationId: 'org', clientId: 'client', title: 'Plan', goal: 'Rank',
+        steps: [], createdAt: '2026-10-01', updatedAt: '2026-10-01', items: [],
+    };
+    const props = {
+        plan,
+        month: '2026-10',
+        budget: 10,
+        loggedHours: 0,
+        taskHours: {},
+        members: [],
+        fullPlan: createElement('p', null, 'Roadmap'),
+        onAddExisting: () => {},
+        onMonthChange: () => {},
+        onSaveTask: async () => {},
+        onSchedule: async () => {},
+        onSaveGoal: async () => {},
+        onOpenTask: () => {},
+        variant: 'v2' as const,
+        hoursNarrative: 'prelaunch' as const,
+        phaseMonth: { needsDate: [], due: [], slipped: [] },
+    };
+    const archived = renderToStaticMarkup(createElement(ExecutionWorkspace, { ...props, readOnly: true }));
+    assert.match(archived, new RegExp(SEO_PLAN_READ_ONLY_NOTE));
+    assert.equal(archived.includes('Work can be scheduled now'), false);
+    assert.equal(archived.includes('These hours start after launch'), false);
+    const open = renderToStaticMarkup(createElement(ExecutionWorkspace, { ...props, readOnly: false }));
+    assert.match(open, /These hours start after launch/);
+    assert.match(open, /Work can be scheduled now/);
+});
