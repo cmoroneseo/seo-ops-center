@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
 import { filterGa4Properties, ga4SearchEmptyMessage, type Ga4PropertySummary } from '@/lib/google/ga4-properties';
+import { GoogleAccountEmptyHint } from './GoogleAccountEmptyHint';
 import { PropertySearchInput } from './PropertySearchInput';
 
 type GA4Property = Ga4PropertySummary;
@@ -20,6 +21,8 @@ interface Props {
     group: 'ga4-gsc' | 'gbp';
     onComplete: () => void;
     onCancel: () => void;
+    googleEmail?: string;
+    onReconnect?: () => void;
 }
 
 function PickerList<T>({
@@ -72,12 +75,16 @@ export function Ga4PropertyOptions({
     query,
     onQueryChange,
     onSelect,
+    googleEmail,
+    onReconnect,
 }: {
     properties: GA4Property[];
     selected: string;
     query: string;
     onQueryChange: (query: string) => void;
     onSelect: (id: string) => void;
+    googleEmail?: string;
+    onReconnect?: () => void;
 }) {
     const visible = filterGa4Properties(properties, query);
     const trimmed = query.trim();
@@ -90,9 +97,12 @@ export function Ga4PropertyOptions({
                 autoFocus
             />
             {visible.length === 0 ? (
-                trimmed
-                    ? <p role="status" className="py-8 text-center text-sm text-muted-foreground">{ga4SearchEmptyMessage(query)}</p>
-                    : <p className="text-xs text-muted-foreground italic">No options found on this account.</p>
+                <div className="space-y-3 py-4 text-center">
+                    {trimmed
+                        ? <p role="status" className="text-sm text-muted-foreground">{ga4SearchEmptyMessage(query)}</p>
+                        : <p className="text-xs text-muted-foreground italic">No options found on this account.</p>}
+                    <GoogleAccountEmptyHint email={googleEmail} onReconnect={onReconnect} />
+                </div>
             ) : (
                 <PickerList
                     items={visible}
@@ -111,7 +121,7 @@ export function Ga4PropertyOptions({
     );
 }
 
-export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCancel }: Props) {
+export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCancel, googleEmail, onReconnect }: Props) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
@@ -217,6 +227,8 @@ export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCan
                                     setSelectedGA4(id);
                                     setSelectedGA4Name(ga4Properties.find(p => p.id === id)?.displayName ?? '');
                                 }}
+                                googleEmail={googleEmail}
+                                onReconnect={onReconnect}
                             />
                         </div>
 

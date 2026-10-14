@@ -35,6 +35,10 @@ export class GscError extends Error {
     constructor(message: string, public status = 502) { super(message); }
 }
 
+/**
+ * sites.list returns the whole catalog in one response. It has no pageSize
+ * or pageToken. A nextPageToken would mean this response is incomplete.
+ */
 export async function readGscSites(token: string, request: typeof fetch = fetch): Promise<GscSite[]> {
     const response = await request('https://www.googleapis.com/webmasters/v3/sites', {
         headers: { Authorization: `Bearer ${token}` }, cache: 'no-store', signal: AbortSignal.timeout(15000),
@@ -44,6 +48,7 @@ export async function readGscSites(token: string, request: typeof fetch = fetch)
     if (!response.ok) throw new GscError('Google could not load properties. Try refreshing the list.');
     const data = await response.json();
     if (data.siteEntry !== undefined && !Array.isArray(data.siteEntry)) throw new GscError('Google returned an invalid property list. Try again.');
+    if (typeof data.nextPageToken === 'string' && data.nextPageToken) throw new GscError('Google returned a partial Search Console property list. Try refreshing the list.');
     return (data.siteEntry ?? []).filter((s: GscSite) => typeof s?.siteUrl === 'string' && typeof s.permissionLevel === 'string');
 }
 

@@ -617,6 +617,8 @@ export interface ClientIntegration {
     selectedProperty?: string;
     // Ahrefs only — true when a Rank Tracker project ID is saved
     hasRankTrackerProjectId?: boolean;
+    /** Google account email for GA4/GSC. Never an OAuth token. */
+    googleEmail?: string;
 }
 
 /**

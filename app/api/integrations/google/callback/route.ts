@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { readGoogleAccountEmail } from '@/lib/google/account';
 import { reconnectCredentials } from '@/lib/google/gsc-properties';
 import { upsertIntegration } from '@/lib/supabase/integrations';
 import { verifyGoogleOAuthState } from '@/lib/security/oauth-state';
@@ -79,6 +80,8 @@ export async function GET(req: NextRequest) {
         return redirectWithIntegrationError(origin, 'token_exchange', state.clientId);
     }
 
+    const googleEmail = await readGoogleAccountEmail(tokens.access_token);
+    const granted = { ...tokens, ...(googleEmail ? { google_email: googleEmail } : {}) };
     const services = state.group === 'ga4-gsc' ? ['ga4', 'gsc'] as const : state.group === 'ga4' ? ['ga4'] as const : state.group === 'gsc' ? ['gsc'] as const : ['gbp'] as const;
     const syncStatus = 'pending_setup';
 
@@ -91,7 +94,7 @@ export async function GET(req: NextRequest) {
             organizationId: authorization.organizationId,
             clientId: authorization.clientId,
             service,
-            credentials: reconnectCredentials(previous?.credentials ?? {}, tokens),
+            credentials: reconnectCredentials(previous?.credentials ?? {}, granted),
             connectedBy: authorization.userId,
             syncStatus,
         });

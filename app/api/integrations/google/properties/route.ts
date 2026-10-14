@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Ga4PropertiesError, readGa4Properties } from '@/lib/google/ga4-properties';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
 
@@ -137,22 +138,14 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'No GA4 token found -- connect first' }, { status: 404 });
     }
 
-    const headers = { Authorization: `Bearer ${accessToken}` };
-
-    const ga4Res = await fetch('https://analyticsadmin.googleapis.com/v1beta/accountSummaries', { headers });
-    const ga4Data = await ga4Res.json();
-    if (!ga4Res.ok) return NextResponse.json({ error: 'Unable to list Analytics properties. Check Google access or reconnect.' }, { status: ga4Res.status === 401 || ga4Res.status === 403 ? ga4Res.status : 502 });
-
-    const ga4Properties: { id: string; displayName: string; account: string }[] = [];
-    for (const account of ga4Data.accountSummaries ?? []) {
-        for (const prop of account.propertySummaries ?? []) {
-            ga4Properties.push({
-                id: prop.property,
-                displayName: prop.displayName,
-                account: account.displayName,
-            });
+    try {
+        const ga4Properties = await readGa4Properties(accessToken);
+        return NextResponse.json({ ga4Properties });
+    } catch (error) {
+        if (error instanceof Ga4PropertiesError) {
+            return NextResponse.json({ error: error.message }, { status: error.status });
         }
+        console.error('GA4 accountSummaries request failed', { status: 0 });
+        return NextResponse.json({ error: 'Unable to list Analytics properties. Check Google access or reconnect.' }, { status: 502 });
     }
-
-    return NextResponse.json({ ga4Properties });
 }
