@@ -1,13 +1,9 @@
 import 'server-only';
 
-import { agreementToday } from '@/lib/agreements/logic';
-import type { ClientAgreement } from '@/lib/agreements/types';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { parseAgencyAggregate, parseTopQueries, QUERY_GAP_LABEL } from './aggregate';
-import { dashboardManagerLabel } from './managers';
 import { assembleDashboard, type DashboardClientInput, type DashboardModel } from './portfolio';
 import { dashboardWindow, type DashboardRange } from './range';
-import type { ManagerIdentity } from '@/lib/workspace/client-managers';
 
 type DbError = { code?: string; message?: string } | null;
 type Page<T> = { data: T[] | null; error: DbError };
@@ -16,12 +12,6 @@ const PAGE = 1000;
 
 function text(value: unknown): string | null {
     return typeof value === 'string' && value.length > 0 ? value : null;
-}
-
-function num(value: unknown): number | null {
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value);
-    return null;
 }
 
 function unavailable(error: DbError): boolean {
@@ -41,61 +31,18 @@ async function readAll<T>(query: (from: number, to: number) => PromiseLike<Page<
     return { rows: [], error: { code: 'limit' } };
 }
 
-function agreementFromRow(row: Record<string, unknown>): ClientAgreement {
-    const date = (value: unknown) => text(value)?.slice(0, 10) ?? null;
-    return {
-        id: String(row.id),
-        organizationId: String(row.organization_id),
-        clientId: String(row.client_id),
-        previousId: row.previous_id ? String(row.previous_id) : null,
-        kind: row.kind as ClientAgreement['kind'],
-        title: text(row.title) ?? '',
-        startsOn: date(row.starts_on) ?? '',
-        endsOn: date(row.ends_on),
-        mode: row.mode as ClientAgreement['mode'],
-        hours: num(row.hours),
-        hoursMode: (row.hours_mode as ClientAgreement['hoursMode']) ?? 'committed',
-        proration: (row.proration as ClientAgreement['proration']) ?? 'daily',
-        timezone: text(row.timezone) ?? 'UTC',
-        scope: '',
-        services: [],
-        evidence: null,
-        note: null,
-        recordedAt: '',
-        recordedBy: '',
-        planSnapshot: null,
-        cancelledAt: text(row.cancelled_at),
-    };
-}
-
-function monthBounds(month: string): { start: string; end: string } {
-    const [year, monthNumber] = month.split('-').map(Number);
-    const days = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
-    return { start: `${month}-01`, end: `${month}-${String(days).padStart(2, '0')}` };
-}
-
 export async function loadAgencyDashboard(
     organizationId: string,
     range: DashboardRange,
-    now = new Date(),
 ): Promise<{ ok: true; dashboard: DashboardModel } | { ok: false; status: number; error: string }> {
     const admin = createAdminClient();
-    const today = agreementToday('America/Los_Angeles', now);
-    const hoursMonth = today.slice(0, 7);
-    const bounds = monthBounds(hoursMonth);
 
-    const [clients, integrations, agreements, timeLogs, membersResult] = await Promise.all([
-        readAll<Record<string, unknown>>(span => admin.from('clients').select('id, name, domain, account_manager_id, account_manager_name, seo_hours').eq('organization_id', organizationId).eq('status', 'active').order('id').range(span, span + PAGE - 1)),
+    const [clients, integrations] = await Promise.all([
+        readAll<Record<string, unknown>>(span => admin.from('clients').select('id, name, domain').eq('organization_id', organizationId).eq('status', 'active').order('id').range(span, span + PAGE - 1)),
         readAll<Record<string, unknown>>(span => admin.from('client_integrations').select('client_id, sync_status, last_synced_at, site_url:credentials->>site_url').eq('organization_id', organizationId).eq('service', 'gsc').in('sync_status', ['active', 'error']).order('client_id').range(span, span + PAGE - 1)),
-        readAll<Record<string, unknown>>(span => admin.from('client_agreements').select('id, organization_id, client_id, previous_id, kind, title, starts_on, ends_on, mode, hours, hours_mode, proration, timezone, cancelled_at').eq('organization_id', organizationId).order('id').range(span, span + PAGE - 1)),
-        readAll<Record<string, unknown>>(span => admin.from('time_logs').select('id, client_id, hours').eq('organization_id', organizationId).eq('status', 'logged').eq('import_status', 'mapped').eq('counts_toward_budget', true).is('voided_at', null).gte('date', bounds.start).lte('date', bounds.end).order('id').range(span, span + PAGE - 1)),
-        admin.from('organization_members').select('user_id, user:users(full_name, email)').eq('organization_id', organizationId),
     ]);
 
     if (clients.error || integrations.error) return { ok: false, status: 500, error: 'Could not load the dashboard.' };
-    const agreementsMissing = agreements.error?.code === '42P01' || agreements.error?.code === 'PGRST205';
-    if (agreements.error && !agreementsMissing) return { ok: false, status: 500, error: 'Could not load the dashboard.' };
-    const hoursKnown = !timeLogs.error;
 
     const connected = new Map<string, { property: string; syncStatus: 'active' | 'error'; lastSyncedAt: string | null }>();
     for (const row of integrations.rows) {
@@ -106,26 +53,6 @@ export async function loadAgencyDashboard(
         connected.set(clientId, { property, syncStatus, lastSyncedAt: text(row.last_synced_at) });
     }
 
-    const agreementsByClient = new Map<string, ClientAgreement[]>();
-    if (!agreements.error) {
-        for (const row of agreements.rows) {
-            const agreement = agreementFromRow(row);
-            const list = agreementsByClient.get(agreement.clientId) ?? [];
-            list.push(agreement);
-            agreementsByClient.set(agreement.clientId, list);
-        }
-    }
-    const hoursByClient = new Map<string, number>();
-    if (hoursKnown) {
-        for (const row of timeLogs.rows) {
-            const clientId = text(row.client_id);
-            const hours = num(row.hours);
-            if (!clientId || hours == null) continue;
-            hoursByClient.set(clientId, (hoursByClient.get(clientId) ?? 0) + hours);
-        }
-    }
-
-    const members = memberDirectory(membersResult.data);
     const inputClients: DashboardClientInput[] = clients.rows.flatMap(row => {
         const id = text(row.id);
         const link = id ? connected.get(id) : undefined;
@@ -134,15 +61,9 @@ export async function loadAgencyDashboard(
             id,
             name: text(row.name) ?? 'Client',
             domain: text(row.domain),
-            accountManager: dashboardManagerLabel(text(row.account_manager_name), text(row.account_manager_id), members),
-            seoHours: num(row.seo_hours),
             property: link.property,
             syncStatus: link.syncStatus,
             lastSyncedAt: link.lastSyncedAt,
-            loggedHours: hoursKnown ? (hoursByClient.get(id) ?? 0) : null,
-            agreements: agreementsByClient.get(id) ?? [],
-            // A missing agreements table is the pre-084 shape: fall back to seo_hours.
-            agreementsKnown: true,
         }];
     });
 
@@ -159,8 +80,6 @@ export async function loadAgencyDashboard(
                 range,
                 window: null,
                 asOf: null,
-                today,
-                hoursMonth,
                 clients: inputClients,
                 aggregates: [],
                 freshness: { latestDataDate: null, latestImportedAt: null, settling: false },
@@ -195,8 +114,6 @@ export async function loadAgencyDashboard(
             range,
             window,
             asOf,
-            today,
-            hoursMonth,
             clients: inputClients,
             aggregates: parsed.clients,
             freshness: parsed.freshness,
@@ -229,6 +146,12 @@ export async function loadTopQueries(
     });
     if (result.error) {
         if (unavailable(result.error)) return { ok: false, status: 503, error: 'Apply migration 091 before loading top queries.' };
+        // authenticator's 8s statement_timeout survives set role service_role.
+        // A 12-month query_page scan used to hit it. Migration 093 is the fix.
+        const message = result.error.message ?? '';
+        if (result.error.code === '57014' || /statement timeout|canceling statement/i.test(message)) {
+            return { ok: false, status: 500, error: 'Top queries took too long to load.' };
+        }
         return { ok: false, status: 500, error: 'Could not load queries.' };
     }
     try {
@@ -237,18 +160,4 @@ export async function loadTopQueries(
     } catch {
         return { ok: false, status: 500, error: 'Could not load queries.' };
     }
-}
-
-function memberDirectory(rows: unknown): ManagerIdentity[] {
-    if (!Array.isArray(rows)) return [];
-    return rows.flatMap(row => {
-        if (!row || typeof row !== 'object') return [];
-        const record = row as Record<string, unknown>;
-        const id = text(record.user_id);
-        const user = Array.isArray(record.user) ? record.user[0] : record.user;
-        const profile = user && typeof user === 'object' ? user as Record<string, unknown> : null;
-        const name = text(profile?.full_name);
-        if (!id || !name) return [];
-        return [{ id, name, email: text(profile?.email) ?? undefined }];
-    });
 }
