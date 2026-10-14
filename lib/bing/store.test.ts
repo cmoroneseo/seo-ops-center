@@ -126,6 +126,27 @@ test('reads project the site URL only, and a driver error does not keep its mess
     });
 });
 
+test('sync ranks read the site clock and completeness, not credentials', async () => {
+    const admin = fakeAdmin(call => {
+        if (call.table === 'client_integrations') {
+            return { data: [{ client_id: 'c1', last_synced_at: '2026-10-14T12:00:00.000Z' }], error: null };
+        }
+        return { data: [{ client_id: 'c1', queries_complete: false, pages_complete: true }], error: null };
+    });
+    const store = createBingStore(admin as unknown as SupabaseClient, allowed(), () => NOW);
+    assert.deepEqual(await store.listSyncRanks(ORG), [{
+        clientId: 'c1', lastSyncedAt: '2026-10-14T12:00:00.000Z', complete: false,
+    }]);
+    assert.equal(admin.calls[0]?.columns, 'client_id, last_synced_at');
+    assert.equal(admin.calls[0]?.columns?.split('token').length, 1);
+    assert.deepEqual(admin.calls[0]?.filters, [
+        ['eq', 'organization_id', ORG],
+        ['eq', 'service', 'bing'],
+    ]);
+    assert.equal(admin.calls[1]?.table, 'bing_traffic_days');
+    assert.equal(admin.calls[1]?.columns, 'client_id, queries_complete, pages_complete');
+});
+
 test('inserts, claims, and snapshot replacement use the migration 094 contracts', async () => {
     const admin = fakeAdmin(call => {
         if (call.op === 'insert') return { data: null, error: { code: '23505', message: KEY } };

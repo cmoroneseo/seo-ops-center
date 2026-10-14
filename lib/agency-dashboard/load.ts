@@ -1,9 +1,20 @@
 import 'server-only';
 
+import { bingWebmasterEnabled } from '@/lib/bing/flags';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { parseAgencyAggregate, parseTopQueries, QUERY_GAP_LABEL } from './aggregate';
+import {
+    attachBingDashboard,
+    BING_LINK_COLUMNS,
+    BING_PAGE_COLUMNS,
+    EMPTY_BING_PAYLOAD,
+    readBingLink,
+    readBingPageRow,
+    type BingLinkInput,
+    type BingPageSource,
+} from './bing';
 import { assembleDashboard, type DashboardClientInput, type DashboardModel } from './portfolio';
-import { dashboardWindow, type DashboardRange } from './range';
+import { dashboardWindow, daysInclusive, type DashboardRange, type DashboardWindow } from './range';
 
 type DbError = { code?: string; message?: string } | null;
 type Page<T> = { data: T[] | null; error: DbError };
@@ -74,17 +85,15 @@ export async function loadAgencyDashboard(
     }
     const asOf = text(asOfResult.data)?.slice(0, 10) ?? (asOfResult.data instanceof Date ? asOfResult.data.toISOString().slice(0, 10) : null);
     if (!asOf) {
-        return {
-            ok: true,
-            dashboard: assembleDashboard({
-                range,
-                window: null,
-                asOf: null,
-                clients: inputClients,
-                aggregates: [],
-                freshness: { latestDataDate: null, latestImportedAt: null, settling: false },
-            }),
-        };
+        const dashboard = assembleDashboard({
+            range,
+            window: null,
+            asOf: null,
+            clients: inputClients,
+            aggregates: [],
+            freshness: { latestDataDate: null, latestImportedAt: null, settling: false },
+        });
+        return { ok: true, dashboard: await withBing(admin, organizationId, null, dashboard) };
     }
 
     const window = dashboardWindow(range, asOf);
@@ -108,17 +117,104 @@ export async function loadAgencyDashboard(
         return { ok: false, status: 500, error: 'Could not load the dashboard.' };
     }
 
-    return {
-        ok: true,
-        dashboard: assembleDashboard({
-            range,
-            window,
-            asOf,
-            clients: inputClients,
-            aggregates: parsed.clients,
-            freshness: parsed.freshness,
-        }),
-    };
+    const dashboard = assembleDashboard({
+        range,
+        window,
+        asOf,
+        clients: inputClients,
+        aggregates: parsed.clients,
+        freshness: parsed.freshness,
+    });
+    return { ok: true, dashboard: await withBing(admin, organizationId, window, dashboard) };
+}
+
+type Admin = ReturnType<typeof createAdminClient>;
+
+/**
+ * Bing is optional. A failed read leaves the Google dashboard up and says why
+ * on the Bing side. The driver error stays off the response.
+ */
+async function withBing(admin: Admin, organizationId: string, window: DashboardWindow | null, dashboard: DashboardModel): Promise<DashboardModel> {
+    if (!bingWebmasterEnabled(process.env, organizationId)) return dashboard;
+    const bucket = window?.bucket ?? 'day';
+    const expectedDays = window ? daysInclusive(window.current.start, window.current.end) : 0;
+    const expectedPreviousDays = window ? daysInclusive(window.previous.start, window.previous.end) : 0;
+    const base = { bucket, expectedDays, expectedPreviousDays };
+    try {
+        const links = await readBingLinks(admin, organizationId);
+        if (!links.ok) return attachBingDashboard(dashboard, { ...base, failed: true });
+        if (!window) {
+            return attachBingDashboard(dashboard, { ...base, links: links.links, payload: EMPTY_BING_PAYLOAD, pages: [] });
+        }
+        const [aggregate, pages] = await Promise.all([
+            admin.rpc('agency_dashboard_bing', {
+                p_organization_id: organizationId,
+                p_current_start: window.current.start,
+                p_current_end: window.current.end,
+                p_previous_start: window.previous.start,
+                p_previous_end: window.previous.end,
+                p_bucket: window.bucket,
+            }),
+            readBingPages(admin, organizationId, window.current.start, window.current.end),
+        ]);
+        if (aggregate.error) return attachBingDashboard(dashboard, { ...base, failed: true });
+        return attachBingDashboard(dashboard, {
+            ...base,
+            links: links.links,
+            payload: aggregate.data,
+            pages: pages.ok ? pages.rows : [],
+            pagesFailed: !pages.ok,
+        });
+    } catch {
+        return attachBingDashboard(dashboard, { ...base, failed: true });
+    }
+}
+
+async function readBingLinks(admin: Admin, organizationId: string): Promise<{ ok: true; links: BingLinkInput[] } | { ok: false }> {
+    const result = await readAll<Record<string, unknown>>(span => admin
+        .from('client_integrations')
+        .select(BING_LINK_COLUMNS)
+        .eq('organization_id', organizationId)
+        .eq('service', 'bing')
+        .in('sync_status', ['active', 'error'])
+        .order('client_id')
+        .range(span, span + PAGE - 1));
+    if (result.error) return { ok: false };
+    const links: BingLinkInput[] = [];
+    const seen = new Set<string>();
+    for (const row of result.rows) {
+        const link = readBingLink(row);
+        if (!link || seen.has(link.clientId)) continue;
+        seen.add(link.clientId);
+        links.push(link);
+    }
+    return { ok: true, links };
+}
+
+async function readBingPages(
+    admin: Admin,
+    organizationId: string,
+    start: string,
+    end: string,
+): Promise<{ ok: true; rows: BingPageSource[] } | { ok: false }> {
+    const rows: BingPageSource[] = [];
+    for (let from = 0; from < 4000; from += PAGE) {
+        const page = await admin
+            .from('bing_page_weeks')
+            .select(BING_PAGE_COLUMNS)
+            .eq('organization_id', organizationId)
+            .gte('week_ending', start)
+            .lte('week_ending', end)
+            .order('client_id')
+            .range(from, from + PAGE - 1);
+        if (page.error) return { ok: false };
+        for (const row of page.data ?? []) {
+            const parsed = readBingPageRow(row as Record<string, unknown>);
+            if (parsed) rows.push(parsed);
+        }
+        if ((page.data ?? []).length < PAGE) return { ok: true, rows };
+    }
+    return { ok: true, rows };
 }
 
 const CLIENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

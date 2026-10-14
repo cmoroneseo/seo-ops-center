@@ -96,6 +96,27 @@ test('traffic and weeks fail closed, and one query week stays one row', () => {
         avg_click_position: null,
     });
     assert.equal(Object.hasOwn(week.rows[0], 'rank'), false);
+    const negative = mapQueryWeeks({
+        d: [{
+            Query: 'widgets',
+            Clicks: 2,
+            Impressions: 10,
+            AvgImpressionPosition: 4.5,
+            AvgClickPosition: -1,
+            Date: '/Date(1609459200000-0800)/',
+        }],
+    });
+    assert.deepEqual(negative, {
+        ok: true,
+        rows: [{
+            week_ending: '2020-12-31',
+            query: 'widgets',
+            clicks: 2,
+            impressions: 10,
+            avg_impression_position: 4.5,
+            avg_click_position: null,
+        }],
+    });
     assert.deepEqual(mapQueryWeeks({ d: [{ Query: '   ', Clicks: 1, Impressions: 1, Date: day }] }), { ok: false });
     assert.deepEqual(mapQueryWeeks({ d: [{ Query: 'widgets', Clicks: 1, Impressions: 1, AvgImpressionPosition: Number.POSITIVE_INFINITY, Date: day }] }), { ok: false });
 
