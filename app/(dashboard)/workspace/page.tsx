@@ -1,6 +1,8 @@
 'use client';
 
 import { ClientTable } from '@/components/workspace/ClientTable';
+import { ArchivedClientNotice } from '@/components/workspace/ArchivedClientNotice';
+import { readArchivedClientNotice } from '@/lib/clients/delete-client';
 import { AddClientModal } from '@/components/workspace/AddClientModal';
 import { CSVImportModal } from '@/components/workspace/CSVImportModal';
 import { BasecampImportModal } from '@/components/workspace/BasecampImportModal';
@@ -31,6 +33,7 @@ export default function WorkspacePage() {
     const [bcImportTarget, setBcImportTarget] = useState<{ clientId: string; orgId: string } | null>(null);
     const [viewMode, setViewMode] = useState<'list' | 'planning'>('list');
     const [myClientsPreference, setMyClientsPreference] = useState<boolean | null>(null);
+    const [archivedNotice, setArchivedNotice] = useState<string | null>(null);
     // The role loads asynchronously. Derive its default until the user chooses a filter.
     const myClientsOnly = myClientsPreference ?? !isOwner;
     const organizationId = organization?.id;
@@ -51,6 +54,16 @@ export default function WorkspacePage() {
         setIsLoading(true);
         void fetchClients();
     }, [fetchClients]);
+
+    useEffect(() => {
+        const name = readArchivedClientNotice(window.location.search);
+        if (!name) return;
+        setArchivedNotice(name);
+        const params = new URLSearchParams(window.location.search);
+        params.delete('clientArchived');
+        const next = params.toString();
+        window.history.replaceState(null, '', next ? `${window.location.pathname}?${next}` : window.location.pathname);
+    }, []);
 
     const handleClientCreated = useCallback(() => {
         // Show the newly created onboarding client even if the user was browsing another filter.
@@ -83,6 +96,7 @@ export default function WorkspacePage() {
 
     return (
         <div className="space-y-8">
+            {archivedNotice && <ArchivedClientNotice name={archivedNotice} onDismiss={() => setArchivedNotice(null)} />}
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight neon-gradient-text">Workspace</h2>
