@@ -11,6 +11,7 @@ import { createTaskFromTemplate, createTask, type TaskInsert } from '@/lib/supab
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { RecurrenceSelector } from './RecurrenceSelector';
 import { createClient } from '@/lib/supabase/client';
+import { seoPlanPushTodolistId } from '@/lib/basecamp/plan-lists';
 import {
     createTimeLog,
     getTimeLogForPlannerEvent,
@@ -225,7 +226,7 @@ export function CreateTaskModal({
                 setClientHasBasecamp(enabled);
                 if (enabled) {
                     const projectId = String(cf.basecamp_project_id ?? '');
-                    const defaultListId = String(cf.basecamp_todolist_id ?? '');
+                    const defaultListId = seoPlanPushTodolistId(cf);
                     setBcProjectId(projectId);
                     setBcDefaultTodolistId(defaultListId);
                     setBcTodolistId(defaultListId);

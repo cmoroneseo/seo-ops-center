@@ -6,6 +6,8 @@ import { X, ChevronDown, ChevronRight, CheckSquare, Square, Loader2, CheckCircle
 import { cn } from '@/lib/utils';
 import { authorizedProjectId } from '@/lib/basecamp/project-selection';
 import { emptyBasecampImportScope } from '@/lib/basecamp/scope-state';
+import { AddOnboardingToPlanButton } from '@/components/marketing-plan/AddOnboardingToPlanButton';
+import { ONBOARDING_IMPORT_HINT } from '@/lib/seo-plan/onboarding-import';
 
 interface BasecampProject { id: number; name: string; }
 interface BasecampTodolist { id: number; title: string; name: string; todos_count: number; }
@@ -63,6 +65,7 @@ export function BasecampImportModal({
     const [priority, setPriority] = useState<Priority>('medium');
     const [importing, setImporting] = useState(false);
     const [importedCount, setImportedCount] = useState(0);
+    const [importedTodoIds, setImportedTodoIds] = useState<number[]>([]);
     const [importError, setImportError] = useState('');
     const scopeVersionRef = useRef(0);
 
@@ -94,6 +97,7 @@ export function BasecampImportModal({
         setPriority(emptyScope.priority);
         setImporting(emptyScope.importing);
         setImportedCount(emptyScope.importedCount);
+        setImportedTodoIds([]);
         setImportError(emptyScope.importError);
         if (!isOpen) return;
         let cancelled = false;
@@ -260,6 +264,7 @@ export function BasecampImportModal({
             dueOn?: string;
             basecampTodoId: number;
             basecampProjectId: number;
+            basecampTodolistId: number;
             category?: string;
             priority: Priority;
         }[] = [];
@@ -274,6 +279,7 @@ export function BasecampImportModal({
                     dueOn: todo.due_on || undefined,
                     basecampTodoId: todo.id,
                     basecampProjectId: Number(projectId),
+                    basecampTodolistId: Number(ls.todolist.id),
                     category: ls.todolist.title || ls.todolist.name,
                     priority,
                 });
@@ -290,6 +296,7 @@ export function BasecampImportModal({
             if (!res.ok) throw new Error(data.errors?.[0] ?? 'Import failed');
             if (scopeVersion !== scopeVersionRef.current) return;
             setImportedCount(data.imported);
+            setImportedTodoIds(tasks.map(row => row.basecampTodoId));
             setStep('done');
             onSuccess(data.imported);
         } catch (err) {
@@ -304,6 +311,7 @@ export function BasecampImportModal({
         setStep('project');
         setListStates([]);
         setImportedCount(0);
+        setImportedTodoIds([]);
         setImportError('');
         const projectId = authorizedProjectId(projects, preselectedProjectId);
         if (projectId) {
@@ -328,7 +336,7 @@ export function BasecampImportModal({
                             <h2 className="text-base font-semibold">Import from Basecamp</h2>
                             <p className="text-xs text-muted-foreground">
                                 {step === 'project' && 'Select a Basecamp project'}
-                                {step === 'lists' && 'Choose tasks to import'}
+                                {step === 'lists' && 'Choose the onboarding list to seed the SEO Plan'}
                                 {step === 'done' && 'Import complete'}
                             </p>
                         </div>
@@ -345,7 +353,7 @@ export function BasecampImportModal({
                     {step === 'project' && (
                         <div className="space-y-4">
                             <p className="text-sm text-muted-foreground">
-                                Choose the Basecamp project linked to this client. You&apos;ll then pick which to-do lists and tasks to bring in.
+                                Choose the Basecamp project linked to this client. Import the onboarding list to seed the SEO Plan. New work pushes to the SEO Plan list.
                             </p>
                             {projectsLoading ? (
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -517,10 +525,15 @@ export function BasecampImportModal({
                                 <p className="text-lg font-semibold">
                                     {importedCount} task{importedCount !== 1 ? 's' : ''} imported
                                 </p>
-                                <p className="text-sm text-muted-foreground mt-1">
-                                    Tasks are now in the client&apos;s task list, linked to Basecamp.
+                                <p className="text-sm text-muted-foreground mt-1 max-w-md">
+                                    {ONBOARDING_IMPORT_HINT}
                                 </p>
                             </div>
+                            <AddOnboardingToPlanButton
+                                clientId={clientId}
+                                organizationId={organizationId}
+                                onlyBasecampTodoIds={importedTodoIds}
+                            />
                             <div className="flex gap-3 mt-2">
                                 <button
                                     type="button"

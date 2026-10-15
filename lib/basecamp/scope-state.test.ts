@@ -41,6 +41,7 @@ test('an integration scope rejects config whose project is absent from the autho
     ), {
         projectId: '',
         todolistId: '',
+        onboardingTodolistId: '',
         syncEnabled: false,
         timesheetEnabled: false,
         importOpen: false,
@@ -54,12 +55,14 @@ test('an integration scope restores config only after the catalog authorizes its
         {
             basecamp_project_id: 202,
             basecamp_todolist_id: 55,
+            basecamp_onboarding_todolist_id: 56,
             basecamp_sync_enabled: true,
             basecamp_timesheet_enabled: true,
         },
     ), {
         projectId: '202',
         todolistId: '55',
+        onboardingTodolistId: '56',
         syncEnabled: true,
         timesheetEnabled: true,
         importOpen: false,

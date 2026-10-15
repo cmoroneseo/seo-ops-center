@@ -15,6 +15,7 @@ import {
     requestTaskBasecampSync,
     type ClientBasecampSyncResult,
 } from '../basecamp/client-sync';
+import { seoPlanPushTodolistId } from '../basecamp/plan-lists';
 
 // ---------------------------------------------------------------------------
 // Basecamp integration helpers (fire-and-forget, server-side only)
@@ -39,7 +40,7 @@ export async function getClientBasecampConfig(clientId: string | undefined): Pro
         if (!cf.basecamp_sync_enabled) return null;
         const projectId = cf.basecamp_project_id as string;
         if (!projectId) return null;
-        const todolistId = (cf.basecamp_todolist_id as string) ?? '';
+        const todolistId = seoPlanPushTodolistId(cf);
         return { projectId, todolistId };
     } catch {
         return null;

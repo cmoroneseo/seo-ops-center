@@ -6,6 +6,8 @@ import {
 export interface ImportTaskPayload {
     basecampTodoId: number;
     basecampProjectId: number;
+    /** List the to-do was imported from. Stored so onboarding can be recognized later. */
+    basecampTodolistId?: number;
     category?: string;
     priority?: 'low' | 'medium' | 'high' | 'urgent';
 }
@@ -118,11 +120,17 @@ export function numericId(value: unknown): string | null {
     return Number.isSafeInteger(numeric) && numeric > 0 ? normalized : null;
 }
 
+function sourceTodolistId(value: unknown): string | null | 'invalid' {
+    if (value === undefined || value === null || value === '') return null;
+    return numericId(value) ?? 'invalid';
+}
+
 function validTask(value: unknown): value is ImportTaskPayload {
     if (!value || typeof value !== 'object') return false;
     const task = value as Record<string, unknown>;
     return numericId(task.basecampProjectId) !== null
-        && numericId(task.basecampTodoId) !== null;
+        && numericId(task.basecampTodoId) !== null
+        && sourceTodolistId(task.basecampTodolistId) !== 'invalid';
 }
 
 function chunk<T>(values: T[], size = 500): T[][] {
@@ -202,6 +210,7 @@ export async function buildBasecampTaskRows(input: {
                     .filter((id): id is string => typeof id === 'string' && id.length > 0),
             ))
             : [];
+        const sourceListId = sourceTodolistId(task.basecampTodolistId);
 
         return {
             organization_id: input.organizationId,
@@ -222,7 +231,9 @@ export async function buildBasecampTaskRows(input: {
             // that state happened — the same shape every other creator writes.
             status_history: [{ status, at: completedAt ?? input.now, by: input.userId }],
             completed_at: completedAt,
-            custom_fields: {},
+            custom_fields: sourceListId && sourceListId !== 'invalid'
+                ? { basecamp_source_todolist_id: sourceListId }
+                : {},
             watcher_ids: [],
             created_by: input.userId,
         } satisfies Record<string, unknown>;

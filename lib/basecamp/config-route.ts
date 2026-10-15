@@ -74,6 +74,11 @@ function normalizeOptionalId(value: unknown): string | null | 'invalid' {
     return /^\d+$/.test(normalized) ? normalized : 'invalid';
 }
 
+function readOptionalId(body: Record<string, unknown>, key: string): string | null | 'invalid' | 'omit' {
+    if (!Object.prototype.hasOwnProperty.call(body, key)) return 'omit';
+    return normalizeOptionalId(body[key]);
+}
+
 export function createBasecampConfigHandlers(dependencies: Dependencies) {
     async function authorize(clientId: string) {
         const authorization = await dependencies.authorizeClient(clientId);
@@ -102,7 +107,9 @@ export function createBasecampConfigHandlers(dependencies: Dependencies) {
                 const fields = client.customFields;
                 return json({
                     basecamp_project_id: fields.basecamp_project_id ?? '',
+                    // SEO Plan list. The historical single id stays this field.
                     basecamp_todolist_id: fields.basecamp_todolist_id ?? '',
+                    basecamp_onboarding_todolist_id: fields.basecamp_onboarding_todolist_id ?? '',
                     basecamp_sync_enabled: fields.basecamp_sync_enabled ?? false,
                     basecamp_timesheet_enabled: fields.basecamp_timesheet_enabled ?? false,
                 });
@@ -119,13 +126,17 @@ export function createBasecampConfigHandlers(dependencies: Dependencies) {
                 const body = await req.json() as Record<string, unknown>;
                 const requestedProjectId = normalizeOptionalId(body.basecamp_project_id);
                 const requestedTodolistId = normalizeOptionalId(body.basecamp_todolist_id);
+                const requestedOnboardingId = readOptionalId(body, 'basecamp_onboarding_todolist_id');
                 if (requestedProjectId === 'invalid') {
                     return json({ error: 'Valid basecamp_project_id required' }, 400);
                 }
                 if (requestedTodolistId === 'invalid') {
                     return json({ error: 'Valid basecamp_todolist_id required' }, 400);
                 }
-                if (!requestedProjectId && requestedTodolistId) {
+                if (requestedOnboardingId === 'invalid') {
+                    return json({ error: 'Valid basecamp_onboarding_todolist_id required' }, 400);
+                }
+                if (!requestedProjectId && (requestedTodolistId || (requestedOnboardingId && requestedOnboardingId !== 'omit'))) {
                     return json({ error: 'A todolist requires a project' }, 400);
                 }
 
@@ -166,14 +177,30 @@ export function createBasecampConfigHandlers(dependencies: Dependencies) {
                         }
                     }
 
-                    if (requestedTodolistId) {
+                    const storedOnboardingId = normalizeOptionalId(client.customFields.basecamp_onboarding_todolist_id);
+                    const onboardingId = requestedOnboardingId === 'omit'
+                        ? (requestedProjectId === currentProjectId && storedOnboardingId !== 'invalid'
+                            ? storedOnboardingId
+                            : null)
+                        : requestedOnboardingId;
+                    const listsToVerify = [requestedTodolistId, onboardingId].filter((id): id is string => !!id);
+                    if (listsToVerify.length > 0) {
                         const todolists = await dependencies.listTodolists(requestedProjectId);
-                        if (!todolists.some(list => String(list.id) === requestedTodolistId)) {
+                        const allowed = new Set(todolists.map(list => String(list.id)));
+                        if (listsToVerify.some(id => !allowed.has(id))) {
                             return json({ error: 'Todolist is not authorized' }, 403);
                         }
                     }
                 }
 
+                const storedOnboardingId = normalizeOptionalId(client.customFields.basecamp_onboarding_todolist_id);
+                const onboardingId = !requestedProjectId
+                    ? null
+                    : requestedOnboardingId === 'omit'
+                        ? (requestedProjectId === currentProjectId && storedOnboardingId !== 'invalid'
+                            ? storedOnboardingId
+                            : null)
+                        : requestedOnboardingId;
                 const wasEnabled = client.customFields.basecamp_sync_enabled === true;
                 const hadProject = currentProjectId !== null;
                 const projectChanged = requestedProjectId !== currentProjectId;
@@ -181,6 +208,7 @@ export function createBasecampConfigHandlers(dependencies: Dependencies) {
                     ...client.customFields,
                     basecamp_project_id: requestedProjectId,
                     basecamp_todolist_id: requestedProjectId ? requestedTodolistId : null,
+                    basecamp_onboarding_todolist_id: onboardingId,
                     basecamp_sync_enabled: requestedProjectId ? body.basecamp_sync_enabled === true : false,
                     basecamp_timesheet_enabled: requestedProjectId ? body.basecamp_timesheet_enabled === true : false,
                 };
@@ -209,6 +237,7 @@ export function createBasecampConfigHandlers(dependencies: Dependencies) {
                         service: 'basecamp',
                         basecamp_project_id: requestedProjectId,
                         basecamp_todolist_id: requestedProjectId ? requestedTodolistId : null,
+                        basecamp_onboarding_todolist_id: onboardingId,
                         sync_enabled: syncEnabled,
                         timesheet_enabled: updatedFields.basecamp_timesheet_enabled === true,
                     },

@@ -42,6 +42,8 @@ import { ResultsView } from '@/components/marketing-plan/ResultsView';
 import { searchReportingEnabled } from '@/lib/search-reporting/flag';
 import { parsePlanView, type PlanView } from '@/lib/search-reporting/ledger';
 import { BasecampImportModal } from '@/components/workspace/BasecampImportModal';
+import { AddOnboardingToPlanButton } from '@/components/marketing-plan/AddOnboardingToPlanButton';
+import { ONBOARDING_IMPORT_HINT } from '@/lib/seo-plan/onboarding-import';
 import { ClientApprovalsTab } from '@/components/approvals/ClientApprovalsTab';
 import { ClientPortalStaffPanel } from '@/components/portal/ClientPortalStaffPanel';
 import {ClientAgreementSummary} from '@/components/workspace/agreements/ClientAgreementSummary';
@@ -536,9 +538,15 @@ export default function ClientDetailPage() {
                         onCreate={() => setIsCreateTaskOpen(true)}
                     />
 
-                    <p className="text-sm text-muted-foreground">All client work, including Basecamp imports and ad hoc requests. Monthly plan shows the work selected for your SEO priorities.</p>
+                    <p className="text-sm text-muted-foreground">{ONBOARDING_IMPORT_HINT} All client work stays here, including ad hoc requests. The SEO Plan shows the work you add to it.</p>
+                    {organization && (
+                        <AddOnboardingToPlanButton
+                            clientId={client.id}
+                            organizationId={organization.id}
+                            onDone={() => { void getTasksByClient(id).then(setClientTasks); }}
+                        />
+                    )}
                     {importOpen && organization && <BasecampImportModal isOpen onClose={() => setImportOpen(false)} onSuccess={() => {
-                        setImportOpen(false);
                         void getTasksByClient(id).then(setClientTasks);
                     }} clientId={client.id} organizationId={organization.id} />}
                     {tasksLoading ? (
