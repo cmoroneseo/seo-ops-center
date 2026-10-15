@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin';
+import type { ForecastBasecampProject } from './basecamp-project.ts';
 import type { ForecastEvent, ForecastLog, ForecastMember, ForecastTask } from './build.ts';
 import type { ForecastClientLink, ForecastSeoClient } from './clients.ts';
 import { isCampaignDeskClientId } from './clients.ts';
@@ -26,6 +27,8 @@ interface LogRow {
     import_status: string | null;
     voided_at: string | null;
     planner_event_id: string | null;
+    planned_starts_at?: string | null;
+    basecamp_project_id?: number | string | null;
     task_id?: string | null;
     description?: string | null;
     clients: { name?: string | null; domain?: string | null } | { name?: string | null; domain?: string | null }[] | null;
@@ -83,6 +86,24 @@ function readHours(value: number | string | null | undefined): number | null {
     return Number.isFinite(hours) ? hours : null;
 }
 
+function instant(value: string | null | undefined): string | undefined {
+    if (!value?.trim()) return undefined;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return undefined;
+    return parsed.toISOString();
+}
+
+function basecampProjectId(value: number | string | null | undefined): string | undefined {
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) return String(value);
+    if (typeof value === 'string' && /^\d+$/.test(value.trim())) return value.trim();
+    return undefined;
+}
+
+function projectIdFromFields(value: unknown): string | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    return basecampProjectId((value as { basecamp_project_id?: number | string | null }).basecamp_project_id);
+}
+
 export function rowToForecastMember(row: MemberRow): ForecastMember {
     const user = one(row.users);
     const email = user?.email?.trim() ?? '';
@@ -108,6 +129,8 @@ export function rowToForecastLog(row: LogRow): ForecastLog {
         importStatus: row.import_status ?? 'mapped',
         voidedAt: row.voided_at ?? undefined,
         plannerEventId: row.planner_event_id ?? undefined,
+        plannedStartsAt: instant(row.planned_starts_at),
+        basecampProjectId: basecampProjectId(row.basecamp_project_id),
         taskId: row.task_id ?? undefined,
         taskTitle: task?.title?.trim() || undefined,
         description: row.description?.trim() || undefined,
@@ -152,7 +175,7 @@ export function rowToForecastTask(row: TaskRow): ForecastTask {
     };
 }
 
-const LOG_COLUMNS = 'id, user_id, client_id, task_id, description, date, hours, status, import_status, voided_at, planner_event_id, clients(name, domain), tasks(title)';
+const LOG_COLUMNS = 'id, user_id, client_id, task_id, description, date, hours, status, import_status, voided_at, planner_event_id, planned_starts_at, basecamp_project_id, clients(name, domain), tasks(title)';
 const EVENT_COLUMNS = 'id, user_id, attendee_ids, kind, starts_at, ends_at, all_day, client_id, task_id, title, clients(name, domain), tasks(title)';
 const TASK_COLUMNS = 'id, title, status, assignee_ids, client_id, start_date, estimated_hours, clients(name, domain)';
 
@@ -170,13 +193,36 @@ function isMissingClientMap(error: { code?: string; message?: string } | null): 
         || /campaign_desk_client_links/i.test(error.message ?? '');
 }
 
+interface RoleRow {
+    basecamp_project_id: number | string;
+    basecamp_project_name: string | null;
+    role: string;
+    client_id: string | null;
+}
+
+interface ClientBindRow {
+    id: string;
+    name: string | null;
+    domain: string | null;
+    custom_fields: unknown;
+}
+
 export async function loadForecastSource(scope: {
     organizationId: string;
     from: string;
     to: string;
-}): Promise<{ members: ForecastMember[]; logs: ForecastLog[]; events: ForecastEvent[]; tasks: ForecastTask[] }> {
+    /** Names for project ids that are not stored on a role. Failure leaves the name empty. */
+    projectNames?: () => Promise<ReadonlyMap<string, string>>;
+}): Promise<{
+    members: ForecastMember[];
+    logs: ForecastLog[];
+    events: ForecastEvent[];
+    tasks: ForecastTask[];
+    basecampProjects: ForecastBasecampProject[];
+    seoClients: ForecastSeoClient[];
+}> {
     const admin = createAdminClient();
-    const [memberResult, logResult, eventResult, taskResult] = await Promise.all([
+    const [memberResult, logResult, eventResult, taskResult, roleResult, clientResult] = await Promise.all([
         admin.from('organization_members').select('user_id, users(full_name, email)').eq('organization_id', scope.organizationId),
         admin.from('time_logs')
             .select(LOG_COLUMNS)
@@ -193,11 +239,19 @@ export async function loadForecastSource(scope: {
             .eq('organization_id', scope.organizationId)
             .gte('start_date', `${scope.from}T00:00:00.000Z`)
             .lt('start_date', `${scope.to}T00:00:00.000Z`),
+        admin.from('basecamp_project_roles')
+            .select('basecamp_project_id, basecamp_project_name, role, client_id')
+            .eq('organization_id', scope.organizationId),
+        admin.from('clients')
+            .select('id, name, domain, custom_fields')
+            .eq('organization_id', scope.organizationId),
     ]);
     if (memberResult.error) throw memberResult.error;
     if (logResult.error) throw logResult.error;
     if (eventResult.error) throw eventResult.error;
     if (taskResult.error) throw taskResult.error;
+    if (roleResult.error && !isMissingRelation(roleResult.error)) throw roleResult.error;
+    if (clientResult.error) throw clientResult.error;
 
     const logs = ((logResult.data ?? []) as unknown as LogRow[]).map(rowToForecastLog);
     const events = ((eventResult.data ?? []) as unknown as EventRow[]).map(rowToForecastEvent);
@@ -213,12 +267,80 @@ export async function loadForecastSource(scope: {
         events.push(...((extra.data ?? []) as unknown as EventRow[]).map(rowToForecastEvent));
     }
 
+    const clientRows = (clientResult.data ?? []) as unknown as ClientBindRow[];
+    const seoClients: ForecastSeoClient[] = clientRows.flatMap(row => {
+        const name = row.name?.trim() ?? '';
+        if (!name) return [];
+        const domain = row.domain?.trim() ?? '';
+        return [{ id: String(row.id), name, domain: domain || null }];
+    });
+    const clientsById = new Map(seoClients.map(client => [client.id.toLowerCase(), client]));
+    const projects = new Map<string, ForecastBasecampProject>();
+    if (!roleResult.error) {
+        for (const role of (roleResult.data ?? []) as unknown as RoleRow[]) {
+            const id = basecampProjectId(role.basecamp_project_id);
+            if (!id) continue;
+            const kind = role.role === 'client' || role.role === 'internal' || role.role === 'ignored'
+                ? role.role
+                : 'unknown';
+            const client = role.client_id ? clientsById.get(role.client_id.toLowerCase()) : undefined;
+            projects.set(id, {
+                id,
+                name: role.basecamp_project_name?.trim() || null,
+                kind: kind === 'client' && client ? 'client' : kind === 'client' ? 'unknown' : kind,
+                clientId: client?.id,
+                clientName: client?.name,
+                clientDomain: client?.domain ?? undefined,
+            });
+        }
+    }
+    for (const row of clientRows) {
+        const id = projectIdFromFields(row.custom_fields);
+        if (!id || projects.has(id)) continue;
+        const client = clientsById.get(String(row.id).toLowerCase());
+        if (!client) continue;
+        projects.set(id, {
+            id,
+            name: null,
+            kind: 'client',
+            clientId: client.id,
+            clientName: client.name,
+            clientDomain: client.domain ?? undefined,
+        });
+    }
+    const unnamed = [...new Set(logs.flatMap(log => log.basecampProjectId ? [log.basecampProjectId] : []))]
+        .filter(id => !projects.get(id)?.name);
+    if (unnamed.length > 0 && scope.projectNames) {
+        try {
+            const names = await scope.projectNames();
+            for (const id of unnamed) {
+                const name = names.get(id)?.trim();
+                if (!name) continue;
+                const existing = projects.get(id);
+                if (existing) {
+                    if (!existing.name) existing.name = name;
+                } else {
+                    projects.set(id, { id, name, kind: 'unknown' });
+                }
+            }
+        } catch {
+            // A missing catalog leaves the project unnamed. The hours still sync.
+        }
+    }
+
     return {
         members: ((memberResult.data ?? []) as unknown as MemberRow[]).map(rowToForecastMember),
         logs,
         events,
         tasks: ((taskResult.data ?? []) as unknown as TaskRow[]).map(rowToForecastTask),
+        basecampProjects: [...projects.values()],
+        seoClients,
     };
+}
+
+function isMissingRelation(error: { code?: string; message?: string } | null): boolean {
+    if (!error) return false;
+    return error.code === '42P01' || error.code === 'PGRST205';
 }
 
 function rowToRun(row: RunRow, names: Map<string, string>): ForecastSyncRunRecord | null {

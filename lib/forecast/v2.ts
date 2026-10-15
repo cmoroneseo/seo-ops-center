@@ -13,7 +13,12 @@ import {
     type ForecastWarningKind,
     type ForecastWeekModel,
 } from './build.ts';
-import { resolveCampaignDeskClientId, type ForecastDeskClient } from './clients.ts';
+import {
+    attributeBasecampProject,
+    type ForecastBasecampProject,
+    type ProjectClientAttribution,
+} from './basecamp-project.ts';
+import { resolveCampaignDeskClientId, type ForecastDeskClient, type ForecastSeoClient } from './clients.ts';
 import { FORECAST_SOURCE, hoursStringFromMinutes, normalizeEmail } from './contract.ts';
 import type { ForecastItem, ForecastItemClient, ForecastPayloadBodyV2 } from './contract-v2.ts';
 
@@ -25,11 +30,16 @@ import type { ForecastItem, ForecastItemClient, ForecastPayloadBodyV2 } from './
  * no client. Estimates shared by several people are split evenly. Actual
  * time stays with the person who tracked it.
  *
- * startTime is the clock Campaign Desk uses to place an item on the hour
- * grid. Events use their start. A focus-linked actual uses that focus
- * block's start. An estimate uses the task start when the timestamp includes
- * a time. A bare date, an all-day block, and any other unscheduled item stay
- * null so Campaign Desk can queue them.
+ * startTime places an item on the hour grid. It does not decide whether the
+ * minutes count. For actuals the clock is the focus block start, then the
+ * time log's planned start, then the event start. An estimate uses the task
+ * start when the timestamp includes a time. A bare date, an all-day block,
+ * and any other unscheduled item stay null so Campaign Desk can queue them.
+ *
+ * Time logged from a planner block is the time log whose planner event id
+ * is that block. When that log names a Basecamp project, the hours prefer
+ * the SEO or Campaign Desk client for that project. No match still sends
+ * the hours as internal.
  */
 
 const DONE = new Set(['done', 'approved']);
@@ -41,6 +51,10 @@ export interface ForecastV2Input extends ForecastBuildInput {
     clientLinks: ReadonlyMap<string, string>;
     /** Null when GET /v1/clients did not load. An empty list loaded nobody. */
     deskClients: ForecastDeskClient[] | null;
+    /** Basecamp projects referenced by logged blocks. Absent means none. */
+    basecampProjects?: readonly ForecastBasecampProject[];
+    /** SEO clients used to turn a project name into a real client. */
+    seoClients?: readonly ForecastSeoClient[];
 }
 
 export interface ForecastV2BuildResult {
@@ -67,6 +81,8 @@ interface Group {
     source: 'actual' | 'estimate';
     minutes: number;
     startTime: string | null;
+    /** Higher wins when several logs share an item. Focus, then planned, then event. */
+    startRank: number;
     taskId: string | null;
     plannerEventId: string | null;
     timeLogIds: string[];
@@ -130,6 +146,80 @@ function scheduledTaskStartTime(startDate: string, timeZone: string): string | n
     return clockTimeInTimeZone(startDate, timeZone);
 }
 
+/**
+ * Clock for one actual. Focus wins, then the time the log was planned to
+ * start, then the block on the planner. All-day blocks have no clock.
+ */
+function actualStartTime(
+    log: ForecastLog,
+    event: ForecastEvent | undefined,
+    timeZone: string,
+): { time: string | null; rank: number } {
+    const focus = focusStartTime(event, timeZone);
+    if (focus) return { time: focus, rank: 3 };
+    if (log.plannedStartsAt) {
+        const planned = clockTimeInTimeZone(log.plannedStartsAt, timeZone);
+        if (planned) return { time: planned, rank: 2 };
+    }
+    if (event && !event.allDay && event.kind !== 'break' && event.kind !== 'ooo') {
+        const clock = clockTimeInTimeZone(event.startsAt, timeZone);
+        if (clock) return { time: clock, rank: 1 };
+    }
+    return { time: null, rank: 0 };
+}
+
+function sameInstant(left: string | undefined, right: string | undefined): boolean {
+    if (!left || !right) return false;
+    const a = Date.parse(left);
+    const b = Date.parse(right);
+    return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 60_000;
+}
+
+function blockCounts(
+    log: ForecastLog,
+    events: Map<string, ForecastEvent>,
+    selected: string[],
+    today: string,
+    members: { has(userId: string): boolean },
+): boolean {
+    if (!log.plannerEventId || !log.userId || !members.has(log.userId)) return false;
+    if (log.voidedAt || log.importStatus === 'voided') return false;
+    if (log.importStatus === 'needs_context' || log.importStatus === 'pending_review') return false;
+    if (log.status !== 'logged') return false;
+    const minutes = minutesFromHours(log.hours);
+    if (minutes == null || minutes <= 0 || !parseLocalDate(log.date)) return false;
+    const weekStart = weekStartFor(log.date);
+    if (!selected.includes(weekStart) || forecastBasis(weekStart, today) !== 'actual') return false;
+    const event = events.get(log.plannerEventId);
+    return Boolean(event && event.kind !== 'break' && event.kind !== 'ooo');
+}
+
+/**
+ * A second time log for the same person, start, and length as a block that
+ * already has its own logged entry. The block log is the one that counts.
+ */
+function shadowsBlockLog(
+    log: ForecastLog,
+    logs: readonly ForecastLog[],
+    events: Map<string, ForecastEvent>,
+    selected: string[],
+    today: string,
+    members: { has(userId: string): boolean },
+): boolean {
+    if (log.plannerEventId || !log.plannedStartsAt || !log.userId) return false;
+    const minutes = minutesFromHours(log.hours);
+    if (minutes == null || minutes <= 0) return false;
+    return logs.some(other => {
+        if (other.id === log.id || other.userId !== log.userId) return false;
+        if (!blockCounts(other, events, selected, today, members)) return false;
+        const event = other.plannerEventId ? events.get(other.plannerEventId) : undefined;
+        const anchor = event && !event.allDay ? event.startsAt : other.plannedStartsAt;
+        if (!sameInstant(log.plannedStartsAt, anchor)) return false;
+        const otherMinutes = minutesFromHours(other.hours);
+        return otherMinutes != null && Math.abs(otherMinutes - minutes) <= 1;
+    });
+}
+
 function minutesFromHours(hours: number | null): number | null {
     if (hours == null || !Number.isFinite(hours) || hours < 0) return null;
     return Math.round(hours * 60);
@@ -177,6 +267,7 @@ export function buildForecastV2(input: ForecastV2Input): ForecastV2BuildResult {
     let splitEstimates = 0;
     const groups = new Map<string, Group>();
     const gaps: Gap[] = [];
+    const forcedDesk = new Map<string, string>();
 
     const addGroup = (draft: Omit<Group, 'minutes' | 'timeLogIds' | 'votes'> & {
         minutes: number;
@@ -195,7 +286,10 @@ export function buildForecastV2(input: ForecastV2Input): ForecastV2BuildResult {
                 existing.timeLogIds.push(draft.timeLogId);
             }
             if (existing.title === 'Tracked time' && draft.title !== 'Tracked time') existing.title = draft.title;
-            if (!existing.startTime && draft.startTime) existing.startTime = draft.startTime;
+            if (draft.startRank > existing.startRank) {
+                existing.startTime = draft.startTime;
+                existing.startRank = draft.startRank;
+            }
             if (voteKey) {
                 const vote = existing.votes.get(voteKey);
             if (vote) {
@@ -224,12 +318,35 @@ export function buildForecastV2(input: ForecastV2Input): ForecastV2BuildResult {
             source: draft.source,
             minutes: draft.minutes,
             startTime: draft.startTime,
+            startRank: draft.startRank,
             taskId: draft.taskId,
             plannerEventId: draft.plannerEventId,
             timeLogIds: draft.timeLogId ? [draft.timeLogId] : [],
             votes,
         });
     };
+
+    function projectAttribution(
+        log: ForecastLog,
+        event: ForecastEvent | undefined,
+    ): ProjectClientAttribution | null {
+        const meeting = event?.kind === 'meeting';
+        const internalEvent = event?.kind === 'event';
+        if (!meeting && !internalEvent) return null;
+        const eventClientId = meeting ? uuidOrNull(event?.clientId) ?? uuidOrNull(log.clientId) : null;
+        if (eventClientId) return null;
+        const attributed = attributeBasecampProject({
+            projectId: log.basecampProjectId,
+            projects: input.basecampProjects ?? [],
+            seoClients: input.seoClients ?? [],
+            deskClients: input.deskClients,
+            links: input.clientLinks,
+        });
+        if (attributed?.campaignDeskClientId) {
+            forcedDesk.set(attributed.clientId.toLowerCase(), attributed.campaignDeskClientId);
+        }
+        return attributed;
+    }
 
     for (const log of input.logs) {
         if (log.voidedAt || log.importStatus === 'voided') continue;
@@ -271,7 +388,9 @@ export function buildForecastV2(input: ForecastV2Input): ForecastV2BuildResult {
         const weekStart = weekStartFor(log.date);
         if (!selected.includes(weekStart) || forecastBasis(weekStart, input.today) !== 'actual') continue;
         if (!members.has(log.userId)) continue;
-        const classified = classifyLog(log, event, input.timeZone);
+        if (shadowsBlockLog(log, input.logs, events, selected, input.today, members)) continue;
+        const attribution = projectAttribution(log, event);
+        const classified = classifyLog(log, event, input.timeZone, attribution);
         addGroup({ ...classified, minutes, timeLogId: uuidOrNull(log.id) ?? undefined, source: 'actual' });
     }
 
@@ -360,6 +479,7 @@ export function buildForecastV2(input: ForecastV2Input): ForecastV2BuildResult {
                 source: 'estimate',
                 minutes: capped,
                 startTime,
+                startRank: startTime ? 1 : 0,
                 taskId: uuidOrNull(task.id),
                 plannerEventId: null,
                 clientId,
@@ -385,6 +505,15 @@ export function buildForecastV2(input: ForecastV2Input): ForecastV2BuildResult {
         domain: string | null,
     ): ForecastItemClient | null => {
         if (!UUID.test(clientId) || !name.trim() || name.trim() === 'Internal') return null;
+        const forced = forcedDesk.get(clientId.toLowerCase());
+        if (forced) {
+            return {
+                seoOpsClientId: clientId.toLowerCase(),
+                name: name.trim(),
+                domain,
+                campaignDeskClientId: forced,
+            };
+        }
         const resolved = resolveCampaignDeskClientId({
             seoClientId: clientId.toLowerCase(),
             name,
@@ -608,18 +737,30 @@ function classifyLog(
     log: ForecastLog,
     event: ForecastEvent | undefined,
     timeZone: string,
+    attribution: ProjectClientAttribution | null,
 ): Omit<Group, 'minutes' | 'timeLogIds' | 'votes'> & {
     clientId: string | null;
     clientName: string | null;
     clientDomain: string | null;
 } {
+    const clock = actualStartTime(log, event, timeZone);
     const meeting = event?.kind === 'meeting';
     const internalEvent = event?.kind === 'event';
     if (meeting || internalEvent) {
         const eventClientId = uuidOrNull(event?.clientId);
-        const clientId = meeting ? eventClientId ?? uuidOrNull(log.clientId) : null;
+        let clientId = meeting ? eventClientId ?? uuidOrNull(log.clientId) : null;
+        let clientName = clientId
+            ? (eventClientId && event?.clientName?.trim() ? event.clientName : log.clientName)?.trim() || event?.clientName?.trim() || null
+            : null;
+        let clientDomain = clientId
+            ? cleanDomain(eventClientId ? event?.clientDomain : undefined) ?? cleanDomain(log.clientDomain)
+            : null;
+        if (!clientId && attribution) {
+            clientId = uuidOrNull(attribution.clientId);
+            clientName = attribution.clientName.trim() || null;
+            clientDomain = cleanDomain(attribution.clientDomain ?? undefined);
+        }
         const bucket = clientId ? 'client' as const : 'internal' as const;
-        const namedFromEvent = Boolean(eventClientId && event?.clientName?.trim());
         return {
             userId: log.userId,
             date: log.date,
@@ -628,16 +769,13 @@ function classifyLog(
             bucket,
             title: cleanTitle(event?.title, 'Meeting'),
             source: 'actual',
-            startTime: event && !event.allDay ? clockTimeInTimeZone(event.startsAt, timeZone) : null,
+            startTime: clock.time,
+            startRank: clock.rank,
             taskId: null,
             plannerEventId: uuidOrNull(event?.id),
             clientId: bucket === 'client' ? clientId : null,
-            clientName: bucket === 'client'
-                ? (namedFromEvent ? event?.clientName : log.clientName)?.trim() || event?.clientName?.trim() || null
-                : null,
-            clientDomain: bucket === 'client'
-                ? cleanDomain(eventClientId ? event?.clientDomain : undefined) ?? cleanDomain(log.clientDomain)
-                : null,
+            clientName: bucket === 'client' ? clientName : null,
+            clientDomain: bucket === 'client' ? clientDomain : null,
         };
     }
     const taskId = uuidOrNull(log.taskId) ?? uuidOrNull(event?.taskId);
@@ -652,7 +790,8 @@ function classifyLog(
         bucket,
         title: cleanTitle(log.taskTitle || event?.taskTitle || log.description, 'Tracked time'),
         source: 'actual',
-        startTime: focusStartTime(event, timeZone),
+        startTime: clock.time,
+        startRank: clock.rank,
         taskId,
         plannerEventId: null,
         clientId: bucket === 'client' ? clientId : null,

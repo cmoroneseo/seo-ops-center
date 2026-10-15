@@ -13,9 +13,13 @@ test('unreadable hours stay null instead of becoming zero', () => {
         import_status: 'mapped',
         voided_at: null,
         planner_event_id: null,
+        planned_starts_at: '2026-10-14T18:30:00.000Z',
+        basecamp_project_id: 47923138,
         clients: null,
     });
     assert.equal(log.hours, null);
+    assert.equal(log.plannedStartsAt, '2026-10-14T18:30:00.000Z');
+    assert.equal(log.basecampProjectId, '47923138');
 
     const missing = rowToForecastTask({
         id: 'task-1',
