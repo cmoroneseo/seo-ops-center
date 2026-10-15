@@ -34,6 +34,27 @@ test('a failed report is an error and not a null result', async () => {
     }
 });
 
+test('a closed month with no rows is null, not a fake zero', async () => {
+    const result = await fetchGA4('client', '2026-08', {
+        getToken: token,
+        now: () => new Date('2026-09-15T20:00:00Z'),
+        fetch: reports({ rows: [] }, { rows: [] }),
+    });
+    assert.deepEqual(result, {
+        status: 'ok',
+        data: { sessions: null, new_users: null, organic_sessions: null, bounce_rate: null },
+    });
+});
+
+test('an open month with no rows stays unmeasured', async () => {
+    const result = await fetchGA4('client', '2026-09', {
+        getToken: token,
+        now: () => new Date('2026-09-15T20:00:00Z'),
+        fetch: reports({ rows: [] }, { rows: [] }),
+    });
+    assert.deepEqual(result, { status: 'no_data', reason: 'no data yet for this month' });
+});
+
 test('sessions with no organic rows are a real zero and a missing bounce rate stays null', async () => {
     const result = await fetchGA4('client', '2026-08', {
         getToken: token,

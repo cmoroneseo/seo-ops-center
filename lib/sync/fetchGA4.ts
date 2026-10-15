@@ -81,7 +81,8 @@ export async function fetchGA4(clientId: string, metricMonth: string, deps: Part
     const totalRows = Array.isArray(totalData?.rows) ? totalData.rows : [];
     if (totalRows.length === 0) {
         if (!isClosedMonth(metricMonth, resolved.now())) return noData('no data yet for this month');
-        return ok({ sessions: 0, new_users: 0, organic_sessions: 0, bounce_rate: null });
+        // A closed month with no report rows was not measured. Null, not a fake zero.
+        return ok({ sessions: null, new_users: null, organic_sessions: null, bounce_rate: null });
     }
 
     const organicRows = Array.isArray(organicData?.rows) ? organicData.rows : [];

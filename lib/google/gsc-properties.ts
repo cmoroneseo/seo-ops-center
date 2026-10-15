@@ -54,7 +54,7 @@ export async function readGscSites(token: string, request: typeof fetch = fetch)
 
 /** Preserve resource choices for review, but never mix tokens from different grants. */
 export function reconnectCredentials(previous: Record<string, unknown>, tokens: Record<string, unknown>): Record<string, unknown> {
-    const retained = Object.fromEntries(['site_url', 'property_id', 'display_name', 'location_name', 'location_title', 'location_address']
+    const retained = Object.fromEntries(['site_url', 'property_id', 'display_name', 'location_name', 'location_title', 'location_address', 'granted_scopes']
         .filter(key => previous[key] !== undefined).map(key => [key, previous[key]]));
     return { ...retained, ...tokens };
 }
