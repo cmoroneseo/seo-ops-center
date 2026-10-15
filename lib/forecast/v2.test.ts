@@ -262,7 +262,9 @@ test('actual days are items, future estimates sit on the start date, and breaks 
     assert.deepEqual(estimate.map(item => item.date).sort(), ['2026-10-20', '2026-10-21', '2026-10-21']);
     const shared = estimate.filter(item => item.itemKey === `task:${TASK_B}:2026-10-21`);
     assert.deepEqual(shared.map(item => item.minutes).sort(), [90, 90]);
-    assert.equal(shared.every(item => item.kind === 'task' && item.startTime === null), true);
+    assert.equal(shared.every(item => item.kind === 'task' && item.startTime === '09:00'), true);
+    assert.equal(estimate.find(item => item.itemKey === `task:${TASK}:2026-10-20`)?.startTime, '09:00');
+    assert.equal(aggregated?.startTime, null);
     assert.equal(sent.some(item => item.itemKey.includes('77777777')), false);
 
     const parsed = parseForecastPayloadV2({
@@ -272,6 +274,119 @@ test('actual days are items, future estimates sit on the start date, and breaks 
     assert.equal(parsed.version, 2);
     assert.equal(parsed.weeks.every(week => week.people.every(person =>
         person.days.every(day => day.items.every(item => item.source === week.basis)))), true);
+});
+
+test('focus actuals and scheduled estimates keep a clock, and unscheduled work stays null', () => {
+    const focusId = '66666666-6666-4666-8666-666666666669';
+    const allDayFocusId = '66666666-6666-4666-8666-666666666670';
+    const result = buildForecastV2(input({
+        logs: [
+            log({
+                id: '55555555-5555-4555-8555-555555555564',
+                date: '2026-10-14',
+                hours: 0.5,
+                taskId: TASK,
+                taskTitle: 'Service pages',
+            }),
+            log({
+                id: LOG_A,
+                date: '2026-10-14',
+                hours: 1.5,
+                taskId: TASK,
+                taskTitle: 'Service pages',
+                plannerEventId: focusId,
+            }),
+            log({
+                id: LOG_B,
+                date: '2026-10-14',
+                hours: 1,
+                taskId: TASK_B,
+                taskTitle: 'Unscheduled notes',
+            }),
+            log({
+                id: '55555555-5555-4555-8555-555555555563',
+                date: '2026-10-15',
+                hours: 2,
+                taskId: TASK,
+                taskTitle: 'All-day focus',
+                plannerEventId: allDayFocusId,
+            }),
+        ],
+        events: [
+            {
+                id: focusId,
+                userId: carlos.userId,
+                attendeeIds: [],
+                kind: 'focus',
+                startsAt: '2026-10-14T16:00:00.000Z',
+                endsAt: '2026-10-14T17:30:00.000Z',
+                allDay: false,
+                clientId: CLIENT,
+                clientName: 'Northwind Plumbing',
+                taskId: TASK,
+                taskTitle: 'Service pages',
+                title: 'Service pages',
+            },
+            {
+                id: allDayFocusId,
+                userId: carlos.userId,
+                attendeeIds: [],
+                kind: 'focus',
+                startsAt: '2026-10-15T07:00:00.000Z',
+                endsAt: '2026-10-16T07:00:00.000Z',
+                allDay: true,
+                taskId: TASK,
+                title: 'All-day focus',
+            },
+        ],
+        tasks: [
+            task({
+                title: 'Scheduled brief',
+                assigneeIds: [abel.userId],
+                startDate: '2026-10-20T17:30:00.000Z',
+                estimatedHours: 2,
+            }),
+            task({
+                id: TASK_B,
+                title: 'Day only',
+                assigneeIds: [abel.userId],
+                startDate: '2026-10-21',
+                estimatedHours: 1,
+            }),
+        ],
+    }));
+
+    const sent = items(result);
+    const focus = sent.find(item => item.itemKey === `task:${TASK}:2026-10-14`);
+    assert.equal(focus?.kind, 'task');
+    assert.equal(focus?.source, 'actual');
+    assert.equal(focus?.minutes, 120);
+    assert.equal(focus?.startTime, '09:00');
+
+    const unscheduled = sent.find(item => item.itemKey === `task:${TASK_B}:2026-10-14`);
+    assert.equal(unscheduled?.kind, 'task');
+    assert.equal(unscheduled?.source, 'actual');
+    assert.equal(unscheduled?.startTime, null);
+
+    const allDay = sent.find(item => item.itemKey === `task:${TASK}:2026-10-15`);
+    assert.equal(allDay?.kind, 'task');
+    assert.equal(allDay?.startTime, null);
+
+    const scheduled = sent.find(item => item.itemKey === `task:${TASK}:2026-10-20`);
+    assert.equal(scheduled?.kind, 'task');
+    assert.equal(scheduled?.source, 'estimate');
+    assert.equal(scheduled?.startTime, '10:30');
+
+    const dayOnly = sent.find(item => item.itemKey === `task:${TASK_B}:2026-10-21`);
+    assert.equal(dayOnly?.source, 'estimate');
+    assert.equal(dayOnly?.startTime, null);
+
+    const parsed = parseForecastPayloadV2({
+        ...result.payloadBody,
+        runId: '11111111-1111-4111-8111-111111111111',
+    });
+    assert.equal(parsed.weeks.flatMap(week => week.people.flatMap(person =>
+        person.days.flatMap(day => day.items))).some(item => item.startTime === '09:00'), true);
 });
 
 test('a saved client id wins, and an ambiguous name stays null', () => {
