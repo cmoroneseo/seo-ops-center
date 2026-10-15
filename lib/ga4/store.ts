@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { GA4_REAUTH_ERROR } from './connection-health';
-import type { Ga4ConnectedClient, Ga4Job, Ga4QueueKind, Ga4Release, Ga4Store } from './run';
+import { ga4ReleaseUpdate, type Ga4ConnectedClient, type Ga4Job, type Ga4QueueKind, type Ga4Release, type Ga4Store } from './run';
 import type { Ga4DayWrite } from './sync';
 
 const PROPERTY = /^properties\/[0-9]+$/;
@@ -95,15 +95,7 @@ export function createGa4Store(admin: Admin, now: () => Date = () => new Date())
             return job;
         },
         async release(input: Ga4Release) {
-            const patch: Record<string, unknown> = {
-                status: input.status,
-                available_at: input.availableAt,
-                lease_token: null,
-                lease_until: null,
-                last_error: input.lastError,
-                updated_at: now().toISOString(),
-            };
-            if (input.cursorDate !== undefined) patch.cursor_date = input.cursorDate;
+            const patch = ga4ReleaseUpdate(input, now().toISOString());
             const { data, error } = await admin.from('ga4_sync_jobs').update(patch)
                 .eq('id', input.id)
                 .eq('lease_token', input.leaseToken)
