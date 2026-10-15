@@ -38,6 +38,8 @@ import {monthlyAgreementLogs,monthlyAgreementTaskIds,agreementPeriod,agreementTo
 import {buildTimeline,commitmentChoices,phaseAnchor,phaseWorkFromItems,phaseWrite,roadmapAgreements,thisMonthBoard,type PhaseLog} from '@/lib/agreements/phase';
 import type {ClientAgreement} from '@/lib/agreements/types';
 import {SEO_PLAN_READ_ONLY_NOTE} from '@/lib/seo-plan/read-only';
+import { ONBOARDING_IMPORT_HINT } from '@/lib/seo-plan/onboarding-import';
+import { addImportedOnboardingToPlan } from '@/lib/seo-plan/add-onboarding-to-plan';
 import {AgreementTimeline} from '@/components/seo-plan/AgreementTimeline';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 
@@ -71,6 +73,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     const [taskHours, setTaskHours] = useState<Record<string, number>>({});
     const [loggedHours, setLoggedHours] = useState<number | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [onboardingNotice, setOnboardingNotice] = useState('');
     const [taskDetail, setTaskDetail] = useState<{ task: Task; complete?: boolean } | null>(null);
     const [timeVersion, setTimeVersion] = useState(0);
     const [plan, setPlan] = useState<MarketingPlan | null>(null);
@@ -104,6 +107,21 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     }, [clientId]);
 
     const refresh = useCallback(() => loadPlan(true), [loadPlan]);
+    const addOnboarding = useCallback(async () => {
+        setOnboardingNotice('');
+        setError(null);
+        try {
+            const result = await addImportedOnboardingToPlan({ clientId, organizationId });
+            if (!result.ok) {
+                setError(result.message);
+                return;
+            }
+            setOnboardingNotice(result.summary);
+            if (result.linked + result.created > 0) await refresh();
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : 'Could not add onboarding to the SEO Plan');
+        }
+    }, [clientId, organizationId, refresh]);
 
     useEffect(() => { setPlan(null); loadPlan(); return () => { loadSequence.current++; }; }, [loadPlan]);
     useEffect(() => {
@@ -282,8 +300,8 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                 <h3 className="text-lg font-semibold">{presentation === 'v2' ? 'Start the onboarding checklist' : 'Build a focused SEO plan'}</h3>
                 <p className="text-sm text-muted-foreground max-w-md mx-auto">
                     {presentation === 'v2'
-                        ? `Create the onboarding checklist for ${clientName}. Other work stays in the library until you add it.`
-                        : `Start with an SEO work library for ${clientName}, then choose a few priorities for your first month. Assign owners and dates as you schedule work.`}
+                        ? `Create the onboarding checklist for ${clientName}. Other work stays in the library until you add it. ${ONBOARDING_IMPORT_HINT}`
+                        : `Start with an SEO work library for ${clientName}, then choose a few priorities for your first month. Assign owners and dates as you schedule work. ${ONBOARDING_IMPORT_HINT}`}
                 </p>
                 <button
                     onClick={handleCreate}
@@ -522,9 +540,11 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     const fullPlan = presentation === 'v2' && timeline ? <AgreementTimeline model={timeline} /> : classicPlan;
     return <>
         {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/40 p-3 text-sm">{error}<button className="ml-3 text-primary underline" onClick={() => refresh()}>Retry</button></p>}
+        {onboardingNotice && <p className="mb-4 rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">{onboardingNotice}</p>}
         <ExecutionWorkspace readOnly={readOnly} onAddExisting={() => { if (!readOnly) setAddChooserOpen(true); }} plan={plan} month={month} budget={periodBudget} capacityMode={capacityMode} budgetTaskIds={budgetTaskIds} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} variant={presentation} hoursNarrative={presentation !== 'v2' ? 'default' : hoursNarrative === 'prelaunch' ? 'prelaunch' : capacityMode === 'unavailable' ? 'unavailable' : hoursNarrative === 'custom' || capacityMode === 'scoped' ? 'custom' : 'monthly'} phaseMonth={phaseMonth} recordPhase={presentation === 'v2' && agreementSource.agreements !== null} phaseAnchorDate={anchor} phaseChoices={phaseChoices} commitmentOptions={agreementSource.agreements ? commitmentChoices(agreementSource.agreements) : []} />
         <AddPlanItemDialog showLibrary={presentation === 'v2'} open={addChooserOpen} onClose={() => setAddChooserOpen(false)} onSelect={source => {
             if (source === 'library') setLibraryOpen(true);
+            else if (source === 'onboarding') void addOnboarding();
             else if (source === 'custom') setShowAddForm(true);
             else if (source === 'suggest') setShowSuggest(true);
             else { setBasecampOnly(source === 'basecamp'); setExistingOpen(true); }

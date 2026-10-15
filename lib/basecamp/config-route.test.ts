@@ -163,6 +163,7 @@ test('external config may preserve its trusted project and select a list verifie
         basecamp_project_id: '202',
         keep_me: true,
         basecamp_todolist_id: '44',
+        basecamp_onboarding_todolist_id: null,
         basecamp_sync_enabled: true,
         basecamp_timesheet_enabled: false,
     });
@@ -203,6 +204,7 @@ test('external config may clear its existing binding without provider access', a
     assert.deepEqual(saved, {
         basecamp_project_id: null,
         basecamp_todolist_id: null,
+        basecamp_onboarding_todolist_id: null,
         basecamp_sync_enabled: false,
         basecamp_timesheet_enabled: false,
         basecamp_timesheet_recording_id: null,
@@ -277,4 +279,133 @@ test('internal integration managers can bind a catalog project and verified list
     assert.equal(response.status, 200);
     assert.equal(saved?.basecamp_project_id, '202');
     assert.equal(saved?.basecamp_todolist_id, '44');
+    assert.equal(saved?.basecamp_onboarding_todolist_id, null);
+});
+
+test('config stores the onboarding list separately from the SEO Plan push list', async () => {
+    const { createBasecampConfigHandlers } = await loadRouteModule();
+    let saved: Record<string, unknown> | null = null;
+    const { post, get } = createBasecampConfigHandlers({
+        authorizeClient: async () => authorized,
+        createStore: () => ({
+            getClient: async () => ({
+                id: 'client-a',
+                name: 'Client A',
+                organizationId: 'org-a',
+                customFields: saved ?? {
+                    basecamp_project_id: '202',
+                    basecamp_todolist_id: '44',
+                    basecamp_onboarding_todolist_id: '45',
+                    basecamp_sync_enabled: true,
+                },
+            }),
+            updateClientCustomFields: async (_clientId, _organizationId, fields) => {
+                saved = fields;
+                return null;
+            },
+            logActivity: async () => {},
+        }),
+        createAccessSource: () => ({
+            findMembership: async () => ({ organizationIsInternal: true }),
+            listConfiguredProjectIds: async () => [],
+        }),
+        isConfigured: () => true,
+        listProjects: async () => [{ id: 202, name: 'Catalog project', description: '', status: 'active' }],
+        listTodolists: async () => [
+            { id: 44, title: 'SEO', name: 'SEO', todos_count: 0 },
+            { id: 45, title: 'Set up SEO campaign', name: 'Set up SEO campaign', todos_count: 9 },
+        ],
+    });
+
+    const response = await post(request({
+        basecamp_project_id: '202',
+        basecamp_todolist_id: '44',
+        basecamp_onboarding_todolist_id: '45',
+        basecamp_sync_enabled: true,
+    }), 'client-a');
+    assert.equal(response.status, 200);
+    assert.equal(saved?.basecamp_todolist_id, '44');
+    assert.equal(saved?.basecamp_onboarding_todolist_id, '45');
+
+    const loaded = await responseBody(await get(request(), 'client-a'));
+    assert.equal(loaded.basecamp_todolist_id, '44');
+    assert.equal(loaded.basecamp_onboarding_todolist_id, '45');
+});
+
+test('config rejects an onboarding list that is not in the project', async () => {
+    const { createBasecampConfigHandlers } = await loadRouteModule();
+    let updated = false;
+    const { post } = createBasecampConfigHandlers({
+        authorizeClient: async () => authorized,
+        createStore: () => ({
+            getClient: async () => ({
+                id: 'client-a',
+                name: 'Client A',
+                organizationId: 'org-a',
+                customFields: { basecamp_project_id: '202', basecamp_todolist_id: '44' },
+            }),
+            updateClientCustomFields: async () => { updated = true; return null; },
+            logActivity: async () => {},
+        }),
+        createAccessSource: () => ({
+            findMembership: async () => ({ organizationIsInternal: true }),
+            listConfiguredProjectIds: async () => [],
+        }),
+        isConfigured: () => true,
+        listProjects: async () => [{ id: 202, name: 'Catalog project', description: '', status: 'active' }],
+        listTodolists: async () => [{ id: 44, title: 'SEO', name: 'SEO', todos_count: 0 }],
+    });
+
+    const response = await post(request({
+        basecamp_project_id: '202',
+        basecamp_todolist_id: '44',
+        basecamp_onboarding_todolist_id: '99',
+    }), 'client-a');
+    assert.equal(response.status, 403);
+    assert.equal(updated, false);
+});
+
+test('config keeps a saved onboarding list when an older client omits the field', async () => {
+    const { createBasecampConfigHandlers } = await loadRouteModule();
+    let saved: Record<string, unknown> | null = null;
+    const { post } = createBasecampConfigHandlers({
+        authorizeClient: async () => authorized,
+        createStore: () => ({
+            getClient: async () => ({
+                id: 'client-a',
+                name: 'Client A',
+                organizationId: 'org-a',
+                customFields: {
+                    basecamp_project_id: '202',
+                    basecamp_todolist_id: '44',
+                    basecamp_onboarding_todolist_id: '45',
+                    keep_me: true,
+                },
+            }),
+            updateClientCustomFields: async (_clientId, _organizationId, fields) => {
+                saved = fields;
+                return null;
+            },
+            logActivity: async () => {},
+        }),
+        createAccessSource: () => ({
+            findMembership: async () => ({ organizationIsInternal: true }),
+            listConfiguredProjectIds: async () => [],
+        }),
+        isConfigured: () => true,
+        listProjects: async () => [{ id: 202, name: 'Catalog project', description: '', status: 'active' }],
+        listTodolists: async () => [
+            { id: 44, title: 'SEO', name: 'SEO', todos_count: 0 },
+            { id: 45, title: 'Set up SEO campaign', name: 'Set up SEO campaign', todos_count: 1 },
+        ],
+    });
+
+    const response = await post(request({
+        basecamp_project_id: '202',
+        basecamp_todolist_id: '44',
+        basecamp_sync_enabled: true,
+    }), 'client-a');
+    assert.equal(response.status, 200);
+    assert.equal(saved?.basecamp_onboarding_todolist_id, '45');
+    assert.equal(saved?.keep_me, true);
 });

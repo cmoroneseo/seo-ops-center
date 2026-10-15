@@ -9,6 +9,7 @@ import { GscPropertySelector } from './GscPropertySelector';
 import { GscConnectionCard } from './GscConnectionCard';
 import { GooglePropertyPicker } from './GooglePropertyPicker';
 import { BasecampImportModal } from './BasecampImportModal';
+import { BasecampPlanListFields } from './BasecampPlanListFields';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
 import { ga4PickerRequested } from '@/lib/agency-dashboard/ga4-link';
@@ -94,6 +95,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
     const [bcTodolists, setBcTodolists] = useState<{ id: number; title: string; name: string }[]>([]);
     const [bcProjectId, setBcProjectId] = useState('');
     const [bcTodolistId, setBcTodolistId] = useState('');
+    const [bcOnboardingTodolistId, setBcOnboardingTodolistId] = useState('');
     const [bcSyncEnabled, setBcSyncEnabled] = useState(false);
     const [bcTimesheetEnabled, setBcTimesheetEnabled] = useState(false);
     const [bcTimesheetCheck, setBcTimesheetCheck] = useState<{ timesheetEnabled: boolean; recordingFound: boolean } | null>(null);
@@ -262,6 +264,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
         setBcProjectId(emptyScope.projectId);
         setBcTodolists([]);
         setBcTodolistId(emptyScope.todolistId);
+        setBcOnboardingTodolistId(emptyScope.onboardingTodolistId);
         setBcSyncEnabled(emptyScope.syncEnabled);
         setBcTimesheetEnabled(emptyScope.timesheetEnabled);
         setBcTimesheetCheck(null);
@@ -287,6 +290,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                     return response.json() as Promise<{
                         basecamp_project_id?: string | number;
                         basecamp_todolist_id?: string | number;
+                        basecamp_onboarding_todolist_id?: string | number;
                         basecamp_sync_enabled?: boolean;
                         basecamp_timesheet_enabled?: boolean;
                     }>;
@@ -300,6 +304,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                 const nextScope = integrationScopeFromCatalog(projects, config);
                 setBcProjectId(nextScope.projectId);
                 setBcTodolistId(nextScope.todolistId);
+                setBcOnboardingTodolistId(nextScope.onboardingTodolistId);
                 setBcSyncEnabled(nextScope.syncEnabled);
                 setBcTimesheetEnabled(nextScope.timesheetEnabled);
                 setBcImportOpen(nextScope.importOpen);
@@ -312,6 +317,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                 setBcProjectId(failedScope.projectId);
                 setBcTodolists([]);
                 setBcTodolistId(failedScope.todolistId);
+                setBcOnboardingTodolistId(failedScope.onboardingTodolistId);
                 setBcSyncEnabled(failedScope.syncEnabled);
                 setBcTimesheetEnabled(failedScope.timesheetEnabled);
                 setBcTimesheetCheck(null);
@@ -327,6 +333,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
             setBcProjectId('');
             setBcTodolists([]);
             setBcTodolistId('');
+            setBcOnboardingTodolistId('');
             return;
         }
         let cancelled = false;
@@ -334,7 +341,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
         fetch(`/api/integrations/basecamp/todolists?organizationId=${encodeURIComponent(orgId)}&projectId=${projectId}`)
             .then(r => r.json())
             .then(d => { if (!cancelled && d.todolists) setBcTodolists(d.todolists); })
-            .catch(() => { if (!cancelled) setBcTodolistId(''); });
+            .catch(() => { if (!cancelled) { setBcTodolistId(''); setBcOnboardingTodolistId(''); } });
         return () => { cancelled = true; };
     }, [bcProjectId, bcProjects, orgId]);
 
@@ -361,6 +368,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                 body: JSON.stringify({
                     basecamp_project_id: projectId,
                     basecamp_todolist_id: bcTodolistId,
+                    basecamp_onboarding_todolist_id: bcOnboardingTodolistId,
                     basecamp_sync_enabled: bcSyncEnabled,
                     basecamp_timesheet_enabled: bcTimesheetEnabled,
                 }),
@@ -715,7 +723,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                             <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Basecamp Project</label>
                             <select
                                 value={bcProjectId}
-                                onChange={e => { setBcProjectId(e.target.value); setBcTodolistId(''); }}
+                                onChange={e => { setBcProjectId(e.target.value); setBcTodolistId(''); setBcOnboardingTodolistId(''); }}
                                 className="w-full mt-1 p-2 rounded-lg border border-border bg-muted/30 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                             >
                                 <option value="">Select a project…</option>
@@ -725,23 +733,14 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                             </select>
                         </div>
 
-                        {/* Default todolist selector (optional) */}
                         {bcProjectId && (
-                            <div>
-                                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                    Default Todolist <span className="normal-case font-normal">(optional — can override per task)</span>
-                                </label>
-                                <select
-                                    value={bcTodolistId}
-                                    onChange={e => setBcTodolistId(e.target.value)}
-                                    className="w-full mt-1 p-2 rounded-lg border border-border bg-muted/30 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                                >
-                                    <option value="">No default — choose when creating each task</option>
-                                    {bcTodolists.map(t => (
-                                        <option key={t.id} value={String(t.id)}>{t.title || t.name}</option>
-                                    ))}
-                                </select>
-                            </div>
+                            <BasecampPlanListFields
+                                lists={bcTodolists}
+                                seoPlanTodolistId={bcTodolistId}
+                                onboardingTodolistId={bcOnboardingTodolistId}
+                                onSeoPlanChange={setBcTodolistId}
+                                onOnboardingChange={setBcOnboardingTodolistId}
+                            />
                         )}
 
                         {/* Time tracking → Basecamp timesheet */}
@@ -809,6 +808,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
             <div className="rounded-xl border border-border/30 bg-muted/20 p-4 text-xs text-muted-foreground space-y-1">
                 <p className="font-medium text-foreground/60">How it works</p>
                 <p>Connect GA4, Search Console, and Google Business Profile separately. Choose one primary Search Console property per client; reconnecting one service preserves the others. Ahrefs uses a single API key across all clients — enter it once per client or set a global key in org settings (coming soon).</p>
+                <p>Basecamp uses two lists. Import the onboarding list into All client tasks, then add it to the SEO Plan. New tasks push only to the SEO Plan list.</p>
                 <p>Data syncs nightly. You can trigger a manual sync from the Analytics page once connected.</p>
             </div>
 
@@ -817,7 +817,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                     key={`${orgId}:${clientId}`}
                     isOpen={true}
                     onClose={() => setBcImportOpen(false)}
-                    onSuccess={() => setBcImportOpen(false)}
+                    onSuccess={() => { /* Stay on the done step so onboarding can be added to the plan. */ }}
                     clientId={clientId}
                     organizationId={orgId}
                     preselectedProjectId={bcProjectId || undefined}

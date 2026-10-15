@@ -334,9 +334,19 @@ export async function promoteItemsToTasks(
     return { created, failed };
 }
 
-export async function addExistingTaskToPlan(planId: string, taskId: string, stepKey: string): Promise<void> {
+export async function addExistingTaskToPlan(planId: string, taskId: string, stepKey: string): Promise<string> {
     const supabase = createClient();
     if (!supabase) throw new Error('Supabase is unavailable');
-    const { error } = await supabase.rpc('add_existing_task_to_marketing_plan', { p_plan_id: planId, p_task_id: taskId, p_step_key: stepKey });
+    const { data, error } = await supabase.rpc('add_existing_task_to_marketing_plan', { p_plan_id: planId, p_task_id: taskId, p_step_key: stepKey });
+    if (error) throw new Error(error.message);
+    if (typeof data !== 'string' || !data) throw new Error('Plan item was not created');
+    return data;
+}
+
+/** Attach an imported task to the checklist row that already covers that work. */
+export async function linkTaskOntoPlanItem(itemId: string, taskId: string): Promise<void> {
+    const supabase = createClient();
+    if (!supabase) throw new Error('Supabase is unavailable');
+    const { error } = await supabase.rpc('link_task_onto_marketing_plan_item', { p_item_id: itemId, p_task_id: taskId });
     if (error) throw new Error(error.message);
 }
