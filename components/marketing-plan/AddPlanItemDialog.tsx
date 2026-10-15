@@ -5,12 +5,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 export function AddPlanItemDialog({ open, onClose, onSelect, showLibrary = false }: {
     open: boolean; onClose: () => void;
     showLibrary?: boolean;
-    onSelect: (source: 'custom' | 'basecamp' | 'existing' | 'suggest' | 'library') => void;
+    onSelect: (source: 'custom' | 'basecamp' | 'existing' | 'suggest' | 'library' | 'onboarding') => void;
 }) {
     const choices = [
         ...(showLibrary ? [['library', 'Add from library', 'Pick one item from the SEO work library.']] as const : []),
+        ['onboarding', 'Add onboarding list', 'Add imported Basecamp onboarding to-dos. Matching checklist rows are reused. To-dos that don’t match a checklist item go to Introduction & Setup.'],
         ['custom', 'Create custom item', 'Tailor the work to this client’s strategy.'],
-        ['basecamp', 'Add from Basecamp', 'Link a client to-do already imported from Basecamp.'],
+        ['basecamp', 'Add from Basecamp', 'Link one client to-do already imported from Basecamp.'],
         ['existing', 'Add existing client task', 'Reuse a task without creating a duplicate.'],
         ['suggest', 'Suggest items', 'Review suggestions before adding them to the plan.'],
     ] as const;

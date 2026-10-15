@@ -366,3 +366,35 @@ test('a chunk that failed to insert announces no completions', async () => {
     // client's feed for a task that does not exist.
     assert.deepEqual(completions, []);
 });
+
+test('an imported to-do remembers which list it came from', async () => {
+    const { buildBasecampTaskRows } = await loadRouteModule();
+    const built = await buildBasecampTaskRows({
+        tasks: [{ basecampTodoId: 77, basecampProjectId: 202, basecampTodolistId: 45 }],
+        organizationId: 'org-a',
+        clientId: 'client-a',
+        userId: 'user-1',
+        getTodo: async () => ({ id: 77, title: 'Set Up Empire Cookies', description: '', due_on: null }),
+        now: '2026-10-15T00:00:00.000Z',
+    });
+    assert.equal(built.ok, true);
+    if (!built.ok) return;
+    assert.deepEqual(built.rows[0].custom_fields, { basecamp_source_todolist_id: '45' });
+});
+
+test('a non-numeric source list is refused before the provider is called', async () => {
+    const { createBasecampImportTasksPost } = await loadRouteModule();
+    const post = createBasecampImportTasksPost({
+        authorizeClient: async () => { throw new Error('authorization must not run'); },
+        createAccessSource: () => { throw new Error('project source must not be created'); },
+        isConfigured: () => { throw new Error('provider configuration must not be read'); },
+        getTodo: async () => { throw new Error('provider must not be called'); },
+        createWriter: () => { throw new Error('writer must not be created'); },
+        resolveAssignees: async () => { throw new Error('assignees must not be resolved'); },
+        now: () => '2026-10-15T00:00:00.000Z',
+    });
+    const response = await post(request({
+        tasks: [{ basecampTodoId: 77, basecampProjectId: 202, basecampTodolistId: 'not-a-list' }],
+    }));
+    assert.equal(response.status, 400);
+});

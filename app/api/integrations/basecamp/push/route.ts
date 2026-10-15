@@ -15,6 +15,7 @@ import {
 import { createBasecampPushPost } from '@/lib/basecamp/push-route';
 import { createSupabaseBasecampProjectAccessSource } from '@/lib/basecamp/supabase-project-access-source';
 import { normalizeJsonObject } from '@/lib/basecamp/project-access';
+import { seoPlanPushTodolistId } from '@/lib/basecamp/plan-lists';
 import { requireTaskIntegrationManager } from '@/lib/security/tenant-authz';
 
 export const dynamic = 'force-dynamic';
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest) {
                         basecampTodoId: data.basecamp_todo_id,
                         basecampProjectId: data.basecamp_project_id,
                         configuredProjectId: customFields.basecamp_project_id as string | number | null | undefined,
-                        configuredTodolistId: customFields.basecamp_todolist_id as string | number | null | undefined,
+                        configuredTodolistId: seoPlanPushTodolistId(customFields),
                         syncEnabled: customFields.basecamp_sync_enabled === true,
                         assigneePersonIds,
                         completionSubscriberPersonIds,

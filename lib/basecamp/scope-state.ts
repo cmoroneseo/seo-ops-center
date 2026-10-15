@@ -33,13 +33,17 @@ export function emptyBasecampImportScope<TProject = never, TListState = never>()
 interface StoredBasecampConfig {
     basecamp_project_id?: string | number;
     basecamp_todolist_id?: string | number;
+    basecamp_onboarding_todolist_id?: string | number;
     basecamp_sync_enabled?: boolean;
     basecamp_timesheet_enabled?: boolean;
 }
 
 export interface BasecampIntegrationScope {
     projectId: string;
+    /** SEO Plan list. Push destination. */
     todolistId: string;
+    /** Onboarding list. Import and seed only. */
+    onboardingTodolistId: string;
     syncEnabled: boolean;
     timesheetEnabled: boolean;
     importOpen: false;
@@ -49,6 +53,7 @@ export function emptyBasecampIntegrationScope(): BasecampIntegrationScope {
     return {
         projectId: '',
         todolistId: '',
+        onboardingTodolistId: '',
         syncEnabled: false,
         timesheetEnabled: false,
         importOpen: false,
@@ -65,6 +70,9 @@ export function integrationScopeFromCatalog(
     return {
         projectId,
         todolistId: config.basecamp_todolist_id ? String(config.basecamp_todolist_id) : '',
+        onboardingTodolistId: config.basecamp_onboarding_todolist_id
+            ? String(config.basecamp_onboarding_todolist_id)
+            : '',
         syncEnabled: config.basecamp_sync_enabled === true,
         timesheetEnabled: config.basecamp_timesheet_enabled === true,
         importOpen: false,
