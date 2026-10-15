@@ -24,6 +24,12 @@ import type { ForecastItem, ForecastItemClient, ForecastPayloadBodyV2 } from './
  * sent. A client meeting is an event on that client. An internal event has
  * no client. Estimates shared by several people are split evenly. Actual
  * time stays with the person who tracked it.
+ *
+ * startTime is the clock Campaign Desk uses to place an item on the hour
+ * grid. Events use their start. A focus-linked actual uses that focus
+ * block's start. An estimate uses the task start when the timestamp includes
+ * a time. A bare date, an all-day block, and any other unscheduled item stay
+ * null so Campaign Desk can queue them.
  */
 
 const DONE = new Set(['done', 'approved']);
@@ -107,6 +113,21 @@ export function clockTimeInTimeZone(instant: string, timeZone: string): string |
     } catch {
         return null;
     }
+}
+
+/** HH:MM for a focus block. All-day focus, and every other kind, stay untimed. */
+function focusStartTime(event: ForecastEvent | undefined, timeZone: string): string | null {
+    if (!event || event.kind !== 'focus' || event.allDay) return null;
+    return clockTimeInTimeZone(event.startsAt, timeZone);
+}
+
+/**
+ * HH:MM for a task placed on the clock. A bare YYYY-MM-DD has a day and no
+ * hour, so the estimate stays queued.
+ */
+function scheduledTaskStartTime(startDate: string, timeZone: string): string | null {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return null;
+    return clockTimeInTimeZone(startDate, timeZone);
 }
 
 function minutesFromHours(hours: number | null): number | null {
@@ -322,6 +343,7 @@ export function buildForecastV2(input: ForecastV2Input): ForecastV2BuildResult {
             continue;
         }
         const shares = splitMinutesEvenly(minutes, assignees.length);
+        const startTime = scheduledTaskStartTime(task.startDate, input.timeZone);
         assignees.forEach((userId, index) => {
             if (!members.has(userId)) return;
             const share = shares[index] ?? 0;
@@ -337,7 +359,7 @@ export function buildForecastV2(input: ForecastV2Input): ForecastV2BuildResult {
                 title: cleanTitle(task.title, 'Untitled task'),
                 source: 'estimate',
                 minutes: capped,
-                startTime: null,
+                startTime,
                 taskId: uuidOrNull(task.id),
                 plannerEventId: null,
                 clientId,
@@ -462,7 +484,7 @@ export function buildForecastV2(input: ForecastV2Input): ForecastV2BuildResult {
             source: item.source,
             minutes: item.minutes,
             hours: hoursStringFromMinutes(item.minutes),
-            startTime: item.kind === 'event' ? item.startTime : null,
+            startTime: item.startTime,
             sourceIds: {
                 taskId: item.taskId,
                 timeLogIds: item.timeLogIds.slice(0, MAX_TIME_LOG_IDS),
@@ -630,7 +652,7 @@ function classifyLog(
         bucket,
         title: cleanTitle(log.taskTitle || event?.taskTitle || log.description, 'Tracked time'),
         source: 'actual',
-        startTime: null,
+        startTime: focusStartTime(event, timeZone),
         taskId,
         plannerEventId: null,
         clientId: bucket === 'client' ? clientId : null,
