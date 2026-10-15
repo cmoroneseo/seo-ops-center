@@ -26,12 +26,27 @@ export interface CampaignDeskClient {
 export class CampaignDeskRequestError extends Error {
     readonly status: number;
     readonly code: string;
+    readonly path: string;
+    readonly fetchErrorName: string | null;
+    readonly fetchErrorMessage: string | null;
 
-    constructor(status: number, code: string, message: string) {
+    constructor(
+        status: number,
+        code: string,
+        message: string,
+        details: {
+            path?: string;
+            fetchErrorName?: string | null;
+            fetchErrorMessage?: string | null;
+        } = {},
+    ) {
         super(message);
         this.name = 'CampaignDeskRequestError';
         this.status = status;
         this.code = code;
+        this.path = details.path ?? '';
+        this.fetchErrorName = details.fetchErrorName ?? null;
+        this.fetchErrorMessage = details.fetchErrorMessage ?? null;
     }
 }
 
@@ -53,7 +68,26 @@ function stripToken(value: string, token: string): string {
     return token ? value.split(token).join('[redacted]') : value;
 }
 
-async function readBody(response: Response, token: string): Promise<unknown> {
+function fetchFailure(error: unknown, token: string): { fetchErrorName: string | null; fetchErrorMessage: string | null } {
+    if (!error || typeof error !== 'object') return { fetchErrorName: null, fetchErrorMessage: null };
+    const named = error as { name?: unknown; message?: unknown; cause?: unknown };
+    const fetchErrorName = typeof named.name === 'string' && named.name ? named.name : null;
+    const parts: string[] = [];
+    if (typeof named.message === 'string' && named.message) parts.push(named.message);
+    const cause = named.cause;
+    if (typeof cause === 'string' && cause) parts.push(cause);
+    else if (cause && typeof cause === 'object' && typeof (cause as { message?: unknown }).message === 'string') {
+        const causeMessage = (cause as { message: string }).message;
+        if (causeMessage) parts.push(causeMessage);
+    }
+    const combined = parts.join(': ');
+    return {
+        fetchErrorName,
+        fetchErrorMessage: combined ? stripToken(combined, token).slice(0, 300) : null,
+    };
+}
+
+async function readBody(response: Response, path: string): Promise<unknown> {
     const text = await response.text();
     if (!text.trim()) return null;
     try {
@@ -62,7 +96,8 @@ async function readBody(response: Response, token: string): Promise<unknown> {
         throw new CampaignDeskRequestError(
             response.status,
             'unreadable',
-            stripToken('Campaign Desk returned an unreadable response.', token),
+            'Campaign Desk returned an unreadable response.',
+            { path },
         );
     }
 }
@@ -86,17 +121,21 @@ export function createCampaignDeskClient(options: CampaignDeskClientOptions): Ca
                 headers: {
                     authorization: `Bearer ${token}`,
                     accept: 'application/json',
+                    'user-agent': 'SEO-Ops-Center/1.0',
                     ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
                 },
                 body: init.body === undefined ? undefined : JSON.stringify(init.body),
             });
-        } catch {
-            throw new CampaignDeskRequestError(0, 'unavailable', 'Campaign Desk could not be reached.');
+        } catch (error) {
+            throw new CampaignDeskRequestError(0, 'unreachable', 'Campaign Desk could not be reached.', {
+                path,
+                ...fetchFailure(error, token),
+            });
         }
-        const body = await readBody(response, token);
+        const body = await readBody(response, path);
         if (!response.ok) {
             const code = errorCode(body);
-            throw new CampaignDeskRequestError(response.status, code || 'unavailable', safeMessage(response.status, code));
+            throw new CampaignDeskRequestError(response.status, code || 'unavailable', safeMessage(response.status, code), { path });
         }
         return body;
     }
@@ -105,16 +144,16 @@ export function createCampaignDeskClient(options: CampaignDeskClientOptions): Ca
         async listPeople() {
             const body = await request('/v1/people', { method: 'GET' });
             if (!body || typeof body !== 'object' || !Array.isArray((body as { people?: unknown }).people)) {
-                throw new CampaignDeskRequestError(200, 'invalid_payload', 'Campaign Desk returned an unreadable people list.');
+                throw new CampaignDeskRequestError(200, 'invalid_payload', 'Campaign Desk returned an unreadable people list.', { path: '/v1/people' });
             }
             return (body as { people: unknown[] }).people.map(person => {
                 if (!person || typeof person !== 'object') {
-                    throw new CampaignDeskRequestError(200, 'invalid_payload', 'Campaign Desk returned an unreadable people list.');
+                    throw new CampaignDeskRequestError(200, 'invalid_payload', 'Campaign Desk returned an unreadable people list.', { path: '/v1/people' });
                 }
                 const id = (person as { id?: unknown }).id;
                 const email = (person as { email?: unknown }).email;
                 if (typeof id !== 'string' || id.trim() === '' || typeof email !== 'string' || !email.includes('@')) {
-                    throw new CampaignDeskRequestError(200, 'invalid_payload', 'Campaign Desk returned an unreadable people list.');
+                    throw new CampaignDeskRequestError(200, 'invalid_payload', 'Campaign Desk returned an unreadable people list.', { path: '/v1/people' });
                 }
                 return { id: id.trim(), email: email.trim() };
             });

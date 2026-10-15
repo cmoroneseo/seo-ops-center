@@ -20,13 +20,14 @@ function payload() {
 }
 
 test('the client sends the bearer secret and never copies it into an error', async () => {
-    const calls: { url: string; method: string; authorization: string | null; body: string | null }[] = [];
+    const calls: { url: string; method: string; authorization: string | null; userAgent: string | null; body: string | null }[] = [];
     const fetchImpl: typeof fetch = async (url, init) => {
         const headers = new Headers(init?.headers);
         calls.push({
             url: String(url),
             method: init?.method ?? 'GET',
             authorization: headers.get('authorization'),
+            userAgent: headers.get('user-agent'),
             body: typeof init?.body === 'string' ? init.body : null,
         });
         if (String(url).endsWith('/v1/people')) {
@@ -52,6 +53,8 @@ test('the client sends the bearer secret and never copies it into an error', asy
     });
     assert.equal(calls[0].url, 'https://desk.example.test/v1/people');
     assert.equal(calls[0].authorization, `Bearer ${TOKEN}`);
+    assert.equal(calls[0].userAgent, 'SEO-Ops-Center/1.0');
+    assert.equal(calls[1].userAgent, 'SEO-Ops-Center/1.0');
     assert.equal(calls[1].method, 'PUT');
     assert.equal(calls[1].url, `https://desk.example.test/v1/forecast-runs/${RUN}`);
     assert.equal(calls[1].body?.includes(TOKEN), false);
@@ -71,4 +74,28 @@ test('delete and idempotent accept are read from the response', async () => {
     });
     assert.deepEqual(await client.upsertRun(payload()), { runId: RUN, idempotent: false });
     assert.deepEqual(await client.deleteRun(RUN), { runId: RUN, idempotent: true });
+});
+
+test('a failed people request keeps the path and strips the bearer from the cause', async () => {
+    const fetchImpl: typeof fetch = async () => {
+        const failure = new TypeError(`connect failed ${TOKEN}`);
+        failure.cause = new Error('ECONNRESET');
+        throw failure;
+    };
+    const client = createCampaignDeskClient({
+        baseUrl: 'https://desk.example.test',
+        token: TOKEN,
+        fetch: fetchImpl,
+    });
+    await assert.rejects(client.listPeople(), (error: unknown) => {
+        assert.ok(error instanceof CampaignDeskRequestError);
+        assert.equal(error.status, 0);
+        assert.equal(error.code, 'unreachable');
+        assert.equal(error.path, '/v1/people');
+        assert.equal(error.fetchErrorName, 'TypeError');
+        assert.equal(error.fetchErrorMessage?.includes(TOKEN), false);
+        assert.match(error.fetchErrorMessage ?? '', /\[redacted\]/);
+        assert.match(error.fetchErrorMessage ?? '', /ECONNRESET/);
+        return true;
+    });
 });

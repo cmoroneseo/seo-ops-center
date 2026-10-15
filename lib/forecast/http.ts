@@ -56,7 +56,55 @@ export interface ForecastHttpDependencies {
     newRunId(): string;
 }
 
-const DIRECTORY_ERROR = 'Campaign Desk people could not be loaded.';
+function directoryReason(error: CampaignDeskRequestError): string {
+    if (error.status === 0) return 'unreachable';
+    if (error.status === 401 || error.code === 'unauthorized') return 'unauthorized';
+    if (error.code === 'invalid_payload' || error.code === 'unreadable') return 'invalid response';
+    if (error.status > 0) return String(error.status);
+    return 'unavailable';
+}
+
+function peopleDirectoryMessage(error: CampaignDeskRequestError): string {
+    return `Campaign Desk people could not be loaded (${directoryReason(error)}).`;
+}
+
+function envSpan(name: string): { present: boolean; length: number } {
+    const raw = process.env[name];
+    if (typeof raw !== 'string' || raw.length === 0) return { present: false, length: 0 };
+    return { present: true, length: raw.length };
+}
+
+function redactSecret(value: string | null): string | null {
+    if (!value) return value;
+    const raw = process.env.CAMPAIGN_DESK_API_TOKEN;
+    const secret = typeof raw === 'string' ? raw.trim() : '';
+    return secret ? value.split(secret).join('[redacted]') : value;
+}
+
+/** One JSON line for Vercel. Lengths only — never the URL or the bearer value. */
+function logDirectoryFailure(error: CampaignDeskRequestError): void {
+    const baseUrl = envSpan('CAMPAIGN_DESK_API_BASE_URL');
+    const bearer = envSpan('CAMPAIGN_DESK_API_TOKEN');
+    const line = JSON.stringify({
+        event: 'campaign_desk_request_failed',
+        path: error.path || '/v1/people',
+        status: error.status,
+        code: error.code,
+        fetchErrorName: error.fetchErrorName,
+        fetchErrorMessage: redactSecret(error.fetchErrorMessage),
+        baseUrlPresent: baseUrl.present,
+        baseUrlLength: baseUrl.length,
+        tokenPresent: bearer.present,
+        tokenLength: bearer.length,
+    });
+    console.warn(line);
+}
+
+function directoryFailure(error: unknown): string | null {
+    if (!(error instanceof CampaignDeskRequestError)) return null;
+    logDirectoryFailure(error);
+    return peopleDirectoryMessage(error);
+}
 
 function json(body: unknown, status = 200): Response {
     return Response.json(body, { status });
@@ -214,7 +262,8 @@ async function loadDirectory(
     try {
         return { people: await deps.listPeople(), error: null };
     } catch (error) {
-        if (error instanceof CampaignDeskRequestError) return { people: null, error: DIRECTORY_ERROR };
+        const message = directoryFailure(error);
+        if (message) return { people: null, error: message };
         throw error;
     }
 }
@@ -272,7 +321,8 @@ export function createForecastSyncPost(deps: ForecastHttpDependencies) {
         try {
             directory = await deps.listPeople();
         } catch (error) {
-            if (error instanceof CampaignDeskRequestError) return json({ error: DIRECTORY_ERROR }, 502);
+            const message = directoryFailure(error);
+            if (message) return json({ error: message }, 502);
             throw error;
         }
 
