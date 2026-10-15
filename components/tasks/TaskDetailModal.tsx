@@ -22,6 +22,7 @@ import { timeLogSyncState, canPushToBasecamp } from '@/lib/timesheets/log-sync-s
 import { completeTaskWithReconciliation } from '@/lib/tasks/task-completion';
 import { TaskCompletionDrawer } from './TaskCompletionDrawer';
 import { startDateForDay, scheduleDateError, estimateFromInput } from '@/lib/tasks/schedule-edit';
+import { PILLAR_TIME_BEHAVIOR, timeTrackingTaskId } from '@/lib/tasks/pillars';
 import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
 
 interface TaskDetailModalProps {
@@ -171,6 +172,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const [basecampTodoTarget, setBasecampTodoTarget] = useState<{ projectId: string } | null>(null);
     const [pushingTodo, setPushingTodo] = useState(false);
     const [todoPushOutcome, setTodoPushOutcome] = useState<PushOutcome | null>(null);
+    const [subtaskNestNote, setSubtaskNestNote] = useState<string | null>(null);
     const [subtasks, setSubtasks] = useState<Task[]>([]);
     const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
     const [addingSubtask, setAddingSubtask] = useState(false);
@@ -246,11 +248,11 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         if (!task) return;
         setLoadingTaskTime(true);
         try {
-            const [commentsData, taskData, logs] = await Promise.all([
+            const [commentsData, taskData] = await Promise.all([
                 getTaskComments(task.id),
                 getTask(task.id),
-                getTaskTimeLogs(task.id),
             ]);
+            const logs = await getTaskTimeLogs(task.id, taskData.subtasks.map(subtask => subtask.id));
             setComments(commentsData);
             setLoggedHours(taskData.loggedHours);
             setSubtasks(taskData.subtasks);
@@ -297,6 +299,10 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             });
             const body = await res.json().catch(() => null);
             setTodoPushOutcome(pushOutcomeFor(res.status, body));
+            const skipped = body && typeof body.subtasksSkipped === 'number' ? body.subtasksSkipped : 0;
+            setSubtaskNestNote(skipped > 0
+                ? `Sent the to-do. This list did not accept nested subtasks, so ${skipped} stayed in SEO PM only.`
+                : null);
         } catch {
             setTodoPushOutcome(pushOutcomeFor(null, null));
         } finally {
@@ -534,17 +540,18 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         if (!await save({ assigneeIds: next })) setAssigneeIds(previous);
     };
 
-    const isThisTaskRunning = runningTimer?.taskId === task?.id;
+    const trackingTaskId = task ? timeTrackingTaskId(task) : undefined;
+    const isThisTaskRunning = !!trackingTaskId && (runningTimer?.taskId === trackingTaskId || runningTimer?.taskId === task?.id);
 
     const handleTimerClick = async () => {
-        if (!task) return;
+        if (!task || !trackingTaskId) return;
         if (isThisTaskRunning && runningTimer) {
             await pause(runningTimer);
         } else if (task.clientId || task.projectId) {
             await startTask({
                 clientId: task.clientId ?? task.projectId ?? '',
                 clientName: task.clientName ?? 'Unknown',
-                taskId: task.id,
+                taskId: trackingTaskId,
                 taskTitle: task.title,
             });
         }
@@ -845,6 +852,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                     </span>
                                 )}
                             </label>
+                            {subtasks.length > 0 && (
+                                <p className="text-[11px] leading-relaxed text-muted-foreground">These chores stay under this task and do not each need a plan row.</p>
+                            )}
                             <div className="space-y-2">
                                 {subtasks.map(sub => (
                                     <div key={sub.id} className="flex items-center gap-3 group">
@@ -910,6 +920,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                         {PUSH_OUTCOME_MESSAGE[todoPushOutcome]}
                                     </p>
                                 )}
+                                {subtaskNestNote && (
+                                    <p className="text-[11px] leading-relaxed text-muted-foreground">{subtaskNestNote}</p>
+                                )}
                             </div>
                         )}
 
@@ -926,6 +939,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                     <PenLine className="h-3 w-3" /> Log time manually
                                 </button>
                             </div>
+                            {(subtasks.length > 0 || timeTrackingTaskId(task) !== task.id) && (
+                                <p className="text-[11px] leading-relaxed text-muted-foreground">{PILLAR_TIME_BEHAVIOR}</p>
+                            )}
 
                             {/* Summary */}
                             {loggedHours > 0 ? (
@@ -1009,7 +1025,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                                 const result = await createTimeLog({
                                                     organizationId: organization.id,
                                                     clientId: task.clientId,
-                                                    taskId: task.id,
+                                                    taskId: timeTrackingTaskId(task),
                                                     userId: currentUserId ?? currentMember?.userId,
                                                     hours: parseFloat(logHours),
                                                     date: logDate,

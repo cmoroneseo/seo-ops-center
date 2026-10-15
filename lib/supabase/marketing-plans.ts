@@ -7,6 +7,7 @@ import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS, SEO_PLAN_LABEL } f
 import { catalogAddBlocked, onboardingSeedItems, type PlanItemSource } from '../seo-plan/onboarding';
 import { createTask, rowToTask } from './tasks';
 import { itemsEligibleForTaskGeneration } from '../marketing-plan-logic';
+import { planPillarFromItems } from '../tasks/pillars';
 import { resolvePlanItem } from '../marketing-plan-execution';
 
 // ---------------------------------------------------------------------------
@@ -334,9 +335,115 @@ export async function promoteItemsToTasks(
     return { created, failed };
 }
 
-export async function addExistingTaskToPlan(planId: string, taskId: string, stepKey: string): Promise<void> {
+export async function addExistingTaskToPlan(planId: string, taskId: string, stepKey: string): Promise<string> {
     const supabase = createClient();
     if (!supabase) throw new Error('Supabase is unavailable');
-    const { error } = await supabase.rpc('add_existing_task_to_marketing_plan', { p_plan_id: planId, p_task_id: taskId, p_step_key: stepKey });
+    const { data, error } = await supabase.rpc('add_existing_task_to_marketing_plan', { p_plan_id: planId, p_task_id: taskId, p_step_key: stepKey });
     if (error) throw new Error(error.message);
+    return String(data);
+}
+
+export interface PromotePillarResult {
+    success: boolean;
+    pillarTaskId?: string;
+    planItemId?: string;
+    retiredItemIds: string[];
+    error?: string;
+    warning?: string;
+}
+
+/**
+ * One checklist row links to the pillar. Source rows are removed after the
+ * link exists so the chores are not also top-level plan items. Subtasks are
+ * not given plan rows.
+ */
+export async function promoteItemsAsPillar(
+    planId: string,
+    items: MarketingPlanItem[],
+    options: { title: string; actorName?: string },
+): Promise<PromotePillarResult> {
+    const plan = planPillarFromItems(items, options.title);
+    if (!plan) {
+        return { success: false, retiredItemIds: [], error: 'Choose at least two open checklist items to group.' };
+    }
+    const sample = items.find(item => plan.retireItemIds.includes(item.id)) ?? items[0];
+    if (!sample) return { success: false, retiredItemIds: [], error: 'Choose at least two open checklist items to group.' };
+
+    const created = await createTask({
+        organizationId: sample.organizationId,
+        clientId: sample.clientId,
+        title: plan.title,
+        description: plan.description,
+        priority: plan.priority,
+        assigneeIds: plan.assigneeIds,
+        estimatedHours: plan.estimatedHours,
+        subtasks: plan.subtasks,
+        actorName: options.actorName,
+    });
+    if (!created.success || !created.data) {
+        return { success: false, retiredItemIds: [], error: created.error ?? 'Could not create the pillar task.' };
+    }
+
+    let planItemId: string;
+    try {
+        planItemId = await addExistingTaskToPlan(planId, created.data.id, plan.stepKey);
+    } catch (error) {
+        return {
+            success: false,
+            pillarTaskId: created.data.id,
+            retiredItemIds: [],
+            error: error instanceof Error
+                ? `The pillar task was created, but it could not be added to the plan. ${error.message}`
+                : 'The pillar task was created, but it could not be added to the plan.',
+        };
+    }
+
+    const phase = await updateMarketingPlanItem(planItemId, { roadmapPhase: plan.roadmapPhase });
+    const phaseWarning = phase.success ? undefined : 'The pillar is on the plan, but its phase could not be set.';
+
+    const supabase = createClient();
+    if (!supabase) {
+        return {
+            success: true,
+            pillarTaskId: created.data.id,
+            planItemId,
+            retiredItemIds: [],
+            warning: 'The pillar is on the plan. The original checklist rows could not be removed.',
+        };
+    }
+    const { error: deleteError } = await supabase
+        .from('marketing_plan_items')
+        .delete()
+        .in('id', plan.retireItemIds)
+        .eq('organization_id', sample.organizationId)
+        .neq('id', planItemId);
+    if (deleteError) {
+        const retired: string[] = [];
+        const failed: string[] = [];
+        for (const itemId of plan.retireItemIds) {
+            const hidden = await updateMarketingPlanItem(itemId, { status: 'ignored', roadmapIncluded: false });
+            if (hidden.success) retired.push(itemId);
+            else failed.push(items.find(item => item.id === itemId)?.title ?? itemId);
+        }
+        return {
+            success: true,
+            pillarTaskId: created.data.id,
+            planItemId,
+            retiredItemIds: retired,
+            warning: [
+                phaseWarning,
+                failed.length
+                    ? `Some checklist rows stayed on the plan: ${failed.join(', ')}.`
+                    : 'The original checklist rows were excluded because they could not be removed.',
+            ].filter(Boolean).join(' '),
+        };
+    }
+
+    return {
+        success: true,
+        pillarTaskId: created.data.id,
+        planItemId,
+        retiredItemIds: plan.retireItemIds,
+        ...(phaseWarning ? { warning: phaseWarning } : {}),
+    };
 }

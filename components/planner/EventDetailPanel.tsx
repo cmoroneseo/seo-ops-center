@@ -22,6 +22,7 @@ import {
     getTaskTimeLogs, logTaskCompletionTime,
 } from '@/lib/supabase/time-logs';
 import { getTask, updateTask } from '@/lib/supabase/tasks';
+import { timeTrackingTaskId } from '@/lib/tasks/pillars';
 import { localDateForInstant, parseLocalDate } from '@/lib/planner/local-date';
 import { durationMinutes } from '@/lib/planner/layout';
 import {
@@ -208,7 +209,7 @@ export function EventDetailPanel({
         let cancelled = false;
         setTaskTrackedHours(0);
         setIsLoadingTaskTime(true);
-        void getTaskTimeLogs(task.id)
+        void getTaskTimeLogs(timeTrackingTaskId(task))
             .then(logs => {
                 if (!cancelled) {
                     setTaskTrackedHours(logs.reduce((sum, log) => sum + log.hours, 0));

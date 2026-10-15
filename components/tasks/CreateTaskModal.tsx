@@ -26,6 +26,7 @@ import {
     requestTimeLogBasecampSync,
 } from '@/lib/basecamp/client-sync';
 import { EventConversionFields } from './EventConversionFields';
+import { PILLAR_SUBTASK_HINT } from '@/lib/tasks/pillars';
 
 type ClientOption = Pick<ClientProject, 'id' | 'clientName'>;
 const EMPTY_CLIENT_OPTIONS: ClientOption[] = [];
@@ -648,6 +649,7 @@ export function CreateTaskModal({
                             <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
                                 <ListChecks className="h-3 w-3" /> Subtasks
                             </label>
+                            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{PILLAR_SUBTASK_HINT}</p>
                             {subtaskTitles.length > 0 && (
                                 <div className="mt-1.5 space-y-1">
                                     {subtaskTitles.map((subtask, index) => (

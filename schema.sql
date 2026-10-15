@@ -1706,7 +1706,7 @@ begin
   select tasks.*
     into owned_task
     from public.tasks
-    where tasks.id = p_task_id
+    where tasks.id = public.resolve_time_tracking_task_id(p_task_id)
     for update;
 
   if not found then
@@ -1838,6 +1838,63 @@ $$;
 
 revoke execute on function public.start_task_timer(uuid, timestamptz) from public, anon;
 grant execute on function public.start_task_timer(uuid, timestamptz) to authenticated;
+
+-- Migration 100: new time on a pillar parent. Recurring successors are excluded.
+create or replace function public.resolve_time_tracking_task_id(p_task_id uuid)
+returns uuid
+language sql
+stable
+security definer
+set search_path = pg_catalog, public
+as $$
+  select case
+    when p_task_id is null or auth.uid() is null then p_task_id
+    else coalesce(
+      (
+        select parent.id
+        from public.tasks as child
+        join public.tasks as parent
+          on parent.id = child.parent_task_id
+         and parent.organization_id = child.organization_id
+        where child.id = p_task_id
+          and child.recurrence is null
+          and parent.title is distinct from child.title
+          and exists (
+            select 1
+            from public.organization_members as member
+            where member.organization_id = child.organization_id
+              and member.user_id = auth.uid()
+          )
+        limit 1
+      ),
+      p_task_id
+    )
+  end;
+$$;
+
+revoke all on function public.resolve_time_tracking_task_id(uuid) from public, anon, authenticated;
+
+create or replace function public.prefer_pillar_on_time_log()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+begin
+  if new.task_id is not null then
+    new.task_id := public.resolve_time_tracking_task_id(new.task_id);
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.prefer_pillar_on_time_log() from public, anon, authenticated;
+
+drop trigger if exists prefer_pillar_on_time_log on public.time_logs;
+create trigger prefer_pillar_on_time_log
+  before insert on public.time_logs
+  for each row
+  execute function public.prefer_pillar_on_time_log();
 
 create or replace function public.pause_time_attempt(
   p_time_log_id uuid,

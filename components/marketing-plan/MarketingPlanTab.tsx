@@ -5,7 +5,7 @@ import { ClipboardList, FileDown, ListChecks, Plus, Printer, Search, Sparkles } 
 import { cn } from '@/lib/utils';
 import { MarketingPlan, MarketingPlanItem, Task } from '@/lib/types';
 import {
-    createMarketingPlanFromTemplate, addCustomItem, addCatalogItem, promoteItemToTask, updateMarketingPlanGoal, promoteItemsToTasks, addExistingTaskToPlan,
+    createMarketingPlanFromTemplate, addCustomItem, addCatalogItem, promoteItemToTask, updateMarketingPlanGoal, promoteItemsToTasks, promoteItemsAsPillar, addExistingTaskToPlan,
 } from '@/lib/supabase/marketing-plans';
 import { loadMarketingPlan } from '@/lib/seo-plan/prefetch';
 import { createClient } from '@/lib/supabase/client';
@@ -223,12 +223,23 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
         setTaskDraft({ label, items: eligible });
     };
 
-    const handleCreateTasks = async (chosen: MarketingPlanItem[]) => {
-        if (creatingTasksRef.current) return;
+    const handleCreateTasks = async (chosen: MarketingPlanItem[], pillar: { title: string } | null) => {
+        if (creatingTasksRef.current || !plan) return;
         creatingTasksRef.current = true;
         setCreatingTasks(true);
         setTaskDraftError(null);
         try {
+            if (pillar) {
+                const grouped = await promoteItemsAsPillar(plan.id, chosen, { title: pillar.title, actorName: currentUser.name });
+                await refresh();
+                if (!grouped.success) {
+                    setTaskDraftError(grouped.error ?? 'Could not create the pillar');
+                    return;
+                }
+                setTaskDraft(null);
+                if (grouped.warning) alert(grouped.warning);
+                return;
+            }
             const result = await promoteItemsToTasks(chosen, currentUser.name);
             await refresh();
             if (result.failed.length === 0) {

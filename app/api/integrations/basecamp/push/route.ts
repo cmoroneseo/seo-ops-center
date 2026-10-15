@@ -11,6 +11,7 @@ import {
     updateBasecampTodoAssignees,
     updateBasecampTodoDueDate,
     createBasecampTodoStep,
+    basecampSubtaskSupport,
 } from '@/lib/basecamp/api';
 import { createBasecampPushPost } from '@/lib/basecamp/push-route';
 import { createSupabaseBasecampProjectAccessSource } from '@/lib/basecamp/supabase-project-access-source';
@@ -130,7 +131,11 @@ export async function POST(req: NextRequest) {
         createAccessSource: () => createSupabaseBasecampProjectAccessSource(createAdminClient()),
         provider: {
             isConfigured: isBasecampConfigured,
-            getTodo: (projectId, todoId) => getBasecampTodo(projectId, todoId),
+            getTodo: async (projectId, todoId) => {
+                const todo = await getBasecampTodo(projectId, todoId);
+                if (!todo) return null;
+                return { id: todo.id, supportsSubtasks: basecampSubtaskSupport(todo) };
+            },
             listTodolists: projectId => listBasecampTodolists(projectId),
             createTodo: (projectId, todolistId, params) => (
                 createBasecampTodo(projectId, todolistId, params)

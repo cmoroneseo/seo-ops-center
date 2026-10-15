@@ -138,6 +138,9 @@ export interface BasecampTodoFull {
     description: string;
     assignees: { id: number; name: string }[];
     app_url: string;
+    /** Present when this recording accepts nested subtasks (to-dos and cards). */
+    subtasks_count?: number;
+    subtasks_url?: string;
 }
 
 export interface BasecampTodoCreateParams {
@@ -146,6 +149,28 @@ export interface BasecampTodoCreateParams {
     description?: string;
     assigneePersonIds?: number[];
     completionSubscriberPersonIds?: number[];
+}
+
+/**
+ * To-dos and cards accept subtasks when the payload includes `subtasks_count`
+ * or `subtasks_url`. Absence of both means the recording does not say, so the
+ * caller may still try. An explicit empty pair means nesting is unsupported.
+ */
+export function basecampSubtaskSupport(
+    recording: object | null | undefined,
+): boolean | undefined {
+    if (!recording) return undefined;
+    const row = recording as { subtasks_count?: unknown; subtasks_url?: unknown };
+    const hasCount = 'subtasks_count' in recording;
+    const hasUrl = 'subtasks_url' in recording;
+    if (!hasCount && !hasUrl) return undefined;
+    return typeof row.subtasks_count === 'number'
+        || (typeof row.subtasks_url === 'string' && row.subtasks_url.length > 0);
+}
+
+/** Canonical create path: POST /recordings/{todoId}/subtasks.json */
+export function basecampSubtaskCreatePath(parentTodoId: number | string): string {
+    return `/recordings/${safeId(parentTodoId, 'parentTodoId')}/subtasks.json`;
 }
 
 /** Map SEO PM's camelCase task data to Basecamp's documented create fields. */
@@ -310,7 +335,7 @@ export async function createBasecampTodo(
     projectId: number | string,
     todolistId: number | string,
     params: BasecampTodoCreateParams,
-): Promise<{ id: number; appUrl: string } | null> {
+): Promise<{ id: number; appUrl: string; supportsSubtasks?: boolean } | null> {
     try {
         const body = basecampTodoCreateBody(params);
 
@@ -319,25 +344,28 @@ export async function createBasecampTodo(
             { method: 'POST', body: JSON.stringify(body) },
         );
         if (!res.ok) throw new Error(`Basecamp createTodo failed: ${res.status} ${await res.text()}`);
-        const todo = await res.json() as BasecampTodo;
-        return { id: todo.id, appUrl: todo.app_url };
+        const todo = await res.json() as BasecampTodo & { subtasks_count?: number; subtasks_url?: string };
+        return { id: todo.id, appUrl: todo.app_url, supportsSubtasks: basecampSubtaskSupport(todo) };
     } catch (err) {
         console.error('[Basecamp] createTodo error:', err);
         return null;
     }
 }
 
-/** Create a Basecamp checklist step under a to-do (the same endpoint Basecamp uses for subtasks). */
+/**
+ * Create a nested subtask under a to-do.
+ * The recordings route is account-scoped. `projectId` is still validated so a
+ * bad id fails before the request, matching the other Basecamp writers.
+ */
 export async function createBasecampTodoStep(
     projectId: number | string,
     parentTodoId: number | string,
     title: string,
 ): Promise<{ id: number } | null> {
     try {
-        const project = safeId(projectId, 'projectId');
-        const parent = safeId(parentTodoId, 'parentTodoId');
+        safeId(projectId, 'projectId');
         const res = await basecampFetch(
-            `${BASE_URL()}/buckets/${project}/card_tables/cards/${parent}/steps.json`,
+            `${BASE_URL()}${basecampSubtaskCreatePath(parentTodoId)}`,
             { method: 'POST', body: JSON.stringify({ title }) },
         );
         if (!res.ok) throw new Error(`Basecamp createTodoStep failed: ${res.status} ${await res.text()}`);
