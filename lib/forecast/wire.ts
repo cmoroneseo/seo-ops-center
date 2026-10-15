@@ -19,6 +19,20 @@ import {
     saveForecastClientLink,
 } from './source.ts';
 
+async function loadBasecampProjectNames(): Promise<ReadonlyMap<string, string>> {
+    try {
+        const api = await import('@/lib/basecamp/api');
+        if (!api.isBasecampConfigured()) return new Map();
+        const projects = await api.listBasecampProjects();
+        return new Map(projects.flatMap(project => {
+            const name = project.name?.trim() ?? '';
+            return name ? [[String(project.id), name] as const] : [];
+        }));
+    } catch {
+        return new Map();
+    }
+}
+
 const disabledClient: ForecastHttpDependencies['client'] = {
     async listPeople() {
         throw new Error('Campaign Desk sync is turned off.');
@@ -57,7 +71,10 @@ function dependencies(): ForecastHttpDependencies {
                 role: result.role,
             };
         },
-        load: loadForecastSource,
+        load: scope => loadForecastSource({
+            ...scope,
+            projectNames: loadBasecampProjectNames,
+        }),
         readiness: organizationId => campaignDeskReady(organizationId),
         listPeople: () => client.listPeople(),
         payloadVersion: () => campaignDeskSyncV2() ? 2 : 1,

@@ -45,6 +45,10 @@ export interface ForecastLog {
     taskTitle?: string;
     description?: string;
     clientDomain?: string;
+    /** When this entry was planned to start. Placement only. */
+    plannedStartsAt?: string;
+    /** Basecamp project the block was logged against, when one was chosen. */
+    basecampProjectId?: string;
 }
 
 export interface ForecastEvent {

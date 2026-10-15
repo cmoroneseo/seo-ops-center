@@ -410,6 +410,235 @@ test('a saved client id wins, and an ambiguous name stays null', () => {
     assert.equal(ambiguous.warnings.some(warning => warning.kind === 'unmatched_clients'), true);
 });
 
+test('logged blocks keep their minutes, clocks follow focus then planned then the event, and a second log of the same interval is not added', () => {
+    const checkIn = '66666666-6666-4666-8666-666666666671';
+    const focusId = '66666666-6666-4666-8666-666666666672';
+    const badge = '55555555-5555-4555-8555-555555555570';
+    const shadow = '55555555-5555-4555-8555-555555555571';
+    const cisco = '55555555-5555-4555-8555-555555555572';
+    const focusLog = '55555555-5555-4555-8555-555555555573';
+    const plain = '55555555-5555-4555-8555-555555555574';
+    const result = buildForecastV2(input({
+        logs: [
+            log({
+                id: badge,
+                date: '2026-10-14',
+                hours: 1,
+                clientId: undefined,
+                clientName: undefined,
+                clientDomain: undefined,
+                plannerEventId: checkIn,
+                description: 'Internal Check In',
+            }),
+            log({
+                id: shadow,
+                date: '2026-10-14',
+                hours: 1,
+                clientId: undefined,
+                clientName: undefined,
+                clientDomain: undefined,
+                description: 'Internal Check In',
+                plannedStartsAt: '2026-10-14T16:00:00.000Z',
+            }),
+            log({
+                id: cisco,
+                date: '2026-10-12',
+                hours: 1.25,
+                taskId: TASK,
+                taskTitle: 'CISCO',
+                plannedStartsAt: '2026-10-12T18:30:00.000Z',
+            }),
+            log({
+                id: focusLog,
+                date: '2026-10-14',
+                hours: 1.5,
+                taskId: TASK_B,
+                taskTitle: 'Pre Launch',
+                plannerEventId: focusId,
+                plannedStartsAt: '2026-10-14T20:00:00.000Z',
+            }),
+            log({
+                id: plain,
+                date: '2026-10-14',
+                hours: 0.5,
+                taskId: '44444444-4444-4444-8444-444444444446',
+                taskTitle: 'Notes with no clock',
+            }),
+        ],
+        events: [
+            {
+                id: checkIn,
+                userId: carlos.userId,
+                attendeeIds: [],
+                kind: 'event',
+                startsAt: '2026-10-14T16:00:00.000Z',
+                endsAt: '2026-10-14T17:00:00.000Z',
+                allDay: false,
+                title: 'Internal Check In',
+            },
+            {
+                id: focusId,
+                userId: carlos.userId,
+                attendeeIds: [],
+                kind: 'focus',
+                startsAt: '2026-10-14T19:00:00.000Z',
+                endsAt: '2026-10-14T20:30:00.000Z',
+                allDay: false,
+                clientId: CLIENT,
+                taskId: TASK_B,
+                title: 'Pre Launch',
+            },
+        ],
+    }));
+
+    const sent = items(result);
+    const meeting = sent.find(item => item.itemKey === `event:${checkIn}:2026-10-14`);
+    assert.equal(meeting?.minutes, 60);
+    assert.equal(meeting?.startTime, '09:00');
+    assert.equal(meeting?.bucket, 'internal');
+    assert.deepEqual(meeting?.sourceIds.timeLogIds, [badge]);
+
+    const placed = sent.find(item => item.itemKey === `task:${TASK}:2026-10-12`);
+    assert.equal(placed?.minutes, 75);
+    assert.equal(placed?.startTime, '11:30');
+
+    const focus = sent.find(item => item.itemKey === `task:${TASK_B}:2026-10-14`);
+    assert.equal(focus?.minutes, 90);
+    assert.equal(focus?.startTime, '12:00');
+
+    const untimed = sent.find(item => item.itemKey === 'task:44444444-4444-4444-8444-444444444446:2026-10-14');
+    assert.equal(untimed?.minutes, 30);
+    assert.equal(untimed?.startTime, null);
+    assert.equal(sent.some(item => item.sourceIds.timeLogIds.includes(shadow)), false);
+});
+
+test('a Basecamp project on a logged block prefers that client, and no match still sends the hours', () => {
+    const brief = '66666666-6666-4666-8666-666666666680';
+    const logged = '55555555-5555-4555-8555-555555555580';
+    const unmatchedEvent = '66666666-6666-4666-8666-666666666681';
+    const unmatchedLog = '55555555-5555-4555-8555-555555555581';
+    const watchName = 'Our Watch w/Tim Thompson Growth OS – Powered by the Empire Method™';
+    const result = buildForecastV2(input({
+        deskClients: [
+            { id: 'rc_watch', name: 'Our Watch' },
+            { id: 'rc_north', name: 'Northwind Plumbing' },
+        ],
+        seoClients: [{ id: CLIENT, name: 'Northwind Plumbing', domain: 'northwind.example' }],
+        basecampProjects: [
+            { id: '47923138', name: watchName, kind: 'unknown' },
+            { id: '27062278', name: 'Marketing Empire Group HQ', kind: 'internal' },
+        ],
+        logs: [
+            log({
+                id: logged,
+                date: '2026-10-15',
+                hours: 0.5,
+                clientId: undefined,
+                clientName: undefined,
+                clientDomain: undefined,
+                plannerEventId: brief,
+                description: "Tim's Channel Cleanup Brief",
+                basecampProjectId: '47923138',
+            }),
+            log({
+                id: unmatchedLog,
+                date: '2026-10-15',
+                hours: 1,
+                clientId: undefined,
+                clientName: undefined,
+                clientDomain: undefined,
+                plannerEventId: unmatchedEvent,
+                basecampProjectId: '27062278',
+            }),
+        ],
+        events: [
+            {
+                id: brief,
+                userId: carlos.userId,
+                attendeeIds: [],
+                kind: 'event',
+                startsAt: '2026-10-15T17:30:00.000Z',
+                endsAt: '2026-10-15T18:00:00.000Z',
+                allDay: false,
+                title: "Tim's Channel Cleanup Brief",
+            },
+            {
+                id: unmatchedEvent,
+                userId: carlos.userId,
+                attendeeIds: [],
+                kind: 'event',
+                startsAt: '2026-10-15T18:00:00.000Z',
+                endsAt: '2026-10-15T19:00:00.000Z',
+                allDay: false,
+                title: 'HQ standup',
+            },
+        ],
+    }));
+
+    const sent = items(result);
+    const briefItem = sent.find(item => item.title === "Tim's Channel Cleanup Brief");
+    assert.equal(briefItem?.bucket, 'client');
+    assert.equal(briefItem?.minutes, 30);
+    assert.equal(briefItem?.startTime, '10:30');
+    assert.equal(briefItem?.client?.name, 'Our Watch');
+    assert.equal(briefItem?.client?.campaignDeskClientId, 'rc_watch');
+    assert.equal(result.nameMatches.length, 0);
+
+    const hq = sent.find(item => item.title === 'HQ standup');
+    assert.equal(hq?.bucket, 'internal');
+    assert.equal(hq?.client, null);
+    assert.equal(hq?.minutes, 60);
+    assert.equal(hq?.startTime, '11:00');
+
+    const parsed = parseForecastPayloadV2({
+        ...result.payloadBody,
+        runId: '11111111-1111-4111-8111-111111111111',
+    });
+    assert.equal(parsed.version, 2);
+});
+
+test('a saved project binding uses that SEO client and its Campaign Desk link', () => {
+    const eventId = '66666666-6666-4666-8666-666666666682';
+    const result = buildForecastV2(input({
+        clientLinks: new Map([[CLIENT, 'rc_north']]),
+        basecampProjects: [{
+            id: '39953917',
+            name: 'CISCo Restaurant + Bar',
+            kind: 'client',
+            clientId: CLIENT,
+            clientName: 'Cisco Restaurant',
+            clientDomain: 'cisco.example',
+        }],
+        logs: [log({
+            id: LOG_A,
+            date: '2026-10-13',
+            hours: 1,
+            clientId: undefined,
+            clientName: undefined,
+            clientDomain: undefined,
+            plannerEventId: eventId,
+            basecampProjectId: '39953917',
+        })],
+        events: [{
+            id: eventId,
+            userId: carlos.userId,
+            attendeeIds: [],
+            kind: 'event',
+            startsAt: '2026-10-13T19:00:00.000Z',
+            endsAt: '2026-10-13T20:00:00.000Z',
+            allDay: false,
+            title: 'Cisco working session',
+        }],
+    }));
+    const item = items(result)[0];
+    assert.equal(item.bucket, 'client');
+    assert.equal(item.client?.name, 'Cisco Restaurant');
+    assert.equal(item.client?.seoOpsClientId, CLIENT);
+    assert.equal(item.client?.campaignDeskClientId, 'rc_north');
+    assert.equal(item.startTime, '12:00');
+    assert.equal(item.minutes, 60);
+});
+
 test('version 2 still leaves a zero-minute row out of the payload', () => {
     const result = buildForecastV2(input({
         logs: [log({ id: LOG_A, date: '2026-10-14', hours: 0, taskId: TASK })],

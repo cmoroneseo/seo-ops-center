@@ -13,7 +13,7 @@ import {
     type ForecastTask,
 } from './build.ts';
 import { createCampaignDeskClient, CampaignDeskRequestError, type CampaignDeskClient } from './client.ts';
-import type { ForecastClientLink, ForecastDeskClient } from './clients.ts';
+import type { ForecastClientLink, ForecastDeskClient, ForecastSeoClient } from './clients.ts';
 import {
     forecastPayloadHash,
     ForecastPayloadError,
@@ -24,6 +24,7 @@ import type { ForecastReadiness } from './flags.ts';
 import { EMPTY_FORECAST_SYNC_REASON, forecastSendableCount, forecastStatusLabel, formatLastSynced, forecastWeekChip, presentForecast } from './present.ts';
 import { coveringRun, latestRun, memberForecastStatus, personForecastDigest } from './status.ts';
 import { ForecastClientMapUnavailable, ForecastStoreUnavailable, type ForecastRunStore, type ForecastSyncRunRecord } from './store.ts';
+import type { ForecastBasecampProject } from './basecamp-project.ts';
 import { buildForecastV2, type ForecastV2BuildResult } from './v2.ts';
 import { assertTimeZone, loadWindow, parseSelectableWeeks, resolveClientToday, selectableWeekStarts } from './weeks.ts';
 
@@ -46,6 +47,8 @@ export interface ForecastSourceData {
     logs: ForecastLog[];
     events: ForecastEvent[];
     tasks: ForecastTask[];
+    basecampProjects?: ForecastBasecampProject[];
+    seoClients?: ForecastSeoClient[];
 }
 
 export interface ForecastHttpDependencies {
@@ -308,9 +311,13 @@ async function loadDeskClients(
 
 async function buildChosen(
     deps: ForecastHttpDependencies,
-    input: ForecastBuildInput & { connectionEnabled: boolean },
+    input: ForecastBuildInput & {
+        connectionEnabled: boolean;
+        basecampProjects?: ForecastBasecampProject[];
+        seoClients?: ForecastSeoClient[];
+    },
 ): Promise<{ built: BuiltForecast; clientsError: string | null }> {
-    const { connectionEnabled, ...rest } = input;
+    const { connectionEnabled, basecampProjects = [], seoClients = [], ...rest } = input;
     if (deps.payloadVersion() !== 2) {
         return { built: buildForecast(rest), clientsError: null };
     }
@@ -323,6 +330,8 @@ async function buildChosen(
             ...rest,
             clientLinks,
             deskClients: desk.clients,
+            basecampProjects,
+            seoClients,
         }),
         clientsError: desk.error,
     };
