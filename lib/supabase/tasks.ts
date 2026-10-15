@@ -119,6 +119,8 @@ export type TaskInsert = {
     watcherIds?: string[];
     /** Child task titles created with the parent from the task configuration modal. */
     subtaskTitles?: string[];
+    /** Child tasks created with the parent. Descriptions are kept on the subtask. */
+    subtasks?: { title: string; description?: string }[];
     dueDate?: string;
     startDate?: string;
     priority?: TaskPriority;
@@ -294,13 +296,20 @@ export async function getTask(taskId: string): Promise<{
     const supabase = createClient();
     if (!supabase) return { task: null, subtasks: [], loggedHours: 0 };
     try {
-        const [taskRes, subtasksRes, hoursRes] = await Promise.all([
+        const [taskRes, subtasksRes] = await Promise.all([
             supabase.from('tasks').select('*, clients(name)').eq('id', taskId).single(),
             supabase.from('tasks').select('*, clients(name)').eq('parent_task_id', taskId).order('sort_order'),
-            supabase.from('time_logs').select('hours').eq('task_id', taskId).eq('status', 'logged'),
         ]);
 
         if (taskRes.error) throw taskRes.error;
+
+        const subtaskIds = (subtasksRes.data || []).map((row: { id: string }) => row.id);
+        const hoursRes = await supabase
+            .from('time_logs')
+            .select('hours')
+            .in('task_id', [taskId, ...subtaskIds])
+            .eq('status', 'logged');
+        if (hoursRes.error) throw hoursRes.error;
 
         const loggedHours = (hoursRes.data || []).reduce((sum: number, row: any) => sum + (row.hours || 0), 0);
 
@@ -356,16 +365,22 @@ export async function createTask(
         if (error) throw error;
         const task = rowToTask(data);
 
-        const subtaskTitles = (t.subtaskTitles ?? []).map(title => title.trim()).filter(Boolean);
-        if (subtaskTitles.length > 0) {
+        const rawSubtasks: { title: string; description?: string }[] = t.subtasks?.length
+            ? t.subtasks
+            : (t.subtaskTitles ?? []).map(title => ({ title }));
+        const subtaskDrafts = rawSubtasks.map(subtask => ({
+            title: subtask.title.trim(),
+            description: subtask.description?.trim() || null,
+        })).filter(subtask => subtask.title);
+        if (subtaskDrafts.length > 0) {
             const now = new Date().toISOString();
             const { error: subtaskError } = await supabase.from('tasks').insert(
-                subtaskTitles.map((title, index) => ({
+                subtaskDrafts.map((subtask, index) => ({
                     organization_id: task.organizationId,
                     project_id: task.projectId,
                     client_id: task.clientId,
-                    title,
-                    description: null,
+                    title: subtask.title,
+                    description: subtask.description,
                     assignee_ids: [],
                     watcher_ids: [],
                     priority: t.priority ?? 'medium',

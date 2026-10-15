@@ -39,6 +39,25 @@ test('generate-tasks panel lists eligible items and the create count', () => {
     assert.match(html, /Add canonicals/);
     assert.match(html, /Create 2 tasks/);
     assert.match(html, /High/);
+    assert.match(html, /Group under one pillar/);
+    assert.doesNotMatch(html, /short setup chores/);
+});
+
+test('setup chores with one owner offer a preselected SEO Setup pillar', () => {
+    const html = renderToStaticMarkup(createElement(GenerateTasksPanel, {
+        scopeLabel: 'Introduction & Setup',
+        items: [
+            item({ id: 'a', stepKey: 'setup', title: 'Connect Search Console', assigneeId: 'abel', priority: 'medium' }),
+            item({ id: 'b', stepKey: 'setup', title: 'Connect Analytics', assigneeId: 'abel', priority: 'medium' }),
+        ],
+        creating: false,
+        onConfirm: () => {},
+        onClose: () => {},
+    }));
+    assert.match(html, /short setup chores/);
+    assert.match(html, /value="SEO Setup"/);
+    assert.match(html, /checked=""/);
+    assert.match(html, /Group 2 chores under one task/);
 });
 
 test('item row shows a task chip only after the item is linked', () => {

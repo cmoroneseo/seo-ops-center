@@ -60,7 +60,7 @@ interface PushStore {
 
 interface Provider {
     isConfigured(): boolean;
-    getTodo(projectId: string, todoId: string): Promise<{ id: string | number } | null>;
+    getTodo(projectId: string, todoId: string): Promise<{ id: string | number; supportsSubtasks?: boolean } | null>;
     listTodolists(projectId: string): Promise<Array<{ id: string | number }>>;
     createTodo(
         projectId: string,
@@ -72,7 +72,7 @@ interface Provider {
             assigneePersonIds?: number[];
             completionSubscriberPersonIds?: number[];
         },
-    ): Promise<{ id: string | number; appUrl: string } | null>;
+    ): Promise<{ id: string | number; appUrl: string; supportsSubtasks?: boolean } | null>;
     createStep?(
         projectId: string,
         parentTodoId: string,
@@ -169,7 +169,7 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                 }
 
                 const created = existingTodoId
-                    ? { id: existingTodoId, appUrl: '' }
+                    ? { id: existingTodoId, appUrl: '', supportsSubtasks: existingTodo?.supportsSubtasks }
                     : await dependencies.provider.createTodo(projectId, todolistId, {
                         content: task.title,
                         dueOn: task.dueDate || undefined,
@@ -201,6 +201,15 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                         task.organizationId,
                         task.clientId,
                     ) ?? [];
+                    // Undefined means the recording did not say. False means this
+                    // to-do does not accept nested subtasks; the parent still ships.
+                    if (subtasks.length > 0 && created.supportsSubtasks === false) {
+                        return json({
+                            success: true,
+                            todoId: created.id,
+                            subtasksSkipped: subtasks.length,
+                        });
+                    }
                     if (subtasks.length > 0 && dependencies.provider.createStep) {
                         for (const subtask of subtasks) {
                             if (numericId(subtask.basecampTodoId)) continue;

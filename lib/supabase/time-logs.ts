@@ -161,14 +161,15 @@ export async function getTimeLogs(
  * Finalized time for one task, with its recorded segments, for the task
  * detail panel's Time Logged section. Ordered newest first.
  */
-export async function getTaskTimeLogs(taskId: string): Promise<TimerAttempt[]> {
+export async function getTaskTimeLogs(taskId: string, alsoTaskIds: string[] = []): Promise<TimerAttempt[]> {
     const supabase = createClient();
     if (!supabase) return [];
+    const taskIds = [taskId, ...alsoTaskIds.filter(id => id && id !== taskId)];
     try {
         const { data, error } = await supabase
             .from('time_logs')
             .select('*, clients(name), tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(*)')
-            .eq('task_id', taskId)
+            .in('task_id', taskIds)
             .eq('status', 'logged')
             // Voided and still-in-review imports are not time the task has
             // consumed; the timesheet already excludes them.

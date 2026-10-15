@@ -377,3 +377,38 @@ test('retrying a partial create reuses the linked parent and skips already-linke
     assert.equal(response.status, 200);
     assert.deepEqual(createdSteps, ['Retry this step']);
 });
+
+test('create push keeps the parent when the to-do does not accept nested subtasks', async () => {
+    const { createBasecampPushPost } = await loadRouteModule();
+    let stepped = false;
+    const post = createBasecampPushPost({
+        authorizeTask: async () => authorized,
+        createStore: () => ({
+            getTask: async () => ({ ...canonicalTask, basecampTodoId: null, basecampProjectId: null, status: 'todo' }),
+            listSubtasks: async () => [
+                { id: 'child-1', title: 'Connect analytics', basecampTodoId: null },
+            ],
+            updateTaskLink: async () => null,
+            markTaskSynced: async () => null,
+        }),
+        createAccessSource: () => externalSource(),
+        provider: {
+            isConfigured: () => true,
+            getTodo: async () => null,
+            listTodolists: async () => [{ id: 44 }],
+            createTodo: async () => ({ id: 77, appUrl: 'https://3.basecamp.test/task/77', supportsSubtasks: false }),
+            createStep: async () => { stepped = true; return { id: 1 }; },
+            completeTodo: async () => false,
+            reopenTodo: async () => false,
+            createComment: async () => null,
+            updateTodoDueDate: async () => false,
+            updateTodoAssignees: async () => false,
+        },
+        now: () => '2026-08-20T00:00:00.000Z',
+    });
+
+    const response = await post(request({ action: 'create_todo', taskId: 'task-a' }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { success: true, todoId: 77, subtasksSkipped: 1 });
+    assert.equal(stepped, false);
+});
