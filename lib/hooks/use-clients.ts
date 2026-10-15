@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
+import { CLIENTS_CHANGED_EVENT } from '@/lib/clients/delete-client';
 import { getClients } from '@/lib/supabase/clients';
 import { ClientProject, ProjectStatus } from '@/lib/types';
 
@@ -35,6 +36,12 @@ export function useClients(opts: UseClientsOptions = {}): UseClientsResult {
         });
         return () => { cancelled = true; };
     }, [organization?.id, tick]);
+
+    useEffect(() => {
+        const refresh = () => setTick((value) => value + 1);
+        window.addEventListener(CLIENTS_CHANGED_EVENT, refresh);
+        return () => window.removeEventListener(CLIENTS_CHANGED_EVENT, refresh);
+    }, []);
 
     const clients = statuses.includes('All' as ProjectStatus)
         ? allClients

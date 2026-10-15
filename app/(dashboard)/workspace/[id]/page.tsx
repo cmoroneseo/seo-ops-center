@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, Suspense } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { MissingClient } from '@/components/workspace/MissingClient';
-import { ArrowLeft, Calendar, Clock, MoreVertical, Shield, UserCheck, Plug, Target, ScanSearch, Map, FileCheck2, Globe, Archive } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, Shield, UserCheck, Plug, Target, ScanSearch, Map, FileCheck2, Globe, Archive } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { ClientNotesPanel } from '@/components/workspace/ClientNotesPanel';
@@ -24,6 +24,8 @@ import { ClientWorkspaceCanvas } from '@/components/workspace/canvas/ClientWorks
 import { workspaceCanvasEnabled } from '@/lib/workspace-canvas/flag';
 import { EditClientPanel, ClientAvatar } from '@/components/workspace/EditClientPanel';
 import { getClients } from '@/lib/supabase/clients';
+import { ClientActionsMenu } from '@/components/workspace/ClientActionsMenu';
+import { archivedClientPath, canDeleteClient, notifyClientsChanged } from '@/lib/clients/delete-client';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { useTimer } from '@/components/providers/timer-provider';
@@ -69,8 +71,9 @@ export default function ClientDetailPage() {
     const params = useParams();
     const router = useRouter();
     const id = params.id as string;
-    const { organization } = useOrganization();
-    const { isOwner, displayName } = useCurrentMember();
+    const { organization, memberships } = useOrganization();
+    const { isOwner, displayName, isLoading: memberLoading, userId } = useCurrentMember();
+    const membership = memberships.find((member) => member.userId === userId);
     const vaultEnabled = useVaultEnabled(organization?.id);
     const seoPlanV2 = useSeoPlanV2(organization?.id);
     const v2On = seoPlanV2 === true;
@@ -359,9 +362,15 @@ export default function ClientDetailPage() {
                                 : <><Play className="h-3.5 w-3.5 fill-current" /> Choose Task</>
                             }
                         </button>
-                        <button className="p-2 hover:bg-muted rounded-md transition-colors">
-                            <MoreVertical className="h-5 w-5 text-muted-foreground" />
-                        </button>
+                        <ClientActionsMenu
+                            clientId={client.id}
+                            clientName={client.clientName}
+                            canDelete={!memberLoading && canDeleteClient(membership?.role)}
+                            onDeleted={(name) => {
+                                notifyClientsChanged();
+                                router.push(archivedClientPath(name));
+                            }}
+                        />
                     </div>
                 </div>
             </div>
