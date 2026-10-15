@@ -36,6 +36,7 @@ import {
     actualAttemptToItems, resolvePlannerSelection, shouldRenderForecast,
     type PlannerTimerAction,
 } from '@/lib/planner/actual-items';
+import { ForecastSyncButton } from '@/components/forecast/ForecastSyncButton';
 import { PlannerHeader, PlannerView } from '@/components/planner/PlannerHeader';
 import { WeekGrid, PlannerDragHandles } from '@/components/planner/WeekGrid';
 import { QuickCreatePopover, FullTaskDraft } from '@/components/planner/QuickCreatePopover';
@@ -58,7 +59,8 @@ import { eventToTaskDraft, type EventTaskDraft } from '@/lib/planner/event-to-ta
 
 export default function PlannerPage() {
     const { organization } = useOrganization();
-    const { userId } = useCurrentMember();
+    const { userId, role } = useCurrentMember();
+    const canSyncForecast = role === 'owner' || role === 'admin';
     const {
         runningTimer, pausedTimers, startTask, pause, resume, beginStop, getAttemptById,
     } = useTimer();
@@ -641,6 +643,9 @@ export default function PlannerPage() {
                     onViewChange={setView}
                     prefs={prefs}
                     onPrefsChange={updatePrefs}
+                    forecastSync={canSyncForecast && organization?.id ? (
+                        <ForecastSyncButton organizationId={organization.id} variant="outline" />
+                    ) : null}
                 />
                 {isLoading && (
                     <div className="h-0.5 w-full overflow-hidden bg-primary/10">
