@@ -11,7 +11,9 @@ import { GooglePropertyPicker } from './GooglePropertyPicker';
 import { BasecampImportModal } from './BasecampImportModal';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
-import { connectedAccountLabel } from '@/lib/google/account';
+import { GA4_RECONNECT_ANALYTICS_LABEL } from '@/lib/ga4/connection-health';
+import { Ga4KeyEventPicker } from './Ga4KeyEventPicker';
+import { connectedAccountLabel, googleConnectPath } from '@/lib/google/account';
 import { authorizedProjectId } from '@/lib/basecamp/project-selection';
 import {
     emptyBasecampIntegrationScope,
@@ -105,6 +107,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
     const [rankTrackerError, setRankTrackerError] = useState('');
     const [disconnecting, setDisconnecting] = useState<IntegrationService | null>(null);
     const [showPropertyPicker, setShowPropertyPicker] = useState<'ga4-gsc' | 'gbp' | null>(null);
+    const [showKeyEvents, setShowKeyEvents] = useState(false);
     const [showGscPicker, setShowGscPicker] = useState(false);
     const [toast, setToast] = useState('');
     const [selectedService, setSelectedService] = useState<IntegrationCardId | null>(null);
@@ -173,8 +176,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
 
     function connectGoogle(group: 'ga4-gsc' | 'gsc' | 'gbp') {
         if (!orgId) return;
-        const url = `/api/integrations/google/connect?clientId=${clientId}&orgId=${orgId}&group=${group === 'ga4-gsc' ? 'ga4' : group}`;
-        window.location.href = url;
+        window.location.href = googleConnectPath(clientId, orgId, group);
     }
 
     async function saveAhrefsKey() {
@@ -365,13 +367,14 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
     const cards: IntegrationCardItem[] = ['gsc', 'ga4', 'gbp', 'ahrefs'].map(service => {
         const cfg = SERVICES.find(item => item.service === service)!;
         const integration = getIntegration(cfg.service);
-        const attention = integration?.syncStatus === 'error' || isPendingSetup(cfg.service) || integration?.needsPropertySetup || (service === 'gsc' && integration?.syncStatus === 'active' && !integration.selectedProperty);
+        const needsAnalytics = service === 'ga4' && integration?.connectionHealth === 'reconnect_analytics';
+        const attention = needsAnalytics || integration?.syncStatus === 'error' || isPendingSetup(cfg.service) || integration?.needsPropertySetup || (service === 'gsc' && integration?.syncStatus === 'active' && !integration.selectedProperty);
         const connected = isConnected(cfg.service) && !attention;
         const accountLabel = service === 'ga4' || service === 'gsc' ? connectedAccountLabel(integration?.googleEmail) : undefined;
         return { id: service as IntegrationCardId, name: cfg.label, description: cfg.description,
             tone: attention ? 'attention' : connected ? 'connected' : 'neutral',
             accountLabel,
-            status: integration?.syncStatus === 'error' ? 'Needs attention' : attention ? 'Complete setup' : connected ? 'Connected' : 'Click to set up' };
+            status: needsAnalytics ? GA4_RECONNECT_ANALYTICS_LABEL : integration?.syncStatus === 'error' ? 'Needs attention' : attention ? 'Complete setup' : connected ? 'Connected' : 'Click to set up' };
     });
     cards.push({ id: 'basecamp', name: 'Basecamp', description: 'Sync client tasks and time entries', tone: bcSyncEnabled && bcProjectId ? 'connected' : 'neutral', status: bcSyncEnabled && bcProjectId ? 'Sync enabled' : 'Click to set up' });
 
@@ -387,6 +390,14 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
 
     return (
         <div className="space-y-6">
+            {showKeyEvents && orgId && (
+                <Ga4KeyEventPicker
+                    clientId={clientId}
+                    orgId={orgId}
+                    onClose={() => setShowKeyEvents(false)}
+                    onSaved={() => { setShowKeyEvents(false); setToast('Key events saved'); }}
+                />
+            )}
             {showPropertyPicker && orgId && (
                 <GooglePropertyPicker
                     clientId={clientId}
@@ -474,7 +485,13 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                                         {hasError && (
                                             <span className="flex items-center gap-1 text-xs text-red-500">
                                                 <AlertCircle className="h-3 w-3" />
-                                                Error — reconnect required
+                                                {cfg.service === 'ga4' && integration?.connectionHealth === 'reauth_required' ? 'Reconnect' : 'Error — reconnect required'}
+                                            </span>
+                                        )}
+                                        {cfg.service === 'ga4' && integration?.connectionHealth === 'reconnect_analytics' && (
+                                            <span className="flex items-center gap-1 text-xs text-amber-600">
+                                                <AlertCircle className="h-3 w-3" />
+                                                {GA4_RECONNECT_ANALYTICS_LABEL}
                                             </span>
                                         )}
                                     </div>
@@ -558,6 +575,24 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                                             </button>
                                         )}
                                         {/* Let connected+configured users re-pick without full disconnect */}
+                                        {cfg.service === 'ga4' && integration?.connectionHealth === 'reconnect_analytics' && (
+                                            <button
+                                                onClick={() => connectGoogle('ga4-gsc')}
+                                                className="flex items-center gap-1.5 text-xs bg-primary text-primary-foreground rounded-md px-2.5 py-1.5 hover:bg-primary/90 transition-colors"
+                                            >
+                                                <RefreshCw className="h-3.5 w-3.5" />
+                                                {GA4_RECONNECT_ANALYTICS_LABEL}
+                                            </button>
+                                        )}
+                                        {cfg.service === 'ga4' && connected && !needsPropertySetup && integration?.connectionHealth !== 'reconnect_analytics' && (
+                                            <button
+                                                onClick={() => setShowKeyEvents(true)}
+                                                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border hover:border-primary/40 rounded-md px-2.5 py-1.5 transition-all"
+                                            >
+                                                <Settings2 className="h-3.5 w-3.5" />
+                                                Key events
+                                            </button>
+                                        )}
                                         {connected && !needsPropertySetup && (cfg.service === 'ga4' || cfg.service === 'gbp') && (
                                             <button
                                                 onClick={() => setShowPropertyPicker(cfg.service === 'ga4' ? 'ga4-gsc' : 'gbp')}

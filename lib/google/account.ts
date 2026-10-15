@@ -8,12 +8,14 @@ export const GOOGLE_OAUTH_GROUPS: ReadonlySet<string> = new Set<string>([
     'gbp',
 ]);
 
+export const GA4_ANALYTICS_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
+
 const SERVICE_SCOPES: Record<GoogleOAuthGroup, readonly string[]> = {
     'ga4-gsc': [
-        'https://www.googleapis.com/auth/analytics.readonly',
+        GA4_ANALYTICS_SCOPE,
         'https://www.googleapis.com/auth/webmasters.readonly',
     ],
-    ga4: ['https://www.googleapis.com/auth/analytics.readonly'],
+    ga4: [GA4_ANALYTICS_SCOPE],
     gsc: ['https://www.googleapis.com/auth/webmasters.readonly'],
     gbp: ['https://www.googleapis.com/auth/business.manage'],
 };
@@ -33,6 +35,30 @@ export function googleOAuthScopes(group: GoogleOAuthGroup): string[] {
 /** Consent keeps the refresh token. select_account lets the user pick a different Google login. */
 export function googleOAuthPrompt(): string {
     return 'consent select_account';
+}
+
+/** GA4 and Search Console share one consent. The group is not rewritten to ga4-only. */
+export function googleConnectPath(clientId: string, orgId: string, group: GoogleOAuthGroup): string {
+    const params = new URLSearchParams({ clientId, orgId, group });
+    return `/api/integrations/google/connect?${params.toString()}`;
+}
+
+const RESOURCE_KEY = { ga4: 'property_id', gsc: 'site_url', gbp: 'location_name' } as const;
+
+/**
+ * A reconnect keeps an already chosen property active. A first consent still
+ * waits for the picker. Search Console is not sent back to setup when GA4
+ * reuses the shared ga4-gsc grant.
+ */
+export function syncStatusAfterGoogleReconnect(input: {
+    service: 'ga4' | 'gsc' | 'gbp';
+    previousStatus?: string | null;
+    credentials?: Record<string, unknown> | null;
+}): 'active' | 'pending_setup' {
+    const value = input.credentials?.[RESOURCE_KEY[input.service]];
+    const ready = typeof value === 'string' && value.length > 0;
+    if (ready && (input.previousStatus === 'active' || input.previousStatus === 'error')) return 'active';
+    return 'pending_setup';
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+$/;

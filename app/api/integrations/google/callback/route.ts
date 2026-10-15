@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { readGoogleAccountEmail } from '@/lib/google/account';
+import { readGoogleAccountEmail, syncStatusAfterGoogleReconnect } from '@/lib/google/account';
+import { parseGrantedScopes } from '@/lib/ga4/connection-health';
 import { reconnectCredentials } from '@/lib/google/gsc-properties';
 import { upsertIntegration } from '@/lib/supabase/integrations';
 import { verifyGoogleOAuthState } from '@/lib/security/oauth-state';
@@ -57,6 +58,7 @@ export async function GET(req: NextRequest) {
     }
 
     let tokens: { access_token: string; refresh_token?: string; expiry_date?: number };
+    let grantedScope: unknown;
     try {
         const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
             method: 'POST',
@@ -76,27 +78,37 @@ export async function GET(req: NextRequest) {
             refresh_token: tokenData.refresh_token,
             expiry_date: Date.now() + (tokenData.expires_in ?? 3600) * 1000,
         };
+        grantedScope = tokenData.scope;
     } catch {
         return redirectWithIntegrationError(origin, 'token_exchange', state.clientId);
     }
 
     const googleEmail = await readGoogleAccountEmail(tokens.access_token);
-    const granted = { ...tokens, ...(googleEmail ? { google_email: googleEmail } : {}) };
+    const grantedScopes = parseGrantedScopes(grantedScope);
+    const granted = {
+        ...tokens,
+        ...(googleEmail ? { google_email: googleEmail } : {}),
+        ...(grantedScopes.length > 0 ? { granted_scopes: grantedScopes } : {}),
+    };
     const services = state.group === 'ga4-gsc' ? ['ga4', 'gsc'] as const : state.group === 'ga4' ? ['ga4'] as const : state.group === 'gsc' ? ['gsc'] as const : ['gbp'] as const;
-    const syncStatus = 'pending_setup';
 
     const admin = createAdminClient();
     for (const service of services) {
-        const { data: previous, error: readError } = await admin.from('client_integrations').select('credentials')
+        const { data: previous, error: readError } = await admin.from('client_integrations').select('credentials, sync_status')
             .eq('client_id', authorization.clientId).eq('service', service).maybeSingle();
         if (readError) return redirectWithIntegrationError(origin, 'configuration_read_failed', state.clientId);
+        const previousCredentials = (previous?.credentials ?? {}) as Record<string, unknown>;
         const result = await upsertIntegration({
             organizationId: authorization.organizationId,
             clientId: authorization.clientId,
             service,
-            credentials: reconnectCredentials(previous?.credentials ?? {}, granted),
+            credentials: reconnectCredentials(previousCredentials, granted),
             connectedBy: authorization.userId,
-            syncStatus,
+            syncStatus: syncStatusAfterGoogleReconnect({
+                service,
+                previousStatus: previous?.sync_status,
+                credentials: previousCredentials,
+            }),
         });
         if (!result.success) return redirectWithIntegrationError(origin, 'configuration_save_failed', state.clientId);
     }

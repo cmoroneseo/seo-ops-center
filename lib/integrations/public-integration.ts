@@ -1,3 +1,4 @@
+import { ga4ConnectionHealth } from '@/lib/ga4/connection-health';
 import { publicGoogleEmail } from '@/lib/google/account';
 import { ClientIntegration, IntegrationService } from '@/lib/types';
 
@@ -40,5 +41,12 @@ export function toPublicIntegration(row: {
             : false,
         hasRankTrackerProjectId: service === 'ahrefs' ? !!credentials.rank_tracker_project_id : undefined,
         googleEmail: row.sync_status === 'disconnected' ? undefined : publicGoogleEmail(credentials),
+        connectionHealth: service === 'ga4'
+            ? ga4ConnectionHealth({
+                syncStatus: row.sync_status,
+                errorMessage: row.error_message,
+                grantedScopes: credentials.granted_scopes,
+            }) ?? undefined
+            : undefined,
     };
 }

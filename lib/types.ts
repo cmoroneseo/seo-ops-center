@@ -619,6 +619,11 @@ export interface ClientIntegration {
     hasRankTrackerProjectId?: boolean;
     /** Google account email for GA4/GSC. Never an OAuth token. */
     googleEmail?: string;
+    /**
+     * GA4 only. `reconnect_analytics` means the stored grant is missing
+     * Analytics. `reauth_required` means the refresh token was rejected.
+     */
+    connectionHealth?: 'reconnect_analytics' | 'reauth_required';
 }
 
 /**
