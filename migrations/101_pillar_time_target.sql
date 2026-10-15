@@ -1,4 +1,4 @@
--- Migration 100: store new time on a pillar task
+-- Migration 101: store new time on a pillar task
 --
 -- Subtasks already use tasks.parent_task_id (migration 012). Recurring
 -- successors reuse that column, copy recurrence, and keep the parent title.

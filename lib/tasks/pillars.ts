@@ -3,7 +3,7 @@
  * such as "SEO Setup" holds the short chores as subtasks.
  *
  * Time: new timer, manual, and completion rows are stored on the pillar.
- * `resolve_time_tracking_task_id` (migration 100) rewrites the insert, and the
+ * `resolve_time_tracking_task_id` (migration 101) rewrites the insert, and the
  * timer RPC resolves before it claims the assignee. Recurring successors also
  * use `parent_task_id`, but they copy `recurrence` and the parent title, so
  * they keep their own time. Service-role imports are not rewritten

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const migration = readFileSync(new URL('../../migrations/100_pillar_time_target.sql', import.meta.url), 'utf8');
+const migration = readFileSync(new URL('../../migrations/101_pillar_time_target.sql', import.meta.url), 'utf8');
 const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
 
 test('pillar time resolution is mirrored and does not rewrite service-role or recurring rows', () => {

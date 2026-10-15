@@ -1839,7 +1839,7 @@ $$;
 revoke execute on function public.start_task_timer(uuid, timestamptz) from public, anon;
 grant execute on function public.start_task_timer(uuid, timestamptz) to authenticated;
 
--- Migration 100: new time on a pillar parent. Recurring successors are excluded.
+-- Migration 101: new time on a pillar parent. Recurring successors are excluded.
 create or replace function public.resolve_time_tracking_task_id(p_task_id uuid)
 returns uuid
 language sql
