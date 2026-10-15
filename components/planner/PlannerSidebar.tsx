@@ -3,7 +3,7 @@
 import { Task, PlannerPriority } from '@/lib/types';
 import { useMemo, useState } from 'react';
 import { Search, X } from 'lucide-react';
-import { searchPlannerTasks } from '@/lib/planner/task-sessions';
+import { groupPlannerSearchResults, searchPlannerTasks } from '@/lib/planner/task-sessions';
 import { PrioritiesList } from './PrioritiesList';
 import { MeetWithFilter, TeamMember } from './MeetWithFilter';
 import { TaskDrawer } from './TaskDrawer';
@@ -33,8 +33,12 @@ export function PlannerSidebar(props: PlannerSidebarProps) {
     const [query, setQuery] = useState('');
     const [includeCompleted, setIncludeCompleted] = useState(false);
     const searching = Boolean(query.trim()) || includeCompleted;
-    const results = useMemo(() => searchPlannerTasks(props.tasks, query, includeCompleted),
-        [props.tasks, query, includeCompleted]);
+    // Hits nest under their pillar. Dragging that row schedules the pillar.
+    const groups = useMemo(() => groupPlannerSearchResults(
+        searchPlannerTasks(props.tasks, query, includeCompleted),
+        props.tasks,
+        query,
+    ), [props.tasks, query, includeCompleted]);
     return (
         <aside className="hidden h-full w-[257px] shrink-0 flex-col overflow-y-auto border-r border-border bg-card lg:flex">
             <div className="px-3 py-3 text-base font-semibold">Planner</div>
@@ -71,7 +75,7 @@ export function PlannerSidebar(props: PlannerSidebarProps) {
             ) : props.tasksLoading && props.tasks.length === 0 ? (
                 <p role="status" className="px-3 py-4 text-xs text-muted-foreground">Loading tasks…</p>
             ) : searching ? (
-                <TaskDrawer title="Search results" tasks={results} defaultOpen showStatus
+                <TaskDrawer title="Search results" tasks={groups.map(group => group.task)} groups={groups} defaultOpen showStatus
                     emptyLabel="No matching tasks. Try a task title or client name."
                     onTaskClick={props.onTaskClick} onTaskDragStart={props.onTaskDragStart} />
             ) : <>
