@@ -5,7 +5,7 @@ import { ClipboardList, FileDown, ListChecks, Plus, Printer, Search, Sparkles } 
 import { cn } from '@/lib/utils';
 import { MarketingPlan, MarketingPlanItem, Task } from '@/lib/types';
 import {
-    createMarketingPlanFromTemplate, addCustomItem, addCatalogItem, promoteItemToTask, updateMarketingPlanGoal, promoteItemsToTasks, promoteItemsAsPillar, addExistingTaskToPlan,
+    createMarketingPlanFromTemplate, addCustomItem, addCatalogItem, promoteItemToTask, updateMarketingPlanGoal, promoteItemsToTasks, promoteItemsAsPillar, nestTasksUnderPillar, addExistingTaskToPlan,
 } from '@/lib/supabase/marketing-plans';
 import { loadMarketingPlan } from '@/lib/seo-plan/prefetch';
 import { createClient } from '@/lib/supabase/client';
@@ -27,6 +27,8 @@ import { AddItemForm } from './AddItemForm';
 import { SuggestItemsPanel } from './SuggestItemsPanel';
 import { ExistingTaskDialog } from './ExistingTaskDialog';
 import { GenerateTasksPanel } from './GenerateTasksPanel';
+import { NestUnderPillarPanel } from './NestUnderPillarPanel';
+import { itemsEligibleForPillarNest, nestCandidateFromPlanItem } from '@/lib/tasks/pillars';
 import { ExecutionWorkspace, ExecutionTaskPatch, ScheduleFields } from './ExecutionWorkspace';
 import { monthKey } from '@/lib/marketing-plan-execution';
 import type { HoursNarrative } from '@/lib/seo-plan/overview';
@@ -85,6 +87,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     const [showAddForm, setShowAddForm] = useState(false);
     const [showSuggest, setShowSuggest] = useState(false);
     const [taskDraft, setTaskDraft] = useState<{ label: string; items: MarketingPlanItem[] } | null>(null);
+    const [nestDraft, setNestDraft] = useState<{ label: string; items: MarketingPlanItem[] } | null>(null);
     const [creatingTasks, setCreatingTasks] = useState(false);
     const creatingTasksRef = useRef(false);
     const [taskDraftError, setTaskDraftError] = useState<string | null>(null);
@@ -237,8 +240,38 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     const openTaskDraft = (label: string, source: MarketingPlanItem[]) => {
         const eligible = itemsEligibleForTaskGeneration(source);
         if (eligible.length === 0) return;
+        setNestDraft(null);
         setTaskDraftError(null);
         setTaskDraft({ label, items: eligible });
+    };
+
+    const handleNestTasks = async (chosen: MarketingPlanItem[], pillar: { title: string }) => {
+        if (creatingTasksRef.current || !plan) return;
+        creatingTasksRef.current = true;
+        setCreatingTasks(true);
+        setTaskDraftError(null);
+        try {
+            const candidates = chosen.flatMap(item => {
+                const candidate = nestCandidateFromPlanItem(item);
+                return candidate ? [candidate] : [];
+            });
+            const grouped = await nestTasksUnderPillar({
+                planId: plan.id,
+                candidates,
+                title: pillar.title,
+                actorName: currentUser.name,
+            });
+            await refresh();
+            if (!grouped.success) {
+                setTaskDraftError(grouped.error ?? 'Could not nest these tasks');
+                return;
+            }
+            setNestDraft(null);
+            if (grouped.warning) alert(grouped.warning);
+        } finally {
+            creatingTasksRef.current = false;
+            setCreatingTasks(false);
+        }
     };
 
     const handleCreateTasks = async (chosen: MarketingPlanItem[], pillar: { title: string } | null) => {
@@ -548,11 +581,24 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
         slipped: board.slipped.flatMap(row => { const task = taskById.get(row.id); return task ? [{ task, slipLabel: row.slipLabel }] : []; }),
     } : null;
     const phaseChoices = timeline?.columns.filter(column => column.key === 'onboarding' || column.key.startsWith('month_')).map(column => ({ value: column.key, label: column.title })) ?? [];
+    const nestable = itemsEligibleForPillarNest(items);
     const fullPlan = presentation === 'v2' && timeline ? <AgreementTimeline model={timeline} /> : classicPlan;
     return <>
         {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/40 p-3 text-sm">{error}<button className="ml-3 text-primary underline" onClick={() => refresh()}>Retry</button></p>}
         {onboardingNotice && <p className="mb-4 rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">{onboardingNotice}</p>}
-        <ExecutionWorkspace readOnly={readOnly} onAddExisting={() => { if (!readOnly) setAddChooserOpen(true); }} plan={plan} month={month} budget={periodBudget} capacityMode={capacityMode} budgetTaskIds={budgetTaskIds} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} variant={presentation} hoursNarrative={presentation !== 'v2' ? 'default' : hoursNarrative === 'prelaunch' ? 'prelaunch' : capacityMode === 'unavailable' ? 'unavailable' : hoursNarrative === 'custom' || capacityMode === 'scoped' ? 'custom' : 'monthly'} phaseMonth={phaseMonth} recordPhase={presentation === 'v2' && agreementSource.agreements !== null} phaseAnchorDate={anchor} phaseChoices={phaseChoices} commitmentOptions={agreementSource.agreements ? commitmentChoices(agreementSource.agreements) : []} />
+        {nestDraft && (
+            <div className="mb-4">
+                <NestUnderPillarPanel
+                    scopeLabel={nestDraft.label}
+                    items={nestDraft.items}
+                    creating={creatingTasks}
+                    error={taskDraftError}
+                    onConfirm={handleNestTasks}
+                    onClose={() => { if (!creatingTasks) { setNestDraft(null); setTaskDraftError(null); } }}
+                />
+            </div>
+        )}
+        <ExecutionWorkspace readOnly={readOnly} nestLinkedCount={nestable.length} onNestLinked={readOnly ? undefined : () => { setTaskDraft(null); setTaskDraftError(null); setNestDraft({ label: 'Linked tasks', items: nestable }); }} onAddExisting={() => { if (!readOnly) setAddChooserOpen(true); }} plan={plan} month={month} budget={periodBudget} capacityMode={capacityMode} budgetTaskIds={budgetTaskIds} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} variant={presentation} hoursNarrative={presentation !== 'v2' ? 'default' : hoursNarrative === 'prelaunch' ? 'prelaunch' : capacityMode === 'unavailable' ? 'unavailable' : hoursNarrative === 'custom' || capacityMode === 'scoped' ? 'custom' : 'monthly'} phaseMonth={phaseMonth} recordPhase={presentation === 'v2' && agreementSource.agreements !== null} phaseAnchorDate={anchor} phaseChoices={phaseChoices} commitmentOptions={agreementSource.agreements ? commitmentChoices(agreementSource.agreements) : []} />
         <AddPlanItemDialog showLibrary={presentation === 'v2'} open={addChooserOpen} onClose={() => setAddChooserOpen(false)} onSelect={source => {
             if (source === 'library') setLibraryOpen(true);
             else if (source === 'onboarding') void addOnboarding();

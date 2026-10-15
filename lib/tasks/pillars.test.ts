@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { MarketingPlanItem } from '../types.ts';
 import {
+    defaultNestSelection,
     defaultPillarTitle,
+    itemsEligibleForPillarNest,
+    nestCandidateFromPlanItem,
+    planNestUnderPillar,
     planPillarFromItems,
     rollupLoggedHours,
     suggestPillarGroup,
@@ -89,4 +93,96 @@ test('a pillar plan links one row and keeps chores as subtasks', () => {
     assert.deepEqual(plan?.retireItemIds, ['a', 'b']);
     assert.match(plan?.description ?? '', /do not each need a plan row/);
     assert.equal(planPillarFromItems([item()], 'SEO Setup'), null);
+});
+
+test('linked setup tasks nest under one pillar and keep their task ids', () => {
+    const setup = (id: string, title: string, taskId: string, extra: Partial<MarketingPlanItem> = {}) => item({
+        id,
+        title,
+        taskId,
+        assigneeId: 'abel',
+        linkedTask: {
+            id: taskId,
+            organizationId: 'o1',
+            clientId: 'c1',
+            title,
+            assignees: [],
+            assigneeIds: ['abel'],
+            priority: 'medium',
+            status: 'todo',
+            tags: [],
+            subtasks: [],
+            estimatedHours: 0.25,
+            basecampTodoId: Number(taskId.replace(/\D/g, '')) || 100,
+        },
+        ...extra,
+    });
+    const consoleTask = setup('a', 'Connect Search Console', 'task-11');
+    const analytics = setup('b', 'Connect Analytics', 'task-12');
+    const roadmap = item({
+        id: 'c',
+        title: 'Create SEO Roadmap & Recommendations List',
+        taskId: 'task-13',
+        assigneeId: 'abel',
+        linkedTask: {
+            id: 'task-13',
+            organizationId: 'o1',
+            clientId: 'c1',
+            title: 'Create SEO Roadmap & Recommendations List',
+            assignees: [],
+            assigneeIds: ['abel'],
+            priority: 'high',
+            status: 'todo',
+            tags: [],
+            subtasks: [],
+            estimatedHours: 4,
+            basecampTodoId: 9003,
+        },
+    });
+    const alreadyNested = setup('d', 'Already nested', 'task-14', {
+        linkedTask: {
+            id: 'task-14',
+            organizationId: 'o1',
+            clientId: 'c1',
+            title: 'Already nested',
+            assignees: [],
+            assigneeIds: ['abel'],
+            priority: 'medium',
+            status: 'todo',
+            tags: [],
+            subtasks: [],
+            parentTaskId: 'pillar',
+        },
+    });
+
+    const eligible = itemsEligibleForPillarNest([consoleTask, analytics, roadmap, alreadyNested, item({ id: 'e', title: 'Unlinked' })]);
+    assert.deepEqual(eligible.map(row => row.id), ['a', 'b', 'c']);
+    assert.deepEqual(defaultNestSelection(eligible), ['a', 'b']);
+
+    const chosen = eligible.filter(row => defaultNestSelection(eligible).includes(row.id))
+        .flatMap(row => {
+            const candidate = nestCandidateFromPlanItem(row);
+            return candidate ? [candidate] : [];
+        });
+    const plan = planNestUnderPillar(chosen, 'SEO Setup');
+    assert.ok(plan);
+    assert.equal('subtasks' in (plan ?? {}), false);
+    assert.deepEqual(plan?.childTaskIds, ['task-11', 'task-12']);
+    assert.deepEqual(plan?.retireItemIds, ['a', 'b']);
+    assert.deepEqual(plan?.preservedBasecampTodoIds, ['11', '12']);
+    assert.equal(plan?.title, SEO_SETUP_PILLAR_TITLE);
+    assert.equal(plan?.estimatedHours, 0.5);
+    assert.match(plan?.description ?? '', /keep their history and Basecamp links/);
+
+    const withRoadmap = planNestUnderPillar([
+        ...chosen,
+        nestCandidateFromPlanItem(roadmap)!,
+    ], 'SEO Setup');
+    assert.deepEqual(withRoadmap?.childTaskIds, ['task-11', 'task-12', 'task-13']);
+    assert.deepEqual(withRoadmap?.retireItemIds, ['a', 'b', 'c']);
+    assert.equal(planNestUnderPillar(chosen.slice(0, 1), 'SEO Setup'), null);
+    assert.equal(planNestUnderPillar([
+        { ...chosen[0], clientId: 'other' },
+        chosen[1],
+    ], 'SEO Setup'), null);
 });

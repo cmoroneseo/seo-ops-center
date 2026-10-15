@@ -55,6 +55,8 @@ export interface ExecutionWorkspaceProps {
     commitmentOptions?: Array<{ id: string; title: string; agreementId: string }>;
     /** Archived and cancelled clients. Hides Schedule work and Add Item. */
     readOnly?: boolean;
+    nestLinkedCount?: number;
+    onNestLinked?: () => void;
 }
 
 const field = 'w-full min-h-10 rounded-lg border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50';
@@ -69,7 +71,7 @@ function Status({ task }: { task: Task }) {
     </span>;
 }
 
-export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',budgetTaskIds, loggedHours, taskHours, members, fullPlan, onAddExisting, onMonthChange, onSaveTask, onSchedule, onSaveGoal, onOpenTask, variant = 'classic', hoursNarrative = 'default', phaseMonth = null, recordPhase = false, phaseAnchorDate = null, phaseChoices = [], commitmentOptions = [], readOnly = false }: ExecutionWorkspaceProps) {
+export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',budgetTaskIds, loggedHours, taskHours, members, fullPlan, onAddExisting, onMonthChange, onSaveTask, onSchedule, onSaveGoal, onOpenTask, variant = 'classic', hoursNarrative = 'default', phaseMonth = null, recordPhase = false, phaseAnchorDate = null, phaseChoices = [], commitmentOptions = [], readOnly = false, nestLinkedCount = 0, onNestLinked }: ExecutionWorkspaceProps) {
     const [view, setView] = useState<'month' | 'full' | 'results' | 'roadmap'>('month');
     const views = planSurfaceViews(variant === 'v2');
     const narrative: HoursNarrative = hoursNarrative === 'default' ? 'monthly' : hoursNarrative;
@@ -124,7 +126,7 @@ export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',
                 <input id="execution-month" type="month" value={month} onChange={event => { if (/^\d{4}-\d{2}$/.test(event.target.value)) onMonthChange(event.target.value); }} className={cn(field, 'w-auto')} />
                 <button className={secondary} aria-label="Next month" onClick={() => changeMonth(1)}><ChevronRight className="h-4 w-4" /></button>
             </div>
-            {readOnly ? <p className="text-sm text-muted-foreground">{SEO_PLAN_READ_ONLY_NOTE}</p> : <div className="flex flex-wrap gap-2">{view !== 'full' && view !== 'roadmap' && <button className={secondary} onClick={() => { setView(variant === 'v2' ? 'roadmap' : 'full'); onAddExisting(); }}>Add Item</button>}<button className={primary} onClick={() => setScheduling(true)}><CalendarDays className="h-4 w-4" />Schedule work</button></div>}
+            {readOnly ? <p className="text-sm text-muted-foreground">{SEO_PLAN_READ_ONLY_NOTE}</p> : <div className="flex flex-wrap gap-2">{view !== 'full' && view !== 'roadmap' && <button className={secondary} onClick={() => { setView(variant === 'v2' ? 'roadmap' : 'full'); onAddExisting(); }}>Add Item</button>}{nestLinkedCount >= 2 && onNestLinked && <button type="button" className={secondary} onClick={onNestLinked}>Nest under pillar</button>}<button className={primary} onClick={() => setScheduling(true)}><CalendarDays className="h-4 w-4" />Schedule work</button></div>}
         </div>
         {view === 'full' || view === 'roadmap' ? fullPlan : view === 'results' ? <section className="space-y-4" aria-label="Monthly results">
             <h3 className="text-lg font-semibold">Delivered in {title}</h3><p className="text-sm text-muted-foreground">{summary.completed.length} of {summary.tasks.length} planned tasks completed. Completion reflects Tasks; estimated effort includes completed work.</p>
