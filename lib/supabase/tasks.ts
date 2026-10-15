@@ -462,7 +462,7 @@ export async function updateTask(
     taskId: string,
     // startDate/scheduledMinutes are omitted from the base so they can widen to
     // null — an intersection would collapse `string | null` back to `string`.
-    patch: Omit<Partial<TaskInsert>, 'dueDate' | 'startDate' | 'scheduledMinutes' | 'estimatedHours'> & {
+    patch: Omit<Partial<TaskInsert>, 'dueDate' | 'startDate' | 'scheduledMinutes' | 'estimatedHours' | 'parentTaskId'> & {
         status?: TaskStatus;
         completedAt?: string | null;
         assigneeIds?: string[];
@@ -478,6 +478,8 @@ export async function updateTask(
         planPhase?: string | null;
         planPhaseLocked?: boolean;
         commitmentId?: string | null;
+        /** null lifts a subtask back to the top level. */
+        parentTaskId?: string | null;
     },
 ): Promise<{ success: boolean; data?: Task; error?: string }> {
     const supabase = createClient();

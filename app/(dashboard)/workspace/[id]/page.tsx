@@ -43,6 +43,7 @@ import { searchReportingEnabled } from '@/lib/search-reporting/flag';
 import { parsePlanView, type PlanView } from '@/lib/search-reporting/ledger';
 import { BasecampImportModal } from '@/components/workspace/BasecampImportModal';
 import { AddOnboardingToPlanButton } from '@/components/marketing-plan/AddOnboardingToPlanButton';
+import { NestLinkedTasksControl } from '@/components/marketing-plan/NestLinkedTasksControl';
 import { ONBOARDING_IMPORT_HINT } from '@/lib/seo-plan/onboarding-import';
 import { ClientApprovalsTab } from '@/components/approvals/ClientApprovalsTab';
 import { ClientPortalStaffPanel } from '@/components/portal/ClientPortalStaffPanel';
@@ -69,7 +70,7 @@ export default function ClientDetailPage() {
     const router = useRouter();
     const id = params.id as string;
     const { organization } = useOrganization();
-    const { isOwner } = useCurrentMember();
+    const { isOwner, displayName } = useCurrentMember();
     const vaultEnabled = useVaultEnabled(organization?.id);
     const seoPlanV2 = useSeoPlanV2(organization?.id);
     const v2On = seoPlanV2 === true;
@@ -546,6 +547,11 @@ export default function ClientDetailPage() {
                             onDone={() => { void getTasksByClient(id).then(setClientTasks); }}
                         />
                     )}
+                    <NestLinkedTasksControl
+                        clientId={client.id}
+                        actorName={displayName}
+                        onDone={() => { void getTasksByClient(id).then(setClientTasks); }}
+                    />
                     {importOpen && organization && <BasecampImportModal isOpen onClose={() => setImportOpen(false)} onSuccess={() => {
                         void getTasksByClient(id).then(setClientTasks);
                     }} clientId={client.id} organizationId={organization.id} />}

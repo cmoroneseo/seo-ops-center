@@ -5,9 +5,9 @@ import {
 } from '../types';
 import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS, SEO_PLAN_LABEL } from '../marketing-plan-template';
 import { catalogAddBlocked, onboardingSeedItems, type PlanItemSource } from '../seo-plan/onboarding';
-import { createTask, rowToTask } from './tasks';
+import { createTask, deleteTask, rowToTask, updateTask } from './tasks';
 import { itemsEligibleForTaskGeneration } from '../marketing-plan-logic';
-import { planPillarFromItems } from '../tasks/pillars';
+import { planNestUnderPillar, planPillarFromItems, type PillarNestCandidate } from '../tasks/pillars';
 import { resolvePlanItem } from '../marketing-plan-execution';
 
 // ---------------------------------------------------------------------------
@@ -407,15 +407,157 @@ export async function promoteItemsAsPillar(
         };
     }
 
-    const phase = await updateMarketingPlanItem(planItemId, { roadmapPhase: plan.roadmapPhase });
+    return finishPillarPlan({
+        pillarTaskId: created.data.id,
+        planItemId,
+        organizationId: sample.organizationId,
+        retireItemIds: plan.retireItemIds,
+        titles: new Map(items.map(item => [item.id, item.title])),
+        roadmapPhase: plan.roadmapPhase,
+    });
+}
+
+async function undoNest(pillarTaskId: string, childTaskIds: readonly string[]): Promise<boolean> {
+    let cleared = true;
+    for (const taskId of childTaskIds) {
+        const result = await updateTask(taskId, { parentTaskId: null });
+        if (!result.success) cleared = false;
+    }
+    if (!cleared) return false;
+    const removed = await deleteTask(pillarTaskId);
+    return removed.success;
+}
+
+/**
+ * Create one pillar and reparent the existing tasks under it.
+ * Child rows keep their ids, history, and Basecamp links. Source checklist
+ * rows collapse onto the pillar after the tasks are nested.
+ */
+export async function nestTasksUnderPillar(options: {
+    planId: string;
+    candidates: readonly PillarNestCandidate[];
+    title: string;
+    actorName?: string;
+}): Promise<PromotePillarResult> {
+    const plan = planNestUnderPillar(options.candidates, options.title);
+    if (!plan) {
+        return { success: false, retiredItemIds: [], error: 'Choose at least two linked tasks to nest.' };
+    }
+    const sample = options.candidates.find(item => item.taskId === plan.childTaskIds[0]);
+    if (!sample) return { success: false, retiredItemIds: [], error: 'Choose at least two linked tasks to nest.' };
+
+    const supabase = createClient();
+    if (!supabase) return { success: false, retiredItemIds: [], error: 'Supabase is unavailable' };
+
+    const { data: rows, error: readError } = await supabase
+        .from('tasks')
+        .select('id, parent_task_id, recurrence, basecamp_todo_id')
+        .in('id', plan.childTaskIds)
+        .eq('organization_id', sample.organizationId)
+        .eq('client_id', sample.clientId);
+    if (readError) return { success: false, retiredItemIds: [], error: readError.message };
+
+    type LiveTask = { id: string; parent_task_id: string | null; recurrence: unknown };
+    const live = new Map<string, LiveTask>();
+    for (const row of (rows ?? []) as LiveTask[]) live.set(row.id, row);
+    const childTaskIds = plan.childTaskIds.filter(taskId => {
+        const row = live.get(taskId);
+        return row != null && row.parent_task_id == null && row.recurrence == null;
+    });
+    if (childTaskIds.length < 2) {
+        return { success: false, retiredItemIds: [], error: 'Choose at least two tasks that are not already nested.' };
+    }
+    const nested = new Set(childTaskIds);
+    const retireItemIds = options.candidates
+        .filter(item => item.planItemId && nested.has(item.taskId))
+        .map(item => item.planItemId as string);
+
+    const created = await createTask({
+        organizationId: sample.organizationId,
+        clientId: sample.clientId,
+        title: plan.title,
+        description: plan.description,
+        priority: plan.priority,
+        assigneeIds: plan.assigneeIds,
+        estimatedHours: plan.estimatedHours,
+        actorName: options.actorName,
+    });
+    if (!created.success || !created.data) {
+        return { success: false, retiredItemIds: [], error: created.error ?? 'Could not create the pillar task.' };
+    }
+
+    const nestedIds: string[] = [];
+    for (const [index, taskId] of childTaskIds.entries()) {
+        const result = await updateTask(taskId, { parentTaskId: created.data.id, sortOrder: index });
+        if (!result.success) {
+            const undone = await undoNest(created.data.id, nestedIds);
+            return {
+                success: false,
+                ...(undone ? {} : { pillarTaskId: created.data.id }),
+                retiredItemIds: [],
+                error: undone
+                    ? 'The tasks could not be nested, so nothing was changed.'
+                    : 'The pillar was created, but a task could not be nested. Its existing Basecamp link was left in place.',
+            };
+        }
+        nestedIds.push(taskId);
+    }
+
+    let planItemId: string;
+    try {
+        planItemId = await addExistingTaskToPlan(options.planId, created.data.id, plan.stepKey);
+    } catch (error) {
+        const undone = await undoNest(created.data.id, nestedIds);
+        return {
+            success: false,
+            ...(undone ? {} : { pillarTaskId: created.data.id }),
+            retiredItemIds: [],
+            error: undone
+                ? (error instanceof Error ? error.message : 'The pillar could not be added to the plan.')
+                : 'The tasks were nested, but the pillar could not be added to the plan.',
+        };
+    }
+
+    const titles = new Map(options.candidates.flatMap(item =>
+        item.planItemId ? [[item.planItemId, item.title] as const] : [],
+    ));
+    return finishPillarPlan({
+        pillarTaskId: created.data.id,
+        planItemId,
+        organizationId: sample.organizationId,
+        retireItemIds,
+        titles,
+        roadmapPhase: plan.roadmapPhase,
+    });
+}
+
+async function finishPillarPlan(input: {
+    pillarTaskId: string;
+    planItemId: string;
+    organizationId: string;
+    retireItemIds: string[];
+    titles: Map<string, string>;
+    roadmapPhase: MarketingPlanItem['roadmapPhase'];
+}): Promise<PromotePillarResult> {
+    const phase = await updateMarketingPlanItem(input.planItemId, { roadmapPhase: input.roadmapPhase });
     const phaseWarning = phase.success ? undefined : 'The pillar is on the plan, but its phase could not be set.';
+
+    if (input.retireItemIds.length === 0) {
+        return {
+            success: true,
+            pillarTaskId: input.pillarTaskId,
+            planItemId: input.planItemId,
+            retiredItemIds: [],
+            ...(phaseWarning ? { warning: phaseWarning } : {}),
+        };
+    }
 
     const supabase = createClient();
     if (!supabase) {
         return {
             success: true,
-            pillarTaskId: created.data.id,
-            planItemId,
+            pillarTaskId: input.pillarTaskId,
+            planItemId: input.planItemId,
             retiredItemIds: [],
             warning: 'The pillar is on the plan. The original checklist rows could not be removed.',
         };
@@ -423,21 +565,21 @@ export async function promoteItemsAsPillar(
     const { error: deleteError } = await supabase
         .from('marketing_plan_items')
         .delete()
-        .in('id', plan.retireItemIds)
-        .eq('organization_id', sample.organizationId)
-        .neq('id', planItemId);
+        .in('id', input.retireItemIds)
+        .eq('organization_id', input.organizationId)
+        .neq('id', input.planItemId);
     if (deleteError) {
         const retired: string[] = [];
         const failed: string[] = [];
-        for (const itemId of plan.retireItemIds) {
+        for (const itemId of input.retireItemIds) {
             const hidden = await updateMarketingPlanItem(itemId, { status: 'ignored', roadmapIncluded: false });
             if (hidden.success) retired.push(itemId);
-            else failed.push(items.find(item => item.id === itemId)?.title ?? itemId);
+            else failed.push(input.titles.get(itemId) ?? itemId);
         }
         return {
             success: true,
-            pillarTaskId: created.data.id,
-            planItemId,
+            pillarTaskId: input.pillarTaskId,
+            planItemId: input.planItemId,
             retiredItemIds: retired,
             warning: [
                 phaseWarning,
@@ -450,9 +592,9 @@ export async function promoteItemsAsPillar(
 
     return {
         success: true,
-        pillarTaskId: created.data.id,
-        planItemId,
-        retiredItemIds: plan.retireItemIds,
+        pillarTaskId: input.pillarTaskId,
+        planItemId: input.planItemId,
+        retiredItemIds: input.retireItemIds,
         ...(phaseWarning ? { warning: phaseWarning } : {}),
     };
 }

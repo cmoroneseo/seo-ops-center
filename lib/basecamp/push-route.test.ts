@@ -376,6 +376,51 @@ test('retrying a partial create reuses the linked parent and skips already-linke
 
     assert.equal(response.status, 200);
     assert.deepEqual(createdSteps, ['Retry this step']);
+    assert.equal((await response.json()).subtasksPreserved, 1);
+});
+
+test('create push keeps imported Basecamp ids when nesting existing tasks', async () => {
+    const { createBasecampPushPost } = await loadRouteModule();
+    const linked: string[] = [];
+    let createdSteps = 0;
+    const post = createBasecampPushPost({
+        authorizeTask: async () => authorized,
+        createStore: () => ({
+            getTask: async () => ({ ...canonicalTask, basecampTodoId: null, basecampProjectId: null, status: 'todo' }),
+            listSubtasks: async () => [
+                { id: 'child-1', title: 'Connect Search Console', basecampTodoId: '9001' },
+                { id: 'child-2', title: 'Connect Analytics', basecampTodoId: 9002 },
+            ],
+            updateTaskLink: async (taskId) => {
+                linked.push(taskId);
+                return null;
+            },
+            markTaskSynced: async () => null,
+        }),
+        createAccessSource: () => externalSource(),
+        provider: {
+            isConfigured: () => true,
+            getTodo: async () => null,
+            listTodolists: async () => [{ id: 44 }],
+            createTodo: async () => ({ id: 77, appUrl: 'https://3.basecamp.test/task/77', supportsSubtasks: true }),
+            createStep: async () => {
+                createdSteps += 1;
+                return { id: 500 };
+            },
+            completeTodo: async () => false,
+            reopenTodo: async () => false,
+            createComment: async () => null,
+            updateTodoDueDate: async () => false,
+            updateTodoAssignees: async () => false,
+        },
+        now: () => '2026-08-20T00:00:00.000Z',
+    });
+
+    const response = await post(request({ action: 'create_todo', taskId: 'task-a' }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { success: true, todoId: 77, subtasksPreserved: 2 });
+    assert.equal(createdSteps, 0);
+    assert.deepEqual(linked, ['task-a']);
 });
 
 test('create push keeps the parent when the to-do does not accept nested subtasks', async () => {

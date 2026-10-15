@@ -300,9 +300,12 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             const body = await res.json().catch(() => null);
             setTodoPushOutcome(pushOutcomeFor(res.status, body));
             const skipped = body && typeof body.subtasksSkipped === 'number' ? body.subtasksSkipped : 0;
+            const preserved = body && typeof body.subtasksPreserved === 'number' ? body.subtasksPreserved : 0;
             setSubtaskNestNote(skipped > 0
                 ? `Sent the to-do. This list did not accept nested subtasks, so ${skipped} stayed in SEO PM only.`
-                : null);
+                : preserved > 0
+                    ? `Sent the pillar. ${preserved} existing Basecamp ${preserved === 1 ? 'to-do stays' : 'to-dos stay'} linked on ${preserved === 1 ? 'its task' : 'their tasks'}.`
+                    : null);
         } catch {
             setTodoPushOutcome(pushOutcomeFor(null, null));
         } finally {
