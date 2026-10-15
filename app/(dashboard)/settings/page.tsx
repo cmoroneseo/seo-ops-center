@@ -1,6 +1,6 @@
 'use client';
 
-import { User, Bell, Shield, Users, Plus, Loader2, MessageSquarePlus, Bug, Lightbulb, MessageSquare, ExternalLink, ChevronDown, Palette } from 'lucide-react';
+import { User, Bell, Shield, Users, Plus, Loader2, MessageSquarePlus, Bug, Lightbulb, MessageSquare, ExternalLink, ChevronDown, Palette, KeyRound } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { AppearanceTab } from '@/components/settings/AppearanceTab';
 import { SyncBingButton } from '@/components/settings/SyncBingButton';
 import { ForecastClientMap } from '@/components/forecast/ForecastClientMap';
+import { BotTokensTab } from '@/components/settings/BotTokensTab';
 
 interface MemberWithUser extends OrganizationMember {
     user: UserType;
@@ -50,15 +51,16 @@ const SEVERITY_STYLES: Record<string, string> = {
     blocking: 'text-red-500 font-semibold',
 };
 
-type SettingsTab = 'general' | 'appearance' | 'feedback' | 'forecast';
+type SettingsTab = 'general' | 'appearance' | 'feedback' | 'forecast' | 'bots';
 
-const TAB_IDS: SettingsTab[] = ['general', 'appearance', 'feedback', 'forecast'];
+const TAB_IDS: SettingsTab[] = ['general', 'appearance', 'feedback', 'forecast', 'bots'];
 
 export default function SettingsPage() {
     const { organization } = useOrganization();
     const { displayName, isOwner, role } = useCurrentMember();
     const canSyncBing = role === 'owner' || role === 'admin';
     const canMapForecast = role === 'owner' || role === 'admin';
+    const canManageBots = role === 'owner' || role === 'admin';
     const [activeTab, setActiveTab] = useState<SettingsTab>('general');
     const [members, setMembers] = useState<MemberWithUser[]>([]);
     const [isInviteLoading, setIsInviteLoading] = useState(false);
@@ -84,10 +86,11 @@ export default function SettingsPage() {
     // a Suspense boundary for a single optional query param.
     useEffect(() => {
         const requested = new URLSearchParams(window.location.search).get('tab');
+        if (requested === 'bots' && role !== 'owner' && role !== 'admin') return;
         if (requested && (TAB_IDS as string[]).includes(requested)) {
             setActiveTab(requested as SettingsTab);
         }
-    }, []);
+    }, [role]);
 
     useEffect(() => {
         if (organization) fetchMembers();
@@ -208,6 +211,18 @@ export default function SettingsPage() {
                         Forecast
                     </button>
                 )}
+                {canManageBots && (
+                    <button
+                        onClick={() => setActiveTab('bots')}
+                        className={cn(
+                            'flex items-center gap-2 px-4 py-1.5 text-sm font-medium rounded-md transition-all',
+                            activeTab === 'bots' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                        )}
+                    >
+                        <KeyRound className="h-3.5 w-3.5" />
+                        Bots
+                    </button>
+                )}
                 <button
                     onClick={() => setActiveTab('feedback')}
                     className={cn(
@@ -229,6 +244,10 @@ export default function SettingsPage() {
 
             {activeTab === 'forecast' && canMapForecast && organization && (
                 <ForecastClientMap organizationId={organization.id} />
+            )}
+
+            {activeTab === 'bots' && canManageBots && organization && (
+                <BotTokensTab organizationId={organization.id} />
             )}
 
             {/* ── General Tab ── */}

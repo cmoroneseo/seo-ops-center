@@ -4,6 +4,7 @@ import { readGoogleAccountEmail, syncStatusAfterGoogleReconnect } from '@/lib/go
 import { parseGrantedScopes } from '@/lib/ga4/connection-health';
 import { reconnectCredentials } from '@/lib/google/gsc-properties';
 import { upsertIntegration } from '@/lib/supabase/integrations';
+import { openCredentialSecrets } from '@/lib/security/google-token-crypto';
 import { verifyGoogleOAuthState } from '@/lib/security/oauth-state';
 import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
 
@@ -97,7 +98,12 @@ export async function GET(req: NextRequest) {
         const { data: previous, error: readError } = await admin.from('client_integrations').select('credentials, sync_status')
             .eq('client_id', authorization.clientId).eq('service', service).maybeSingle();
         if (readError) return redirectWithIntegrationError(origin, 'configuration_read_failed', state.clientId);
-        const previousCredentials = (previous?.credentials ?? {}) as Record<string, unknown>;
+        let previousCredentials: Record<string, unknown>;
+        try {
+            previousCredentials = openCredentialSecrets(previous?.credentials ?? {});
+        } catch {
+            return redirectWithIntegrationError(origin, 'configuration_read_failed', state.clientId);
+        }
         const result = await upsertIntegration({
             organizationId: authorization.organizationId,
             clientId: authorization.clientId,

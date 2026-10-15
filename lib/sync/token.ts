@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin';
+import { GoogleTokenCryptoError, openCredentialSecrets, readKeyRing, sealCredentialSecrets, type KeyRing } from '@/lib/security/google-token-crypto';
 
 export type GoogleService = 'ga4' | 'gsc' | 'gbp';
 
@@ -28,6 +29,10 @@ export interface TokenDeps {
     fetch: typeof fetch;
     now: () => number;
     markError: (clientId: string, service: string, message: string) => Promise<void>;
+    /** Defaults to active and error. Property pickers also pass pending_setup. */
+    statuses?: readonly string[];
+    /** `undefined` reads GOOGLE_TOKEN_ENC_KEY. `null` keeps legacy plaintext. */
+    keyRing?: KeyRing | null;
 }
 
 interface TokenQuery {
@@ -55,41 +60,60 @@ const defaultTokenDeps: TokenDeps = {
 export async function getGoogleAccessToken(
     clientId: string,
     service: GoogleService,
-    deps: TokenDeps = defaultTokenDeps,
+    deps: Partial<TokenDeps> = {},
 ): Promise<{ token: string; creds: Record<string, unknown> } | null> {
-    const admin = deps.admin();
+    const resolved: TokenDeps = {
+        admin: deps.admin ?? defaultTokenDeps.admin,
+        fetch: deps.fetch ?? defaultTokenDeps.fetch,
+        now: deps.now ?? defaultTokenDeps.now,
+        markError: deps.markError ?? defaultTokenDeps.markError,
+        statuses: deps.statuses,
+        keyRing: deps.keyRing,
+    };
+    const ring = deps.keyRing === undefined ? readKeyRing() : deps.keyRing;
+    const statuses = deps.statuses ?? ['active', 'error'];
+    const admin = resolved.admin();
     const { data, error: readError } = await admin
         .from('client_integrations')
         .select('credentials, sync_status, organization_id')
         .eq('client_id', clientId)
         .eq('service', service)
-        .in('sync_status', ['active', 'error'])
+        .in('sync_status', statuses)
         .maybeSingle();
 
     if (readError) throw new GoogleAuthError('Unable to read integration credentials', 'transient');
     const row = data as IntegrationRow | null;
     if (!row?.credentials) return null;
 
-    const creds = row.credentials;
+    const stored = row.credentials;
+    let creds: Record<string, unknown>;
+    try {
+        creds = openCredentialSecrets(stored, ring);
+    } catch (error) {
+        if (error instanceof GoogleTokenCryptoError) {
+            throw new GoogleAuthError('Unable to read integration credentials', 'transient');
+        }
+        throw error;
+    }
     const accessToken = creds.access_token;
     const expiry = creds.expiry_date;
     if (
         typeof accessToken === 'string' && accessToken.length > 0
         && typeof expiry === 'number'
-        && deps.now() <= expiry - 60_000
+        && resolved.now() <= expiry - 60_000
     ) {
         return { token: accessToken, creds };
     }
 
     const refreshToken = creds.refresh_token;
     if (typeof refreshToken !== 'string' || refreshToken.length === 0) {
-        await deps.markError(clientId, service, REAUTH_MESSAGE);
+        await resolved.markError(clientId, service, REAUTH_MESSAGE);
         throw new GoogleAuthError(REAUTH_MESSAGE, 'reauth_required');
     }
 
-    const fresh = await refreshGoogleToken(refreshToken, deps);
+    const fresh = await refreshGoogleToken(refreshToken, resolved);
     if (fresh.kind === 'reauth') {
-        await deps.markError(clientId, service, REAUTH_MESSAGE);
+        await resolved.markError(clientId, service, REAUTH_MESSAGE);
         throw new GoogleAuthError(REAUTH_MESSAGE, 'reauth_required');
     }
     if (fresh.kind === 'transient') {
@@ -97,13 +121,22 @@ export async function getGoogleAccessToken(
     }
 
     const expiresIn = typeof fresh.expiresIn === 'number' && fresh.expiresIn > 0 ? fresh.expiresIn : 3600;
-    const nextCreds = { ...creds, access_token: fresh.accessToken, expiry_date: deps.now() + expiresIn * 1000 };
+    const nextCreds = { ...creds, access_token: fresh.accessToken, expiry_date: resolved.now() + expiresIn * 1000 };
+    let nextStored: Record<string, unknown>;
+    try {
+        nextStored = sealCredentialSecrets(nextCreds, ring);
+    } catch (error) {
+        if (error instanceof GoogleTokenCryptoError) {
+            throw new GoogleAuthError('Unable to store integration credentials', 'transient');
+        }
+        throw error;
+    }
     const { data: updated, error: updateError } = await admin
         .from('client_integrations')
-        .update({ credentials: nextCreds })
+        .update({ credentials: nextStored })
         .eq('client_id', clientId)
         .eq('service', service)
-        .filter('credentials', 'eq', JSON.stringify(creds))
+        .filter('credentials', 'eq', JSON.stringify(stored))
         .select('id')
         .maybeSingle();
 
@@ -115,14 +148,23 @@ export async function getGoogleAccessToken(
         .eq('client_id', clientId)
         .eq('service', service)
         .maybeSingle();
-    const latest = (reread.data as IntegrationRow | null)?.credentials;
-    const latestToken = latest?.access_token;
-    const latestExpiry = latest?.expiry_date;
+    const latestStored = (reread.data as IntegrationRow | null)?.credentials;
+    if (!latestStored) throw new GoogleAuthError('Connection changed during sync', 'transient');
+    let latest: Record<string, unknown>;
+    try {
+        latest = openCredentialSecrets(latestStored, ring);
+    } catch (error) {
+        if (error instanceof GoogleTokenCryptoError) {
+            throw new GoogleAuthError('Unable to read integration credentials', 'transient');
+        }
+        throw error;
+    }
+    const latestToken = latest.access_token;
+    const latestExpiry = latest.expiry_date;
     if (
-        latest
-        && typeof latestToken === 'string' && latestToken.length > 0
+        typeof latestToken === 'string' && latestToken.length > 0
         && typeof latestExpiry === 'number'
-        && deps.now() <= latestExpiry - 60_000
+        && resolved.now() <= latestExpiry - 60_000
     ) {
         return { token: latestToken, creds: latest };
     }

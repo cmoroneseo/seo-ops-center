@@ -1,4 +1,5 @@
 import 'server-only';
+import { openCredentialSecrets, sealCredentialSecrets } from '@/lib/security/google-token-crypto';
 import { createAdminClient } from './admin';
 import { IntegrationService } from '../types';
 
@@ -18,7 +19,7 @@ export async function upsertIntegration(payload: {
             organization_id: payload.organizationId,
             client_id: payload.clientId,
             service: payload.service,
-            credentials: payload.credentials,
+            credentials: sealCredentialSecrets(payload.credentials),
             connected_by: payload.connectedBy,
             connected_at: new Date().toISOString(),
             sync_status: payload.syncStatus ?? 'active',
@@ -54,7 +55,10 @@ export async function mergeIntegrationCredentials(payload: {
             .eq('service', payload.service)
             .maybeSingle();
 
-        const credentials = { ...(existing?.credentials as Record<string, unknown> ?? {}), ...payload.patch };
+        const credentials = sealCredentialSecrets({
+            ...openCredentialSecrets(existing?.credentials ?? {}),
+            ...payload.patch,
+        });
 
         const { error } = await admin.from('client_integrations').upsert({
             organization_id: payload.organizationId,
@@ -111,7 +115,7 @@ export async function getIntegrationCredentials(
             .eq('sync_status', 'active')
             .maybeSingle();
         if (error) throw error;
-        return data?.credentials ?? null;
+        return data?.credentials ? openCredentialSecrets(data.credentials) : null;
     } catch (err) {
         console.error('Error fetching credentials:', err);
         return null;

@@ -1,10 +1,13 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { isBotApiPath } from '@/lib/bot/paths'
 import { classifyActor, clientPortalAllowedPath, contactErrorKind, isPortalLoginPath } from '@/lib/portal/access-policy'
 
 export async function middleware(request: NextRequest) {
     // The metrics handler validates the cron secret or client-scoped session itself.
     if (request.nextUrl.pathname === '/api/sync/metrics') return NextResponse.next();
+    // Bot routes authenticate with their own bearer token, not a user session.
+    if (isBotApiPath(request.nextUrl.pathname)) return NextResponse.next();
 
     let response = NextResponse.next({
         request: {

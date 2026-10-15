@@ -1,45 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Ga4PropertiesError, readGa4Properties } from '@/lib/google/ga4-properties';
-import { createAdminClient } from '@/lib/supabase/admin';
 import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
+import { getGoogleAccessToken, type GoogleService } from '@/lib/sync/token';
 
-async function refreshAccessToken(refreshToken: string): Promise<string | null> {
-    const res = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-            refresh_token: refreshToken,
-            client_id: process.env.GOOGLE_CLIENT_ID!,
-            client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-            grant_type: 'refresh_token',
-        }),
-    });
-    const data = await res.json();
-    return data.access_token ?? null;
-}
-
-async function getAccessToken(admin: any, clientId: string, service: string) {
-    const { data: row } = await admin
-        .from('client_integrations')
-        .select('credentials')
-        .eq('client_id', clientId)
-        .eq('service', service)
-        .maybeSingle();
-
-    if (!row) return null;
-    const creds = row.credentials as any;
-    let accessToken: string = creds.access_token;
-
-    if (creds.expiry_date && Date.now() > creds.expiry_date - 60_000) {
-        const fresh = await refreshAccessToken(creds.refresh_token);
-        if (!fresh) return null;
-        accessToken = fresh;
-        await admin.from('client_integrations').update({
-            credentials: { ...creds, access_token: fresh, expiry_date: Date.now() + 3600_000 },
-        }).eq('client_id', clientId).eq('service', service);
+async function getAccessToken(clientId: string, service: GoogleService) {
+    try {
+        const auth = await getGoogleAccessToken(clientId, service, {
+            statuses: ['active', 'error', 'pending_setup'],
+        });
+        return auth?.token ?? null;
+    } catch {
+        return null;
     }
-
-    return accessToken;
 }
 
 /**
@@ -65,11 +37,8 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: authorization.error }, { status: authorization.status });
     }
 
-    const admin = createAdminClient();
-    if (!admin) return NextResponse.json({ error: 'DB unavailable' }, { status: 500 });
-
     if (group === 'gbp') {
-        const accessToken = await getAccessToken(admin, authorization.clientId, 'gbp');
+        const accessToken = await getAccessToken(authorization.clientId, 'gbp');
         if (!accessToken) {
             return NextResponse.json({ error: 'No GBP token found -- connect first' }, { status: 404 });
         }
@@ -133,7 +102,7 @@ export async function GET(req: NextRequest) {
     }
 
     // ga4-gsc group
-    const accessToken = await getAccessToken(admin, authorization.clientId, 'ga4');
+    const accessToken = await getAccessToken(authorization.clientId, 'ga4');
     if (!accessToken) {
         return NextResponse.json({ error: 'No GA4 token found -- connect first' }, { status: 404 });
     }

@@ -8,6 +8,7 @@ Start here when reviewing or improving security for SEO Ops Center.
 - [Scheduled workflow](scheduled-security-workflow.md): daily, weekly, monthly, and quarterly review cadence.
 - [Privacy data map](privacy-data-map.md): data inventory, access rules, AI data rules, and minimization defaults.
 - [Triage](triage.md): severity definitions, fix targets, and review expectations.
+- [Bot API](bot-api.md): read-only GA4 and Search Console tokens, audit, and Google token encryption.
 
 Local commands:
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { logClientActivity } from '@/lib/supabase/client-activity';
 import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
+import { sealCredentialSecrets } from '@/lib/security/google-token-crypto';
 
 async function readJsonBody(req: NextRequest) {
     try {
@@ -55,9 +56,12 @@ export async function POST(req: NextRequest) {
             const isReconfigure = row.sync_status === 'active' && row.credentials?.property_id;
             updates.push(
                 admin.from('client_integrations').update({
-                    credentials: { ...row.credentials, property_id: (body as any).ga4PropertyId, display_name: (body as any).ga4DisplayName },
+                    credentials: sealCredentialSecrets({ ...row.credentials, property_id: (body as any).ga4PropertyId, display_name: (body as any).ga4DisplayName }),
                     sync_status: 'active',
-                }).eq('client_id', authorization.clientId).eq('service', 'ga4'),
+                }).eq('client_id', authorization.clientId).eq('service', 'ga4')
+                    .filter('credentials', 'eq', JSON.stringify(row.credentials))
+                    .select('id')
+                    .maybeSingle(),
             );
             activityEvents.push({
                 organizationId: authorization.organizationId,
@@ -88,14 +92,17 @@ export async function POST(req: NextRequest) {
             const isReconfigure = row.sync_status === 'active' && row.credentials?.location_name;
             updates.push(
                 admin.from('client_integrations').update({
-                    credentials: {
+                    credentials: sealCredentialSecrets({
                         ...row.credentials,
                         location_name: (body as any).gbpLocationName,
                         location_title: (body as any).gbpTitle,
                         location_address: (body as any).gbpAddress,
-                    },
+                    }),
                     sync_status: 'active',
-                }).eq('client_id', authorization.clientId).eq('service', 'gbp'),
+                }).eq('client_id', authorization.clientId).eq('service', 'gbp')
+                    .filter('credentials', 'eq', JSON.stringify(row.credentials))
+                    .select('id')
+                    .maybeSingle(),
             );
             activityEvents.push({
                 organizationId: authorization.organizationId,
@@ -118,7 +125,7 @@ export async function POST(req: NextRequest) {
     }
 
     const results = await Promise.all(updates);
-    if (results.some(result => result.error)) {
+    if (results.some(result => result.error || !result.data)) {
         return NextResponse.json({ error: 'Unable to save configuration. Please try again.' }, { status: 500 });
     }
     await Promise.all(activityEvents.map(logClientActivity));
