@@ -329,6 +329,87 @@ test('a Campaign Desk failure does not record a success', async () => {
     assert.equal((await store.listSucceeded(ORG)).length, 0);
 });
 
+test('a people failure names the reason and logs lengths, not the secret', async () => {
+    const secret = 'synthetic-campaign-desk-token';
+    const previousUrl = process.env.CAMPAIGN_DESK_API_BASE_URL;
+    const previousToken = process.env.CAMPAIGN_DESK_API_TOKEN;
+    process.env.CAMPAIGN_DESK_API_BASE_URL = '  https://hub.example.test  ';
+    process.env.CAMPAIGN_DESK_API_TOKEN = ` ${secret}\n`;
+    const warnings: string[] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')); };
+    try {
+        const previewBox = harness({ enabled: true });
+        previewBox.deps.listPeople = async () => {
+            throw new CampaignDeskRequestError(403, 'unavailable', 'Campaign Desk could not complete the sync.', {
+                path: '/v1/people',
+                fetchErrorName: 'TypeError',
+                fetchErrorMessage: `blocked ${secret}`,
+            });
+        };
+        const preview = await createForecastPreviewGet(previewBox.deps)(previewUrl());
+        const previewBody = await preview.json();
+        assert.equal(previewBody.preview.syncDisabledReason, 'Campaign Desk people could not be loaded (403).');
+
+        const syncBox = harness({ enabled: true });
+        syncBox.deps.listPeople = async () => {
+            throw new CampaignDeskRequestError(401, 'unauthorized', 'Campaign Desk rejected the sync key.', {
+                path: '/v1/people',
+            });
+        };
+        const sync = await createForecastSyncPost(syncBox.deps)(new Request('https://seo-pm.test/api/forecast/sync', {
+            method: 'POST',
+            body: JSON.stringify({
+                organizationId: ORG,
+                weekStarts: ['2026-10-12'],
+                today: '2026-10-14',
+                timeZone: 'America/Los_Angeles',
+            }),
+        }));
+        assert.equal(sync.status, 502);
+        assert.equal((await sync.json()).error, 'Campaign Desk people could not be loaded (unauthorized).');
+        assert.equal(syncBox.calls.upsert, 0);
+
+        const unreachable = harness({ enabled: true });
+        unreachable.deps.listPeople = async () => {
+            throw new CampaignDeskRequestError(0, 'unreachable', 'Campaign Desk could not be reached.', { path: '/v1/people' });
+        };
+        const missed = await createForecastPreviewGet(unreachable.deps)(previewUrl());
+        assert.equal((await missed.json()).preview.syncDisabledReason, 'Campaign Desk people could not be loaded (unreachable).');
+
+        const unreadable = harness({ enabled: true });
+        unreadable.deps.listPeople = async () => {
+            throw new CampaignDeskRequestError(200, 'invalid_payload', 'Campaign Desk returned an unreadable people list.', { path: '/v1/people' });
+        };
+        const bad = await createForecastPreviewGet(unreadable.deps)(previewUrl());
+        assert.equal((await bad.json()).preview.syncDisabledReason, 'Campaign Desk people could not be loaded (invalid response).');
+    } finally {
+        console.warn = original;
+        if (previousUrl === undefined) delete process.env.CAMPAIGN_DESK_API_BASE_URL;
+        else process.env.CAMPAIGN_DESK_API_BASE_URL = previousUrl;
+        if (previousToken === undefined) delete process.env.CAMPAIGN_DESK_API_TOKEN;
+        else process.env.CAMPAIGN_DESK_API_TOKEN = previousToken;
+    }
+
+    assert.equal(warnings.length, 4);
+    for (const warning of warnings) {
+        const line = JSON.parse(warning) as Record<string, unknown>;
+        assert.equal(line.event, 'campaign_desk_request_failed');
+        assert.equal(line.path, '/v1/people');
+        assert.equal(line.baseUrlPresent, true);
+        assert.equal(line.baseUrlLength, '  https://hub.example.test  '.length);
+        assert.equal(line.tokenPresent, true);
+        assert.equal(line.tokenLength, ` ${secret}\n`.length);
+        assert.equal(warning.includes(secret), false);
+        assert.equal(warning.includes('hub.example.test'), false);
+    }
+    const first = JSON.parse(warnings[0]) as { status: number; code: string; fetchErrorMessage: string };
+    assert.equal(first.status, 403);
+    assert.equal(first.code, 'unavailable');
+    assert.equal(first.fetchErrorMessage, 'blocked [redacted]');
+    assert.equal((JSON.parse(warnings[1]) as { status: number }).status, 401);
+});
+
 test('the builder used by the route does not touch the production org id', () => {
     const built = buildForecast({
         organizationId: ORG,

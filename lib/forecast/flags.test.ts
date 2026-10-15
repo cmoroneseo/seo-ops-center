@@ -64,6 +64,9 @@ test('sync stays off until the flag, allowlist, https url, and token are all set
     assert.equal(campaignDeskBaseUrl(env({
         CAMPAIGN_DESK_API_BASE_URL: 'http://localhost:4000/v1/',
     })), 'http://localhost:4000/v1');
+    assert.equal(campaignDeskBaseUrl(env({
+        CAMPAIGN_DESK_API_BASE_URL: '  https://hub.example.test/v1 \n',
+    })), 'https://hub.example.test/v1');
     assert.equal(campaignDeskToken(env({ CAMPAIGN_DESK_API_TOKEN: `  ${TOKEN}  ` })), TOKEN);
     assert.equal(campaignDeskToken(env({ CAMPAIGN_DESK_API_TOKEN: '   ' })), null);
 });
