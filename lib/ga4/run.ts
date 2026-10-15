@@ -7,7 +7,7 @@ export type { Ga4QueueKind };
 import { ga4BackfillEnabled, ga4HistoryEnabled, ga4OrgAllowlist } from './flags';
 import { resolveGa4KeyEvents } from './key-events';
 import {
-    GA4_AUTH_DELAY_SECONDS, GA4_DAILY_COOLDOWN_SECONDS, assembleGa4Days, dailyRepairDates, eachUtcDate,
+    GA4_AUTH_DELAY_SECONDS, GA4_BACKOFF_BASE_SECONDS, GA4_DAILY_COOLDOWN_SECONDS, assembleGa4Days, dailyRepairDates, eachUtcDate,
     quotaPauseScope, type Ga4DayWrite, type PropertyQuotaSnapshot,
 } from './sync';
 
@@ -87,6 +87,9 @@ export interface Ga4RunDeps {
         keyEvents: string[] | null;
     }) => Promise<Ga4ReadResult>;
 }
+
+/** When every pending job is backed off, the chain re-polls this often. */
+export const GA4_IDLE_POLL_SECONDS = GA4_BACKOFF_BASE_SECONDS;
 
 export type Ga4CronResult =
     | { skipped: true; reason: 'flag_off' }
@@ -226,7 +229,13 @@ export async function runGa4QueueMessage(message: unknown, deps: Ga4RunDeps): Pr
     if (ga4OrgAllowlist(deps.env).length === 0) return;
     if (parsed.kind === 'backfill' && !ga4OrgAllowlist(deps.env).some(organizationId => ga4BackfillEnabled(deps.env, organizationId))) return;
     const job = await deps.store.claim(parsed.kind);
-    if (!job) return;
+    if (!job) {
+        // Every remaining job is backed off (available_at in the future). Keep the
+        // chain alive and poll again later instead of letting it die until the
+        // next daily cron.
+        await continueChain(deps, parsed, GA4_IDLE_POLL_SECONDS);
+        return;
+    }
     if (!ga4HistoryEnabled(deps.env, job.organizationId) || (parsed.kind === 'backfill' && !ga4BackfillEnabled(deps.env, job.organizationId))) {
         await deps.store.release({
             id: job.id,
@@ -244,7 +253,7 @@ export async function runGa4QueueMessage(message: unknown, deps: Ga4RunDeps): Pr
         const outcome = await readDays(deps, job, dates);
         if ('auth' in outcome) {
             await parkAuth(deps, job, outcome.auth, now);
-            if (outcome.auth.kind === 'reauth_required') await continueChain(deps, parsed, GA4_LINK_DELAY_SECONDS);
+            await continueChain(deps, parsed, GA4_LINK_DELAY_SECONDS);
             return;
         }
         if ('failed' in outcome) {
@@ -253,6 +262,8 @@ export async function runGa4QueueMessage(message: unknown, deps: Ga4RunDeps): Pr
                 id: job.id, leaseToken: job.leaseToken, status: 'pending',
                 availableAt: plus(now, ga4QuotaDelaySeconds(job.attempts)), lastError: 'ga4_sync_failed',
             });
+            // One property failing must not end the chain for every other property.
+            await continueChain(deps, parsed, GA4_LINK_DELAY_SECONDS);
             return;
         }
         if ('paused' in outcome) {
@@ -285,7 +296,7 @@ export async function runGa4QueueMessage(message: unknown, deps: Ga4RunDeps): Pr
     const outcome = await readDays(deps, job, eachUtcDate(range.start, range.end));
     if ('auth' in outcome) {
         await parkAuth(deps, job, outcome.auth, now);
-        if (outcome.auth.kind === 'reauth_required') await continueChain(deps, parsed, GA4_LINK_DELAY_SECONDS);
+        await continueChain(deps, parsed, GA4_LINK_DELAY_SECONDS);
         return;
     }
     if ('failed' in outcome) {
@@ -294,6 +305,7 @@ export async function runGa4QueueMessage(message: unknown, deps: Ga4RunDeps): Pr
             id: job.id, leaseToken: job.leaseToken, status: 'pending',
             availableAt: plus(now, ga4QuotaDelaySeconds(job.attempts)), lastError: 'ga4_sync_failed',
         });
+        await continueChain(deps, parsed, GA4_LINK_DELAY_SECONDS);
         return;
     }
     if ('paused' in outcome) {
