@@ -55,6 +55,11 @@ export interface ForecastPreviewView {
     syncDisabledReason: string | null;
 }
 
+type ForecastPresentSource = Pick<
+    ForecastBuildResult,
+    'weeks' | 'warnings' | 'breakMinutes' | 'allDayBreaks' | 'payloadVersion' | 'itemCount'
+>;
+
 const WARNING_COPY: Record<ForecastBuildResult['warnings'][number]['kind'], (count: number) => string> = {
     unmapped_entries: count => `${count} unmapped ${count === 1 ? 'entry is' : 'entries are'} not sent.`,
     unmapped_people: count => `${count} ${count === 1 ? 'person is' : 'people are'} not in Campaign Desk and will not be sent.`,
@@ -68,6 +73,10 @@ const WARNING_COPY: Record<ForecastBuildResult['warnings'][number]['kind'], (cou
     unreadable_hours: count => `${count} ${count === 1 ? 'entry has' : 'entries have'} hours that could not be read and will not be sent.`,
     missing_events: count => `${count} ${count === 1 ? 'entry is' : 'entries are'} linked to a planner event that could not be loaded and will not be sent.`,
     unreadable_starts: count => `${count} ${count === 1 ? 'task has' : 'tasks have'} a start date that could not be read and will not be sent.`,
+    unmatched_clients: count => `${count} ${count === 1 ? 'client is' : 'clients are'} not matched in Campaign Desk. The hours are still sent under the SEO Ops name.`,
+    over_day: count => `${count} ${count === 1 ? 'item is' : 'items are'} above 24 hours and will be sent as 24:00.`,
+    truncated_time_logs: count => `${count} ${count === 1 ? 'item lists' : 'items list'} only the first 50 time entries.`,
+    too_many_items: () => 'This sync has more than 500 items. Choose fewer weeks.',
 };
 
 export function forecastWeekChip(weekStart: string, today: string): string {
@@ -108,13 +117,14 @@ export function formatLastSynced(
 }
 
 export function presentForecast(
-    result: ForecastBuildResult,
+    result: ForecastPresentSource,
     connection: ForecastReadiness,
     directoryError: string | null,
 ): ForecastPreviewView {
+    const overCap = (result.itemCount ?? 0) > 500;
     const blocked = !connection.enabled
         ? connection.reason
-        : directoryError;
+        : directoryError ?? (overCap ? 'This sync has more than 500 items. Choose fewer weeks.' : null);
     return {
         sections: result.weeks.map(week => ({
             weekStart: week.weekStart,
@@ -127,7 +137,9 @@ export function presentForecast(
             message: WARNING_COPY[warning.kind](warning.count),
             ...(warning.kind === 'unmapped_entries'
                 ? { href: FORECAST_REVIEW_HREF, hrefLabel: 'Review' }
-                : {}),
+                : warning.kind === 'unmatched_clients'
+                    ? { href: '/settings?tab=forecast', hrefLabel: 'Match clients' }
+                    : {}),
         })),
         notes: forecastNotes(result),
         syncLabel: syncButtonLabel(result.weeks.length),
@@ -136,13 +148,23 @@ export function presentForecast(
     };
 }
 
-function forecastNotes(result: ForecastBuildResult): string[] {
+function forecastNotes(result: ForecastPresentSource): string[] {
     const notes: string[] = [];
-    if (result.weeks.some(week => week.basis === 'actual')) {
-        notes.push('The current week and earlier weeks use tracked time. Scheduled work that has not been logged is left out.');
-    }
-    if (result.weeks.some(week => week.basis === 'estimate')) {
-        notes.push('Later weeks use task estimates. Meetings are internal.');
+    if (result.payloadVersion === 2) {
+        if (result.weeks.some(week => week.basis === 'actual')) {
+            notes.push('The current week and earlier weeks send tracked time for each day. Scheduled work that has not been logged is left out.');
+        }
+        if (result.weeks.some(week => week.basis === 'estimate')) {
+            notes.push('Later weeks put each task estimate on its start date. A task with several people is split evenly.');
+        }
+        notes.push('Client meetings count toward that client. Internal events are Internal. Breaks and out of office are not sent.');
+    } else {
+        if (result.weeks.some(week => week.basis === 'actual')) {
+            notes.push('The current week and earlier weeks use tracked time. Scheduled work that has not been logged is left out.');
+        }
+        if (result.weeks.some(week => week.basis === 'estimate')) {
+            notes.push('Later weeks use task estimates. Meetings are internal.');
+        }
     }
     if (result.breakMinutes > 0) {
         notes.push(`Breaks left out: ${formatDuration(result.breakMinutes)}.`);

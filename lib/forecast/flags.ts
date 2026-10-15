@@ -68,6 +68,14 @@ function token(env: NodeJS.ProcessEnv): string | null {
     return trimmed === '' ? null : trimmed;
 }
 
+/**
+ * Version 2 sends one item per day. Off unless the value is exactly `true`.
+ * Any other value, including unset, keeps the version 1 weekly payload.
+ */
+export function campaignDeskSyncV2(env: NodeJS.ProcessEnv = process.env): boolean {
+    return env.CAMPAIGN_DESK_SYNC_V2 === 'true';
+}
+
 /** True only when this organization may call Campaign Desk. */
 export function campaignDeskReady(
     organizationId: string,

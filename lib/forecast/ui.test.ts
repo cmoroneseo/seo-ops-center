@@ -16,6 +16,8 @@ test('sync controls are admin-only and the preview is not a numbered wizard', ()
 
     assert.match(team, /ForecastSyncButton/);
     assert.match(button, /Sync to forecast/);
+    assert.match(read('../../app/(dashboard)/settings/page.tsx'), /ForecastClientMap/);
+    assert.match(read('../../app/api/forecast/client-links/route.ts'), /forecastClientLinksPut/);
     assert.match(team, />\s*Forecast\s*</);
     assert.match(team, /Last synced|lastSyncedLabel/);
     assert.match(planner, /role === 'owner' \|\| role === 'admin'/);

@@ -1,4 +1,5 @@
-import { forecastPayloadHash, normalizeEmail, type ForecastAllocationLine, type ForecastPayload } from './contract.ts';
+import { forecastPayloadHash, normalizeEmail, type ForecastAllocationLine, type ForecastPayloadBody } from './contract.ts';
+import { isForecastPayloadV2, type ForecastPayloadBodyV2, type StoredForecastPayload } from './contract-v2.ts';
 import type { PersonMatch } from './build.ts';
 
 /**
@@ -14,7 +15,7 @@ export interface ForecastStatusRun {
     createdAt: string;
     createdByName: string;
     weekStarts: string[];
-    payload: ForecastPayload;
+    payload: StoredForecastPayload;
 }
 
 export interface ForecastMemberStatus {
@@ -23,10 +24,11 @@ export interface ForecastMemberStatus {
 }
 
 export function linesForPerson(
-    payload: ForecastPayload,
+    payload: StoredForecastPayload,
     weekStart: string,
     email: string,
 ): ForecastAllocationLine[] {
+    if (isForecastPayloadV2(payload)) return [];
     const week = payload.weeks.find(entry => entry.weekStart === weekStart);
     if (!week) return [];
     const normalized = normalizeEmail(email);
@@ -34,6 +36,48 @@ export function linesForPerson(
         .filter(line => line.personEmail === normalized)
         .slice()
         .sort((left, right) => lineKey(left).localeCompare(lineKey(right)));
+}
+
+/** Canonical hours for one person. Version 1 lines and version 2 items both fit. */
+export function personForecastDigest(
+    payload: StoredForecastPayload | ForecastPayloadBody | ForecastPayloadBodyV2,
+    weekStart: string,
+    email: string,
+): string {
+    const week = payload.weeks.find(entry => entry.weekStart === weekStart);
+    if (!week) return '[]';
+    const normalized = normalizeEmail(email);
+    if ('people' in week) {
+        const person = week.people.find(entry => entry.personEmail === normalized);
+        if (!person) return '[]';
+        const items = person.days.flatMap(day => day.items.map(item => ({
+            date: day.date,
+            itemKey: item.itemKey,
+            kind: item.kind,
+            bucket: item.bucket,
+            clientId: item.client?.seoOpsClientId ?? '',
+            campaignDeskClientId: item.client?.campaignDeskClientId ?? '',
+            minutes: item.minutes,
+            source: item.source,
+            title: item.title,
+            startTime: item.startTime ?? '',
+        })));
+        items.sort((left, right) => left.itemKey.localeCompare(right.itemKey) || left.date.localeCompare(right.date));
+        return JSON.stringify(items);
+    }
+    const lines = week.allocations
+        .filter(line => line.personEmail === normalized)
+        .slice()
+        .sort((left, right) => lineKey(left).localeCompare(lineKey(right)))
+        .map(line => ({
+            personEmail: line.personEmail,
+            campaignDeskPersonId: line.campaignDeskPersonId,
+            bucket: line.bucket,
+            clientId: line.clientId ?? '',
+            source: line.source,
+            minutes: line.minutes,
+        }));
+    return JSON.stringify(lines);
 }
 
 function lineKey(line: ForecastAllocationLine): string {
@@ -73,6 +117,8 @@ export function memberForecastStatus(input: {
     previousLines: ForecastAllocationLine[];
     currentLines: ForecastAllocationLine[];
     connectionEnabled: boolean;
+    previousDigest?: string;
+    currentDigest?: string;
 }): ForecastMemberStatus {
     if (input.match.status === 'not_mapped') {
         return { status: 'not_mapped', reason: input.match.reason };
@@ -84,9 +130,10 @@ export function memberForecastStatus(input: {
         }
         return { status: 'unknown', reason: 'Not synced yet' };
     }
-    if (sameLines(input.previousLines, input.currentLines)) {
-        return { status: 'synced', reason: null };
-    }
+    const same = input.previousDigest != null || input.currentDigest != null
+        ? (input.previousDigest ?? '') === (input.currentDigest ?? '')
+        : sameLines(input.previousLines, input.currentLines);
+    if (same) return { status: 'synced', reason: null };
     return { status: 'changed', reason: null };
 }
 

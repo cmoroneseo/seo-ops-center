@@ -194,3 +194,17 @@ Implement these against your endpoint. Use a synthetic organization. Do not writ
 8. `PUT` a week with `"allocations": []` clears that week. It does not store a fake 0-hour row.
 9. `DELETE` of the newest run restores the previous allocations for the weeks that run owned. `DELETE` again returns `idempotent: true`. `DELETE` of a random UUID returns `404` `run_not_found`.
 10. `DELETE` of an older run, after a newer run replaced its week, leaves the newer week's hours in place.
+
+## Version 2
+
+Version 1 above stays the payload while `CAMPAIGN_DESK_SYNC_V2` is anything other than the exact string `true`. Version 2 is the body in Campaign Desk `docs/campaign-desk-sync-v2.md` (PR #48). SEO Ops sends it from the same manual Sync to forecast button. There is still no cron. Each new body gets a new `runId`. The same body is reused from `campaign_desk_sync_runs`.
+
+Version 2 rules SEO Ops follows:
+
+- `version` is the number `2`. Unknown keys are not sent. `weekStart` is the Monday. Every item `source` matches the week `basis`.
+- `minutes` is an integer from 1 to 1440. `hours` is minutes ÷ 60, half away from zero, two decimal places (`90` → `"1.50"`, `10` → `"0.17"`).
+- `itemKey` is stable `kind:id:date`, unique for that person and date.
+- The current week and earlier weeks send tracked time, one item per day, per task or event. Later weeks put the task estimate on the task start date. A task with several people splits that estimate evenly. Tracked time stays with the person who logged it.
+- Breaks are left out. Out of office is not sent. A client meeting is `kind: "event"` and `bucket: "client"`. An internal event is `bucket: "internal"` and `client: null`.
+- People match by email. A client item always includes `name` and `domain` (`domain` is null when SEO Ops has none) plus `campaignDeskClientId` from `campaign_desk_client_links` when a row exists, otherwise from one exact `GET /v1/clients` name match.
+- Migration `099_campaign_desk_client_links.sql` creates that map. It is not applied by this change. Apply it before turning version 2 on. Version 1 does not read it.

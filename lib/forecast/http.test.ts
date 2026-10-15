@@ -84,6 +84,9 @@ function harness(options: {
                 { id: 'desk_abel', email: 'amiranda@marketingempiregroup.com' },
             ];
         },
+        async listClients() {
+            return [];
+        },
         async upsertRun(payload) {
             calls.upsert += 1;
             return { runId: payload.runId, idempotent: false };
@@ -122,6 +125,10 @@ function harness(options: {
                 : { enabled: false, reason: 'Campaign Desk sync is turned off.' };
         },
         listPeople: () => client.listPeople(),
+        payloadVersion: () => 1,
+        listClients: () => client.listClients(),
+        loadClientLinks: async () => [],
+        rememberNameMatches: async () => {},
         store,
         client,
     };
@@ -408,6 +415,59 @@ test('a people failure names the reason and logs lengths, not the secret', async
     assert.equal(first.code, 'unavailable');
     assert.equal(first.fetchErrorMessage, 'blocked [redacted]');
     assert.equal((JSON.parse(warnings[1]) as { status: number }).status, 401);
+});
+
+test('version 2 sends items and keeps version 1 when the flag is off', async () => {
+    const taskId = '44444444-4444-4444-8444-444444444444';
+    const logId = '55555555-5555-4555-8555-555555555555';
+    const data = source();
+    const box = harness({ enabled: true, source: data });
+    const post = () => createForecastSyncPost(box.deps)(new Request('https://seo-pm.test/api/forecast/sync', {
+        method: 'POST',
+        body: JSON.stringify({
+            organizationId: ORG,
+            weekStarts: ['2026-10-12'],
+            today: '2026-10-14',
+            timeZone: 'America/Los_Angeles',
+        }),
+    }));
+    const v1Response = await post();
+    assert.equal(v1Response.status, 200);
+    const v1Stored = await box.store.listSucceeded(ORG);
+    assert.equal('version' in v1Stored[0].payload, false);
+    assert.equal(v1Stored[0].payload.weeks[0].allocations[0].minutes, 120);
+    assert.equal(box.calls.upsert, 1);
+
+    data.logs = [{
+        id: logId,
+        userId: 'user-carlos',
+        clientId: CLIENT,
+        clientName: 'Northwind Plumbing',
+        clientDomain: 'northwind.example',
+        date: '2026-10-14',
+        hours: 1.5,
+        status: 'logged',
+        importStatus: 'mapped',
+        taskId,
+        taskTitle: 'Service pages',
+    }];
+    box.deps.payloadVersion = () => 2;
+    box.deps.listClients = async () => [{ id: 'rc_north', name: 'Northwind Plumbing' }];
+    const response = await post();
+    assert.equal(response.status, 200);
+    const stored = await box.store.listSucceeded(ORG);
+    const payload = stored[0].payload;
+    assert.equal('version' in payload && payload.version, 2);
+    if (!('version' in payload) || payload.version !== 2) return;
+    const sent = payload.weeks[0].people[0].days[0].items[0];
+    assert.equal(sent.itemKey, `task:${taskId}:2026-10-14`);
+    assert.equal(sent.minutes, 90);
+    assert.equal(sent.hours, '1.50');
+    assert.equal(sent.client?.domain, 'northwind.example');
+    assert.equal(sent.client?.campaignDeskClientId, 'rc_north');
+    assert.equal(JSON.stringify(payload).includes('allocations'), false);
+    assert.equal(box.calls.upsert, 2);
+    assert.notEqual(stored[0].id, v1Stored[0].id);
 });
 
 test('the builder used by the route does not touch the production org id', () => {
