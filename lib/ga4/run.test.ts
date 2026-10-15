@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GA4_HISTORY_SANDBOX_ORG_ID } from './flags.ts';
-import { Ga4AuthError, runGa4Cron, runGa4QueueMessage, type Ga4Job, type Ga4QueueKind, type Ga4QueueSend, type Ga4Release, type Ga4RunDeps, type Ga4Store } from './run.ts';
+import { Ga4AuthError, ga4ReleaseUpdate, runGa4Cron, runGa4QueueMessage, type Ga4Job, type Ga4QueueKind, type Ga4QueueSend, type Ga4Release, type Ga4RunDeps, type Ga4Store } from './run.ts';
 import type { Ga4DayWrite } from './sync.ts';
 
 const ORG = GA4_HISTORY_SANDBOX_ORG_ID;
@@ -214,4 +214,48 @@ test('when no work remains the chain stops', async () => {
     const base = deps(store);
     await runGa4QueueMessage({ runId: RUN, chain: 5, kind: 'backfill' }, base);
     assert.equal(base.sent.length, 0);
+});
+
+test('a successful step resets attempts so the next backoff is not inflated', async () => {
+    const updatedAt = NOW.toISOString();
+    const daily = memoryStore({ daily: true });
+    await runGa4QueueMessage({ runId: RUN, chain: 1, kind: 'daily' }, deps(daily));
+    const dailyRelease = daily.releases[0];
+    assert.equal(dailyRelease?.resetAttempts, true);
+    assert.equal(ga4ReleaseUpdate(dailyRelease!, updatedAt).attempts, 0);
+
+    const month = memoryStore({ backfill: true });
+    await runGa4QueueMessage({ runId: RUN, chain: 1, kind: 'backfill' }, deps(month));
+    const monthRelease = month.releases[0];
+    assert.equal(monthRelease?.resetAttempts, true);
+    assert.equal(monthRelease?.status, 'pending');
+    assert.equal(ga4ReleaseUpdate(monthRelease!, updatedAt).attempts, 0);
+
+    const lowQuota = memoryStore({ backfill: true });
+    await runGa4QueueMessage({ runId: RUN, chain: 1, kind: 'backfill' }, deps(lowQuota, {
+        readRange: async () => ({
+            ok: true,
+            reports: { totals: { rows: [] }, organic: { rows: [] }, events: { rows: [] }, landing: { rows: [] } },
+            quota: { tokensPerHour: { consumed: 39000, remaining: 1000 } },
+        }),
+    }));
+    const pausedRelease = lowQuota.releases[0];
+    assert.equal(pausedRelease?.lastError, 'quota');
+    assert.equal(pausedRelease?.resetAttempts, true);
+    assert.equal(ga4ReleaseUpdate(pausedRelease!, updatedAt).attempts, 0);
+
+    const failed = memoryStore({ daily: true });
+    await runGa4QueueMessage({ runId: RUN, chain: 1, kind: 'daily' }, deps(failed, {
+        readRange: async () => ({ ok: false, status: 500, quota: null }),
+    }));
+    const failedRelease = failed.releases[0];
+    assert.equal(failedRelease?.resetAttempts, undefined);
+    assert.equal(Object.hasOwn(ga4ReleaseUpdate(failedRelease!, updatedAt), 'attempts'), false);
+
+    const rateLimited = memoryStore({ daily: true });
+    await runGa4QueueMessage({ runId: RUN, chain: 1, kind: 'daily' }, deps(rateLimited, {
+        readRange: async () => ({ ok: false, status: 429, quota: null }),
+    }));
+    assert.equal(rateLimited.releases[0]?.resetAttempts, undefined);
+    assert.equal(Object.hasOwn(ga4ReleaseUpdate(rateLimited.releases[0]!, updatedAt), 'attempts'), false);
 });

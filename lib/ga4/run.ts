@@ -44,6 +44,27 @@ export interface Ga4Release {
     availableAt: string;
     cursorDate?: string | null;
     lastError: string | null;
+    /**
+     * Claim increments attempts on every lease. A step that actually wrote
+     * (or finished) clears the counter so the next failure starts at the base
+     * backoff instead of a delay inflated by successful claims.
+     */
+    resetAttempts?: boolean;
+}
+
+/** Column patch for `ga4_sync_jobs`. A successful step sets `attempts` back to 0. */
+export function ga4ReleaseUpdate(input: Ga4Release, updatedAt: string): Record<string, unknown> {
+    const patch: Record<string, unknown> = {
+        status: input.status,
+        available_at: input.availableAt,
+        lease_token: null,
+        lease_until: null,
+        last_error: input.lastError,
+        updated_at: updatedAt,
+    };
+    if (input.cursorDate !== undefined) patch.cursor_date = input.cursorDate;
+    if (input.resetAttempts) patch.attempts = 0;
+    return patch;
 }
 
 export interface Ga4ReportBatch {
@@ -214,6 +235,7 @@ async function finishSuccess(deps: Ga4RunDeps, job: Ga4Job, availableAt: string,
         status: 'idle',
         availableAt,
         lastError: null,
+        resetAttempts: true,
         ...(cursorDate !== undefined ? { cursorDate } : {}),
     });
 }
@@ -328,6 +350,7 @@ export async function runGa4QueueMessage(message: unknown, deps: Ga4RunDeps): Pr
             : (next ? now.toISOString() : plus(now, GA4_DAILY_COOLDOWN_SECONDS)),
         cursorDate: month,
         lastError: pause ? 'quota' : null,
+        resetAttempts: true,
     });
     if (next) await continueChain(deps, parsed, pause ? ga4QuotaDelaySeconds(job.attempts) : GA4_LINK_DELAY_SECONDS);
 }
