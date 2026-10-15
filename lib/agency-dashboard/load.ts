@@ -3,6 +3,14 @@ import 'server-only';
 import { bingWebmasterEnabled } from '@/lib/bing/flags';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { parseAgencyAggregate, parseTopQueries, QUERY_GAP_LABEL } from './aggregate';
+import { ga4CardsEnabled } from './ga4-flag';
+import {
+    attachGa4Dashboard,
+    EMPTY_GA4_AGGREGATE,
+    GA4_PROPERTY_ID,
+    parseGa4Aggregate,
+    type Ga4Aggregate,
+} from './ga4';
 import {
     attachBingDashboard,
     BING_LINK_COLUMNS,
@@ -93,7 +101,7 @@ export async function loadAgencyDashboard(
             aggregates: [],
             freshness: { latestDataDate: null, latestImportedAt: null, settling: false },
         });
-        return { ok: true, dashboard: await withBing(admin, organizationId, null, dashboard) };
+        return { ok: true, dashboard: await finish(admin, organizationId, null, dashboard) };
     }
 
     const window = dashboardWindow(range, asOf);
@@ -125,7 +133,11 @@ export async function loadAgencyDashboard(
         aggregates: parsed.clients,
         freshness: parsed.freshness,
     });
-    return { ok: true, dashboard: await withBing(admin, organizationId, window, dashboard) };
+    return { ok: true, dashboard: await finish(admin, organizationId, window, dashboard) };
+}
+
+async function finish(admin: Admin, organizationId: string, window: DashboardWindow | null, dashboard: DashboardModel): Promise<DashboardModel> {
+    return withGa4(admin, organizationId, window, await withBing(admin, organizationId, window, dashboard));
 }
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -168,6 +180,62 @@ async function withBing(admin: Admin, organizationId: string, window: DashboardW
     } catch {
         return attachBingDashboard(dashboard, { ...base, failed: true });
     }
+}
+
+/**
+ * GA4 is optional. A failed read leaves the Search Console cards up.
+ * Mapped clients show an em dash. Unmapped clients still offer Connect GA4.
+ * The driver error stays off the response.
+ */
+async function withGa4(admin: Admin, organizationId: string, window: DashboardWindow | null, dashboard: DashboardModel): Promise<DashboardModel> {
+    if (!ga4CardsEnabled(process.env)) return dashboard;
+    const expectedPreviousDays = window ? daysInclusive(window.previous.start, window.previous.end) : 0;
+    try {
+        const links = await readGa4Links(admin, organizationId);
+        if (!links.ok) return attachGa4Dashboard(dashboard, { links: null, aggregate: null, expectedPreviousDays });
+        if (!window) return attachGa4Dashboard(dashboard, { links: links.links, aggregate: EMPTY_GA4_AGGREGATE, expectedPreviousDays });
+        const aggregate = await admin.rpc('agency_dashboard_ga4', {
+            p_organization_id: organizationId,
+            p_current_start: window.current.start,
+            p_current_end: window.current.end,
+            p_previous_start: window.previous.start,
+            p_previous_end: window.previous.end,
+            p_bucket: window.bucket,
+        });
+        let parsed: Ga4Aggregate | null = null;
+        if (!aggregate.error) {
+            try {
+                parsed = parseGa4Aggregate(aggregate.data);
+            } catch {
+                parsed = null;
+            }
+        }
+        return attachGa4Dashboard(dashboard, { links: links.links, aggregate: parsed, expectedPreviousDays });
+    } catch {
+        return attachGa4Dashboard(dashboard, { links: null, aggregate: null, expectedPreviousDays });
+    }
+}
+
+async function readGa4Links(admin: Admin, organizationId: string): Promise<{ ok: true; links: Array<{ clientId: string; property: string }> } | { ok: false }> {
+    const result = await readAll<Record<string, unknown>>(span => admin
+        .from('client_integrations')
+        .select('client_id, property_id:credentials->>property_id')
+        .eq('organization_id', organizationId)
+        .eq('service', 'ga4')
+        .in('sync_status', ['active', 'error'])
+        .order('client_id')
+        .range(span, span + PAGE - 1));
+    if (result.error) return { ok: false };
+    const links: Array<{ clientId: string; property: string }> = [];
+    const seen = new Set<string>();
+    for (const row of result.rows) {
+        const clientId = text(row.client_id);
+        const property = text(row.property_id);
+        if (!clientId || !property || !GA4_PROPERTY_ID.test(property) || seen.has(clientId)) continue;
+        seen.add(clientId);
+        links.push({ clientId, property });
+    }
+    return { ok: true, links };
 }
 
 async function readBingLinks(admin: Admin, organizationId: string): Promise<{ ok: true; links: BingLinkInput[] } | { ok: false }> {

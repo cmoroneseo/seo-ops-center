@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle2, AlertCircle, Unlink, ExternalLink, RefreshCw, Key, Settings2, X, ToggleLeft, ToggleRight, Download } from 'lucide-react';
 import { ClientIntegration, IntegrationService } from '@/lib/types';
@@ -11,6 +11,7 @@ import { GooglePropertyPicker } from './GooglePropertyPicker';
 import { BasecampImportModal } from './BasecampImportModal';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
+import { ga4PickerRequested } from '@/lib/agency-dashboard/ga4-link';
 import { GA4_RECONNECT_ANALYTICS_LABEL } from '@/lib/ga4/connection-health';
 import { Ga4KeyEventPicker } from './Ga4KeyEventPicker';
 import { connectedAccountLabel, googleConnectPath } from '@/lib/google/account';
@@ -107,6 +108,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
     const [rankTrackerError, setRankTrackerError] = useState('');
     const [disconnecting, setDisconnecting] = useState<IntegrationService | null>(null);
     const [showPropertyPicker, setShowPropertyPicker] = useState<'ga4-gsc' | 'gbp' | null>(null);
+    const openedGa4PickerFor = useRef<string | null>(null);
     const [showKeyEvents, setShowKeyEvents] = useState(false);
     const [showGscPicker, setShowGscPicker] = useState(false);
     const [toast, setToast] = useState('');
@@ -153,6 +155,13 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
             router.replace(url.pathname + url.search);
         }
     }, [clientId, orgId, router, searchParams]);
+
+    useEffect(() => {
+        if (!ga4PickerRequested(searchParams.get('picker')) || openedGa4PickerFor.current === clientId) return;
+        openedGa4PickerFor.current = clientId;
+        setSelectedService('ga4');
+        setShowPropertyPicker('ga4-gsc');
+    }, [clientId, searchParams]);
 
     useEffect(() => {
         if (!toast) return;
