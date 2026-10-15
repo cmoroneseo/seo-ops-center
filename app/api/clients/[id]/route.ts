@@ -25,7 +25,7 @@ async function userClient() {
 }
 
 function archiveFailure(error: { code?: string; message?: string }) {
-    console.error('archive client failed', error.code ?? 'unknown');
+    console.error('archive client failed');
     if (error.code === '42501' || (error.message ?? '').includes(DELETE_CLIENT_FORBIDDEN)) {
         return { error: DELETE_CLIENT_FORBIDDEN, statusCode: 403 as const };
     }
