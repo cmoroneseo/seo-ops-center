@@ -1,4 +1,5 @@
 import { useId } from 'react';
+import { monotoneCubicPath, smoothPath, type CurvePoint } from '@/lib/agency-dashboard/curve';
 import type { Tone } from '@/lib/agency-dashboard/metrics';
 
 const STROKE: Record<Tone, string> = {
@@ -7,40 +8,14 @@ const STROKE: Record<Tone, string> = {
     flat: '#a1a1aa',
 };
 
-interface Point { x: number; y: number }
-
-/** Catmull-Rom through the points, as cubic beziers, so the area reads as a curve. */
-function smoothPath(points: Point[]): string {
-    if (points.length === 0) return '';
-    const command = (point: Point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`;
-    let path = `M${command(points[0])}`;
-    if (points.length === 1) return path;
-    for (let index = 0; index < points.length - 1; index += 1) {
-        const previous = points[index - 1] ?? points[index];
-        const current = points[index];
-        const next = points[index + 1];
-        const after = points[index + 2] ?? next;
-        const control1 = {
-            x: current.x + (next.x - previous.x) / 6,
-            y: current.y + (next.y - previous.y) / 6,
-        };
-        const control2 = {
-            x: next.x - (after.x - current.x) / 6,
-            y: next.y - (after.y - current.y) / 6,
-        };
-        path += ` C${command(control1)} ${command(control2)} ${command(next)}`;
-    }
-    return path;
-}
-
-function runs(values: Array<number | null>, width: number, height: number, scale: Array<number | null> = values): Point[][] {
+function runs(values: Array<number | null>, width: number, height: number, scale: Array<number | null> = values): CurvePoint[][] {
     const known = scale.flatMap(value => value == null || !Number.isFinite(value) ? [] : [value]);
     if (known.length === 0) return [];
     const min = Math.min(...known);
     const max = Math.max(...known);
     const span = max - min || 1;
-    const groups: Point[][] = [];
-    let current: Point[] = [];
+    const groups: CurvePoint[][] = [];
+    let current: CurvePoint[] = [];
     values.forEach((value, index) => {
         if (value == null) {
             if (current.length) groups.push(current);
@@ -63,6 +38,7 @@ export function Sparkline({
     label,
     className = 'h-10 w-28',
     stretch = false,
+    curve = 'smooth',
 }: {
     values: Array<number | null>;
     /** Dashed series drawn on the same scale. Used for Bing in All mode. */
@@ -71,6 +47,8 @@ export function Sparkline({
     label: string;
     className?: string;
     stretch?: boolean;
+    /** Monotone stays between samples. The default curve is unchanged. */
+    curve?: 'smooth' | 'monotone';
 }) {
     const width = 120;
     const height = 36;
@@ -81,6 +59,7 @@ export function Sparkline({
     const overlayGroups = overlay ? runs(overlay, width, height, scale).filter(group => group.length >= 2) : [];
     const caption = overlay ? `${label}. Dashed line is Bing.` : label;
     const drawable = groups.filter(group => group.length >= 2);
+    const draw = curve === 'monotone' ? monotoneCubicPath : smoothPath;
     return (
         <svg
             viewBox={`0 0 ${width} ${height}`}
@@ -88,6 +67,7 @@ export function Sparkline({
             role="img"
             aria-label={caption}
             preserveAspectRatio={stretch ? 'none' : 'xMidYMid meet'}
+            {...(curve === 'monotone' ? { 'data-curve': 'monotone' } : {})}
         >
             <title>{caption}</title>
             {drawable.length > 0 && (
@@ -99,7 +79,7 @@ export function Sparkline({
                 </defs>
             )}
             {drawable.map(group => {
-                const line = smoothPath(group);
+                const line = draw(group);
                 const first = group[0];
                 const last = group[group.length - 1];
                 const area = `${line} L${last.x.toFixed(2)},${height} L${first.x.toFixed(2)},${height} Z`;
@@ -111,7 +91,7 @@ export function Sparkline({
                 );
             })}
             {overlayGroups.map(group => {
-                const line = smoothPath(group);
+                const line = draw(group);
                 return (
                     <path
                         key={`bing-${line}`}

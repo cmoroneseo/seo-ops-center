@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { AgencyDashboardView } from '../../components/agency-dashboard/AgencyDashboard.tsx';
 import { attachBingDashboard } from './bing.ts';
 import { exampleDashboard } from './fixture.ts';
+import { attachGa4Dashboard, type Ga4Aggregate } from './ga4.ts';
 import { assembleDashboard } from './portfolio.ts';
 import { dashboardWindow } from './range.ts';
 
@@ -54,6 +55,9 @@ test('the grid shows honest gaps, the color signal, and the detail links', () =>
     assert.equal(front.includes('text-[28px]'), false);
     assert.match(front, /Northline Plumbing/);
     assert.equal(html.includes('aria-label="Search engine"'), false);
+    assert.equal(html.includes('aria-label="Card metric"'), false);
+    assert.equal(html.includes('data-curve="monotone"'), false);
+    assert.equal(html.includes('Connect GA4'), false);
     const back = card.slice(card.indexOf('data-face="back"'));
     assert.match(back, /data-absolute/);
     assert.match(back, /emergency plumber/);
@@ -272,4 +276,168 @@ test('the engine toggle defaults to Google and All mode draws Bing without rank 
     assert.equal(list.includes('>#<'), false);
     assert.match(list, /Bing 18% of clicks/);
     assert.match(list, /Bing: not connected/);
+});
+
+function ga4CardsModel() {
+    const base = assembleDashboard({
+        range: '28d',
+        window: dashboardWindow('28d', '2026-10-07'),
+        asOf: '2026-10-07',
+        freshness: { latestDataDate: '2026-10-07', latestImportedAt: null, settling: false },
+        clients: [
+            { id: 'vita', name: 'VitaTherapy Wellness', domain: 'vita.example', property: 'sc-domain:vita.example', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z' },
+            { id: 'scott', name: 'Scott Cole & Associates', domain: 'scott.example', property: 'sc-domain:scott.example', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z' },
+            { id: 'zero', name: 'Zero Measured', domain: 'zero.example', property: 'sc-domain:zero.example', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z' },
+            { id: 'empty', name: 'Empty History', domain: 'empty.example', property: 'sc-domain:empty.example', syncStatus: 'active', lastSyncedAt: '2026-10-12T00:00:00Z' },
+        ],
+        aggregates: [
+            { clientId: 'vita', current: { clicks: 900, impressions: 4000, positionWeight: 20000, days: 28 }, previous: { clicks: 800, impressions: 4000, positionWeight: 22000, days: 28 }, series: [{ bucket: '2026-09-10', clicks: 30, impressions: 140, positionWeight: 700 }, { bucket: '2026-09-11', clicks: 40, impressions: 150, positionWeight: 750 }], queries: [], incomplete: false },
+            { clientId: 'scott', current: { clicks: 10, impressions: 100, positionWeight: 800, days: 28 }, previous: { clicks: 8, impressions: 80, positionWeight: 640, days: 28 }, series: [], queries: [], incomplete: false },
+            { clientId: 'zero', current: { clicks: 4, impressions: 40, positionWeight: 200, days: 28 }, previous: { clicks: 4, impressions: 40, positionWeight: 200, days: 28 }, series: [], queries: [], incomplete: false },
+            { clientId: 'empty', current: { clicks: 4, impressions: 40, positionWeight: 200, days: 28 }, previous: { clicks: 4, impressions: 40, positionWeight: 200, days: 28 }, series: [], queries: [], incomplete: false },
+        ],
+    });
+    const series = base.buckets.map((bucket, index) => ({
+        bucket,
+        organicSessions: 400 + index,
+        keyEvents: 10 + (index % 3),
+    }));
+    const aggregate: Ga4Aggregate = {
+        clients: [
+            {
+                clientId: 'vita',
+                current: { organicSessions: 12480, sessions: 20400, engagedSessions: 12485, keyEvents: 342, days: 28 },
+                previous: { organicSessions: 10541, sessions: 18000, engagedSessions: 11016, keyEvents: 300, days: 28 },
+                series,
+            },
+            {
+                clientId: 'zero',
+                current: { organicSessions: 0, sessions: 0, engagedSessions: 0, keyEvents: 0, days: 28 },
+                previous: { organicSessions: 0, sessions: 8, engagedSessions: 0, keyEvents: 0, days: 28 },
+                series: base.buckets.map(bucket => ({ bucket, organicSessions: 0, keyEvents: 0 })),
+            },
+            {
+                clientId: 'empty',
+                current: { organicSessions: null, sessions: null, engagedSessions: null, keyEvents: null, days: 28 },
+                previous: null,
+                series: [],
+            },
+        ],
+    };
+    return attachGa4Dashboard(base, {
+        links: [
+            { clientId: 'vita', property: 'properties/1' },
+            { clientId: 'zero', property: 'properties/2' },
+            { clientId: 'empty', property: 'properties/3' },
+        ],
+        aggregate,
+        expectedPreviousDays: 28,
+    });
+}
+
+function cardFront(html: string, clientId: string): string {
+    const start = html.indexOf(`data-client="${clientId}"`);
+    const next = html.indexOf('data-client="', start + 1);
+    const card = html.slice(start, next === -1 ? undefined : next);
+    return card.slice(card.indexOf('data-face="front"'), card.indexOf('data-face="back"'));
+}
+
+test('the GA4 toggle follows the metric, and an unmapped client is an em dash', () => {
+    const model = ga4CardsModel();
+    const hidden = renderToStaticMarkup(createElement(AgencyDashboardView, { model }));
+    assert.equal(hidden.includes('aria-label="Card metric"'), false);
+    assert.equal(hidden.includes('Connect GA4'), false);
+    assert.match(hidden, /aria-label="Metric"/);
+
+    const organic = renderToStaticMarkup(createElement(AgencyDashboardView, {
+        model,
+        ga4Cards: true,
+        initialCardMetric: 'organic-sessions',
+    }));
+    assert.match(organic, /aria-label="Card metric"/);
+    assert.match(organic, /data-card-metric="organic-sessions"[^>]*aria-pressed="true"/);
+    assert.match(organic, /data-card-metric="clicks"[^>]*aria-pressed="false"/);
+    assert.match(organic, /aria-label="Filters"/);
+    assert.equal(organic.includes('aria-label="Metric"'), false);
+    assert.equal(organic.includes('data-rank='), false);
+    assert.equal(organic.includes('>#<'), false);
+    assert.equal((organic.match(/<button[^>]*aria-label="Filters"/g) ?? []).length, 1);
+    for (const gone of ['Account manager', '>Manager<', '>Hours<', '>Phase<', 'No agreement', 'Abel Miranda', 'Carlos Morones']) {
+        assert.equal(organic.includes(gone), false, gone);
+    }
+
+    const vita = cardFront(organic, 'vita');
+    assert.match(vita, /VitaTherapy Wellness/);
+    assert.match(vita, /Organic sessions · 28D/);
+    assert.match(vita, /data-hero[^>]*>12,480</);
+    assert.match(vita, /18\.4%/);
+    assert.match(vita, /data-tone="up"/);
+    assert.match(vita, /data-curve="monotone"/);
+    assert.match(vita, /Sessions/);
+    assert.match(vita, /Engagement rate/);
+    assert.match(vita, /61\.2%/);
+    assert.match(vita, /Key events/);
+    assert.match(vita, />342</);
+    assert.equal(vita.includes('>Pos<'), false);
+    assert.equal(vita.includes('>CTR<'), false);
+
+    const scott = cardFront(organic, 'scott');
+    assert.match(scott, /data-ga4="unmapped"/);
+    assert.match(scott, /GA4 not connected/);
+    assert.match(scott, /Connect GA4/);
+    assert.match(scott, /href="\/workspace\/scott\?tab=integrations&amp;picker=ga4"/);
+    assert.match(scott, /data-hero[^>]*>—</);
+    assert.equal(scott.includes('>0<'), false);
+    assert.equal(scott.includes('>0.0%<'), false);
+    for (const stat of ['sessions', 'engagementRate', 'keyEvents']) {
+        const block = scott.slice(scott.indexOf(`data-ga4-stat="${stat}"`));
+        assert.match(block, /—/);
+    }
+
+    const zero = cardFront(organic, 'zero');
+    assert.match(zero, /data-hero[^>]*>0</);
+    assert.equal(zero.includes('Connect GA4'), false);
+    const zeroRate = zero.slice(zero.indexOf('data-ga4-stat="engagementRate"'));
+    assert.match(zeroRate, /—/);
+
+    const empty = cardFront(organic, 'empty');
+    assert.match(empty, /data-hero[^>]*>—</);
+    assert.match(empty, /No data in this range/);
+    assert.equal(empty.includes('Connect GA4'), false);
+    assert.equal(empty.includes('>0<'), false);
+
+    const clicks = renderToStaticMarkup(createElement(AgencyDashboardView, {
+        model,
+        ga4Cards: true,
+        initialCardMetric: 'clicks',
+    }));
+    const clicksFront = cardFront(clicks, 'vita');
+    assert.match(clicksFront, /Clicks · 28D/);
+    assert.match(clicksFront, />Pos</);
+    assert.match(clicksFront, />CTR</);
+    assert.match(clicksFront, />Impressions</);
+    assert.equal(clicksFront.includes('Engagement rate'), false);
+    assert.equal(clicksFront.includes('Connect GA4'), false);
+    assert.match(clicksFront, /data-curve="monotone"/);
+
+    const events = renderToStaticMarkup(createElement(AgencyDashboardView, {
+        model,
+        ga4Cards: true,
+        initialCardMetric: 'key-events',
+    }));
+    const eventsFront = cardFront(events, 'vita');
+    assert.match(eventsFront, /Key events · 28D/);
+    assert.match(eventsFront, /data-hero[^>]*>342</);
+    assert.match(events, /data-card-metric="key-events"[^>]*aria-pressed="true"/);
+
+    const list = renderToStaticMarkup(createElement(AgencyDashboardView, {
+        model,
+        ga4Cards: true,
+        initialCardMetric: 'organic-sessions',
+        initialView: 'list',
+    }));
+    assert.equal(list.includes('>#<'), false);
+    assert.match(list, /data-ga4-list="unmapped"/);
+    assert.match(list, /Connect GA4/);
+    assert.equal(list.includes('>Manager<'), false);
 });

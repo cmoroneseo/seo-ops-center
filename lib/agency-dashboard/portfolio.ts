@@ -1,3 +1,4 @@
+import type { Ga4CardView } from './ga4';
 import {
     addTotals,
     alignSeries,
@@ -66,6 +67,8 @@ export interface DashboardCard {
     links: { insights: string; plan: string; gsc: string };
     /** Present when Bing is enabled for this organization. Absent keeps the Google dashboard. */
     bing?: import('./bing').BingCardView | null;
+    /** Present when the GA4 card flag is on. Absent keeps the Search Console card. */
+    ga4?: Ga4CardView;
 }
 
 export interface DashboardModel {

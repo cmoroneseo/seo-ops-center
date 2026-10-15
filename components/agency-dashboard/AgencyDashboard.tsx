@@ -8,6 +8,19 @@ import { SyncBingButton } from '@/components/settings/SyncBingButton';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { Sparkline } from '@/components/agency-dashboard/Sparkline';
 import {
+    CARD_METRIC_LABEL,
+    cardMetricSearch,
+    compareGa4Cards,
+    formatCardCount,
+    formatGa4Metric,
+    GA4_CONNECT_LABEL,
+    GA4_NOT_CONNECTED,
+    GA4_UNAVAILABLE,
+    ga4HeroKey,
+    type CardMetric,
+} from '@/lib/agency-dashboard/ga4';
+import { ga4PropertyPickerHref } from '@/lib/agency-dashboard/ga4-link';
+import {
     DASHBOARD_RANGES,
     dashboardRangeLabel,
     dashboardRangePhrase,
@@ -27,7 +40,7 @@ import {
     type SortMode,
     type Tone,
 } from '@/lib/agency-dashboard/metrics';
-import { bingShareLabel, engineFace, engineHeadline, type SearchEngine } from '@/lib/agency-dashboard/bing';
+import { bingShareLabel, engineFace, engineHeadline, type EngineFace, type SearchEngine } from '@/lib/agency-dashboard/bing';
 import { dashboardPortfolioPath, dashboardQueriesPath } from '@/lib/agency-dashboard/request';
 import { activeFilterCount, filterCards, summarizeSelection, type DashboardCard, type DashboardModel } from '@/lib/agency-dashboard/portfolio';
 import { cn } from '@/lib/utils';
@@ -67,7 +80,13 @@ const SUPPORTING_LABEL: Record<MetricKey, string> = {
     position: 'Pos',
 };
 
-export function AgencyDashboard() {
+export function AgencyDashboard({
+    ga4Cards = false,
+    initialCardMetric = 'clicks',
+}: {
+    ga4Cards?: boolean;
+    initialCardMetric?: CardMetric;
+} = {}) {
     const { organization } = useOrganization();
     const { role } = useCurrentMember();
     const organizationId = organization?.id ?? null;
@@ -131,6 +150,8 @@ export function AgencyDashboard() {
             onRefresh={() => setRefresh(value => value + 1)}
             onLoadQueries={loadQueries}
             canSyncBing={role === 'owner' || role === 'admin'}
+            ga4Cards={ga4Cards}
+            initialCardMetric={initialCardMetric}
         />
     );
 }
@@ -150,6 +171,8 @@ export function AgencyDashboardView({
     initialFiltersOpen = false,
     canSyncBing = false,
     initialEngine = 'google',
+    ga4Cards = false,
+    initialCardMetric = 'clicks',
 }: {
     model: DashboardModel | null;
     loading?: boolean;
@@ -165,9 +188,13 @@ export function AgencyDashboardView({
     initialFiltersOpen?: boolean;
     canSyncBing?: boolean;
     initialEngine?: SearchEngine;
+    ga4Cards?: boolean;
+    initialCardMetric?: CardMetric;
 }) {
     const activeRange = range ?? model?.range ?? '28d';
     const [metric, setMetric] = useState<MetricKey>('clicks');
+    const [cardMetric, setCardMetric] = useState<CardMetric>(initialCardMetric);
+    const activeCardMetric: CardMetric = ga4Cards ? cardMetric : 'clicks';
     const [selectedEngine, setSelectedEngine] = useState<SearchEngine>(initialEngine);
     const [signal, setSignal] = useState<MetricKey>('impressions');
     const [sortMode, setSortMode] = useState<SortMode>('declines');
@@ -214,12 +241,16 @@ export function AgencyDashboardView({
                 return true;
             })
             : filtered;
-        return [...visible].sort((left, right) => compareCards(
-            { name: left.name, reason: engineFace(left, engine).reason, metrics: engineFace(left, engine).metrics },
-            { name: right.name, reason: engineFace(right, engine).reason, metrics: engineFace(right, engine).metrics },
-            { mode: sortMode, metric, direction },
-        ));
-    }, [model, query, coverage, sortMode, metric, direction, engine]);
+        const heroKey = ga4HeroKey(activeCardMetric);
+        return [...visible].sort((left, right) => {
+            if (heroKey) return compareGa4Cards(left, right, heroKey, { mode: sortMode, direction });
+            return compareCards(
+                { name: left.name, reason: engineFace(left, engine).reason, metrics: engineFace(left, engine).metrics },
+                { name: right.name, reason: engineFace(right, engine).reason, metrics: engineFace(right, engine).metrics },
+                { mode: sortMode, metric, direction },
+            );
+        });
+    }, [model, query, coverage, sortMode, metric, direction, engine, activeCardMetric]);
     const selection = useMemo(() => {
         if (!model) return null;
         const google = summarizeSelection(model, cards);
@@ -231,6 +262,14 @@ export function AgencyDashboardView({
     function chooseMetric(next: MetricKey) {
         setMetric(next);
         if (sortMode === 'metric') setDirection(next === 'position' ? 'asc' : 'desc');
+    }
+
+    function chooseCardMetric(next: CardMetric) {
+        setCardMetric(next);
+        if (sortMode === 'metric') setDirection('desc');
+        if (typeof window === 'undefined') return;
+        const nextUrl = `${window.location.pathname}${cardMetricSearch(window.location.search, next)}`;
+        window.history.replaceState(null, '', nextUrl);
     }
 
     function sortByColumn(next: MetricKey) {
@@ -282,12 +321,34 @@ export function AgencyDashboardView({
                             </button>
                         ))}
                     </div>
-                    <Field label="Metric">
-                        <select aria-label="Metric" value={metric} onChange={event => chooseMetric(event.target.value as MetricKey)} className={selectClass}>
-                            {METRICS.map(item => <option key={item} value={item}>{METRIC_LABEL[item]}</option>)}
-                        </select>
-                    </Field>
+                    {!ga4Cards && (
+                        <Field label="Metric">
+                            <select aria-label="Metric" value={metric} onChange={event => chooseMetric(event.target.value as MetricKey)} className={selectClass}>
+                                {METRICS.map(item => <option key={item} value={item}>{METRIC_LABEL[item]}</option>)}
+                            </select>
+                        </Field>
+                    )}
                     {canSyncBing && <SyncBingButton variant="toolbar" onSynced={onRefresh} />}
+                    <div className="flex items-center gap-2">
+                    {ga4Cards && (
+                        <div role="group" aria-label="Card metric" className="flex rounded-lg bg-white/5 p-0.5">
+                            {(['clicks', 'organic-sessions', 'key-events'] as const).map(option => (
+                                <button
+                                    key={option}
+                                    type="button"
+                                    data-card-metric={option}
+                                    aria-pressed={activeCardMetric === option}
+                                    onClick={() => chooseCardMetric(option)}
+                                    className={cn(
+                                        'rounded-md px-3 py-1.5 text-xs font-medium',
+                                        activeCardMetric === option ? 'bg-primary text-primary-foreground' : 'text-zinc-400 hover:text-zinc-200',
+                                    )}
+                                >
+                                    {CARD_METRIC_LABEL[option]}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                     <div className="relative" ref={filtersRef}>
                         <button
                             type="button"
@@ -329,7 +390,7 @@ export function AgencyDashboardView({
                                         className={cn(selectClass, 'w-full')}
                                     >
                                         <option value="declines">Biggest declines</option>
-                                        <option value="metric">By {METRIC_LABEL[metric].toLowerCase()}</option>
+                                        <option value="metric">By {(ga4HeroKey(activeCardMetric) ? CARD_METRIC_LABEL[activeCardMetric] : METRIC_LABEL[metric]).toLowerCase()}</option>
                                     </select>
                                 </FilterField>
                                 <FilterField label="Data">
@@ -341,6 +402,7 @@ export function AgencyDashboardView({
                                 </FilterField>
                             </div>
                         </div>
+                    </div>
                     </div>
                     <label className="relative">
                         <span className="sr-only">Search clients</span>
@@ -415,11 +477,14 @@ export function AgencyDashboardView({
                                     initiallyOpen={initialOpenClient === card.clientId}
                                     onLoadQueries={onLoadQueries}
                                     onLoaded={rememberQueries}
+                                    ga4Cards={ga4Cards}
+                                    cardMetric={activeCardMetric}
+                                    rangeLabel={dashboardRangeLabel(activeRange)}
                                 />
                             ))}
                         </div>
                     ) : (
-                        <PortfolioTable cards={cards} engine={engine} metric={metric} signal={signal} onSort={sortByColumn} queryCache={queryCache} />
+                        <PortfolioTable cards={cards} engine={engine} metric={metric} signal={signal} onSort={sortByColumn} queryCache={queryCache} ga4Cards={ga4Cards} cardMetric={activeCardMetric} />
                     )}
                 </>
                 )
@@ -437,6 +502,9 @@ function PortfolioCard({
     initiallyOpen,
     onLoadQueries,
     onLoaded,
+    ga4Cards = false,
+    cardMetric = 'clicks',
+    rangeLabel = '28D',
 }: {
     card: DashboardCard;
     engine: SearchEngine;
@@ -446,6 +514,9 @@ function PortfolioCard({
     initiallyOpen: boolean;
     onLoadQueries?: (clientId: string) => Promise<LoadedQueries>;
     onLoaded: (clientId: string, loaded: LoadedQueries) => void;
+    ga4Cards?: boolean;
+    cardMetric?: CardMetric;
+    rangeLabel?: string;
 }) {
     const [hover, setHover] = useState(false);
     const [pinned, setPinned] = useState(initiallyOpen);
@@ -463,8 +534,13 @@ function PortfolioCard({
         return () => { cancelled = true; };
     }, [open, card.clientId, card.queriesKnown, loaded, queryError, onLoadQueries, onLoaded]);
     const face = engineFace(card, engine);
-    const tint = cardTint(signal, face.metrics[signal].change);
-    const heroTone = changeTone(metric, face.metrics[metric].change);
+    const heroKey = ga4Cards ? ga4HeroKey(cardMetric) : null;
+    const ga4Hero = heroKey && card.ga4?.mapped && !card.ga4.unavailable ? card.ga4.metrics[heroKey] : null;
+    const tint = heroKey
+        ? cardTint('clicks', ga4Hero?.change ?? null)
+        : cardTint(signal, face.metrics[signal].change);
+    const heroMetric: MetricKey = ga4Cards && cardMetric === 'clicks' ? 'clicks' : metric;
+    const heroTone = heroKey ? changeTone('clicks', ga4Hero?.change ?? null) : changeTone(heroMetric, face.metrics[heroMetric].change);
     const share = engine === 'all' ? bingShareLabel(card) : null;
     return (
         <article
@@ -478,37 +554,50 @@ function PortfolioCard({
         >
             <div className={cn('relative h-full transition-transform duration-500 [transform-style:preserve-3d] motion-reduce:transition-none', open && '[transform:rotateY(180deg)]')}>
                 <div data-face="front" className="absolute inset-0 flex flex-col p-4 [backface-visibility:hidden]" style={{ pointerEvents: open ? 'none' : 'auto' }}>
-                    <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                            <h2 className="truncate text-lg font-semibold tracking-tight">{card.name}</h2>
-                            <p className="truncate text-xs text-zinc-400">{card.domain}{face.coverageLabel ? ` · ${face.coverageLabel}` : ''}</p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                            {face.reason ? (
-                                <>
-                                    <p className="text-3xl font-semibold leading-none text-zinc-500">—</p>
-                                    <p className="mt-1 max-w-48 text-xs text-zinc-400" title={face.reasonTitle ?? undefined}>{face.reasonLabel}</p>
-                                </>
-                            ) : (
-                                <>
-                                    <p className="text-3xl font-semibold leading-none tabular-nums tracking-tight">{formatMetric(metric, face.metrics[metric].value)}</p>
-                                    <div className="mt-1.5 flex justify-end">
-                                        <ChangePill metric={metric} change={face.metrics[metric].change} note={face.changeNote} />
-                                    </div>
-                                    <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-400">{METRIC_LABEL[metric]}</p>
-                                </>
+                    {ga4Cards ? (
+                        <MetricCardFront
+                            card={card}
+                            face={face}
+                            cardMetric={cardMetric}
+                            rangeLabel={rangeLabel}
+                            heroTone={heroTone}
+                            share={share}
+                        />
+                    ) : (
+                        <>
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <h2 className="truncate text-lg font-semibold tracking-tight">{card.name}</h2>
+                                    <p className="truncate text-xs text-zinc-400">{card.domain}{face.coverageLabel ? ` · ${face.coverageLabel}` : ''}</p>
+                                </div>
+                                <div className="shrink-0 text-right">
+                                    {face.reason ? (
+                                        <>
+                                            <p className="text-3xl font-semibold leading-none text-zinc-500">—</p>
+                                            <p className="mt-1 max-w-48 text-xs text-zinc-400" title={face.reasonTitle ?? undefined}>{face.reasonLabel}</p>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <p className="text-3xl font-semibold leading-none tabular-nums tracking-tight">{formatMetric(metric, face.metrics[metric].value)}</p>
+                                            <div className="mt-1.5 flex justify-end">
+                                                <ChangePill metric={metric} change={face.metrics[metric].change} note={face.changeNote} />
+                                            </div>
+                                            <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-400">{METRIC_LABEL[metric]}</p>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                            {share && (
+                                <p data-bing-share title={card.bing?.reasonTitle ?? undefined} className="mt-3 inline-flex w-fit rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-zinc-200">{share}</p>
                             )}
-                        </div>
-                    </div>
-                    {share && (
-                        <p data-bing-share title={card.bing?.reasonTitle ?? undefined} className="mt-3 inline-flex w-fit rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-zinc-200">{share}</p>
+                            <div className="-mx-4 mt-2 flex min-h-0 flex-1 items-end">
+                                <Sparkline values={face.series[metric]} overlay={face.overlay?.[metric]} tone={heroTone} label={`${card.name} ${METRIC_LABEL[metric]} trend`} className="h-20 w-full" stretch />
+                            </div>
+                            <div className="mt-2 grid grid-cols-3 gap-2">
+                                {SUPPORTING.map(item => <Stat key={item} metric={item} view={face.metrics[item]} />)}
+                            </div>
+                        </>
                     )}
-                    <div className="-mx-4 mt-2 flex min-h-0 flex-1 items-end">
-                        <Sparkline values={face.series[metric]} overlay={face.overlay?.[metric]} tone={heroTone} label={`${card.name} ${METRIC_LABEL[metric]} trend`} className="h-20 w-full" stretch />
-                    </div>
-                    <div className="mt-2 grid grid-cols-3 gap-2">
-                        {SUPPORTING.map(item => <Stat key={item} metric={item} view={face.metrics[item]} />)}
-                    </div>
                     <button
                         type="button"
                         aria-expanded={open}
@@ -551,6 +640,98 @@ function PortfolioCard({
                 </div>
             </div>
         </article>
+    );
+}
+
+function MetricCardFront({
+    card,
+    face,
+    cardMetric,
+    rangeLabel,
+    heroTone,
+    share,
+}: {
+    card: DashboardCard;
+    face: EngineFace;
+    cardMetric: CardMetric;
+    rangeLabel: string;
+    heroTone: Tone;
+    share: string | null;
+}) {
+    const heroKey = ga4HeroKey(cardMetric);
+    const ga4 = card.ga4;
+    const ga4Ready = heroKey && ga4 && ga4.mapped && !ga4.unavailable ? ga4 : null;
+    const unmapped = Boolean(heroKey && ga4 && !ga4.unavailable && !ga4.mapped);
+    const hero = ga4Ready && heroKey ? ga4Ready.metrics[heroKey] : null;
+    const clicksHero = face.metrics.clicks;
+    const value = heroKey ? (hero?.value ?? null) : clicksHero.value;
+    const change = heroKey ? (hero?.change ?? null) : clicksHero.change;
+    const note = heroKey ? (ga4Ready?.changeNote ?? null) : face.changeNote;
+    const series = heroKey ? (ga4Ready ? ga4Ready.series[heroKey] : []) : face.series.clicks;
+    const label = CARD_METRIC_LABEL[cardMetric];
+    const formatted = heroKey ? formatGa4Metric(heroKey, value) : value == null ? '—' : formatCardCount(value);
+    return (
+        <>
+            <h2 className="truncate text-lg font-semibold tracking-tight">{card.name}</h2>
+            <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400">{label} · {rangeLabel}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <p data-hero className={cn('text-4xl font-semibold leading-none tracking-tight', value == null ? 'text-zinc-500' : 'tabular-nums')}>
+                    {formatted}
+                </p>
+                {value != null && <ChangePill metric="clicks" change={change} note={note} />}
+            </div>
+            {!heroKey && share && (
+                <p data-bing-share title={card.bing?.reasonTitle ?? undefined} className="mt-2 inline-flex w-fit rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-zinc-200">{share}</p>
+            )}
+            {!heroKey && face.reason ? (
+                <p className="mt-4 flex-1 text-xs text-zinc-400" title={face.reasonTitle ?? undefined}>{face.reasonLabel}</p>
+            ) : unmapped ? (
+                <div data-ga4="unmapped" className="relative z-10 mt-4 flex flex-1 items-center justify-center rounded-xl border border-dashed border-white/15 px-4 py-6 text-center text-xs text-zinc-400">
+                    {GA4_NOT_CONNECTED}
+                    {' · '}
+                    <Link href={ga4PropertyPickerHref(card.clientId)} className="text-zinc-300 underline-offset-2 hover:underline">
+                        {GA4_CONNECT_LABEL}
+                    </Link>
+                </div>
+            ) : heroKey && ga4?.unavailable ? (
+                <p data-ga4="unavailable" className="mt-4 flex-1 text-xs text-zinc-500">{GA4_UNAVAILABLE}</p>
+            ) : heroKey && value == null ? (
+                <p className="mt-4 flex-1 text-xs text-zinc-500">No data in this range</p>
+            ) : (
+                <div className="-mx-4 mt-2 flex min-h-0 flex-1 items-end">
+                    <Sparkline
+                        values={series}
+                        overlay={heroKey ? null : face.overlay?.clicks}
+                        tone={heroTone}
+                        label={`${card.name} ${label} trend`}
+                        className="h-full min-h-28 w-full"
+                        stretch
+                        curve="monotone"
+                    />
+                </div>
+            )}
+            {!heroKey && face.coverageLabel && <p className="mt-1 text-xs text-zinc-500">{face.coverageLabel}</p>}
+            <div className="mt-3 grid grid-cols-3 gap-2">
+                {heroKey ? (
+                    <>
+                        <Ga4Stat label="Sessions" metric="sessions" value={ga4Ready ? ga4Ready.metrics.sessions.value : null} />
+                        <Ga4Stat label="Engagement rate" metric="engagementRate" value={ga4Ready ? ga4Ready.metrics.engagementRate.value : null} />
+                        <Ga4Stat label="Key events" metric="keyEvents" value={ga4Ready ? ga4Ready.metrics.keyEvents.value : null} />
+                    </>
+                ) : (
+                    SUPPORTING.map(item => <Stat key={item} metric={item} view={face.metrics[item]} />)
+                )}
+            </div>
+        </>
+    );
+}
+
+function Ga4Stat({ label, metric, value }: { label: string; metric: 'sessions' | 'engagementRate' | 'keyEvents'; value: number | null }) {
+    return (
+        <div data-ga4-stat={metric}>
+            <p className="text-sm font-semibold tabular-nums text-zinc-100">{formatGa4Metric(metric, value)}</p>
+            <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500">{label}</p>
+        </div>
     );
 }
 
@@ -694,7 +875,7 @@ function ChangePill({ metric, change, note, size = 'md' }: { metric: MetricKey; 
     );
 }
 
-function PortfolioTable({ cards, engine, metric, signal, onSort, queryCache }: { cards: DashboardCard[]; engine: SearchEngine; metric: MetricKey; signal: MetricKey; onSort: (metric: MetricKey) => void; queryCache: Record<string, LoadedQueries> }) {
+function PortfolioTable({ cards, engine, metric, signal, onSort, queryCache, ga4Cards = false, cardMetric = 'clicks' }: { cards: DashboardCard[]; engine: SearchEngine; metric: MetricKey; signal: MetricKey; onSort: (metric: MetricKey) => void; queryCache: Record<string, LoadedQueries>; ga4Cards?: boolean; cardMetric?: CardMetric }) {
     return (
         <div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
             <table className="w-full min-w-[640px] text-left text-sm">
@@ -712,15 +893,29 @@ function PortfolioTable({ cards, engine, metric, signal, onSort, queryCache }: {
                     </tr>
                 </thead>
                 <tbody>
-                    {cards.map(card => {
+                        {cards.map(card => {
                         const face = engineFace(card, engine);
-                        const tint = cardTint(signal, face.metrics[signal].change);
+                        const heroKey = ga4Cards ? ga4HeroKey(cardMetric) : null;
+                        const ga4Hero = heroKey && card.ga4?.mapped && !card.ga4.unavailable ? card.ga4.metrics[heroKey] : null;
+                        const tint = heroKey
+                            ? cardTint('clicks', ga4Hero?.change ?? null)
+                            : cardTint(signal, face.metrics[signal].change);
                         const share = engine === 'all' ? bingShareLabel(card) : null;
+                        const unmapped = Boolean(heroKey && card.ga4 && !card.ga4.unavailable && !card.ga4.mapped);
                         return (
                             <tr key={card.clientId} data-tone={tint.tone} className="border-t border-white/10" style={{ backgroundColor: WASH[tint.tone][Math.min(tint.strength, 2)] }}>
                                 <td className="px-3 py-3">
                                     <div className="font-medium">{card.name}</div>
                                     <div className="text-xs text-zinc-400" title={engine === 'bing' ? face.reasonTitle ?? undefined : undefined}>{card.domain}{face.reasonLabel ? ` · ${face.reasonLabel}` : ''}</div>
+                                    {heroKey && (
+                                        <div data-ga4-list={unmapped ? 'unmapped' : 'value'} className="mt-1 text-xs text-zinc-300">
+                                            {unmapped ? (
+                                                <Link href={ga4PropertyPickerHref(card.clientId)} className="text-zinc-400 underline-offset-2 hover:underline">{GA4_CONNECT_LABEL}</Link>
+                                            ) : (
+                                                <span className="tabular-nums">{formatGa4Metric(heroKey, ga4Hero?.value ?? null)}</span>
+                                            )}
+                                        </div>
+                                    )}
                                     {share && <div data-bing-share title={card.bing?.reasonTitle ?? undefined} className="mt-1 text-xs text-zinc-300">{share}</div>}
                                     <QueryPreview card={card} engine={engine} loaded={queryCache[card.clientId]} />
                                     <div className="mt-1 flex gap-3 text-xs">
@@ -733,7 +928,11 @@ function PortfolioTable({ cards, engine, metric, signal, onSort, queryCache }: {
                                     <td key={item} className="px-3 py-3 tabular-nums">{formatMetric(item, face.metrics[item].value)}</td>
                                 ))}
                                 <td className="px-3 py-3">
-                                    <ChangePill metric={metric} change={face.metrics[metric].change} note={face.changeNote} size="sm" />
+                                    {heroKey ? (
+                                        <ChangePill metric="clicks" change={ga4Hero?.change ?? null} note={card.ga4?.changeNote} size="sm" />
+                                    ) : (
+                                        <ChangePill metric={metric} change={face.metrics[metric].change} note={face.changeNote} size="sm" />
+                                    )}
                                 </td>
                             </tr>
                         );
