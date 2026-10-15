@@ -181,6 +181,49 @@ test('sync is refused while the flag is off and does not store a run', async () 
     assert.equal((await store.listSucceeded(ORG)).length, 0);
 });
 
+test('an empty sync is refused so it cannot clear Campaign Desk', async () => {
+    const emptySource: ForecastSourceData = {
+        members: source().members,
+        logs: [],
+        events: [],
+        tasks: [],
+    };
+    const { deps, calls, store } = harness({ enabled: true, source: emptySource });
+    const response = await createForecastSyncPost(deps)(new Request('https://seo-pm.test/api/forecast/sync', {
+        method: 'POST',
+        body: JSON.stringify({
+            organizationId: ORG,
+            weekStarts: ['2026-10-12'],
+            today: '2026-10-14',
+            timeZone: 'America/Los_Angeles',
+        }),
+    }));
+    assert.equal(response.status, 422);
+    assert.match((await response.json()).error, /would clear/);
+    assert.equal(calls.upsert, 0);
+    assert.equal((await store.listSucceeded(ORG)).length, 0);
+
+    const unmapped = harness({
+        enabled: true,
+        source: {
+            ...source(),
+            members: [{ userId: 'user-carlos', displayName: 'Carlos Morones', email: 'other@example.com' }],
+        },
+    });
+    unmapped.deps.listPeople = async () => [{ id: 'desk_carlos', email: 'cmorones@marketingempiregroup.com' }];
+    const blocked = await createForecastSyncPost(unmapped.deps)(new Request('https://seo-pm.test/api/forecast/sync', {
+        method: 'POST',
+        body: JSON.stringify({
+            organizationId: ORG,
+            weekStarts: ['2026-10-12'],
+            today: '2026-10-14',
+            timeZone: 'America/Los_Angeles',
+        }),
+    }));
+    assert.equal(blocked.status, 422);
+    assert.equal(unmapped.calls.upsert, 0);
+});
+
 test('an enabled sync stores one run and a repeat does not call Campaign Desk again', async () => {
     const { deps, calls, store } = harness({ enabled: true });
     const post = createForecastSyncPost(deps);

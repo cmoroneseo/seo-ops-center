@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildForecast } from './build.ts';
-import { forecastWeekChip, formatLastSynced, presentForecast, syncButtonLabel } from './present.ts';
+import { EMPTY_FORECAST_SYNC_REASON, forecastWeekChip, formatLastSynced, presentForecast, syncButtonLabel } from './present.ts';
 
 test('the preview shows allocation, a review link, and an em dash instead of a fake zero', () => {
     const built = buildForecast({
@@ -79,4 +79,49 @@ test('last synced names the person, and a missing time stays an em dash', () => 
     assert.equal(synced.reason, null);
     assert.deepEqual(formatLastSynced(null, null, 'UTC'), { label: 'Not synced yet', reason: null });
     assert.equal(formatLastSynced('not-a-date', 'Carlos', 'UTC').label, '—');
+});
+
+test('an empty or unmapped preview disables sync so it cannot clear Campaign Desk', () => {
+    const empty = buildForecast({
+        organizationId: '22222222-2222-4222-8222-222222222222',
+        today: '2026-10-14',
+        timeZone: 'America/Los_Angeles',
+        selectedWeekStarts: ['2026-10-12'],
+        members: [{
+            userId: 'user-carlos',
+            displayName: 'Carlos Morones',
+            email: 'cmorones@marketingempiregroup.com',
+        }],
+        directory: [{ id: 'desk_carlos', email: 'cmorones@marketingempiregroup.com' }],
+        logs: [],
+        events: [],
+        tasks: [],
+    });
+    const emptyView = presentForecast(empty, { enabled: true, reason: null }, null);
+    assert.equal(emptyView.syncDisabled, true);
+    assert.equal(emptyView.syncDisabledReason, EMPTY_FORECAST_SYNC_REASON);
+
+    const unmapped = buildForecast({
+        organizationId: '22222222-2222-4222-8222-222222222222',
+        today: '2026-10-14',
+        timeZone: 'America/Los_Angeles',
+        selectedWeekStarts: ['2026-10-12'],
+        members: [{
+            userId: 'user-carlos',
+            displayName: 'Carlos Morones',
+            email: 'cmorones@marketingempiregroup.com',
+        }],
+        directory: [],
+        logs: [{
+            id: 'a', userId: 'user-carlos', clientId: '33333333-3333-4333-8333-333333333333',
+            clientName: 'Northwind Plumbing', date: '2026-10-14', hours: 4,
+            status: 'logged', importStatus: 'mapped',
+        }],
+        events: [],
+        tasks: [],
+    });
+    const unmappedView = presentForecast(unmapped, { enabled: true, reason: null }, null);
+    assert.equal(unmappedView.syncDisabled, true);
+    assert.equal(unmappedView.syncDisabledReason, EMPTY_FORECAST_SYNC_REASON);
+    assert.equal(unmappedView.sections[0].people[0].rows[0].hoursLabel, '4h 00m');
 });
