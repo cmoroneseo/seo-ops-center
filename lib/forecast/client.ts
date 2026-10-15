@@ -1,5 +1,7 @@
 import type { ForecastDeskPerson } from './build.ts';
-import { parseForecastPayload, type ForecastPayload } from './contract.ts';
+import type { ForecastDeskClient } from './clients.ts';
+import { isCampaignDeskClientId } from './clients.ts';
+import { parseStoredForecastPayload, type StoredForecastPayload } from './contract-v2.ts';
 
 /**
  * Campaign Desk has no client in this repo. This is the boundary the sync
@@ -19,7 +21,8 @@ export interface CampaignDeskDeleteResult {
 
 export interface CampaignDeskClient {
     listPeople(): Promise<ForecastDeskPerson[]>;
-    upsertRun(payload: ForecastPayload): Promise<CampaignDeskUpsertResult>;
+    listClients(): Promise<ForecastDeskClient[]>;
+    upsertRun(payload: StoredForecastPayload): Promise<CampaignDeskUpsertResult>;
     deleteRun(runId: string): Promise<CampaignDeskDeleteResult>;
 }
 
@@ -158,8 +161,28 @@ export function createCampaignDeskClient(options: CampaignDeskClientOptions): Ca
                 return { id: id.trim(), email: email.trim() };
             });
         },
+        async listClients() {
+            const body = await request('/v1/clients', { method: 'GET' });
+            if (!body || typeof body !== 'object' || !Array.isArray((body as { clients?: unknown }).clients)) {
+                throw new CampaignDeskRequestError(200, 'invalid_payload', 'Campaign Desk returned an unreadable client list.', { path: '/v1/clients' });
+            }
+            return (body as { clients: unknown[] }).clients.map(client => {
+                if (!client || typeof client !== 'object') {
+                    throw new CampaignDeskRequestError(200, 'invalid_payload', 'Campaign Desk returned an unreadable client list.', { path: '/v1/clients' });
+                }
+                const id = (client as { id?: unknown }).id;
+                const name = (client as { name?: unknown }).name;
+                if (typeof id !== 'string' || !isCampaignDeskClientId(id.trim()) || id !== id.trim()) {
+                    throw new CampaignDeskRequestError(200, 'invalid_payload', 'Campaign Desk returned an unreadable client list.', { path: '/v1/clients' });
+                }
+                if (typeof name !== 'string' || name.trim() === '') {
+                    throw new CampaignDeskRequestError(200, 'invalid_payload', 'Campaign Desk returned an unreadable client list.', { path: '/v1/clients' });
+                }
+                return { id, name: name.trim() };
+            });
+        },
         async upsertRun(payload) {
-            parseForecastPayload(payload);
+            parseStoredForecastPayload(payload);
             const body = await request(`/v1/forecast-runs/${encodeURIComponent(payload.runId)}`, {
                 method: 'PUT',
                 body: payload,

@@ -81,8 +81,8 @@ function canonicalize(value: unknown): unknown {
 }
 
 /** Stable hash of the hours we would send. The run id is not part of the hash. */
-export function forecastPayloadHash(body: ForecastPayloadBody): string {
-    const rest: ForecastPayloadBody & { runId?: string } = { ...body };
+export function forecastPayloadHash(body: object): string {
+    const rest: Record<string, unknown> = { ...(body as Record<string, unknown>) };
     delete rest.runId;
     return createHash('sha256').update(JSON.stringify(canonicalize(rest))).digest('hex');
 }

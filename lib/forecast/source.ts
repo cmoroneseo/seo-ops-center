@@ -1,7 +1,10 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { ForecastEvent, ForecastLog, ForecastMember, ForecastTask } from './build.ts';
-import { parseForecastPayload, type ForecastPayload } from './contract.ts';
+import type { ForecastClientLink, ForecastSeoClient } from './clients.ts';
+import { isCampaignDeskClientId } from './clients.ts';
+import { parseStoredForecastPayload, type StoredForecastPayload } from './contract-v2.ts';
 import {
+    ForecastClientMapUnavailable,
     ForecastStoreUnavailable,
     type ForecastRunStore,
     type ForecastSyncRunRecord,
@@ -23,7 +26,10 @@ interface LogRow {
     import_status: string | null;
     voided_at: string | null;
     planner_event_id: string | null;
-    clients: { name?: string | null } | { name?: string | null }[] | null;
+    task_id?: string | null;
+    description?: string | null;
+    clients: { name?: string | null; domain?: string | null } | { name?: string | null; domain?: string | null }[] | null;
+    tasks?: { title?: string | null } | { title?: string | null }[] | null;
 }
 
 interface EventRow {
@@ -35,8 +41,10 @@ interface EventRow {
     ends_at: string;
     all_day: boolean | null;
     client_id: string | null;
+    task_id?: string | null;
     title: string | null;
-    clients: { name?: string | null } | { name?: string | null }[] | null;
+    clients: { name?: string | null; domain?: string | null } | { name?: string | null; domain?: string | null }[] | null;
+    tasks?: { title?: string | null } | { title?: string | null }[] | null;
 }
 
 interface TaskRow {
@@ -47,7 +55,7 @@ interface TaskRow {
     client_id: string | null;
     start_date: string | null;
     estimated_hours: number | string | null;
-    clients: { name?: string | null } | { name?: string | null }[] | null;
+    clients: { name?: string | null; domain?: string | null } | { name?: string | null; domain?: string | null }[] | null;
 }
 
 interface RunRow {
@@ -87,22 +95,28 @@ export function rowToForecastMember(row: MemberRow): ForecastMember {
 
 export function rowToForecastLog(row: LogRow): ForecastLog {
     const client = one(row.clients);
+    const task = one(row.tasks);
     return {
         id: row.id,
         userId: row.user_id ?? '',
         clientId: row.client_id ?? undefined,
         clientName: client?.name?.trim() || undefined,
+        clientDomain: client?.domain?.trim() || undefined,
         date: row.date,
         hours: readHours(row.hours),
         status: row.status ?? 'logged',
         importStatus: row.import_status ?? 'mapped',
         voidedAt: row.voided_at ?? undefined,
         plannerEventId: row.planner_event_id ?? undefined,
+        taskId: row.task_id ?? undefined,
+        taskTitle: task?.title?.trim() || undefined,
+        description: row.description?.trim() || undefined,
     };
 }
 
 export function rowToForecastEvent(row: EventRow): ForecastEvent {
     const client = one(row.clients);
+    const task = one(row.tasks);
     return {
         id: row.id,
         userId: row.user_id,
@@ -113,6 +127,9 @@ export function rowToForecastEvent(row: EventRow): ForecastEvent {
         allDay: row.all_day === true,
         clientId: row.client_id ?? undefined,
         clientName: client?.name?.trim() || undefined,
+        clientDomain: client?.domain?.trim() || undefined,
+        taskId: row.task_id ?? undefined,
+        taskTitle: task?.title?.trim() || undefined,
         title: row.title?.trim() || 'Meeting',
     };
 }
@@ -128,17 +145,29 @@ export function rowToForecastTask(row: TaskRow): ForecastTask {
         assigneeIds: row.assignee_ids ?? [],
         clientId: row.client_id ?? undefined,
         clientName: client?.name?.trim() || undefined,
+        clientDomain: client?.domain?.trim() || undefined,
         startDate: row.start_date ?? undefined,
         estimatedHours: present && estimate != null ? estimate : null,
         estimateUnreadable: present && estimate == null,
     };
 }
 
+const LOG_COLUMNS = 'id, user_id, client_id, task_id, description, date, hours, status, import_status, voided_at, planner_event_id, clients(name, domain), tasks(title)';
+const EVENT_COLUMNS = 'id, user_id, attendee_ids, kind, starts_at, ends_at, all_day, client_id, task_id, title, clients(name, domain), tasks(title)';
+const TASK_COLUMNS = 'id, title, status, assignee_ids, client_id, start_date, estimated_hours, clients(name, domain)';
+
 function isMissingTable(error: { code?: string; message?: string } | null): boolean {
     if (!error) return false;
     return error.code === '42P01'
         || error.code === 'PGRST205'
         || /campaign_desk_sync_runs/i.test(error.message ?? '');
+}
+
+function isMissingClientMap(error: { code?: string; message?: string } | null): boolean {
+    if (!error) return false;
+    return error.code === '42P01'
+        || error.code === 'PGRST205'
+        || /campaign_desk_client_links/i.test(error.message ?? '');
 }
 
 export async function loadForecastSource(scope: {
@@ -150,17 +179,17 @@ export async function loadForecastSource(scope: {
     const [memberResult, logResult, eventResult, taskResult] = await Promise.all([
         admin.from('organization_members').select('user_id, users(full_name, email)').eq('organization_id', scope.organizationId),
         admin.from('time_logs')
-            .select('id, user_id, client_id, date, hours, status, import_status, voided_at, planner_event_id, clients(name)')
+            .select(LOG_COLUMNS)
             .eq('organization_id', scope.organizationId)
             .gte('date', scope.from)
             .lt('date', scope.to),
         admin.from('planner_events')
-            .select('id, user_id, attendee_ids, kind, starts_at, ends_at, all_day, client_id, title, clients(name)')
+            .select(EVENT_COLUMNS)
             .eq('organization_id', scope.organizationId)
             .lt('starts_at', `${scope.to}T00:00:00.000Z`)
             .gt('ends_at', `${scope.from}T00:00:00.000Z`),
         admin.from('tasks')
-            .select('id, title, status, assignee_ids, client_id, start_date, estimated_hours, clients(name)')
+            .select(TASK_COLUMNS)
             .eq('organization_id', scope.organizationId)
             .gte('start_date', `${scope.from}T00:00:00.000Z`)
             .lt('start_date', `${scope.to}T00:00:00.000Z`),
@@ -177,7 +206,7 @@ export async function loadForecastSource(scope: {
         .filter(id => !have.has(id));
     if (missing.length > 0) {
         const extra = await admin.from('planner_events')
-            .select('id, user_id, attendee_ids, kind, starts_at, ends_at, all_day, client_id, title, clients(name)')
+            .select(EVENT_COLUMNS)
             .eq('organization_id', scope.organizationId)
             .in('id', missing);
         if (extra.error) throw extra.error;
@@ -193,9 +222,9 @@ export async function loadForecastSource(scope: {
 }
 
 function rowToRun(row: RunRow, names: Map<string, string>): ForecastSyncRunRecord | null {
-    let payload: ForecastPayload;
+    let payload: StoredForecastPayload;
     try {
-        payload = parseForecastPayload(row.payload);
+        payload = parseStoredForecastPayload(row.payload);
     } catch {
         return null;
     }
@@ -307,4 +336,89 @@ export function createForecastRunStore(): ForecastRunStore {
             return updated.data ? 'updated' : 'already_undone';
         },
     };
+}
+
+export async function listForecastSeoClients(organizationId: string): Promise<ForecastSeoClient[]> {
+    const { data, error } = await createAdminClient()
+        .from('clients')
+        .select('id, name, domain')
+        .eq('organization_id', organizationId)
+        .order('name');
+    if (error) throw error;
+    return (data ?? []).map(row => ({
+        id: String(row.id),
+        name: String(row.name ?? '').trim(),
+        domain: typeof row.domain === 'string' && row.domain.trim() ? row.domain.trim() : null,
+    })).filter(client => client.name !== '');
+}
+
+export async function loadForecastClientLinks(organizationId: string): Promise<ForecastClientLink[]> {
+    const { data, error } = await createAdminClient()
+        .from('campaign_desk_client_links')
+        .select('client_id, campaign_desk_client_id, matched_by')
+        .eq('organization_id', organizationId);
+    if (isMissingClientMap(error)) throw new ForecastClientMapUnavailable();
+    if (error) throw error;
+    return (data ?? []).flatMap(row => {
+        const campaignDeskClientId = String(row.campaign_desk_client_id ?? '');
+        if (!isCampaignDeskClientId(campaignDeskClientId)) return [];
+        const matchedBy = row.matched_by === 'manual' ? 'manual' as const : 'name' as const;
+        return [{
+            clientId: String(row.client_id).toLowerCase(),
+            campaignDeskClientId,
+            matchedBy,
+        }];
+    });
+}
+
+export async function saveForecastClientLink(input: {
+    organizationId: string;
+    clientId: string;
+    campaignDeskClientId: string;
+    matchedBy: 'manual' | 'name';
+    updatedBy: string;
+}): Promise<void> {
+    const { error } = await createAdminClient().from('campaign_desk_client_links').upsert({
+        organization_id: input.organizationId,
+        client_id: input.clientId,
+        campaign_desk_client_id: input.campaignDeskClientId,
+        matched_by: input.matchedBy,
+        updated_at: new Date().toISOString(),
+        updated_by: input.updatedBy,
+    }, { onConflict: 'organization_id,client_id' });
+    if (isMissingClientMap(error)) throw new ForecastClientMapUnavailable();
+    if (error) throw error;
+}
+
+export async function clearForecastClientLink(organizationId: string, clientId: string): Promise<void> {
+    const { error } = await createAdminClient()
+        .from('campaign_desk_client_links')
+        .delete()
+        .eq('organization_id', organizationId)
+        .eq('client_id', clientId);
+    if (isMissingClientMap(error)) throw new ForecastClientMapUnavailable();
+    if (error) throw error;
+}
+
+/** Insert exact-name matches that are not stored yet. A saved row is left as it is. */
+export async function rememberForecastClientNameMatches(
+    organizationId: string,
+    updatedBy: string,
+    matches: { clientId: string; campaignDeskClientId: string }[],
+): Promise<void> {
+    const rows = matches.filter(match => isCampaignDeskClientId(match.campaignDeskClientId));
+    if (rows.length === 0) return;
+    const { error } = await createAdminClient().from('campaign_desk_client_links').upsert(
+        rows.map(match => ({
+            organization_id: organizationId,
+            client_id: match.clientId,
+            campaign_desk_client_id: match.campaignDeskClientId,
+            matched_by: 'name',
+            updated_at: new Date().toISOString(),
+            updated_by: updatedBy,
+        })),
+        { onConflict: 'organization_id,client_id', ignoreDuplicates: true },
+    );
+    if (isMissingClientMap(error)) throw new ForecastClientMapUnavailable();
+    if (error) throw error;
 }

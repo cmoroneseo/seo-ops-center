@@ -1,4 +1,4 @@
-import type { ForecastPayload } from './contract.ts';
+import type { StoredForecastPayload } from './contract-v2.ts';
 
 export type ForecastRunStatus = 'succeeded' | 'undone';
 
@@ -10,7 +10,7 @@ export interface ForecastSyncRunRecord {
     createdAt: string;
     weekStarts: string[];
     payloadHash: string;
-    payload: ForecastPayload;
+    payload: StoredForecastPayload;
     status: ForecastRunStatus;
     externalId: string | null;
     undoneAt: string | null;
@@ -33,6 +33,14 @@ export interface ForecastRunStore {
         undoneBy: string,
         undoneAt: string,
     ): Promise<ForecastUndoMark>;
+}
+
+/** Migration 099 has not been applied. Version 2 still sends, with no saved client ids. */
+export class ForecastClientMapUnavailable extends Error {
+    constructor() {
+        super('Campaign Desk client mapping is not set up.');
+        this.name = 'ForecastClientMapUnavailable';
+    }
 }
 
 /** The sync table is not in the database yet. The UI shows an em dash, not a zero. */

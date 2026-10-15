@@ -4,6 +4,8 @@ import { weekStartFor } from '../timesheets/ledger.ts';
 import {
     buildForecast,
     matchPerson,
+    type ForecastBuildInput,
+    type ForecastBuildResult,
     type ForecastDeskPerson,
     type ForecastEvent,
     type ForecastLog,
@@ -11,17 +13,18 @@ import {
     type ForecastTask,
 } from './build.ts';
 import { createCampaignDeskClient, CampaignDeskRequestError, type CampaignDeskClient } from './client.ts';
+import type { ForecastClientLink, ForecastDeskClient } from './clients.ts';
 import {
     forecastPayloadHash,
+    ForecastPayloadError,
     normalizeEmail,
-    parseForecastPayload,
-    type ForecastPayload,
-    type ForecastPayloadBody,
 } from './contract.ts';
+import { parseStoredForecastPayload } from './contract-v2.ts';
 import type { ForecastReadiness } from './flags.ts';
 import { forecastStatusLabel, formatLastSynced, forecastWeekChip, presentForecast } from './present.ts';
-import { coveringRun, latestRun, linesForPerson, memberForecastStatus } from './status.ts';
-import { ForecastStoreUnavailable, type ForecastRunStore, type ForecastSyncRunRecord } from './store.ts';
+import { coveringRun, latestRun, memberForecastStatus, personForecastDigest } from './status.ts';
+import { ForecastClientMapUnavailable, ForecastStoreUnavailable, type ForecastRunStore, type ForecastSyncRunRecord } from './store.ts';
+import { buildForecastV2, type ForecastV2BuildResult } from './v2.ts';
 import { assertTimeZone, loadWindow, parseSelectableWeeks, resolveClientToday, selectableWeekStarts } from './weeks.ts';
 
 export interface ForecastAdminAuth {
@@ -54,7 +57,18 @@ export interface ForecastHttpDependencies {
     store: ForecastRunStore;
     client: CampaignDeskClient;
     newRunId(): string;
+    /** 2 only when CAMPAIGN_DESK_SYNC_V2 is exactly true. */
+    payloadVersion(): 1 | 2;
+    listClients(): Promise<ForecastDeskClient[]>;
+    loadClientLinks(organizationId: string): Promise<ForecastClientLink[]>;
+    rememberNameMatches(
+        organizationId: string,
+        updatedBy: string,
+        matches: { clientId: string; campaignDeskClientId: string }[],
+    ): Promise<void>;
 }
+
+type BuiltForecast = ForecastBuildResult | ForecastV2BuildResult;
 
 function directoryReason(error: CampaignDeskRequestError): string {
     if (error.status === 0) return 'unreachable';
@@ -193,7 +207,7 @@ export function createForecastStatusGet(deps: ForecastHttpDependencies) {
             organizationId: auth.organizationId,
             ...loadWindow([weekStart]),
         });
-        const built = buildForecast({
+        const { built } = await buildChosen(deps, {
             organizationId: auth.organizationId,
             today: todayResult.today,
             timeZone: zone.timeZone,
@@ -201,6 +215,7 @@ export function createForecastStatusGet(deps: ForecastHttpDependencies) {
             ...source,
             directory: directory.people,
             directoryUnavailableReason: directory.error ?? connection.reason ?? undefined,
+            connectionEnabled: connection.enabled,
         });
         const covered = coveringRun(runs.map(toStatusRun), weekStart);
         const latest = latestRun(runs.map(toStatusRun));
@@ -219,13 +234,12 @@ export function createForecastStatusGet(deps: ForecastHttpDependencies) {
 
 function statusMembers(
     members: ForecastMember[],
-    built: ReturnType<typeof buildForecast>,
+    built: BuiltForecast,
     directory: DirectoryLoad,
     connection: ForecastReadiness,
     covered: ReturnType<typeof coveringRun>,
     weekStart: string,
 ) {
-    const weekLines = built.payloadBody.weeks.find(week => week.weekStart === weekStart)?.allocations ?? [];
     return members.map(member => {
         const email = normalizeEmail(member.email);
         const match = matchPerson(
@@ -236,8 +250,10 @@ function statusMembers(
         const status = memberForecastStatus({
             match,
             coveringRun: covered,
-            previousLines: covered ? linesForPerson(covered.payload, weekStart, email) : [],
-            currentLines: weekLines.filter(line => line.personEmail === email),
+            previousLines: [],
+            currentLines: [],
+            previousDigest: covered ? personForecastDigest(covered.payload, weekStart, email) : undefined,
+            currentDigest: personForecastDigest(built.payloadBody, weekStart, email),
             connectionEnabled: connection.enabled && !directory.error,
         });
         return {
@@ -268,6 +284,50 @@ async function loadDirectory(
     }
 }
 
+async function loadClientLinks(deps: ForecastHttpDependencies, organizationId: string) {
+    try {
+        const links = await deps.loadClientLinks(organizationId);
+        return new Map(links.map(link => [link.clientId.toLowerCase(), link.campaignDeskClientId]));
+    } catch (error) {
+        if (error instanceof ForecastClientMapUnavailable) return new Map<string, string>();
+        throw error;
+    }
+}
+
+async function loadDeskClients(
+    deps: ForecastHttpDependencies,
+): Promise<{ clients: ForecastDeskClient[] | null; error: string | null }> {
+    try {
+        return { clients: await deps.listClients(), error: null };
+    } catch (error) {
+        if (!(error instanceof CampaignDeskRequestError)) throw error;
+        logDirectoryFailure(error);
+        return { clients: null, error: `Campaign Desk clients could not be loaded (${directoryReason(error)}).` };
+    }
+}
+
+async function buildChosen(
+    deps: ForecastHttpDependencies,
+    input: ForecastBuildInput & { connectionEnabled: boolean },
+): Promise<{ built: BuiltForecast; clientsError: string | null }> {
+    const { connectionEnabled, ...rest } = input;
+    if (deps.payloadVersion() !== 2) {
+        return { built: buildForecast(rest), clientsError: null };
+    }
+    const clientLinks = await loadClientLinks(deps, input.organizationId);
+    const desk = connectionEnabled
+        ? await loadDeskClients(deps)
+        : { clients: null, error: null };
+    return {
+        built: buildForecastV2({
+            ...rest,
+            clientLinks,
+            deskClients: desk.clients,
+        }),
+        clientsError: desk.error,
+    };
+}
+
 async function previewPayload(
     deps: ForecastHttpDependencies,
     organizationId: string,
@@ -278,7 +338,7 @@ async function previewPayload(
     const connection = deps.readiness(organizationId);
     const directory = await loadDirectory(deps, connection);
     const source = await deps.load({ organizationId, ...loadWindow(weeks) });
-    const built = buildForecast({
+    const { built, clientsError } = await buildChosen(deps, {
         organizationId,
         today,
         timeZone,
@@ -286,8 +346,11 @@ async function previewPayload(
         ...source,
         directory: directory.people,
         directoryUnavailableReason: directory.error ?? connection.reason ?? undefined,
+        connectionEnabled: connection.enabled,
     });
     const allowed = selectableWeekStarts(today);
+    const preview = presentForecast(built, connection, directory.error);
+    if (clientsError) preview.warnings.push({ message: clientsError });
     return {
         connection,
         selectableWeeks: allowed.map(weekStart => ({
@@ -295,7 +358,7 @@ async function previewPayload(
             label: forecastWeekChip(weekStart, today),
             selected: weeks.includes(weekStart),
         })),
-        preview: presentForecast(built, connection, directory.error),
+        preview,
     };
 }
 
@@ -327,15 +390,28 @@ export function createForecastSyncPost(deps: ForecastHttpDependencies) {
         }
 
         const source = await deps.load({ organizationId: auth.organizationId, ...loadWindow(weeks) });
-        const built = buildForecast({
+        const { built } = await buildChosen(deps, {
             organizationId: auth.organizationId,
             today: todayResult.today,
             timeZone: zone.timeZone,
             selectedWeekStarts: weeks,
             ...source,
             directory,
+            connectionEnabled: true,
         });
-        const payloadBody: ForecastPayloadBody = built.payloadBody;
+        if ((built.itemCount ?? 0) > 500) {
+            return json({ error: 'This sync has more than 500 items. Choose fewer weeks.' }, 422);
+        }
+        if ('nameMatches' in built && built.nameMatches.length > 0) {
+            try {
+                await deps.rememberNameMatches(auth.organizationId, auth.userId, built.nameMatches);
+            } catch (error) {
+                if (!(error instanceof ForecastClientMapUnavailable)) {
+                    console.warn(JSON.stringify({ event: 'campaign_desk_client_map_write_failed' }));
+                }
+            }
+        }
+        const payloadBody = built.payloadBody;
         const payloadHash = forecastPayloadHash(payloadBody);
 
         let existing: ForecastSyncRunRecord | null = null;
@@ -350,7 +426,15 @@ export function createForecastSyncPost(deps: ForecastHttpDependencies) {
         if (existing) return json(syncResult(existing, true));
 
         const runId = deps.newRunId();
-        const payload: ForecastPayload = parseForecastPayload({ ...payloadBody, runId });
+        let payload;
+        try {
+            payload = parseStoredForecastPayload({ ...payloadBody, runId });
+        } catch (error) {
+            if (error instanceof ForecastPayloadError) {
+                return json({ error: 'The forecast body is not valid to send.' }, 500);
+            }
+            throw error;
+        }
         let upsert: { runId: string; idempotent: boolean };
         try {
             upsert = await deps.client.upsertRun(payload);

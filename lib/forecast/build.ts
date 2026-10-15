@@ -41,6 +41,10 @@ export interface ForecastLog {
     importStatus: string;
     voidedAt?: string;
     plannerEventId?: string;
+    taskId?: string;
+    taskTitle?: string;
+    description?: string;
+    clientDomain?: string;
 }
 
 export interface ForecastEvent {
@@ -53,6 +57,9 @@ export interface ForecastEvent {
     allDay: boolean;
     clientId?: string;
     clientName?: string;
+    clientDomain?: string;
+    taskId?: string;
+    taskTitle?: string;
     title: string;
 }
 
@@ -63,6 +70,7 @@ export interface ForecastTask {
     assigneeIds: string[];
     clientId?: string;
     clientName?: string;
+    clientDomain?: string;
     startDate?: string;
     /** Null when the task has no estimate. */
     estimatedHours: number | null;
@@ -111,7 +119,11 @@ export type ForecastWarningKind =
     | 'missing_client_names'
     | 'unreadable_hours'
     | 'missing_events'
-    | 'unreadable_starts';
+    | 'unreadable_starts'
+    | 'unmatched_clients'
+    | 'over_day'
+    | 'truncated_time_logs'
+    | 'too_many_items';
 
 export interface ForecastWarning {
     kind: ForecastWarningKind;
@@ -142,6 +154,11 @@ export interface ForecastBuildResult {
     breakMinutes: number;
     /** All-day breaks have no duration, so they are counted instead of timed. */
     allDayBreaks: number;
+    /** Set by the version 2 builder. Version 1 leaves these unset. */
+    payloadVersion?: 1 | 2;
+    oooLeftOut?: number;
+    unmatchedClients?: number;
+    itemCount?: number;
     payloadBody: ForecastPayloadBody;
 }
 

@@ -10,6 +10,7 @@ import { User as UserType, OrganizationMember } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { AppearanceTab } from '@/components/settings/AppearanceTab';
 import { SyncBingButton } from '@/components/settings/SyncBingButton';
+import { ForecastClientMap } from '@/components/forecast/ForecastClientMap';
 
 interface MemberWithUser extends OrganizationMember {
     user: UserType;
@@ -49,14 +50,15 @@ const SEVERITY_STYLES: Record<string, string> = {
     blocking: 'text-red-500 font-semibold',
 };
 
-type SettingsTab = 'general' | 'appearance' | 'feedback';
+type SettingsTab = 'general' | 'appearance' | 'feedback' | 'forecast';
 
-const TAB_IDS: SettingsTab[] = ['general', 'appearance', 'feedback'];
+const TAB_IDS: SettingsTab[] = ['general', 'appearance', 'feedback', 'forecast'];
 
 export default function SettingsPage() {
     const { organization } = useOrganization();
     const { displayName, isOwner, role } = useCurrentMember();
     const canSyncBing = role === 'owner' || role === 'admin';
+    const canMapForecast = role === 'owner' || role === 'admin';
     const [activeTab, setActiveTab] = useState<SettingsTab>('general');
     const [members, setMembers] = useState<MemberWithUser[]>([]);
     const [isInviteLoading, setIsInviteLoading] = useState(false);
@@ -195,6 +197,17 @@ export default function SettingsPage() {
                     <Palette className="h-3.5 w-3.5" />
                     Appearance
                 </button>
+                {canMapForecast && (
+                    <button
+                        onClick={() => setActiveTab('forecast')}
+                        className={cn(
+                            'px-4 py-1.5 text-sm font-medium rounded-md transition-all',
+                            activeTab === 'forecast' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                        )}
+                    >
+                        Forecast
+                    </button>
+                )}
                 <button
                     onClick={() => setActiveTab('feedback')}
                     className={cn(
@@ -213,6 +226,10 @@ export default function SettingsPage() {
 
             {/* ── Appearance Tab ── */}
             {activeTab === 'appearance' && <AppearanceTab />}
+
+            {activeTab === 'forecast' && canMapForecast && organization && (
+                <ForecastClientMap organizationId={organization.id} />
+            )}
 
             {/* ── General Tab ── */}
             {activeTab === 'general' && (
