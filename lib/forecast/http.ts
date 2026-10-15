@@ -21,7 +21,7 @@ import {
 } from './contract.ts';
 import { parseStoredForecastPayload } from './contract-v2.ts';
 import type { ForecastReadiness } from './flags.ts';
-import { forecastStatusLabel, formatLastSynced, forecastWeekChip, presentForecast } from './present.ts';
+import { EMPTY_FORECAST_SYNC_REASON, forecastSendableCount, forecastStatusLabel, formatLastSynced, forecastWeekChip, presentForecast } from './present.ts';
 import { coveringRun, latestRun, memberForecastStatus, personForecastDigest } from './status.ts';
 import { ForecastClientMapUnavailable, ForecastStoreUnavailable, type ForecastRunStore, type ForecastSyncRunRecord } from './store.ts';
 import { buildForecastV2, type ForecastV2BuildResult } from './v2.ts';
@@ -401,6 +401,9 @@ export function createForecastSyncPost(deps: ForecastHttpDependencies) {
         });
         if ((built.itemCount ?? 0) > 500) {
             return json({ error: 'This sync has more than 500 items. Choose fewer weeks.' }, 422);
+        }
+        if (forecastSendableCount(built) === 0) {
+            return json({ error: EMPTY_FORECAST_SYNC_REASON }, 422);
         }
         if ('nameMatches' in built && built.nameMatches.length > 0) {
             try {

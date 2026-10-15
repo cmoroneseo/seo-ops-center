@@ -116,15 +116,31 @@ export function formatLastSynced(
     return { label: `Last synced ${formatted} by ${by.trim()}`, reason: null };
 }
 
+/** Rows marked sent are the only lines a sync would PUT to Campaign Desk. */
+export function forecastSendableCount(result: Pick<ForecastPresentSource, 'weeks' | 'itemCount' | 'payloadVersion'>): number {
+    if (result.payloadVersion === 2 && typeof result.itemCount === 'number') return result.itemCount;
+    return result.weeks
+        .flatMap(week => week.people)
+        .flatMap(person => person.rows)
+        .filter(row => row.sent)
+        .length;
+}
+
+export const EMPTY_FORECAST_SYNC_REASON =
+    'Nothing to send. Syncing would clear these weeks on Campaign Desk.';
+
 export function presentForecast(
     result: ForecastPresentSource,
     connection: ForecastReadiness,
     directoryError: string | null,
 ): ForecastPreviewView {
     const overCap = (result.itemCount ?? 0) > 500;
+    const emptySend = forecastSendableCount(result) === 0;
     const blocked = !connection.enabled
         ? connection.reason
-        : directoryError ?? (overCap ? 'This sync has more than 500 items. Choose fewer weeks.' : null);
+        : directoryError
+            ?? (overCap ? 'This sync has more than 500 items. Choose fewer weeks.' : null)
+            ?? (emptySend ? EMPTY_FORECAST_SYNC_REASON : null);
     return {
         sections: result.weeks.map(week => ({
             weekStart: week.weekStart,
