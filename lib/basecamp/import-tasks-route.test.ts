@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { timeTrackingTaskId } from '../tasks/pillars.ts';
 
 type RouteModule = typeof import('./import-tasks-route.ts');
 
@@ -380,6 +381,227 @@ test('an imported to-do remembers which list it came from', async () => {
     assert.equal(built.ok, true);
     if (!built.ok) return;
     assert.deepEqual(built.rows[0].custom_fields, { basecamp_source_todolist_id: '45' });
+});
+
+/**
+ * To-do 10211418597. 'Send for approval' is done; 'Publish on website' is
+ * open and due 2026-10-30. A trashed step and a step from another to-do are
+ * not part of this checklist.
+ */
+const faqSteps = [
+    {
+        id: 10211450455,
+        title: 'Send for approval',
+        completed: true,
+        completion: { created_at: '2026-08-17T21:40:17.999Z' },
+        position: 2,
+        status: 'active',
+        assignees: [{ id: 5001 }, { id: 9999 }],
+        parent: { id: 10211418597, type: 'Todo' },
+    },
+    {
+        id: 10211449969,
+        title: 'Publish on website',
+        completed: false,
+        due_on: '2026-10-30',
+        position: 1,
+        status: 'active',
+        assignees: [{ id: 9999 }],
+        parent: { id: 10211418597, type: 'Todo' },
+    },
+    {
+        id: 8,
+        title: 'Trashed step',
+        status: 'trashed',
+        completed: false,
+        parent: { id: 10211418597, type: 'Todo' },
+    },
+    {
+        id: 9,
+        title: 'Someone else\'s step',
+        completed: false,
+        parent: { id: 42, type: 'Todo' },
+    },
+];
+
+test('Basecamp steps import as children of the to-do, and a re-import does not duplicate them', async () => {
+    const { createBasecampImportTasksPost } = await loadRouteModule();
+    const stored: Array<{
+        id: string;
+        basecampTodoId: number;
+        stage: string | null;
+        parentTaskId: string | null;
+        row: Record<string, unknown>;
+    }> = [];
+    const completions: Array<{ title: string; completedAt: string }> = [];
+    const assigneeLookups: number[][] = [];
+    let sequence = 0;
+
+    const post = createBasecampImportTasksPost({
+        authorizeClient: async () => authorized,
+        createAccessSource: () => externalSource(['47747763']),
+        isConfigured: () => true,
+        getTodo: async () => ({
+            id: 10211418597,
+            title: 'Website FAQs',
+            description: '',
+            due_on: null,
+            completed: false,
+            assignees: [{ id: 5001 }],
+            steps: faqSteps,
+        }),
+        getSteps: async () => faqSteps,
+        resolveAssignees: async (_organizationId, personIds) => {
+            assigneeLookups.push(personIds);
+            return new Map([[5001, 'user-abel']]);
+        },
+        createWriter: () => ({
+            async insertTasks(rows) {
+                for (const row of rows) {
+                    sequence += 1;
+                    const isChild = typeof row.parent_task_id === 'string';
+                    stored.push({
+                        id: isChild ? `step-${sequence}` : `parent-${sequence}`,
+                        basecampTodoId: Number(row.basecamp_todo_id),
+                        stage: typeof row.stage === 'string' ? row.stage : 'backlog',
+                        parentTaskId: isChild ? String(row.parent_task_id) : null,
+                        row,
+                    });
+                }
+                return null;
+            },
+            async findRecordings(_organizationId, _clientId, recordingIds) {
+                const wanted = new Set(recordingIds);
+                return stored
+                    .filter(record => wanted.has(record.basecampTodoId))
+                    .map(record => ({
+                        id: record.id,
+                        basecampTodoId: record.basecampTodoId,
+                        stage: record.stage,
+                        parentTaskId: record.parentTaskId,
+                    }));
+            },
+            async logActivity() {},
+            async logCompletions(payload) { completions.push(...payload.completions); },
+        }),
+        now: () => '2026-10-16T21:00:00.000Z',
+    });
+
+    const importRequest = () => request({
+        tasks: [{ basecampTodoId: 10211418597, basecampProjectId: 47747763 }],
+    });
+
+    const response = await post(importRequest());
+    assert.equal(response.status, 200);
+    assert.deepEqual(await responseBody(response), { imported: 3, errors: [] });
+    assert.deepEqual(assigneeLookups, [[5001, 9999]]);
+
+    const parent = stored.find(record => record.parentTaskId == null);
+    const publish = stored.find(record => record.row.title === 'Publish on website');
+    const approval = stored.find(record => record.row.title === 'Send for approval');
+    assert.ok(parent && publish && approval);
+    assert.equal(stored.length, 3);
+
+    assert.equal(publish.parentTaskId, parent.id);
+    assert.equal(approval.parentTaskId, parent.id);
+    assert.equal(publish.row.parent_task_id, parent.id);
+    assert.equal(publish.row.client_id, 'client-a');
+    assert.equal(approval.row.client_id, 'client-a');
+    assert.equal(publish.row.organization_id, 'org-a');
+    assert.equal(publish.stage, 'backlog');
+    assert.equal(publish.row.stage, 'backlog');
+    assert.equal(publish.row.status, 'todo');
+    assert.equal(publish.row.due_date, '2026-10-30');
+    assert.equal(publish.row.completed_at, null);
+    assert.deepEqual(publish.row.assignee_ids, []);
+    assert.equal(approval.row.status, 'done');
+    assert.equal(approval.row.completed_at, '2026-08-17T21:40:17.999Z');
+    assert.deepEqual(approval.row.assignee_ids, ['user-abel']);
+    assert.equal(approval.row.basecamp_todo_id, 10211450455);
+    assert.equal(publish.row.basecamp_todo_id, 10211449969);
+    assert.equal(Object.hasOwn(publish.row, 'recurrence'), false);
+    assert.equal(Object.hasOwn(publish.row, 'start_date'), false);
+    assert.equal(timeTrackingTaskId(
+        { id: publish.id, parentTaskId: parent.id, title: 'Publish on website' },
+        { title: 'Website FAQs' },
+    ), parent.id);
+    assert.deepEqual(
+        stored.filter(record => record.parentTaskId).map(record => record.row.title),
+        ['Publish on website', 'Send for approval'],
+    );
+    assert.deepEqual(completions, [
+        { title: 'Send for approval', completedAt: '2026-08-17T21:40:17.999Z' },
+    ]);
+
+    const again = await post(importRequest());
+    assert.equal(again.status, 200);
+    assert.deepEqual(await responseBody(again), { imported: 0, errors: [] });
+    assert.equal(stored.length, 3);
+    assert.equal(completions.length, 1);
+});
+
+test('steps attached to an existing to-do take that task\'s stage', async () => {
+    const { createBasecampImportTasksPost } = await loadRouteModule();
+    const stored = [{
+        id: 'task-faqs',
+        basecampTodoId: 10211418597,
+        stage: 'onboarding',
+        parentTaskId: null as string | null,
+        row: { title: 'Website FAQs' } as Record<string, unknown>,
+    }];
+
+    const post = createBasecampImportTasksPost({
+        authorizeClient: async () => authorized,
+        createAccessSource: () => externalSource(['47747763']),
+        isConfigured: () => true,
+        getTodo: async () => ({
+            id: 10211418597,
+            title: 'Website FAQs',
+            description: '',
+            due_on: null,
+            completed: false,
+            assignees: [],
+        }),
+        getSteps: async () => faqSteps,
+        resolveAssignees: async () => new Map(),
+        createWriter: () => ({
+            async insertTasks(rows) {
+                for (const row of rows) {
+                    stored.push({
+                        id: `step-${stored.length}`,
+                        basecampTodoId: Number(row.basecamp_todo_id),
+                        stage: typeof row.stage === 'string' ? row.stage : 'backlog',
+                        parentTaskId: typeof row.parent_task_id === 'string' ? row.parent_task_id : null,
+                        row,
+                    });
+                }
+                return null;
+            },
+            async findRecordings(_organizationId, _clientId, recordingIds) {
+                const wanted = new Set(recordingIds);
+                return stored
+                    .filter(record => wanted.has(record.basecampTodoId))
+                    .map(record => ({
+                        id: record.id,
+                        basecampTodoId: record.basecampTodoId,
+                        stage: record.stage,
+                        parentTaskId: record.parentTaskId,
+                    }));
+            },
+            async logActivity() {},
+            async logCompletions() {},
+        }),
+        now: () => '2026-10-16T21:00:00.000Z',
+    });
+
+    const response = await post(request({
+        tasks: [{ basecampTodoId: 10211418597, basecampProjectId: 47747763 }],
+    }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await responseBody(response), { imported: 2, errors: [] });
+    const children = stored.filter(record => record.parentTaskId);
+    assert.equal(children.length, 2);
+    assert.ok(children.every(child => child.parentTaskId === 'task-faqs' && child.row.stage === 'onboarding'));
 });
 
 test('a non-numeric source list is refused before the provider is called', async () => {

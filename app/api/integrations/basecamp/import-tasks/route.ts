@@ -1,11 +1,11 @@
 import { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getBasecampTodo, isBasecampConfigured } from '@/lib/basecamp/api';
+import { getBasecampTodo, isBasecampConfigured, listBasecampTodoSteps } from '@/lib/basecamp/api';
 import { createBasecampImportTasksPost } from '@/lib/basecamp/import-tasks-route';
 import { createSupabaseBasecampProjectAccessSource } from '@/lib/basecamp/supabase-project-access-source';
 import { requireClientOrgMember } from '@/lib/security/tenant-authz';
 import { logClientActivity } from '@/lib/supabase/client-activity';
-import { membersByBasecampPersonId } from '@/lib/supabase/timesheet-imports';
+import { findImportedBasecampRecordings, membersByBasecampPersonId } from '@/lib/supabase/timesheet-imports';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
         createAccessSource: () => createSupabaseBasecampProjectAccessSource(createAdminClient()),
         isConfigured: isBasecampConfigured,
         getTodo: (projectId, todoId) => getBasecampTodo(projectId, todoId),
+        getSteps: (projectId, todoId) => listBasecampTodoSteps(projectId, todoId),
         createWriter() {
             const admin = createAdminClient();
             return {
@@ -40,6 +41,9 @@ export async function POST(req: NextRequest) {
                         });
                     }
                 },
+                findRecordings: (organizationId, clientId, recordingIds) => (
+                    findImportedBasecampRecordings(organizationId, clientId, recordingIds)
+                ),
                 async logActivity(payload) {
                     await logClientActivity({
                         organizationId: payload.organizationId,

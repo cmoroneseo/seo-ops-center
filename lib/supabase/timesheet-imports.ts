@@ -338,22 +338,82 @@ export async function listImportedBasecampTodoIds(
         .filter(id => Number.isSafeInteger(id) && id > 0);
 }
 
-/** The task a Basecamp to-do was already imported as, if any. */
+export interface ImportedBasecampTask {
+    id: string;
+    title: string;
+    stage: string | null;
+    priority: string | null;
+}
+
+/** The task a Basecamp to-do was already imported as, if any. Top-level only. */
 export async function findImportedBasecampTask(
     organizationId: string,
     clientId: string,
     basecampTodoId: number,
-): Promise<{ id: string; title: string } | null> {
-    const { data, error } = await createAdminClient()
-        .from('tasks')
-        .select('id, title')
-        .eq('organization_id', organizationId)
-        .eq('client_id', clientId)
-        .eq('basecamp_todo_id', basecampTodoId)
-        .limit(1)
-        .maybeSingle();
-    if (error) throw error;
-    return data ? { id: data.id, title: data.title ?? '' } : null;
+): Promise<ImportedBasecampTask | null> {
+    const matches = await findImportedBasecampRecordings(
+        organizationId,
+        clientId,
+        [basecampTodoId],
+    );
+    const task = matches.find(match => match.parentTaskId == null) ?? null;
+    if (!task) return null;
+    return {
+        id: task.id,
+        title: task.title,
+        stage: task.stage,
+        priority: task.priority,
+    };
+}
+
+export interface ImportedBasecampRecording {
+    id: string;
+    title: string;
+    basecampTodoId: number;
+    stage: string | null;
+    priority: string | null;
+    parentTaskId: string | null;
+}
+
+/**
+ * Tasks in this client that already store one of these Basecamp recording ids.
+ * A to-do and a step share `basecamp_todo_id`: the step's id is the recording
+ * id, which is what makes a re-import and a later push both idempotent.
+ */
+export async function findImportedBasecampRecordings(
+    organizationId: string,
+    clientId: string,
+    basecampIds: number[],
+): Promise<ImportedBasecampRecording[]> {
+    const ids = [...new Set(basecampIds.filter(id => Number.isSafeInteger(id) && id > 0))];
+    if (ids.length === 0) return [];
+
+    const admin = createAdminClient();
+    const found: ImportedBasecampRecording[] = [];
+    const chunkSize = 100;
+    for (let index = 0; index < ids.length; index += chunkSize) {
+        const part = ids.slice(index, index + chunkSize);
+        const { data, error } = await admin
+            .from('tasks')
+            .select('id, title, basecamp_todo_id, stage, priority, parent_task_id')
+            .eq('organization_id', organizationId)
+            .eq('client_id', clientId)
+            .in('basecamp_todo_id', part);
+        if (error) throw error;
+        for (const row of data ?? []) {
+            const recordingId = Number(row.basecamp_todo_id);
+            if (!Number.isSafeInteger(recordingId) || recordingId <= 0) continue;
+            found.push({
+                id: row.id,
+                title: row.title ?? '',
+                basecampTodoId: recordingId,
+                stage: typeof row.stage === 'string' ? row.stage : null,
+                priority: typeof row.priority === 'string' ? row.priority : null,
+                parentTaskId: typeof row.parent_task_id === 'string' ? row.parent_task_id : null,
+            });
+        }
+    }
+    return found;
 }
 
 /**
@@ -386,12 +446,16 @@ export async function membersByBasecampPersonId(
 /** Insert one already-shaped task row and hand back what it became. */
 export async function insertImportedTask(
     row: Record<string, unknown>,
-): Promise<{ id: string; title: string }> {
+): Promise<{ id: string; title: string; stage: string | null }> {
     const { data, error } = await createAdminClient()
         .from('tasks')
         .insert(row)
-        .select('id, title')
+        .select('id, title, stage')
         .single();
     if (error) throw error;
-    return { id: data.id, title: data.title ?? '' };
+    return {
+        id: data.id,
+        title: data.title ?? '',
+        stage: typeof data.stage === 'string' ? data.stage : null,
+    };
 }

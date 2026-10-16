@@ -1,7 +1,13 @@
+import { isTaskStage } from '../tasks/stage.ts';
 import {
     authorizeBasecampProject,
     type BasecampProjectAccessSource,
 } from './project-access.ts';
+import {
+    mergeBasecampTodoSteps,
+    stepsForTodo,
+    type BasecampTodoStep,
+} from './todo-steps.ts';
 
 export interface ImportTaskPayload {
     basecampTodoId: number;
@@ -29,12 +35,39 @@ export interface ProviderTodo {
     completion?: { created_at?: string | null } | null;
     completed_at?: string | null;
     assignees?: Array<{ id: number | string }> | null;
+    /** Checklist steps embedded on the to-do payload. Merged with `getSteps`. */
+    steps?: unknown;
+}
+
+/**
+ * A Basecamp step, shaped as a task row but not yet linked to its parent.
+ * `parent_task_id` and `stage` are applied once the parent task exists, so
+ * the child lands in the same stage and time rolls up to that parent.
+ */
+export interface ImportedStepDraft {
+    parentBasecampTodoId: number;
+    basecampStepId: number;
+    row: Record<string, unknown>;
+}
+
+/** A task that already carries a Basecamp recording id (a to-do or a step). */
+export interface ImportedRecording {
+    id: string;
+    basecampTodoId: number;
+    stage: string | null;
+    parentTaskId: string | null;
 }
 
 export type GetProviderTodo = (
     projectId: string,
     todoId: string,
 ) => Promise<ProviderTodo | null>;
+
+/** Checklist steps for one to-do. An array, or anything else (treated as none). */
+export type GetProviderSteps = (
+    projectId: string,
+    todoId: string,
+) => Promise<unknown>;
 
 /**
  * Deliberate departures from the bulk importer's defaults, both off unless a
@@ -90,6 +123,16 @@ interface ImportWriter {
         imported: number;
         errors: number;
     }): Promise<void>;
+    /**
+     * Tasks in this client that already store one of these Basecamp recording
+     * ids. Used so a second import links new steps to the existing parent
+     * instead of inserting either again.
+     */
+    findRecordings?(
+        organizationId: string,
+        clientId: string,
+        recordingIds: number[],
+    ): Promise<ImportedRecording[]>;
 }
 
 interface Dependencies {
@@ -97,6 +140,8 @@ interface Dependencies {
     createAccessSource(): BasecampProjectAccessSource;
     isConfigured(): boolean;
     getTodo: GetProviderTodo;
+    /** Dedicated step list. Merged with steps embedded on the to-do. */
+    getSteps?: GetProviderSteps;
     createWriter(): ImportWriter;
     /**
      * Basecamp person id -> org member user id. Unmapped people are omitted.
@@ -141,6 +186,212 @@ function chunk<T>(values: T[], size = 500): T[][] {
     return chunks;
 }
 
+const TASK_PRIORITIES = new Set(['low', 'medium', 'high', 'urgent']);
+
+function taskPriority(value: unknown): 'low' | 'medium' | 'high' | 'urgent' {
+    return typeof value === 'string' && TASK_PRIORITIES.has(value)
+        ? value as 'low' | 'medium' | 'high' | 'urgent'
+        : 'medium';
+}
+
+function personIdsOf(assignees: Array<{ id: number | string }> | null | undefined): number[] {
+    const ids: number[] = [];
+    for (const assignee of assignees ?? []) {
+        const id = Number(assignee?.id);
+        if (Number.isSafeInteger(id) && id > 0) ids.push(id);
+    }
+    return ids;
+}
+
+function mappedAssigneeIds(
+    assignees: Array<{ id: number | string }> | null | undefined,
+    assigneesByPerson: Map<number, string>,
+): string[] {
+    return Array.from(new Set(
+        (assignees ?? [])
+            .map(assignee => assigneesByPerson.get(Number(assignee?.id)))
+            .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    ));
+}
+
+function mirroredCompletion(input: {
+    mirror: boolean;
+    completed?: boolean;
+    completion?: { created_at?: string | null } | null;
+    completedAt?: string | null;
+    now: string;
+}): { status: 'todo' | 'done'; completedAt: string | null } {
+    const isDone = input.mirror && input.completed === true;
+    return {
+        status: isDone ? 'done' : 'todo',
+        // The moment the work actually finished, not the moment it was
+        // imported — otherwise every backfilled to-do reads as completed today.
+        completedAt: isDone
+            ? input.completion?.created_at || input.completedAt || input.now
+            : null,
+    };
+}
+
+/**
+ * Steps from the dedicated list, filled in by whatever the to-do payload
+ * already embedded. A failed list read keeps the embedded checklist.
+ */
+export async function loadProviderSteps(
+    projectId: string,
+    todoId: string,
+    getSteps: GetProviderSteps | undefined,
+    embedded: unknown,
+): Promise<BasecampTodoStep[]> {
+    let listed: unknown[] = [];
+    if (getSteps) {
+        try {
+            const fetched = await getSteps(projectId, todoId);
+            listed = Array.isArray(fetched) ? fetched : [];
+        } catch {
+            listed = [];
+        }
+    }
+    const embeddedSteps = Array.isArray(embedded) ? embedded : [];
+    return stepsForTodo(mergeBasecampTodoSteps([listed, embeddedSteps]), todoId);
+}
+
+function draftImportedStep(input: {
+    step: BasecampTodoStep;
+    index: number;
+    parentBasecampTodoId: number;
+    organizationId: string;
+    clientId: string;
+    userId: string;
+    projectId: string;
+    priority: 'low' | 'medium' | 'high' | 'urgent';
+    category: string | null;
+    now: string;
+    mirrorCompletion: boolean;
+    assigneesByPerson: Map<number, string> | null;
+}): ImportedStepDraft {
+    const completion = mirroredCompletion({
+        mirror: input.mirrorCompletion,
+        completed: input.step.completed,
+        completion: input.step.completion,
+        completedAt: input.step.completed_at,
+        now: input.now,
+    });
+    // Basecamp's position when it has one, otherwise the merged order.
+    // sort_order is what the task list reads; position is the stage-column order.
+    const order = input.step.position ?? input.index;
+    return {
+        parentBasecampTodoId: input.parentBasecampTodoId,
+        basecampStepId: input.step.id,
+        row: {
+            organization_id: input.organizationId,
+            client_id: input.clientId,
+            title: input.step.title,
+            description: null,
+            due_date: input.step.due_on,
+            priority: input.priority,
+            status: completion.status,
+            category: input.category,
+            tags: [],
+            assignee_ids: input.assigneesByPerson
+                ? mappedAssigneeIds(input.step.assignees, input.assigneesByPerson)
+                : [],
+            sort_order: order,
+            position: order,
+            // The step's own recording id, in the same column outbound push
+            // writes after it creates a step. Re-import and push both treat
+            // a present id as "this checklist item already exists".
+            basecamp_todo_id: input.step.id,
+            basecamp_project_id: Number(input.projectId),
+            last_synced_at: input.now,
+            status_history: [{
+                status: completion.status,
+                at: completion.completedAt ?? input.now,
+                by: input.userId,
+            }],
+            completed_at: completion.completedAt,
+            custom_fields: {},
+            watcher_ids: [],
+            created_by: input.userId,
+        },
+    };
+}
+
+/**
+ * Step rows for a to-do that is already a task. Assignees are mapped the
+ * same way as the parent's: an unmapped Basecamp person is omitted.
+ */
+export async function draftsForSteps(input: {
+    steps: readonly BasecampTodoStep[];
+    parentBasecampTodoId: number;
+    organizationId: string;
+    clientId: string;
+    userId: string;
+    projectId: string;
+    priority?: unknown;
+    category?: string | null;
+    now: string;
+    mirrorCompletion: boolean;
+    resolveAssignees?: (personIds: number[]) => Promise<Map<number, string>>;
+}): Promise<ImportedStepDraft[]> {
+    const personIds = Array.from(new Set(input.steps.flatMap(step => step.assignees.map(assignee => assignee.id))));
+    let assigneesByPerson: Map<number, string> | null = null;
+    if (input.resolveAssignees && personIds.length > 0) {
+        assigneesByPerson = await input.resolveAssignees(personIds);
+    }
+    return input.steps.map((step, index) => draftImportedStep({
+        step,
+        index,
+        parentBasecampTodoId: input.parentBasecampTodoId,
+        organizationId: input.organizationId,
+        clientId: input.clientId,
+        userId: input.userId,
+        projectId: input.projectId,
+        priority: taskPriority(input.priority),
+        category: input.category || null,
+        now: input.now,
+        mirrorCompletion: input.mirrorCompletion,
+        assigneesByPerson,
+    }));
+}
+
+/**
+ * Attach step drafts to the parent task that now exists.
+ * Already-imported recording ids are skipped. The child takes the parent's
+ * stage. It has no start date and no recurrence, so it is a pillar subtask:
+ * time logged on it rolls up to the parent instead of becoming its own block.
+ */
+export function linkImportedSteps(input: {
+    drafts: ReadonlyArray<ImportedStepDraft>;
+    parents: ReadonlyArray<{ basecampTodoId: number; taskId: string; stage: string | null }>;
+    alreadyImportedStepIds: ReadonlySet<number>;
+}): Array<Record<string, unknown>> {
+    const parentByTodo = new Map(input.parents.map(parent => [parent.basecampTodoId, parent]));
+    const seen = new Set<number>();
+    const rows: Array<Record<string, unknown>> = [];
+    for (const draft of input.drafts) {
+        if (seen.has(draft.basecampStepId) || input.alreadyImportedStepIds.has(draft.basecampStepId)) continue;
+        if (draft.basecampStepId === draft.parentBasecampTodoId) continue;
+        const parent = parentByTodo.get(draft.parentBasecampTodoId);
+        if (!parent) continue;
+        seen.add(draft.basecampStepId);
+        rows.push({
+            ...draft.row,
+            parent_task_id: parent.taskId,
+            stage: isTaskStage(parent.stage) ? parent.stage : 'backlog',
+        });
+    }
+    return rows;
+}
+
+function indexTopLevel(records: readonly ImportedRecording[]): Map<number, ImportedRecording> {
+    const byTodo = new Map<number, ImportedRecording>();
+    for (const record of records) {
+        if (record.parentTaskId != null || byTodo.has(record.basecampTodoId)) continue;
+        byTodo.set(record.basecampTodoId, record);
+    }
+    return byTodo;
+}
+
 /**
  * Verify each requested to-do against the provider, then shape the `tasks`
  * rows it becomes.
@@ -157,10 +408,11 @@ export async function buildBasecampTaskRows(input: {
     clientId: string;
     userId: string;
     getTodo: GetProviderTodo;
+    getSteps?: GetProviderSteps;
     now: string;
     options?: BasecampImportOptions;
 }): Promise<
-    | { ok: true; rows: Array<Record<string, unknown>> }
+    | { ok: true; rows: Array<Record<string, unknown>>; steps: ImportedStepDraft[] }
     | { ok: false; status: number; error: string }
 > {
     const providerTodos = new Map<string, ProviderTodo>();
@@ -174,43 +426,72 @@ export async function buildBasecampTaskRows(input: {
         providerTodos.set(`${projectId}:${todoId}`, providerTodo);
     }
 
+    const stepsByKey = new Map<string, BasecampTodoStep[]>();
+    for (const task of input.tasks) {
+        const projectId = numericId(task.basecampProjectId)!;
+        const todoId = numericId(task.basecampTodoId)!;
+        const key = `${projectId}:${todoId}`;
+        stepsByKey.set(key, await loadProviderSteps(
+            projectId,
+            todoId,
+            input.getSteps,
+            providerTodos.get(key)?.steps,
+        ));
+    }
+
     const mirrorCompletion = input.options?.mirrorCompletion === true;
     const resolveAssignees = input.options?.resolveAssignees;
 
     let assigneesByPerson = new Map<number, string>();
     if (resolveAssignees) {
-        const personIds = Array.from(new Set(
-            Array.from(providerTodos.values())
-                .flatMap(todo => todo.assignees ?? [])
-                .map(assignee => Number(assignee?.id))
-                .filter(id => Number.isSafeInteger(id) && id > 0),
-        ));
+        const personIds = Array.from(new Set([
+            ...Array.from(providerTodos.values()).flatMap(todo => personIdsOf(todo.assignees)),
+            ...Array.from(stepsByKey.values()).flat().flatMap(step => step.assignees.map(assignee => assignee.id)),
+        ]));
         if (personIds.length > 0) {
             assigneesByPerson = await resolveAssignees(personIds);
         }
     }
 
+    const steps: ImportedStepDraft[] = [];
     const rows = input.tasks.map(task => {
         const projectId = numericId(task.basecampProjectId)!;
         const todoId = numericId(task.basecampTodoId)!;
         const providerTodo = providerTodos.get(`${projectId}:${todoId}`)!;
 
-        const isDone = mirrorCompletion && providerTodo.completed === true;
-        const status = isDone ? 'done' : 'todo';
-        // The moment the work actually finished, not the moment it was
-        // imported — otherwise every backfilled to-do reads as completed today.
-        const completedAt = isDone
-            ? providerTodo.completion?.created_at || providerTodo.completed_at || input.now
-            : null;
+        const completion = mirroredCompletion({
+            mirror: mirrorCompletion,
+            completed: providerTodo.completed,
+            completion: providerTodo.completion,
+            completedAt: providerTodo.completed_at,
+            now: input.now,
+        });
+        const status = completion.status;
+        const completedAt = completion.completedAt;
 
         const assigneeIds = resolveAssignees
-            ? Array.from(new Set(
-                (providerTodo.assignees ?? [])
-                    .map(assignee => assigneesByPerson.get(Number(assignee?.id)))
-                    .filter((id): id is string => typeof id === 'string' && id.length > 0),
-            ))
+            ? mappedAssigneeIds(providerTodo.assignees, assigneesByPerson)
             : [];
         const sourceListId = sourceTodolistId(task.basecampTodolistId);
+        const priority = task.priority ?? 'medium';
+        const category = task.category || null;
+
+        for (const [index, step] of (stepsByKey.get(`${projectId}:${todoId}`) ?? []).entries()) {
+            steps.push(draftImportedStep({
+                step,
+                index,
+                parentBasecampTodoId: Number(todoId),
+                organizationId: input.organizationId,
+                clientId: input.clientId,
+                userId: input.userId,
+                projectId,
+                priority,
+                category,
+                now: input.now,
+                mirrorCompletion,
+                assigneesByPerson: resolveAssignees ? assigneesByPerson : null,
+            }));
+        }
 
         return {
             organization_id: input.organizationId,
@@ -218,9 +499,9 @@ export async function buildBasecampTaskRows(input: {
             title: providerTodo.title.trim(),
             description: providerTodo.description || null,
             due_date: providerTodo.due_on || null,
-            priority: task.priority ?? 'medium',
+            priority,
             status,
-            category: task.category || null,
+            category,
             tags: [],
             assignee_ids: assigneeIds,
             sort_order: 0,
@@ -239,7 +520,7 @@ export async function buildBasecampTaskRows(input: {
         } satisfies Record<string, unknown>;
     });
 
-    return { ok: true, rows };
+    return { ok: true, rows, steps };
 }
 
 export function createBasecampImportTasksPost(dependencies: Dependencies) {
@@ -283,6 +564,7 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
                 clientId: authorization.clientId,
                 userId: authorization.userId,
                 getTodo: dependencies.getTodo,
+                getSteps: dependencies.getSteps,
                 now: dependencies.now(),
                 options: {
                     // A to-do already finished in Basecamp must not arrive
@@ -298,22 +580,71 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
                 },
             });
             if (!built.ok) return json({ error: built.error }, built.status);
-            const rows = built.rows;
 
             const writer = dependencies.createWriter();
+            const recordingIds = [
+                ...built.rows.map(row => Number(row.basecamp_todo_id)),
+                ...built.steps.map(step => step.basecampStepId),
+            ];
+            const known = writer.findRecordings
+                ? await writer.findRecordings(
+                    authorization.organizationId,
+                    authorization.clientId,
+                    recordingIds,
+                )
+                : [];
+            const parentsByTodo = indexTopLevel(known);
+            const stepIds = new Set(built.steps.map(step => step.basecampStepId));
+            const alreadyImportedStepIds = new Set(
+                known.map(record => record.basecampTodoId).filter(id => stepIds.has(id)),
+            );
+
             const errors: string[] = [];
             const insertedRows: Array<Record<string, unknown>> = [];
-            let imported = 0;
-            for (const part of chunk(rows)) {
+            const failedParentIds = new Set<number>();
+            const newParentRows = built.rows.filter(row => !parentsByTodo.has(Number(row.basecamp_todo_id)));
+            for (const part of chunk(newParentRows)) {
                 const error = await writer.insertTasks(part);
-                if (error) errors.push(error);
-                else {
-                    imported += part.length;
+                if (error) {
+                    errors.push(error);
+                    for (const row of part) failedParentIds.add(Number(row.basecamp_todo_id));
+                } else {
                     // Only rows that actually landed. A failed chunk must not
                     // announce completions for work that was never imported.
                     insertedRows.push(...part);
                 }
             }
+
+            const insertedParentIds = insertedRows.map(row => Number(row.basecamp_todo_id));
+            if (writer.findRecordings && insertedParentIds.length > 0) {
+                const created = await writer.findRecordings(
+                    authorization.organizationId,
+                    authorization.clientId,
+                    insertedParentIds,
+                );
+                for (const [todoId, record] of indexTopLevel(created)) {
+                    parentsByTodo.set(todoId, record);
+                }
+            }
+
+            const childRows = linkImportedSteps({
+                drafts: built.steps,
+                parents: [...parentsByTodo.entries()]
+                    .filter(([todoId]) => !failedParentIds.has(todoId))
+                    .map(([basecampTodoId, record]) => ({
+                        basecampTodoId,
+                        taskId: record.id,
+                        stage: record.stage,
+                    })),
+                alreadyImportedStepIds,
+            });
+            for (const part of chunk(childRows)) {
+                const error = await writer.insertTasks(part);
+                if (error) errors.push(error);
+                else insertedRows.push(...part);
+            }
+
+            const imported = insertedRows.length;
 
             if (imported > 0) {
                 await writer.logActivity({
