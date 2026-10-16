@@ -96,7 +96,7 @@ test('the nightly cron publishes one daily chain and one backfill chain', async 
     assert.equal(ran.sent[1]?.idempotencyKey, `ga4-backfill:2026-10-15:${RUN}:backfill:1`);
 });
 
-test('a daily message writes three null days, leaves yesterday open, and does not invent zeros', async () => {
+test('a daily message writes three zero days when reports succeed with no rows, and leaves yesterday open', async () => {
     const store = memoryStore({ daily: true });
     const ran = deps(store);
     await runGa4QueueMessage({ runId: RUN, chain: 1, kind: 'daily' }, ran);
@@ -104,9 +104,10 @@ test('a daily message writes three null days, leaves yesterday open, and does no
     assert.equal(store.days[0]?.isFinal, true);
     assert.equal(store.days[2]?.isFinal, false);
     for (const day of store.days) {
-        assert.equal(day.daily.sessions, null);
-        assert.equal(day.daily.organic_sessions, null);
-        assert.equal(day.daily.key_events, null);
+        assert.equal(day.daily.sessions, 0);
+        assert.equal(day.daily.organic_sessions, 0);
+        assert.equal(day.daily.key_events, 0);
+        assert.deepEqual(day.daily.total_key_events_by_name, { purchase: 0 });
     }
     assert.equal(store.releases[0]?.status, 'idle');
     assert.equal(store.reauths, 0);
@@ -134,7 +135,7 @@ test('under 20 percent hourly tokens the saved month is kept and the chain waits
     });
     await runGa4QueueMessage({ runId: RUN, chain: 1, kind: 'backfill' }, ran);
     assert.equal(store.days.length, 14);
-    assert.equal(store.days.every(day => day.daily.sessions === null), true);
+    assert.equal(store.days.every(day => day.daily.sessions === 0), true);
     assert.equal(store.releases[0]?.cursorDate, '2026-10-01');
     assert.equal(store.releases[0]?.status, 'pending');
     assert.equal(store.releases[0]?.lastError, 'quota');
