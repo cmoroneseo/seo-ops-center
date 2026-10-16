@@ -93,11 +93,15 @@ export function ga4QueueSend(message: Ga4QueueMessage, delaySeconds: number): Ga
     return { ...parsed, delaySeconds: delay, idempotencyKey, retentionSeconds: GA4_QUEUE_RETENTION_SECONDS };
 }
 
-/** One start message per UTC day and kind, so a cron retry does not open a second chain. */
+/**
+ * One start message per run and kind. The run id is part of the key, so running
+ * the cron again the same day publishes a new chain and can restart one that died.
+ * The same run id stays idempotent.
+ */
 export function ga4CronStartSend(now: Date, runId: string, kind: Ga4QueueKind): Ga4QueueSend | null {
     const message = ga4QueueSend({ runId, chain: 1, kind }, 0);
     if (!message) return null;
-    return { ...message, idempotencyKey: `ga4-backfill:${utcDay(now)}:${kind}:1` };
+    return { ...message, idempotencyKey: `ga4-backfill:${utcDay(now)}:${runId}:${kind}:1` };
 }
 
 export function nextGa4QueueSend(current: Ga4QueueMessage, delaySeconds: number): Ga4QueueSend | null {
