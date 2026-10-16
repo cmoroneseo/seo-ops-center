@@ -13,6 +13,7 @@ import {
     pendingStageTasks,
     rollbackStageTasks,
 } from '@/lib/seo-plan/stage-add';
+import { applyStageReorder, mergeStageTasks, restoreStageTasks, type StageReorderMove } from '@/lib/seo-plan/stage-reorder';
 import { parseStageListTasks, type StageListTask } from '@/lib/seo-plan/stage-list';
 import { getTask } from '@/lib/supabase/tasks';
 import type { Task } from '@/lib/types';
@@ -20,9 +21,9 @@ import { PanelSkeleton } from './PanelSkeleton';
 import { StagePlanListView, type StageAddRequest } from './StagePlanListView';
 
 /**
- * Loads the session-scoped stage list, creates tasks from the add bar, and
- * opens the existing task drawer. Requests carry only the route client id.
- * The server decides the organization.
+ * Loads the session-scoped stage list, creates tasks from the add bar, moves
+ * them by drag, and opens the existing task drawer. Requests carry only the
+ * route client id. The server decides the organization.
  */
 export function StagePlanList({ clientId, clientName }: { clientId: string; clientName: string }) {
     const { userId } = useCurrentMember();
@@ -32,6 +33,7 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
     const [reloadKey, setReloadKey] = useState(0);
     const [detail, setDetail] = useState<Task | null>(null);
     const seenClient = useRef<string | null>(null);
+    const savingMove = useRef(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -104,6 +106,55 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
         }
     };
 
+    const reorderTask = async (move: StageReorderMove) => {
+        const requestedClient = clientId;
+        if (savingMove.current) return;
+        savingMove.current = true;
+        let snapshot: StageListTask[] | null = null;
+        let writeIds: string[] = [];
+        setTasks(current => {
+            if (!current) return current;
+            const plan = applyStageReorder(current, move);
+            if (!plan.ok || plan.writes.length === 0) return current;
+            snapshot = current;
+            writeIds = plan.writes.map(write => write.id);
+            return plan.tasks;
+        });
+        if (!snapshot) {
+            savingMove.current = false;
+            return;
+        }
+        try {
+            const response = await fetch(`/api/seo-plan/stage-list/${encodeURIComponent(clientId)}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                cache: 'no-store',
+                body: JSON.stringify({
+                    taskId: move.taskId,
+                    stage: move.stage,
+                    parentTaskId: move.parentTaskId,
+                    index: move.index,
+                }),
+            });
+            const payload = await response.json().catch(() => null) as { tasks?: unknown } | null;
+            const updated = parseStageListTasks(payload?.tasks);
+            if (!response.ok) throw new Error('move failed');
+            if (seenClient.current !== requestedClient) return;
+            if (updated.length > 0) {
+                setTasks(current => current ? mergeStageTasks(current, updated) : updated);
+            }
+        } catch (caught) {
+            const previous = snapshot;
+            const ids = writeIds;
+            if (seenClient.current === requestedClient) {
+                setTasks(current => current ? restoreStageTasks(current, previous, ids) : current);
+            }
+            throw caught instanceof Error ? caught : new Error('move failed');
+        } finally {
+            savingMove.current = false;
+        }
+    };
+
     if (error) {
         return <p className="text-sm text-muted-foreground">Could not load tasks for this plan.</p>;
     }
@@ -122,6 +173,7 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
                     }).catch(() => undefined);
                 }}
                 onAddTasks={addTasks}
+                onReorder={reorderTask}
             />
             {detail && (
                 <TaskDetailModal
