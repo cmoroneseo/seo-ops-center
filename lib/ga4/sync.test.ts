@@ -44,7 +44,8 @@ test('a day with no report row stays null and a measured zero stays zero', () =>
     assert.equal(days[0]?.landingPages.length, 0);
     assert.equal(days[1]?.daily.sessions, 40);
     assert.equal(days[1]?.daily.organic_sessions, 0);
-    assert.equal(days[1]?.daily.key_events, 2);
+    assert.equal(days[1]?.daily.key_events, 0);
+    assert.deepEqual(days[1]?.daily.total_key_events_by_name, { purchase: 2 });
     assert.equal(days[1]?.sampled, true);
     assert.equal(days[1]?.thresholded, true);
     assert.equal(days[1]?.isFinal, false);
@@ -55,6 +56,21 @@ test('a day with no report row stays null and a measured zero stays zero', () =>
         engaged_sessions: null,
         key_events: null,
     }]);
+});
+
+test('a missing purchase row does not blank the organic key-event total', () => {
+    const days = assembleGa4Days({
+        dates: ['2026-10-13'],
+        now: NOW,
+        keyEvents: ['purchase', 'generate_lead'],
+        totals: { rows: [row(['20261013'], ['40', '10', '0.25', '9'])] },
+        organic: { rows: [row(['20261013'], ['12', '5', '4'])] },
+        events: { rows: [row(['20261013', 'generate_lead'], ['4'])] },
+        landing: { rows: [] },
+    });
+    assert.equal(days[0]?.daily.organic_sessions, 12);
+    assert.equal(days[0]?.daily.key_events, 4);
+    assert.deepEqual(days[0]?.daily.total_key_events_by_name, { purchase: null, generate_lead: 4 });
 });
 
 test('quota under 20 percent hourly remaining reschedules, and 429 backs off', () => {

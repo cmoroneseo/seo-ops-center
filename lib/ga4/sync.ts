@@ -256,8 +256,8 @@ function mergeMetric(current: number | null | undefined, next: number | null): n
 
 /**
  * Build one write per requested day. A day the report does not mention keeps
- * null metrics. A metric value of "0" stays 0. Key-event totals stay null
- * when any selected event is absent, so a missing event is not counted as zero.
+ * null metrics. A metric value of "0" stays 0. key_events is the organic
+ * report's keyEvents metric. The per-event report is only the breakdown.
  */
 export function assembleGa4Days(input: {
     dates: string[];
@@ -319,11 +319,6 @@ export function assembleGa4Days(input: {
         const organicMetrics = organicByDay.get(day);
         const named = eventsByDay.get(day);
         const breakdown = selected.length === 0 ? null : Object.fromEntries(selected.map(name => [name, named?.get(name) ?? null]));
-        const values = breakdown ? Object.values(breakdown) : [];
-        const measured = values.filter((value): value is number => value != null);
-        const keyEvents = values.length > 0 && measured.length === values.length
-            ? measured.reduce((sum, value) => sum + value, 0)
-            : null;
         const pages = [...(landingByDay.get(day)?.values() ?? [])];
         return {
             day,
@@ -335,7 +330,7 @@ export function assembleGa4Days(input: {
                 sessions: total ? total[0] ?? null : null,
                 engaged_sessions: total ? total[1] ?? null : null,
                 engagement_rate: total ? total[2] ?? null : null,
-                key_events: keyEvents,
+                key_events: organicMetrics ? organicMetrics[2] ?? null : null,
                 total_key_events_by_name: breakdown,
             },
             landingPages: pages,
