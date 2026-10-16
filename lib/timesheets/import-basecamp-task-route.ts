@@ -21,8 +21,13 @@
 
 import {
     buildBasecampTaskRows,
+    draftsForSteps,
+    linkImportedSteps,
+    loadProviderSteps,
     numericId,
+    type GetProviderSteps,
     type GetProviderTodo,
+    type ImportedStepDraft,
 } from '../basecamp/import-tasks-route.ts';
 import type { TaskSourceEntry, TasksAuthorization } from './import-tasks-route.ts';
 
@@ -39,6 +44,8 @@ export interface ImportBasecampTaskDependencies {
     }): Promise<boolean>;
     isConfigured(): boolean;
     getTodo: GetProviderTodo;
+    /** Checklist steps for the to-do. Merged with any steps embedded on it. */
+    getSteps?: GetProviderSteps;
     /**
      * Basecamp person id -> org member user id, the reverse of what the push
      * does. A person with no mapping is simply absent from the map.
@@ -52,8 +59,17 @@ export interface ImportBasecampTaskDependencies {
         organizationId: string,
         clientId: string,
         basecampTodoId: number,
-    ): Promise<{ id: string; title: string } | null>;
-    insertTask(row: Record<string, unknown>): Promise<{ id: string; title: string }>;
+    ): Promise<{ id: string; title: string; stage?: string | null; priority?: string | null } | null>;
+    /**
+     * Recording ids already stored on tasks in this client. A step id lives in
+     * `basecamp_todo_id`, so a second import can skip it.
+     */
+    findImportedRecordings?(
+        organizationId: string,
+        clientId: string,
+        basecampIds: number[],
+    ): Promise<Array<{ basecampTodoId: number }>>;
+    insertTask(row: Record<string, unknown>): Promise<{ id: string; title: string; stage?: string | null }>;
     logImport(payload: {
         organizationId: string;
         clientId: string;
@@ -67,6 +83,13 @@ export interface ImportBasecampTaskDependencies {
          * as completed at all.
          */
         completedAt: string | null;
+        /**
+         * False when the parent was already a task and this call only attached
+         * steps. The parent import event is not written again.
+         */
+        recordImport?: boolean;
+        /** Steps inserted by this call. Done ones are announced as completions. */
+        steps?: Array<{ title: string; completedAt: string | null }>;
     }): Promise<void>;
     now(): string;
 }
@@ -77,6 +100,13 @@ export function completedAtOf(row: Record<string, unknown>): string | null {
     return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
+function stepCompletions(rows: readonly Record<string, unknown>[]): Array<{ title: string; completedAt: string | null }> {
+    return rows.map(row => ({
+        title: String(row.title ?? ''),
+        completedAt: completedAtOf(row),
+    }));
+}
+
 function json(body: unknown, status = 200): Response {
     return Response.json(body, { status });
 }
@@ -85,6 +115,79 @@ function objectRecord(value: unknown): Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value)
         ? value as Record<string, unknown>
         : {};
+}
+
+/**
+ * Insert the to-do's steps as children of `parentTaskId`.
+ * Pass `drafts` when the caller already shaped them (the create path) so the
+ * checklist is not fetched or assignee-mapped a second time.
+ */
+async function attachSteps(input: {
+    dependencies: ImportBasecampTaskDependencies;
+    organizationId: string;
+    clientId: string;
+    userId: string;
+    projectId: string;
+    todoId: string;
+    parentTaskId: string;
+    parentStage: string | null;
+    priority: unknown;
+    now: string;
+    drafts?: readonly ImportedStepDraft[];
+}): Promise<
+    | { ok: true; rows: Array<Record<string, unknown>> }
+    | { ok: false; status: number; error: string }
+> {
+    const drafts = input.drafts ?? await draftsForSteps({
+        steps: await loadProviderSteps(
+            input.projectId,
+            input.todoId,
+            input.dependencies.getSteps,
+            undefined,
+        ),
+        parentBasecampTodoId: Number(input.todoId),
+        organizationId: input.organizationId,
+        clientId: input.clientId,
+        userId: input.userId,
+        projectId: input.projectId,
+        priority: input.priority,
+        category: null,
+        now: input.now,
+        mirrorCompletion: true,
+        resolveAssignees: personIds => input.dependencies.resolveAssignees(
+            input.organizationId,
+            personIds,
+        ),
+    });
+    if (drafts.length === 0) return { ok: true, rows: [] };
+
+    const known = input.dependencies.findImportedRecordings
+        ? await input.dependencies.findImportedRecordings(
+            input.organizationId,
+            input.clientId,
+            drafts.map(draft => draft.basecampStepId),
+        )
+        : [];
+    const rows = linkImportedSteps({
+        drafts,
+        parents: [{
+            basecampTodoId: Number(input.todoId),
+            taskId: input.parentTaskId,
+            stage: input.parentStage,
+        }],
+        alreadyImportedStepIds: new Set(known.map(record => record.basecampTodoId)),
+    });
+
+    const inserted: Array<Record<string, unknown>> = [];
+    try {
+        for (const row of rows) {
+            await input.dependencies.insertTask(row);
+            inserted.push(row);
+        }
+    } catch {
+        return { ok: false, status: 500, error: 'Could not import the Basecamp steps' };
+    }
+    return { ok: true, rows: inserted };
 }
 
 /**
@@ -146,12 +249,43 @@ export function createImportBasecampTaskPost(dependencies: ImportBasecampTaskDep
 
         // A second pick of the same to-do links the task that already exists
         // rather than minting a duplicate under the same `basecamp_todo_id`.
+        // Steps still refresh onto that task: a checklist added in Basecamp
+        // after the first import has to arrive, and a repeat pick must not
+        // duplicate the steps that already did.
         const existing = await dependencies.findImportedTask(
             member.organizationId,
             entry.clientId,
             Number(todoId),
         );
         if (existing) {
+            if (dependencies.isConfigured()) {
+                const attached = await attachSteps({
+                    dependencies,
+                    organizationId: member.organizationId,
+                    clientId: entry.clientId,
+                    userId: member.userId,
+                    projectId,
+                    todoId,
+                    parentTaskId: existing.id,
+                    parentStage: existing.stage ?? null,
+                    priority: existing.priority,
+                    now: dependencies.now(),
+                });
+                if (!attached.ok) return json({ error: attached.error }, attached.status);
+                if (attached.rows.length > 0) {
+                    try {
+                        await dependencies.logImport({
+                            organizationId: member.organizationId,
+                            clientId: entry.clientId,
+                            actorId: member.userId,
+                            title: existing.title,
+                            completedAt: null,
+                            recordImport: false,
+                            steps: stepCompletions(attached.rows),
+                        });
+                    } catch { /* logged upstream */ }
+                }
+            }
             return json({
                 ok: true,
                 taskId: existing.id,
@@ -171,6 +305,7 @@ export function createImportBasecampTaskPost(dependencies: ImportBasecampTaskDep
             clientId: entry.clientId,
             userId: member.userId,
             getTodo: dependencies.getTodo,
+            getSteps: dependencies.getSteps,
             now: dependencies.now(),
             options: {
                 // A to-do finished in Basecamp must not arrive outstanding in
@@ -186,7 +321,7 @@ export function createImportBasecampTaskPost(dependencies: ImportBasecampTaskDep
         });
         if (!built.ok) return json({ error: built.error }, built.status);
 
-        let created: { id: string; title: string };
+        let created: { id: string; title: string; stage?: string | null };
         try {
             created = await dependencies.insertTask(built.rows[0]);
         } catch {
@@ -194,7 +329,8 @@ export function createImportBasecampTaskPost(dependencies: ImportBasecampTaskDep
         }
 
         // The task exists either way; a failed audit write must not turn a
-        // successful import into an error the reviewer has to retry.
+        // successful import into an error the reviewer has to retry. Logged
+        // before steps so a step failure still records the parent's completion.
         try {
             await dependencies.logImport({
                 organizationId: member.organizationId,
@@ -204,6 +340,34 @@ export function createImportBasecampTaskPost(dependencies: ImportBasecampTaskDep
                 completedAt: completedAtOf(built.rows[0]),
             });
         } catch { /* logged upstream */ }
+
+        const attached = await attachSteps({
+            dependencies,
+            organizationId: member.organizationId,
+            clientId: entry.clientId,
+            userId: member.userId,
+            projectId,
+            todoId,
+            parentTaskId: created.id,
+            parentStage: created.stage ?? null,
+            priority: built.rows[0].priority,
+            now: dependencies.now(),
+            drafts: built.steps,
+        });
+        if (!attached.ok) return json({ error: attached.error }, attached.status);
+        if (attached.rows.some(row => completedAtOf(row))) {
+            try {
+                await dependencies.logImport({
+                    organizationId: member.organizationId,
+                    clientId: entry.clientId,
+                    actorId: member.userId,
+                    title: created.title,
+                    completedAt: null,
+                    recordImport: false,
+                    steps: stepCompletions(attached.rows),
+                });
+            } catch { /* logged upstream */ }
+        }
 
         return json({
             ok: true,

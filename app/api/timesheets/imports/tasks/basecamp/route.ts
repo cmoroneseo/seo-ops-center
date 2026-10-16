@@ -4,13 +4,14 @@ import {
 import type { TasksAuthorization } from '@/lib/timesheets/import-tasks-route';
 import {
     clientBasecampProjectId,
+    findImportedBasecampRecordings,
     findImportedBasecampTask,
     insertImportedTask,
     loadImportEntryForTask,
     membersByBasecampPersonId,
 } from '@/lib/supabase/timesheet-imports';
 import { requireOrganizationMember } from '@/lib/security/tenant-authz';
-import { getBasecampTodo, isBasecampConfigured } from '@/lib/basecamp/api';
+import { getBasecampTodo, isBasecampConfigured, listBasecampTodoSteps } from '@/lib/basecamp/api';
 import { authorizeBasecampProject } from '@/lib/basecamp/project-access';
 import { createSupabaseBasecampProjectAccessSource } from '@/lib/basecamp/supabase-project-access-source';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -50,19 +51,24 @@ export const POST = createImportBasecampTaskPost({
     },
     isConfigured: isBasecampConfigured,
     getTodo: (projectId, todoId) => getBasecampTodo(projectId, todoId),
+    getSteps: (projectId, todoId) => listBasecampTodoSteps(projectId, todoId),
     resolveAssignees: membersByBasecampPersonId,
     findImportedTask: findImportedBasecampTask,
+    findImportedRecordings: findImportedBasecampRecordings,
     insertTask: insertImportedTask,
     async logImport(payload) {
         // Internal audit: which to-do we pulled, and when we pulled it. Hidden
-        // from the client-facing feed by isClientVisibleEvent.
-        await logClientActivity({
-            organizationId: payload.organizationId,
-            clientId: payload.clientId,
-            eventType: 'integration.tasks_imported',
-            actorId: payload.actorId,
-            metadata: { service: 'basecamp', imported: 1, source: 'timesheet_review', title: payload.title },
-        });
+        // from the client-facing feed by isClientVisibleEvent. A later step
+        // refresh on a to-do that is already a task does not write this again.
+        if (payload.recordImport !== false) {
+            await logClientActivity({
+                organizationId: payload.organizationId,
+                clientId: payload.clientId,
+                eventType: 'integration.tasks_imported',
+                actorId: payload.actorId,
+                metadata: { service: 'basecamp', imported: 1, source: 'timesheet_review', title: payload.title },
+            });
+        }
         // The client-facing half: a to-do that arrived already finished is a
         // completion, dated when it was finished — not when we imported it.
         if (payload.completedAt) {
@@ -73,6 +79,17 @@ export const POST = createImportBasecampTaskPost({
                 actorId: payload.actorId,
                 occurredAt: payload.completedAt,
                 metadata: { title: payload.title, source: 'basecamp_import' },
+            });
+        }
+        for (const step of payload.steps ?? []) {
+            if (!step.completedAt) continue;
+            await logClientActivity({
+                organizationId: payload.organizationId,
+                clientId: payload.clientId,
+                eventType: 'task.completed',
+                actorId: payload.actorId,
+                occurredAt: step.completedAt,
+                metadata: { title: step.title, source: 'basecamp_import' },
             });
         }
     },
