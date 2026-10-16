@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { backfillMonthStarts } from './backfill.ts';
 import { GA4_HISTORY_SANDBOX_ORG_ID } from './flags.ts';
 import { Ga4AuthError, ga4ReleaseUpdate, runGa4Cron, runGa4QueueMessage, type Ga4Job, type Ga4QueueKind, type Ga4QueueSend, type Ga4Release, type Ga4RunDeps, type Ga4Store } from './run.ts';
 import type { Ga4DayWrite } from './sync.ts';
@@ -91,7 +92,8 @@ test('the nightly cron publishes one daily chain and one backfill chain', async 
     const result = await runGa4Cron(ran);
     assert.deepEqual(result, { daily: true, backfill: true });
     assert.deepEqual(ran.sent.map(message => message.kind), ['daily', 'backfill']);
-    assert.equal(ran.sent[0]?.idempotencyKey, 'ga4-backfill:2026-10-15:daily:1');
+    assert.equal(ran.sent[0]?.idempotencyKey, `ga4-backfill:2026-10-15:${RUN}:daily:1`);
+    assert.equal(ran.sent[1]?.idempotencyKey, `ga4-backfill:2026-10-15:${RUN}:backfill:1`);
 });
 
 test('a daily message writes three null days, leaves yesterday open, and does not invent zeros', async () => {
@@ -214,6 +216,84 @@ test('when no work remains the chain stops', async () => {
     const base = deps(store);
     await runGa4QueueMessage({ runId: RUN, chain: 5, kind: 'backfill' }, base);
     assert.equal(base.sent.length, 0);
+});
+
+function backfillJob(id: string, cursorDate: string | null): Ga4Job {
+    return {
+        id, organizationId: ORG, clientId: '33333333-3333-4333-8333-333333333333',
+        property: 'properties/1', kind: 'backfill', leaseToken: 'lease', attempts: 1, cursorDate,
+    };
+}
+
+test('finishing the last month of one property publishes the next link while another job is pending', async () => {
+    const months = backfillMonthStarts(NOW);
+    const oldest = months[months.length - 1];
+    const secondOldest = months[months.length - 2];
+    assert.equal(secondOldest, '2025-08-01');
+    assert.equal(oldest, '2025-07-01');
+    const pending = new Set(['a', 'b']);
+    const store = memoryStore({ backfill: true });
+    store.claim = async kind => {
+        if (kind !== 'backfill' || !pending.has('a')) return null;
+        pending.delete('a');
+        return backfillJob('a', secondOldest!);
+    };
+    store.release = async input => {
+        store.releases.push(input);
+        if (input.status === 'pending') pending.add(input.id);
+    };
+    store.hasWork = async kind => kind === 'backfill' && pending.size > 0;
+    const ran = deps(store);
+    await runGa4QueueMessage({ runId: RUN, chain: 4, kind: 'backfill' }, ran);
+    assert.equal(store.releases[0]?.cursorDate, oldest);
+    assert.equal(store.releases[0]?.status, 'idle');
+    assert.equal(pending.has('b'), true);
+    assert.equal(ran.sent.length, 1);
+    assert.equal(ran.sent[0]?.chain, 5);
+    assert.equal(ran.sent[0]?.kind, 'backfill');
+});
+
+test('finishing the last backfill month publishes nothing when no work remains', async () => {
+    const months = backfillMonthStarts(NOW);
+    const secondOldest = months[months.length - 2];
+    const store = memoryStore({ backfill: true });
+    store.claim = async kind => kind === 'backfill' ? backfillJob('a', secondOldest!) : null;
+    store.hasWork = async () => false;
+    const ran = deps(store);
+    await runGa4QueueMessage({ runId: RUN, chain: 4, kind: 'backfill' }, ran);
+    assert.equal(store.releases[0]?.status, 'idle');
+    assert.equal(store.releases[0]?.cursorDate, months[months.length - 1]);
+    assert.equal(ran.sent.length, 0);
+});
+
+test('a finished backfill cursor still publishes when another job is pending', async () => {
+    const months = backfillMonthStarts(NOW);
+    const oldest = months[months.length - 1];
+    const store = memoryStore({ backfill: true });
+    store.claim = async kind => kind === 'backfill' ? backfillJob('a', oldest!) : null;
+    store.hasWork = async () => true;
+    const ran = deps(store);
+    await runGa4QueueMessage({ runId: RUN, chain: 6, kind: 'backfill' }, ran);
+    assert.equal(store.days.length, 0);
+    assert.equal(store.releases[0]?.status, 'idle');
+    assert.equal(store.releases[0]?.cursorDate, oldest);
+    assert.equal(ran.sent.length, 1);
+    assert.equal(ran.sent[0]?.chain, 7);
+    assert.equal(ran.sent[0]?.delaySeconds, 20);
+});
+
+test('releasing a flag-off backfill job still publishes when other work is pending', async () => {
+    const store = memoryStore({ backfill: true });
+    store.claim = async kind => kind === 'backfill'
+        ? { ...backfillJob('a', null), organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }
+        : null;
+    store.hasWork = async () => true;
+    const ran = deps(store);
+    await runGa4QueueMessage({ runId: RUN, chain: 2, kind: 'backfill' }, ran);
+    assert.equal(store.days.length, 0);
+    assert.equal(store.releases[0]?.status, 'idle');
+    assert.equal(ran.sent.length, 1);
+    assert.equal(ran.sent[0]?.chain, 3);
 });
 
 test('a successful step resets attempts so the next backoff is not inflated', async () => {

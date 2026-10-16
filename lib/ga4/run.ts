@@ -266,6 +266,8 @@ export async function runGa4QueueMessage(message: unknown, deps: Ga4RunDeps): Pr
             availableAt: plus(deps.now(), GA4_AUTH_DELAY_SECONDS),
             lastError: null,
         });
+        // Releasing this job must not end the chain while another property is still pending.
+        await continueChain(deps, parsed, GA4_LINK_DELAY_SECONDS);
         return;
     }
 
@@ -304,6 +306,7 @@ export async function runGa4QueueMessage(message: unknown, deps: Ga4RunDeps): Pr
     const month = nextBackfillMonth(job.cursorDate, now);
     if (!month) {
         await finishSuccess(deps, job, now.toISOString(), job.cursorDate);
+        await continueChain(deps, parsed, GA4_LINK_DELAY_SECONDS);
         return;
     }
     const range = monthRequestRange(month, now);
@@ -352,5 +355,5 @@ export async function runGa4QueueMessage(message: unknown, deps: Ga4RunDeps): Pr
         lastError: pause ? 'quota' : null,
         resetAttempts: true,
     });
-    if (next) await continueChain(deps, parsed, pause ? ga4QuotaDelaySeconds(job.attempts) : GA4_LINK_DELAY_SECONDS);
+    await continueChain(deps, parsed, pause ? ga4QuotaDelaySeconds(job.attempts) : GA4_LINK_DELAY_SECONDS);
 }
