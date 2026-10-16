@@ -19,6 +19,11 @@
 
 import type { ProviderTimesheetEntry } from './timesheet-webhook-route';
 import { nextPageUrl } from './pagination';
+import {
+    basecampStepPageItems,
+    mergeBasecampTodoSteps,
+    type BasecampTodoStep,
+} from './todo-steps';
 
 const BASE_URL = () => {
     const accountId = process.env.BASECAMP_ACCOUNT_ID;
@@ -141,6 +146,11 @@ export interface BasecampTodoFull {
     /** Present when this recording accepts nested subtasks (to-dos and cards). */
     subtasks_count?: number;
     subtasks_url?: string;
+    /**
+     * Checklist steps embedded on the to-do. The import also lists
+     * `/recordings/{id}/subtasks.json` and merges the two.
+     */
+    steps?: unknown;
 }
 
 export interface BasecampTodoCreateParams {
@@ -349,6 +359,36 @@ export async function createBasecampTodo(
     } catch (err) {
         console.error('[Basecamp] createTodo error:', err);
         return null;
+    }
+}
+
+/**
+ * List the checklist steps on a to-do.
+ * `GET /recordings/{todoId}/subtasks.json` is the same collection the create
+ * path posts to. Pages follow `Link` until a cycle. A failed page stops the
+ * walk and returns whatever was already read; the caller can still merge the
+ * steps embedded on the to-do itself.
+ */
+export async function listBasecampTodoSteps(
+    projectId: number | string,
+    todoId: number | string,
+): Promise<BasecampTodoStep[]> {
+    try {
+        safeId(projectId, 'projectId');
+        const collected: unknown[] = [];
+        let url: string | null = `${BASE_URL()}${basecampSubtaskCreatePath(todoId)}`;
+        const seen = new Set<string>();
+        while (url && !seen.has(url)) {
+            seen.add(url);
+            const res = await basecampFetch(url);
+            if (!res.ok) break;
+            collected.push(...basecampStepPageItems(await res.json()));
+            url = nextPageUrl(res.headers.get('Link'), seen);
+        }
+        return mergeBasecampTodoSteps([collected]);
+    } catch (err) {
+        console.error('[Basecamp] listTodoSteps error:', err);
+        return [];
     }
 }
 
