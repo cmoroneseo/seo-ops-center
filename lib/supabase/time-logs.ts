@@ -11,6 +11,7 @@ import {
     requestTimeLogBasecampSync,
     type ClientBasecampSyncResult,
 } from '../basecamp/client-sync';
+import { clientBasecampTimesheetEnabled } from '../basecamp/send-default';
 import {
     timerAttemptFromRow,
     timerStateFromRows,
@@ -81,7 +82,7 @@ export async function getClientTimesheetSyncEnabled(clientId: string | undefined
             .eq('id', clientId)
             .single();
         const cf = (data?.custom_fields as Record<string, unknown>) ?? {};
-        return !!(cf.basecamp_sync_enabled && cf.basecamp_project_id && cf.basecamp_timesheet_enabled);
+        return clientBasecampTimesheetEnabled(cf);
     } catch {
         return false;
     }
