@@ -52,6 +52,7 @@ function render(query = '', extraTasks: StageListTask[] = []) {
         onQueryChange: () => undefined,
         onOpenTask: () => undefined,
         onAddTasks: async () => undefined,
+        onReorder: async () => undefined,
         clientName: 'Floor Co Design USA',
     }));
 }
@@ -72,7 +73,6 @@ test('the list renders every stage, including empty ones, in roadmap order', () 
     assert.match(html, /data-stage="onboarding"[\s\S]*data-count="2"/);
     assert.match(html, /Search tasks for Floor Co Design USA/);
     assert.match(html, /Search all tasks and subtasks/);
-    assert.doesNotMatch(html, /draggable/);
 });
 
 test('subtasks render under the pillar and not as peer rows', () => {

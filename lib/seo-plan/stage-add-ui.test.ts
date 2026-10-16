@@ -43,6 +43,7 @@ function render(query = '') {
         onQueryChange: () => undefined,
         onOpenTask: () => undefined,
         onAddTasks: async () => undefined,
+        onReorder: async () => undefined,
         clientName: 'Floor Co Design USA',
     }));
 }
@@ -61,7 +62,7 @@ test('every stage section has an add bar, including an empty stage', () => {
     }
     assert.match(html, /placeholder="Add a task…"/);
     assert.match(html, /data-stage="month_2"[\s\S]*?data-stage-add="month_2"[\s\S]*?No tasks/);
-    assert.doesNotMatch(html, /Template library|data-lib|draggable/);
+    assert.doesNotMatch(html, /Template library|data-lib/);
 });
 
 test('an expanded pillar accepts a subtask, and a collapsed pillar does not', () => {
