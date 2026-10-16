@@ -21,7 +21,7 @@ test('the nightly repair is the last three UTC days and only the oldest is final
     assert.equal(isGa4DayFinal('2026-10-12', NOW), true);
 });
 
-test('a day with no report row stays null and a measured zero stays zero', () => {
+test('a successful report with no row stores zero and a measured zero stays zero', () => {
     const days = assembleGa4Days({
         dates: ['2026-10-12', '2026-10-13'],
         now: NOW,
@@ -37,10 +37,12 @@ test('a day with no report row stays null and a measured zero stays zero', () =>
             metadata: { samplingMetadatas: [{ samplesReadCount: '1' }] },
         },
     });
-    assert.equal(days[0]?.daily.sessions, null);
-    assert.equal(days[0]?.daily.organic_sessions, null);
-    assert.equal(days[0]?.daily.key_events, null);
-    assert.deepEqual(days[0]?.daily.total_key_events_by_name, { purchase: null });
+    assert.equal(days[0]?.daily.sessions, 0);
+    assert.equal(days[0]?.daily.engaged_sessions, 0);
+    assert.equal(days[0]?.daily.engagement_rate, 0);
+    assert.equal(days[0]?.daily.organic_sessions, 0);
+    assert.equal(days[0]?.daily.key_events, 0);
+    assert.deepEqual(days[0]?.daily.total_key_events_by_name, { purchase: 0 });
     assert.equal(days[0]?.landingPages.length, 0);
     assert.equal(days[1]?.daily.sessions, 40);
     assert.equal(days[1]?.daily.organic_sessions, 0);
@@ -70,7 +72,27 @@ test('a missing purchase row does not blank the organic key-event total', () => 
     });
     assert.equal(days[0]?.daily.organic_sessions, 12);
     assert.equal(days[0]?.daily.key_events, 4);
-    assert.deepEqual(days[0]?.daily.total_key_events_by_name, { purchase: null, generate_lead: 4 });
+    assert.deepEqual(days[0]?.daily.total_key_events_by_name, { purchase: 0, generate_lead: 4 });
+});
+
+test('a failed report stays null while a blank metric on a present row stays null', () => {
+    const days = assembleGa4Days({
+        dates: ['2026-10-12', '2026-10-13'],
+        now: NOW,
+        keyEvents: ['purchase'],
+        totals: { rows: [row(['20261013'], ['', '1', '0.5', '2'])] },
+        organic: null,
+        events: null,
+        landing: { rows: [] },
+    });
+    assert.equal(days[0]?.daily.sessions, 0);
+    assert.equal(days[0]?.daily.organic_sessions, null);
+    assert.equal(days[0]?.daily.key_events, null);
+    assert.deepEqual(days[0]?.daily.total_key_events_by_name, { purchase: null });
+    assert.equal(days[1]?.daily.sessions, null);
+    assert.equal(days[1]?.daily.engaged_sessions, 1);
+    assert.equal(days[1]?.daily.organic_sessions, null);
+    assert.equal(days[1]?.daily.key_events, null);
 });
 
 test('quota under 20 percent hourly remaining reschedules, and 429 backs off', () => {

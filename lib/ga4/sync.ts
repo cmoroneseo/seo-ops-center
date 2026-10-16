@@ -1,4 +1,4 @@
-/** Daily GA4 pull, quota, and report parsing. Missing measurements stay null. */
+/** Daily GA4 pull, quota, and report parsing. A failed report stays null; a day a successful report omits is zero. */
 
 export const GA4_DAILY_REPAIR_DAYS = 3;
 export const GA4_FINAL_AFTER_DAYS = 3;
@@ -254,10 +254,32 @@ function mergeMetric(current: number | null | undefined, next: number | null): n
     return current + next;
 }
 
+/** A non-object body means the report did not succeed. An empty success still has a body. */
+function reportSucceeded(body: unknown): boolean {
+    return body != null && typeof body === 'object';
+}
+
 /**
- * Build one write per requested day. A day the report does not mention keeps
- * null metrics. A metric value of "0" stays 0. key_events is the organic
- * report's keyEvents metric. The per-event report is only the breakdown.
+ * A present row keeps its metric, including an unparseable null.
+ * No row on a successful report is a measured zero. A failed report stays null.
+ */
+function metricAt(metrics: Array<number | null> | undefined, index: number, succeeded: boolean): number | null {
+    if (!metrics) return succeeded ? 0 : null;
+    return metrics[index] ?? null;
+}
+
+function eventCount(named: Map<string, number | null> | undefined, name: string, succeeded: boolean): number | null {
+    if (!named?.has(name)) return succeeded ? 0 : null;
+    return named.get(name) ?? null;
+}
+
+/**
+ * Build one write per requested day. key_events is the organic report's
+ * keyEvents metric. total_key_events_by_name is the per-event breakdown.
+ * A report body that is not an object did not succeed, so its metrics stay
+ * null. A successful report that omits a day stores 0, including a key event
+ * the events report did not return. A metric value of "0" stays 0. An
+ * unparseable metric on a row that is present stays null.
  */
 export function assembleGa4Days(input: {
     dates: string[];
@@ -275,6 +297,9 @@ export function assembleGa4Days(input: {
     const sampled = totals.sampled || organic.sampled || events.sampled || landing.sampled;
     const thresholded = totals.thresholded || organic.thresholded || events.thresholded || landing.thresholded;
     const selected = input.keyEvents ?? [];
+    const totalsOk = reportSucceeded(input.totals);
+    const organicOk = reportSucceeded(input.organic);
+    const eventsOk = reportSucceeded(input.events);
 
     const totalsByDay = new Map<string, Array<number | null>>();
     for (const row of totals.rows) {
@@ -318,7 +343,7 @@ export function assembleGa4Days(input: {
         const total = totalsByDay.get(day);
         const organicMetrics = organicByDay.get(day);
         const named = eventsByDay.get(day);
-        const breakdown = selected.length === 0 ? null : Object.fromEntries(selected.map(name => [name, named?.get(name) ?? null]));
+        const breakdown = selected.length === 0 ? null : Object.fromEntries(selected.map(name => [name, eventCount(named, name, eventsOk)]));
         const pages = [...(landingByDay.get(day)?.values() ?? [])];
         return {
             day,
@@ -326,11 +351,11 @@ export function assembleGa4Days(input: {
             sampled,
             thresholded,
             daily: {
-                organic_sessions: organicMetrics ? organicMetrics[0] ?? null : null,
-                sessions: total ? total[0] ?? null : null,
-                engaged_sessions: total ? total[1] ?? null : null,
-                engagement_rate: total ? total[2] ?? null : null,
-                key_events: organicMetrics ? organicMetrics[2] ?? null : null,
+                organic_sessions: metricAt(organicMetrics, 0, organicOk),
+                sessions: metricAt(total, 0, totalsOk),
+                engaged_sessions: metricAt(total, 1, totalsOk),
+                engagement_rate: metricAt(total, 2, totalsOk),
+                key_events: metricAt(organicMetrics, 2, organicOk),
                 total_key_events_by_name: breakdown,
             },
             landingPages: pages,
