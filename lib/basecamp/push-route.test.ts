@@ -423,6 +423,64 @@ test('create push keeps imported Basecamp ids when nesting existing tasks', asyn
     assert.deepEqual(linked, ['task-a']);
 });
 
+test('create push does not recreate steps that were imported from Basecamp', async () => {
+    const { createBasecampPushPost } = await loadRouteModule();
+    const createdSteps: string[] = [];
+    const linked: string[] = [];
+    const post = createBasecampPushPost({
+        authorizeTask: async () => authorized,
+        createStore: () => ({
+            getTask: async () => ({
+                ...canonicalTask,
+                title: 'Website FAQs',
+                status: 'todo',
+                basecampTodoId: 10211418597,
+                basecampProjectId: 47747763,
+                configuredProjectId: 47747763,
+            }),
+            listSubtasks: async () => [
+                { id: 'child-publish', title: 'Publish on website', basecampTodoId: 10211449969 },
+                { id: 'child-approval', title: 'Send for approval', basecampTodoId: 10211450455 },
+            ],
+            updateTaskLink: async (taskId) => {
+                linked.push(taskId);
+                return null;
+            },
+            markTaskSynced: async () => null,
+        }),
+        createAccessSource: () => ({
+            findMembership: async () => ({ organizationIsInternal: false }),
+            listConfiguredProjectIds: async () => ['47747763'],
+        }),
+        provider: {
+            isConfigured: () => true,
+            getTodo: async (_projectId, todoId) => ({ id: todoId, supportsSubtasks: true }),
+            listTodolists: async () => [{ id: 44 }],
+            createTodo: async () => { throw new Error('must not create a second to-do'); },
+            createStep: async (_projectId, _parentId, title) => {
+                createdSteps.push(title);
+                throw new Error('must not recreate an imported step');
+            },
+            completeTodo: async () => false,
+            reopenTodo: async () => false,
+            createComment: async () => null,
+            updateTodoDueDate: async () => false,
+            updateTodoAssignees: async () => false,
+        },
+        now: () => '2026-10-16T21:00:00.000Z',
+    });
+
+    const response = await post(request({ action: 'create_todo', taskId: 'task-a' }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await responseBody(response), {
+        success: true,
+        todoId: '10211418597',
+        subtasksPreserved: 2,
+    });
+    assert.deepEqual(createdSteps, []);
+    assert.deepEqual(linked, []);
+});
+
 test('create push keeps the parent when the to-do does not accept nested subtasks', async () => {
     const { createBasecampPushPost } = await loadRouteModule();
     let stepped = false;

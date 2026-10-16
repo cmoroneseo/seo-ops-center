@@ -203,8 +203,10 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                         task.clientId,
                     ) ?? [];
                     // A child that already has a Basecamp id keeps that recording.
-                    // Creating a step would be a second to-do, and rewriting the
-                    // id would drop the imported one.
+                    // Imported steps store the step's recording id in the same
+                    // column this push writes after it creates one. Creating a
+                    // step would duplicate the checklist item, and rewriting
+                    // the id would drop the imported one.
                     const preserved = subtasks.filter(subtask => numericId(subtask.basecampTodoId));
                     const unlinked = subtasks.filter(subtask => !numericId(subtask.basecampTodoId));
                     preservedCount = preserved.length > 0 ? { subtasksPreserved: preserved.length } : {};
