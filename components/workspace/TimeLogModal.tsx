@@ -3,8 +3,9 @@
 import { ClientProject, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { X, Clock, Calendar, FileText, CheckCircle2 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createTimeLog, getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
+import { defaultSendToBasecamp } from '@/lib/basecamp/send-default';
 import { createClient } from '@/lib/supabase/client';
 
 interface TimeLogModalProps {
@@ -24,7 +25,8 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
     const [bcAvailable, setBcAvailable] = useState(false);
-    const [sendToBasecamp, setSendToBasecamp] = useState(true);
+    const [sendOverride, setSendOverride] = useState<boolean | undefined>(undefined);
+    const basecampCheck = useRef<Promise<boolean>>(Promise.resolve(false));
 
     useEffect(() => {
         if (isOpen) {
@@ -33,15 +35,29 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
             setHours('');
             setDescription('');
             setShowSuccess(false);
-            setSendToBasecamp(true);
+            setSendOverride(undefined);
         }
     }, [isOpen, initialClientId]);
 
-    // Only offer "Send to Basecamp" when the selected client has timesheet sync enabled
+    // Only offer "Send to Basecamp" when the selected client has timesheet sync enabled.
+    // The ref is what submit awaits, so a fast save still uses this client's default.
     useEffect(() => {
-        if (!selectedClientId) { setBcAvailable(false); return; }
-        getClientTimesheetSyncEnabled(selectedClientId).then(setBcAvailable);
+        if (!selectedClientId) {
+            basecampCheck.current = Promise.resolve(false);
+            setBcAvailable(false);
+            return;
+        }
+        let active = true;
+        setBcAvailable(false);
+        const pending = getClientTimesheetSyncEnabled(selectedClientId);
+        basecampCheck.current = pending;
+        pending.then(enabled => {
+            if (active) setBcAvailable(enabled);
+        });
+        return () => { active = false; };
     }, [selectedClientId]);
+
+    const sendToBasecamp = defaultSendToBasecamp(bcAvailable, sendOverride);
 
     const selectedClient = clients.find(c => c.id === selectedClientId);
     const clientTasks = selectedClient?.tasks || [];
@@ -57,6 +73,7 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
             userId = data.session?.user?.id;
         }
 
+        const clientEligible = await basecampCheck.current;
         await createTimeLog({
             organizationId: organizationId ?? 'org-1',
             clientId: selectedClientId,
@@ -66,7 +83,7 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
             hours: parseFloat(hours),
             description,
             billable: true,
-        }, { syncToBasecamp: bcAvailable && sendToBasecamp });
+        }, { syncToBasecamp: defaultSendToBasecamp(clientEligible, sendOverride) });
 
         setIsSubmitting(false);
         setShowSuccess(true);
@@ -106,7 +123,10 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
                             <select
                                 required
                                 value={selectedClientId}
-                                onChange={(e) => setSelectedClientId(e.target.value)}
+                                onChange={(e) => {
+                                    setSelectedClientId(e.target.value);
+                                    setSendOverride(undefined);
+                                }}
                                 className="w-full p-2 rounded-md bg-background border border-border focus:ring-2 focus:ring-primary/50 outline-none transition-all"
                             >
                                 <option value="" disabled>Select a client...</option>
@@ -184,7 +204,7 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
                                         'relative w-9 h-5 rounded-full transition-colors duration-200',
                                         sendToBasecamp ? 'bg-primary' : 'bg-muted-foreground/30'
                                     )}
-                                    onClick={() => setSendToBasecamp(b => !b)}
+                                    onClick={() => setSendOverride(current => !defaultSendToBasecamp(bcAvailable, current))}
                                 >
                                     <span className={cn(
                                         'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200',

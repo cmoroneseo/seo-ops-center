@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useOrganization } from './organization-provider';
-import { getOpenTimerAttempts, mutateTimer, updateSessionNotes } from '@/lib/supabase/time-logs';
+import { getClientTimesheetSyncEnabled, getOpenTimerAttempts, mutateTimer, updateSessionNotes } from '@/lib/supabase/time-logs';
 import type { SessionNote, TimerAttempt } from '@/lib/types';
 import type { TimerMutationRequest, TimerStateResponse } from '@/lib/timer/contracts';
 import { startTimerMutation } from '@/lib/timer/backdated-start';
@@ -194,10 +194,13 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, [mutate]);
 
     const finalize = useCallback(async (attempt: TimerAttempt, options: FinalizeTimerOptions) => {
+        // No per-entry choice yet: send when this client already syncs its timesheet.
+        const syncToBasecamp = options.syncToBasecamp
+            ?? await getClientTimesheetSyncEnabled(attempt.clientId);
         const state = await mutate(finalizeTimerAttempt(attempt, {
             description: options.description,
             billable: options.billable,
-            syncToBasecamp: options.syncToBasecamp ?? false,
+            syncToBasecamp,
             markTaskComplete: options.markTaskComplete ?? false,
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
             ...(options.countsTowardBudget === undefined ? {} : { countsTowardBudget: options.countsTowardBudget }),
