@@ -10,6 +10,8 @@ import {
     maxStageAddPosition,
 } from '@/lib/seo-plan/stage-add-db';
 import { createStageTasks } from '@/lib/seo-plan/stage-add-route';
+import { rewriteStageTasks } from '@/lib/seo-plan/stage-reorder-db';
+import { reorderStageTasks } from '@/lib/seo-plan/stage-reorder-route';
 import { loadClientStageTasks } from '@/lib/seo-plan/stage-list-load';
 import { readClientStageList } from '@/lib/seo-plan/stage-list-route';
 import { logClientActivity } from '@/lib/supabase/client-activity';
@@ -94,6 +96,29 @@ export async function POST(request: Request, { params }: { params: Promise<{ cli
                 },
             });
         },
+    });
+    return NextResponse.json(result.body, { status: result.status, headers: NO_STORE });
+}
+
+/**
+ * Move one task within or between stages. The client id is the path key.
+ * Organization and role come from the session. One database call rewrites
+ * stage, position, and parent for the affected rows.
+ */
+export async function PATCH(request: Request, { params }: { params: Promise<{ clientId: string }> }) {
+    const { clientId } = await params;
+    let body: unknown = null;
+    try {
+        body = await request.json();
+    } catch {
+        body = null;
+    }
+    const db = await stageListDb();
+    const result = await reorderStageTasks(clientId, body, {
+        session: resolveSessionOrganization,
+        enabled: organizationId => seoPlanStageListEnabled(process.env, organizationId),
+        load: (organizationId, id) => loadClientStageTasks(db, organizationId, id),
+        rewrite: (organizationId, id, writes) => rewriteStageTasks(db, organizationId, id, writes),
     });
     return NextResponse.json(result.body, { status: result.status, headers: NO_STORE });
 }
