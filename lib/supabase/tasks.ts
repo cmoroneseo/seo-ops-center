@@ -9,8 +9,6 @@ import {
     TaskStatusHistoryEntry,
     TaskComment,
     TaskTemplate,
-    TASK_STAGES,
-    type TaskStage,
 } from '../types';
 import { getNextDueDate } from '../utils/recurrence';
 import {
@@ -18,6 +16,7 @@ import {
     type ClientBasecampSyncResult,
 } from '../basecamp/client-sync';
 import { seoPlanPushTodolistId } from '../basecamp/plan-lists';
+import { isTaskStage } from '../tasks/stage';
 
 // ---------------------------------------------------------------------------
 // Basecamp integration helpers (fire-and-forget, server-side only)
@@ -59,7 +58,7 @@ export function rowToTask(row: any): Task {
         agreementId:row.agreement_id ?? undefined,
         planPhase: row.plan_phase ?? undefined,
         planPhaseLocked: row.plan_phase_locked ?? undefined,
-        stage: (TASK_STAGES as readonly string[]).includes(row.stage) ? row.stage as TaskStage : undefined,
+        stage: isTaskStage(row.stage) ? row.stage : undefined,
         position: typeof row.position === 'number' && Number.isFinite(row.position) ? row.position : undefined,
         commitmentId: row.commitment_id ?? undefined,
         organizationId: row.organization_id,
