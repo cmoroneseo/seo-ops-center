@@ -54,6 +54,8 @@ import {AGREEMENT_SUMMARY_ROW_CLASS,AGREEMENT_SUMMARY_ROW_HEIGHT} from '@/lib/ag
 import { VaultHeaderPill } from '@/components/vault/VaultHeaderPill';
 import { VaultPage } from '@/components/vault/VaultPage';
 import { useVaultEnabled } from '@/components/vault/use-vault-enabled';
+import { StagePlanList } from '@/components/seo-plan/StagePlanList';
+import { useSeoPlanStageList } from '@/components/seo-plan/use-seo-plan-stage-list';
 import { useSeoPlanV2 } from '@/components/seo-plan/use-seo-plan-v2';
 import { seoPlanReadOnly } from '@/lib/seo-plan/read-only';
 import { WorkspaceNav } from '@/components/seo-plan/WorkspaceNav';
@@ -77,6 +79,7 @@ export default function ClientDetailPage() {
     const vaultEnabled = useVaultEnabled(organization?.id);
     const seoPlanV2 = useSeoPlanV2(organization?.id);
     const v2On = seoPlanV2 === true;
+    const stageListOn = useSeoPlanStageList(organization?.id);
     const v2Ref = useRef(v2On);
     v2Ref.current = v2On;
     const [client, setClient] = useState<ClientProject | null | undefined>(undefined); // undefined = loading
@@ -503,7 +506,10 @@ export default function ClientDetailPage() {
                     window.history.replaceState(null, '', url);
                 }} className={cn('rounded-lg px-4 py-2 text-sm font-medium', planView === view ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>{label}</button>)}
             </nav>}
-            {(v2On ? activeTab === 'campaign' : activeTab === 'campaign' && planView === 'plan') && (
+            {(v2On ? activeTab === 'campaign' : activeTab === 'campaign' && planView === 'plan') && stageListOn && (
+                <StagePlanList clientId={client.id} clientName={client.clientName} />
+            )}
+            {(v2On ? activeTab === 'campaign' : activeTab === 'campaign' && planView === 'plan') && !stageListOn && (
                 <MarketingPlanTab
                     key={v2On ? 'plan-v2' : 'plan-classic'}
                     organizationId={organization?.id ?? ''}

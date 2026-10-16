@@ -31,3 +31,20 @@ export function seoPlanV2Enabled(
     if (!organizationId) return false;
     return orgAllowlist(env.SEO_PLAN_V2_ORG_IDS).includes(organizationId.toLowerCase());
 }
+
+/**
+ * Stage-grouped SEO Plan list. Off unless both are set.
+ *
+ * `SEO_PLAN_STAGE_LIST` must be the exact string `true`.
+ * `SEO_PLAN_STAGE_LIST_ORG_IDS` is a required comma-separated organization
+ * allowlist. An unset, empty, or non-matching allowlist stays off, including
+ * when the master switch is true. This flag is independent of SEO Plan v2.
+ */
+export function seoPlanStageListEnabled(
+    env: NodeJS.ProcessEnv = process.env,
+    organizationId?: string,
+): boolean {
+    if (!enabled(env.SEO_PLAN_STAGE_LIST)) return false;
+    if (!organizationId) return false;
+    return orgAllowlist(env.SEO_PLAN_STAGE_LIST_ORG_IDS).includes(organizationId.toLowerCase());
+}
