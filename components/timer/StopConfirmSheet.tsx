@@ -14,6 +14,7 @@ import {
     type StopSubmitOutcome,
 } from '@/lib/timer-ui';
 import { getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
+import { defaultSendToBasecamp } from '@/lib/basecamp/send-default';
 import { SessionNote } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { isExternalHref, safeHref } from '@/lib/links/safe-href';
@@ -153,7 +154,7 @@ export function StopConfirmSheet({
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
     const [bcAvailable, setBcAvailable] = useState(false);
-    const [sendToBasecamp, setSendToBasecamp] = useState(true);
+    const [sendOverride, setSendOverride] = useState<boolean | undefined>(undefined);
     const [isCheckingBasecamp, setIsCheckingBasecamp] = useState(false);
     const [outcome, setOutcome] = useState<StopSubmitOutcome | null>(null);
     const timerId = timer?.id;
@@ -167,7 +168,7 @@ export function StopConfirmSheet({
     const basecamp: BasecampSyncEligibility = timer
         ? basecampSyncEligibility(timer, bcAvailable)
         : { eligible: false };
-    const willSyncToBasecamp = basecamp.eligible && sendToBasecamp;
+    const sendToBasecamp = defaultSendToBasecamp(basecamp.eligible, sendOverride);
 
     // Only offer "Send to Basecamp" when this client has timesheet sync enabled
     useEffect(() => {
@@ -195,6 +196,7 @@ export function StopConfirmSheet({
         setCountsTowardBudget(defaults.countsTowardBudget);
         setMarkTaskComplete(defaultMarkTaskComplete || defaults.markTaskComplete);
         setShowNotes(timerNoteCount > 0);
+        setSendOverride(undefined);
         // Defaults are seeded once per reviewed attempt.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [defaultMarkTaskComplete, timerId]);
@@ -214,7 +216,7 @@ export function StopConfirmSheet({
                 billable,
                 countsTowardBudget,
                 markTaskComplete,
-                syncToBasecamp: willSyncToBasecamp,
+                syncToBasecamp: sendToBasecamp,
             }));
         } catch (error) {
             // The attempt stays in review on the server, so submission can retry.
@@ -303,7 +305,7 @@ export function StopConfirmSheet({
                         </div>
                         <p className="font-semibold">Time logged!</p>
                         <p className="text-sm text-muted-foreground">{formatHHMM(trackedSeconds)} for {timer.clientName}</p>
-                        {willSyncToBasecamp && (
+                        {sendToBasecamp && (
                             <p className="text-xs text-muted-foreground/70">Sending to Basecamp timesheet…</p>
                         )}
                     </div>
@@ -408,13 +410,13 @@ export function StopConfirmSheet({
                             />
 
                             <ReviewToggle
-                                checked={willSyncToBasecamp}
+                                checked={sendToBasecamp}
                                 disabled={!basecamp.eligible || isCheckingBasecamp}
                                 label={isCheckingBasecamp ? 'Checking Basecamp\u2026' : 'Send to Basecamp'}
                                 hint={basecamp.eligible
                                     ? "Adds this time to the client's project timesheet."
                                     : basecamp.reason}
-                                onChange={setSendToBasecamp}
+                                onChange={setSendOverride}
                             />
 
                             <ReviewToggle
