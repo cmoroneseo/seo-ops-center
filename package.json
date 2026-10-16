@@ -57,7 +57,7 @@
     "resend": "^6.12.4",
     "stripe": "^20.0.0",
     "tailwind-merge": "^3.4.0",
-    "vercel": "^54.14.5",
+    "vercel": "^64.4.0",
     "zod": "^4.1.11"
   },
   "overrides": {
