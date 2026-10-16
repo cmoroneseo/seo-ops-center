@@ -3,15 +3,26 @@
 import { useEffect, useRef, useState } from 'react';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
+import {
+    appendStageTasks,
+    commitStageTasks,
+    endPosition,
+    isPendingStageTaskId,
+    nextStagePositions,
+    pendingStageTaskId,
+    pendingStageTasks,
+    rollbackStageTasks,
+} from '@/lib/seo-plan/stage-add';
 import { parseStageListTasks, type StageListTask } from '@/lib/seo-plan/stage-list';
 import { getTask } from '@/lib/supabase/tasks';
 import type { Task } from '@/lib/types';
 import { PanelSkeleton } from './PanelSkeleton';
-import { StagePlanListView } from './StagePlanListView';
+import { StagePlanListView, type StageAddRequest } from './StagePlanListView';
 
 /**
- * Loads the session-scoped stage list and opens the existing task drawer.
- * The request carries only the route client id. The server decides the organization.
+ * Loads the session-scoped stage list, creates tasks from the add bar, and
+ * opens the existing task drawer. Requests carry only the route client id.
+ * The server decides the organization.
  */
 export function StagePlanList({ clientId, clientName }: { clientId: string; clientName: string }) {
     const { userId } = useCurrentMember();
@@ -36,7 +47,13 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
                 return response.json() as Promise<{ tasks?: unknown }>;
             })
             .then(body => {
-                if (!cancelled) setTasks(parseStageListTasks(body?.tasks));
+                if (cancelled) return;
+                const fresh = parseStageListTasks(body?.tasks);
+                setTasks(loaded => {
+                    if (!loaded) return fresh;
+                    const pending = loaded.filter(task => isPendingStageTaskId(task.id));
+                    return pending.length === 0 ? fresh : [...fresh, ...pending];
+                });
             })
             .catch(() => {
                 if (!cancelled) setError(true);
@@ -45,6 +62,47 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
     }, [clientId, reloadKey]);
 
     const reload = () => setReloadKey(key => key + 1);
+
+    const addTasks = async (input: StageAddRequest) => {
+        const requestedClient = clientId;
+        const parentTaskId = input.parentTaskId ?? null;
+        const ids = input.titles.map(() => pendingStageTaskId());
+        const createdAt = new Date().toISOString();
+        setTasks(current => {
+            if (!current) return current;
+            const positions = nextStagePositions(endPosition(current, input.stage, parentTaskId), input.titles.length);
+            return appendStageTasks(current, pendingStageTasks({
+                titles: input.titles,
+                stage: input.stage,
+                parentTaskId,
+                ids,
+                createdAt,
+                positions,
+            }));
+        });
+        try {
+            const response = await fetch(`/api/seo-plan/stage-list/${encodeURIComponent(clientId)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                cache: 'no-store',
+                body: JSON.stringify({
+                    stage: input.stage,
+                    titles: input.titles,
+                    ...(parentTaskId ? { parentTaskId } : {}),
+                }),
+            });
+            const payload = await response.json().catch(() => null) as { tasks?: unknown } | null;
+            const created = parseStageListTasks(payload?.tasks);
+            if (!response.ok || created.length === 0) throw new Error('add failed');
+            if (seenClient.current !== requestedClient) return;
+            setTasks(current => current ? commitStageTasks(current, ids, created) : created);
+        } catch (caught) {
+            if (seenClient.current === requestedClient) {
+                setTasks(current => current ? rollbackStageTasks(current, ids) : current);
+            }
+            throw caught instanceof Error ? caught : new Error('add failed');
+        }
+    };
 
     if (error) {
         return <p className="text-sm text-muted-foreground">Could not load tasks for this plan.</p>;
@@ -63,6 +121,7 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
                         if (result.task) setDetail(result.task);
                     }).catch(() => undefined);
                 }}
+                onAddTasks={addTasks}
             />
             {detail && (
                 <TaskDetailModal

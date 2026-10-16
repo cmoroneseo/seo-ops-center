@@ -2,7 +2,7 @@
 
 import { useId, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { isPendingStageTaskId } from '@/lib/seo-plan/stage-add';
 import {
     groupTasksByStage,
     stageListTitleParts,
@@ -10,6 +10,15 @@ import {
     type StageListSection,
     type StageListTask,
 } from '@/lib/seo-plan/stage-list';
+import type { TaskStage } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { StageAddBar } from './StageAddBar';
+
+export interface StageAddRequest {
+    stage: TaskStage;
+    titles: string[];
+    parentTaskId?: string;
+}
 
 const CATEGORY_LABELS: Record<string, string> = {
     content: 'Content',
@@ -61,11 +70,13 @@ function StageSections({
     query,
     searching,
     onOpenTask,
+    onAddTasks,
 }: {
     sections: StageListSection[];
     query: string;
     searching: boolean;
     onOpenTask: (taskId: string) => void;
+    onAddTasks: (input: StageAddRequest) => Promise<void>;
 }) {
     const [openOverrides, setOpenOverrides] = useState<Record<string, boolean>>({});
     const baseId = useId();
@@ -85,12 +96,14 @@ function StageSections({
         key?: string;
     }) => {
         const done = task.status === 'done' || task.status === 'approved';
+        const pending = isPendingStageTaskId(task.id);
         return (
             <div
                 key={options.key}
                 data-stage-role={options.role}
                 data-task-id={task.id}
                 data-parent-id={options.parentId}
+                data-pending={pending ? 'true' : undefined}
                 className={cn(ROW_GRID, options.className)}
             >
                 <div className="flex min-w-0 items-start gap-2">
@@ -99,8 +112,11 @@ function StageSections({
                     <div className="min-w-0">
                         <button
                             type="button"
-                            onClick={() => onOpenTask(task.id)}
-                            className="break-words text-left text-sm font-medium hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            disabled={pending}
+                            onClick={() => { if (!pending) onOpenTask(task.id); }}
+                            className={cn(
+                                'break-words text-left text-sm font-medium hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-70',
+                            )}
                         >
                             {options.parentTitle && <span className="sr-only">Subtask of {options.parentTitle}. </span>}
                             <TitleText title={task.title} query={query} done={done} />
@@ -127,6 +143,14 @@ function StageSections({
                             <span className="text-xs font-normal text-muted-foreground" data-count={section.count}>{section.count}</span>
                             <span className="sr-only">{section.count === 1 ? 'task' : 'tasks'}</span>
                         </h3>
+                        <div className="border-t border-border px-4 py-2" data-stage-add={section.stage}>
+                            <StageAddBar
+                                stage={section.stage}
+                                label={`Add task to ${section.label}`}
+                                placeholder="Add a task…"
+                                onAdd={titles => onAddTasks({ stage: section.stage, titles })}
+                            />
+                        </div>
                         {section.groups.length === 0 ? (
                             <p className="border-t border-border px-4 py-3 text-sm text-muted-foreground">No tasks</p>
                         ) : section.groups.map(group => {
@@ -171,6 +195,19 @@ function StageSections({
                                                 parentId: group.task.id,
                                                 className: 'pl-11 pr-4',
                                             }))}
+                                            <div className="border-t border-border py-2 pl-11 pr-4">
+                                                <StageAddBar
+                                                    stage={section.stage}
+                                                    parentTaskId={group.task.id}
+                                                    label={`Add subtask to ${group.task.title}`}
+                                                    placeholder="Add a subtask…"
+                                                    onAdd={titles => onAddTasks({
+                                                        stage: section.stage,
+                                                        titles,
+                                                        parentTaskId: group.task.id,
+                                                    })}
+                                                />
+                                            </div>
                                         </div>
                                     )}
                                 </div>
@@ -184,19 +221,22 @@ function StageSections({
 }
 
 /**
- * Read-only stage list. Collapse state is local. Stage and position are not edited here.
+ * Stage list. Collapse state is local. The add bar creates tasks; the server
+ * assigns stage and position.
  */
 export function StagePlanListView({
     tasks,
     query,
     onQueryChange,
     onOpenTask,
+    onAddTasks,
     clientName,
 }: {
     tasks: readonly StageListTask[];
     query: string;
     onQueryChange: (query: string) => void;
     onOpenTask: (taskId: string) => void;
+    onAddTasks: (input: StageAddRequest) => Promise<void>;
     clientName?: string;
 }) {
     const searchId = useId();
@@ -216,7 +256,14 @@ export function StagePlanListView({
                 className="w-full max-w-sm rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary"
             />
             <div className="overflow-hidden rounded-xl border border-border bg-card">
-                <StageSections key={query} sections={sections} query={query} searching={searching} onOpenTask={onOpenTask} />
+                <StageSections
+                    key={query}
+                    sections={sections}
+                    query={query}
+                    searching={searching}
+                    onOpenTask={onOpenTask}
+                    onAddTasks={onAddTasks}
+                />
             </div>
         </div>
     );
