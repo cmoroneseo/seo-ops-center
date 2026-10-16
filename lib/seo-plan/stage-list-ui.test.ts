@@ -45,12 +45,13 @@ const tasks: StageListTask[] = [
     task({ id: 'robots', title: 'Review robots.txt and XML sitemap', stage: 'month_1', position: 1, category: 'technical' }),
 ];
 
-function render(query = '') {
+function render(query = '', extraTasks: StageListTask[] = []) {
     return renderToStaticMarkup(createElement(StagePlanListView, {
-        tasks,
+        tasks: [...tasks, ...extraTasks],
         query,
         onQueryChange: () => undefined,
         onOpenTask: () => undefined,
+        onAddTasks: async () => undefined,
         clientName: 'Floor Co Design USA',
     }));
 }

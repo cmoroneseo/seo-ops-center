@@ -16,6 +16,7 @@ import {
     type ClientBasecampSyncResult,
 } from '../basecamp/client-sync';
 import { seoPlanPushTodolistId } from '../basecamp/plan-lists';
+import { taskCreateRow } from '../tasks/create-row';
 import { isTaskStage } from '../tasks/stage';
 
 // ---------------------------------------------------------------------------
@@ -149,6 +150,10 @@ export type TaskInsert = {
     campaignPhaseId?: string;
     /** Routes parent creation through the atomic Search Insights workflow. */
     sourceInvestigationId?: string;
+    /** Roadmap column. Omitted inserts keep the database default. */
+    stage?: Task['stage'];
+    /** Order within the client, stage, and parent. Omitted inserts keep the default. */
+    position?: number;
 };
 
 export function taskInsertToRpcPayload(t: TaskInsert): Record<string, unknown> {
@@ -174,30 +179,7 @@ export function taskInsertToRpcPayload(t: TaskInsert): Record<string, unknown> {
 }
 
 function taskToRow(t: Partial<TaskInsert>) {
-    return {
-        organization_id: t.organizationId,
-        project_id: t.projectId,
-        client_id: t.clientId,
-        title: t.title,
-        description: t.description,
-        assignee_ids: t.assigneeIds ?? [],
-        watcher_ids: t.watcherIds ?? [],
-        due_date: t.dueDate,
-        start_date: t.startDate,
-        priority: t.priority ?? 'medium',
-        status: t.status ?? 'todo',
-        category: t.category,
-        tags: t.tags ?? [],
-        estimated_hours: t.estimatedHours,
-        scheduled_minutes: t.scheduledMinutes,
-        deliverable_id: t.deliverableId,
-        parent_task_id: t.parentTaskId,
-        sort_order: t.sortOrder ?? 0,
-        created_by: t.createdBy,
-        template_id: t.templateId,
-        recurrence: t.recurrence,
-        campaign_phase_id: t.campaignPhaseId ?? null,
-    };
+    return taskCreateRow(t);
 }
 
 // ---------------------------------------------------------------------------
