@@ -9,6 +9,8 @@ import {
     TaskStatusHistoryEntry,
     TaskComment,
     TaskTemplate,
+    TASK_STAGES,
+    type TaskStage,
 } from '../types';
 import { getNextDueDate } from '../utils/recurrence';
 import {
@@ -57,6 +59,8 @@ export function rowToTask(row: any): Task {
         agreementId:row.agreement_id ?? undefined,
         planPhase: row.plan_phase ?? undefined,
         planPhaseLocked: row.plan_phase_locked ?? undefined,
+        stage: (TASK_STAGES as readonly string[]).includes(row.stage) ? row.stage as TaskStage : undefined,
+        position: typeof row.position === 'number' && Number.isFinite(row.position) ? row.position : undefined,
         commitmentId: row.commitment_id ?? undefined,
         organizationId: row.organization_id,
         projectId: row.project_id ?? undefined,

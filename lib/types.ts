@@ -189,6 +189,10 @@ export type TaskCategory = 'content' | 'technical' | 'local' | 'links' | 'strate
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'done' | 'approved' | 'blocked';
 
+/** Roadmap columns for tasks.stage. Earliest phase is first. Migration 103. */
+export const TASK_STAGES = ['onboarding', 'month_1', 'month_2', 'month_3', 'backlog'] as const;
+export type TaskStage = (typeof TASK_STAGES)[number];
+
 export interface TaskStatusHistoryEntry {
     status: TaskStatus;
     at: string;
@@ -233,6 +237,8 @@ export interface Task {
     planPhase?: string | null;
     /** True only when an operator pinned a phase that disagrees with the due date. */
     planPhaseLocked?: boolean;
+    /** Roadmap column from migration 103. Absent until that column exists. */
+    stage?: TaskStage;
     /** Agreement service this task counts against. Absent until migration 088. */
     commitmentId?: string | null;
     organizationId: string;
@@ -258,6 +264,8 @@ export interface Task {
     /** How much of a day the planner has blocked for it (migration 028). */
     scheduledMinutes?: number;
     sortOrder?: number;
+    /** Order within a client, stage, and parent. Absent until migration 103. */
+    position?: number;
     statusHistory?: TaskStatusHistoryEntry[];
     customFields?: Record<string, unknown>;
     watcherIds?: string[];
