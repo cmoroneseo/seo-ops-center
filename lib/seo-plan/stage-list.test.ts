@@ -232,7 +232,13 @@ test('row mapping keeps stage fields and drops the recurrence payload', () => {
     assert.equal(mapped?.position, 1.5);
     assert.equal(mapped?.basecamp, true);
     assert.equal(mapped?.recurring, true);
+    assert.equal(mapped?.publishedUrl, undefined);
     assert.equal(JSON.stringify(mapped).includes('weekly'), false);
+    assert.equal(stageListTaskFromRow({
+        id: 'piece',
+        title: 'Chino service page',
+        published_url: ' https://example.com/chino ',
+    })?.publishedUrl, 'https://example.com/chino');
 
     assert.equal(stageListTaskFromRow({ id: '', title: 'Nope' }), null);
     assert.equal(stageListTaskFromRow({ id: 'x' }), null);

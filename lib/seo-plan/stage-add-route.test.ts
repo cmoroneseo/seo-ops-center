@@ -277,6 +277,33 @@ test('a feed failure still returns the created tasks', async () => {
     assert.equal(calls.rows.length, 1);
 });
 
+test('a subtask line stores the live URL and a task line without one stays a title', async () => {
+    const { dependencies, calls } = deps();
+    const result = await createStageTasks(clientId, {
+        stage: 'backlog',
+        titles: ['Chino service page https://example.com/chino', 'Review robots.txt'],
+        parentTaskId: parentId,
+    }, dependencies);
+    assert.equal(result.status, 200);
+    if (result.status !== 200) return;
+    assert.deepEqual(result.body.tasks.map(task => task.title), ['Chino service page', 'Review robots.txt']);
+    assert.equal(calls.rows[0].title, 'Chino service page');
+    assert.equal(calls.rows[0].published_url, 'https://example.com/chino');
+    assert.equal(calls.rows[1].title, 'Review robots.txt');
+    assert.equal(Object.hasOwn(calls.rows[1], 'published_url'), false);
+});
+
+test('a top-level task keeps a pasted URL in the title', async () => {
+    const { dependencies, calls } = deps();
+    const result = await createStageTasks(clientId, {
+        stage: 'month_1',
+        titles: ['Check https://example.com/chino'],
+    }, dependencies);
+    assert.equal(result.status, 200);
+    assert.equal(calls.rows[0].title, 'Check https://example.com/chino');
+    assert.equal(Object.hasOwn(calls.rows[0], 'published_url'), false);
+});
+
 test('a write failure does not return the underlying message', async () => {
     const { dependencies } = deps({
         insertTasks: async () => {

@@ -258,7 +258,12 @@ export function restoreStageTasks(
 /** Saved rows replace the optimistic copies. Ids the server did not return stay as they are. */
 export function mergeStageTasks(current: readonly StageListTask[], updated: readonly StageListTask[]): StageListTask[] {
     const byId = new Map(updated.map(task => [task.id, task]));
-    return current.map(task => byId.get(task.id) ?? task);
+    return current.map(task => {
+        const next = byId.get(task.id);
+        if (!next) return task;
+        if (next.publishedUrl === undefined && task.publishedUrl) return { ...next, publishedUrl: task.publishedUrl };
+        return next;
+    });
 }
 
 function insertIndex(siblings: readonly StageListTask[], dragId: string, beforeTaskId: string | null, place: 'before' | 'after'): number {

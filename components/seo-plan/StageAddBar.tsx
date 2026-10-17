@@ -6,6 +6,7 @@ import {
     titlesFromStageAddEnter,
     titlesFromStageAddPaste,
 } from '@/lib/seo-plan/stage-add-lines';
+import { subtaskLinesError } from '@/lib/tasks/live-url';
 
 /**
  * One title on Enter. Several pasted lines become several tasks, in order.
@@ -31,7 +32,7 @@ export function StageAddBar({
     const errorId = useId();
 
     async function submit(titles: string[], fromField: boolean) {
-        const problem = stageAddTitlesError(titles);
+        const problem = parentTaskId ? subtaskLinesError(titles, stageAddTitlesError) : stageAddTitlesError(titles);
         if (problem) {
             setError(problem);
             return;

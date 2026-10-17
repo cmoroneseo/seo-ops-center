@@ -18,6 +18,8 @@ export interface StageListTask {
     category: string | null;
     basecamp: boolean;
     recurring: boolean;
+    /** Absent when the row was loaded before the live URL column was selected. */
+    publishedUrl?: string | null;
 }
 
 export interface StageListGroup {
@@ -249,6 +251,11 @@ export function stageListTaskFromRow(row: unknown): StageListTask | null {
         category: typeof record.category === 'string' && record.category ? record.category : null,
         basecamp: typeof basecampId === 'number' || (typeof basecampId === 'string' && basecampId !== ''),
         recurring: record.recurrence != null,
+        ...('published_url' in record ? {
+            publishedUrl: typeof record.published_url === 'string' && record.published_url.trim()
+                ? record.published_url.trim()
+                : null,
+        } : {}),
     };
 }
 
@@ -271,6 +278,11 @@ export function parseStageListTasks(value: unknown): StageListTask[] {
             category: typeof record.category === 'string' && record.category ? record.category : null,
             basecamp: record.basecamp === true,
             recurring: record.recurring === true,
+            ...('publishedUrl' in record ? {
+                publishedUrl: typeof record.publishedUrl === 'string' && record.publishedUrl.trim()
+                    ? record.publishedUrl.trim()
+                    : null,
+            } : {}),
         });
     }
     return tasks;

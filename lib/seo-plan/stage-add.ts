@@ -48,6 +48,7 @@ export function pendingStageTasks(input: {
     ids: readonly string[];
     createdAt: string;
     positions: readonly number[];
+    publishedUrls?: readonly (string | null)[];
 }): StageListTask[] {
     return input.titles.map((title, index) => ({
         id: input.ids[index] ?? `${PENDING_STAGE_TASK_PREFIX}${index}`,
@@ -60,6 +61,7 @@ export function pendingStageTasks(input: {
         category: null,
         basecamp: false,
         recurring: false,
+        ...(input.publishedUrls?.[index] ? { publishedUrl: input.publishedUrls[index] } : {}),
     }));
 }
 
