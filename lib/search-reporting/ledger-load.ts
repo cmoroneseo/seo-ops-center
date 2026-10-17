@@ -5,6 +5,7 @@ import { monthBounds, ptToday } from '@/lib/sync/months';
 import { readGrainedFacts } from './fact-read';
 import type { SearchReportingAdmin, SearchQuery } from './load';
 import type { LedgerDayInput, LedgerDeliverableInput, LedgerFactInput, LedgerSource } from './ledger';
+import { taskToLedgerDeliverable } from '@/lib/tasks/live-url';
 import { normalizeShipDate } from './proof';
 import { LOOKBACK_DAYS, coverWindow, parseRange, resolveRange } from './range';
 
@@ -89,7 +90,26 @@ export async function loadLedger(
         .eq('client_id', input.clientId)
         .eq('status', 'Published')
         .order('delivered_on', { ascending: false }));
-    const deliverables = deliverableRows.map(deliverable);
+    const taskRows = await readPages(() => admin.from('tasks')
+        .select('id, title, category, status, published_url, completed_at')
+        .eq('organization_id', input.organizationId)
+        .eq('client_id', input.clientId)
+        .eq('status', 'done')
+        .order('completed_at', { ascending: false }));
+    const deliverables = [
+        ...deliverableRows.map(deliverable),
+        ...taskRows.flatMap(row => {
+            const item = taskToLedgerDeliverable({
+                id: String(row.id ?? ''),
+                title: typeof row.title === 'string' ? row.title : '',
+                status: typeof row.status === 'string' ? row.status : '',
+                category: typeof row.category === 'string' ? row.category : null,
+                publishedUrl: typeof row.published_url === 'string' ? row.published_url : null,
+                completedAt: typeof row.completed_at === 'string' ? row.completed_at : null,
+            });
+            return item ? [item] : [];
+        }),
+    ];
     const empty: LedgerSource = {
         clientId: input.clientId,
         clientDomain,
