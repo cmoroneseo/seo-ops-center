@@ -9,7 +9,35 @@ import { normalizeShipDate, parseHttpUrl } from '@/lib/search-reporting/proof';
 
 export const LIVE_URL_MAX_LENGTH = 2000;
 
-const HTTP_URL = /https?:\/\/[^\s<>"']+/i;
+const SCHEMES = ['https://', 'http://'] as const;
+
+/**
+ * The first http(s) token in a line. It has to start the line, or follow a
+ * space or an opening paren, so a longer word cannot hide a URL inside it.
+ */
+function findLiveUrl(line: string): { start: number; raw: string } | null {
+    const lower = line.toLowerCase();
+    let best: { start: number; raw: string } | null = null;
+    for (const scheme of SCHEMES) {
+        let from = 0;
+        while (from < lower.length) {
+            const at = lower.indexOf(scheme, from);
+            if (at < 0) break;
+            const prev = at === 0 ? '' : line[at - 1];
+            if (at === 0 || prev === ' ' || prev === '(') {
+                let end = at + scheme.length;
+                while (end < line.length && line[end] !== ' ' && line[end] !== '<' && line[end] !== '>' && line[end] !== '"' && line[end] !== "'") {
+                    end += 1;
+                }
+                const found = { start: at, raw: line.slice(at, end) };
+                if (!best || found.start < best.start) best = found;
+                break;
+            }
+            from = at + scheme.length;
+        }
+    }
+    return best;
+}
 
 export interface SubtaskLine {
     title: string;
@@ -18,14 +46,14 @@ export interface SubtaskLine {
 
 export function splitLiveUrl(line: string): SubtaskLine {
     const trimmed = line.trim().replace(/\s+/g, ' ');
-    const match = HTTP_URL.exec(trimmed);
+    const match = findLiveUrl(trimmed);
     if (!match) return { title: trimmed, publishedUrl: null };
-    const publishedUrl = trimUrlTail(match[0]);
+    const publishedUrl = trimUrlTail(match.raw);
     if (!parseHttpUrl(publishedUrl)) return { title: trimmed, publishedUrl: null };
 
-    let before = trimmed.slice(0, match.index);
-    let after = trimmed.slice(match.index + match[0].length);
-    const removed = match[0].slice(publishedUrl.length);
+    let before = trimmed.slice(0, match.start);
+    let after = trimmed.slice(match.start + match.raw.length);
+    const removed = match.raw.slice(publishedUrl.length);
     if (removed && after.startsWith(removed)) after = after.slice(removed.length);
     if (removed.includes(')') && /\(\s*$/.test(before)) before = before.replace(/\(\s*$/, '');
     const title = `${before} ${after}`.replace(/\s+/g, ' ').trim();

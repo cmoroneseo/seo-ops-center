@@ -59,9 +59,9 @@ test('a content row offers a live URL and other rows keep it on hover', () => {
     assert.match(publish, /Add live URL/);
     assert.doesNotMatch(publish, /class="[^"]*\bh-0\b/);
     const piece = row(html, 'piece');
-    assert.match(piece, /href="https:\/\/example.com\/chino"/);
-    assert.match(piece, /example.com\/chino/);
-    assert.doesNotMatch(piece, />https:\/\/example.com\/chino</);
+    assert.ok(piece.includes('href="https://example.com/chino"'));
+    assert.ok(piece.includes('>example.com/chino<'));
+    assert.equal(piece.includes('>https://example.com/chino<'), false);
     const robots = row(html, 'robots');
     assert.match(robots, /Add live URL/);
     assert.match(robots, /class="[^"]*\bh-0\b/);

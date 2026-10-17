@@ -37,6 +37,14 @@ test('a URL is parsed from a subtask line', () => {
         title: 'javascript:alert(1)',
         publishedUrl: null,
     });
+    assert.deepEqual(splitLiveUrl('nothttps://example.com/chino'), {
+        title: 'nothttps://example.com/chino',
+        publishedUrl: null,
+    });
+    assert.deepEqual(splitLiveUrl('javascript:https://example.com/chino'), {
+        title: 'javascript:https://example.com/chino',
+        publishedUrl: null,
+    });
 
     const longUrl = `https://example.com/${'a'.repeat(400)}`;
     const line = `City page ${longUrl}`;
