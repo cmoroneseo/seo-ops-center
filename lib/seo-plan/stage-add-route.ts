@@ -4,6 +4,7 @@ import { taskCreateRow } from '../tasks/create-row';
 import type { TaskStage } from '../types';
 import { nextStagePositions } from './stage-add';
 import { stageAddTitlesError, STAGE_ADD_MAX_TITLE_LENGTH } from './stage-add-lines';
+import { subtaskLineDrafts, subtaskLinesError } from '../tasks/live-url';
 import type { StageAddParent } from './stage-add-db';
 import type { StageListTask } from './stage-list';
 
@@ -52,6 +53,7 @@ export type StageAddResult =
 interface StageAddInput {
     stage: TaskStage;
     titles: string[];
+    publishedUrls: Array<string | null>;
     parentTaskId: string | null;
 }
 
@@ -61,29 +63,36 @@ function readStageAddBody(body: unknown): { ok: true; value: StageAddInput } | {
     if (!isTaskStage(record.stage)) return { ok: false, error: 'Choose a stage.' };
     if (!Array.isArray(record.titles)) return { ok: false, error: 'Enter a title.' };
 
+    const parentProvided = record.parentTaskId != null && record.parentTaskId !== '';
+    const parentIsValid = typeof record.parentTaskId === 'string' && ID.test(record.parentTaskId.trim());
     const titles: string[] = [];
     for (const title of record.titles) {
         if (typeof title !== 'string') return { ok: false, error: 'Enter a title.' };
         const trimmed = title.trim();
-        if (!trimmed || trimmed.length > STAGE_ADD_MAX_TITLE_LENGTH || /[\r\n]/.test(title)) {
-            if (trimmed.length > STAGE_ADD_MAX_TITLE_LENGTH) {
-                return { ok: false, error: `Keep each title under ${STAGE_ADD_MAX_TITLE_LENGTH} characters.` };
-            }
-            return { ok: false, error: 'Enter a title.' };
+        if (!trimmed || /[\r\n]/.test(title)) return { ok: false, error: 'Enter a title.' };
+        if (!parentIsValid && trimmed.length > STAGE_ADD_MAX_TITLE_LENGTH) {
+            return { ok: false, error: `Keep each title under ${STAGE_ADD_MAX_TITLE_LENGTH} characters.` };
         }
         titles.push(trimmed);
     }
+    if (parentProvided && !parentIsValid) return { ok: false, error: 'Not found' };
+    if (parentIsValid && typeof record.parentTaskId === 'string') {
+        const problem = subtaskLinesError(titles, stageAddTitlesError);
+        if (problem) return { ok: false, error: problem };
+        const drafts = subtaskLineDrafts(titles);
+        return {
+            ok: true,
+            value: {
+                stage: record.stage,
+                titles: drafts.map(draft => draft.title),
+                publishedUrls: drafts.map(draft => draft.publishedUrl),
+                parentTaskId: record.parentTaskId.trim(),
+            },
+        };
+    }
     const titlesError = stageAddTitlesError(titles);
     if (titlesError) return { ok: false, error: titlesError };
-
-    let parentTaskId: string | null = null;
-    if (record.parentTaskId != null && record.parentTaskId !== '') {
-        if (typeof record.parentTaskId !== 'string' || !ID.test(record.parentTaskId.trim())) {
-            return { ok: false, error: 'Not found' };
-        }
-        parentTaskId = record.parentTaskId.trim();
-    }
-    return { ok: true, value: { stage: record.stage, titles, parentTaskId } };
+    return { ok: true, value: { stage: record.stage, titles, publishedUrls: titles.map(() => null), parentTaskId: null } };
 }
 
 function orderCreated(rows: readonly Record<string, unknown>[], tasks: readonly StageListTask[]): StageListTask[] {
@@ -155,6 +164,7 @@ export async function createStageTasks(
                 stage,
                 position: positions[index],
                 parentTaskId: parsed.value.parentTaskId ?? undefined,
+                publishedUrl: parsed.value.publishedUrls[index] ?? undefined,
                 createdBy: session.userId,
                 status: 'todo',
                 priority: 'medium',

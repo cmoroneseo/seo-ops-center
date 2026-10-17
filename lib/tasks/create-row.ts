@@ -32,6 +32,8 @@ export interface TaskCreateFields {
     campaignPhaseId?: string;
     stage?: TaskStage;
     position?: number;
+    /** Set only when a subtask line included a live URL. */
+    publishedUrl?: string | null;
 }
 
 export function taskCreateRow(task: TaskCreateFields): Record<string, unknown> {
@@ -60,5 +62,6 @@ export function taskCreateRow(task: TaskCreateFields): Record<string, unknown> {
         campaign_phase_id: task.campaignPhaseId ?? null,
         ...(isTaskStage(task.stage) ? { stage: task.stage } : {}),
         ...(typeof task.position === 'number' && Number.isFinite(task.position) ? { position: task.position } : {}),
+        ...(task.publishedUrl ? { published_url: task.publishedUrl } : {}),
     };
 }

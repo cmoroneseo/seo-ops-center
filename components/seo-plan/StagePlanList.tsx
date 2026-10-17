@@ -15,7 +15,8 @@ import {
 } from '@/lib/seo-plan/stage-add';
 import { parseStageListTasks } from '@/lib/seo-plan/stage-list';
 import { useStageListMoves } from '@/lib/seo-plan/stage-list-moves';
-import { getTask } from '@/lib/supabase/tasks';
+import { getTask, updateTask } from '@/lib/supabase/tasks';
+import { parseLiveUrlInput, subtaskLineDrafts } from '@/lib/tasks/live-url';
 import type { Task } from '@/lib/types';
 import { PanelSkeleton } from './PanelSkeleton';
 import { StagePlanListView, type StageAddRequest } from './StagePlanListView';
@@ -87,11 +88,15 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
         const parentTaskId = input.parentTaskId ?? null;
         const ids = input.titles.map(() => pendingStageTaskId());
         const createdAt = new Date().toISOString();
+        const drafts = parentTaskId
+            ? subtaskLineDrafts(input.titles)
+            : input.titles.map(title => ({ title: title.trim(), publishedUrl: null }));
         updateList(current => {
             if (!current) return current;
-            const positions = nextStagePositions(endPosition(current, input.stage, parentTaskId), input.titles.length);
+            const positions = nextStagePositions(endPosition(current, input.stage, parentTaskId), drafts.length);
             return appendStageTasks(current, pendingStageTasks({
-                titles: input.titles,
+                titles: drafts.map(draft => draft.title),
+                publishedUrls: drafts.map(draft => draft.publishedUrl),
                 stage: input.stage,
                 parentTaskId,
                 ids,
@@ -142,6 +147,20 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
                 }}
                 onAddTasks={addTasks}
                 onReorder={move}
+                onSetLiveUrl={async (taskId, raw) => {
+                    if (isPendingStageTaskId(taskId)) return 'Could not save that link.';
+                    const parsed = parseLiveUrlInput(raw);
+                    if (!parsed.ok) return parsed.error;
+                    const result = await updateTask(taskId, { publishedUrl: parsed.publishedUrl });
+                    if (!result.success || !result.data) return result.error || 'Could not save that link.';
+                    if (seenClient.current !== clientId) return null;
+                    updateList(current => current
+                        ? current.map(task => task.id === taskId
+                            ? { ...task, publishedUrl: result.data?.publishedUrl ?? null }
+                            : task)
+                        : current);
+                    return null;
+                }}
             />
             {detail && (
                 <TaskDetailModal

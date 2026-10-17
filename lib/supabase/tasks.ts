@@ -17,6 +17,7 @@ import {
 } from '../basecamp/client-sync';
 import { seoPlanPushTodolistId } from '../basecamp/plan-lists';
 import { taskCreateRow } from '../tasks/create-row';
+import { completedAtForLiveUrl, parseLiveUrlInput, splitLiveUrl } from '../tasks/live-url';
 import { isTaskStage } from '../tasks/stage';
 
 // ---------------------------------------------------------------------------
@@ -75,6 +76,7 @@ export function rowToTask(row: any): Task {
         // an hour grid and needs the time of day (migration 027).
         startDate: row.start_date ?? undefined,
         completedAt: row.completed_at ?? undefined,
+        publishedUrl: typeof row.published_url === 'string' && row.published_url.trim() ? row.published_url.trim() : undefined,
         priority: (row.priority as TaskPriority) ?? 'medium',
         status: (row.status as TaskStatus) ?? 'todo',
         category: (row.category as TaskCategory) ?? undefined,
@@ -154,6 +156,8 @@ export type TaskInsert = {
     stage?: Task['stage'];
     /** Order within the client, stage, and parent. Omitted inserts keep the default. */
     position?: number;
+    /** Live page for a content piece. Omitted inserts leave the column empty. */
+    publishedUrl?: string | null;
 };
 
 export function taskInsertToRpcPayload(t: TaskInsert): Record<string, unknown> {
@@ -339,8 +343,15 @@ export async function createTask(
             data = Array.isArray(result.data) ? result.data[0] : result.data;
             error = result.error;
         } else {
+            const line = t.parentTaskId ? splitLiveUrl(t.title) : null;
             const row = {
-                ...taskToRow(t),
+                ...taskToRow({
+                    ...t,
+                    ...(line ? {
+                        title: line.title,
+                        ...(line.publishedUrl ? { publishedUrl: line.publishedUrl } : {}),
+                    } : {}),
+                }),
                 status_history: [{ status: t.status ?? 'todo', at: new Date().toISOString(), by: t.createdBy }],
             };
             const result = await supabase.from('tasks').insert([row]).select('*, clients(name)').single();
@@ -360,22 +371,26 @@ export async function createTask(
         if (subtaskDrafts.length > 0) {
             const now = new Date().toISOString();
             const { error: subtaskError } = await supabase.from('tasks').insert(
-                subtaskDrafts.map((subtask, index) => ({
-                    organization_id: task.organizationId,
-                    project_id: task.projectId,
-                    client_id: task.clientId,
-                    title: subtask.title,
-                    description: subtask.description,
-                    assignee_ids: [],
-                    watcher_ids: [],
-                    priority: t.priority ?? 'medium',
-                    status: 'todo',
-                    tags: [],
-                    parent_task_id: task.id,
-                    sort_order: index,
-                    created_by: t.createdBy,
-                    status_history: [{ status: 'todo', at: now, by: t.createdBy }],
-                })),
+                subtaskDrafts.map((subtask, index) => {
+                    const line = splitLiveUrl(subtask.title);
+                    return {
+                        organization_id: task.organizationId,
+                        project_id: task.projectId,
+                        client_id: task.clientId,
+                        title: line.title,
+                        description: subtask.description,
+                        assignee_ids: [],
+                        watcher_ids: [],
+                        priority: t.priority ?? 'medium',
+                        status: 'todo',
+                        tags: [],
+                        parent_task_id: task.id,
+                        sort_order: index,
+                        created_by: t.createdBy,
+                        status_history: [{ status: 'todo', at: now, by: t.createdBy }],
+                        ...(line.publishedUrl ? { published_url: line.publishedUrl } : {}),
+                    };
+                }),
             );
             if (subtaskError) throw subtaskError;
         }
@@ -465,6 +480,8 @@ export async function updateTask(
         commitmentId?: string | null;
         /** null lifts a subtask back to the top level. */
         parentTaskId?: string | null;
+        /** null clears the live URL. */
+        publishedUrl?: string | null;
     },
 ): Promise<{ success: boolean; data?: Task; error?: string }> {
     const supabase = createClient();
@@ -492,6 +509,12 @@ export async function updateTask(
             ...(patch.planPhaseLocked !== undefined && { plan_phase_locked: patch.planPhaseLocked }),
             ...(patch.commitmentId !== undefined && { commitment_id: patch.commitmentId }),
         };
+
+        if (patch.publishedUrl !== undefined) {
+            const parsed = parseLiveUrlInput(patch.publishedUrl ?? '');
+            if (!parsed.ok) return { success: false, error: parsed.error };
+            candidate.published_url = parsed.publishedUrl;
+        }
 
         // Fetch current task row when status or assignees are changing
         // (needed for status_history append, recurring spawn, and assignee diff)
@@ -543,6 +566,27 @@ export async function updateTask(
                     }).catch(err => console.error('Recurring task spawn error:', err));
                 }
             }
+        }
+
+        // A done task that gains a live URL and has no ship date gets one.
+        // Completing the task already writes completed_at. This covers a URL added afterward.
+        if (
+            typeof candidate.published_url === 'string'
+            && candidate.completed_at === undefined
+            && patch.completedAt === undefined
+        ) {
+            const { data: cur } = await supabase
+                .from('tasks')
+                .select('status, completed_at')
+                .eq('id', taskId)
+                .single();
+            const stamp = completedAtForLiveUrl({
+                status: typeof cur?.status === 'string' ? cur.status : '',
+                completedAt: typeof cur?.completed_at === 'string' ? cur.completed_at : null,
+                publishedUrl: candidate.published_url,
+                now: new Date().toISOString(),
+            });
+            if (stamp) candidate.completed_at = stamp;
         }
 
         // Notify newly added assignees

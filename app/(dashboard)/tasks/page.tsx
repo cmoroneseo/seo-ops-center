@@ -293,6 +293,7 @@ export default function TasksPage() {
                     <TaskListView
                         tasks={filteredTasks}
                         onTaskClick={handleTaskClick}
+                        onTaskUpdated={handleTaskUpdated}
                     />
                 )}
             </div>

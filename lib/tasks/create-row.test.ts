@@ -21,6 +21,7 @@ test('a normal create omits stage and position so the database defaults stay in 
     assert.deepEqual(row.assignee_ids, []);
     assert.equal(Object.hasOwn(row, 'basecamp_todo_id'), false);
     assert.equal(Object.hasOwn(row, 'basecamp_project_id'), false);
+    assert.equal(Object.hasOwn(row, 'published_url'), false);
 });
 
 test('stage and position are written only when the caller sets them', () => {
@@ -38,6 +39,7 @@ test('stage and position are written only when the caller sets them', () => {
     assert.equal(row.position, 4);
     assert.equal(row.parent_task_id, 'pillar');
     assert.equal(row.sort_order, 2);
+    assert.equal(taskCreateRow({ title: 'Chino page', publishedUrl: 'https://example.com/chino' }).published_url, 'https://example.com/chino');
     assert.equal(Object.hasOwn(taskCreateRow({ position: Number.NaN }), 'position'), false);
     assert.equal(Object.hasOwn(taskCreateRow({ stage: 'month_9' as 'month_1' }), 'stage'), false);
 });

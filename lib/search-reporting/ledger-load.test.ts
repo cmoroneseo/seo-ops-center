@@ -139,3 +139,71 @@ test('no shipped work reports the month’s stored days and does not read page f
     assert.equal(JSON.stringify(model).includes('No Search Console days are stored'), false);
     assert.equal(model.gaps.find(gap => gap.id === 'page-facts')?.detail, "Page facts aren't needed until work ships.");
 });
+
+test('a completed subtask with a live URL joins the ledger and a task without one does not', async () => {
+    const filters: { table: string; column: string; value: unknown }[] = [];
+    const admin: SearchReportingAdmin = {
+        from(table: string) {
+            const api = {
+                select() { return api; },
+                eq(column: string, value: unknown) { filters.push({ table, column, value }); return api; },
+                gte() { return api; },
+                lte() { return api; },
+                in() { throw new Error('page facts are not read when Search Console is not connected'); },
+                order() { return api; },
+                async range() {
+                    if (table === 'tasks') {
+                        return {
+                            data: [
+                                {
+                                    id: 'parent',
+                                    title: 'Publish Approved SEO Content',
+                                    category: 'content',
+                                    status: 'done',
+                                    published_url: null,
+                                    completed_at: '2026-10-17T01:30:00.000Z',
+                                },
+                                {
+                                    id: 'piece',
+                                    title: 'Chino service page',
+                                    category: 'content',
+                                    status: 'done',
+                                    published_url: 'https://example.com/chino',
+                                    completed_at: '2026-10-17T01:30:00.000Z',
+                                },
+                                {
+                                    id: 'open',
+                                    title: 'Draft page',
+                                    category: 'content',
+                                    status: 'todo',
+                                    published_url: 'https://example.com/draft',
+                                    completed_at: null,
+                                },
+                            ],
+                            error: null,
+                        };
+                    }
+                    return { data: [], error: null };
+                },
+                async maybeSingle() {
+                    if (table === 'clients') return { data: { domain: 'example.com' }, error: null };
+                    return { data: null, error: null };
+                },
+            };
+            return api;
+        },
+    };
+    const now = new Date('2026-10-17T18:00:00.000Z');
+    const loaded = await loadLedger({ organizationId: org, clientId: client, now }, admin);
+    assert.deepEqual(loaded.deliverables.map(item => item.id), ['piece']);
+    assert.equal(loaded.deliverables[0].publishedUrl, 'https://example.com/chino');
+    assert.equal(loaded.deliverables[0].deliveredOn, '2026-10-17');
+    assert.equal(filters.find(filter => filter.table === 'tasks' && filter.column === 'organization_id')?.value, org);
+    assert.equal(filters.find(filter => filter.table === 'tasks' && filter.column === 'client_id')?.value, client);
+    assert.equal(filters.find(filter => filter.table === 'tasks' && filter.column === 'status')?.value, 'done');
+    const model = buildLedger(loaded, now);
+    assert.equal(model.entries.length, 1);
+    assert.equal(model.entries[0].title, 'Chino service page');
+    assert.equal(model.entries[0].shippedOn, '2026-10-17');
+    assert.equal(model.empty, null);
+});

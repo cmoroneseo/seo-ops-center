@@ -7,15 +7,19 @@ import { useState, useEffect } from 'react';
 import { useTimer } from '@/components/providers/timer-provider';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
+import { updateTask } from '@/lib/supabase/tasks';
+import { parseLiveUrlInput } from '@/lib/tasks/live-url';
+import { LiveUrlControl } from './LiveUrlControl';
 
 interface TaskListViewProps {
     tasks: Task[];
     onTaskClick: (task: Task) => void;
+    onTaskUpdated?: (task: Task) => void;
     /** @deprecated — timer is now handled internally via useTimer */
     onToggleTimer?: (taskId: string) => void;
 }
 
-export function TaskListView({ tasks, onTaskClick }: TaskListViewProps) {
+export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListViewProps) {
     const { runningTimer, startTask, pause } = useTimer();
     const { organization } = useOrganization();
     const [memberMap, setMemberMap] = useState<Record<string, string>>({});
@@ -136,6 +140,18 @@ export function TaskListView({ tasks, onTaskClick }: TaskListViewProps) {
                                                         {task.category && (
                                                             <span className="text-[10px] text-muted-foreground capitalize">{task.category}</span>
                                                         )}
+                                                        <LiveUrlControl
+                                                            url={task.publishedUrl}
+                                                            category={task.category}
+                                                            onSave={async raw => {
+                                                                const parsed = parseLiveUrlInput(raw);
+                                                                if (!parsed.ok) return parsed.error;
+                                                                const result = await updateTask(task.id, { publishedUrl: parsed.publishedUrl });
+                                                                if (!result.success || !result.data) return result.error || 'Could not save that link.';
+                                                                onTaskUpdated?.(result.data);
+                                                                return null;
+                                                            }}
+                                                        />
                                                     </div>
                                                 </div>
                                             </td>

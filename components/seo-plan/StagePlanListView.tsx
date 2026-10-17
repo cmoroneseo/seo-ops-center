@@ -20,6 +20,7 @@ import {
 } from '@/lib/seo-plan/stage-list';
 import type { TaskStage } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { LiveUrlControl } from '@/components/tasks/LiveUrlControl';
 import { StageAddBar } from './StageAddBar';
 
 export interface StageAddRequest {
@@ -154,6 +155,7 @@ function StageSections({
     onOpenTask,
     onAddTasks,
     onReorder,
+    onSetLiveUrl,
 }: {
     tasks: readonly StageListTask[];
     sections: StageListSection[];
@@ -162,6 +164,7 @@ function StageSections({
     onOpenTask: (taskId: string) => void;
     onAddTasks: (input: StageAddRequest) => Promise<void>;
     onReorder: (move: StageReorderMove) => Promise<void>;
+    onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
 }) {
     const [openOverrides, setOpenOverrides] = useState<Record<string, boolean>>({});
     const [dragId, setDragId] = useState<string | null>(null);
@@ -300,6 +303,11 @@ function StageSections({
                             <TitleText title={task.title} query={query} done={done} />
                         </button>
                         {options.parentTitle && <div className="text-xs text-muted-foreground">in {options.parentTitle}</div>}
+                        <LiveUrlControl
+                            url={task.publishedUrl}
+                            category={task.category}
+                            onSave={!pending && onSetLiveUrl ? raw => onSetLiveUrl(task.id, raw) : undefined}
+                        />
                         {options.extra}
                     </div>
                     {movable && (
@@ -505,6 +513,7 @@ export function StagePlanListView({
     onOpenTask,
     onAddTasks,
     onReorder,
+    onSetLiveUrl,
     clientName,
 }: {
     tasks: readonly StageListTask[];
@@ -513,6 +522,7 @@ export function StagePlanListView({
     onOpenTask: (taskId: string) => void;
     onAddTasks: (input: StageAddRequest) => Promise<void>;
     onReorder: (move: StageReorderMove) => Promise<void>;
+    onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
     clientName?: string;
 }) {
     const searchId = useId();
@@ -541,6 +551,7 @@ export function StagePlanListView({
                     onOpenTask={onOpenTask}
                     onAddTasks={onAddTasks}
                     onReorder={onReorder}
+                    onSetLiveUrl={onSetLiveUrl}
                 />
             </div>
         </div>

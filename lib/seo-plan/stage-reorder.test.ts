@@ -179,6 +179,14 @@ test('rollback restores only the moved rows and a save replaces those copies', (
     assert.equal(mergeStageTasks(result.tasks, [saved]).find(item => item.id === 'roadmap')?.position, 4);
 });
 
+test('a move keeps a live URL the save payload does not return', () => {
+    const current = [task({ id: 'piece', title: 'Chino service page', publishedUrl: 'https://example.com/chino' })];
+    const saved = task({ id: 'piece', title: 'Chino service page', stage: 'month_2', position: 1 });
+    assert.equal(mergeStageTasks(current, [saved])[0].publishedUrl, 'https://example.com/chino');
+    const cleared = task({ id: 'piece', title: 'Chino service page', publishedUrl: null });
+    assert.equal(mergeStageTasks(current, [cleared])[0].publishedUrl, null);
+});
+
 test('the middle of a pillar header nests, and its edges reorder', () => {
     const nest = describeStageDrop({
         tasks,

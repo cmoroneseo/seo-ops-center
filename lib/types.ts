@@ -252,6 +252,8 @@ export interface Task {
     dueDate?: string | null;
     startDate?: string;
     completedAt?: string;
+    /** Live page this task shipped. Column from migration 105. */
+    publishedUrl?: string;
     priority: TaskPriority;
     status: TaskStatus;
     category?: TaskCategory;
