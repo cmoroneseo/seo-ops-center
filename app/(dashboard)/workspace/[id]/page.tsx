@@ -579,6 +579,10 @@ export default function ClientDetailPage() {
                                 setSelectedTask(task);
                                 setIsTaskDetailOpen(true);
                             }}
+                            onTaskUpdated={updated => {
+                                setClientTasks(prev => prev.map(task => task.id === updated.id ? updated : task));
+                                setSelectedTask(current => current?.id === updated.id ? updated : current);
+                            }}
                         />
                     )}
 

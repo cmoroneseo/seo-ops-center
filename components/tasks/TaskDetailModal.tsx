@@ -22,7 +22,9 @@ import { timeLogSyncState, canPushToBasecamp } from '@/lib/timesheets/log-sync-s
 import { completeTaskWithReconciliation } from '@/lib/tasks/task-completion';
 import { TaskCompletionDrawer } from './TaskCompletionDrawer';
 import { startDateForDay, scheduleDateError, estimateFromInput } from '@/lib/tasks/schedule-edit';
+import { parseLiveUrlInput } from '@/lib/tasks/live-url';
 import { PILLAR_TIME_BEHAVIOR, timeTrackingTaskId } from '@/lib/tasks/pillars';
+import { LiveUrlControl } from './LiveUrlControl';
 import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
 
 interface TaskDetailModalProps {
@@ -179,6 +181,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
 
     // Local editable state
     const [title, setTitle] = useState('');
+    const [liveUrl, setLiveUrl] = useState<string | undefined>();
     const [description, setDescription] = useState('');
     const [status, setStatus] = useState<TaskStatus>('todo');
     const [priority, setPriority] = useState<TaskPriority>('medium');
@@ -210,6 +213,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     useEffect(() => {
         if (!task) return;
         setTitle(task.title ?? '');
+        setLiveUrl(task.publishedUrl);
         setDescription(taskDescriptionText(task.description));
         setStatus(task.status ?? 'todo');
         setPriority(task.priority ?? 'medium');
@@ -487,6 +491,14 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         await save({ tags: next });
     };
 
+    const saveLiveUrl = async (taskId: string, raw: string) => {
+        const parsed = parseLiveUrlInput(raw);
+        if (!parsed.ok) return parsed.error;
+        const result = await updateTask(taskId, { publishedUrl: parsed.publishedUrl, updatedBy: currentUserId });
+        if (!result.success || !result.data) return result.error || 'Could not save that link.';
+        return result.data;
+    };
+
     const handleAddSubtask = async () => {
         const t = newSubtaskTitle.trim();
         if (!t || !task || !organization) return;
@@ -663,6 +675,18 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                     <span>{task.clientName}</span>
                                 </div>
                             )}
+                            <LiveUrlControl
+                                url={liveUrl}
+                                category={category || task.category}
+                                prominent
+                                onSave={async raw => {
+                                    const saved = await saveLiveUrl(task.id, raw);
+                                    if (typeof saved === 'string') return saved;
+                                    setLiveUrl(saved.publishedUrl);
+                                    onUpdate?.(saved);
+                                    return null;
+                                }}
+                            />
                         </div>
 
                         {/* Description */}
@@ -867,12 +891,24 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                             onChange={() => handleSubtaskToggle(sub)}
                                             className="rounded border-border text-primary focus:ring-primary h-4 w-4 cursor-pointer"
                                         />
-                                        <span className={cn(
-                                            "text-sm flex-1",
-                                            sub.status === 'done' && "line-through text-muted-foreground"
-                                        )}>
-                                            {sub.title}
-                                        </span>
+                                        <div className="min-w-0 flex-1">
+                                            <span className={cn(
+                                                "text-sm",
+                                                sub.status === 'done' && "line-through text-muted-foreground"
+                                            )}>
+                                                {sub.title}
+                                            </span>
+                                            <LiveUrlControl
+                                                url={sub.publishedUrl}
+                                                category={sub.category ?? category}
+                                                onSave={async raw => {
+                                                    const saved = await saveLiveUrl(sub.id, raw);
+                                                    if (typeof saved === 'string') return saved;
+                                                    setSubtasks(prev => prev.map(item => item.id === sub.id ? saved : item));
+                                                    return null;
+                                                }}
+                                            />
+                                        </div>
                                     </div>
                                 ))}
                                 <div className="flex items-center gap-2 mt-2">
