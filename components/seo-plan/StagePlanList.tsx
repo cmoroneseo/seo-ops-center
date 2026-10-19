@@ -30,6 +30,7 @@ import { StagePlanListView, type StageAddRequest } from './StagePlanListView';
 export function StagePlanList({ clientId, clientName }: { clientId: string; clientName: string }) {
     const { userId } = useCurrentMember();
     const [query, setQuery] = useState('');
+    const [thisMonth, setThisMonth] = useState(false);
     const [error, setError] = useState(false);
     const [reloadKey, setReloadKey] = useState(0);
     const [detail, setDetail] = useState<Task | null>(null);
@@ -61,6 +62,7 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
             seenClient.current = clientId;
             setList(null);
             setQuery('');
+            setThisMonth(false);
         }
         setError(false);
         fetch(`/api/seo-plan/stage-list/${encodeURIComponent(clientId)}`, { cache: 'no-store' })
@@ -158,6 +160,8 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
                 tasks={tasks}
                 query={query}
                 onQueryChange={setQuery}
+                thisMonth={thisMonth}
+                onThisMonthChange={setThisMonth}
                 clientName={clientName}
                 onOpenTask={taskId => {
                     void getTask(taskId).then(result => {

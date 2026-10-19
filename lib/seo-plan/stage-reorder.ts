@@ -259,9 +259,10 @@ export function restoreStageTasks(
 export function mergeStageTasks(current: readonly StageListTask[], updated: readonly StageListTask[]): StageListTask[] {
     const byId = new Map(updated.map(task => [task.id, task]));
     return current.map(task => {
-        const next = byId.get(task.id);
+        let next = byId.get(task.id);
         if (!next) return task;
-        if (next.publishedUrl === undefined && task.publishedUrl) return { ...next, publishedUrl: task.publishedUrl };
+        if (next.publishedUrl === undefined && task.publishedUrl) next = { ...next, publishedUrl: task.publishedUrl };
+        if (next.dueDate === undefined && task.dueDate !== undefined) next = { ...next, dueDate: task.dueDate };
         return next;
     });
 }

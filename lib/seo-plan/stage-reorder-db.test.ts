@@ -11,8 +11,8 @@ const setup = '208dbc36-1111-4111-8111-111111111111';
 const keywords = '208dbc36-2222-4222-8222-222222222222';
 
 const writes: StageReorderWrite[] = [
-    { id: setup, stage: 'month_2', position: 1, parentTaskId: null },
-    { id: keywords, stage: 'month_2', position: 1, parentTaskId: setup },
+    { id: setup, stage: 'backlog', position: 1, parentTaskId: null },
+    { id: keywords, stage: 'backlog', position: 1, parentTaskId: setup },
 ];
 
 function fake(result: { data: unknown; error: { message: string } | null }) {
@@ -36,7 +36,7 @@ test('the rewrite is one function call for every affected row', async () => {
                 id: setup,
                 title: 'SEO Setup',
                 status: 'todo',
-                stage: 'month_2',
+                stage: 'backlog',
                 position: 1,
                 parent_task_id: null,
                 created_at: '2026-01-01T00:00:00.000Z',
@@ -48,7 +48,7 @@ test('the rewrite is one function call for every affected row', async () => {
                 id: keywords,
                 title: 'Add keywords',
                 status: 'todo',
-                stage: 'month_2',
+                stage: 'backlog',
                 position: 1,
                 parent_task_id: setup,
                 created_at: '2026-01-01T00:00:00.000Z',
@@ -65,12 +65,12 @@ test('the rewrite is one function call for every affected row', async () => {
     assert.equal(calls[0].args.p_organization_id, org);
     assert.equal(calls[0].args.p_client_id, clientId);
     assert.deepEqual(calls[0].args.p_patches, [
-        { id: setup, stage: 'month_2', position: 1, parent_task_id: null },
-        { id: keywords, stage: 'month_2', position: 1, parent_task_id: setup },
+        { id: setup, stage: 'backlog', position: 1, parent_task_id: null },
+        { id: keywords, stage: 'backlog', position: 1, parent_task_id: setup },
     ]);
     assert.deepEqual(tasks.map(task => [task.id, task.stage, task.parentTaskId]), [
-        [setup, 'month_2', null],
-        [keywords, 'month_2', setup],
+        [setup, 'backlog', null],
+        [keywords, 'backlog', setup],
     ]);
 });
 

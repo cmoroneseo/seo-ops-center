@@ -11,7 +11,7 @@ import type { StageListTask } from './stage-list.ts';
 function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'title'>): StageListTask {
     return {
         status: 'todo',
-        stage: 'month_1',
+        stage: 'backlog',
         position: 1,
         parentTaskId: null,
         createdAt: '2026-10-01T00:00:00.000Z',
@@ -53,7 +53,7 @@ test('a content row offers a live URL and other rows keep it on hover', () => {
             publishedUrl: 'https://example.com/chino',
             status: 'done',
         }),
-        task({ id: 'robots', title: 'Review robots.txt', category: 'technical', stage: 'month_2', position: 1 }),
+        task({ id: 'robots', title: 'Review robots.txt', category: 'technical', stage: 'onboarding', position: 1 }),
     ]);
     const publish = row(html, 'publish');
     assert.match(publish, /Add live URL/);
@@ -95,7 +95,7 @@ test('a done subtask shows its result and the pillar adds the subtasks', () => {
                 id: 'solo',
                 title: 'Ontario page',
                 category: 'content',
-                stage: 'month_2',
+                stage: 'backlog',
                 position: 1,
                 status: 'done',
                 publishedUrl: 'https://example.com/ontario',

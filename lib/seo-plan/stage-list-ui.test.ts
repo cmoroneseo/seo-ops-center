@@ -35,14 +35,14 @@ const tasks: StageListTask[] = [
     task({
         id: 'cookies',
         title: 'Set Up Empire Cookies',
-        stage: 'month_1',
+        stage: 'backlog',
         position: 1,
         parentTaskId: 'setup',
         basecamp: true,
         status: 'done',
     }),
     task({ id: 'roadmap', title: 'Create SEO Roadmap', stage: 'onboarding', position: 2, basecamp: true }),
-    task({ id: 'robots', title: 'Review robots.txt and XML sitemap', stage: 'month_1', position: 1, category: 'technical' }),
+    task({ id: 'robots', title: 'Review robots.txt and XML sitemap', stage: 'backlog', position: 1, category: 'technical' }),
 ];
 
 function render(query = '', extraTasks: StageListTask[] = []) {
@@ -59,18 +59,18 @@ function render(query = '', extraTasks: StageListTask[] = []) {
 
 test('the list renders every stage, including empty ones, in roadmap order', () => {
     const html = render();
-    const headings = ['Onboarding', 'Month 1', 'Month 2', 'Month 3', 'Backlog'];
+    const headings = ['Onboarding', 'Backlog'];
     let cursor = 0;
     for (const heading of headings) {
         const index = html.indexOf(heading, cursor);
         assert.equal(index > cursor || (cursor === 0 && index === 0) || index > 0, true, heading);
         cursor = index + heading.length;
     }
-    assert.match(html, /data-stage="month_2"/);
-    assert.match(html, /data-stage="month_3"/);
+    assert.doesNotMatch(html, /Month 1|Month 2|Month 3|data-stage="month_/);
     assert.match(html, /data-stage="backlog"/);
-    assert.equal((html.match(/No tasks/g) ?? []).length, 3);
+    assert.equal((html.match(/No tasks/g) ?? []).length, 0);
     assert.match(html, /data-stage="onboarding"[\s\S]*data-count="2"/);
+    assert.match(html, /data-stage="backlog"[\s\S]*data-count="1"/);
     assert.match(html, /Search tasks for Floor Co Design USA/);
     assert.match(html, /Search all tasks and subtasks/);
 });
@@ -101,7 +101,6 @@ test('a subtask-only match expands the parent and hides the other subtask', () =
     assert.doesNotMatch(html, /Add keywords to Position tracking/);
     assert.doesNotMatch(html, /Create SEO Roadmap/);
     assert.doesNotMatch(html, /Review robots\.txt/);
-    assert.match(html, /data-stage="month_2"[\s\S]*?No tasks/);
     assert.match(html, /data-stage="backlog"[\s\S]*?No tasks/);
 });
 

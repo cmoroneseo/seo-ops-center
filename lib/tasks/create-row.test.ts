@@ -29,17 +29,17 @@ test('stage and position are written only when the caller sets them', () => {
         organizationId: 'org',
         clientId: 'client',
         title: 'Review robots.txt',
-        stage: 'month_1',
+        stage: 'backlog',
         position: 4,
         parentTaskId: 'pillar',
         sortOrder: 2,
         createdBy: 'user-1',
     });
-    assert.equal(row.stage, 'month_1');
+    assert.equal(row.stage, 'backlog');
     assert.equal(row.position, 4);
     assert.equal(row.parent_task_id, 'pillar');
     assert.equal(row.sort_order, 2);
     assert.equal(taskCreateRow({ title: 'Chino page', publishedUrl: 'https://example.com/chino' }).published_url, 'https://example.com/chino');
     assert.equal(Object.hasOwn(taskCreateRow({ position: Number.NaN }), 'position'), false);
-    assert.equal(Object.hasOwn(taskCreateRow({ stage: 'month_9' as 'month_1' }), 'stage'), false);
+    assert.equal(Object.hasOwn(taskCreateRow({ stage: 'month_1' as 'backlog' }), 'stage'), false);
 });

@@ -32,8 +32,8 @@ const tasks: StageListTask[] = [
         position: 1,
         parentTaskId: 'setup',
     }),
-    task({ id: 'robots', title: 'Review robots.txt', stage: 'month_1', position: 1 }),
-    task({ id: 'pending:draft', title: 'Saving this title', stage: 'month_1', position: 2 }),
+    task({ id: 'robots', title: 'Review robots.txt', stage: 'backlog', position: 1 }),
+    task({ id: 'pending:draft', title: 'Saving this title', stage: 'backlog', position: 2 }),
 ];
 
 function render(query = '') {
@@ -52,17 +52,13 @@ test('every stage section has an add bar, including an empty stage', () => {
     const html = render();
     for (const [stage, label] of [
         ['onboarding', 'Onboarding'],
-        ['month_1', 'Month 1'],
-        ['month_2', 'Month 2'],
-        ['month_3', 'Month 3'],
         ['backlog', 'Backlog'],
     ] as const) {
         assert.match(html, new RegExp(`data-stage-add="${stage}"[\\s\\S]*?aria-label="Add task to ${label}"`));
         assert.match(html, new RegExp(`data-add="${stage}"`));
     }
     assert.match(html, /placeholder="Add a task…"/);
-    assert.match(html, /data-stage="month_2"[\s\S]*?data-stage-add="month_2"[\s\S]*?No tasks/);
-    assert.doesNotMatch(html, /Template library|data-lib/);
+    assert.doesNotMatch(html, /Month 1|Month 2|Month 3|data-stage="month_|Template library|data-lib/);
 });
 
 test('an expanded pillar accepts a subtask, and a collapsed pillar does not', () => {
@@ -90,13 +86,13 @@ test('a pending row is visible and cannot be opened', () => {
 
 test('the add bar renders a labeled field and no template control', () => {
     const html = renderToStaticMarkup(createElement(StageAddBar, {
-        label: 'Add task to Month 1',
+        label: 'Add task to Backlog',
         placeholder: 'Add a task…',
-        stage: 'month_1',
+        stage: 'backlog',
         onAdd: async () => undefined,
     }));
-    assert.match(html, /aria-label="Add task to Month 1"/);
-    assert.match(html, /data-add="month_1"/);
+    assert.match(html, /aria-label="Add task to Backlog"/);
+    assert.match(html, /data-add="backlog"/);
     assert.match(html, /placeholder="Add a task…"/);
     assert.doesNotMatch(html, /data-add-parent|Template library|type="submit"/);
 });

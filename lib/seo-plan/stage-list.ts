@@ -20,6 +20,8 @@ export interface StageListTask {
     recurring: boolean;
     /** Absent when the row was loaded before the live URL column was selected. */
     publishedUrl?: string | null;
+    /** Calendar day from tasks.due_date. Absent when that column was not selected. */
+    dueDate?: string | null;
 }
 
 export interface StageListGroup {
@@ -44,9 +46,6 @@ export interface StageListSection {
 
 export const TASK_STAGE_LABELS: Record<TaskStage, string> = {
     onboarding: 'Onboarding',
-    month_1: 'Month 1',
-    month_2: 'Month 2',
-    month_3: 'Month 3',
     backlog: 'Backlog',
 };
 
@@ -128,7 +127,7 @@ function uniqueTasks(tasks: readonly StageListTask[]): StageListTask[] {
 }
 
 /**
- * Group a client's tasks into the five roadmap sections.
+ * Group a client's tasks into the roadmap sections.
  * Empty sections are always returned, in TASK_STAGES order.
  * Subtasks render under their pillar. Search matches pillar titles and
  * subtask titles; a subtask-only hit keeps the parent and opens the matches.
@@ -256,7 +255,14 @@ export function stageListTaskFromRow(row: unknown): StageListTask | null {
                 ? record.published_url.trim()
                 : null,
         } : {}),
+        ...('due_date' in record ? { dueDate: readDueDay(record.due_date) } : {}),
     };
+}
+
+function readDueDay(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const day = value.trim().slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
 }
 
 /** Accept the stage-list JSON. Unknown fields and malformed rows are dropped. */
@@ -283,6 +289,7 @@ export function parseStageListTasks(value: unknown): StageListTask[] {
                     ? record.publishedUrl.trim()
                     : null,
             } : {}),
+            ...('dueDate' in record ? { dueDate: readDueDay(record.dueDate) } : {}),
         });
     }
     return tasks;
