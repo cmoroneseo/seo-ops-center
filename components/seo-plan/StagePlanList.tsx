@@ -16,6 +16,7 @@ import {
 import { parseStageListTasks } from '@/lib/seo-plan/stage-list';
 import { useStageListMoves } from '@/lib/seo-plan/stage-list-moves';
 import { getTask, updateTask } from '@/lib/supabase/tasks';
+import type { UrlResultReadout } from '@/lib/search-reporting/url-results';
 import { parseLiveUrlInput, subtaskLineDrafts } from '@/lib/tasks/live-url';
 import type { Task } from '@/lib/types';
 import { PanelSkeleton } from './PanelSkeleton';
@@ -32,6 +33,7 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
     const [error, setError] = useState(false);
     const [reloadKey, setReloadKey] = useState(0);
     const [detail, setDetail] = useState<Task | null>(null);
+    const [resultsByTaskId, setResultsByTaskId] = useState<Record<string, UrlResultReadout>>({});
     const seenClient = useRef<string | null>(null);
     const { tasks, setList, updateList, move } = useStageListMoves(async (requested) => {
         const requestedClient = clientId;
@@ -80,6 +82,23 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
             });
         return () => { cancelled = true; };
     }, [clientId, reloadKey, setList, updateList]);
+
+    useEffect(() => {
+        let cancelled = false;
+        fetch(`/api/search-reporting/url-results?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
+            .then(async response => {
+                if (!response.ok) return null;
+                return response.json() as Promise<{ connected?: boolean; byId?: Record<string, UrlResultReadout> }>;
+            })
+            .then(body => {
+                if (cancelled) return;
+                setResultsByTaskId(body?.connected && body.byId ? body.byId : {});
+            })
+            .catch(() => {
+                if (!cancelled) setResultsByTaskId({});
+            });
+        return () => { cancelled = true; };
+    }, [clientId, reloadKey]);
 
     const reload = () => setReloadKey(key => key + 1);
 
@@ -147,6 +166,7 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
                 }}
                 onAddTasks={addTasks}
                 onReorder={move}
+                resultsByTaskId={resultsByTaskId}
                 onSetLiveUrl={async (taskId, raw) => {
                     if (isPendingStageTaskId(taskId)) return 'Could not save that link.';
                     const parsed = parseLiveUrlInput(raw);

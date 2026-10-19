@@ -65,4 +65,70 @@ test('a content row offers a live URL and other rows keep it on hover', () => {
     const robots = row(html, 'robots');
     assert.match(robots, /Add live URL/);
     assert.match(robots, /class="[^"]*\bh-0\b/);
+    assert.equal(html.includes('Not indexed yet'), false);
+    assert.equal(html.includes('data-live-result'), false);
+});
+
+test('a done subtask shows its result and the pillar adds the subtasks', () => {
+    const html = renderToStaticMarkup(createElement(StagePlanListView, {
+        tasks: [
+            task({ id: 'publish', title: 'Publish Approved SEO Content', category: 'content', position: 1 }),
+            task({
+                id: 'piece',
+                title: 'Chino service page',
+                category: 'content',
+                parentTaskId: 'publish',
+                position: 1,
+                publishedUrl: 'https://example.com/chino',
+                status: 'done',
+            }),
+            task({
+                id: 'eastvale',
+                title: 'Eastvale service page',
+                category: 'content',
+                parentTaskId: 'publish',
+                position: 2,
+                publishedUrl: 'https://example.com/eastvale',
+                status: 'done',
+            }),
+            task({
+                id: 'solo',
+                title: 'Ontario page',
+                category: 'content',
+                stage: 'month_2',
+                position: 1,
+                status: 'done',
+                publishedUrl: 'https://example.com/ontario',
+            }),
+        ],
+        query: '',
+        onQueryChange: () => undefined,
+        onOpenTask: () => undefined,
+        onAddTasks: async () => undefined,
+        onReorder: async () => undefined,
+        onSetLiveUrl: async () => null,
+        clientName: 'Scott Cole',
+        resultsByTaskId: {
+            piece: {
+                kind: 'measured',
+                clicks: 4,
+                impressions: 30,
+                position: 3.7,
+                queries: [{ query: 'chino plumber', clicks: 3, impressions: 12 }],
+                comparison: null,
+            },
+            eastvale: { kind: 'not_indexed' },
+            solo: { kind: 'not_indexed' },
+        },
+    }));
+    const publish = row(html, 'publish');
+    assert.match(publish, /4 clicks · 30 impr · pos 3\.7 · chino plumber/);
+    assert.doesNotMatch(publish, /Not indexed yet/);
+    const piece = row(html, 'piece');
+    assert.match(piece, /4 clicks · 30 impr · pos 3\.7 · chino plumber/);
+    const eastvale = row(html, 'eastvale');
+    assert.match(eastvale, /Not indexed yet/);
+    assert.doesNotMatch(eastvale, /0 clicks/);
+    const solo = row(html, 'solo');
+    assert.match(solo, /Not indexed yet/);
 });
