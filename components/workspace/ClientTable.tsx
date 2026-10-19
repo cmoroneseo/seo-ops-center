@@ -7,7 +7,7 @@ import { AlertCircle, CheckCircle2, Clock, AlertTriangle, ChevronDown, ChevronRi
 import Link from 'next/link';
 import { useState } from 'react';
 import { TimeLogModal } from './TimeLogModal';
-import { clientScopeLabel } from '@/lib/agreements/logic';
+import { clientScopeLabel } from '@/lib/hour-format';
 
 interface ClientTableProps {
     clients: ClientProject[];
@@ -123,7 +123,7 @@ export function ClientTable({ clients }: ClientTableProps) {
                                         </td>
                                         <td className="px-4 py-3 text-center">
                                             <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium text-xs">
-                                                {client.agreementHistoryUnavailable || client.agreementCoverage === 'none' ? '—' : client.agreementCoverage === 'custom' || (!client.agreementCoverage && client.setupScope?.mode === 'custom') ? 'Custom' : clientScopeLabel(client).replace('h/mo', '')}
+                                                {client.setupScope?.mode === 'custom' ? 'Custom' : clientScopeLabel(client).replace('h/mo', '')}
                                             </span>
                                         </td>
                                         <td className="px-4 py-3 text-muted-foreground">

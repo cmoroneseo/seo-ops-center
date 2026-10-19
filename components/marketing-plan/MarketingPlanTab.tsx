@@ -35,8 +35,6 @@ import type { HoursNarrative } from '@/lib/seo-plan/overview';
 import {getSeoHoursForMonth} from '@/lib/supabase/change-log';
 import { getTask, updateTask } from '@/lib/supabase/tasks';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
-import {getAgreementHistory,getAgreementWorkFunding} from '@/lib/supabase/agreements';
-import {monthlyAgreementLogs,monthlyAgreementTaskIds,agreementPeriod} from '@/lib/agreements/logic';
 import {SEO_PLAN_READ_ONLY_NOTE} from '@/lib/seo-plan/read-only';
 import { ONBOARDING_IMPORT_HINT } from '@/lib/seo-plan/onboarding-import';
 import { addImportedOnboardingToPlan } from '@/lib/seo-plan/add-onboarding-to-plan';
@@ -66,7 +64,6 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     const [month, setMonth] = useState(monthKey);
     const [periodBudget,setPeriodBudget]=useState(monthlyBudget ?? 0);
     const [capacityMode,setCapacityMode]=useState<'monthly'|'scoped'|'unavailable'>('unavailable');
-    const [budgetTaskIds,setBudgetTaskIds]=useState<string[]|undefined>();
     const [taskHours, setTaskHours] = useState<Record<string, number>>({});
     const [loggedHours, setLoggedHours] = useState<number | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -133,20 +130,18 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
         setLoggedHours(null);
         setTaskHours({});
         setCapacityMode('unavailable');
-        Promise.all([getTimeLogs(organizationId, { clientId, month, budgetMonth: true, throwOnError: true }),getAgreementHistory(organizationId,clientId)]).then(async([logs,history]) => {
-            const period=history.agreements.length ? agreementPeriod(history.agreements,month) : null;
-            const hours=period ? period.monthlyBudget : scopeMode==='monthly' ? await getSeoHoursForMonth(organizationId,clientId,month,monthlyBudget ?? 0) : null;
-            const mode=period ? hours==null || period.uncoveredDays>0 || period.segments.some(s=>s.agreement.mode==='custom') ? 'scoped' : 'monthly' : scopeMode==='custom' ? 'scoped' : 'monthly';
-            const funding=period ? await getAgreementWorkFunding(organizationId,clientId) : [];
+        getTimeLogs(organizationId, { clientId, month, budgetMonth: true, throwOnError: true }).then(async (logs) => {
+            const hours = scopeMode === 'monthly' ? await getSeoHoursForMonth(organizationId, clientId, month, monthlyBudget ?? 0) : null;
+            const mode = scopeMode === 'custom' ? 'scoped' : 'monthly';
             if (cancelled) return;
-            setPeriodBudget(hours ?? 0);setCapacityMode(mode);
-            setBudgetTaskIds(period && mode==='monthly' ? monthlyAgreementTaskIds((plan?.items ?? []).flatMap(item=>item.linkedTask ? [item.linkedTask] : []),history.agreements,funding,month) : undefined);
-            const budgetLogs = period && mode==='monthly' ? monthlyAgreementLogs(logs,history.agreements,month) : logs.filter(log => log.countsTowardBudget);
+            setPeriodBudget(hours ?? 0);
+            setCapacityMode(mode);
+            const budgetLogs = logs.filter(log => log.countsTowardBudget);
             setLoggedHours(budgetLogs.reduce((sum, log) => sum + log.hours, 0));
             setTaskHours(budgetLogs.reduce<Record<string, number>>((hours, log) => { if (log.taskId) hours[log.taskId] = (hours[log.taskId] ?? 0) + log.hours; return hours; }, {}));
         }).catch(() => { if (!cancelled) setLoggedHours(null); });
         return () => { cancelled = true; };
-    }, [organizationId, clientId, month, timeVersion,monthlyBudget,scopeMode,plan]);
+    }, [organizationId, clientId, month, timeVersion, monthlyBudget, scopeMode]);
     useEffect(() => {
         const reload = () => { void refresh(); setTimeVersion(value => value + 1); };
         window.addEventListener('focus', reload);
@@ -552,7 +547,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                 />
             </div>
         )}
-        <ExecutionWorkspace readOnly={readOnly} nestLinkedCount={nestable.length} onNestLinked={readOnly ? undefined : () => { setTaskDraft(null); setTaskDraftError(null); setNestDraft({ label: 'Linked tasks', items: nestable }); }} onAddExisting={() => { if (!readOnly) setAddChooserOpen(true); }} plan={plan} month={month} budget={periodBudget} capacityMode={capacityMode} budgetTaskIds={budgetTaskIds} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} variant={presentation} hoursNarrative={presentation !== 'v2' ? 'default' : hoursNarrative === 'prelaunch' ? 'prelaunch' : capacityMode === 'unavailable' ? 'unavailable' : hoursNarrative === 'custom' || capacityMode === 'scoped' ? 'custom' : 'monthly'} />
+        <ExecutionWorkspace readOnly={readOnly} nestLinkedCount={nestable.length} onNestLinked={readOnly ? undefined : () => { setTaskDraft(null); setTaskDraftError(null); setNestDraft({ label: 'Linked tasks', items: nestable }); }} onAddExisting={() => { if (!readOnly) setAddChooserOpen(true); }} plan={plan} month={month} budget={periodBudget} capacityMode={capacityMode} loggedHours={loggedHours} taskHours={taskHours} members={members} fullPlan={fullPlan} onMonthChange={setMonth} onSaveTask={saveTask} onSchedule={schedule} onSaveGoal={async goal => { await updateMarketingPlanGoal(plan.id, goal); await refresh(); }} onOpenTask={openTask} variant={presentation} hoursNarrative={presentation !== 'v2' ? 'default' : hoursNarrative === 'prelaunch' ? 'prelaunch' : capacityMode === 'unavailable' ? 'unavailable' : hoursNarrative === 'custom' || capacityMode === 'scoped' ? 'custom' : 'monthly'} />
         <AddPlanItemDialog showLibrary={presentation === 'v2'} open={addChooserOpen} onClose={() => setAddChooserOpen(false)} onSelect={source => {
             if (source === 'library') setLibraryOpen(true);
             else if (source === 'onboarding') void addOnboarding();

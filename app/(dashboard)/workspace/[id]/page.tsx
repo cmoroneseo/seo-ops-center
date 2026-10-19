@@ -30,7 +30,7 @@ import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { useTimer } from '@/components/providers/timer-provider';
 import { ClientProject } from '@/lib/types';
-import { clientScopeLabel } from '@/lib/agreements/logic';
+import { clientScopeLabel } from '@/lib/hour-format';
 import { Pencil, Play, Pause } from 'lucide-react';
 import { TaskListView } from '@/components/tasks/TaskListView';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
@@ -308,8 +308,6 @@ export default function ClientDetailPage() {
                                 <span>{seoPlanV2 == null ? (
                                     <span className="inline-block h-4 w-28 animate-pulse rounded bg-muted" aria-label="Loading hours" />
                                 ) : v2On ? planHourLabel({
-                                    failed: client.agreementHistoryUnavailable === true,
-                                    coverage: client.agreementCoverage,
                                     seoHours: client.seoHours,
                                     scopeMode: client.setupScope?.mode,
                                     status: client.status,
@@ -500,14 +498,12 @@ export default function ClientDetailPage() {
                     organizationId={organization?.id ?? ''}
                     clientId={client.id}
                     clientName={client.clientName}
-                    monthlyBudget={client.agreementCoverage === 'none' || client.agreementCoverage === 'custom' || client.setupScope?.mode === 'custom' ? null : client.seoHours || client.retainerConfig?.monthlyHours || 0}
-                    scopeMode={client.agreementCoverage === 'none' || client.agreementCoverage === 'custom' || client.setupScope?.mode === 'custom' ? 'custom' : 'monthly'}
+                    monthlyBudget={client.setupScope?.mode === 'custom' ? null : client.seoHours || client.retainerConfig?.monthlyHours || 0}
+                    scopeMode={client.setupScope?.mode === 'custom' ? 'custom' : 'monthly'}
                     presentation={v2On ? 'v2' : 'classic'}
                     checklistScope={{ gbp: client.setupScope?.gbp === true, listings: client.setupScope?.listings === true }}
                     readOnly={v2On && seoPlanReadOnly(client.status)}
                     hoursNarrative={planHoursNarrative({
-                        failed: client.agreementHistoryUnavailable === true,
-                        coverage: client.agreementCoverage,
                         seoHours: client.seoHours,
                         scopeMode: client.setupScope?.mode,
                         status: client.status,
@@ -634,8 +630,6 @@ export default function ClientDetailPage() {
                     clientId={client.id}
                     domain={client.domain}
                     hoursLabel={planHourLabel({
-                        failed: client.agreementHistoryUnavailable === true,
-                        coverage: client.agreementCoverage,
                         seoHours: client.seoHours,
                         scopeMode: client.setupScope?.mode,
                         status: client.status,

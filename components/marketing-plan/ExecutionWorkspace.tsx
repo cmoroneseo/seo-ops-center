@@ -26,7 +26,6 @@ export interface ExecutionWorkspaceProps {
     month: string;
     budget: number;
     capacityMode?:'monthly'|'scoped'|'unavailable';
-    budgetTaskIds?:string[];
     loggedHours: number | null;
     taskHours: Record<string, number>;
     members: MemberOption[];
@@ -57,7 +56,7 @@ function Status({ task }: { task: Task }) {
     </span>;
 }
 
-export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',budgetTaskIds, loggedHours, taskHours, members, fullPlan, onAddExisting, onMonthChange, onSaveTask, onSchedule, onSaveGoal, onOpenTask, variant = 'classic', hoursNarrative = 'default', readOnly = false, nestLinkedCount = 0, onNestLinked }: ExecutionWorkspaceProps) {
+export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly', loggedHours, taskHours, members, fullPlan, onAddExisting, onMonthChange, onSaveTask, onSchedule, onSaveGoal, onOpenTask, variant = 'classic', hoursNarrative = 'default', readOnly = false, nestLinkedCount = 0, onNestLinked }: ExecutionWorkspaceProps) {
     const [view, setView] = useState<'month' | 'full' | 'results' | 'roadmap'>('month');
     const views = planSurfaceViews(variant === 'v2');
     const narrative: HoursNarrative = hoursNarrative === 'default' ? 'monthly' : hoursNarrative;
@@ -68,8 +67,7 @@ export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',
     const [goalError, setGoalError] = useState('');
     const [savingGoal, setSavingGoal] = useState(false);
     const summary = monthlyExecution(plan.items ?? [], month, budget);
-    const capacityTasks=budgetTaskIds ? summary.tasks.filter(task=>budgetTaskIds.includes(task.id)) : summary.tasks;
-    const { plannedHours, consumed, available, scale } = executionCapacity(capacityTasks, taskHours, loggedHours, budget);
+    const { plannedHours, consumed, available, scale } = executionCapacity(summary.tasks, taskHours, loggedHours, budget);
     const selected = summary.tasks.find(task => task.id === selectedId) ?? summary.tasks[0];
     const source = plan.items?.find(item => item.taskId === selected?.id);
     const title = new Date(`${month}-01T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
@@ -90,7 +88,7 @@ export function ExecutionWorkspace({ plan, month, budget,capacityMode='monthly',
                 : <button className="mt-1 text-left text-sm font-medium hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" onClick={() => { setGoal(plan.goal ?? ''); setEditingGoal(true); }}>{plan.goal || 'Set a goal for this plan'}<span className="ml-2 text-xs font-normal text-muted-foreground">Edit</span></button>}
             </div></div>
 </div>            <section aria-label={capacityMode==='monthly' ? 'Monthly capacity' : 'Planned work'} className="min-w-0 lg:pt-7">
-                {variant==='v2' && narrative==='prelaunch' ? <div className="space-y-2 text-sm">{readOnly ? <p className="text-muted-foreground">{SEO_PLAN_READ_ONLY_NOTE}</p> : <><p className="font-medium">These hours start after launch.</p><p className="text-muted-foreground">Work can be scheduled now. It is not counted against a monthly allowance yet.</p></>}</div> : variant==='v2' && narrative==='unavailable' ? <div className="space-y-2 text-sm"><p className="font-medium">Scope</p><p className="text-2xl font-semibold tracking-tight">—</p></div> : variant==='v2' && narrative==='custom' ? <div className="space-y-2 text-sm"><p className="font-medium">Custom scope</p><p className="text-muted-foreground">This work is not a monthly hour allowance.</p></div> : capacityMode!=='monthly' ? <div className="space-y-3 text-sm"><p className="font-medium">{capacityMode==='unavailable' ? 'Agreement hours unavailable' : 'Planned work this month'}</p><p className="text-muted-foreground">{loggedHours==null ? 'Time unavailable' : `${formatHours(loggedHours)} logged`} · {formatHours(plannedHours)} remaining estimate</p><p className="text-xs leading-relaxed text-muted-foreground">{capacityMode==='unavailable' ? 'Reload to see the correct scope and allowance.' : 'Work spans custom scope or partial coverage. Review each agreement’s allowance in the workspace overview.'}</p></div> : <>
+                {variant==='v2' && narrative==='prelaunch' ? <div className="space-y-2 text-sm">{readOnly ? <p className="text-muted-foreground">{SEO_PLAN_READ_ONLY_NOTE}</p> : <><p className="font-medium">These hours start after launch.</p><p className="text-muted-foreground">Work can be scheduled now. It is not counted against a monthly allowance yet.</p></>}</div> : variant==='v2' && narrative==='unavailable' ? <div className="space-y-2 text-sm"><p className="font-medium">Scope</p><p className="text-2xl font-semibold tracking-tight">—</p></div> : variant==='v2' && narrative==='custom' ? <div className="space-y-2 text-sm"><p className="font-medium">Custom scope</p><p className="text-muted-foreground">This work is not a monthly hour allowance.</p></div> : capacityMode!=='monthly' ? <div className="space-y-3 text-sm"><p className="font-medium">{capacityMode==='unavailable' ? 'Hours unavailable' : 'Planned work this month'}</p><p className="text-muted-foreground">{loggedHours==null ? 'Time unavailable' : `${formatHours(loggedHours)} logged`} · {formatHours(plannedHours)} remaining estimate</p><p className="text-xs leading-relaxed text-muted-foreground">{capacityMode==='unavailable' ? 'Reload to see the monthly allowance.' : 'Custom scope. Hours are tracked without a monthly cap.'}</p></div> : <>
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2">Monthly capacity{budget > 0 ? ` (${formatHours(budget)})` : ''}<span title="Logged: confirmed budget-counting client time this month. Planned: remaining estimates for open tasks in this plan, after subtracting their logged time this month. Other unscheduled work is not included." tabIndex={0} aria-label="Capacity calculation: logged client time plus remaining estimates for open tasks in this plan."><Info className="h-4 w-4 text-muted-foreground" /></span></span><span className={cn('font-medium', consumed > budget && budget > 0 && 'text-amber-500')}>{loggedHours === null ? 'Time unavailable' : budget <= 0 ? 'No budget set' : consumed > budget ? `${formatHours(consumed - budget)} over capacity` : `${formatHours(available)} available`}</span></div>
                 <div className="flex h-3 overflow-hidden rounded-full bg-muted sm:h-4" role="img" aria-label={`Monthly capacity: ${loggedHours === null ? 'unknown' : formatHours(loggedHours)} logged, ${formatHours(plannedHours)} planned, ${budget > 0 && loggedHours !== null ? formatHours(available) : 'unknown'} available`}>
                     {loggedHours !== null && <><span className="bg-primary transition-[width]" style={{ width: `${loggedHours / scale * 100}%` }} /><span className="bg-primary/40 transition-[width]" style={{ width: `${plannedHours / scale * 100}%` }} /></>}

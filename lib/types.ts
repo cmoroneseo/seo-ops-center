@@ -111,7 +111,6 @@ export interface Deliverable {
 export type CommitmentEngagementModel = 'Retainer' | 'Campaign';
 
 export interface DeliverableCommitment {
-    agreementId?: string;
     id: string;
     organizationId: string;
     clientId: string;
@@ -232,15 +231,8 @@ export interface TaskTemplate {
 
 export interface Task {
     id: string;
-    agreementId?: string;
-    /** Scheduled phase from migration 088. Absent until that column exists. */
-    planPhase?: string | null;
-    /** True only when an operator pinned a phase that disagrees with the due date. */
-    planPhaseLocked?: boolean;
     /** Roadmap column from migration 103. Absent until that column exists. */
     stage?: TaskStage;
-    /** Agreement service this task counts against. Absent until migration 088. */
-    commitmentId?: string | null;
     organizationId: string;
     projectId?: string;
     clientId?: string;
@@ -518,11 +510,6 @@ export interface SiteInventoryPayload {
 }
 
 export interface ClientProject {
-    /** Accepted commercial history. Client identity and original launch stay permanent. */
-    agreements?: import('./agreements/types').ClientAgreement[];
-    agreementHistoryUnavailable?: boolean;
-    /** monthly: a live monthly agreement covers today. custom: a live custom agreement covers today. none: history exists and today is uncovered. */
-    agreementCoverage?: 'monthly' | 'custom' | 'none';
     onboardingDate?: string;
     setupScope?: import('./client-setup').ClientSetupScope;
     id: string;
@@ -875,7 +862,6 @@ export interface TimeLogReferenceLink {
 
 export interface TimeLog {
     id: string;
-    agreementId?: string;
     organizationId: string;
     /** Undefined for internal work — a 1:1 has no client (migration 030). */
     clientId?: string;

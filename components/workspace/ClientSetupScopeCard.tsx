@@ -1,11 +1,11 @@
 import { ClientProject } from '@/lib/types';
 
-/** The agreement stays visible in the existing overview, without another setup page. */
+/** Saved setup scope, shown on the existing overview. */
 export function ClientSetupScopeCard({ client }: { client: ClientProject }) {
     const scope = client.setupScope;
     if (!scope) return null;
     const services = [
-        { label: scope.mode === 'monthly' ? scope.hoursMode === 'committed' ? 'SEO commitment' : 'SEO allowance' : 'SEO estimate', value: client.agreementCoverage === 'none' ? '—' : client.agreementCoverage === 'custom' || scope.mode === 'custom' ? 'Custom scope' : `${client.seoHours}h / month` },
+        { label: scope.mode === 'monthly' ? scope.hoursMode === 'committed' ? 'SEO commitment' : 'SEO allowance' : 'SEO estimate', value: scope.mode === 'custom' ? 'Custom scope' : `${client.seoHours}h / month` },
         ...(scope.mode === 'monthly' && scope.contentPieces > 0 ? [{ label: 'Content', value: `${scope.contentPieces} pieces / month · Delivered` }] : []),
         ...(scope.gbp ? [{ label: 'Google Business Profile', value: 'Optimization + Management' }] : []),
         ...(scope.listings ? [{ label: 'Directory Listings', value: 'One-time activation + managed listings' }] : []),

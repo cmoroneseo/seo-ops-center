@@ -5,7 +5,6 @@ import { getLoggedHoursByClient } from './time-logs';
 import { getTasks } from './tasks';
 import { getCampaignPlan } from './campaign-plans';
 import { getMarketingPlan } from './marketing-plans';
-import {getAgreementHours} from './agreements';
 import {getSeoHoursForMonth} from './change-log';
 import { fulfillmentStatus, hoursUsageStatus } from '../seo-ops-logic';
 import type { HoursStatusResult, StatusResult } from '../seo-ops-logic';
@@ -70,10 +69,9 @@ export async function getClientOverview(
     ]);
 
     const hoursLogged = hoursByClient[client.id] ?? 0;
-    const agreementSummary=client.agreements?.length ? await getAgreementHours(orgId,client.id,month,client.agreements) : null;
-    const quota = agreementSummary ? agreementSummary.period.monthlyBudget : client.setupScope?.mode === 'custom' ? null : await getSeoHoursForMonth(orgId,client.id,month,client.seoHours);
+    const quota = client.setupScope?.mode === 'custom' ? null : await getSeoHoursForMonth(orgId,client.id,month,client.seoHours);
     const hoursBudget = quota ?? 0;
-    const hoursStatus = agreementSummary ? {status:'By agreement',severity:'info' as const,reason:'View each scope and its allowance in the workspace hours summary.',pct:null} : client.setupScope ? setupHoursStatus(client.setupScope, client.status, client.launchDate, hoursLogged, hoursBudget, month) : hoursUsageStatus(hoursLogged, hoursBudget);
+    const hoursStatus = client.setupScope ? setupHoursStatus(client.setupScope, client.status, client.launchDate, hoursLogged, hoursBudget, month) : hoursUsageStatus(hoursLogged, hoursBudget);
     const daysLeft = daysLeftInMonth(month);
     const cells = fulfillment.cells.map((cell) => ({
         ...cell,

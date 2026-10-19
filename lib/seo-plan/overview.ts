@@ -1,12 +1,10 @@
-import { formatHourAmount } from '@/lib/agreements/logic';
+import { formatHourAmount } from '@/lib/hour-format';
 import { isInRoadmap } from '@/lib/marketing-plan-roadmap';
 import type { MarketingPlanItem, ProjectStatus } from '@/lib/types';
 
 export type HoursNarrative = 'prelaunch' | 'monthly' | 'custom' | 'unavailable';
 
 export interface PlanHourInput {
-    failed?: boolean;
-    coverage?: 'monthly' | 'custom' | 'none';
     seoHours?: number | null;
     scopeMode?: 'monthly' | 'custom';
     status: ProjectStatus | string;
@@ -47,21 +45,18 @@ export function engagementHasStarted(input: Pick<PlanHourInput, 'status' | 'laun
     return input.status === 'Active' && /^\d{4}-\d{2}-\d{2}$/.test(launch) && input.month >= launch.slice(0, 7);
 }
 
-/** Missing, failed, and pre-launch hours never render as 0. */
+/** Missing and pre-launch hours never render as 0. Custom scope stays a label, not a monthly quota. */
 export function planHourLabel(input: PlanHourInput): string {
-    if (input.failed) return '—';
     if (!engagementHasStarted(input)) return 'Hours start after launch';
-    if (input.coverage === 'custom' || input.scopeMode === 'custom') return 'Custom scope';
-    if (input.coverage !== 'monthly') return '—';
+    if (input.scopeMode === 'custom') return 'Custom scope';
     if (input.seoHours == null || !Number.isFinite(input.seoHours) || input.seoHours <= 0) return '—';
     return `${formatHourAmount(input.seoHours)}h/mo`;
 }
 
 export function planHoursNarrative(input: PlanHourInput): HoursNarrative {
-    if (input.failed) return 'unavailable';
     if (!engagementHasStarted(input)) return 'prelaunch';
-    if (input.coverage === 'custom' || input.scopeMode === 'custom') return 'custom';
-    if (input.coverage === 'monthly' && input.seoHours != null && Number.isFinite(input.seoHours) && input.seoHours > 0) return 'monthly';
+    if (input.scopeMode === 'custom') return 'custom';
+    if (input.seoHours != null && Number.isFinite(input.seoHours) && input.seoHours > 0) return 'monthly';
     return 'unavailable';
 }
 
