@@ -1,17 +1,13 @@
-import { csvIdentityFor, type ProviderTimesheetEntry } from './timesheet-webhook-route.ts';
+import { csvIdentityFor, type ProviderTimesheetEntry } from './timesheet-entry.ts';
 
 /**
- * Stamp the CSV fingerprint onto a time log SEO PM just pushed to Basecamp.
+ * Stamp the CSV fingerprint onto a time log SEO Ops just pushed to Basecamp.
  *
- * The CSV report carries no entry ids, so the backfill recognizes an entry it
- * already has only by fingerprint. The webhook echo of our own push normally
- * stamps one — but only for projects that have the webhook and map to a client.
- * Internal projects (the SEO HQ check-ins) never echo, so those rows had no
- * fingerprint and every CSV import over their dates added a duplicate. An edit
- * made here (date, hours) also left an echo-stamped fingerprint stale.
- *
- * So the push reads its own entry back and stamps the identity itself, after
- * every successful create or update. Best effort: the hours are already in
+ * The CSV report carries no entry ids. Comparison against that report, and any
+ * row imported before inbound import stopped, recognizes an entry by
+ * fingerprint. The push reads its own entry back and stamps the identity
+ * itself, after every successful create or update, including edits that would
+ * otherwise leave the stamp stale. Best effort: the hours are already in
  * Basecamp, so a failure here must never turn a good sync into an error.
  */
 
