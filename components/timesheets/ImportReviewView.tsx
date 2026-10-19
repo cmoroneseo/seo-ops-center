@@ -11,13 +11,12 @@ import {
 } from '@/lib/timesheets/import-review-ui';
 import type { QueueRow } from '@/lib/timesheets/import-queue-route';
 import type { ClientProject } from '@/lib/types';
-import { ReconciliationPanel } from './ReconciliationPanel';
-import { BackfillControl, type BackfillMember } from './BackfillControl';
+import { ReconciliationPanel, type ReviewMember } from './ReconciliationPanel';
 import { ImportRow } from './ImportRow';
 
 interface ImportReviewViewProps {
     organizationId: string;
-    backfillMembers?: BackfillMember[];
+    reviewMembers?: ReviewMember[];
 }
 
 export interface QueuePayload {
@@ -34,10 +33,8 @@ interface ImportReviewQueueProps {
     isBusy: boolean;
     error: string | null;
     notice?: string | null;
-    backfillMembers: BackfillMember[];
+    reviewMembers: ReviewMember[];
     refreshVersion?: number;
-    onReload: () => Promise<void>;
-    onBackfillRunningChange?: (running: boolean) => void;
     onToggle: (id: string) => void;
     onClearSelection: () => void;
     onEdit: (id: string, edit: ImportEntryEdit) => void;
@@ -64,10 +61,8 @@ export function ImportReviewQueue({
     isBusy,
     error,
     notice,
-    backfillMembers,
+    reviewMembers,
     refreshVersion = 0,
-    onReload,
-    onBackfillRunningChange,
     onToggle,
     onClearSelection,
     onEdit,
@@ -88,17 +83,7 @@ export function ImportReviewQueue({
     return (
         <div className="flex min-h-0 flex-1 flex-col">
             {payload.isManager && (
-                <ReconciliationPanel organizationId={organizationId} members={backfillMembers} />
-            )}
-
-            {payload.isManager && (
-                <BackfillControl
-                    organizationId={organizationId}
-                    members={backfillMembers}
-                    disabled={isBusy}
-                    onImported={onReload}
-                    onRunningChange={onBackfillRunningChange}
-                />
+                <ReconciliationPanel organizationId={organizationId} members={reviewMembers} />
             )}
 
             {error && (
@@ -234,7 +219,7 @@ export function ImportReviewQueue({
 /** Members add context; managers also receive server-authorized review tools. */
 export function ImportReviewView({
     organizationId,
-    backfillMembers = [],
+    reviewMembers = [],
 }: ImportReviewViewProps) {
     const [payload, setPayload] = useState<QueuePayload | null>(null);
     const [clients, setClients] = useState<ClientProject[]>([]);
@@ -408,24 +393,6 @@ export function ImportReviewView({
         });
     }, [payload?.rows, runMutation, selected, sendMutation]);
 
-    const reloadWithError = useCallback(async () => {
-        setError(null);
-        try {
-            await reloadQueue();
-        } catch (loadError) {
-            const message = loadError instanceof Error
-                ? loadError.message
-                : 'Unable to load the import queue';
-            setError(message);
-            throw loadError;
-        }
-    }, [reloadQueue]);
-
-    const handleBackfillRunningChange = useCallback((running: boolean) => {
-        if (running) beginOperation();
-        else endOperation();
-    }, [beginOperation, endOperation]);
-
     const retryLoad = useCallback(() => {
         setIsLoading(true);
         setError(null);
@@ -467,10 +434,8 @@ export function ImportReviewView({
             isBusy={isBusy}
             error={error}
             notice={notice}
-            backfillMembers={backfillMembers}
+            reviewMembers={reviewMembers}
             refreshVersion={refreshVersion}
-            onReload={reloadWithError}
-            onBackfillRunningChange={handleBackfillRunningChange}
             onToggle={toggle}
             onClearSelection={() => setSelected(new Set())}
             onEdit={(id, edit) => mutate('edit', [id], { edit })}
