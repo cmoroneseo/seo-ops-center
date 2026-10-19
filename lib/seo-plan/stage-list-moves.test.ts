@@ -116,11 +116,11 @@ test('move buttons keep saving after the first click', async () => {
         assert.deepEqual(calls.map(call => call.index), [1, 2]);
         assert.deepEqual(order(), ['bravo', 'charlie', 'alpha']);
 
-        await act(async () => { button('Move Alpha to Month 1').click(); });
+        await act(async () => { button('Move Alpha to Backlog').click(); });
         assert.equal(calls.length, 3);
-        assert.equal(calls[2].stage, 'month_1');
+        assert.equal(calls[2].stage, 'backlog');
         assert.equal(calls[2].parentTaskId, null);
-        assert.deepEqual(order('month_1'), ['alpha']);
+        assert.deepEqual(order('backlog'), ['alpha']);
     } finally {
         await act(async () => { root.unmount(); });
     }
@@ -174,11 +174,11 @@ test('moving a subtask out of its pillar uses the same save', async () => {
         assert.equal(calls[0].parentTaskId, null);
         assert.equal(calls[0].stage, 'onboarding');
 
-        await act(async () => { button('Move Add keywords to Month 1').click(); });
+        await act(async () => { button('Move Add keywords to Backlog').click(); });
         assert.equal(calls.length, 2);
-        assert.equal(calls[1].stage, 'month_1');
+        assert.equal(calls[1].stage, 'backlog');
         assert.equal(calls[1].parentTaskId, null);
-        assert.deepEqual(order('month_1'), ['keywords']);
+        assert.deepEqual(order('backlog'), ['keywords']);
     } finally {
         await act(async () => { root.unmount(); });
     }

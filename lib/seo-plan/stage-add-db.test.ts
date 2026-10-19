@@ -72,7 +72,7 @@ function fake(options: {
                                     id: 'created',
                                     title: 'Review robots.txt',
                                     status: 'todo',
-                                    stage: 'month_1',
+                                    stage: 'backlog',
                                     position: 5,
                                     parent_task_id: null,
                                     created_at: '2026-10-16T00:00:00.000Z',
@@ -121,9 +121,9 @@ test('a parent read cannot cross clients or organizations', async () => {
 
 test('top-level placement is the stage, and a subtask placement is the pillar', async () => {
     const top = fake();
-    assert.equal(await maxStageAddPosition(top.client, org, clientId, 'month_1', null), 4);
+    assert.equal(await maxStageAddPosition(top.client, org, clientId, 'backlog', null), 4);
     assert.equal(top.calls.find(call => call.op === 'is' && call.column === 'parent_task_id')?.value, null);
-    assert.equal(top.calls.find(call => call.column === 'stage')?.value, 'month_1');
+    assert.equal(top.calls.find(call => call.column === 'stage')?.value, 'backlog');
     assert.equal(top.calls.find(call => call.column === 'organization_id')?.value, org);
     assert.equal(top.calls.find(call => call.column === 'client_id')?.value, clientId);
 
@@ -147,7 +147,7 @@ test('database failures stay generic', async () => {
     const secret = { data: null, error: { message: 'token sk_live_secret' } };
     await assert.rejects(clientBelongsToOrganization(fake({ client: secret }).client, org, clientId), /Unable to load client/);
     await assert.rejects(loadStageAddParent(fake({ parent: secret }).client, org, clientId, parentId), /Unable to load task/);
-    await assert.rejects(maxStageAddPosition(fake({ max: secret }).client, org, clientId, 'month_1', null), /Unable to place tasks/);
+    await assert.rejects(maxStageAddPosition(fake({ max: secret }).client, org, clientId, 'backlog', null), /Unable to place tasks/);
     await assert.rejects(insertStageTasks(fake({ insert: secret }).client, [{}]), /Unable to create tasks/);
     await assert.rejects(insertStageTasks(fake({ insert: secret }).client, [{}]), (error: Error) => {
         assert.equal(error.message.includes('sk_live'), false);

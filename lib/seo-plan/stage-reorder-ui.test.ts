@@ -31,8 +31,8 @@ const tasks: StageListTask[] = [
         position: 1,
         parentTaskId: 'setup',
     }),
-    task({ id: 'robots', title: 'Review robots.txt', stage: 'month_1', position: 1 }),
-    task({ id: 'pending:draft', title: 'Saving this title', stage: 'month_1', position: 2 }),
+    task({ id: 'robots', title: 'Review robots.txt', stage: 'backlog', position: 1 }),
+    task({ id: 'pending:draft', title: 'Saving this title', stage: 'backlog', position: 2 }),
 ];
 
 function render(query = '') {
@@ -58,7 +58,7 @@ test('a pillar row drags from the card and a subtask drags from its grip', () =>
     assert.match(setup, /data-stage-drag="task"/);
     assert.match(setup, /draggable="true"/);
     assert.match(html, /aria-label="Move SEO Setup up"/);
-    assert.match(html, /aria-label="Move SEO Setup to Month 1"/);
+    assert.match(html, /aria-label="Move SEO Setup to Backlog"/);
     assert.match(html, /disabled=""[^>]*aria-label="Move SEO Setup up"|aria-label="Move SEO Setup up"[^>]*disabled=""/);
 
     const subtask = openingTag(html, 'keywords');
@@ -70,7 +70,7 @@ test('a pillar row drags from the card and a subtask drags from its grip', () =>
     assert.match(html, /data-stage-move="unnest"/);
     assert.doesNotMatch(html, /Move Add keywords to /);
 
-    assert.match(html, /data-stage-drop="month_2"/);
+    assert.doesNotMatch(html, /data-stage-drop="month_|Move SEO Setup to Month/);
     assert.match(html, /data-stage-drop="backlog"/);
 });
 

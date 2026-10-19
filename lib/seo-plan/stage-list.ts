@@ -44,9 +44,6 @@ export interface StageListSection {
 
 export const TASK_STAGE_LABELS: Record<TaskStage, string> = {
     onboarding: 'Onboarding',
-    month_1: 'Month 1',
-    month_2: 'Month 2',
-    month_3: 'Month 3',
     backlog: 'Backlog',
 };
 
@@ -128,7 +125,7 @@ function uniqueTasks(tasks: readonly StageListTask[]): StageListTask[] {
 }
 
 /**
- * Group a client's tasks into the five roadmap sections.
+ * Group a client's tasks into the roadmap sections.
  * Empty sections are always returned, in TASK_STAGES order.
  * Subtasks render under their pillar. Search matches pillar titles and
  * subtask titles; a subtask-only hit keeps the parent and opens the matches.

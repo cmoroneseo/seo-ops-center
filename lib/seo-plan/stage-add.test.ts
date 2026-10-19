@@ -28,9 +28,9 @@ function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'ti
 const current: StageListTask[] = [
     task({ id: 'setup', title: 'SEO Setup', position: 1 }),
     task({ id: 'roadmap', title: 'Create SEO Roadmap', position: 2 }),
-    task({ id: 'robots', title: 'Review robots.txt', stage: 'month_1', position: 4 }),
+    task({ id: 'robots', title: 'Review robots.txt', stage: 'backlog', position: 4 }),
     task({ id: 'keywords', title: 'Add keywords', parentTaskId: 'setup', position: 2 }),
-    task({ id: 'cookies', title: 'Set Up Empire Cookies', stage: 'month_1', parentTaskId: 'setup', position: 9 }),
+    task({ id: 'cookies', title: 'Set Up Empire Cookies', stage: 'backlog', parentTaskId: 'setup', position: 9 }),
 ];
 
 test('new positions start at 1 and then walk forward from the end', () => {
@@ -44,8 +44,8 @@ test('new positions start at 1 and then walk forward from the end', () => {
 
 test('top-level placement stays inside the stage, and a subtask follows the whole pillar', () => {
     assert.equal(endPosition(current, 'onboarding', null), 2);
-    assert.equal(endPosition(current, 'month_1', null), 4);
-    assert.equal(endPosition(current, 'month_2', null), null);
+    assert.equal(endPosition(current, 'backlog', null), 4);
+    assert.equal(endPosition([], 'backlog', null), null);
     assert.equal(endPosition(current, 'onboarding', 'setup'), 9);
 });
 
@@ -72,7 +72,7 @@ test('optimistic rows render at the end of the stage and roll back without touch
 
     const other = pendingStageTasks({
         titles: ['Later'],
-        stage: 'month_2',
+        stage: 'backlog',
         parentTaskId: null,
         ids: ['pending:later'],
         createdAt: '2026-10-16T12:00:01.000Z',
