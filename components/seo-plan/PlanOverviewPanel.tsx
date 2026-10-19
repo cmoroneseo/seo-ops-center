@@ -13,14 +13,12 @@ export function PlanOverviewPanel({
     clientId,
     domain,
     hoursLabel,
-    agreement,
     onOpenPlan,
     onOpenTasks,
 }: {
     clientId: string;
     domain?: string | null;
     hoursLabel: string;
-    agreement: 'recorded' | 'missing' | 'unknown';
     onOpenPlan: () => void;
     onOpenTasks: () => void;
 }) {
@@ -53,7 +51,6 @@ export function PlanOverviewPanel({
         <OverviewCommand
             domain={domain}
             hoursLabel={hoursLabel}
-            agreement={agreement}
             monthLabel={monthLabel}
             onOpenPlan={onOpenPlan}
             onOpenTasks={onOpenTasks}

@@ -15,7 +15,6 @@ test('overview renders an em dash for a failed hour load and does not invent an 
     const html = renderToStaticMarkup(createElement(OverviewCommand, {
         domain: 'sandbox.example',
         hoursLabel: '—',
-        agreement: 'unknown',
         monthLabel: 'October 2026',
         onboarding: { status: 'failed' },
         tasks: { status: 'failed' },
@@ -26,13 +25,11 @@ test('overview renders an em dash for a failed hour load and does not invent an 
     assert.match(html, /sandbox\.example/);
     assert.equal(html.includes('0 of 0'), false);
     assert.equal(html.includes('0h'), false);
-    assert.equal(html.includes('Agreement not recorded'), false);
 });
 
 test('overview counts selected onboarding work and undated tasks without a due count', () => {
     const html = renderToStaticMarkup(createElement(OverviewCommand, {
         hoursLabel: 'Hours start after launch',
-        agreement: 'missing',
         monthLabel: 'October 2026',
         onboarding: {
             status: 'ready',
@@ -51,7 +48,7 @@ test('overview counts selected onboarding work and undated tasks without a due c
     assert.match(html, /Google Business Profile/);
     assert.match(html, /3 need a date/);
     assert.match(html, /Nothing due this month/);
-    assert.match(html, /Agreement not recorded/);
+    assert.equal(html.includes('Agreement not recorded'), false);
     assert.match(html, /These hours start after launch|Hours start after launch/);
 });
 
