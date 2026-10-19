@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
 
-const migration = readFileSync(new URL('../../migrations/106_retire_month_stages.sql', import.meta.url), 'utf8');
+const migration = readFileSync(new URL('../../migrations/107_retire_month_stages.sql', import.meta.url), 'utf8');
 const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
 
 const org = '00000000-0000-0000-0000-000000000010';
@@ -77,7 +77,7 @@ async function positions(db: PGlite) {
     return new Map(result.rows.map(row => [row.id, { stage: row.stage, position: Number(row.position) }]));
 }
 
-test('migration 106 is mirrored and does not rewrite policies', () => {
+test('migration 107 is mirrored and does not rewrite policies', () => {
     assert.ok(schema.includes(migration.trim()));
     assert.doesNotMatch(migration, /create policy|enable row level security|drop policy/i);
     assert.match(migration, /check \(stage in \('onboarding', 'backlog'\)\)/);

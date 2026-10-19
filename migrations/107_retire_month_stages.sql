@@ -1,5 +1,5 @@
--- Migration 106: SEO Plan stages are Onboarding and Backlog.
--- 106 is the next free number after 105. This file does not change RLS.
+-- Migration 107: SEO Plan stages are Onboarding and Backlog.
+-- 107 is the next free number after 106. This file does not change RLS.
 --
 -- Month 1, Month 2, and Month 3 were fixed columns. The list keeps Onboarding
 -- and Backlog. "This month" is a due-date view, not a stage, so this migration

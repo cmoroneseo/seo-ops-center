@@ -8,8 +8,6 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { monthBounds } from '@/lib/sync/months';
 import { instantAtPt } from './business-days';
 import { buildCloseBoard, type CloseBoardView, type CloseRaw, type CloseRawDay, type CloseRawFact } from './close-board';
-import { agreementPeriod } from '@/lib/agreements/logic';
-import type { ClientAgreement } from '@/lib/agreements/types';
 
 type DbError = { code?: string } | null;
 type Page<T> = { data: T[] | null; error: DbError };
@@ -48,36 +46,6 @@ async function readAll<T>(query: (from: number, to: number) => PromiseLike<Page<
     return { rows: [], error: { code: 'limit' } };
 }
 
-function agreementFromRow(row: Record<string, unknown>): ClientAgreement {
-    const date = (value: unknown) => {
-        const textValue = text(value);
-        return textValue ? textValue.slice(0, 10) : null;
-    };
-    return {
-        id: String(row.id),
-        organizationId: String(row.organization_id),
-        clientId: String(row.client_id),
-        previousId: row.previous_id ? String(row.previous_id) : null,
-        kind: row.kind as ClientAgreement['kind'],
-        title: text(row.title) ?? '',
-        startsOn: date(row.starts_on) ?? '',
-        endsOn: date(row.ends_on),
-        mode: row.mode as ClientAgreement['mode'],
-        hours: num(row.hours),
-        hoursMode: (row.hours_mode as ClientAgreement['hoursMode']) ?? 'committed',
-        proration: (row.proration as ClientAgreement['proration']) ?? 'daily',
-        timezone: text(row.timezone) ?? 'UTC',
-        scope: '',
-        services: [],
-        evidence: null,
-        note: null,
-        recordedAt: '',
-        recordedBy: '',
-        planSnapshot: null,
-        cancelledAt: text(row.cancelled_at),
-    };
-}
-
 function nextDate(iso: string): string {
     const [year, month, day] = iso.split('-').map(Number);
     const date = new Date(Date.UTC(year, month - 1, day));
@@ -111,7 +79,7 @@ export async function loadCloseBoard(
     if (clients.error) return failure(clients.error);
 
     const clientIds = new Set(clients.rows.map(row => String(row.id)));
-    const [reports, reviews, integrations, contacts, timeLogs, tasks, deliverables, metrics, days, agreements] = await Promise.all([
+    const [reports, reviews, integrations, contacts, timeLogs, tasks, deliverables, metrics, days] = await Promise.all([
         readAll<Record<string, unknown>>(range => admin.from('reports').select('id, client_id, kind, title, status, executive_summary, recommendations, sections, updated_at').eq('organization_id', organizationId).eq('report_month', month).order('id').range(range, range + PAGE - 1)),
         readAll<Record<string, unknown>>(range => admin.from('report_reviews').select('report_id, state, requires_owner_approval, am_approved_by, owner_approved_by, current_version_id, am_note, scheduled_for, sent_at, client_id').eq('organization_id', organizationId).order('id').range(range, range + PAGE - 1)),
         readAll<Record<string, unknown>>(range => admin.from('client_integrations').select('id, client_id, service, sync_status, last_synced_at, site_url:credentials->>site_url').eq('organization_id', organizationId).in('service', SOURCES).order('id').range(range, range + PAGE - 1)),
@@ -121,23 +89,10 @@ export async function loadCloseBoard(
         readAll<Record<string, unknown>>(range => admin.from('deliverables').select('id, client_id, published_url, delivered_on').eq('organization_id', organizationId).eq('status', 'Published').order('id').range(range, range + PAGE - 1)),
         readAll<Record<string, unknown>>(range => admin.from('metrics').select('id, client_id, source, data').eq('organization_id', organizationId).eq('metric_month', month).order('id').range(range, range + PAGE - 1)),
         readAll<Record<string, unknown>>(range => admin.from('gsc_history_days').select('id, client_id, property, data_date, is_incomplete').eq('organization_id', organizationId).eq('search_type', 'web').gte('data_date', bounds.start).lte('data_date', bounds.end).order('id').range(range, range + PAGE - 1)),
-        readAll<Record<string, unknown>>(range => admin.from('client_agreements').select('id, organization_id, client_id, previous_id, kind, title, starts_on, ends_on, mode, hours, hours_mode, proration, timezone, cancelled_at').eq('organization_id', organizationId).order('id').range(range, range + PAGE - 1)),
     ]);
 
     for (const result of [reports, reviews, integrations, contacts, timeLogs, tasks, deliverables, metrics, days]) {
         if (result.error) return failure(result.error);
-    }
-
-    const agreementMissing = agreements.error?.code === '42P01' || agreements.error?.code === 'PGRST205';
-    if (agreements.error && !agreementMissing) return failure(agreements.error);
-    const agreementsByClient = new Map<string, ClientAgreement[]>();
-    if (!agreements.error) {
-        for (const row of agreements.rows) {
-            const agreement = agreementFromRow(row);
-            const list = agreementsByClient.get(agreement.clientId) ?? [];
-            list.push(agreement);
-            agreementsByClient.set(agreement.clientId, list);
-        }
     }
 
     const dayRows = days.rows.filter(row => clientIds.has(String(row.client_id)));
@@ -179,10 +134,7 @@ export async function loadCloseBoard(
             domain: text(row.domain),
             accountManagerId: text(row.account_manager_id),
             accountManagerName: text(row.account_manager_name),
-            seoHours: (() => {
-                const history = agreementsByClient.get(String(row.id));
-                return history?.length ? agreementPeriod(history, month).monthlyBudget : num(row.seo_hours);
-            })(),
+            seoHours: num(row.seo_hours),
         })),
         reports: reports.rows.flatMap(row => {
             const clientId = text(row.client_id);

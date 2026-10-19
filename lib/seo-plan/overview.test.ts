@@ -41,31 +41,27 @@ test('undated tasks increment need a date and do not increment a due count', () 
     assert.equal(counts.due, 1);
 });
 
-test('failed hour loads render an em dash', () => {
+test('hour labels follow the client scope and never render a missing budget as zero', () => {
     assert.equal(planHourLabel({
-        failed: true,
-        coverage: 'monthly',
-        seoHours: 10,
-        status: 'Active',
-        launchDate: '2026-01-01',
-        month: '2026-10',
-    }), '—');
-    assert.equal(planHourLabel({
-        coverage: 'monthly',
         seoHours: 0,
         status: 'Active',
         launchDate: '2026-01-01',
         month: '2026-10',
     }), '—');
     assert.equal(planHourLabel({
-        coverage: 'monthly',
+        seoHours: 10,
+        scopeMode: 'custom',
+        status: 'Active',
+        launchDate: '2026-01-01',
+        month: '2026-10',
+    }), 'Custom scope');
+    assert.equal(planHourLabel({
         seoHours: 10,
         status: 'Onboarding',
         launchDate: '2026-11-01',
         month: '2026-10',
     }), 'Hours start after launch');
     assert.equal(planHourLabel({
-        coverage: 'monthly',
         seoHours: 10,
         status: 'Active',
         launchDate: '2026-01-01',

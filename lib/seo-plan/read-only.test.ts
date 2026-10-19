@@ -18,7 +18,8 @@ test('cancelled and archived clients are read-only and everyone else can still s
     const page = readFileSync(new URL('../../app/(dashboard)/workspace/[id]/page.tsx', import.meta.url), 'utf8');
     const shell = readFileSync(new URL('../../components/dashboard/DashboardShell.tsx', import.meta.url), 'utf8');
     assert.match(page, /readOnly=\{v2On && seoPlanReadOnly\(client\.status\)\}/);
-    assert.match(page, /knownAgreements=\{v2On \? client\.agreements \?\? null : null\}/);
+    assert.equal(page.includes('knownAgreements'), false);
+    assert.equal(page.includes('ClientAgreementSummary'), false);
     assert.match(shell, /isWorkspace && "\[scrollbar-gutter:stable\]"/);
 });
 
@@ -42,7 +43,6 @@ test('a read-only SEO Plan hides Schedule work and Add Item and says why', () =>
         onSaveGoal: async () => {},
         onOpenTask: () => {},
         variant: 'v2',
-        phaseMonth: { needsDate: [], due: [], slipped: [] },
         readOnly: true,
     }));
     assert.match(html, new RegExp(SEO_PLAN_READ_ONLY_NOTE));
@@ -72,7 +72,6 @@ test('an archived pre-launch plan does not invite scheduling in the header', () 
         onOpenTask: () => {},
         variant: 'v2' as const,
         hoursNarrative: 'prelaunch' as const,
-        phaseMonth: { needsDate: [], due: [], slipped: [] },
     };
     const archived = renderToStaticMarkup(createElement(ExecutionWorkspace, { ...props, readOnly: true }));
     assert.match(archived, new RegExp(SEO_PLAN_READ_ONLY_NOTE));

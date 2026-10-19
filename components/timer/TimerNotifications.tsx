@@ -119,7 +119,7 @@ export function TimerNotifications() {
 
                 const THRESHOLD = 0.8;
                 for (const client of clients) {
-                    if (client.agreementCoverage === 'none' || client.agreementCoverage === 'custom' || !client.seoHours || client.status !== 'Active') continue;
+                    if (client.setupScope?.mode === 'custom' || !client.seoHours || client.status !== 'Active') continue;
                     const logged = loggedMap[client.id] ?? 0;
                     const pct = logged / client.seoHours;
                     const noteId = `retainer:${client.id}:${month}`;

@@ -6,7 +6,7 @@ import { useClients } from '@/lib/hooks/use-clients';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { clientScopeLabel } from '@/lib/agreements/logic';
+import { clientScopeLabel } from '@/lib/hour-format';
 
 export function ClientListPanel({
     variant = 'sidebar',
