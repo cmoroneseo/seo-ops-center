@@ -4,7 +4,7 @@ import { stageListTaskFromRow, type StageListTask } from './stage-list';
 
 /** Columns the stage list reads. Recurrence is reduced to a boolean before it leaves the server. */
 export const STAGE_LIST_TASK_COLUMNS =
-    'id, title, status, stage, position, parent_task_id, created_at, category, basecamp_todo_id, recurrence, published_url';
+    'id, title, status, stage, position, parent_task_id, created_at, category, basecamp_todo_id, recurrence, published_url, due_date';
 
 export const STAGE_LIST_CLIENT_COLUMNS = 'id';
 

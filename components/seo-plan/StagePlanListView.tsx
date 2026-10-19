@@ -18,6 +18,14 @@ import {
     type StageListSection,
     type StageListTask,
 } from '@/lib/seo-plan/stage-list';
+import {
+    calendarDay,
+    dueDay,
+    formatDueDay,
+    isOverdueTask,
+    isThisMonthTask,
+    selectThisMonthTasks,
+} from '@/lib/seo-plan/this-month';
 import type { TaskStage } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { LiveUrlControl } from '@/components/tasks/LiveUrlControl';
@@ -136,6 +144,21 @@ function StageMoveButtons({
     );
 }
 
+function DueMark({ task, today, active }: { task: StageListTask; today: string; active: boolean }) {
+    if (!active || !isThisMonthTask(task, today)) return null;
+    const due = dueDay(task.dueDate);
+    if (!due) return null;
+    const overdue = isOverdueTask(task, today);
+    return (
+        <span
+            data-overdue={overdue ? 'true' : undefined}
+            className={cn('ml-2 whitespace-nowrap text-xs', overdue ? 'font-medium text-destructive' : 'text-muted-foreground')}
+        >
+            {overdue ? `Overdue · ${formatDueDay(due)}` : formatDueDay(due)}
+        </span>
+    );
+}
+
 function TitleText({ title, query, done }: { title: string; query: string; done: boolean }) {
     const parts = stageListTitleParts(title, query);
     return (
@@ -156,6 +179,8 @@ function StageSections({
     onAddTasks,
     onReorder,
     onSetLiveUrl,
+    thisMonth,
+    today,
 }: {
     tasks: readonly StageListTask[];
     sections: StageListSection[];
@@ -165,6 +190,8 @@ function StageSections({
     onAddTasks: (input: StageAddRequest) => Promise<void>;
     onReorder: (move: StageReorderMove) => Promise<void>;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
+    thisMonth: boolean;
+    today: string;
 }) {
     const [openOverrides, setOpenOverrides] = useState<Record<string, boolean>>({});
     const [dragId, setDragId] = useState<string | null>(null);
@@ -302,6 +329,7 @@ function StageSections({
                             {options.parentTitle && <span className="sr-only">Subtask of {options.parentTitle}. </span>}
                             <TitleText title={task.title} query={query} done={done} />
                         </button>
+                        <DueMark task={task} today={today} active={thisMonth} />
                         {options.parentTitle && <div className="text-xs text-muted-foreground">in {options.parentTitle}</div>}
                         <LiveUrlControl
                             url={task.publishedUrl}
@@ -515,6 +543,9 @@ export function StagePlanListView({
     onReorder,
     onSetLiveUrl,
     clientName,
+    thisMonth = false,
+    onThisMonthChange,
+    today,
 }: {
     tasks: readonly StageListTask[];
     query: string;
@@ -524,26 +555,49 @@ export function StagePlanListView({
     onReorder: (move: StageReorderMove) => Promise<void>;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
     clientName?: string;
+    /** Due-date view. The stages stay Onboarding and Backlog. */
+    thisMonth?: boolean;
+    onThisMonthChange?: (thisMonth: boolean) => void;
+    /** Calendar day YYYY-MM-DD in the org timezone. Defaults to today in Pacific time. */
+    today?: string;
 }) {
     const searchId = useId();
-    const sections = groupTasksByStage(tasks, query);
+    const day = today ?? calendarDay(new Date());
+    const shown = thisMonth ? selectThisMonthTasks(tasks, day) : tasks;
+    const sections = groupTasksByStage(shown, query);
     const searching = query.trim().length > 0;
     const label = clientName ? `Search tasks for ${clientName}` : 'Search tasks and subtasks';
 
     return (
         <div data-seo-plan-stage-list className="space-y-3">
-            <label htmlFor={searchId} className="sr-only">{label}</label>
-            <input
-                id={searchId}
-                type="search"
-                value={query}
-                onChange={event => onQueryChange(event.target.value)}
-                placeholder="Search all tasks and subtasks…"
-                className="w-full max-w-sm rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            />
+            <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor={searchId} className="sr-only">{label}</label>
+                <input
+                    id={searchId}
+                    type="search"
+                    value={query}
+                    onChange={event => onQueryChange(event.target.value)}
+                    placeholder="Search all tasks and subtasks…"
+                    className="w-full max-w-sm rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                />
+                <button
+                    type="button"
+                    aria-pressed={thisMonth}
+                    data-this-month={thisMonth ? 'on' : 'off'}
+                    onClick={() => onThisMonthChange?.(!thisMonth)}
+                    className={cn(
+                        'rounded-lg border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                        thisMonth
+                            ? 'border-primary bg-primary/10 font-medium text-foreground'
+                            : 'border-border bg-card text-muted-foreground hover:text-foreground',
+                    )}
+                >
+                    This month
+                </button>
+            </div>
             <div className="overflow-hidden rounded-xl border border-border bg-card">
                 <StageSections
-                    key={query}
+                    key={`${query}:${thisMonth ? 'month' : 'all'}`}
                     tasks={tasks}
                     sections={sections}
                     query={query}
@@ -552,6 +606,8 @@ export function StagePlanListView({
                     onAddTasks={onAddTasks}
                     onReorder={onReorder}
                     onSetLiveUrl={onSetLiveUrl}
+                    thisMonth={thisMonth}
+                    today={day}
                 />
             </div>
         </div>

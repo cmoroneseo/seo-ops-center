@@ -231,12 +231,19 @@ test('row mapping keeps stage fields and drops the recurrence payload', () => {
     assert.equal(mapped?.basecamp, true);
     assert.equal(mapped?.recurring, true);
     assert.equal(mapped?.publishedUrl, undefined);
+    assert.equal(mapped?.dueDate, undefined);
     assert.equal(JSON.stringify(mapped).includes('weekly'), false);
     assert.equal(stageListTaskFromRow({
         id: 'piece',
         title: 'Chino service page',
         published_url: ' https://example.com/chino ',
     })?.publishedUrl, 'https://example.com/chino');
+    assert.equal(stageListTaskFromRow({
+        id: 'dated',
+        title: 'Dated',
+        due_date: '2026-10-31T00:00:00.000Z',
+    })?.dueDate, '2026-10-31');
+    assert.equal(stageListTaskFromRow({ id: 'empty', title: 'Empty', due_date: null })?.dueDate, null);
 
     assert.equal(stageListTaskFromRow({ id: '', title: 'Nope' }), null);
     assert.equal(stageListTaskFromRow({ id: 'x' }), null);
@@ -258,6 +265,7 @@ test('JSON parsing keeps camelCase task fields and drops junk', () => {
             category: 'admin',
             basecamp: true,
             recurring: false,
+            dueDate: '2026-10-04',
             organizationId: 'should-drop',
         },
         { id: 4, title: 'nope' },
@@ -265,6 +273,7 @@ test('JSON parsing keeps camelCase task fields and drops junk', () => {
     ]);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].basecamp, true);
+    assert.equal(parsed[0].dueDate, '2026-10-04');
     assert.equal('organizationId' in parsed[0], false);
     assert.deepEqual(parseStageListTasks({ tasks: [] }), []);
 });
