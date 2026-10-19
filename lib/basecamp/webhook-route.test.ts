@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -330,4 +331,77 @@ test('timesheet deliveries are skipped when no importer is wired', async () => {
         skipped: 'timesheet_entry_created',
     });
     assert.deepEqual(calls.processed, ['1695159999']);
+});
+
+test('a timesheet_entry_created webhook writes no time log, and todo_completed still syncs', async () => {
+    const { createBasecampWebhookPost } = await loadRouteModule();
+    const timeLogWrites: string[] = [];
+    const processed: Array<{ eventId: string; result: string }> = [];
+    const { value, calls } = dependencies({
+        store: {
+            async claimDelivery(delivery: { eventId: string }) {
+                calls.claimed.push(delivery.eventId);
+                return 'new' as const;
+            },
+            async markDeliveryProcessed(eventId: string, result: string) {
+                processed.push({ eventId, result });
+                calls.processed.push(eventId);
+            },
+            async getTaskByTodoId() {
+                return task;
+            },
+            async updateTaskStatus(_task: typeof task, status: string) {
+                calls.updated.push(status);
+                return true;
+            },
+            async writeTimeLog(entryId: string) {
+                timeLogWrites.push(entryId);
+            },
+        },
+    });
+    // Production does not pass importTimesheetEntry. The handler must record
+    // the timesheet delivery as skipped and must not touch the ledger.
+    const post = createBasecampWebhookPost(value);
+
+    const timesheetResponse = await post(request(timesheetPayload));
+
+    assert.equal(timesheetResponse.status, 200);
+    assert.deepEqual(await responseBody(timesheetResponse), {
+        ok: true,
+        skipped: 'timesheet_entry_created',
+    });
+    assert.deepEqual(timeLogWrites, []);
+    assert.deepEqual(calls.updated, []);
+    assert.deepEqual(calls.provider, []);
+    assert.deepEqual(processed, [{
+        eventId: '1695159999',
+        result: 'skipped:timesheet_entry_created',
+    }]);
+
+    const todoResponse = await post(request(completionPayload));
+
+    assert.equal(todoResponse.status, 200);
+    assert.deepEqual(await responseBody(todoResponse), {
+        ok: true,
+        action: 'completed',
+        taskId: 'task-a',
+    });
+    assert.deepEqual(calls.updated, ['done']);
+    assert.deepEqual(calls.provider, ['202:77']);
+    assert.deepEqual(timeLogWrites, []);
+    assert.deepEqual(processed, [
+        { eventId: '1695159999', result: 'skipped:timesheet_entry_created' },
+        { eventId: '1695159515', result: 'completed' },
+    ]);
+});
+
+test('the production webhook route does not wire a timesheet importer', () => {
+    const source = readFileSync(
+        new URL('../../app/api/integrations/basecamp/webhook/route.ts', import.meta.url),
+        'utf8',
+    );
+    assert.doesNotMatch(source, /importTimesheetEntry/);
+    assert.doesNotMatch(source, /createTimesheetEntryImporter/);
+    assert.doesNotMatch(source, /createTimesheetImportStore/);
+    assert.doesNotMatch(source, /from\('time_logs'\)/);
 });
