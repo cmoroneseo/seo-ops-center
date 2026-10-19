@@ -10,7 +10,6 @@ import {
     createCommitment, updateCommitment, endCommitment,
 } from '@/lib/supabase/commitments';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
-import {getAgreementHistory} from '@/lib/supabase/agreements';
 import { SUBTYPE_OPTIONS, typeIcon, typeIconClass } from './deliverable-ui';
 
 interface CommitmentsManagerProps {
@@ -52,18 +51,12 @@ export function CommitmentsManager({
     const [form, setForm] = useState(EMPTY_FORM);
     const [members, setMembers] = useState<(OrganizationMember & { user: User })[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [agreementManaged,setAgreementManaged]=useState(commitments.some(c=>!!c.agreementId));
-    const [scopeLoading,setScopeLoading]=useState(true);
-    const [scopeError,setScopeError]=useState<string|null>(null);
 
     useEffect(() => {
         if (!isOpen) return;
-        let active=true;setScopeLoading(true);setScopeError(null);
         setEditing(null);
         getOrganizationMembers(organizationId).then(setMembers);
-        getAgreementHistory(organizationId,clientId,false).then(history=>{if(active)setAgreementManaged(history.agreements.length>0);}).catch(()=>{if(active)setScopeError('Agreement history could not be loaded. Reopen before changing services.');}).finally(()=>{if(active)setScopeLoading(false);});
-        return()=>{active=false;};
-    }, [isOpen, organizationId,clientId]);
+    }, [isOpen, organizationId]);
 
     useEffect(() => {
         if (editing === 'new') {
@@ -133,7 +126,6 @@ export function CommitmentsManager({
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    {scopeError && <p role="alert" className="text-sm text-destructive">{scopeError}</p>}
                     {editing ? (
                         <form onSubmit={handleSubmit} className="space-y-4">
                             <div>
@@ -268,7 +260,6 @@ export function CommitmentsManager({
                         </form>
                     ) : (
                         <>
-                            {agreementManaged && <p className="text-sm leading-relaxed text-muted-foreground">These outputs belong to accepted agreements. Use Agreement history → Change scope in the client workspace to revise them.</p>}
                             {commitments.length === 0 && (
                                 <div className="text-center py-8 text-muted-foreground">
                                     <FileSignature className="h-10 w-10 mx-auto mb-2 opacity-20" />
@@ -298,14 +289,13 @@ export function CommitmentsManager({
                                         </div>
                                     </div>
                                     <button
-                                        disabled={agreementManaged || scopeLoading || !!scopeError}
                                         onClick={() => setEditing(c)}
                                         className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                                         title="Edit service"
                                     >
                                         <Pencil className="h-3.5 w-3.5" />
                                     </button>
-                                    {c.isActive && !agreementManaged && !scopeLoading && !scopeError && (
+                                    {c.isActive && (
                                         <button
                                             onClick={() => handleEnd(c)}
                                             className="p-1.5 rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
@@ -317,7 +307,6 @@ export function CommitmentsManager({
                                 </div>
                             ))}
                             <button
-                                disabled={agreementManaged || scopeLoading || !!scopeError}
                                 onClick={() => setEditing('new')}
                                 className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
                             >

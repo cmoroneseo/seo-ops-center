@@ -9,7 +9,6 @@ export interface OverviewItem {
 export interface OverviewCommandProps {
     domain?: string | null;
     hoursLabel: string;
-    agreement: 'recorded' | 'missing' | 'unknown';
     onboarding: {
         status: 'loading' | 'failed' | 'ready';
         done?: number;
@@ -33,7 +32,6 @@ function domainHref(domain: string): string {
 export function OverviewCommand({
     domain,
     hoursLabel,
-    agreement,
     onboarding,
     monthLabel,
     tasks,
@@ -55,8 +53,6 @@ export function OverviewCommand({
                     <span>{hoursLabel}</span>
                 </p>
             </div>
-            {agreement === 'missing' && <p className="text-sm text-muted-foreground">Agreement not recorded.</p>}
-            {agreement === 'unknown' && <p className="text-sm text-muted-foreground">—</p>}
             <div className="grid items-start gap-6 lg:grid-cols-2">
                 <section aria-label="Onboarding" className="rounded-xl border border-border bg-card p-5">
                     <div className="mb-4 flex items-baseline justify-between gap-3">

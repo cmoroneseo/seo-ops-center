@@ -30,7 +30,7 @@ import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { useTimer } from '@/components/providers/timer-provider';
 import { ClientProject } from '@/lib/types';
-import { clientScopeLabel } from '@/lib/agreements/logic';
+import { clientScopeLabel } from '@/lib/hour-format';
 import { Pencil, Play, Pause } from 'lucide-react';
 import { TaskListView } from '@/components/tasks/TaskListView';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
@@ -49,8 +49,6 @@ import { NestLinkedTasksControl } from '@/components/marketing-plan/NestLinkedTa
 import { ONBOARDING_IMPORT_HINT } from '@/lib/seo-plan/onboarding-import';
 import { ClientApprovalsTab } from '@/components/approvals/ClientApprovalsTab';
 import { ClientPortalStaffPanel } from '@/components/portal/ClientPortalStaffPanel';
-import {ClientAgreementSummary} from '@/components/workspace/agreements/ClientAgreementSummary';
-import {AGREEMENT_SUMMARY_ROW_CLASS,AGREEMENT_SUMMARY_ROW_HEIGHT} from '@/lib/agreements/summary-row';
 import { VaultHeaderPill } from '@/components/vault/VaultHeaderPill';
 import { VaultPage } from '@/components/vault/VaultPage';
 import { useVaultEnabled } from '@/components/vault/use-vault-enabled';
@@ -238,11 +236,6 @@ export default function ClientDetailPage() {
                         </div>
                     </div>
                 </div>
-                <div className={AGREEMENT_SUMMARY_ROW_CLASS} style={{ height: AGREEMENT_SUMMARY_ROW_HEIGHT }} aria-hidden="true">
-                    <div className="flex h-10 min-w-0 flex-1 items-center">
-                        <div className="h-4 w-48 animate-pulse rounded bg-muted" />
-                    </div>
-                </div>
                 {seoPlanV2 === true ? (
                     <WorkspaceNav active="overview" vault={false} onSelect={() => {}} />
                 ) : (
@@ -315,8 +308,6 @@ export default function ClientDetailPage() {
                                 <span>{seoPlanV2 == null ? (
                                     <span className="inline-block h-4 w-28 animate-pulse rounded bg-muted" aria-label="Loading hours" />
                                 ) : v2On ? planHourLabel({
-                                    failed: client.agreementHistoryUnavailable === true,
-                                    coverage: client.agreementCoverage,
                                     seoHours: client.seoHours,
                                     scopeMode: client.setupScope?.mode,
                                     status: client.status,
@@ -377,14 +368,6 @@ export default function ClientDetailPage() {
                     </div>
                 </div>
             </div>
-
-            <ClientAgreementSummary client={client} onChanged={async()=>{
-                if(!organization?.id)return;
-                const refreshed=(await getClients(organization.id)).find(item=>item.id===client.id);
-                if(refreshed)setClient(refreshed);
-                setActivityRefreshKey(key=>key+1);
-                window.dispatchEvent(new Event('client-activity:data-changed'));
-            }} />
 
             {timerTaskRequired && (
                 <p className="-mt-3 text-sm text-muted-foreground">
@@ -515,15 +498,12 @@ export default function ClientDetailPage() {
                     organizationId={organization?.id ?? ''}
                     clientId={client.id}
                     clientName={client.clientName}
-                    monthlyBudget={client.agreementCoverage === 'none' || client.agreementCoverage === 'custom' || client.setupScope?.mode === 'custom' ? null : client.seoHours || client.retainerConfig?.monthlyHours || 0}
-                    scopeMode={client.agreementCoverage === 'none' || client.agreementCoverage === 'custom' || client.setupScope?.mode === 'custom' ? 'custom' : 'monthly'}
+                    monthlyBudget={client.setupScope?.mode === 'custom' ? null : client.seoHours || client.retainerConfig?.monthlyHours || 0}
+                    scopeMode={client.setupScope?.mode === 'custom' ? 'custom' : 'monthly'}
                     presentation={v2On ? 'v2' : 'classic'}
                     checklistScope={{ gbp: client.setupScope?.gbp === true, listings: client.setupScope?.listings === true }}
                     readOnly={v2On && seoPlanReadOnly(client.status)}
-                    knownAgreements={v2On ? client.agreements ?? null : null}
                     hoursNarrative={planHoursNarrative({
-                        failed: client.agreementHistoryUnavailable === true,
-                        coverage: client.agreementCoverage,
                         seoHours: client.seoHours,
                         scopeMode: client.setupScope?.mode,
                         status: client.status,
@@ -650,15 +630,12 @@ export default function ClientDetailPage() {
                     clientId={client.id}
                     domain={client.domain}
                     hoursLabel={planHourLabel({
-                        failed: client.agreementHistoryUnavailable === true,
-                        coverage: client.agreementCoverage,
                         seoHours: client.seoHours,
                         scopeMode: client.setupScope?.mode,
                         status: client.status,
                         launchDate: client.launchDateOverride ?? client.launchDate,
                         month: monthKey(),
                     })}
-                    agreement={client.agreementHistoryUnavailable ? 'unknown' : client.agreementCoverage === 'monthly' || client.agreementCoverage === 'custom' ? 'recorded' : 'missing'}
                     onOpenPlan={() => setActiveTab('campaign', { phase: null })}
                     onOpenTasks={() => setActiveTab('tasks')}
                 />

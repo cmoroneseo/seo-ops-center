@@ -57,12 +57,8 @@ export async function getClientBasecampConfig(clientId: string | undefined): Pro
 export function rowToTask(row: any): Task {
     return {
         id: row.id,
-        agreementId:row.agreement_id ?? undefined,
-        planPhase: row.plan_phase ?? undefined,
-        planPhaseLocked: row.plan_phase_locked ?? undefined,
         stage: isTaskStage(row.stage) ? row.stage : undefined,
         position: typeof row.position === 'number' && Number.isFinite(row.position) ? row.position : undefined,
-        commitmentId: row.commitment_id ?? undefined,
         organizationId: row.organization_id,
         projectId: row.project_id ?? undefined,
         clientId: row.client_id ?? undefined,
@@ -474,10 +470,6 @@ export async function updateTask(
         scheduledMinutes?: number | null;
         sortOrder?: number;
         updatedBy?: string;
-        /** Omitted unless the caller is recording an agreement phase. */
-        planPhase?: string | null;
-        planPhaseLocked?: boolean;
-        commitmentId?: string | null;
         /** null lifts a subtask back to the top level. */
         parentTaskId?: string | null;
         /** null clears the live URL. */
@@ -505,9 +497,6 @@ export async function updateTask(
             ...(patch.sortOrder !== undefined && { sort_order: patch.sortOrder }),
             ...(patch.recurrence !== undefined && { recurrence: patch.recurrence }),
             ...(patch.completedAt !== undefined && { completed_at: patch.completedAt }),
-            ...(patch.planPhase !== undefined && { plan_phase: patch.planPhase }),
-            ...(patch.planPhaseLocked !== undefined && { plan_phase_locked: patch.planPhaseLocked }),
-            ...(patch.commitmentId !== undefined && { commitment_id: patch.commitmentId }),
         };
 
         if (patch.publishedUrl !== undefined) {

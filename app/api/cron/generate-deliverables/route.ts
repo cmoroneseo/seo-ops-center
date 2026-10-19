@@ -2,10 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import {requireOrganizationMember} from '@/lib/security/tenant-authz';
 import { proratedQuantity } from '@/lib/seo-ops-logic';
-import {AGREEMENT_TERM_COLUMNS,rowToAgreement} from '@/lib/supabase/agreements';
-import {agreementToday} from '@/lib/agreements/logic';
-import {commitmentWindow,customOutputQuantity} from '@/lib/agreements/commitments';
-import {rowToCommitment} from '@/lib/supabase/commitments';
 
 export const maxDuration = 300;
 
@@ -39,7 +35,7 @@ function dueDateFor(month: string, dueDay?: number | null): string {
 }
 
 const PAGE = 1000;
-const COMMITMENT_COLUMNS = 'id, organization_id, client_id, title, agreement_id, cadence, quantity_per_month, starts_on, ends_on, due_day, engagement_model, total_quantity, type, subtype, counts_toward_hours, default_assignee_id, custom_fields, is_active, clients!inner(id, status)';
+const COMMITMENT_COLUMNS = 'id, organization_id, client_id, title, cadence, quantity_per_month, starts_on, ends_on, due_day, engagement_model, total_quantity, type, subtype, counts_toward_hours, default_assignee_id, is_active, clients!inner(id, status)';
 
 async function readAll<T>(query: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { code?: string; message?: string } | null }>): Promise<{ rows: T[]; error: { code?: string; message?: string } | null }> {
     const rows: T[] = [];
@@ -91,18 +87,13 @@ export async function POST(req: NextRequest) {
 
         for (const org of orgs ?? []) {
             results.orgsProcessed++;
-            const agreementPage = await readAll<Record<string, unknown>>(range => admin.from('client_agreements').select(AGREEMENT_TERM_COLUMNS).eq('organization_id', org.id).order('id').range(range, range + PAGE - 1));
-            const agreementMissing = !!agreementPage.error && ['42P01', 'PGRST205'].includes(agreementPage.error.code ?? '');
-            if (agreementPage.error && !agreementMissing) throw agreementPage.error;
-            const agreementError = agreementMissing ? agreementPage.error : null;
-            const agreements = agreementMissing ? [] : agreementPage.rows.map(row => rowToAgreement(row));
 
             // Active commitments overlapping the current month, with client status
             type CommitmentRow = {
-                id: string; organization_id: string; client_id: string; title: string; agreement_id: string | null;
+                id: string; organization_id: string; client_id: string; title: string;
                 cadence: string; quantity_per_month: number | null; starts_on: string; ends_on: string | null; due_day: number | null;
                 engagement_model: string; total_quantity: number | null; type: string; subtype: string | null;
-                counts_toward_hours: boolean | null; default_assignee_id: string | null; custom_fields: { agreementOutputRoot?: string; agreedTotalQuantity?: number } | null;
+                counts_toward_hours: boolean | null; default_assignee_id: string | null;
                 is_active: boolean; clients?: { id?: string; status?: string } | null;
             };
             const commitmentPage = await readAll<CommitmentRow>(async (from, to) => {
@@ -129,50 +120,30 @@ export async function POST(req: NextRequest) {
 
                 // Skip clients that aren't active
                 if (c.clients?.status && c.clients.status !== 'active') continue;
-                if(/^SEO Hours$/i.test(c.title))continue;
-                const agreement=c.agreement_id ? agreements.find(a=>a.id===c.agreement_id) : null;
-                if(c.agreement_id && (!agreement || agreement.cancelledAt))continue;
-                const agreementDay=agreement ? agreementToday(agreement.timezone) : today;
-                const workMonth=agreementDay.slice(0,7);
-                const workEnd=`${workMonth}-${new Date(Date.UTC(Number(workMonth.slice(0,4)),Number(workMonth.slice(5)),0)).getUTCDate()}`;
-                if(agreement && agreement.startsOn>agreementDay)continue;
-                const window=commitmentWindow(rowToCommitment(c),agreements);
-                if(!window)continue;
-                const {startsOn,endsOn}=window;
-                if(startsOn>workEnd || endsOn && endsOn<`${workMonth}-01`)continue;
-                if(c.cadence!=='monthly' && !(c.cadence==='one_time' && agreement))continue;
+                if (/^SEO Hours$/i.test(c.title)) continue;
+                if (c.cadence !== 'monthly') continue;
+                const startsOn = c.starts_on;
+                const endsOn = c.ends_on;
+                const workEnd = `${month}-${new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 0)).getUTCDate()}`;
+                if (startsOn > workEnd || (endsOn && endsOn < `${month}-01`)) continue;
 
                 let expected = proratedQuantity(
                     { quantityPerMonth: Number(c.quantity_per_month ?? 0), startsOn, endsOn },
-                    workMonth,
+                    month,
                 );
-                if(c.cadence==='one_time') {
-                    if(agreement?.endsOn && endsOn && endsOn<agreement.endsOn)continue;
-                    const root=c.custom_fields?.agreementOutputRoot;
-                    const otherIds=(commitments ?? []).filter(other=>other.id!==c.id && other.client_id===c.client_id && (other.id===root || other.custom_fields?.agreementOutputRoot===root)).map(other=>other.id);
-                    let issuedElsewhere=0;
-                    if(root && otherIds.length) {
-                        const {count,error}=await admin.from('deliverables').select('id',{count:'exact',head:true}).eq('organization_id',org.id).in('commitment_id',otherIds);
-                        if(error)throw error;
-                        issuedElsewhere=count ?? 0;
-                    }
-                    expected=customOutputQuantity(rowToCommitment(c),issuedElsewhere);
-                }
 
-                const targetMonth=c.cadence==='one_time' ? (agreement?.endsOn ?? startsOn).slice(0,7) : workMonth;
-
-                const {data:existingRows,error:existingError}=await admin.from('deliverables').select('id,sequence_in_month').eq('commitment_id',c.id).eq('month',targetMonth);
-                if(existingError)throw existingError;
-                const existing=existingRows?.length ?? 0;
+                const { data: existingRows, error: existingError } = await admin.from('deliverables').select('id').eq('commitment_id', c.id).eq('month', month);
+                if (existingError) throw existingError;
+                const existing = existingRows?.length ?? 0;
 
                 // Campaign: cap by remaining total across all generated rows
-                if (c.cadence==='monthly' && c.engagement_model === 'Campaign' && c.total_quantity != null) {
-                    const { count: allGenerated,error:generatedError } = await admin
+                if (c.engagement_model === 'Campaign' && c.total_quantity != null) {
+                    const { count: allGenerated, error: generatedError } = await admin
                         .from('deliverables')
                         .select('id', { count: 'exact', head: true })
                         .eq('commitment_id', c.id);
-                    if(generatedError)throw generatedError;
-                    expected = Math.min(expected, existing+Math.max(0, c.total_quantity - (allGenerated ?? 0)));
+                    if (generatedError) throw generatedError;
+                    expected = Math.min(expected, existing + Math.max(0, c.total_quantity - (allGenerated ?? 0)));
                 }
 
                 if (expected <= 0) continue;
@@ -181,31 +152,26 @@ export async function POST(req: NextRequest) {
                 const shortfall = expected - existing;
                 if (shortfall <= 0) continue;
 
-                const plannedDue=c.cadence==='one_time' ? agreement?.endsOn ?? startsOn : dueDateFor(workMonth,c.due_day);
-                const dueDate=endsOn && endsOn<plannedDue ? endsOn : plannedDue;
-                const used=new Set((existingRows ?? []).map(row=>Number(row.sequence_in_month)));
-                let sequence=0;
+                const plannedDue = dueDateFor(month, c.due_day);
+                const dueDate = endsOn && endsOn < plannedDue ? endsOn : plannedDue;
                 const rows = Array.from({ length: shortfall }, (_, i) => ({
                     organization_id: c.organization_id,
                     client_id: c.client_id,
                     commitment_id: c.id,
-                    ...(agreement ? {agreement_id:agreement.id} : {}),
-                    ...(!agreementError ? {generation_key:`${c.id}:${targetMonth}:${(()=>{do {sequence++;}while(used.has(sequence));return sequence;})()}`} : {}),
-                    title: `${c.title} ${existing + i + 1} of ${expected} — ${monthLabel(targetMonth)}`,
+                    title: `${c.title} ${existing + i + 1} of ${expected} — ${monthLabel(month)}`,
                     type: c.type,
                     subtype: c.subtype,
                     status: 'Pending',
                     due_date: dueDate,
-                    month:targetMonth,
+                    month,
                     assignee_id: c.default_assignee_id,
                     counts_toward_hours: c.counts_toward_hours ?? true,
                     generated_by: 'cron',
-                    sequence_in_month: !agreementError ? sequence : existing+i+1,
+                    sequence_in_month: existing + i + 1,
                     status_history: [{ status: 'Pending', at: new Date().toISOString() }],
                 }));
 
-                const write=agreementError ? admin.from('deliverables').insert(rows) : admin.from('deliverables').upsert(rows,{onConflict:'generation_key',ignoreDuplicates:true});
-                const { data:inserted,error: insertErr } = await write.select('id');
+                const { data: inserted, error: insertErr } = await admin.from('deliverables').insert(rows).select('id');
                 if (insertErr) {
                     console.error(`Error generating deliverables for commitment ${c.id}:`, insertErr);
                     results.errors++;

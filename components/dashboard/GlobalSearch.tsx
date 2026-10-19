@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { Search, X, Command } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useClients } from '@/lib/hooks/use-clients';
-import { clientScopeLabel } from '@/lib/agreements/logic';
+import { clientScopeLabel } from '@/lib/hour-format';
 import { clientIdFromPath, openVaultCommand, useVaultCommandList } from '@/components/vault/vault-commands';
 import { CommandPaletteResults } from '@/components/dashboard/CommandPaletteResults';
 

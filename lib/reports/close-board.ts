@@ -7,7 +7,7 @@ import { copySourcesForMetrics } from './copy-rules';
 import { evaluatePresendChecks, type SourceHealth } from './presend-checks';
 import { copyTextForSnapshot, gscMonthReadout, type GscDayInput } from './versions';
 import { closeCard, emptyReview, ownerApprovalPending, type ReviewState } from './workflow';
-import { formatHoursAgainstQuota } from '@/lib/agreements/logic';
+import { formatHoursAgainstQuota } from '@/lib/hour-format';
 import { isMissingProof, normalizeShipDate } from '@/lib/search-reporting/proof';
 import { ptMonth } from '@/lib/sync/months';
 import type { ReportSectionsField } from './blocks';

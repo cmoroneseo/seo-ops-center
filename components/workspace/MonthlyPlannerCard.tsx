@@ -10,7 +10,7 @@ import { MonthlyPlan, WeeklyPlan, ClientProject, TimeLog } from '@/lib/types';
 import { getMonthlyPlans, upsertMonthlyPlan } from '@/lib/supabase/monthly-plans';
 import { getTimeLogs, createTimeLog, updateTimeLog, deleteTimeLog } from '@/lib/supabase/time-logs';
 import { getSeoHoursForMonth } from '@/lib/supabase/change-log';
-import {formatHoursAgainstQuota, monthlyAgreementLogs} from '@/lib/agreements/logic';
+import {formatHoursAgainstQuota} from '@/lib/hour-format';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { createClient } from '@/lib/supabase/client';
 
@@ -187,7 +187,7 @@ export function MonthlyPlannerCard({ client, selectedMonth, onMonthChange }: Mon
     const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Historical-aware hours target for the currently viewed month
-    const [effectiveSeoHours, setEffectiveSeoHours] = useState<number | null>(client.agreements?.length ? null : client.seoHours);
+    const [effectiveSeoHours, setEffectiveSeoHours] = useState<number | null>(client.seoHours);
 
     const load = useCallback(async () => {
         if (!organization) return;
@@ -203,10 +203,10 @@ export function MonthlyPlannerCard({ client, selectedMonth, onMonthChange }: Mon
         const p = plans[0] ?? null;
         setPlan(p);
         setMonthNotes(p?.notes ?? '');
-        setTimeLogs(client.agreements?.length ? monthlyAgreementLogs(logs,client.agreements,month) : logs);
+        setTimeLogs(logs);
         setEffectiveSeoHours(historicalHours);
         } catch {setTimeLogs([]);setEffectiveSeoHours(null);setLoadError('Hours could not be loaded. Reload before planning against the allowance.');} finally {setIsLoading(false);}
-    }, [organization?.id, client.id, month, client.seoHours,client.agreements]);
+    }, [organization?.id, client.id, month, client.seoHours]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -222,7 +222,7 @@ export function MonthlyPlannerCard({ client, selectedMonth, onMonthChange }: Mon
     // ── Computed ───────────────────────────────────────────────────────────
 
     const weeks: WeeklyPlan[] = plan?.weeks.length ? plan.weeks : generateDefaultWeeks(month);
-    const isHistorical = !client.agreements?.length && timeLogs.length === 0 && (plan?.weeks ?? []).some(w => w.logged > 0);
+    const isHistorical = timeLogs.length === 0 && (plan?.weeks ?? []).some(w => w.logged > 0);
 
     // Group real time_logs by week number.
     //
@@ -416,7 +416,6 @@ export function MonthlyPlannerCard({ client, selectedMonth, onMonthChange }: Mon
                         style={{ width: `${pct}%` }}
                     />
                 </div>}
-                {client.agreements?.length ? <p className="text-xs text-muted-foreground">Monthly allowance only. Custom scope and prior-term time stay on their agreements.</p> : null}
             </div>
 
             {/* Week table */}
