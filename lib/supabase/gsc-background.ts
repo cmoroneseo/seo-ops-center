@@ -11,6 +11,7 @@ import {
     backfillLockIsLive, canStartBackfillDay, daysDoneFromCursor, isGscQuotaError, quotaDelaySeconds,
 } from '@/lib/gsc/backfill';
 import { gscHistoryV2BackfillEnabled, gscHistoryV2Enabled } from '@/lib/gsc/flags';
+import { refreshClientLiveUrls } from '@/lib/supabase/gsc-live-urls';
 
 const BACKFILL_LOCK_SERVICE = 'gsc_v2_backfill_lock';
 
@@ -123,6 +124,22 @@ export async function runGscSyncWorker(options: { clientId?: string; budgetMs?: 
                 }).eq('organization_id', job.organizationId).eq('client_id', job.clientId)
                     .eq('service', 'gsc').eq('credentials->>site_url', job.property);
                 if (connectionError) throw new Error('Unable to update connection health');
+            }
+            const liveBudget = deadline - Date.now() - 2000;
+            if (liveBudget > 3000) {
+                try {
+                    await refreshClientLiveUrls({
+                        admin,
+                        organizationId: job.organizationId,
+                        clientId: job.clientId,
+                        property: job.property,
+                        token: auth.token,
+                        now,
+                        budgetMs: liveBudget,
+                    });
+                } catch {
+                    // History for this claim is already saved. Live URL rows retry on the next daily sync.
+                }
             }
             remaining = dates.some(date => !savedDates.has(date));
             succeeded = true;
