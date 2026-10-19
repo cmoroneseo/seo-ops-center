@@ -79,7 +79,7 @@ function deps(overrides: Partial<StageAddDependencies> = {}) {
 }
 
 const body = {
-    stage: 'month_1',
+    stage: 'backlog',
     titles: [' Review robots.txt ', 'Check HTTPS'],
     organizationId: other,
     clientId: other,
@@ -142,12 +142,12 @@ test('titles are created at the end of the stage for the session organization', 
     assert.deepEqual(result.body.tasks.map(task => task.title), ['Review robots.txt', 'Check HTTPS']);
     assert.deepEqual(result.body.tasks.map(task => task.position), [5, 6]);
     assert.deepEqual(calls.clients, [`${org}:${clientId.toUpperCase()}`]);
-    assert.deepEqual(calls.positions, [`${org}:${clientId.toUpperCase()}:month_1:`]);
+    assert.deepEqual(calls.positions, [`${org}:${clientId.toUpperCase()}:backlog:`]);
     assert.equal(calls.rows.length, 2);
     assert.equal(calls.rows[0].organization_id, org);
     assert.equal(calls.rows[0].client_id, clientId.toUpperCase());
     assert.equal(calls.rows[0].title, 'Review robots.txt');
-    assert.equal(calls.rows[0].stage, 'month_1');
+    assert.equal(calls.rows[0].stage, 'backlog');
     assert.equal(calls.rows[0].position, 5);
     assert.equal(calls.rows[1].position, 6);
     assert.equal(calls.rows[0].sort_order, 0);
@@ -171,10 +171,10 @@ test('an empty stage starts at position 1', async () => {
     const { dependencies, calls } = deps({
         maxPosition: async () => null,
     });
-    const result = await createStageTasks(clientId, { stage: 'month_2', titles: ['One', 'Two'] }, dependencies);
+    const result = await createStageTasks(clientId, { stage: 'onboarding', titles: ['One', 'Two'] }, dependencies);
     assert.equal(result.status, 200);
     assert.deepEqual(calls.rows.map(row => row.position), [1, 2]);
-    assert.deepEqual(calls.rows.map(row => row.stage), ['month_2', 'month_2']);
+    assert.deepEqual(calls.rows.map(row => row.stage), ['onboarding', 'onboarding']);
 });
 
 test('a subtask is placed at the end of the pillar and keeps the pillar stage', async () => {
@@ -230,10 +230,10 @@ test('a client or pillar outside the session organization is not found', async (
 
 test('rejected titles never insert', async () => {
     const { dependencies, calls } = deps();
-    const empty = await createStageTasks(clientId, { stage: 'month_1', titles: ['  '] }, dependencies);
+    const empty = await createStageTasks(clientId, { stage: 'backlog', titles: ['  '] }, dependencies);
     const huge = await createStageTasks(clientId, { stage: 'nope', titles: ['Title'] }, dependencies);
     const many = await createStageTasks(clientId, {
-        stage: 'month_1',
+        stage: 'backlog',
         titles: Array.from({ length: 41 }, (_, index) => `Task ${index}`),
     }, dependencies);
     assert.equal(empty.status, 400);
@@ -296,7 +296,7 @@ test('a subtask line stores the live URL and a task line without one stays a tit
 test('a top-level task keeps a pasted URL in the title', async () => {
     const { dependencies, calls } = deps();
     const result = await createStageTasks(clientId, {
-        stage: 'month_1',
+        stage: 'backlog',
         titles: ['Check https://example.com/chino'],
     }, dependencies);
     assert.equal(result.status, 200);
@@ -310,7 +310,7 @@ test('a write failure does not return the underlying message', async () => {
             throw new Error('provider payload token sk_live_secret');
         },
     });
-    const result = await createStageTasks(clientId, { stage: 'month_1', titles: ['Review robots.txt'] }, dependencies);
+    const result = await createStageTasks(clientId, { stage: 'backlog', titles: ['Review robots.txt'] }, dependencies);
     assert.equal(result.status, 500);
     assert.deepEqual(result.body, { error: 'Could not add tasks' });
     assert.equal(JSON.stringify(result.body).includes('sk_live'), false);

@@ -7,8 +7,9 @@ export function isTaskStage(value: unknown): value is TaskStage {
 
 /**
  * Earliest roadmap phase in the list.
- * TASK_STAGES is ordered earliest first: onboarding, then month 1–3, then backlog.
- * Unknown values are ignored. No usable phase stays backlog.
+ * TASK_STAGES is ordered earliest first: onboarding, then backlog.
+ * Unknown values, including the retired month columns, are ignored.
+ * No usable phase stays backlog.
  */
 export function earliestTaskStage(phases: readonly (string | null | undefined)[]): TaskStage {
     let best: TaskStage = 'backlog';

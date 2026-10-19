@@ -36,12 +36,11 @@ const loaded: StageListTask[] = [
     task({
         id: '208dbc36-3333-4333-8333-333333333333',
         title: 'Set Up Empire Cookies',
-        stage: 'month_1',
         position: 2,
         parentTaskId: '208dbc36-1111-4111-8111-111111111111',
     }),
     task({ id: '208dbc36-4444-4444-8444-444444444444', title: 'Create SEO Roadmap', position: 2 }),
-    task({ id: '208dbc36-5555-4555-8555-555555555555', title: 'Review robots.txt', stage: 'month_1', position: 1 }),
+    task({ id: '208dbc36-5555-4555-8555-555555555555', title: 'Review robots.txt', stage: 'backlog', position: 1 }),
 ];
 
 const setup = loaded[0].id;
@@ -87,7 +86,7 @@ function deps(overrides: Partial<StageReorderDependencies> = {}) {
 
 const moveRoadmap = {
     taskId: roadmap,
-    stage: 'month_2',
+    stage: 'backlog',
     parentTaskId: null,
     index: 0,
     organizationId: other,
@@ -155,12 +154,13 @@ test('a move uses the session organization and rewrites affected siblings once',
     assert.equal(calls.writes[0].organizationId, org);
     assert.equal(calls.writes[0].clientId, clientId.toUpperCase());
     const byId = new Map(calls.writes[0].writes.map(write => [write.id, write]));
-    assert.equal(byId.get(roadmap)?.stage, 'month_2');
+    assert.equal(byId.get(roadmap)?.stage, 'backlog');
     assert.equal(byId.get(roadmap)?.position, 1);
     assert.equal(byId.get(roadmap)?.parentTaskId, null);
     assert.equal(byId.has(setup), false);
-    assert.equal(byId.has(robots), false);
-    assert.equal(result.body.tasks.find(item => item.id === roadmap)?.stage, 'month_2');
+    assert.equal(byId.get(robots)?.position, 2);
+    assert.equal(byId.get(robots)?.stage, 'backlog');
+    assert.equal(result.body.tasks.find(item => item.id === roadmap)?.stage, 'backlog');
     assert.equal(JSON.stringify(calls.writes).includes(other), false);
     assert.equal(JSON.stringify(calls.writes).includes('"position":99'), false);
 });
@@ -169,17 +169,17 @@ test('moving a pillar rewrites its subtasks in the same call', async () => {
     const { dependencies, calls } = deps();
     const result = await reorderStageTasks(clientId, {
         taskId: setup,
-        stage: 'month_2',
+        stage: 'backlog',
         parentTaskId: null,
         index: 0,
     }, dependencies);
     assert.equal(result.status, 200);
     assert.equal(calls.writes.length, 1);
     const byId = new Map(calls.writes[0].writes.map(write => [write.id, write]));
-    assert.equal(byId.get(setup)?.stage, 'month_2');
-    assert.equal(byId.get(keywords)?.stage, 'month_2');
+    assert.equal(byId.get(setup)?.stage, 'backlog');
+    assert.equal(byId.get(keywords)?.stage, 'backlog');
     assert.equal(byId.get(keywords)?.parentTaskId, setup);
-    assert.equal(byId.get(cookies)?.stage, 'month_2');
+    assert.equal(byId.get(cookies)?.stage, 'backlog');
     assert.equal(byId.get(cookies)?.parentTaskId, setup);
     assert.equal(byId.get(cookies)?.position, 2);
     assert.equal(byId.get(roadmap)?.position, 1);
@@ -216,7 +216,7 @@ test('nesting and un-nesting are decided by the server, one level deep', async (
     const pillar = deps();
     const nestedPillar = await reorderStageTasks(clientId, {
         taskId: setup,
-        stage: 'month_1',
+        stage: 'backlog',
         parentTaskId: robots,
         index: 0,
     }, pillar.dependencies);
@@ -229,7 +229,7 @@ test('a no-op does not write, and a missing task or client is not found', async 
     const same = deps();
     const unchanged = await reorderStageTasks(clientId, {
         taskId: robots,
-        stage: 'month_1',
+        stage: 'backlog',
         parentTaskId: null,
         index: 0,
     }, same.dependencies);
@@ -256,7 +256,7 @@ test('a no-op does not write, and a missing task or client is not found', async 
 test('a rejected move never writes', async () => {
     const { dependencies, calls } = deps();
     const bad = await reorderStageTasks(clientId, { taskId: robots, stage: 'month_9', parentTaskId: null, index: 0 }, dependencies);
-    const fractional = await reorderStageTasks(clientId, { taskId: robots, stage: 'month_1', parentTaskId: null, index: 1.5 }, dependencies);
+    const fractional = await reorderStageTasks(clientId, { taskId: robots, stage: 'backlog', parentTaskId: null, index: 1.5 }, dependencies);
     assert.equal(bad.status, 400);
     assert.equal(fractional.status, 400);
     assert.equal(calls.loads.length, 0);

@@ -188,8 +188,8 @@ export type TaskCategory = 'content' | 'technical' | 'local' | 'links' | 'strate
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'done' | 'approved' | 'blocked';
 
-/** Roadmap columns for tasks.stage. Earliest phase is first. Migration 103. */
-export const TASK_STAGES = ['onboarding', 'month_1', 'month_2', 'month_3', 'backlog'] as const;
+/** Roadmap columns for tasks.stage. Onboarding, then backlog. Migration 107 retired the month columns. */
+export const TASK_STAGES = ['onboarding', 'backlog'] as const;
 export type TaskStage = (typeof TASK_STAGES)[number];
 
 export interface TaskStatusHistoryEntry {

@@ -31,11 +31,11 @@ function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'ti
 const tasks: StageListTask[] = [
     task({ id: 'setup', title: 'SEO Setup', position: 1 }),
     task({ id: 'keywords', title: 'Add keywords', position: 1, parentTaskId: 'setup' }),
-    task({ id: 'cookies', title: 'Set Up Empire Cookies', stage: 'month_1', position: 2, parentTaskId: 'setup' }),
+    task({ id: 'cookies', title: 'Set Up Empire Cookies', position: 2, parentTaskId: 'setup' }),
     task({ id: 'roadmap', title: 'Create SEO Roadmap', position: 2 }),
-    task({ id: 'robots', title: 'Review robots.txt', stage: 'month_1', position: 1 }),
-    task({ id: 'https', title: 'Check HTTPS', stage: 'month_1', position: 2 }),
-    task({ id: 'later', title: 'Monthly report', stage: 'month_1', position: 3, parentTaskId: 'done', recurring: true }),
+    task({ id: 'robots', title: 'Review robots.txt', stage: 'backlog', position: 1 }),
+    task({ id: 'https', title: 'Check HTTPS', stage: 'backlog', position: 2 }),
+    task({ id: 'later', title: 'Monthly report', stage: 'backlog', position: 3, parentTaskId: 'done', recurring: true }),
 ];
 
 function order(list: readonly StageListTask[], stage: string, parentId: string | null = null): string[] {
@@ -53,46 +53,48 @@ function plan(move: Parameters<typeof applyStageReorder>[1], source: readonly St
 }
 
 test('reordering inside a stage packs that stage and leaves the others', () => {
-    const result = plan({ taskId: 'https', stage: 'month_1', parentTaskId: null, index: 0 });
-    assert.deepEqual(order(result.tasks, 'month_1'), ['https', 'robots', 'later']);
+    const result = plan({ taskId: 'https', stage: 'backlog', parentTaskId: null, index: 0 });
+    assert.deepEqual(order(result.tasks, 'backlog'), ['https', 'robots', 'later']);
     assert.deepEqual(order(result.tasks, 'onboarding'), ['setup', 'roadmap']);
     assert.deepEqual(result.writes.map(write => [write.id, write.position, write.stage, write.parentTaskId]), [
-        ['https', 1, 'month_1', null],
-        ['robots', 2, 'month_1', null],
+        ['https', 1, 'backlog', null],
+        ['robots', 2, 'backlog', null],
     ]);
     assert.equal(result.writes.some(write => write.id === 'setup' || write.id === 'later'), false);
 });
 
 test('moving a task to another stage rewrites both sibling groups', () => {
-    const result = plan({ taskId: 'roadmap', stage: 'month_2', parentTaskId: null, index: 0 });
+    const result = plan({ taskId: 'roadmap', stage: 'backlog', parentTaskId: null, index: 0 });
     assert.deepEqual(order(result.tasks, 'onboarding'), ['setup']);
-    assert.deepEqual(order(result.tasks, 'month_2'), ['roadmap']);
+    assert.deepEqual(order(result.tasks, 'backlog'), ['roadmap', 'robots', 'https', 'later']);
     const byId = new Map(result.writes.map(write => [write.id, write]));
-    assert.equal(byId.get('roadmap')?.stage, 'month_2');
+    assert.equal(byId.get('roadmap')?.stage, 'backlog');
     assert.equal(byId.get('roadmap')?.position, 1);
     assert.equal(byId.get('roadmap')?.parentTaskId, null);
     assert.equal(byId.has('setup'), false);
     assert.equal(result.tasks.find(item => item.id === 'setup')?.position, 1);
-    assert.equal(result.writes.some(write => write.id === 'robots'), false);
+    assert.equal(byId.get('robots')?.position, 2);
+    assert.equal(byId.get('robots')?.stage, 'backlog');
 });
 
 test('a pillar keeps its subtasks and they inherit the destination stage', () => {
-    const result = plan({ taskId: 'setup', stage: 'month_2', parentTaskId: null, index: 0 });
-    assert.deepEqual(order(result.tasks, 'month_2'), ['setup']);
-    assert.deepEqual(order(result.tasks, 'month_2', 'setup'), ['keywords', 'cookies']);
+    const result = plan({ taskId: 'setup', stage: 'backlog', parentTaskId: null, index: 0 });
+    assert.deepEqual(order(result.tasks, 'backlog'), ['setup', 'robots', 'https', 'later']);
+    assert.deepEqual(order(result.tasks, 'backlog', 'setup'), ['keywords', 'cookies']);
     assert.deepEqual(order(result.tasks, 'onboarding'), ['roadmap']);
     const cookies = result.tasks.find(item => item.id === 'cookies');
     const keywords = result.tasks.find(item => item.id === 'keywords');
-    assert.equal(cookies?.stage, 'month_2');
+    assert.equal(cookies?.stage, 'backlog');
     assert.equal(cookies?.parentTaskId, 'setup');
     assert.equal(cookies?.position, 2);
-    assert.equal(keywords?.stage, 'month_2');
+    assert.equal(keywords?.stage, 'backlog');
     assert.equal(keywords?.position, 1);
     assert.equal(result.tasks.find(item => item.id === 'roadmap')?.stage, 'onboarding');
+    assert.equal(result.tasks.find(item => item.id === 'roadmap')?.position, 1);
 });
 
 test('subtasks reorder inside the pillar and take the pillar stage', () => {
-    const result = plan({ taskId: 'cookies', stage: 'month_1', parentTaskId: 'setup', index: 0 });
+    const result = plan({ taskId: 'cookies', stage: 'onboarding', parentTaskId: 'setup', index: 0 });
     assert.deepEqual(order(result.tasks, 'onboarding', 'setup'), ['cookies', 'keywords']);
     const cookies = result.writes.find(write => write.id === 'cookies');
     const keywords = result.writes.find(write => write.id === 'keywords');
@@ -107,15 +109,15 @@ test('dropping a task on a pillar nests it at the end and clears it from the sta
     assert.equal(result.tasks.find(item => item.id === 'robots')?.parentTaskId, 'setup');
     assert.equal(result.tasks.find(item => item.id === 'robots')?.stage, 'onboarding');
     assert.deepEqual(order(result.tasks, 'onboarding', 'setup'), ['keywords', 'cookies', 'robots']);
-    assert.deepEqual(order(result.tasks, 'month_1'), ['https', 'later']);
+    assert.deepEqual(order(result.tasks, 'backlog'), ['https', 'later']);
     assert.equal(result.writes.find(write => write.id === 'https')?.position, 1);
 });
 
 test('pulling a subtask onto a stage un-nests it there', () => {
-    const result = plan({ taskId: 'keywords', stage: 'month_1', parentTaskId: null, index: 1 });
+    const result = plan({ taskId: 'keywords', stage: 'backlog', parentTaskId: null, index: 1 });
     assert.equal(result.tasks.find(item => item.id === 'keywords')?.parentTaskId, null);
-    assert.equal(result.tasks.find(item => item.id === 'keywords')?.stage, 'month_1');
-    assert.deepEqual(order(result.tasks, 'month_1'), ['robots', 'keywords', 'https', 'later']);
+    assert.equal(result.tasks.find(item => item.id === 'keywords')?.stage, 'backlog');
+    assert.deepEqual(order(result.tasks, 'backlog'), ['robots', 'keywords', 'https', 'later']);
     assert.deepEqual(order(result.tasks, 'onboarding', 'setup'), ['cookies']);
     assert.equal(result.writes.find(write => write.id === 'cookies')?.position, 1);
     assert.equal(result.writes.find(write => write.id === 'cookies')?.parentTaskId, 'setup');
@@ -124,13 +126,13 @@ test('pulling a subtask onto a stage un-nests it there', () => {
 test('a subtask can move from one pillar to another and still sit one level down', () => {
     const withSecond = [
         ...tasks,
-        task({ id: 'local', title: 'Local SEO', stage: 'month_2', position: 1 }),
-        task({ id: 'gbp', title: 'Complete GBP', stage: 'month_2', position: 1, parentTaskId: 'local' }),
+        task({ id: 'local', title: 'Local SEO', stage: 'backlog', position: 1 }),
+        task({ id: 'gbp', title: 'Complete GBP', stage: 'backlog', position: 1, parentTaskId: 'local' }),
     ];
     const result = plan({ taskId: 'keywords', stage: 'onboarding', parentTaskId: 'local', index: 0 }, withSecond);
     assert.equal(result.tasks.find(item => item.id === 'keywords')?.parentTaskId, 'local');
-    assert.equal(result.tasks.find(item => item.id === 'keywords')?.stage, 'month_2');
-    assert.deepEqual(order(result.tasks, 'month_2', 'local'), ['keywords', 'gbp']);
+    assert.equal(result.tasks.find(item => item.id === 'keywords')?.stage, 'backlog');
+    assert.deepEqual(order(result.tasks, 'backlog', 'local'), ['keywords', 'gbp']);
 });
 
 test('nesting refuses a pillar, a subtask parent, a self parent, and a recurring row', () => {
@@ -139,13 +141,13 @@ test('nesting refuses a pillar, a subtask parent, a self parent, and a recurring
 
     const nestedPillar = [
         ...tasks,
-        task({ id: 'local', title: 'Local SEO', stage: 'month_2', position: 1 }),
-        task({ id: 'gbp', title: 'Complete GBP', stage: 'month_2', position: 1, parentTaskId: 'local' }),
+        task({ id: 'local', title: 'Local SEO', stage: 'backlog', position: 1 }),
+        task({ id: 'gbp', title: 'Complete GBP', stage: 'backlog', position: 1, parentTaskId: 'local' }),
     ];
     const tooDeep = applyStageReorder(nestedPillar, { taskId: 'local', stage: 'onboarding', parentTaskId: 'setup', index: 0 });
     assert.deepEqual(tooDeep, { ok: false, error: STAGE_REORDER_PILLAR });
 
-    const self = applyStageReorder(tasks, { taskId: 'robots', stage: 'month_1', parentTaskId: 'robots', index: 0 });
+    const self = applyStageReorder(tasks, { taskId: 'robots', stage: 'backlog', parentTaskId: 'robots', index: 0 });
     assert.deepEqual(self, { ok: false, error: STAGE_REORDER_SELF });
 
     const recurring = applyStageReorder(tasks, { taskId: 'later', stage: 'onboarding', parentTaskId: 'setup', index: 0 });
@@ -155,36 +157,41 @@ test('nesting refuses a pillar, a subtask parent, a self parent, and a recurring
 test('an unknown task and a no-op write nothing', () => {
     const missing = applyStageReorder(tasks, { taskId: 'missing', stage: 'backlog', parentTaskId: null, index: 0 });
     assert.equal(missing.ok, false);
-    const same = plan({ taskId: 'robots', stage: 'month_1', parentTaskId: null, index: 0 });
+    const same = plan({ taskId: 'robots', stage: 'backlog', parentTaskId: null, index: 0 });
     assert.deepEqual(same.writes, []);
     assert.deepEqual(same.tasks, tasks);
 });
 
 test('a recurring successor stays top-level when its stage changes', () => {
-    const result = plan({ taskId: 'later', stage: 'backlog', parentTaskId: null, index: 0 });
+    const result = plan({ taskId: 'later', stage: 'onboarding', parentTaskId: null, index: 0 });
     const later = result.tasks.find(item => item.id === 'later');
-    assert.equal(later?.stage, 'backlog');
+    assert.equal(later?.stage, 'onboarding');
     assert.equal(later?.parentTaskId, 'done');
     assert.equal(later?.recurring, true);
-    assert.deepEqual(order(result.tasks, 'backlog'), ['later']);
+    assert.deepEqual(order(result.tasks, 'onboarding'), ['later', 'setup', 'roadmap']);
+    assert.deepEqual(order(result.tasks, 'backlog'), ['robots', 'https']);
 });
 
 test('rollback restores only the moved rows and a save replaces those copies', () => {
-    const result = plan({ taskId: 'roadmap', stage: 'month_2', parentTaskId: null, index: 0 });
-    const added = [...result.tasks, task({ id: 'pending:new', title: 'Fresh', stage: 'month_2', position: 2 })];
+    const result = plan({ taskId: 'roadmap', stage: 'backlog', parentTaskId: null, index: 0 });
+    const added = [...result.tasks, task({ id: 'pending:new', title: 'Fresh', stage: 'backlog', position: 2 })];
     const restored = restoreStageTasks(added, tasks, result.writes.map(write => write.id));
     assert.equal(restored.find(item => item.id === 'roadmap')?.stage, 'onboarding');
     assert.equal(restored.find(item => item.id === 'pending:new')?.title, 'Fresh');
-    const saved = task({ id: 'roadmap', title: 'Create SEO Roadmap', stage: 'month_2', position: 4 });
+    const saved = task({ id: 'roadmap', title: 'Create SEO Roadmap', stage: 'backlog', position: 4 });
     assert.equal(mergeStageTasks(result.tasks, [saved]).find(item => item.id === 'roadmap')?.position, 4);
 });
 
 test('a move keeps a live URL the save payload does not return', () => {
     const current = [task({ id: 'piece', title: 'Chino service page', publishedUrl: 'https://example.com/chino' })];
-    const saved = task({ id: 'piece', title: 'Chino service page', stage: 'month_2', position: 1 });
+    const saved = task({ id: 'piece', title: 'Chino service page', stage: 'backlog', position: 1 });
     assert.equal(mergeStageTasks(current, [saved])[0].publishedUrl, 'https://example.com/chino');
     const cleared = task({ id: 'piece', title: 'Chino service page', publishedUrl: null });
     assert.equal(mergeStageTasks(current, [cleared])[0].publishedUrl, null);
+    const dated = [task({ id: 'piece', title: 'Chino service page', dueDate: '2026-10-12' })];
+    assert.equal(mergeStageTasks(dated, [saved])[0].dueDate, '2026-10-12');
+    const undated = task({ id: 'piece', title: 'Chino service page', dueDate: null });
+    assert.equal(mergeStageTasks(dated, [undated])[0].dueDate, null);
 });
 
 test('the middle of a pillar header nests, and its edges reorder', () => {
@@ -247,7 +254,7 @@ test('a subtask grip lands among siblings, and a stage drop un-nests', () => {
     });
     assert.equal(out?.move.parentTaskId, null);
     assert.equal(out?.move.stage, 'backlog');
-    assert.equal(out?.move.index, 0);
+    assert.equal(out?.move.index, 3);
 });
 
 test('a pillar cannot be dropped onto a header or into subtasks', () => {
@@ -260,7 +267,7 @@ test('a pillar cannot be dropped onto a header or into subtasks', () => {
         pointerFraction: 0.5,
     });
     assert.equal(onHeader?.move.parentTaskId, null);
-    assert.equal(onHeader?.move.stage, 'month_1');
+    assert.equal(onHeader?.move.stage, 'backlog');
 
     const intoChildren = describeStageDrop({
         tasks,
@@ -277,13 +284,13 @@ test('keyboard moves walk the sibling list, the stage list, and out of a pillar'
     assert.equal(stageMoveBy(tasks, 'robots', 'up'), null);
     assert.deepEqual(stageMoveBy(tasks, 'https', 'up'), {
         taskId: 'https',
-        stage: 'month_1',
+        stage: 'backlog',
         parentTaskId: null,
         index: 0,
     });
     assert.deepEqual(stageMoveBy(tasks, 'roadmap', 'next-stage'), {
         taskId: 'roadmap',
-        stage: 'month_1',
+        stage: 'backlog',
         parentTaskId: null,
         index: 3,
     });

@@ -45,7 +45,7 @@ const keywords = task({
 const cookies = task({
     id: 'cookies',
     title: 'Set Up Empire Cookies',
-    stage: 'month_1',
+    stage: 'backlog',
     position: 1,
     parentTaskId: 'setup',
     basecamp: true,
@@ -62,7 +62,7 @@ const roadmap = task({
 const robots = task({
     id: 'robots',
     title: 'Review robots.txt and XML sitemap',
-    stage: 'month_1',
+    stage: 'backlog',
     position: 1,
     category: 'technical',
     createdAt: '2026-02-01T00:00:00.000Z',
@@ -79,11 +79,8 @@ function section(name: string, tasks: StageListTask[] = floor, query = '') {
 test('sections follow TASK_STAGES and empty stages still render', () => {
     const sections = groupTasksByStage(floor, '');
     assert.deepEqual(sections.map(item => item.stage), [...TASK_STAGES]);
-    assert.deepEqual(sections.map(item => item.label), ['Onboarding', 'Month 1', 'Month 2', 'Month 3', 'Backlog']);
-    assert.equal(section('month_2').count, 0);
-    assert.deepEqual(section('month_2').groups, []);
-    assert.equal(section('month_3').count, 0);
-    assert.equal(section('backlog').count, 0);
+    assert.deepEqual(sections.map(item => item.label), ['Onboarding', 'Backlog']);
+    assert.equal(section('backlog').count, 1);
 });
 
 test('pillars nest subtasks and subtasks are not peer rows', () => {
@@ -94,30 +91,31 @@ test('pillars nest subtasks and subtasks are not peer rows', () => {
     assert.deepEqual(pillar.children.map(child => child.id), ['cookies', 'keywords']);
     assert.equal(pillar.childCount, 2);
     assert.equal(pillar.expandChildren, false);
-    assert.equal(section('month_1').groups.map(group => group.task.id).includes('cookies'), false);
-    assert.deepEqual(section('month_1').groups.map(group => group.task.id), ['robots']);
+    assert.equal(section('backlog').groups.map(group => group.task.id).includes('cookies'), false);
+    assert.deepEqual(section('backlog').groups.map(group => group.task.id), ['robots']);
     const peerIds = groupTasksByStage(floor, '').flatMap(item => item.groups.map(group => group.task.id));
     assert.equal(peerIds.includes('cookies'), false);
     assert.equal(peerIds.includes('keywords'), false);
 });
 
 test('position orders rows, then created_at, then id', () => {
-    const later = task({ id: 'b', title: 'Later id', stage: 'month_2', position: 1, createdAt: '2026-03-01T00:00:00.000Z' });
-    const earlier = task({ id: 'a', title: 'Earlier id', stage: 'month_2', position: 1, createdAt: '2026-03-01T00:00:00.000Z' });
-    const second = task({ id: 'second', title: 'Second position', stage: 'month_2', position: 2, createdAt: '2026-01-01T00:00:00.000Z' });
-    const unpositioned = task({ id: 'loose', title: 'No position', stage: 'month_2', position: null, createdAt: '2026-01-01T00:00:00.000Z' });
+    const later = task({ id: 'b', title: 'Later id', stage: 'backlog', position: 1, createdAt: '2026-03-01T00:00:00.000Z' });
+    const earlier = task({ id: 'a', title: 'Earlier id', stage: 'backlog', position: 1, createdAt: '2026-03-01T00:00:00.000Z' });
+    const second = task({ id: 'second', title: 'Second position', stage: 'backlog', position: 2, createdAt: '2026-01-01T00:00:00.000Z' });
+    const unpositioned = task({ id: 'loose', title: 'No position', stage: 'backlog', position: null, createdAt: '2026-01-01T00:00:00.000Z' });
     const older = task({ id: 'older', title: 'Older', stage: 'backlog', position: 4, createdAt: '2026-01-01T00:00:00.000Z' });
     const newer = task({ id: 'newer', title: 'Newer', stage: 'backlog', position: 4, createdAt: '2026-06-01T00:00:00.000Z' });
-    const month = section('month_2', [second, unpositioned, later, earlier]);
+    const month = section('backlog', [second, unpositioned, later, earlier]);
     assert.deepEqual(month.groups.map(group => group.task.id), ['a', 'b', 'second', 'loose']);
     assert.deepEqual(section('backlog', [newer, older]).groups.map(group => group.task.id), ['older', 'newer']);
     assert.equal(compareStageListTasks(earlier, later) < 0, true);
 });
 
 test('unknown and missing stages land in backlog', () => {
-    const unknown = task({ id: 'mystery', title: 'Mystery', stage: 'month_4', position: 1 });
+    const unknown = task({ id: 'mystery', title: 'Mystery', stage: 'month_1', position: 1 });
     const blank = task({ id: 'blank', title: 'Blank', stage: null, position: 2 });
-    assert.deepEqual(section('backlog', [unknown, blank]).groups.map(group => group.task.id), ['mystery', 'blank']);
+    const retired = task({ id: 'old', title: 'Old month', stage: 'month_3', position: 3 });
+    assert.deepEqual(section('backlog', [retired, unknown, blank]).groups.map(group => group.task.id), ['mystery', 'blank', 'old']);
 });
 
 test('a subtask-only match shows the parent with matching children expanded', () => {
@@ -127,7 +125,7 @@ test('a subtask-only match shows the parent with matching children expanded', ()
     assert.deepEqual(onboarding.groups[0].children.map(child => child.id), ['cookies']);
     assert.equal(onboarding.groups[0].childCount, 2);
     assert.equal(section('onboarding', floor, 'cookies').groups.some(group => group.task.id === 'roadmap'), false);
-    assert.equal(section('month_1', floor, 'cookies').count, 0);
+    assert.equal(section('backlog', floor, 'cookies').count, 0);
 });
 
 test('a pillar title match keeps its children collapsed until a subtask title also matches', () => {
@@ -150,7 +148,7 @@ test('search matches every word in a title and ignores a client name that is not
     assert.equal(section('onboarding', floor, 'COOKIES').groups[0]?.expandChildren, true);
     const missed = groupTasksByStage(floor, 'floor co');
     assert.equal(missed.every(item => item.count === 0), true);
-    assert.equal(missed.length, 5);
+    assert.equal(missed.length, TASK_STAGES.length);
     const blank = groupTasksByStage(floor, '   ');
     assert.equal(blank.find(item => item.stage === 'onboarding')?.count, 2);
 });
@@ -159,7 +157,7 @@ test('a recurring successor stays its own row, and a grandchild nests under the 
     const successor = task({
         id: 'successor',
         title: 'SEO Setup',
-        stage: 'month_2',
+        stage: 'backlog',
         position: 1,
         parentTaskId: 'setup',
         recurring: true,
@@ -181,7 +179,7 @@ test('a recurring successor stays its own row, and a grandchild nests under the 
     const sections = groupTasksByStage([setup, successor, middle, grand], '');
     const onboarding = sections.find(item => item.stage === 'onboarding');
     assert.deepEqual(onboarding?.groups[0].children.map(child => child.id), ['grand', 'middle']);
-    assert.equal(sections.find(item => item.stage === 'month_2')?.groups[0].task.id, 'successor');
+    assert.equal(sections.find(item => item.stage === 'backlog')?.groups[0].task.id, 'successor');
     assert.equal(sections.flatMap(item => item.groups.map(group => group.task.id)).includes('grand'), false);
 });
 
@@ -233,12 +231,19 @@ test('row mapping keeps stage fields and drops the recurrence payload', () => {
     assert.equal(mapped?.basecamp, true);
     assert.equal(mapped?.recurring, true);
     assert.equal(mapped?.publishedUrl, undefined);
+    assert.equal(mapped?.dueDate, undefined);
     assert.equal(JSON.stringify(mapped).includes('weekly'), false);
     assert.equal(stageListTaskFromRow({
         id: 'piece',
         title: 'Chino service page',
         published_url: ' https://example.com/chino ',
     })?.publishedUrl, 'https://example.com/chino');
+    assert.equal(stageListTaskFromRow({
+        id: 'dated',
+        title: 'Dated',
+        due_date: '2026-10-31T00:00:00.000Z',
+    })?.dueDate, '2026-10-31');
+    assert.equal(stageListTaskFromRow({ id: 'empty', title: 'Empty', due_date: null })?.dueDate, null);
 
     assert.equal(stageListTaskFromRow({ id: '', title: 'Nope' }), null);
     assert.equal(stageListTaskFromRow({ id: 'x' }), null);
@@ -260,6 +265,7 @@ test('JSON parsing keeps camelCase task fields and drops junk', () => {
             category: 'admin',
             basecamp: true,
             recurring: false,
+            dueDate: '2026-10-04',
             organizationId: 'should-drop',
         },
         { id: 4, title: 'nope' },
@@ -267,6 +273,7 @@ test('JSON parsing keeps camelCase task fields and drops junk', () => {
     ]);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].basecamp, true);
+    assert.equal(parsed[0].dueDate, '2026-10-04');
     assert.equal('organizationId' in parsed[0], false);
     assert.deepEqual(parseStageListTasks({ tasks: [] }), []);
 });
