@@ -3,10 +3,9 @@ import { createHash } from 'node:crypto';
 /**
  * Basecamp timesheet CSV export.
  *
- * This is the accurate source for a backfill. The JSON endpoint
- * `/projects/{id}/timesheet.json` repeats its entries on every page of its
- * Link-header pagination, so a naive sweep multiplies hours; the CSV report
- * does not, and it filters by person and date range server-side.
+ * The comparison report uses this rather than `/projects/{id}/timesheet.json`,
+ * which repeats its entries on every page of its Link-header pagination. The
+ * CSV filters by person and date range server-side.
  *
  * Its cost is identity: the export carries no entry id and names the project
  * rather than identifying it. `fingerprintFor` supplies a stand-in key.
@@ -15,11 +14,10 @@ import { createHash } from 'node:crypto';
 /**
  * The five fields that make up a timesheet entry's stand-in identity.
  *
- * Both import paths hash exactly this shape through `fingerprintFor`, which is
- * the whole point: the CSV backfill builds it from a `CsvTimesheetRow`, and the
- * live webhook builds it from the provider entry it read back over OAuth. If
- * the two ever diverged, the same Basecamp entry would produce two identities
- * and the client would be billed twice.
+ * The CSV report and the outbound push both hash exactly this shape through
+ * `fingerprintFor`. The push builds it from the provider entry it read back
+ * over OAuth (`csvIdentityFor`). If the two diverged, the same Basecamp entry
+ * would produce two identities.
  */
 export interface TimesheetIdentityInput {
     /** Display name of the person the time belongs to. */

@@ -9,12 +9,6 @@ const REOPEN_KINDS = new Set([
     'todo_uncompleted',
 ]);
 
-import { isTimesheetEntryKind } from './timesheet-webhook-route';
-import type {
-    TimesheetDelivery,
-    TimesheetImportOutcome,
-} from './timesheet-webhook-route';
-
 const BASECAMP_WEBHOOK_USER_AGENT = 'Basecamp3 Webhook';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -60,11 +54,6 @@ interface Dependencies {
         ): Promise<{ id: string | number; completed: boolean } | null>;
     };
     logCompletion(task: BasecampWebhookTask, actorName: string): Promise<void>;
-    /**
-     * Handles Timesheet::Entry deliveries. Optional so the to-do path keeps
-     * working unchanged when ledger import is not wired up.
-     */
-    importTimesheetEntry?(delivery: TimesheetDelivery): Promise<TimesheetImportOutcome>;
 }
 
 interface ParsedPayload {
@@ -151,21 +140,9 @@ export function createBasecampWebhookPost(dependencies: Dependencies) {
                 return json({ ok: true, skipped: 'duplicate' });
             }
 
-            // Timesheet entries are a different resource with a different
-            // canonical URL shape, so they never touch the to-do path below.
-            if (isTimesheetEntryKind(payload.kind) && dependencies.importTimesheetEntry) {
-                const outcome = await dependencies.importTimesheetEntry({
-                    kind: payload.kind,
-                    recordingId: payload.recordingId,
-                    recordingUrl: payload.recordingUrl,
-                });
-                // A retryable failure must stay unprocessed so Basecamp resends.
-                if (outcome.status < 500) {
-                    await dependencies.store.markDeliveryProcessed(payload.eventId, outcome.result);
-                }
-                return json(outcome.body, outcome.status);
-            }
-
+            // Anything else, including timesheet_entry_*, is recorded as skipped.
+            // Hours are logged in SEO Ops and pushed outbound, so this webhook
+            // does not write time logs.
             const isRelevant = COMPLETION_KINDS.has(payload.kind) || REOPEN_KINDS.has(payload.kind);
             if (!isRelevant) {
                 await dependencies.store.markDeliveryProcessed(payload.eventId, `skipped:${payload.kind}`);

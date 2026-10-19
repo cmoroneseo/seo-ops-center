@@ -419,14 +419,13 @@ test('pending review controls render for managers and never for members', () => 
     assert.match(managerHtml, />Send back</);
 });
 
-test('an empty manager queue keeps backfill visible while members never receive it', () => {
+test('an empty manager queue shows the Basecamp comparison and no import control', () => {
     const props = {
         clients: [],
         selected: new Set<string>(),
         isBusy: false,
         error: null,
-        backfillMembers: [{ userId: 'user-1', label: 'Ada', hasBasecampPerson: true }],
-        onReload: () => undefined,
+        reviewMembers: [{ userId: 'user-1', label: 'Ada', hasBasecampPerson: true }],
         onToggle: () => undefined,
         onClearSelection: () => undefined,
         onEdit: () => undefined,
@@ -446,9 +445,11 @@ test('an empty manager queue keeps backfill visible while members never receive 
         payload: payload([], false),
     }));
 
-    assert.match(managerHtml, /Import from Basecamp/);
+    assert.doesNotMatch(managerHtml, /Import from Basecamp/);
+    assert.match(managerHtml, /Compare with Basecamp/);
     assert.match(managerHtml, /Nothing waiting for review/);
     assert.doesNotMatch(memberHtml, /Import from Basecamp/);
+    assert.doesNotMatch(memberHtml, /Compare with Basecamp/);
 });
 
 test('the queue exposes bulk context, ready and attention counts, and explicit submission', () => {
@@ -459,8 +460,7 @@ test('the queue exposes bulk context, ready and attention counts, and explicit s
         selected: new Set([readyRow.id, blockedRow.id]),
         isBusy: false,
         error: null,
-        backfillMembers: [],
-        onReload: () => undefined,
+        reviewMembers: [],
         onToggle: () => undefined,
         onClearSelection: () => undefined,
         onEdit: () => undefined,
@@ -485,8 +485,7 @@ test('the bulk client control tells managers how many external rows it will upda
         selected: new Set([readyRow.id, internalRow.id]),
         isBusy: false,
         error: null,
-        backfillMembers: [],
-        onReload: async () => undefined,
+        reviewMembers: [],
         onToggle: () => undefined,
         onClearSelection: () => undefined,
         onEdit: () => undefined,

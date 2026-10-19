@@ -3,8 +3,13 @@
 import React, { useState } from 'react';
 import { CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { BackfillMember } from './BackfillControl';
 import type { Reconciliation } from '@/lib/timesheets/reconciliation';
+
+export interface ReviewMember {
+    userId: string;
+    label: string;
+    hasBasecampPerson: boolean;
+}
 
 /**
  * Proof that an import is COMPLETE, not merely plausible.
@@ -19,7 +24,7 @@ import type { Reconciliation } from '@/lib/timesheets/reconciliation';
 
 interface ReconciliationPanelProps {
     organizationId: string;
-    members: BackfillMember[];
+    members: ReviewMember[];
 }
 
 type Result = Reconciliation & { from: string; to: string };
@@ -131,7 +136,7 @@ export function ReconciliationPanel({ organizationId, members }: ReconciliationP
                     {result.providerOnly.length > 0 && (
                         <div>
                             <p className="text-[11px] font-medium text-amber-500">
-                                In Basecamp, missing here — re-run the import
+                                In Basecamp, missing here
                             </p>
                             <ul className="mt-1 space-y-0.5">
                                 {result.providerOnly.map(entry => (

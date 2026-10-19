@@ -17,7 +17,7 @@
  *   - Comments:   /buckets/{projectId}/recordings/{recordingId}/comments.json
  */
 
-import type { ProviderTimesheetEntry } from './timesheet-webhook-route';
+import type { ProviderTimesheetEntry } from './timesheet-entry';
 import { nextPageUrl } from './pagination';
 import {
     basecampStepPageItems,
@@ -525,7 +525,7 @@ export interface BasecampTimesheetEntry {
     description: string;
     app_url: string;
     parent: { id: number; type: string };
-    // Present on canonical single-entry reads; used by inbound ledger import.
+    // Present on canonical single-entry reads; the push uses them to stamp a fingerprint.
     updated_at?: string;
     created_at?: string;
     bucket?: { id: number; name?: string };
@@ -539,11 +539,11 @@ export interface BasecampTimesheetEntry {
 }
 
 /**
- * Read one timesheet entry as canonical provider state, for inbound import.
+ * Read one timesheet entry as canonical provider state.
  *
- * The three-way return is load-bearing: 'missing' means Basecamp confirmed the
- * entry is gone (void the ledger row), 'unavailable' means we could not ask
- * (retry the delivery). Collapsing them would let an outage erase real time.
+ * The outbound push reads the entry it just wrote so it can stamp the CSV
+ * fingerprint. 'missing' means Basecamp confirmed the entry is gone;
+ * 'unavailable' means the read failed. Those are different facts.
  */
 export async function getBasecampTimesheetEntryState(
     projectId: number | string,
@@ -706,36 +706,6 @@ export async function listBasecampProjectTimesheetEntries(
     } catch (err) {
         console.error('[Basecamp] listProjectTimesheetEntries error:', err);
         return [];
-    }
-}
-
-/**
- * List a project's timesheet entry ids and dates for reconciliation.
- *
- * Returns 'unavailable' rather than an empty list on failure — an empty sweep
- * and a failed sweep must not look the same to the caller.
- */
-export async function listBasecampTimesheetEntryStubs(
-    projectId: number | string,
-    maxPages = 20,
-): Promise<{ id: string; date: string }[] | 'unavailable'> {
-    try {
-        const pid = safeId(projectId, 'projectId');
-        const stubs: { id: string; date: string }[] = [];
-        const seen = new Set<string>();
-        let url: string | null = `${BASE_URL()}/projects/${pid}/timesheet.json`;
-        for (let page = 0; url && page < maxPages; page += 1) {
-            seen.add(url);
-            const res: Response = await basecampFetch(url);
-            if (!res.ok) return 'unavailable';
-            const entries = await res.json() as BasecampTimesheetEntry[];
-            stubs.push(...entries.map(entry => ({ id: String(entry.id), date: entry.date })));
-            url = nextPageUrl(res.headers.get('Link'), seen);
-        }
-        return stubs;
-    } catch (err) {
-        console.error('[Basecamp] listTimesheetEntryStubs error:', err);
-        return 'unavailable';
     }
 }
 
