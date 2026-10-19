@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { stampPushedEntryIdentity } from './timesheet-push-identity.ts';
-import { csvIdentityFor, type ProviderTimesheetEntry } from './timesheet-webhook-route.ts';
+import { csvIdentityFor, type ProviderTimesheetEntry } from './timesheet-entry.ts';
 import { fingerprintFor } from './timesheet-csv.ts';
 
 function entry(overrides: Partial<ProviderTimesheetEntry> = {}): ProviderTimesheetEntry {

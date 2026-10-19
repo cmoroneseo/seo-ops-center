@@ -1,7 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import { logClientActivity } from '@/lib/supabase/client-activity';
 import {
-    getBasecampTimesheetEntryState,
     getBasecampTodo,
     isBasecampConfigured,
 } from '@/lib/basecamp/api';
@@ -9,8 +8,6 @@ import {
     createBasecampWebhookPost,
     type BasecampWebhookTask,
 } from '@/lib/basecamp/webhook-route';
-import { createTimesheetEntryImporter } from '@/lib/basecamp/timesheet-webhook-route';
-import { createTimesheetImportStore } from '@/lib/basecamp/timesheet-import-store';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,18 +20,12 @@ export const dynamic = 'force-dynamic';
  * Handles:
  *   - Todo completion → marks the linked SEO PM task as done
  *   - Todo uncomplete → reopens the linked SEO PM task
- *   - Timesheet entry created/changed/trashed → imports into the time ledger
+ *
+ * Timesheet entry events are not imported. No importer is passed, so
+ * `timesheet_entry_*` deliveries are recorded as skipped. Hours are logged
+ * in SEO Ops and pushed outbound.
  */
 export const POST = createBasecampWebhookPost({
-    importTimesheetEntry: createTimesheetEntryImporter({
-        expectedAccountId: process.env.BASECAMP_ACCOUNT_ID ?? '',
-        now: () => new Date().toISOString(),
-        provider: {
-            isConfigured: isBasecampConfigured,
-            getTimesheetEntry: getBasecampTimesheetEntryState,
-        },
-        store: createTimesheetImportStore(),
-    }),
     expectedAccountId: process.env.BASECAMP_ACCOUNT_ID ?? '',
     now: () => new Date().toISOString(),
     provider: {

@@ -126,7 +126,7 @@ export function TimesheetsShell({ initialTab }: { initialTab?: Tab }) {
     }, [ledger, selectedRowKey]);
 
     const visibleTabs = TABS.filter(entry => !entry.managerOnly || isManager);
-    const backfillMembers = useMemo(() => members.map(member => ({
+    const reviewMembers = useMemo(() => members.map(member => ({
         userId: member.userId,
         label: member.displayName,
         hasBasecampPerson: Boolean(member.basecampPersonId),
@@ -171,7 +171,7 @@ export function TimesheetsShell({ initialTab }: { initialTab?: Tab }) {
                 <ImportReviewView
                     key={organizationId}
                     organizationId={organizationId}
-                    backfillMembers={backfillMembers}
+                    reviewMembers={reviewMembers}
                 />
             )}
 
