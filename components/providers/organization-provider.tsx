@@ -15,7 +15,7 @@ interface OrganizationContextType {
     setOrganization: (org: Organization) => void
 }
 
-const OrganizationContext = createContext<OrganizationContextType | undefined>(undefined)
+export const OrganizationContext = createContext<OrganizationContextType | undefined>(undefined)
 
 const ORG_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 

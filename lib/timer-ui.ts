@@ -1,3 +1,4 @@
+import { MY_TIME_REFRESH_EVENT } from './dashboard/my-time.ts';
 import { splitSegmentsByLocalDate, sumActiveSeconds } from './timer/segments.ts';
 import type { SessionNote, TimerAttempt } from './types';
 import type { TimerMutationRequest, TimerStateResponse } from './timer/contracts';
@@ -289,7 +290,9 @@ export function stopSubmitFailure(error: unknown): StopSubmitOutcome {
 export function timerRefreshEvents(action: TimerMutationRequest['action']): string[] {
     const events = ['planner:data-changed', 'timer:data-changed'];
     if (action !== 'finalize' && action !== 'retry_basecamp') return events;
-    return [...events, 'task:data-changed', 'client-activity:data-changed'];
+    const settled = [...events, 'task:data-changed', 'client-activity:data-changed'];
+    if (action === 'finalize') settled.push(MY_TIME_REFRESH_EVENT);
+    return settled;
 }
 
 export function canStartTaskTimer(clientId: string, taskId: string): boolean {

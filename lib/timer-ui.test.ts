@@ -277,6 +277,7 @@ test('only finalization refreshes client activity and task state', () => {
         'timer:data-changed',
         'task:data-changed',
         'client-activity:data-changed',
+        'my-time:refresh',
     ]);
     assert.deepEqual(timerUi.timerRefreshEvents('retry_basecamp'), [
         'planner:data-changed',

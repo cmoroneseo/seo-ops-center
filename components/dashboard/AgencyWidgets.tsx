@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { createClient } from '@/lib/supabase/client';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
-import { formatMyTimeHours, summarizeMyTime } from '@/lib/dashboard/my-time';
+import { formatMyTimeHours, subscribeMyTimeRefresh, summarizeMyTime } from '@/lib/dashboard/my-time';
 
 interface AgencyWidgetProps {
     tasks: Task[];
@@ -252,7 +252,43 @@ interface ClientHours {
     hours: number;
 }
 
-export function MyTimeWidget() {
+export interface MyTimeSnapshot {
+    hoursThisWeek: number | null;
+    hoursThisMonth: number | null;
+    byClient: ClientHours[];
+}
+
+export async function loadMyTimeSnapshot(organizationId: string): Promise<MyTimeSnapshot> {
+    const supabase = createClient();
+    const userId = supabase ? (await supabase.auth.getUser()).data.user?.id : undefined;
+    if (!userId) throw new Error('Time data unavailable');
+    const today = new Date();
+    const month = today.toISOString().slice(0, 7);
+    const logs = await getTimeLogs(organizationId, { month, throwOnError: true });
+    const totals = summarizeMyTime(logs, userId, today);
+    const clientMap: Record<string, ClientHours> = {};
+    for (const log of logs) {
+        if (log.userId !== userId || !log.clientId) continue;
+        const existing = clientMap[log.clientId] ?? {
+            clientId: log.clientId,
+            clientName: log.clientName || log.clientId,
+            hours: 0,
+        };
+        existing.hours += log.hours;
+        clientMap[log.clientId] = existing;
+    }
+    return {
+        hoursThisWeek: totals?.week ?? null,
+        hoursThisMonth: totals?.month ?? null,
+        byClient: Object.values(clientMap).sort((a, b) => b.hours - a.hours).slice(0, 5),
+    };
+}
+
+export function MyTimeWidget({
+    loadSnapshot = loadMyTimeSnapshot,
+}: {
+    loadSnapshot?: (organizationId: string) => Promise<MyTimeSnapshot>;
+} = {}) {
     const { organization } = useOrganization();
     const [hoursThisWeek, setHoursThisWeek] = useState<number | null>(null);
     const [hoursThisMonth, setHoursThisMonth] = useState<number | null>(null);
@@ -263,48 +299,35 @@ export function MyTimeWidget() {
         if (!organization) return;
         let cancelled = false;
 
-        const load = async () => {
-            setLoading(true);
+        const apply = (snapshot: MyTimeSnapshot) => {
+            setHoursThisWeek(snapshot.hoursThisWeek);
+            setHoursThisMonth(snapshot.hoursThisMonth);
+            setByClient(snapshot.byClient);
+        };
+
+        const load = async (background: boolean) => {
+            if (!background) setLoading(true);
             try {
-                const supabase = createClient();
-                const userId = supabase ? (await supabase.auth.getUser()).data.user?.id : undefined;
-                if (!userId) throw new Error('Time data unavailable');
-                const today = new Date();
-                const month = today.toISOString().slice(0, 7);
-                const logs = await getTimeLogs(organization.id, { month, throwOnError: true });
-                const totals = summarizeMyTime(logs, userId, today);
-                const clientMap: Record<string, ClientHours> = {};
-                for (const log of logs) {
-                    if (log.userId !== userId || !log.clientId) continue;
-                    const existing = clientMap[log.clientId] ?? {
-                        clientId: log.clientId,
-                        clientName: log.clientName || log.clientId,
-                        hours: 0,
-                    };
-                    existing.hours += log.hours;
-                    clientMap[log.clientId] = existing;
-                }
+                const snapshot = await loadSnapshot(organization.id);
                 if (cancelled) return;
-                setHoursThisWeek(totals?.week ?? null);
-                setHoursThisMonth(totals?.month ?? null);
-                setByClient(
-                    Object.values(clientMap)
-                        .sort((a, b) => b.hours - a.hours)
-                        .slice(0, 5),
-                );
+                apply(snapshot);
             } catch {
-                if (cancelled) return;
+                if (cancelled || background) return;
                 setHoursThisWeek(null);
                 setHoursThisMonth(null);
                 setByClient([]);
             } finally {
-                if (!cancelled) setLoading(false);
+                if (!cancelled && !background) setLoading(false);
             }
         };
 
-        void load();
-        return () => { cancelled = true; };
-    }, [organization?.id]);
+        void load(false);
+        const unsubscribe = subscribeMyTimeRefresh(() => { void load(true); });
+        return () => {
+            cancelled = true;
+            unsubscribe();
+        };
+    }, [organization?.id, loadSnapshot]);
 
     const maxHours = byClient[0]?.hours || 1;
 
@@ -316,17 +339,17 @@ export function MyTimeWidget() {
             </div>
 
             {loading ? (
-                <div className="flex items-center justify-center py-8">
+                <div className="flex items-center justify-center py-8" data-my-time-loading="true">
                     <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 </div>
             ) : (
                 <>
                     <div className="grid grid-cols-2 gap-3">
-                        <div className="rounded-lg bg-muted/50 p-3 text-center">
+                        <div className="rounded-lg bg-muted/50 p-3 text-center" data-my-time="week">
                             <div className="text-2xl font-bold tabular-nums">{formatMyTimeHours(hoursThisWeek)}</div>
                             <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">This Week</div>
                         </div>
-                        <div className="rounded-lg bg-primary/8 p-3 text-center">
+                        <div className="rounded-lg bg-primary/8 p-3 text-center" data-my-time="month">
                             <div className="text-2xl font-bold tabular-nums text-primary">{formatMyTimeHours(hoursThisMonth)}</div>
                             <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">This Month</div>
                         </div>
