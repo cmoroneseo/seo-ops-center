@@ -55,7 +55,7 @@ const tasks: StageListTask[] = [
     task({ id: 'done', title: 'Done this month', stage: 'backlog', position: 4, status: 'done', dueDate: '2026-10-10' }),
 ];
 
-function render(thisMonth: boolean, today: string) {
+function render(today: string, month: string) {
     return renderToStaticMarkup(createElement(StagePlanListView, {
         tasks,
         query: '',
@@ -63,55 +63,81 @@ function render(thisMonth: boolean, today: string) {
         onOpenTask: () => undefined,
         onAddTasks: async () => undefined,
         onReorder: async () => undefined,
-        thisMonth,
         today,
+        initialMonth: month,
     }));
 }
 
-test('This month starts off and lists every stage without an overdue mark', () => {
-    const html = render(false, '2026-10-31');
-    assert.match(html, /data-this-month="off"/);
-    assert.match(html, /aria-pressed="false"/);
-    assert.match(html, />This month</);
-    for (const title of ['SEO Setup', 'Add keywords', 'Review robots', 'Set cookies', 'Create roadmap', 'Fix sitemap', 'November audit', 'Done this month']) {
-        assert.match(html, new RegExp(title));
-    }
-    assert.doesNotMatch(html, /Overdue|data-overdue/);
-    assert.doesNotMatch(html, /Month 1|Month 2|Month 3|data-stage="month_/);
-    assert.match(html, /data-stage="onboarding"[\s\S]*data-stage-drag="task"/);
-    assert.match(html, /data-task-id="sitemap"[\s\S]*data-stage-drag="task"/);
-});
+function section(html: string, id: string): string {
+    const start = html.indexOf(`data-plan-section="${id}"`);
+    assert.ok(start > 0, id);
+    const next = html.indexOf('data-plan-section=', start + 10);
+    return html.slice(start, next === -1 ? undefined : next);
+}
 
-test('This month keeps open work due this month and overdue work, under its pillar', () => {
-    const html = render(true, '2026-10-31');
-    assert.match(html, /data-this-month="on"/);
-    assert.match(html, /aria-pressed="true"/);
-    assert.match(html, /data-stage="onboarding"/);
-    assert.match(html, /data-stage="backlog"/);
-    assert.match(html, /data-stage-role="task" data-task-id="setup"/);
-    assert.match(html, /data-stage-role="subtask" data-task-id="keywords"/);
-    assert.match(html, /data-stage-role="subtask" data-task-id="robots"/);
-    assert.match(html, /data-task-id="sitemap"/);
-    assert.doesNotMatch(html, /Set cookies|Create roadmap|November audit|Done this month/);
-    assert.match(html, /data-task-id="robots"[\s\S]*data-overdue="true"[^>]*>Overdue · Sep 15</);
-    assert.match(html, /data-task-id="sitemap"[\s\S]*data-overdue="true"[^>]*>Overdue · Oct 4</);
-    const keywords = html.slice(html.indexOf('data-task-id="keywords"'), html.indexOf('data-task-id="robots"'));
-    assert.match(keywords, />Oct 31</);
-    assert.doesNotMatch(keywords, /Overdue|data-overdue/);
+test('the current month keeps onboarding together and lists late work in This month', () => {
+    const html = render('2026-10-31', '2026-10');
+    assert.match(html, /data-plan-month="2026-10"/);
+    assert.match(html, /October 2026/);
+    assert.doesNotMatch(html, /Overdue|data-overdue|emerald|text-green|#22c55e/);
+    assert.doesNotMatch(html, /Month 1|Month 2|Month 3|data-stage="month_/);
+
+    const onboarding = section(html, 'onboarding');
+    for (const title of ['SEO Setup', 'Add keywords', 'Review robots', 'Set cookies']) {
+        assert.match(onboarding, new RegExp(title));
+    }
+    assert.match(onboarding, /data-plan-due="Oct 31"/);
+    assert.match(onboarding, /data-late="true"[\s\S]*data-plan-due="Sep 15 46d late"/);
+    assert.match(onboarding, /text-\[#f87171\]/);
+
+    const month = section(html, 'this_month');
+    assert.match(month, /data-task-id="sitemap"/);
+    assert.match(month, /data-late="true"/);
+    assert.match(month, /data-plan-due="Oct 4 27d late"/);
+    assert.match(month, /text-\[#f87171\]/);
+    assert.doesNotMatch(month, /Create roadmap|November audit|Done this month|Set cookies/);
+
+    const backlog = section(html, 'backlog');
+    assert.match(backlog, /data-plan-collapsed="true"/);
+    assert.match(backlog, /Create roadmap/);
+    assert.match(backlog, /November audit/);
     assert.match(html, /data-task-id="setup"[\s\S]*data-stage-drag="task"/);
     assert.match(html, /data-task-id="sitemap"[\s\S]*data-stage-drag="task"/);
-    assert.match(html, /Add task to Onboarding/);
-    assert.match(html, /Add task to Backlog/);
 });
 
-test('the calendar month boundary moves last month into overdue and admits the new month', () => {
-    const html = render(true, '2026-11-01');
-    assert.match(html, /November audit/);
-    assert.match(html, /Set cookies/);
-    assert.doesNotMatch(html, /Create roadmap|Done this month/);
-    assert.match(html, /data-task-id="keywords"[\s\S]*data-overdue="true"[^>]*>Overdue · Oct 31</);
-    assert.match(html, /data-task-id="sitemap"[\s\S]*data-overdue="true"[^>]*>Overdue · Oct 4</);
-    const audit = html.slice(html.indexOf('data-task-id="audit"'), html.indexOf('data-task-id="audit"') + 1600);
-    assert.match(audit, />Nov 1</);
-    assert.doesNotMatch(audit, /Overdue/);
+test('a past month is a look-back and does not copy open work', () => {
+    const html = render('2026-10-31', '2026-09');
+    assert.match(html, /data-plan-month="2026-09"/);
+    assert.match(html, /September 2026/);
+    assert.match(html, /look-back: open work stays in This month/);
+    assert.match(html, /Nothing was due or completed in September\./);
+    assert.doesNotMatch(section(html, 'this_month'), /Fix sitemap|November audit|Create roadmap/);
+    assert.match(section(html, 'onboarding'), /Set cookies/);
+    assert.match(section(html, 'backlog'), /Create roadmap/);
+    assert.match(section(html, 'backlog'), /November audit/);
+    assert.doesNotMatch(html, /Fix sitemap/);
+});
+
+test('a future month shows what is due then, and the new current month carries late work', () => {
+    const ahead = render('2026-10-31', '2026-11');
+    assert.match(ahead, /November 2026/);
+    assert.match(section(ahead, 'this_month'), /November audit/);
+    assert.match(section(ahead, 'this_month'), /data-plan-due="Nov 1"/);
+    assert.doesNotMatch(section(ahead, 'this_month'), /Fix sitemap|Set cookies|Create roadmap/);
+    assert.match(section(ahead, 'onboarding'), /Set cookies/);
+    assert.match(section(ahead, 'backlog'), /Create roadmap/);
+    assert.doesNotMatch(ahead, /Fix sitemap/);
+
+    const november = render('2026-11-01', '2026-11');
+    const month = section(november, 'this_month');
+    assert.match(month, /November audit/);
+    assert.match(month, /data-plan-due="Nov 1"/);
+    const audit = month.slice(month.indexOf('data-task-id="audit"'), month.indexOf('data-task-id="audit"') + 900);
+    assert.doesNotMatch(audit, /data-late="true"/);
+    assert.match(month, /Fix sitemap/);
+    assert.match(month, /data-plan-due="Oct 4 28d late"/);
+    assert.match(section(november, 'onboarding'), /data-plan-due="Oct 31 1d late"/);
+    assert.match(section(november, 'onboarding'), /Set cookies/);
+    assert.doesNotMatch(november, /Done this month/);
+    assert.match(section(november, 'backlog'), /Create roadmap/);
 });

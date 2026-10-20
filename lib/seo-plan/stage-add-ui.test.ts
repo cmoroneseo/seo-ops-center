@@ -45,35 +45,27 @@ function render(query = '') {
         onAddTasks: async () => undefined,
         onReorder: async () => undefined,
         clientName: 'Floor Co Design USA',
+        today: '2026-10-19',
+        initialMonth: '2026-10',
     }));
 }
 
-test('every stage section has an add bar, including an empty stage', () => {
+test('one add bar sits above the three sections', () => {
     const html = render();
-    for (const [stage, label] of [
-        ['onboarding', 'Onboarding'],
-        ['backlog', 'Backlog'],
-    ] as const) {
-        assert.match(html, new RegExp(`data-stage-add="${stage}"[\\s\\S]*?aria-label="Add task to ${label}"`));
-        assert.match(html, new RegExp(`data-add="${stage}"`));
-    }
-    assert.match(html, /placeholder="Add a task…"/);
+    assert.equal((html.match(/data-stage-add=/g) ?? []).length, 1);
+    assert.match(html, /data-stage-add="backlog"[\s\S]*?aria-label="Add task"/);
+    assert.match(html, /data-add="backlog"/);
+    assert.match(html, /placeholder="Add a task\. Paste a list to add several\."/);
+    assert.doesNotMatch(html, /Add task to Onboarding|Add task to Backlog|Add subtask|data-add-parent/);
     assert.doesNotMatch(html, /Month 1|Month 2|Month 3|data-stage="month_|Template library|data-lib/);
 });
 
-test('an expanded pillar accepts a subtask, and a collapsed pillar does not', () => {
-    const open = render();
-    const children = open.slice(open.indexOf('data-stage-children="setup"'), open.indexOf('data-task-id="robots"'));
-    assert.match(children, /aria-label="Add subtask to SEO Setup"/);
-    assert.match(children, /data-add="onboarding"/);
-    assert.match(children, /data-add-parent="setup"/);
-    assert.match(children, /placeholder="Add a subtask…"/);
-
+test('a collapsed pillar does not grow an add field', () => {
     const collapsed = render('seo setup');
     assert.match(collapsed, /aria-expanded="false"/);
     assert.doesNotMatch(collapsed, /Add subtask to SEO Setup/);
     assert.doesNotMatch(collapsed, /data-add-parent="setup"/);
-    assert.match(collapsed, /aria-label="Add task to Onboarding"/);
+    assert.match(collapsed, /aria-label="Add task"/);
 });
 
 test('a pending row is visible and cannot be opened', () => {

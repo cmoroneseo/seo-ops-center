@@ -2,7 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
+import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
+import { getOrganizationMembers } from '@/lib/supabase/organizations';
+import { getTimeLogs } from '@/lib/supabase/time-logs';
 import {
     appendStageTasks,
     commitStageTasks,
@@ -20,17 +23,34 @@ import type { UrlResultReadout } from '@/lib/search-reporting/url-results';
 import { parseLiveUrlInput, subtaskLineDrafts } from '@/lib/tasks/live-url';
 import type { Task } from '@/lib/types';
 import { PanelSkeleton } from './PanelSkeleton';
-import { StagePlanListView, type StageAddRequest } from './StagePlanListView';
+import { StagePlanListView, type PlanAssignee, type StageAddRequest } from './StagePlanListView';
 
 /**
  * Loads the session-scoped stage list, creates tasks from the add bar, moves
- * them by drag or the move buttons, and opens the existing task drawer.
+ * them by drag, and opens the existing task drawer.
  * Requests carry only the route client id. The server decides the organization.
  */
-export function StagePlanList({ clientId, clientName }: { clientId: string; clientName: string }) {
+function initialsOf(name: string): string {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return '·';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
+}
+
+export function StagePlanList({
+    clientId,
+    clientName,
+    onOpenResults,
+}: {
+    clientId: string;
+    clientName: string;
+    onOpenResults?: () => void;
+}) {
     const { userId } = useCurrentMember();
+    const { organization } = useOrganization();
     const [query, setQuery] = useState('');
-    const [thisMonth, setThisMonth] = useState(false);
+    const [people, setPeople] = useState<PlanAssignee[]>([]);
+    const [loggedHours, setLoggedHours] = useState<Record<string, number>>({});
     const [error, setError] = useState(false);
     const [reloadKey, setReloadKey] = useState(0);
     const [detail, setDetail] = useState<Task | null>(null);
@@ -47,6 +67,7 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
                 stage: requested.stage,
                 parentTaskId: requested.parentTaskId,
                 index: requested.index,
+                ...(requested.dueDate !== undefined ? { dueDate: requested.dueDate } : {}),
             }),
         });
         const payload = await response.json().catch(() => null) as { tasks?: unknown } | null;
@@ -62,7 +83,6 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
             seenClient.current = clientId;
             setList(null);
             setQuery('');
-            setThisMonth(false);
         }
         setError(false);
         fetch(`/api/seo-plan/stage-list/${encodeURIComponent(clientId)}`, { cache: 'no-store' })
@@ -101,6 +121,29 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
             });
         return () => { cancelled = true; };
     }, [clientId, reloadKey]);
+
+    useEffect(() => {
+        const organizationId = organization?.id;
+        if (!organizationId) return;
+        let cancelled = false;
+        getOrganizationMembers(organizationId).then(members => {
+            if (cancelled) return;
+            setPeople(members.map(member => {
+                const name = member.user.fullName?.trim() || member.user.email;
+                return { id: member.userId, name, initials: initialsOf(name) };
+            }));
+        }).catch(() => undefined);
+        getTimeLogs(organizationId, { clientId }).then(logs => {
+            if (cancelled) return;
+            const totals: Record<string, number> = {};
+            for (const log of logs) {
+                if (!log.taskId) continue;
+                totals[log.taskId] = (totals[log.taskId] ?? 0) + log.hours;
+            }
+            setLoggedHours(totals);
+        }).catch(() => undefined);
+        return () => { cancelled = true; };
+    }, [organization?.id, clientId, reloadKey]);
 
     const reload = () => setReloadKey(key => key + 1);
 
@@ -150,7 +193,12 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
     };
 
     if (error) {
-        return <p className="text-sm text-muted-foreground">Could not load tasks for this plan.</p>;
+        return (
+            <p className="text-sm text-[#8b8b93]">
+                Couldn&apos;t load this plan.{' '}
+                <button type="button" onClick={reload} className="text-[#ec4899] hover:underline">Try again</button>
+            </p>
+        );
     }
     if (!tasks) return <PanelSkeleton label="Loading SEO plan" />;
 
@@ -160,8 +208,6 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
                 tasks={tasks}
                 query={query}
                 onQueryChange={setQuery}
-                thisMonth={thisMonth}
-                onThisMonthChange={setThisMonth}
                 clientName={clientName}
                 onOpenTask={taskId => {
                     void getTask(taskId).then(result => {
@@ -171,6 +217,9 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
                 onAddTasks={addTasks}
                 onReorder={move}
                 resultsByTaskId={resultsByTaskId}
+                people={people}
+                loggedHours={loggedHours}
+                onOpenResults={onOpenResults}
                 onSetLiveUrl={async (taskId, raw) => {
                     if (isPendingStageTaskId(taskId)) return 'Could not save that link.';
                     const parsed = parseLiveUrlInput(raw);

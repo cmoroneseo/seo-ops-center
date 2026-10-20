@@ -43,6 +43,8 @@ function render(query = '') {
         onOpenTask: () => undefined,
         onAddTasks: async () => undefined,
         onReorder: async () => undefined,
+        today: '2026-10-19',
+        initialMonth: '2026-10',
     }));
 }
 
@@ -57,20 +59,18 @@ test('a pillar row drags from the card and a subtask drags from its grip', () =>
     const setup = openingTag(html, 'setup');
     assert.match(setup, /data-stage-drag="task"/);
     assert.match(setup, /draggable="true"/);
-    assert.match(html, /aria-label="Move SEO Setup up"/);
-    assert.match(html, /aria-label="Move SEO Setup to Backlog"/);
-    assert.match(html, /disabled=""[^>]*aria-label="Move SEO Setup up"|aria-label="Move SEO Setup up"[^>]*disabled=""/);
+    assert.doesNotMatch(html, /aria-label="Move SEO Setup|data-stage-move=/);
 
     const subtask = openingTag(html, 'keywords');
     assert.match(subtask, /data-stage-role="subtask"/);
     assert.doesNotMatch(subtask, /draggable/);
     assert.match(html, /data-stage-grip="keywords"/);
     assert.match(html, /title="Drag Add keywords"/);
-    assert.match(html, /aria-label="Move Add keywords out of SEO Setup"/);
-    assert.match(html, /data-stage-move="unnest"/);
-    assert.doesNotMatch(html, /Move Add keywords to /);
+    assert.doesNotMatch(html, /Move Add keywords/);
 
     assert.doesNotMatch(html, /data-stage-drop="month_|Move SEO Setup to Month/);
+    assert.match(html, /data-stage-drop="onboarding"/);
+    assert.match(html, /data-stage-drop="this_month"/);
     assert.match(html, /data-stage-drop="backlog"/);
 });
 
