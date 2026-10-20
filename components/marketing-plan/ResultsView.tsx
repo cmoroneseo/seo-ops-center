@@ -12,6 +12,8 @@ import { SourceChip } from '@/components/reporting/SourceChip';
 import { StateBanner } from '@/components/reporting/StateBanner';
 import { CreateDeliverableModal } from '@/components/deliverables/CreateDeliverableModal';
 import { DeliverableDetailPanel } from '@/components/deliverables/DeliverableDetailPanel';
+import type { UrlResultReadout } from '@/lib/search-reporting/url-results';
+import { LiveUrlResultLine } from '@/components/search-reporting/LiveUrlResultLine';
 import { cn } from '@/lib/utils';
 
 const RULES = [
@@ -103,12 +105,12 @@ function receiptFor(entry: LedgerEntry, clientId: string, property: string | nul
     };
 }
 
-function ResultCard({ entry, clientId, property, sharePageFreshness }: { entry: LedgerEntry; clientId: string; property: string | null; sharePageFreshness: boolean }) {
+export function ResultCard({ entry, clientId, property, sharePageFreshness, result }: { entry: LedgerEntry; clientId: string; property: string | null; sharePageFreshness: boolean; result?: UrlResultReadout | null }) {
     const when = shipLabel(entry.shippedOn);
     const organic = entry.organic;
     const map = entry.map;
     return (
-        <article className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3">
+        <article className="grid grid-cols-1 gap-3 sm:grid-cols-[4.5rem_minmax(0,1fr)_11rem]">
             <div className="pt-1 text-right">
                 <p className="text-sm font-medium">{when.day}</p>
                 <p className="text-xs text-muted-foreground">{when.year}</p>
@@ -148,6 +150,9 @@ function ResultCard({ entry, clientId, property, sharePageFreshness }: { entry: 
                 {entry.footnote && !sharePageFreshness && <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">{entry.footnote} No new verdict until sync recovers.</p>}
                 <Link href={entry.insightsHref} className="mt-3 inline-block text-xs font-medium underline underline-offset-2">Open in Search Insights</Link>
             </div>
+            <div className="sm:pt-1 sm:text-right" data-results-column>
+                <LiveUrlResultLine result={result} layout="column" />
+            </div>
         </article>
     );
 }
@@ -172,6 +177,7 @@ export function ResultsView({
     const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
     const [selected, setSelected] = useState<Deliverable | null>(null);
     const [creating, setCreating] = useState(false);
+    const [resultsById, setResultsById] = useState<Record<string, UrlResultReadout>>({});
 
     const reload = useCallback(() => {
         if (!organizationId || !clientId) return;
@@ -183,9 +189,16 @@ export function ResultsView({
                 return response.json() as Promise<LedgerModel>;
             }),
             getDeliverables(organizationId, { clientId }),
-        ]).then(([ledger, rows]) => {
+            fetch(`/api/search-reporting/url-results?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
+                .then(async (response) => {
+                    if (!response.ok) return null;
+                    return response.json() as Promise<{ connected?: boolean; byId?: Record<string, UrlResultReadout> }>;
+                })
+                .catch(() => null),
+        ]).then(([ledger, rows, results]) => {
             setModel(ledger);
             setDeliverables(rows);
+            setResultsById(results?.connected && results.byId ? results.byId : {});
             setLoading(false);
         }).catch(() => {
             setError(true);
@@ -250,7 +263,7 @@ export function ResultsView({
                             </div>
                         )}
                         {filter === 'work' && model.entries.map(entry => (
-                            <ResultCard key={entry.id} entry={entry} clientId={clientId} property={model.property} sharePageFreshness={sharePageFreshness} />
+                            <ResultCard key={entry.id} entry={entry} clientId={clientId} property={model.property} sharePageFreshness={sharePageFreshness} result={resultsById[entry.id]} />
                         ))}
                         {filter === 'proof' && model.missingProof.length === 0 && (
                             <p className="text-sm text-muted-foreground">Every published deliverable has a page URL and a ship date.</p>

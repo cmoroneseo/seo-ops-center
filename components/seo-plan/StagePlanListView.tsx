@@ -28,7 +28,9 @@ import {
 } from '@/lib/seo-plan/this-month';
 import type { TaskStage } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { LiveUrlResultLine } from '@/components/search-reporting/LiveUrlResultLine';
 import { LiveUrlControl } from '@/components/tasks/LiveUrlControl';
+import { aggregateUrlResults, type UrlResultReadout } from '@/lib/search-reporting/url-results';
 import { StageAddBar } from './StageAddBar';
 
 export interface StageAddRequest {
@@ -179,6 +181,7 @@ function StageSections({
     onAddTasks,
     onReorder,
     onSetLiveUrl,
+    resultsByTaskId,
     thisMonth,
     today,
 }: {
@@ -190,6 +193,7 @@ function StageSections({
     onAddTasks: (input: StageAddRequest) => Promise<void>;
     onReorder: (move: StageReorderMove) => Promise<void>;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
+    resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
     thisMonth: boolean;
     today: string;
 }) {
@@ -252,6 +256,7 @@ function StageSections({
         className?: string;
         leading?: ReactNode;
         extra?: ReactNode;
+        result?: UrlResultReadout | null;
         key?: string;
     }) => {
         const done = task.status === 'done' || task.status === 'approved';
@@ -336,6 +341,7 @@ function StageSections({
                             category={task.category}
                             onSave={!pending && onSetLiveUrl ? raw => onSetLiveUrl(task.id, raw) : undefined}
                         />
+                        <LiveUrlResultLine result={options.result} />
                         {options.extra}
                     </div>
                     {movable && (
@@ -415,6 +421,11 @@ function StageSections({
                             const open = isOpen(group);
                             const panelId = `${baseId}-children-${group.task.id}`;
                             const subtaskLabel = group.children.length === 1 ? '1 subtask' : `${group.children.length} subtasks`;
+                            const childResults = group.children.flatMap(child => {
+                                const result = resultsByTaskId?.[child.id];
+                                return result ? [result] : [];
+                            });
+                            const pillarResult = childResults.length > 0 ? aggregateUrlResults(childResults) : null;
                             return (
                                 <div key={group.task.id}>
                                     {dropLine(group.task.id, null, section.stage)}
@@ -422,6 +433,7 @@ function StageSections({
                                         key: group.task.id,
                                         role: 'task',
                                         className: 'px-4',
+                                        result: pillarResult ?? resultsByTaskId?.[group.task.id],
                                         leading: group.children.length > 0 ? (
                                             <button
                                                 type="button"
@@ -482,6 +494,7 @@ function StageSections({
                                                         parentTitle: group.task.title,
                                                         parentId: group.task.id,
                                                         className: 'pl-11 pr-4',
+                                                        result: resultsByTaskId?.[child.id],
                                                         leading: searching || isPendingStageTaskId(child.id) ? undefined : (
                                                             <span
                                                                 draggable
@@ -542,6 +555,7 @@ export function StagePlanListView({
     onAddTasks,
     onReorder,
     onSetLiveUrl,
+    resultsByTaskId,
     clientName,
     thisMonth = false,
     onThisMonthChange,
@@ -554,6 +568,7 @@ export function StagePlanListView({
     onAddTasks: (input: StageAddRequest) => Promise<void>;
     onReorder: (move: StageReorderMove) => Promise<void>;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
+    resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
     clientName?: string;
     /** Due-date view. The stages stay Onboarding and Backlog. */
     thisMonth?: boolean;
@@ -606,6 +621,7 @@ export function StagePlanListView({
                     onAddTasks={onAddTasks}
                     onReorder={onReorder}
                     onSetLiveUrl={onSetLiveUrl}
+                    resultsByTaskId={resultsByTaskId}
                     thisMonth={thisMonth}
                     today={day}
                 />
