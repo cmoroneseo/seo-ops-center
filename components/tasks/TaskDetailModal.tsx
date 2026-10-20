@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useId } from 'react';
-import { X, Clock, Calendar, Tag, CheckSquare, MessageSquare, ChevronDown, Trash2, Plus, UserCircle2, PenLine, RefreshCw, Building2 } from 'lucide-react';
+import { X, Clock, Calendar, Tag, Check, CheckSquare, MessageSquare, ChevronDown, Trash2, Plus, UserCircle2, PenLine, RefreshCw, Building2 } from 'lucide-react';
 import {
     createTimeLog,
     getClientTimesheetSyncEnabled,
@@ -1062,12 +1062,22 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                             <div className="space-y-2">
                                 {subtasks.map(sub => (
                                     <div key={sub.id} className="flex items-center gap-3 group">
-                                        <input
-                                            type="checkbox"
-                                            checked={sub.status === 'done'}
-                                            onChange={() => handleSubtaskToggle(sub)}
-                                            className="rounded border-border text-primary focus:ring-primary h-4 w-4 cursor-pointer"
-                                        />
+                                        <button
+                                            type="button"
+                                            role="checkbox"
+                                            aria-checked={sub.status === 'done'}
+                                            aria-label={sub.status === 'done' ? `Mark "${sub.title}" not done` : `Mark "${sub.title}" done`}
+                                            onClick={() => { void handleSubtaskToggle(sub); }}
+                                            onKeyDown={event => {
+                                                if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+                                            }}
+                                            className={cn(
+                                                'flex h-4 w-4 shrink-0 items-center justify-center rounded border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                                                sub.status === 'done' ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-transparent',
+                                            )}
+                                        >
+                                            {sub.status === 'done' && <Check className="h-3 w-3" strokeWidth={3} />}
+                                        </button>
                                         <div className="min-w-0 flex-1">
                                             <span className={cn(
                                                 "text-sm",

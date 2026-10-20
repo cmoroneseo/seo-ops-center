@@ -559,3 +559,51 @@ test('Blocked asks for a one-line reason, the chip shows it, and Done clears it'
         await act(async () => { root.unmount(); });
     }
 });
+
+test('marking an onboarding subtask done names the checkbox and offers Undo before it hides', async () => {
+    function CheckHarness() {
+        const [tasks, setTasks] = useState(plan);
+        return createElement(StagePlanListView, {
+            tasks,
+            query: '',
+            onQueryChange: () => undefined,
+            onOpenTask: () => undefined,
+            onAddTasks: async () => undefined,
+            onReorder: async () => undefined,
+            today: '2026-10-20',
+            initialMonth: '2026-10',
+            clientName: "Maya's Construction",
+            doneHoldMs: 60_000,
+            onToggleCheck: taskId => {
+                setTasks(current => current.map(item => item.id === taskId
+                    ? { ...item, status: item.status === 'done' ? 'todo' : 'done' }
+                    : item));
+            },
+        });
+    }
+    const root = await mount(createElement(CheckHarness));
+    try {
+        const box = document.querySelector('[data-task-id="child"] [role="checkbox"]');
+        assert.ok(box instanceof dom.window.HTMLButtonElement);
+        assert.equal(box.getAttribute('aria-checked'), 'false');
+        assert.match(box.getAttribute('aria-label') ?? '', /Mark "Fix NAP" done/);
+        const space = new dom.window.KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+        box.dispatchEvent(space);
+        assert.equal(space.defaultPrevented, false);
+        await act(async () => { box.click(); });
+        const row = document.querySelector('[data-task-id="child"]');
+        assert.ok(row);
+        assert.match(row.textContent ?? '', /Marked done/);
+        assert.match(row.textContent ?? '', /Undo/);
+        const checked = row.querySelector('[role="checkbox"]');
+        assert.equal(checked?.getAttribute('aria-checked'), 'true');
+        const undo = row.querySelector('[data-subtask-undo="child"]');
+        assert.ok(undo instanceof dom.window.HTMLButtonElement);
+        await act(async () => { undo.click(); });
+        const restored = document.querySelector('[data-task-id="child"] [role="checkbox"]');
+        assert.equal(restored?.getAttribute('aria-checked'), 'false');
+        assert.equal((document.querySelector('[data-task-id="child"]')?.textContent ?? '').includes('Marked done'), false);
+    } finally {
+        await act(async () => { root.unmount(); });
+    }
+});
