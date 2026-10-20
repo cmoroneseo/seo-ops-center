@@ -482,6 +482,32 @@ export function mergePlanTask(task: StageListTask, data: Task): StageListTask {
     };
 }
 
+/** List fields a panel save can change before the server answers. Parent moves go through reorder. */
+export function applyPlanPanelSave(task: StageListTask, save: PlanPanelSave, now: string): StageListTask {
+    switch (save.field) {
+        case 'title':
+            return { ...task, title: save.title };
+        case 'dueDate':
+            return { ...task, dueDate: save.dueDate };
+        case 'status':
+            return {
+                ...task,
+                status: save.status,
+                completedAt: completionForPlanStatus(save.status, task, now),
+            };
+        case 'assignees':
+            return { ...task, assigneeIds: [...save.assigneeIds] };
+        case 'labels':
+            return { ...task, category: save.category };
+        case 'onboarding':
+            return { ...task, stage: save.stage };
+        case 'liveUrl':
+            return { ...task, publishedUrl: save.publishedUrl };
+        default:
+            return task;
+    }
+}
+
 /** Mark Done the way a check would: status done, and a completion time if it had none. */
 export function completionForPlanStatus(
     status: PlanPanelStatus,

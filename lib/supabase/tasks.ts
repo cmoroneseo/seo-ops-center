@@ -460,7 +460,7 @@ export async function updateTask(
     taskId: string,
     // startDate/scheduledMinutes are omitted from the base so they can widen to
     // null — an intersection would collapse `string | null` back to `string`.
-    patch: Omit<Partial<TaskInsert>, 'dueDate' | 'startDate' | 'scheduledMinutes' | 'estimatedHours' | 'parentTaskId'> & {
+    patch: Omit<Partial<TaskInsert>, 'dueDate' | 'startDate' | 'scheduledMinutes' | 'estimatedHours' | 'parentTaskId' | 'category' | 'stage'> & {
         status?: TaskStatus;
         completedAt?: string | null;
         assigneeIds?: string[];
@@ -478,6 +478,10 @@ export async function updateTask(
         publishedUrl?: string | null;
         /** null removes the blocked label. A reason is one line. */
         blockedReason?: string | null;
+        /** null clears the label stored in category. */
+        category?: string | null;
+        /** Onboarding flag. Written directly so a nested task can change it. */
+        stage?: Task['stage'];
     },
 ): Promise<{ success: boolean; data?: Task; error?: string }> {
     const supabase = createClient();
@@ -493,6 +497,7 @@ export async function updateTask(
             ...(patch.priority !== undefined && { priority: patch.priority }),
             ...(patch.status !== undefined && { status: patch.status }),
             ...(patch.category !== undefined && { category: patch.category }),
+            ...(patch.stage !== undefined && { stage: patch.stage }),
             ...(patch.tags !== undefined && { tags: patch.tags }),
             ...(patch.estimatedHours !== undefined && { estimated_hours: patch.estimatedHours }),
             ...(patch.scheduledMinutes !== undefined && { scheduled_minutes: patch.scheduledMinutes }),
