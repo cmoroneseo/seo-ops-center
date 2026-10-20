@@ -15,6 +15,7 @@ import {
     pendingStageTasks,
     rollbackStageTasks,
 } from '@/lib/seo-plan/stage-add';
+import { planCheckStatus } from '@/lib/seo-plan/plan-keymap';
 import {
     applyPlanPanelSave,
     mergePlanTask,
@@ -446,6 +447,11 @@ export function StagePlanList({
                     onClose={() => setPanel(null)}
                 />
             ) : null}
+            onToggleCheck={async taskId => {
+                const task = tasks.find(item => item.id === taskId);
+                if (!task || isPendingStageTaskId(taskId)) return;
+                await savePanel(taskId, { field: 'status', status: planCheckStatus(task.status) });
+            }}
             onSetLiveUrl={async (taskId, raw) => {
                     if (isPendingStageTaskId(taskId)) return 'Could not save that link.';
                     const parsed = parseLiveUrlInput(raw);

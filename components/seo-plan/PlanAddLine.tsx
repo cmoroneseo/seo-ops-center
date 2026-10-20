@@ -37,7 +37,7 @@ import { cn } from '@/lib/utils';
  * `onAdd` receives stage `backlog` or `onboarding`, the chip's due date
  * (null for Backlog and Onboarding), and lines of depth 0 or 1. Depth 1 is
  * a subtask of the nearest depth-0 line above it. The input is `data-plan-add`
- * for a later `c` shortcut.
+ * so `c` can focus it. Enter, Esc, and Tab stay on this field.
  */
 export interface PlanAddSubmission {
     stage: 'onboarding' | 'backlog';
