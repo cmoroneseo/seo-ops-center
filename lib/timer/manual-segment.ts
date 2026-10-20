@@ -235,6 +235,8 @@ export function timeLogInsertRow(
         project_id: log.projectId,
         task_id: log.taskId,
         planner_event_id: log.plannerEventId ?? null,
+        // Destination for internal time; client logs resolve theirs
+        // from the client's config at sync time.
         basecamp_project_id: log.basecampProjectId ?? null,
         user_id: log.userId,
         date: log.date,
@@ -244,6 +246,8 @@ export function timeLogInsertRow(
         counts_toward_budget: log.countsTowardBudget ?? true,
         status: 'logged',
         category: log.category,
+        // The forecast this entry answers, when it was logged against a
+        // scheduled block. This is not the worked window — that is a segment.
         planned_starts_at: log.plannedStartsAt ?? null,
         planned_minutes: log.plannedMinutes ?? null,
     };

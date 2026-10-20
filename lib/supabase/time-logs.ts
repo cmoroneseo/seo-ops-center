@@ -18,6 +18,11 @@ import {
     type TimerMutationRequest,
     type TimerStateResponse,
 } from '../timer/contracts';
+import {
+    attachWorkedWindow,
+    recordManualTimeLog,
+    timeLogInsertRow,
+} from '../timer/manual-segment';
 
 /**
  * The only `import_status` whose hours are real, confirmed, countable time.
@@ -122,7 +127,7 @@ export async function getTimeLogs(
     const supabase = createClient();
     if (!supabase) { if (opts.throwOnError) throw new Error('Time data unavailable'); return []; }
     try {
-        let q = supabase.from('time_logs').select('*, clients(name, launch_date, onboarding_date, setup_scope, status), tasks(title)').eq('organization_id', organizationId);
+        let q = supabase.from('time_logs').select('*, clients(name, launch_date, onboarding_date, setup_scope, status), tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(*)').eq('organization_id', organizationId);
         if (!opts.includeInProgress) q = q.eq('status', 'logged');
         if (!opts.includeUnreviewedImports) q = q.eq('import_status', COUNTABLE_IMPORT_STATUS);
         if (opts.clientId) q = q.eq('client_id', opts.clientId);
@@ -277,65 +282,90 @@ export async function createTimeLog(
     log: Partial<TimeLog> & { organizationId: string; hours: number },
     // Basecamp push is independent of counts_toward_budget: a client meeting is
     // excluded from SEO budget but still belongs on their Basecamp timesheet.
-    opts: { syncToBasecamp?: boolean; waitForBasecampSync?: boolean } = {},
+    // workedWindow is the actual clock, stored as a closed segment. It is not
+    // planned_starts_at, which would hide the forecast this entry answers.
+    opts: {
+        syncToBasecamp?: boolean;
+        waitForBasecampSync?: boolean;
+        workedWindow?: { startedAt: string; endedAt: string } | null;
+    } = {},
 ): Promise<{
     success: boolean;
     data?: TimeLog;
     error?: string;
     basecampSync?: ClientBasecampSyncResult;
+    /** The log was saved. The calendar placement was not. */
+    segmentWarning?: string;
 }> {
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
-        const { data, error } = await supabase
-            .from('time_logs')
-            .insert([{
-                organization_id: log.organizationId,
-                client_id: log.clientId ?? null,
-                project_id: log.projectId,
-                task_id: log.taskId,
-                planner_event_id: log.plannerEventId ?? null,
-                // Destination for internal time; client logs resolve theirs
-                // from the client's config at sync time.
-                basecamp_project_id: log.basecampProjectId ?? null,
-                user_id: log.userId,
-                date: log.date,
-                hours: log.hours,
-                description: log.description,
-                billable: log.billable ?? true,
-                counts_toward_budget: log.countsTowardBudget ?? true,
-                status: 'logged',
-                category: log.category,
-                // The forecast this entry answers, when it was logged against a
-                // scheduled block. Without these the entry has no position on
-                // the calendar and the block it fulfilled keeps showing as
-                // unworked.
-                planned_starts_at: log.plannedStartsAt ?? null,
-                planned_minutes: log.plannedMinutes ?? null,
-            }])
-            .select()
-            .single();
-        if (error) throw error;
-        let basecampSync: ClientBasecampSyncResult | undefined;
-        if (opts.syncToBasecamp) {
-            const push = pushTimeLogToBasecamp(data.id, true);
-            if (opts.waitForBasecampSync) {
-                basecampSync = await push;
-            } else {
-                void push.then(result => {
-                    if (!result.success) {
-                        console.error('[Basecamp timesheet] push failed:', result.error);
-                    }
-                });
-            }
+        const recorded = await recordManualTimeLog({
+            async insertLog(row) {
+                const { data, error } = await supabase.from('time_logs').insert([row]).select().single();
+                return { data, error: error ? { message: error.message } : null };
+            },
+            async insertSegment(row) {
+                const { error } = await supabase.from('time_log_segments').insert(row);
+                return { error: error ? { message: error.message } : null };
+            },
+            pushBasecamp: pushTimeLogToBasecamp,
+        }, timeLogInsertRow(log), opts);
+        if (!recorded.success || !recorded.data) {
+            return { success: false, error: recorded.error ?? 'Time entry was not saved' };
         }
         return {
             success: true,
-            data: rowToTimeLog(data),
-            ...(basecampSync ? { basecampSync } : {}),
+            data: rowToTimeLog(recorded.data),
+            ...(recorded.segmentWarning ? { segmentWarning: recorded.segmentWarning } : {}),
+            ...(recorded.basecampSync ? { basecampSync: recorded.basecampSync } : {}),
         };
     } catch (err: any) {
         console.error('Error creating time log:', err);
+        return { success: false, error: err.message };
+    }
+}
+
+/**
+ * Place an existing hours-only entry on the calendar.
+ * Only the caller's own log, and only when it has no segments yet. Hours and
+ * the Basecamp timesheet are left untouched — a duration change belongs to
+ * updateTimeLog, which syncs an existing entry in place.
+ */
+export async function setTimeLogWorkedWindow(
+    timeLogId: string,
+    window: { startedAt: string; endedAt: string },
+): Promise<{ success: boolean; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
+    try {
+        return await attachWorkedWindow({
+            async currentUserId() {
+                const { data } = await supabase.auth.getUser();
+                return data.user?.id ?? null;
+            },
+            async getLog(id) {
+                const { data, error } = await supabase
+                    .from('time_logs')
+                    .select('id, organization_id, user_id')
+                    .eq('id', id)
+                    .maybeSingle();
+                return { data, error: error ? { message: error.message } : null };
+            },
+            async listSegments(id) {
+                const { data, error } = await supabase
+                    .from('time_log_segments')
+                    .select('id')
+                    .eq('time_log_id', id);
+                return { data, error: error ? { message: error.message } : null };
+            },
+            async insertSegment(row) {
+                const { error } = await supabase.from('time_log_segments').insert(row);
+                return { error: error ? { message: error.message } : null };
+            },
+        }, timeLogId, window);
+    } catch (err: any) {
+        console.error('Error placing worked time:', err);
         return { success: false, error: err.message };
     }
 }
