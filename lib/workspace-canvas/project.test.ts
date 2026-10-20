@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    workDescriptionPreview, assigneeLabel, buildDailySeries, availableThrough, formatMonthLabel, isMonthKey, monthBounds,
+    applyCanvasTaskEdit, workDescriptionPreview, assigneeLabel, buildDailySeries, availableThrough, formatMonthLabel, isMonthKey, monthBounds,
     performanceWindow, previousEqualWindow, projectWorkspaceCanvas, resolveAssigneeNames, settleLatest, shiftMonth,
     type CanvasApprovalDoc, type CanvasPlanItem, type CanvasTask, type WorkspaceCanvasInput,
 } from './project.ts';
+import type { Task } from '../types.ts';
 
 const today = '2026-10-15';
 const month = '2026-10';
@@ -35,6 +36,47 @@ function baseInput(patch: Partial<WorkspaceCanvasInput> = {}): WorkspaceCanvasIn
         ...patch,
     };
 }
+
+test('a panel edit refreshes the card immediately and keeps the loaded subtask count', () => {
+    const input = baseInput({
+        tasks: {
+            ok: true,
+            value: [task({
+                id: 'setup',
+                title: 'SEO Setup',
+                description: 'Old notes',
+                dueDate: '2026-10-20',
+                subtasks: [
+                    { id: 'keywords', title: 'Keywords', completed: true },
+                    { id: 'sitemap', title: 'Sitemap', completed: false },
+                ],
+                subtasksState: 'ready',
+            })],
+        },
+    });
+    const before = projectWorkspaceCanvas(input);
+    assert.equal(before.cards[0]?.subtaskProgress, '1/2');
+    const saved = {
+        id: 'setup',
+        organizationId: 'org',
+        title: 'SEO Setup revised',
+        description: '<p>New notes</p>',
+        status: 'in_progress' as const,
+        dueDate: '2026-10-21',
+        assignees: [],
+        priority: 'medium' as const,
+        tags: [],
+        subtasks: [],
+    } satisfies Task;
+    const after = projectWorkspaceCanvas(applyCanvasTaskEdit(input, saved));
+    const card = after.cards.find(item => item.taskId === 'setup');
+    assert.equal(card?.title, 'SEO Setup revised');
+    assert.equal(card?.description, 'New notes');
+    assert.equal(card?.statusLabel, 'In progress');
+    assert.equal(card?.dueDate, '2026-10-21');
+    assert.equal(card?.subtaskProgress, '1/2');
+    assert.equal(after.board.now.some(item => item.taskId === 'setup' && item.title === 'SEO Setup revised'), true);
+});
 
 test('month boundaries shift across the year and keep February lengths', () => {
     assert.equal(isMonthKey('2026-00'), false);

@@ -431,8 +431,9 @@ export function groupTasksByPlanMonth(tasks: readonly StageListTask[], context: 
                 group: {
                     task: group.task,
                     children: shown.children,
-                    childCount: remaining.children.length,
-                    childDone: remaining.children.filter(child => isPlanDone(child.status)).length,
+                    // Full live set, including a chore this section does not render.
+                    childCount: group.childCount,
+                    childDone: group.childDone,
                     urlCount: remaining.children.filter(child => Boolean(child.publishedUrl?.trim())).length,
                     hiddenChildren: shown.hidden,
                     rollupChildIds: remaining.children.map(child => child.id),

@@ -33,7 +33,7 @@ export function WorkspaceTaskInspector({
             {card.badges.length > 0 && <p className="mt-3 text-xs text-muted-foreground">{card.badges.join(' · ')}</p>}
             <div className="mt-4">
                 <h3 className="text-sm font-medium">Subtasks <span className="font-normal text-muted-foreground">({card.subtaskProgress})</span></h3>
-                {card.subtasks.length === 0 ? <p className="mt-1 text-sm text-muted-foreground">No subtasks</p> : (
+                {card.subtaskProgress === 'Loading subtasks' || card.subtaskProgress === 'Subtasks unavailable' ? null : card.subtasks.length === 0 ? <p className="mt-1 text-sm text-muted-foreground">No subtasks</p> : (
                     <ul className="mt-2 space-y-1">
                         {card.subtasks.map(subtask => (
                             <li key={subtask.id} className="flex items-start gap-2 text-sm">

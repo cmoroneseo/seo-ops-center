@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useId } from 'react';
-import { X, Clock, Calendar, Tag, CheckSquare, MessageSquare, ChevronDown, Trash2, Plus, UserCircle2, PenLine, RefreshCw, Building2 } from 'lucide-react';
+import { X, Clock, Calendar, Tag, Check, CheckSquare, MessageSquare, ChevronDown, Trash2, Plus, UserCircle2, PenLine, RefreshCw, Building2 } from 'lucide-react';
 import {
     createTimeLog,
     getClientTimesheetSyncEnabled,
@@ -11,6 +11,11 @@ import {
 } from '@/lib/supabase/time-logs';
 import { cn } from '@/lib/utils';
 import { taskDescriptionText, taskDescriptionChanged } from '@/lib/tasks/description';
+import { descriptionSaveLabel } from '@/lib/tasks/description-save';
+import { useDescriptionAutosave } from '@/lib/tasks/use-description-autosave';
+import { mergeSavedTask } from '@/lib/tasks/merge-saved-task';
+import { listedSubtaskProgress, progressOf } from '@/lib/tasks/subtask-progress';
+import { SubtaskProgressText } from './SubtaskProgressText';
 import { Task, TaskComment, TaskStatus, TaskPriority, TaskCategory, TimerAttempt } from '@/lib/types';
 import { getTask, updateTask, createTask, deleteTask, getTaskComments, createTaskComment, getClientBasecampConfig } from '@/lib/supabase/tasks';
 import { PUSH_OUTCOME_MESSAGE, pushOutcomeFor, type PushOutcome } from '@/lib/timesheets/push-outcome';
@@ -192,13 +197,41 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const [todoPushOutcome, setTodoPushOutcome] = useState<PushOutcome | null>(null);
     const [subtaskNestNote, setSubtaskNestNote] = useState<string | null>(null);
     const [subtasks, setSubtasks] = useState<Task[]>([]);
+    const [subtasksReady, setSubtasksReady] = useState(false);
+    const [subtasksUnavailable, setSubtasksUnavailable] = useState(false);
+    const taskRef = useRef(task);
+    const onUpdateRef = useRef(onUpdate);
+    taskRef.current = task;
+    onUpdateRef.current = onUpdate;
+    const descriptionSave = useDescriptionAutosave({
+        savedText: taskDescriptionText(task?.description),
+        resetKey: task?.id ?? '',
+        persist: async text => {
+            const current = taskRef.current;
+            if (!current) return false;
+            if (!taskDescriptionChanged(current.description, text)) return true;
+            onUpdateRef.current?.(mergeSavedTask(current, { ...current, description: text }));
+            const result = await updateTask(current.id, { description: text, updatedBy: currentUserId });
+            if (!result.success || !result.data) {
+                onUpdateRef.current?.(current);
+                return false;
+            }
+            const latest = taskRef.current ?? current;
+            onUpdateRef.current?.(mergeSavedTask({ ...latest, description: text }, result.data));
+            if (hideBasecampSend) queuePlanBasecampPush(result.data.id);
+            return true;
+        },
+    });
+    const closePanel = () => {
+        descriptionSave.flush();
+        onClose();
+    };
     const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
     const [addingSubtask, setAddingSubtask] = useState(false);
 
     // Local editable state
     const [title, setTitle] = useState('');
     const [liveUrl, setLiveUrl] = useState<string | undefined>();
-    const [description, setDescription] = useState('');
     const [status, setStatus] = useState<TaskStatus>('todo');
     const [blockedReason, setBlockedReason] = useState<string | null>(null);
     const [blockedDraft, setBlockedDraft] = useState('');
@@ -240,7 +273,6 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         if (!task) return;
         setTitle(task.title ?? '');
         setLiveUrl(task.publishedUrl);
-        setDescription(taskDescriptionText(task.description));
         setStatus(task.status ?? 'todo');
         setBlockedReason(task.blockedReason?.trim() ? task.blockedReason.trim() : null);
         setBlockedDraft('');
@@ -278,23 +310,57 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     }, [organization?.id]);
 
     // Load comments + hours when task opens
+    const publishSubtasks = useCallback((rows: Task[]) => {
+        const current = taskRef.current;
+        if (!current) return;
+        onUpdateRef.current?.(mergeSavedTask(current, {
+            ...current,
+            subtasks: rows.map(row => ({ id: row.id, title: row.title, completed: row.status === 'done' })),
+            subtasksState: 'ready',
+        }));
+    }, []);
+
     const loadTaskData = useCallback(async () => {
-        if (!task) return;
+        const current = taskRef.current;
+        if (!current) return;
+        const requestedId = current.id;
         setLoadingTaskTime(true);
         try {
             const [commentsData, taskData] = await Promise.all([
-                getTaskComments(task.id),
-                getTask(task.id),
+                getTaskComments(requestedId),
+                getTask(requestedId),
             ]);
-            const logs = await getTaskTimeLogs(task.id, taskData.subtasks.map(subtask => subtask.id));
+            if (taskRef.current?.id !== requestedId) return;
+            const logs = await getTaskTimeLogs(requestedId, taskData.subtasks.map(subtask => subtask.id));
+            if (taskRef.current?.id !== requestedId) return;
             setComments(commentsData);
             setLoggedHours(taskData.loggedHours);
-            setSubtasks(taskData.subtasks);
             setTimeLogs(logs);
+            if (!taskData.task) {
+                setSubtasksUnavailable(true);
+                setSubtasksReady(true);
+                return;
+            }
+            setSubtasks(taskData.subtasks);
+            setSubtasksUnavailable(false);
+            setSubtasksReady(true);
+            const latest = taskRef.current;
+            if (latest) {
+                onUpdateRef.current?.(mergeSavedTask(latest, {
+                    ...latest,
+                    subtasks: taskData.task.subtasks,
+                    subtasksState: 'ready',
+                }));
+            }
+        } catch {
+            if (taskRef.current?.id === requestedId) {
+                setSubtasksUnavailable(true);
+                setSubtasksReady(true);
+            }
         } finally {
             setLoadingTaskTime(false);
         }
-    }, [task?.id]);
+    }, []);
 
     useEffect(() => {
         if (!task?.clientId) { setBasecampAvailable(false); return; }
@@ -384,8 +450,20 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     }, [rememberSyncNotice]);
 
     useEffect(() => {
+        setSubtasks([]);
+        setSubtasksReady(false);
+        setSubtasksUnavailable(false);
+    }, [task?.id]);
+
+    useEffect(() => {
         if (isOpen && task) loadTaskData();
-    }, [isOpen, task?.id]);
+    }, [isOpen, task?.id, loadTaskData]);
+
+    const wasOpen = useRef(isOpen);
+    useEffect(() => {
+        if (wasOpen.current && !isOpen) descriptionSave.flush();
+        wasOpen.current = isOpen;
+    }, [isOpen, descriptionSave.flush]);
 
     // Confirmed time must appear here as soon as a Stop confirmation lands.
     useEffect(() => {
@@ -396,23 +474,29 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     }, [isOpen, task?.id, loadTaskData]);
 
     const save = useCallback(async (patch: Parameters<typeof updateTask>[1]) => {
-        if (!task) return;
+        const current = taskRef.current;
+        if (!current) return;
+        const optimistic = mergeSavedTask(current, { ...current, ...patch } as Task);
+        onUpdateRef.current?.(optimistic);
         setSaving(true);
         setSaveError(null);
         try {
-            const result = await updateTask(task.id, { ...patch, updatedBy: currentUserId });
+            const result = await updateTask(current.id, { ...patch, updatedBy: currentUserId });
             if (result.success && result.data) {
-                onUpdate?.(result.data);
+                const latest = taskRef.current ?? optimistic;
+                onUpdateRef.current?.(mergeSavedTask(latest, result.data));
                 if (hideBasecampSend) queuePlanBasecampPush(result.data.id);
                 return true;
             }
+            onUpdateRef.current?.(current);
             setSaveError('Could not save changes. Check the task and try again.');
             return false;
         } catch {
+            onUpdateRef.current?.(current);
             setSaveError('Could not confirm the save. Refresh the task before retrying.');
             return false;
         } finally { setSaving(false); }
-    }, [task?.id, currentUserId, onUpdate, hideBasecampSend]);
+    }, [currentUserId, hideBasecampSend]);
 
     const handleStatusChange = async (newStatus: TaskStatus) => {
         if (newStatus === 'done' && status !== 'done') {
@@ -541,10 +625,6 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         if (title !== task?.title) await save({ title });
     };
 
-    const handleDescriptionBlur = async () => {
-        if (taskDescriptionChanged(task?.description, description)) await save({ description });
-    };
-
     const handleDueDateChange = async (date: string) => {
         const error = scheduleDateError(startDate, date);
         if (error) { setSaveError(error); return; }
@@ -596,7 +676,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             createdBy: currentUserId,
         });
         if (result.success && result.data) {
-            setSubtasks(prev => [...prev, result.data!]);
+            const next = [...subtasks, result.data];
+            setSubtasks(next);
+            publishSubtasks(next);
             setNewSubtaskTitle('');
             if (hideBasecampSend) queuePlanBasecampPush(task.id);
         }
@@ -605,11 +687,20 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
 
     const handleSubtaskToggle = async (subtask: Task) => {
         const newStatus: TaskStatus = subtask.status === 'done' ? 'todo' : 'done';
+        const previous = subtasks;
+        const next = previous.map(item => item.id === subtask.id ? { ...item, status: newStatus } : item);
+        setSubtasks(next);
+        publishSubtasks(next);
         const result = await updateTask(subtask.id, { status: newStatus });
         if (result.success && result.data) {
-            setSubtasks(prev => prev.map(s => s.id === subtask.id ? result.data! : s));
+            const reconciled = next.map(item => item.id === subtask.id ? { ...item, status: result.data!.status } : item);
+            setSubtasks(reconciled);
+            publishSubtasks(reconciled);
             if (hideBasecampSend) queuePlanBasecampPush(subtask.id);
+            return;
         }
+        setSubtasks(previous);
+        publishSubtasks(previous);
     };
 
     const handlePostComment = async () => {
@@ -663,6 +754,12 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         await handleDueDateChange(iso);
     };
 
+    const subtaskProgressView = !task || !subtasksReady
+        ? (task?.subtasksState === 'ready' ? listedSubtaskProgress(task) : progressOf(null))
+        : subtasksUnavailable
+            ? { state: 'unavailable' as const, done: 0, total: 0, label: null, ids: [] as string[] }
+            : progressOf(subtasks.map(row => ({ id: row.id, title: row.title, status: row.status })));
+
     if (!mounted || !task) return null;
 
     const manualPlacement = workedWindowForEdit({
@@ -678,7 +775,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
 
     return (
         <>
-            {!embedded && <div className={cn("fixed inset-0 z-[110] bg-background/80 backdrop-blur-sm transition-opacity duration-300", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")} onClick={onClose} />}
+            {!embedded && <div className={cn("fixed inset-0 z-[110] bg-background/80 backdrop-blur-sm transition-opacity duration-300", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")} onClick={closePanel} />}
 
             {/* Slide-over panel */}
             <div
@@ -742,7 +839,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                 </button>
                             )}
                             <button
-                                onClick={onClose}
+                                onClick={closePanel}
                                 aria-label="Close task details"
                                 className="p-2 hover:bg-muted rounded-lg text-muted-foreground transition-colors"
                             >
@@ -759,7 +856,12 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                 type="text"
                                 disabled={saving}
                                 value={title}
-                                onChange={e => setTitle(e.target.value)}
+                                onChange={e => {
+                                    const next = e.target.value;
+                                    setTitle(next);
+                                    const current = taskRef.current;
+                                    if (current) onUpdateRef.current?.(mergeSavedTask(current, { ...current, title: next }));
+                                }}
                                 onBlur={handleTitleBlur}
                                 className="w-full bg-transparent border-none text-xl font-bold p-0 focus:ring-0 placeholder:text-muted-foreground"
                                 placeholder="Task title…"
@@ -789,13 +891,28 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                             <label htmlFor={`${fieldId}-description`} className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Description</label>
                             <textarea
                                 id={`${fieldId}-description`}
-                                disabled={saving}
-                                value={description}
-                                onChange={e => setDescription(e.target.value)}
-                                onBlur={handleDescriptionBlur}
+                                value={descriptionSave.text}
+                                onChange={e => {
+                                    const next = e.target.value;
+                                    descriptionSave.edit(next);
+                                    const current = taskRef.current;
+                                    if (current) onUpdateRef.current?.(mergeSavedTask(current, { ...current, description: next }));
+                                }}
+                                onBlur={() => descriptionSave.flush()}
                                 className="w-full bg-transparent border-none text-sm p-0 mt-1 focus:ring-0 resize-none min-h-[80px] placeholder:text-muted-foreground"
                                 placeholder="Add details…"
                             />
+                            {descriptionSaveLabel(descriptionSave.phase) && (
+                                <p role="status" data-description-save={descriptionSave.phase} className="mt-1 text-[11px] text-muted-foreground">
+                                    {descriptionSaveLabel(descriptionSave.phase)}
+                                    {descriptionSave.phase === 'failed' && (
+                                        <>
+                                            {' · '}
+                                            <button type="button" onClick={() => descriptionSave.retry()} className="font-medium text-primary hover:underline">Retry</button>
+                                        </>
+                                    )}
+                                </p>
+                            )}
                         </div>
 
                         {/* Status & Priority */}
@@ -1018,11 +1135,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                         <div className="space-y-2">
                             <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
                                 <CheckSquare className="h-3 w-3" /> Subtasks
-                                {subtasks.length > 0 && (
-                                    <span className="ml-1 text-muted-foreground">
-                                        ({subtasks.filter(s => s.status === 'done').length}/{subtasks.length})
-                                    </span>
-                                )}
+                                <SubtaskProgressText progress={subtaskProgressView} className="ml-1 font-normal normal-case tracking-normal text-muted-foreground" />
                             </label>
                             {subtasks.length > 0 && (
                                 <p className="text-[11px] leading-relaxed text-muted-foreground">These chores stay under this task and do not each need a plan row.</p>
@@ -1030,12 +1143,22 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                             <div className="space-y-2">
                                 {subtasks.map(sub => (
                                     <div key={sub.id} className="flex items-center gap-3 group">
-                                        <input
-                                            type="checkbox"
-                                            checked={sub.status === 'done'}
-                                            onChange={() => handleSubtaskToggle(sub)}
-                                            className="rounded border-border text-primary focus:ring-primary h-4 w-4 cursor-pointer"
-                                        />
+                                        <button
+                                            type="button"
+                                            role="checkbox"
+                                            aria-checked={sub.status === 'done'}
+                                            aria-label={sub.status === 'done' ? `Mark "${sub.title}" not done` : `Mark "${sub.title}" done`}
+                                            onClick={() => { void handleSubtaskToggle(sub); }}
+                                            onKeyDown={event => {
+                                                if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+                                            }}
+                                            className={cn(
+                                                'flex h-4 w-4 shrink-0 items-center justify-center rounded border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                                                sub.status === 'done' ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-transparent',
+                                            )}
+                                        >
+                                            {sub.status === 'done' && <Check className="h-3 w-3" strokeWidth={3} />}
+                                        </button>
                                         <div className="min-w-0 flex-1">
                                             <span className={cn(
                                                 "text-sm",

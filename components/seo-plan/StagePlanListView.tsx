@@ -231,6 +231,7 @@ export function StagePlanListView({
     basecamp = null,
     integrationsHref = '/settings',
     onRetrySync,
+    doneHoldMs = 4000,
 }: {
     tasks: readonly StageListTask[];
     query: string;
@@ -282,6 +283,8 @@ export function StagePlanListView({
     basecamp?: PlanBasecampBanner | null;
     integrationsHref?: string;
     onRetrySync?: (taskId: string) => Promise<PlanBasecampSyncState | null>;
+    /** How long a just-completed onboarding row stays visible, with Undo, before Show done hides it. */
+    doneHoldMs?: number;
 }) {
     const searchId = useId();
     const searchRef = useRef<HTMLInputElement>(null);
@@ -419,6 +422,7 @@ export function StagePlanListView({
                 onSetLiveUrl={onSetLiveUrl}
                 onToggleCheck={onToggleCheck}
                 resultsByTaskId={resultsByTaskId}
+                doneHoldMs={doneHoldMs}
             />
             <DoneThisMonthFooter
                 tasks={tasks}
@@ -477,6 +481,7 @@ function PlanSections({
     onSetLiveUrl,
     onToggleCheck,
     resultsByTaskId,
+    doneHoldMs,
 }: {
     tasks: readonly StageListTask[];
     sections: PlanSectionModel[];
@@ -500,9 +505,12 @@ function PlanSections({
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
     onToggleCheck?: (taskId: string) => void | Promise<void>;
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
+    doneHoldMs: number;
 }) {
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
     const [showDone, setShowDone] = useState(false);
+    const [heldDone, setHeldDone] = useState<Record<string, true>>({});
+    const heldTimers = useRef<Record<string, number>>({});
     const [dragId, setDragId] = useState<string | null>(null);
     const [hint, setHint] = useState<DropHint | null>(null);
     const [moveError, setMoveError] = useState<string | null>(null);
@@ -514,6 +522,37 @@ function PlanSections({
         const parent = task.parentTaskId ? tasksById.get(task.parentTaskId) : undefined;
         return [task.id, planTimerTask(task, parent ?? null)] as const;
     }));
+
+    const releaseDone = (taskId: string) => {
+        const timer = heldTimers.current[taskId];
+        if (timer) window.clearTimeout(timer);
+        delete heldTimers.current[taskId];
+        setHeldDone(current => {
+            if (!current[taskId]) return current;
+            const next = { ...current };
+            delete next[taskId];
+            return next;
+        });
+    };
+    const holdDone = (taskId: string) => {
+        const existing = heldTimers.current[taskId];
+        if (existing) window.clearTimeout(existing);
+        setHeldDone(current => ({ ...current, [taskId]: true }));
+        heldTimers.current[taskId] = window.setTimeout(() => releaseDone(taskId), doneHoldMs);
+    };
+    useEffect(() => () => {
+        for (const timer of Object.values(heldTimers.current)) window.clearTimeout(timer);
+    }, []);
+    const markTask = (task: StageListTask, foldDone: boolean) => {
+        if (!onToggleCheck) return;
+        if (!isPlanDone(task.status) && foldDone) holdDone(task.id);
+        else releaseDone(task.id);
+        void onToggleCheck(task.id);
+    };
+    const undoDone = (taskId: string) => {
+        releaseDone(taskId);
+        void onToggleCheck?.(taskId);
+    };
 
     const rememberDrag = (id: string | null) => {
         dragIdRef.current = id;
@@ -610,7 +649,7 @@ function PlanSections({
                                 <p className="border-t border-[#2a2a2e] px-3 py-3 text-[13px] text-[#8b8b93]">{section.empty}</p>
                             ) : section.groups.map((group, index) => {
                                 const nextTop = section.groups[index + 1]?.task.id ?? null;
-                                const hideGroup = foldDone && isPlanDone(group.task.status);
+                                const hideGroup = foldDone && isPlanDone(group.task.status) && !heldDone[group.task.id];
                                 return (
                                     <div key={group.task.id} hidden={hideGroup || undefined}>
                                         {dropLine(section.id, group.task.id, null)}
@@ -629,6 +668,8 @@ function PlanSections({
                                             urlPromptTaskId={urlPromptTaskId}
                                             dragId={dragId}
                                             foldDone={foldDone}
+                                            heldDone={heldDone}
+                                            onUndoDone={onToggleCheck ? undoDone : undefined}
                                             baseId={baseId}
                                             focusedId={focusedId}
                                             showSyncDots={showSyncDots}
@@ -637,6 +678,7 @@ function PlanSections({
                                             onOpenTask={onOpenTask}
                                             onSetLiveUrl={onSetLiveUrl}
                                             onToggleCheck={onToggleCheck}
+                                            onMark={onToggleCheck ? task => markTask(task, foldDone) : undefined}
                                             resultsByTaskId={resultsByTaskId}
                                             onDragStart={rememberDrag}
                                             onDragEnd={clearDrag}
@@ -694,6 +736,9 @@ function PlanRow({
     urlPromptTaskId,
     dragId,
     foldDone,
+    heldDone,
+    onUndoDone,
+    onMark,
     baseId,
     focusedId,
     showSyncDots,
@@ -723,6 +768,9 @@ function PlanRow({
     urlPromptTaskId?: string | null;
     dragId: string | null;
     foldDone: boolean;
+    heldDone?: Readonly<Record<string, true>>;
+    onUndoDone?: (taskId: string) => void;
+    onMark?: (task: StageListTask) => void;
     baseId: string;
     focusedId: string | null;
     showSyncDots: boolean;
@@ -742,7 +790,7 @@ function PlanRow({
     const open = openOverride ?? (searching ? group.expandChildren : group.childCount > 0);
     const panelId = `${baseId}-children-${group.task.id}`;
     const pillar = group.childCount > 0;
-    const visibleChildren = group.children.filter(child => !(foldDone && isPlanDone(child.status)));
+    const visibleChildren = group.children.filter(child => !(foldDone && isPlanDone(child.status) && !heldDone?.[child.id]));
     const childIds = group.children.map(child => child.id);
 
     const renderTask = (task: StageListTask, options: {
@@ -874,7 +922,11 @@ function PlanRow({
                             <CheckBox
                                 done={done}
                                 disabled={pending}
-                                onToggle={pending || !onToggleCheck ? undefined : () => { void onToggleCheck(task.id); }}
+                                label={done ? `Mark "${task.title}" not done` : `Mark "${task.title}" done`}
+                                onToggle={pending || (!onMark && !onToggleCheck) ? undefined : () => {
+                                    if (onMark) onMark(task);
+                                    else void onToggleCheck?.(task.id);
+                                }}
                             />
                         )}
                 </span>
@@ -892,6 +944,23 @@ function PlanRow({
                         {options.parentTitle && <span className="sr-only">Subtask of {options.parentTitle}. </span>}
                         <TitleText title={task.title} query={query} done={done} />
                     </button>
+                    {heldDone?.[task.id] && done && (
+                        <span role="status" data-subtask-confirm={task.id} className="shrink-0 text-[11px] text-[#cfcfd4]">
+                            Marked done
+                            <span aria-hidden="true"> · </span>
+                            <button
+                                type="button"
+                                data-subtask-undo={task.id}
+                                onClick={event => {
+                                    event.stopPropagation();
+                                    onUndoDone?.(task.id);
+                                }}
+                                className="font-medium text-white underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                            >
+                                Undo
+                            </button>
+                        </span>
+                    )}
                     {showSyncDots && task.basecampSync?.state === 'failed' && !pending && (
                         <PlanSyncDot
                             taskId={task.id}
@@ -903,7 +972,10 @@ function PlanRow({
                     )}
                     <BlockedChip reason={task.blockedReason} />
                     {options.pillar && (
-                        <span className="shrink-0 rounded-full bg-[#1d1d22] px-1.5 py-0.5 text-[11px] text-[#cfcfd4]">
+                        <span
+                            data-subtask-progress={`${options.childDone ?? 0}/${options.childCount ?? 0}`}
+                            className="shrink-0 rounded-full bg-[#1d1d22] px-1.5 py-0.5 text-[11px] text-[#cfcfd4]"
+                        >
                             {options.childDone}/{options.childCount}
                         </span>
                     )}

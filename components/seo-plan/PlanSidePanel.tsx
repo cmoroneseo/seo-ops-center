@@ -70,6 +70,8 @@ export function PlanSidePanel({
     saveRef.current = onSave;
     const [pending, setPending] = useState(0);
     const [error, setError] = useState<string | null>(null);
+    const [savePhase, setSavePhase] = useState<'idle' | 'saved' | 'failed'>('idle');
+    const failedSave = useRef<PlanPanelSave | null>(null);
     const [title, setTitle] = useState(task.title);
     const [description, setDescription] = useState(task.description);
     const [estimate, setEstimate] = useState(formatPlanEstimateInput(task.estimatedHours));
@@ -137,11 +139,21 @@ export function PlanSidePanel({
         if (!save) return;
         setPending(count => count + 1);
         setError(null);
+        setSavePhase('idle');
         try {
             const message = await saveRef.current(taskId, save);
-            if (message) setError(message);
+            if (message) {
+                failedSave.current = save;
+                setError(message);
+                setSavePhase('failed');
+            } else {
+                failedSave.current = null;
+                setSavePhase('saved');
+            }
         } catch (caught) {
+            failedSave.current = save;
             setError(caught instanceof Error && caught.message ? caught.message : 'Could not save that change.');
+            setSavePhase('failed');
         } finally {
             setPending(count => count - 1);
         }
@@ -232,6 +244,7 @@ export function PlanSidePanel({
         }
         if (!descriptionDirty.current || !task.detailsReady) return;
         const value = planDescriptionSave(description, task.description);
+        descriptionDirty.current = false;
         if (value == null) return;
         void commit({ field: 'description', description: value });
     }
@@ -278,8 +291,25 @@ export function PlanSidePanel({
         >
             <div className="flex items-center gap-2 border-b border-[#2a2a2e] px-3.5 py-3 text-[11px] text-[#8b8b93]">
                 <span className="min-w-0 truncate">Task · {clientName}</span>
-                <span className="sr-only" data-plan-save={pending > 0 ? 'saving' : error ? 'error' : 'idle'}>
-                    {pending > 0 ? 'Saving' : 'Idle'}
+                <span data-plan-save={pending > 0 ? 'saving' : savePhase === 'failed' ? 'error' : savePhase === 'saved' ? 'saved' : 'idle'} className="shrink-0 text-[11px] text-[#8b8b93]">
+                    {pending > 0 && 'Saving…'}
+                    {pending === 0 && savePhase === 'saved' && 'Saved'}
+                    {pending === 0 && savePhase === 'failed' && (
+                        <>
+                            Failed to save
+                            {' · '}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const save = failedSave.current;
+                                    if (save) void persist(task.id, save);
+                                }}
+                                className="font-medium text-white underline-offset-2 hover:underline"
+                            >
+                                Retry
+                            </button>
+                        </>
+                    )}
                 </span>
                 <button
                     type="button"
@@ -321,6 +351,7 @@ export function PlanSidePanel({
                     placeholder={task.detailsReady ? 'Description, acceptance notes, links…' : 'Loading description…'}
                     onChange={event => {
                         descriptionDirty.current = true;
+                        setSavePhase('idle');
                         setDescription(event.target.value);
                     }}
                     onBlur={flushDescription}
@@ -446,8 +477,8 @@ export function PlanSidePanel({
                     </Field>
                     <Field label="Pillar">
                         {parent.kind === 'pillar' ? (
-                            <span data-plan-pillar={parent.childCount} className="text-[#8b8b93]">
-                                This is a pillar · {parent.childCount} {parent.childCount === 1 ? 'subtask' : 'subtasks'}
+                            <span data-plan-pillar={parent.childCount} data-subtask-progress={`${task.childDone}/${task.childCount}`} className="text-[#8b8b93]">
+                                This is a pillar · {task.childDone}/{task.childCount}
                             </span>
                         ) : parent.kind === 'locked' ? (
                             <span className="text-[#8b8b93]">{parent.currentTitle ?? 'None'}</span>

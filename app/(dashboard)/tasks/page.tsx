@@ -9,6 +9,7 @@ import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
 import { TaskTemplateLibrary } from '@/components/tasks/TaskTemplateLibrary';
 import { Task, TaskTemplate } from '@/lib/types';
+import { mergeSavedTask } from '@/lib/tasks/merge-saved-task';
 import { cn } from '@/lib/utils';
 import { useSearchParams } from 'next/navigation';
 import { useOrganization } from '@/components/providers/organization-provider';
@@ -109,8 +110,8 @@ export default function TasksPage() {
     };
 
     const handleTaskUpdated = (updated: Task) => {
-        setTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
-        setSelectedTask(updated);
+        setTasks(prev => prev.map(t => t.id === updated.id ? mergeSavedTask(t, updated) : t));
+        setSelectedTask(current => current && current.id === updated.id ? mergeSavedTask(current, updated) : updated);
     };
 
     const handleTaskCreated = (created: Task) => {
