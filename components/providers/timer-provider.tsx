@@ -42,6 +42,11 @@ export interface FinalizeTimerOptions {
 
 export type { TimerSwitchConfirmation } from '@/lib/timer-ui';
 
+export interface ResumeTimerOptions {
+    /** A cancelled stop review. resume_time_attempt clears reviewing_at and opens a segment. */
+    continueReview?: boolean;
+}
+
 function confirmInBrowser(prompt: string): boolean {
     return window.confirm(prompt);
 }
@@ -52,7 +57,7 @@ interface TimerContextType {
     getElapsedSeconds: (attempt: TimerAttempt) => number;
     startTask: (options: StartTaskOptions, confirmSwitch?: TimerSwitchConfirmation) => Promise<boolean>;
     pause: (attempt: TimerAttempt) => Promise<void>;
-    resume: (attempt: TimerAttempt, confirmSwitch?: TimerSwitchConfirmation) => Promise<boolean>;
+    resume: (attempt: TimerAttempt, confirmSwitch?: TimerSwitchConfirmation, options?: ResumeTimerOptions) => Promise<boolean>;
     switchToTask: (target: TimerSwitchTarget, confirmSwitch?: TimerSwitchConfirmation) => Promise<boolean>;
     beginStop: (attempt: TimerAttempt) => Promise<TimerStateResponse | null>;
     finalize: (attempt: TimerAttempt, options: FinalizeTimerOptions) => Promise<TimerStateResponse>;
@@ -179,8 +184,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         await mutate({ action: 'pause', timeLogId: attempt.id });
     }, [mutate, runningTimer?.id]);
 
-    const resume = useCallback(async (attempt: TimerAttempt, confirmSwitch?: TimerSwitchConfirmation) => {
-        if (attempt.reviewingAt) return false;
+    const resume = useCallback(async (attempt: TimerAttempt, confirmSwitch?: TimerSwitchConfirmation, options?: ResumeTimerOptions) => {
+        if (attempt.reviewingAt && !options?.continueReview) return false;
         if (runningTimer && runningTimer.id !== attempt.id) {
             return switchToTask({ timeLogId: attempt.id, title: attempt.taskTitle ?? attempt.clientName ?? 'this work' }, confirmSwitch);
         }
