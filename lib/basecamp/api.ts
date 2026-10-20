@@ -128,7 +128,11 @@ export async function basecampWriteJson(
     } catch (err) {
         const message = err instanceof Error ? err.message : 'Basecamp request failed';
         const auth = /token|unauthorized|BASECAMP_/i.test(message);
-        return { ok: false, status: auth ? 401 : 502, detail: message.slice(0, 240) };
+        const detail = message
+            .replace(/bearer\s+\S+/gi, 'bearer [redacted]')
+            .replace(/access_token[=:]\S+/gi, 'access_token=[redacted]')
+            .slice(0, 240);
+        return { ok: false, status: auth ? 401 : 502, detail: auth ? 'Basecamp authorization failed' : detail };
     }
 }
 
