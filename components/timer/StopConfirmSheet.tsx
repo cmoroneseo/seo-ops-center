@@ -16,7 +16,6 @@ import {
 import { getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
 import { defaultSendToBasecamp } from '@/lib/basecamp/send-default';
 import { SessionNote } from '@/lib/types';
-import { cn } from '@/lib/utils';
 import { isExternalHref, safeHref } from '@/lib/links/safe-href';
 import { ReviewToggle } from './ReviewToggle';
 

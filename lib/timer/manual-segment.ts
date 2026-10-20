@@ -326,9 +326,10 @@ export async function recordManualTimeLog(
 
     let basecampSync: BasecampPushResult | undefined;
     if (opts.syncToBasecamp) {
-        const push = store.pushBasecamp(String(inserted.data.id), true);
+        const timeLogId = String(inserted.data.id);
+        const push = store.pushBasecamp(timeLogId, true);
         const report = (result: BasecampPushResult) => {
-            opts.onBasecampResult?.(String(inserted.data.id), result);
+            opts.onBasecampResult?.(timeLogId, result);
             if (!result.success && !opts.onBasecampResult) {
                 console.error('[Basecamp timesheet] push failed:', result.error);
             }
