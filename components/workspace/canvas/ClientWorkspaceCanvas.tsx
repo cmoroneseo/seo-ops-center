@@ -12,8 +12,8 @@ import type { ClientProject } from '@/lib/types';
 import { actionForegroundChoice, oklchContrast, type ActionForeground } from '@/lib/workspace-canvas/palette';
 import { loadWorkspaceCanvas } from '@/lib/workspace-canvas/load';
 import {
-    isMonthKey, formatMonthLabel, monthBounds, projectWorkspaceCanvas, settleLatest, shiftMonth,
-    type WorkspaceCanvasModel,
+    applyCanvasTaskEdit, isMonthKey, formatMonthLabel, monthBounds, projectWorkspaceCanvas, settleLatest, shiftMonth,
+    type WorkspaceCanvasInput, type WorkspaceCanvasModel,
 } from '@/lib/workspace-canvas/project';
 import { WorkspaceAttentionPanel } from './WorkspaceAttentionPanel';
 import { WorkspaceHoursGauge } from './WorkspaceHoursGauge';
@@ -91,6 +91,7 @@ export function ClientWorkspaceCanvas({
 }) {
     const rootRef = useRef<HTMLDivElement>(null);
     const requestId = useRef(0);
+    const inputRef = useRef<WorkspaceCanvasInput | null>(null);
     const actionClass = useActionClass();
     const reducedMotion = useReducedMotion();
     const { userId } = useCurrentMember();
@@ -135,6 +136,7 @@ export function ClientWorkspaceCanvas({
         const load = () => loadWorkspaceCanvas({ client, organizationId, month, signal: controller.signal })
             .then(loaded => {
                 if (!settleLatest(id, requestId.current, loaded) || !loaded) return;
+                inputRef.current = loaded.input;
                 const next = projectWorkspaceCanvas(loaded.input);
                 setModel(next);
                 const search = loaded.input.search;
@@ -249,7 +251,16 @@ export function ClientWorkspaceCanvas({
                     <DialogContent showCloseButton={false} className="top-0 right-0 left-auto h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 content-start overflow-y-auto rounded-none border-y-0 border-r-0 bg-card p-0 sm:max-w-xl data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100 motion-reduce:animate-none">
                         <DialogTitle className="sr-only">{selected?.title ?? 'Work details'}</DialogTitle>
                         <DialogDescription className="sr-only">View and edit the selected work, its schedule, and task details.</DialogDescription>
-                        {selected?.taskId ? <WorkspaceTaskEditor taskId={selected.taskId} organizationId={organizationId} clientId={client.id} userId={userId} onClose={() => setSelectedId(null)} onChanged={() => { setCalendarRefresh(value => value + 1); window.dispatchEvent(new Event('client-activity:data-changed')); }} /> : selected && <WorkspaceTaskInspector card={selected} actionClass={actionClass} onClose={() => setSelectedId(null)} onOpenTask={taskId => { setSelectedId(null); onOpenTask(taskId); }} onOpenPlan={() => { setSelectedId(null); onOpenPlan(); }} />}
+                        {selected?.taskId ? <WorkspaceTaskEditor taskId={selected.taskId} organizationId={organizationId} clientId={client.id} userId={userId} onClose={() => setSelectedId(null)} onChanged={task => {
+                            if (task && inputRef.current) {
+                                const nextInput = applyCanvasTaskEdit(inputRef.current, task);
+                                inputRef.current = nextInput;
+                                setModel(projectWorkspaceCanvas(nextInput));
+                            } else {
+                                setCalendarRefresh(value => value + 1);
+                            }
+                            window.dispatchEvent(new Event('client-activity:data-changed'));
+                        }} /> : selected && <WorkspaceTaskInspector card={selected} actionClass={actionClass} onClose={() => setSelectedId(null)} onOpenTask={taskId => { setSelectedId(null); onOpenTask(taskId); }} onOpenPlan={() => { setSelectedId(null); onOpenPlan(); }} />}
                     </DialogContent>
                 </Dialog>
         </div>

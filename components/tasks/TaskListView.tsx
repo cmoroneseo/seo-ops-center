@@ -9,7 +9,11 @@ import { useOrganization } from '@/components/providers/organization-provider';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { updateTask } from '@/lib/supabase/tasks';
 import { parseLiveUrlInput } from '@/lib/tasks/live-url';
+import { taskDescriptionText } from '@/lib/tasks/description';
+import { mergeSavedTask } from '@/lib/tasks/merge-saved-task';
+import { listedSubtaskProgress } from '@/lib/tasks/subtask-progress';
 import { LiveUrlControl } from './LiveUrlControl';
+import { SubtaskProgressText } from './SubtaskProgressText';
 
 interface TaskListViewProps {
     tasks: Task[];
@@ -137,9 +141,13 @@ export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListView
                                                         )}>
                                                             {task.title}
                                                         </span>
+                                                        {taskDescriptionText(task.description) && (
+                                                            <span className="line-clamp-1 text-[11px] text-muted-foreground">{taskDescriptionText(task.description)}</span>
+                                                        )}
                                                         {task.category && (
                                                             <span className="text-[10px] text-muted-foreground capitalize">{task.category}</span>
                                                         )}
+                                                        <SubtaskProgressText progress={listedSubtaskProgress(task)} className="text-[10px] text-muted-foreground" />
                                                         <LiveUrlControl
                                                             url={task.publishedUrl}
                                                             category={task.category}
@@ -148,7 +156,7 @@ export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListView
                                                                 if (!parsed.ok) return parsed.error;
                                                                 const result = await updateTask(task.id, { publishedUrl: parsed.publishedUrl });
                                                                 if (!result.success || !result.data) return result.error || 'Could not save that link.';
-                                                                onTaskUpdated?.(result.data);
+                                                                onTaskUpdated?.(mergeSavedTask(task, result.data));
                                                                 return null;
                                                             }}
                                                         />

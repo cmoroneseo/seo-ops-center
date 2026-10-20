@@ -40,6 +40,7 @@ function toCanvasTask(task: Task, members: { id: string; name: string }[]): Canv
         estimatedHours: task.estimatedHours,
         assignees: resolveAssigneeNames(task.assigneeIds ?? task.assignees ?? [], members),
         subtasks: (task.subtasks ?? []).map(subtask => ({ id: subtask.id, title: subtask.title, completed: subtask.completed })),
+        subtasksState: task.subtasksState,
     };
 }
 

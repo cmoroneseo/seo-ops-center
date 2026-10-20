@@ -3,7 +3,10 @@
 import { Calendar, User, Play, Pause } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Task } from '@/lib/types';
+import { taskDescriptionText } from '@/lib/tasks/description';
+import { listedSubtaskProgress } from '@/lib/tasks/subtask-progress';
 import { useTimer } from '@/components/providers/timer-provider';
+import { SubtaskProgressText } from './SubtaskProgressText';
 
 interface TaskCardProps {
     task: Task;
@@ -37,7 +40,12 @@ export function TaskCard({ task, clientId, clientName, memberMap = {} }: TaskCar
     return (
         <div className="group relative flex flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-sm transition-all hover:shadow-md hover:border-primary/50">
             <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
                 <h4 className="font-medium text-foreground text-sm leading-snug">{task.title}</h4>
+                {taskDescriptionText(task.description) && (
+                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{taskDescriptionText(task.description)}</p>
+                )}
+            </div>
                 <span className={cn(
                     "h-2 w-2 shrink-0 rounded-full mt-1",
                     task.priority === 'urgent' ? "bg-red-600 ring-1 ring-red-600/40" :
@@ -46,6 +54,8 @@ export function TaskCard({ task, clientId, clientName, memberMap = {} }: TaskCar
                     "bg-blue-500"
                 )} />
             </div>
+
+            <SubtaskProgressText progress={listedSubtaskProgress(task)} className="text-xs text-muted-foreground" />
 
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
                 <div className="flex items-center gap-1">
