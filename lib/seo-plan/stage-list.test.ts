@@ -244,6 +244,9 @@ test('row mapping keeps stage fields and drops the recurrence payload', () => {
         due_date: '2026-10-31T00:00:00.000Z',
     })?.dueDate, '2026-10-31');
     assert.equal(stageListTaskFromRow({ id: 'empty', title: 'Empty', due_date: null })?.dueDate, null);
+    assert.equal(stageListTaskFromRow({ id: 'held', title: 'Held', blocked_reason: ' Waiting on client ' })?.blockedReason, 'Waiting on client');
+    assert.equal(stageListTaskFromRow({ id: 'open', title: 'Open', blocked_reason: '  ' })?.blockedReason, null);
+    assert.equal(stageListTaskFromRow({ id: 'plain', title: 'Plain' })?.blockedReason, undefined);
 
     assert.equal(stageListTaskFromRow({ id: '', title: 'Nope' }), null);
     assert.equal(stageListTaskFromRow({ id: 'x' }), null);
@@ -266,6 +269,7 @@ test('JSON parsing keeps camelCase task fields and drops junk', () => {
             basecamp: true,
             recurring: false,
             dueDate: '2026-10-04',
+            blockedReason: ' Waiting on client ',
             organizationId: 'should-drop',
         },
         { id: 4, title: 'nope' },
@@ -274,6 +278,7 @@ test('JSON parsing keeps camelCase task fields and drops junk', () => {
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].basecamp, true);
     assert.equal(parsed[0].dueDate, '2026-10-04');
+    assert.equal(parsed[0].blockedReason, 'Waiting on client');
     assert.equal('organizationId' in parsed[0], false);
     assert.deepEqual(parseStageListTasks({ tasks: [] }), []);
 });
