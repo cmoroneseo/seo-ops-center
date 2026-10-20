@@ -24,9 +24,10 @@ export interface LegacyTaskStatusInput {
     status: string;
     statusHistory?: readonly TaskStatusHistoryEntryLike[] | null;
     completedAt?: string | null;
-    updatedAt?: string | null;
+    /** tasks.created_at. There is no tasks.updated_at column. */
+    createdAt?: string | null;
     blockedReason?: string | null;
-    /** Used only when a done row has neither completed_at nor a history stamp. */
+    /** Used only when a done row has no history stamp and no created_at. */
     now: string;
 }
 
@@ -80,17 +81,27 @@ function parseInstant(value: string | null | undefined): string | null {
     return new Date(time).toISOString();
 }
 
+function latestHistoryStamp(
+    entries: readonly TaskStatusHistoryEntryLike[],
+    statuses?: ReadonlySet<string>,
+): string | null {
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const entry = entries[index];
+        if (statuses && !statuses.has(entry?.status ?? '')) continue;
+        const at = parseInstant(entry?.at);
+        if (at) return at;
+    }
+    return null;
+}
+
 function completionStamp(input: LegacyTaskStatusInput): string {
     const existing = parseInstant(input.completedAt);
     if (existing) return existing;
     const entries = history(input);
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
-        const entry = entries[index];
-        if (entry?.status !== 'done' && entry?.status !== 'approved') continue;
-        const at = parseInstant(entry.at);
-        if (at) return at;
-    }
-    return parseInstant(input.updatedAt) ?? input.now;
+    return latestHistoryStamp(entries, new Set(['done', 'approved']))
+        ?? latestHistoryStamp(entries)
+        ?? parseInstant(input.createdAt)
+        ?? input.now;
 }
 
 /**

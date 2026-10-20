@@ -13754,7 +13754,9 @@ grant execute on function public.replace_gsc_live_url(uuid, uuid, text, text, da
 -- Migration 110: task status is todo, in progress, or done.
 --
 -- Review becomes in progress. Approved becomes done and keeps completed_at,
--- or backfills it from the latest done/approved history stamp, then updated_at.
+-- or backfills it from the latest done/approved history stamp, then the latest
+-- history stamp of any status, then created_at, then now(). tasks has no
+-- updated_at column.
 -- Blocked returns to the previous non-blocked history status (else todo) and
 -- gains a removable blocked_reason. A row restored to done does not keep the
 -- label, because marking done clears it. Done rows missing completed_at are
@@ -13896,7 +13898,19 @@ set
         order by ord desc
         limit 1
       ),
-      task.updated_at,
+      (
+        select public.task_status_history_timestamptz(entry->>'at')
+        from jsonb_array_elements(
+          case
+            when jsonb_typeof(task.status_history) = 'array' then task.status_history
+            else '[]'::jsonb
+          end
+        ) with ordinality as hist(entry, ord)
+        where public.task_status_history_timestamptz(entry->>'at') is not null
+        order by ord desc
+        limit 1
+      ),
+      task.created_at,
       timezone('utc', now())
     )
     else null

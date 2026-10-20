@@ -28,7 +28,7 @@ test('approved becomes done and keeps or backfills completed_at', () => {
         status: 'approved',
         completedAt: DONE_AT,
         statusHistory: [{ status: 'approved', at: APPROVED_AT }],
-        updatedAt: UPDATED,
+        createdAt: UPDATED,
         now: NOW,
     });
     assert.equal(kept.status, 'done');
@@ -42,25 +42,37 @@ test('approved becomes done and keeps or backfills completed_at', () => {
             { status: 'review', at: '2026-09-01T00:00:00.000Z' },
             { status: 'approved', at: APPROVED_AT },
         ],
-        updatedAt: UPDATED,
+        createdAt: UPDATED,
         now: NOW,
     });
     assert.equal(fromHistory.completedAt, APPROVED_AT);
 
-    const fromUpdated = migrateLegacyTaskStatus({
+    const fromAnyHistory = migrateLegacyTaskStatus({
+        status: 'approved',
+        completedAt: null,
+        statusHistory: [
+            { status: 'in_progress', at: '2026-09-01T00:00:00.000Z' },
+            { status: 'approved', at: 'not-a-date' },
+        ],
+        createdAt: UPDATED,
+        now: NOW,
+    });
+    assert.equal(fromAnyHistory.completedAt, '2026-09-01T00:00:00.000Z');
+
+    const fromCreated = migrateLegacyTaskStatus({
         status: 'approved',
         completedAt: null,
         statusHistory: [{ status: 'approved', at: 'not-a-date' }],
-        updatedAt: UPDATED,
+        createdAt: UPDATED,
         now: NOW,
     });
-    assert.equal(fromUpdated.completedAt, UPDATED);
+    assert.equal(fromCreated.completedAt, UPDATED);
 
     const fromNow = migrateLegacyTaskStatus({
         status: 'done',
         completedAt: null,
         statusHistory: [],
-        updatedAt: null,
+        createdAt: null,
         now: NOW,
     });
     assert.equal(fromNow.completedAt, NOW);
@@ -120,7 +132,7 @@ test('a blocked row whose previous status was done or approved does not keep the
             { status: 'approved', at: APPROVED_AT },
             { status: 'blocked', at: '2026-10-01T00:00:00.000Z' },
         ],
-        updatedAt: UPDATED,
+        createdAt: UPDATED,
         now: NOW,
     });
     assert.equal(restored.status, 'done');

@@ -19,7 +19,7 @@ interface Seed {
     status: string;
     history?: { status: string; at: string }[];
     completedAt?: string | null;
-    updatedAt?: string | null;
+    createdAt?: string | null;
 }
 
 function id(n: number): string {
@@ -44,9 +44,17 @@ const seeds: Seed[] = [
             { status: 'review', at: '2026-09-01T00:00:00.000Z' },
             { status: 'approved', at: APPROVED_AT },
         ],
-        updatedAt: UPDATED,
+        createdAt: UPDATED,
     },
-    { id: id(12), status: 'approved', history: [{ status: 'approved', at: 'not-a-date' }], updatedAt: UPDATED },
+    {
+        id: id(12),
+        status: 'approved',
+        history: [
+            { status: 'in_progress', at: '2026-09-01T00:00:00.000Z' },
+            { status: 'approved', at: 'not-a-date' },
+        ],
+        createdAt: UPDATED,
+    },
     {
         id: id(13),
         status: 'blocked',
@@ -73,11 +81,11 @@ const seeds: Seed[] = [
             { status: 'approved', at: APPROVED_AT },
             { status: 'blocked', at: '2026-10-01T00:00:00.000Z' },
         ],
-        updatedAt: UPDATED,
+        createdAt: UPDATED,
     },
     { id: id(18), status: 'done', completedAt: DONE_AT },
-    { id: id(19), status: 'done', history: [{ status: 'done', at: DONE_AT }], updatedAt: UPDATED },
-    { id: id(20), status: 'done', updatedAt: UPDATED },
+    { id: id(19), status: 'done', history: [{ status: 'done', at: DONE_AT }], createdAt: UPDATED },
+    { id: id(20), status: 'done', createdAt: UPDATED },
 ];
 
 function instant(value: unknown): string | null {
@@ -102,6 +110,8 @@ test('migration 110 is mirrored and retires the old task statuses', () => {
     assert.match(migration, /perform public\.note_timer_started_on_task\(owned_task\.id, p_started_at, actor_id\)/);
     assert.match(migration, /v_status not in \('todo', 'in_progress', 'done'\)/);
     assert.match(migration, /old\.status = 'done'/);
+    assert.match(migration, /task\.created_at/);
+    assert.doesNotMatch(migration, /tasks?\.updated_at/i);
     assert.doesNotMatch(migration, /create policy|enable row level security/i);
 });
 
@@ -116,10 +126,38 @@ test('legacy rows map once, completion is stamped, and the blocked label follows
         create table public.tasks (
             id uuid primary key,
             organization_id uuid,
+            project_id uuid,
+            title text,
+            description text,
             status text not null,
-            status_history jsonb,
+            assignee_id uuid,
+            due_date timestamptz,
+            created_at timestamptz,
+            client_id uuid,
+            priority text,
+            category text,
+            tags text[],
+            assignee_ids uuid[],
+            deliverable_id uuid,
+            parent_task_id uuid,
+            sort_order integer,
+            estimated_hours numeric,
+            start_date timestamptz,
             completed_at timestamptz,
-            updated_at timestamptz,
+            created_by uuid,
+            template_id uuid,
+            recurrence jsonb,
+            status_history jsonb,
+            custom_fields jsonb,
+            watcher_ids uuid[],
+            basecamp_todo_id text,
+            basecamp_project_id text,
+            last_synced_at timestamptz,
+            campaign_phase_id uuid,
+            scheduled_minutes integer,
+            stage text,
+            position integer,
+            published_url text,
             constraint tasks_status_check check (status in ('todo', 'in_progress', 'review', 'approved', 'blocked', 'done'))
         );
         create table public.marketing_plan_items (
@@ -135,11 +173,26 @@ test('legacy rows map once, completion is stamped, and the blocked label follows
         create table public.time_log_segments (id uuid primary key);
     `);
 
+    const columns = await db.query<{ column_name: string }>(
+        `select column_name from information_schema.columns
+         where table_schema = 'public' and table_name = 'tasks'
+         order by column_name`,
+    );
+    assert.deepEqual(columns.rows.map(row => row.column_name), [
+        'assignee_id', 'assignee_ids', 'basecamp_project_id', 'basecamp_todo_id',
+        'campaign_phase_id', 'category', 'client_id', 'completed_at', 'created_at',
+        'created_by', 'custom_fields', 'deliverable_id', 'description', 'due_date',
+        'estimated_hours', 'id', 'last_synced_at', 'organization_id', 'parent_task_id',
+        'position', 'priority', 'project_id', 'published_url', 'recurrence',
+        'scheduled_minutes', 'sort_order', 'stage', 'start_date', 'status',
+        'status_history', 'tags', 'template_id', 'title', 'watcher_ids',
+    ]);
+
     for (const seed of seeds) {
         await db.query(
-            `insert into public.tasks (id, organization_id, status, status_history, completed_at, updated_at)
+            `insert into public.tasks (id, organization_id, status, status_history, completed_at, created_at)
              values ($1, $2, $3, $4::jsonb, $5, $6)`,
-            [seed.id, ORG, seed.status, JSON.stringify(seed.history ?? []), seed.completedAt ?? null, seed.updatedAt ?? null],
+            [seed.id, ORG, seed.status, JSON.stringify(seed.history ?? []), seed.completedAt ?? null, seed.createdAt ?? null],
         );
     }
     await db.query(
@@ -175,7 +228,7 @@ test('legacy rows map once, completion is stamped, and the blocked label follows
             status: seed.status,
             statusHistory: seed.history ?? [],
             completedAt: seed.completedAt ?? null,
-            updatedAt: seed.updatedAt ?? null,
+            createdAt: seed.createdAt ?? null,
             now: NOW,
         });
         assert.equal(row.status, expected.status, seed.status);
