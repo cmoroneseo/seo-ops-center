@@ -12,9 +12,6 @@ import type { Task } from '../types.ts';
 export const TASK_STATUS_LABELS: Record<Task['status'], string> = {
     todo: 'To Do',
     in_progress: 'In Progress',
-    review: 'Review',
-    approved: 'Approved',
-    blocked: 'Blocked',
     done: 'Done',
 };
 

@@ -35,7 +35,7 @@ export function formatDueDay(day: string): string {
 }
 
 function openStatus(status: string): boolean {
-    return status !== 'done' && status !== 'approved';
+    return status !== 'done';
 }
 
 /**

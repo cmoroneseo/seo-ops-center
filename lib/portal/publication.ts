@@ -32,7 +32,7 @@ export async function capturePlan(scope: Pick<PortalClientScope, 'organizationId
             const task = row.linked_task as unknown as { due_date?: string; status: string; organization_id: string; client_id: string } | null;
             const scoped = task?.organization_id === scope.organizationId && task.client_id === scope.clientId ? task : null;
             const item = portalPlanItem({ id: String(row.id), stepKey: String(row.step_key), title: String(row.title),
-                description: row.description, status: row.status === 'ignored' ? 'ignored' : scoped ? (['done', 'approved'].includes(scoped.status) ? 'done' : 'todo') : row.status,
+                description: row.description, status: row.status === 'ignored' ? 'ignored' : scoped ? (scoped.status === 'done' ? 'done' : 'todo') : row.status,
                 dueDate: scoped ? scoped.due_date : row.due_date, sortOrder: row.sort_order });
             return item ? [item] : [];
         }) };

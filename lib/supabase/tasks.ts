@@ -19,6 +19,7 @@ import { seoPlanPushTodolistId } from '../basecamp/plan-lists';
 import { taskCreateRow } from '../tasks/create-row';
 import { completedAtForLiveUrl, parseLiveUrlInput, splitLiveUrl } from '../tasks/live-url';
 import { isTaskStage } from '../tasks/stage';
+import { normalizeBlockedReason, taskStatusColumns } from '../tasks/status';
 
 // ---------------------------------------------------------------------------
 // Basecamp integration helpers (fire-and-forget, server-side only)
@@ -72,6 +73,7 @@ export function rowToTask(row: any): Task {
         // an hour grid and needs the time of day (migration 027).
         startDate: row.start_date ?? undefined,
         completedAt: row.completed_at ?? undefined,
+        blockedReason: typeof row.blocked_reason === 'string' && row.blocked_reason.trim() ? row.blocked_reason.trim() : null,
         publishedUrl: typeof row.published_url === 'string' && row.published_url.trim() ? row.published_url.trim() : undefined,
         priority: (row.priority as TaskPriority) ?? 'medium',
         status: (row.status as TaskStatus) ?? 'todo',
@@ -474,6 +476,8 @@ export async function updateTask(
         parentTaskId?: string | null;
         /** null clears the live URL. */
         publishedUrl?: string | null;
+        /** null removes the blocked label. A reason is one line. */
+        blockedReason?: string | null;
     },
 ): Promise<{ success: boolean; data?: Task; error?: string }> {
     const supabase = createClient();
@@ -499,6 +503,16 @@ export async function updateTask(
             ...(patch.completedAt !== undefined && { completed_at: patch.completedAt }),
         };
 
+        if (patch.blockedReason !== undefined && patch.status !== 'done') {
+            if (patch.blockedReason == null || patch.blockedReason.trim() === '') {
+                candidate.blocked_reason = null;
+            } else {
+                const reason = normalizeBlockedReason(patch.blockedReason);
+                if (!reason.ok) return { success: false, error: reason.error };
+                candidate.blocked_reason = reason.reason;
+            }
+        }
+
         if (patch.publishedUrl !== undefined) {
             const parsed = parseLiveUrlInput(patch.publishedUrl ?? '');
             if (!parsed.ok) return { success: false, error: parsed.error };
@@ -519,18 +533,15 @@ export async function updateTask(
 
         // Append to status_history when status changes
         if (patch.status && current) {
+            const now = new Date().toISOString();
             const history: TaskStatusHistoryEntry[] = current.status_history ?? [];
-            history.push({ status: patch.status, at: new Date().toISOString(), by: patch.updatedBy });
+            history.push({ status: patch.status, at: now, by: patch.updatedBy });
             candidate.status_history = history;
-
-            // Auto-set completed_at when moving to done
-            if (patch.status === 'done' && patch.completedAt === undefined) {
-                candidate.completed_at = new Date().toISOString();
-            }
-            // Clear completed_at when un-done
-            if (patch.status !== 'done' && patch.completedAt === undefined) {
-                candidate.completed_at = null;
-            }
+            Object.assign(candidate, taskStatusColumns({
+                status: patch.status,
+                now,
+                completedAt: patch.completedAt,
+            }));
 
             // Auto-spawn next recurring instance when marking done
             if (patch.status === 'done' && current.recurrence) {

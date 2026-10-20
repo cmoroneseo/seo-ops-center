@@ -113,6 +113,7 @@ export interface CanvasTask {
     title: string;
     description?: string;
     status: Task['status'];
+    blockedReason?: string | null;
     dueDate?: string | null;
     startDate?: string | null;
     completedAt?: string | null;
@@ -586,9 +587,6 @@ function projectHours(input: WorkspaceCanvasInput): HoursModel {
 const STATUS_LABELS: Record<Task['status'], string> = {
     todo: 'To do',
     in_progress: 'In progress',
-    review: 'In review',
-    approved: 'Approved',
-    blocked: 'Blocked',
     done: 'Done',
 };
 
@@ -607,8 +605,7 @@ function subtaskProgress(subtasks: CanvasTask['subtasks']): string {
 function cardFromTask(task: CanvasTask, month: string, today: string): WorkCard {
     const due = day(task.dueDate);
     const badges: string[] = [];
-    if (task.status === 'blocked') badges.push('Blocked');
-    if (task.status === 'review') badges.push('In review');
+    if (task.blockedReason?.trim()) badges.push('Blocked');
     if (due && due < `${month}-01`) badges.push('Carryover');
     if (due && due < today) badges.push('Overdue');
     return {
@@ -904,13 +901,13 @@ function projectAttention(input: WorkspaceCanvasInput): AttentionModel {
     }
     if (input.tasks.ok) {
         for (const task of input.tasks.value) {
-            if (task.status !== 'blocked') continue;
+            if (!task.blockedReason?.trim()) continue;
             items.push({
                 id: `blocked:${task.id}`,
                 kind: 'blocked',
                 date: day(task.dueDate),
                 title: task.title,
-                detail: 'Blocked task',
+                detail: task.blockedReason.trim(),
                 action: 'task',
                 taskId: task.id,
             });

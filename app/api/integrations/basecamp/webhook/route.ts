@@ -8,6 +8,7 @@ import {
     createBasecampWebhookPost,
     type BasecampWebhookTask,
 } from '@/lib/basecamp/webhook-route';
+import { taskStatusColumns } from '@/lib/tasks/status';
 
 export const dynamic = 'force-dynamic';
 
@@ -99,8 +100,7 @@ export const POST = createBasecampWebhookPost({
             const { data, error } = await createAdminClient()
                 .from('tasks')
                 .update({
-                    status,
-                    completed_at: status === 'done' ? now : null,
+                    ...taskStatusColumns({ status, now }),
                     status_history: statusHistory,
                     last_synced_at: now,
                 })

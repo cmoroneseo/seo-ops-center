@@ -7,6 +7,7 @@ import {
     formatPlanDue,
     formatPlanHours,
     groupTasksByPlanMonth,
+    isPlanDone,
     isPlanLate,
     planEmptyCopy,
     planHourRollup,
@@ -129,9 +130,13 @@ test('onboarding ignores the month, lists open rows first, and collapses when ev
 
     const doneOnly = [
         task({ id: 'a', title: 'A', stage: 'onboarding', position: 2, status: 'done', completedAt: '2026-09-01T00:00:00.000Z' }),
-        task({ id: 'b', title: 'B', stage: 'onboarding', position: 1, status: 'approved', completedAt: '2026-09-02T00:00:00.000Z' }),
+        task({ id: 'b', title: 'B', stage: 'onboarding', position: 1, status: 'done', completedAt: '2026-09-02T00:00:00.000Z' }),
     ];
     const complete = ids('onboarding', MONTH, TODAY, doneOnly);
+    assert.equal(isPlanDone('done'), true);
+    assert.equal(isPlanDone('approved'), false);
+    assert.equal(isPlanDone('review'), false);
+    assert.equal(isPlanDone('blocked'), false);
     assert.equal(complete.collapsedComplete, true);
     assert.equal(complete.defaultCollapsed, true);
     assert.equal(complete.meta, 'Complete · 2/2');

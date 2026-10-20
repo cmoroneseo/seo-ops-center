@@ -166,7 +166,7 @@ export interface ForecastBuildResult {
     payloadBody: ForecastPayloadBody;
 }
 
-const DONE = new Set(['done', 'approved']);
+const DONE = new Set(['done']);
 
 interface NumericBucket {
     clientId: string | null;

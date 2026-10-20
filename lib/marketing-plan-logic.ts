@@ -99,11 +99,10 @@ export function filterItems(items: MarketingPlanItem[], query: string): Marketin
 // ---------------------------------------------------------------------------
 
 /**
- * Task statuses that count as checklist-complete. `approved` is terminal in
- * the task model, same as `done` for "is this work still open?" counts.
- * Kept in lockstep with migration 059 (`new.status in ('done', 'approved')`).
+ * Task statuses that count as checklist-complete.
+ * Migration 110 completes a linked item only when the task is done.
  */
-export const TASK_STATUSES_THAT_COMPLETE_CHECKLIST = ['done', 'approved'] as const;
+export const TASK_STATUSES_THAT_COMPLETE_CHECKLIST = ['done'] as const;
 
 export function taskCompletesChecklist(taskStatus: string): boolean {
     return (TASK_STATUSES_THAT_COMPLETE_CHECKLIST as readonly string[]).includes(taskStatus);
@@ -180,9 +179,9 @@ export interface ChecklistTogglePlan {
  *   the item, so a failed task update leaves the checklist untouched. This
  *   does not open the time-reconciliation sheet.
  * - Unchecking a linked item: reopen the task to `todo` only when that task
- *   is `done` or `approved`. A task already in progress, review, or blocked
- *   is left alone and only the item is unchecked — a manual check from before
- *   sync existed must not rewind real work. A missing task row unchecks the item.
+ *   is `done`. A task already in progress is left alone and only the item is
+ *   unchecked — a manual check from before sync existed must not rewind real
+ *   work. A missing task row unchecks the item.
  */
 export function checklistTogglePlan(input: {
     itemStatus: MarketingPlanItemStatus;

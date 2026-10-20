@@ -13,6 +13,7 @@ import {
     type FinalizeResult,
 } from '@/lib/timer/attempt-route';
 import { timerStateFromRows } from '@/lib/timer/contracts';
+import { taskStatusColumns } from '@/lib/tasks/status';
 
 export const dynamic = 'force-dynamic';
 
@@ -85,7 +86,7 @@ export async function POST(request: NextRequest): Promise<Response> {
             async completeOwnedTask(ownedTaskId, finalizedAt): Promise<CompletedTask | null> {
                 const { data: task, error: updateError } = await supabase
                     .from('tasks')
-                    .update({ status: 'done', completed_at: finalizedAt })
+                    .update(taskStatusColumns({ status: 'done', now: finalizedAt, completedAt: finalizedAt }))
                     .eq('id', ownedTaskId)
                     .select('id, organization_id, client_id, title, priority, category')
                     .maybeSingle();

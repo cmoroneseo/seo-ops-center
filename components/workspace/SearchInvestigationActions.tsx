@@ -17,10 +17,7 @@ export const SEARCH_DISMISSAL_REASON_LABELS: Record<SearchDismissalReason, strin
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
     todo: 'To do',
     in_progress: 'In progress',
-    review: 'In review',
     done: 'Done',
-    approved: 'Approved',
-    blocked: 'Blocked',
 };
 
 interface DismissInvestigationDialogProps {

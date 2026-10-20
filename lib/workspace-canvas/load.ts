@@ -33,6 +33,7 @@ function toCanvasTask(task: Task, members: { id: string; name: string }[]): Canv
         title: task.title,
         description: task.description,
         status: task.status,
+        blockedReason: task.blockedReason,
         dueDate: task.dueDate,
         startDate: task.startDate,
         completedAt: task.completedAt,

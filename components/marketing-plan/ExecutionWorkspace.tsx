@@ -51,7 +51,7 @@ const formatHours = (value: number) => `${Number(value.toFixed(1))}h`;
 const shortDate = (value?: string | null) => value ? new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'No due date';
 
 function Status({ task }: { task: Task }) {
-    return <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium', taskIsComplete(task) ? 'text-green-500' : task.status === 'blocked' ? 'text-amber-500' : task.status === 'in_progress' ? 'text-primary' : 'text-muted-foreground')}>
+    return <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium', taskIsComplete(task) ? 'text-green-500' : task.status === 'in_progress' ? 'text-primary' : 'text-muted-foreground')}>
         <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />{TASK_STATUS_LABELS[task.status]}
     </span>;
 }
@@ -158,7 +158,7 @@ function TaskPane({ task, category, members, onSave, onOpen }: { task: Task; cat
             } catch (e) { setError(e instanceof Error ? e.message : 'Could not save task'); } finally { setSaving(false); }
         }}>
             <fieldset disabled={saving} className="space-y-3 disabled:opacity-60">
-                <label className="block text-xs text-muted-foreground">Status<select className={cn(field, 'mt-1 max-w-48')} value={status} onChange={e => setStatus(e.target.value as Task['status'])}>{Object.entries(TASK_STATUS_LABELS).filter(([value]) => value !== 'done' && value !== 'approved' || value === task.status).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                <label className="block text-xs text-muted-foreground">Status<select className={cn(field, 'mt-1 max-w-48')} value={status} onChange={e => setStatus(e.target.value as Task['status'])}>{Object.entries(TASK_STATUS_LABELS).filter(([value]) => value !== 'done' || value === task.status).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
                 <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3">
                     <label className="text-xs text-muted-foreground">Owner<select className={cn(field, 'mt-1')} value={ownerIds.length > 1 ? '__multiple' : ownerIds[0] ?? ''} onChange={e => setOwnerIds(e.target.value ? [e.target.value] : [])}><option value="">Unassigned</option>{ownerIds.length > 1 && <option value="__multiple" disabled>{ownerIds.length} owners (keep)</option>}{ownerIds.filter(id => !members.some(member => member.userId === id)).map(id => <option key={id} value={id}>Existing member</option>)}{members.map(member => <option key={member.userId} value={member.userId}>{member.displayName}</option>)}</select></label>
                     <label className="text-xs text-muted-foreground">Due date<input type="date" className={cn(field, 'mt-1')} required value={due} onChange={e => setDue(e.target.value)} /></label>

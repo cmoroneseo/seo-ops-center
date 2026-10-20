@@ -19,8 +19,6 @@ import { reconcileTaskQuerySelection } from '@/lib/planner/task-selection';
 const columns = [
     { id: 'todo', title: 'To Do' },
     { id: 'in_progress', title: 'In Progress' },
-    { id: 'review', title: 'Review' },
-    { id: 'approved', title: 'Approved' },
     { id: 'done', title: 'Done' },
 ] as const;
 

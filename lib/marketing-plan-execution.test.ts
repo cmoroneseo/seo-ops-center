@@ -10,7 +10,7 @@ test('completed and reopened tasks override stale checklist completion and clear
     assert.equal(done.status, 'done'); assert.equal(done.title, 'Live task');
     assert.equal(done.dueDate, undefined); assert.equal(done.assigneeId, undefined);
     assert.equal(resolvePlanItem({ ...done, linkedTask: task({ status: 'in_progress' }) }).status, 'todo');
-    assert.equal(resolvePlanItem(item({ linkedTask: task({ status: 'approved' }) })).status, 'done');
+    assert.equal(resolvePlanItem(item({ linkedTask: task({ status: 'done', title: 'Shipped' }) })).title, 'Shipped');
 });
 
 test('monthly scope deduplicates links, includes completed effort, and flags missing estimates', () => {

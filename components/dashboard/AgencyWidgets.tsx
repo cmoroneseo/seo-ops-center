@@ -66,7 +66,6 @@ export function GlobalTaskProgress({ tasks }: AgencyWidgetProps) {
     const total = tasks.length;
     const completed = tasks.filter(t => t.status === 'done').length;
     const inProgress = tasks.filter(t => t.status === 'in_progress').length;
-    const review = tasks.filter(t => t.status === 'review').length;
     const todo = tasks.filter(t => t.status === 'todo').length;
 
     const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -107,7 +106,7 @@ export function GlobalTaskProgress({ tasks }: AgencyWidgetProps) {
                 <div className="space-y-3 flex-1 max-w-[160px]">
                     {[
                         { label: 'To Do', count: todo, color: 'bg-muted' },
-                        { label: 'In Review', count: review, color: 'bg-orange-500' },
+                        { label: 'In Progress', count: inProgress, color: 'bg-orange-500' },
                         { label: 'Completed', count: completed, color: 'bg-red-600' },
                         { label: 'Overdue', count: 2, color: 'bg-red-500' }, // Hardcoded overdue for demo look
                     ].map((item) => (

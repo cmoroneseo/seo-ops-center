@@ -110,7 +110,7 @@ export function completionDay(value: string | null | undefined, timeZone?: strin
 }
 
 export function isPlanDone(status: string): boolean {
-    return status === 'done' || status === 'approved';
+    return status === 'done';
 }
 
 export function isPlanOpen(status: string): boolean {

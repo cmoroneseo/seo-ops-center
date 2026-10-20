@@ -166,14 +166,16 @@ export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListView
                                                 <span className={cn(
                                                     "px-2 py-0.5 rounded text-[10px] font-bold capitalize",
                                                     task.status === 'done' ? "bg-green-500/10 text-green-500" :
-                                                    task.status === 'review' ? "bg-yellow-500/10 text-yellow-500" :
-                                                    task.status === 'approved' ? "bg-blue-500/10 text-blue-500" :
-                                                    task.status === 'blocked' ? "bg-red-500/10 text-red-500" :
                                                     task.status === 'in_progress' ? "bg-orange-500/10 text-orange-500" :
                                                     "bg-muted text-muted-foreground"
                                                 )}>
                                                     {task.status.replace('_', ' ')}
                                                 </span>
+                                                {task.blockedReason?.trim() && (
+                                                    <span className="ml-1 px-2 py-0.5 rounded text-[10px] font-bold bg-muted text-foreground">
+                                                        Blocked
+                                                    </span>
+                                                )}
                                             </td>
                                             <td className="px-4 py-4">
                                                 {task.dueDate ? (() => {

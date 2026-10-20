@@ -1,8 +1,7 @@
 import type { MarketingPlanItem, Task } from './types';
 
 export const TASK_STATUS_LABELS: Record<Task['status'], string> = {
-    todo: 'To do', in_progress: 'In progress', review: 'In review',
-    approved: 'Approved', blocked: 'Blocked', done: 'Done',
+    todo: 'To do', in_progress: 'In progress', done: 'Done',
 };
 
 export function monthKey(date = new Date()): string {
@@ -10,7 +9,7 @@ export function monthKey(date = new Date()): string {
 }
 
 export function taskIsComplete(task: Task): boolean {
-    return task.status === 'done' || task.status === 'approved';
+    return task.status === 'done';
 }
 
 /** Linked tasks own execution fields; stale checklist values must never win. */
