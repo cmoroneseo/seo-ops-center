@@ -160,7 +160,7 @@ test('starting a second row is the time control, and a promoted status shows on 
     next.unmount();
 });
 
-test('t starts or pauses the focused row and does nothing before a row is focused', () => {
+test('t toggles the focused row timer once per press', () => {
     const timers: string[] = [];
     const view = mount({
         onRowTimer: taskId => { timers.push(taskId); },
@@ -175,5 +175,7 @@ test('t starts or pauses the focused row and does nothing before a row is focuse
     press('j');
     press('t');
     assert.deepEqual(timers, ['alpha']);
+    press('t');
+    assert.deepEqual(timers, ['alpha', 'alpha']);
     view.unmount();
 });

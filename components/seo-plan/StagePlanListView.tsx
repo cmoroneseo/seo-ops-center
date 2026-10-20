@@ -19,12 +19,7 @@ import {
     type PlanSectionModel,
 } from '@/lib/seo-plan/plan-sections';
 import type { DoneThisMonthLog } from '@/lib/seo-plan/done-this-month';
-import {
-    planPanelKeyAction,
-    planShortcutBlocked,
-    visiblePlanRowIds,
-    type PlanPanelField,
-} from '@/lib/seo-plan/plan-panel';
+import { type PlanPanelField } from '@/lib/seo-plan/plan-panel';
 import { stageListTitleParts, type StageListTask } from '@/lib/seo-plan/stage-list';
 import { calendarDay, STAGE_LIST_TIME_ZONE } from '@/lib/seo-plan/this-month';
 import type { StageReorderMove } from '@/lib/seo-plan/stage-reorder';
@@ -33,9 +28,11 @@ import { cn } from '@/lib/utils';
 import { LiveUrlResultLine } from '@/components/search-reporting/LiveUrlResultLine';
 import { LiveUrlControl } from '@/components/tasks/LiveUrlControl';
 import { aggregateUrlResults, type UrlResultReadout } from '@/lib/search-reporting/url-results';
+import { planRowTimeText, planRowTimerLabel, type PlanRowTimerView } from '@/lib/seo-plan/row-timer';
 import { DoneThisMonthFooter } from './DoneThisMonthFooter';
 import { PlanAddLine, type PlanAddSubmission } from './PlanAddLine';
-import { planRowTimeText, planRowTimerLabel, type PlanRowTimerView } from '@/lib/seo-plan/row-timer';
+import { PlanShortcutSheet } from './PlanShortcutSheet';
+import { usePlanKeymap } from './use-plan-keymap';
 
 export interface StageAddRequest {
     stage: TaskStage;
@@ -105,18 +102,29 @@ function ProgressRing({ done, total }: { done: number; total: number }) {
     );
 }
 
-function CheckBox({ done }: { done: boolean }) {
+function CheckBox({ done, disabled, onToggle }: { done: boolean; disabled?: boolean; onToggle?: () => void }) {
     return (
-        <span
+        <button
+            type="button"
+            role="checkbox"
+            aria-checked={done}
+            aria-label={done ? 'Mark not done' : 'Mark done'}
             data-plan-check={done ? 'done' : 'open'}
+            disabled={disabled}
+            onClick={event => {
+                event.stopPropagation();
+                onToggle?.();
+            }}
+            onKeyDown={event => {
+                if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+            }}
             className={cn(
-                'flex h-4 w-4 items-center justify-center rounded-[4px] border',
+                'flex h-4 w-4 items-center justify-center rounded-[4px] border p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-70',
                 done ? 'border-[#ec4899] bg-[#ec4899] text-white' : 'border-[#3a3a40] bg-transparent',
             )}
-            aria-hidden="true"
         >
             {done && <Check className="h-3 w-3" strokeWidth={3} />}
-        </span>
+        </button>
     );
 }
 
@@ -185,6 +193,7 @@ export function StagePlanListView({
     onAddTasks,
     onReorder,
     onSetLiveUrl,
+    onToggleCheck,
     resultsByTaskId,
     today,
     initialMonth,
@@ -212,6 +221,8 @@ export function StagePlanListView({
     onAddTasks: (input: StageAddRequest) => Promise<void>;
     onReorder: (move: StageReorderMove) => Promise<void>;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
+    /** `x` and the row checkbox. Done flips back to to do. */
+    onToggleCheck?: (taskId: string) => void | Promise<void>;
     /** Search Console readout keyed by task id. Absent rows stay quiet. */
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
     /** Calendar day YYYY-MM-DD in the org timezone. Defaults to today in Pacific time. */
@@ -272,63 +283,27 @@ export function StagePlanListView({
         onOpenTask(taskId, field);
     }, [onOpenTask]);
 
+    const shiftMonth = useCallback((delta: -1 | 1) => {
+        setMonth(currentMonth => shiftPlanMonth(currentMonth, delta));
+    }, []);
+    const { helpOpen, closeHelp } = usePlanKeymap({
+        rootRef: listRef,
+        searchRef,
+        query,
+        onQueryChange,
+        panelOpen: Boolean(panelTaskId),
+        focusedId,
+        setFocusedId,
+        onOpenTask: openTask,
+        onClosePanel,
+        onToggleCheck,
+        onRowTimer,
+        onShiftMonth: shiftMonth,
+    });
+
     useEffect(() => {
         onMonthChange?.(month);
     }, [month, onMonthChange]);
-
-    useEffect(() => {
-        const onKey = (event: KeyboardEvent) => {
-            if (event.metaKey || event.ctrlKey || event.altKey) return;
-            const blocked = planShortcutBlocked(event.target, event.key);
-            if (event.key === '/' && !blocked) {
-                event.preventDefault();
-                searchRef.current?.focus();
-                return;
-            }
-            if ((event.key === '[' || event.key === ']') && !blocked) {
-                event.preventDefault();
-                setMonth(currentMonth => shiftPlanMonth(currentMonth, event.key === '[' ? -1 : 1));
-                return;
-            }
-            const visibleIds = visiblePlanRowIds(listRef.current ?? document)
-                .filter(id => !isPendingStageTaskId(id));
-            const action = planPanelKeyAction({
-                key: event.key,
-                blocked,
-                panelOpen: Boolean(panelTaskId),
-                focusedId,
-                visibleIds,
-            });
-            if (action.type === 'move') {
-                event.preventDefault();
-                setFocusedId(action.taskId);
-                if (action.panel) onOpenTask(action.taskId, null);
-                const row = listRef.current?.querySelector(`[data-plan-row="${action.taskId}"]`);
-                if (row instanceof HTMLElement && typeof row.scrollIntoView === 'function') {
-                    try { row.scrollIntoView({ block: 'nearest' }); } catch { /* not available in every test DOM */ }
-                }
-                return;
-            }
-            if (action.type === 'open') {
-                event.preventDefault();
-                openTask(action.taskId, null);
-                return;
-            }
-            if (action.type === 'close') {
-                event.preventDefault();
-                onClosePanel?.();
-                return;
-            }
-            if (event.key === 't' && !blocked && focusedId && onRowTimer) {
-                event.preventDefault();
-                onRowTimer(focusedId);
-                return;
-            }
-            if (event.key === 'Escape' && query && !blocked) onQueryChange('');
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [focusedId, onClosePanel, onOpenTask, onQueryChange, onRowTimer, openTask, panelTaskId, query]);
 
     const list = (
         <div ref={listRef} data-seo-plan-stage-list data-plan-month={month} className="min-w-0 flex-1 space-y-3 text-[13px] text-[#ececee]">
@@ -370,14 +345,8 @@ export function StagePlanListView({
                         id={searchId}
                         type="search"
                         value={query}
+                        data-plan-search
                         onChange={event => onQueryChange(event.target.value)}
-                        onKeyDown={event => {
-                            if (event.key === 'Escape') {
-                                event.preventDefault();
-                                onQueryChange('');
-                                event.currentTarget.blur();
-                            }
-                        }}
                         placeholder="Search tasks"
                         className="w-56 max-w-full rounded-lg border border-[#2a2a2e] bg-[#141416] px-3 py-1.5 text-[13px] text-[#ececee] outline-none placeholder:text-[#6d6d75] focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                     />
@@ -420,6 +389,7 @@ export function StagePlanListView({
                 onOpenTask={openTask}
                 onReorder={onReorder}
                 onSetLiveUrl={onSetLiveUrl}
+                onToggleCheck={onToggleCheck}
                 resultsByTaskId={resultsByTaskId}
             />
             <DoneThisMonthFooter
@@ -433,12 +403,17 @@ export function StagePlanListView({
             />
         </div>
     );
-    if (!panel) return list;
-    return (
+    const body = panel ? (
         <div data-plan-shell="open" className="flex items-start">
             {list}
             {panel}
         </div>
+    ) : list;
+    return (
+        <>
+            {body}
+            {helpOpen && <PlanShortcutSheet onClose={closeHelp} />}
+        </>
     );
 }
 
@@ -469,6 +444,7 @@ function PlanSections({
     onOpenTask,
     onReorder,
     onSetLiveUrl,
+    onToggleCheck,
     resultsByTaskId,
 }: {
     tasks: readonly StageListTask[];
@@ -488,6 +464,7 @@ function PlanSections({
     onOpenTask: (taskId: string, field: PlanPanelField | null) => void;
     onReorder: (move: StageReorderMove) => Promise<void>;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
+    onToggleCheck?: (taskId: string) => void | Promise<void>;
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
 }) {
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -616,6 +593,7 @@ function PlanSections({
                                             focusedId={focusedId}
                                             onOpenTask={onOpenTask}
                                             onSetLiveUrl={onSetLiveUrl}
+                                            onToggleCheck={onToggleCheck}
                                             resultsByTaskId={resultsByTaskId}
                                             onDragStart={rememberDrag}
                                             onDragEnd={clearDrag}
@@ -676,6 +654,7 @@ function PlanRow({
     focusedId,
     onOpenTask,
     onSetLiveUrl,
+    onToggleCheck,
     resultsByTaskId,
     onDragStart,
     onDragEnd,
@@ -700,6 +679,7 @@ function PlanRow({
     focusedId: string | null;
     onOpenTask: (taskId: string, field: PlanPanelField | null) => void;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
+    onToggleCheck?: (taskId: string) => void | Promise<void>;
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
     onDragStart: (id: string | null) => void;
     onDragEnd: () => void;
@@ -833,7 +813,13 @@ function PlanRow({
                         </button>
                     ) : options.pillar
                         ? <ProgressRing done={options.childDone ?? 0} total={options.childCount ?? 0} />
-                        : <CheckBox done={done} />}
+                        : (
+                            <CheckBox
+                                done={done}
+                                disabled={pending}
+                                onToggle={pending || !onToggleCheck ? undefined : () => { void onToggleCheck(task.id); }}
+                            />
+                        )}
                 </span>
                 <div className="flex min-w-0 items-center gap-2">
                     <button
