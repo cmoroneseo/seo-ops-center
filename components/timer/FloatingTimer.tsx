@@ -76,9 +76,9 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
                     <button
                         onClick={() => setShowQuickStart(current => !current)}
                         title="Start Timer  ⌘⇧T"
-                        className="group h-14 w-14 flex items-center justify-center rounded-full bg-card border border-border shadow-lg hover:border-green-500/50 hover:bg-green-500/10 hover:shadow-green-500/10 transition-all duration-200"
+                        className="group h-14 w-14 flex items-center justify-center rounded-full bg-card border border-border shadow-lg hover:border-[#ec4899]/50 hover:bg-[#ec4899]/10 hover:shadow-[#ec4899]/10 transition-all duration-200"
                     >
-                        <Clock className="h-5 w-5 text-muted-foreground group-hover:text-green-500 transition-colors" />
+                        <Clock className="h-5 w-5 text-muted-foreground group-hover:text-[#ec4899] transition-colors" />
                     </button>
                     {showQuickStart && (
                         <div className="absolute bottom-16 right-0">
@@ -100,11 +100,11 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
                     onClick={() => setExpanded(true)}
                     className={cn(
                         'group flex items-center gap-2.5 pl-3 pr-4 h-12 rounded-full shadow-lg border transition-all duration-200 hover:scale-105',
-                        primaryIsRunning ? 'bg-card border-green-500/40 shadow-green-500/10 hover:border-green-500/70' : 'bg-card border-amber-500/30 shadow-amber-500/10 hover:border-amber-500/60',
+                        primaryIsRunning ? 'bg-card border-[#ec4899]/40 shadow-[#ec4899]/10 hover:border-[#ec4899]/70' : 'bg-card border-amber-500/30 shadow-amber-500/10 hover:border-amber-500/60',
                     )}
                 >
-                    <span className={cn('h-2 w-2 rounded-full shrink-0', primaryIsRunning ? 'bg-green-500 animate-pulse' : 'bg-amber-500')} />
-                    <span className={cn('font-mono font-semibold text-sm tabular-nums', primaryIsRunning ? 'text-green-400' : 'text-amber-400')}>
+                    <span className={cn('h-2 w-2 rounded-full shrink-0', primaryIsRunning ? 'bg-[#ec4899] animate-pulse' : 'bg-amber-500')} />
+                    <span className={cn('font-mono font-semibold text-sm tabular-nums', primaryIsRunning ? 'text-[#ec4899]' : 'text-amber-400')}>
                         {formatElapsed(runningElapsed ?? getElapsedSeconds(primaryTimer))}
                     </span>
                 </button>
@@ -114,13 +114,13 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
 
     return (
         <div ref={widgetRef} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50 w-72 animate-in slide-in-from-bottom-3 fade-in duration-200">
-            <div className={cn('bg-card border rounded-2xl shadow-2xl overflow-hidden', runningTimer ? 'border-green-500/30 shadow-green-500/5' : 'border-amber-500/30')}>
-                <div className={cn('h-0.5 w-full', runningTimer ? 'bg-gradient-to-r from-green-500/0 via-green-500 to-green-500/0 animate-pulse' : 'bg-amber-500/60')} />
+            <div className={cn('bg-card border rounded-2xl shadow-2xl overflow-hidden', runningTimer ? 'border-[#ec4899]/30 shadow-[#ec4899]/5' : 'border-amber-500/30')}>
+                <div className={cn('h-0.5 w-full', runningTimer ? 'bg-gradient-to-r from-[#ec4899]/0 via-[#ec4899] to-[#ec4899]/0 animate-pulse' : 'bg-amber-500/60')} />
 
                 <div className="px-4 pt-4 pb-2 space-y-3">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                            <span className={cn('h-2 w-2 rounded-full shrink-0', runningTimer ? 'bg-green-500 animate-pulse' : 'bg-amber-500')} />
+                            <span className={cn('h-2 w-2 rounded-full shrink-0', runningTimer ? 'bg-[#ec4899] animate-pulse' : 'bg-amber-500')} />
                             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{runningTimer ? 'Tracking' : 'Paused'}</span>
                         </div>
                         <button onClick={() => setExpanded(false)} aria-label="Collapse timer" className="h-6 w-6 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
@@ -134,9 +134,9 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
                                 <p className="font-semibold text-foreground truncate">{runningTimer.clientName || 'Unassigned'}</p>
                                 {runningTimer.taskTitle && <p className="text-xs text-muted-foreground truncate mt-0.5">{runningTimer.taskTitle}</p>}
                             </div>
-                            <div className="text-4xl font-mono font-bold tabular-nums tracking-tight text-green-400">{formatElapsed(runningElapsed!)}</div>
+                            <div className="text-4xl font-mono font-bold tabular-nums tracking-tight text-[#ec4899]">{formatElapsed(runningElapsed!)}</div>
                             <div className="flex items-center gap-2 pt-1">
-                                <button onClick={() => void pause(runningTimer)} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-all duration-150">
+                                <button onClick={() => void pause(runningTimer)} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium bg-[#ec4899]/15 text-[#ec4899] hover:bg-[#ec4899]/25 transition-all duration-150">
                                     <Pause className="h-4 w-4 fill-current" /> Pause
                                 </button>
                                 <button onClick={() => void openStopReview(runningTimer)} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-muted text-sm font-medium text-muted-foreground hover:bg-destructive/15 hover:text-red-400 transition-all duration-150">

@@ -242,7 +242,7 @@ test('each plan shortcut acts once, and brackets step a single month', async () 
         assert.equal(focusedRow(), 'kickoff');
         const row = document.querySelector('[data-plan-focused="true"]');
         assert.match(row?.className ?? '', /bg-\[#1d1d22\]/);
-        assert.match(row?.className ?? '', /inset_2px_0_0_#ec4899/);
+        assert.match(row?.className ?? '', /inset_2px_0_0_0_#ec4899/);
         await act(async () => { key(window, 'j'); });
         assert.equal(focusedRow(), 'pillar');
         await act(async () => { key(window, 'k'); });
@@ -289,9 +289,11 @@ test('each plan shortcut acts once, and brackets step a single month', async () 
 
         await act(async () => { key(window, 't'); });
         assert.deepEqual(timers, ['pillar']);
+        await act(async () => { key(window, 't'); });
+        assert.deepEqual(timers, ['pillar', 'pillar']);
         const commandTimer = await act(async () => key(window, 't', { metaKey: true, shiftKey: true }));
         assert.equal(commandTimer.defaultPrevented, false);
-        assert.deepEqual(timers, ['pillar']);
+        assert.deepEqual(timers, ['pillar', 'pillar']);
         const commandSearch = await act(async () => key(window, 'k', { metaKey: true }));
         assert.equal(commandSearch.defaultPrevented, false);
         assert.equal(focusedRow(), 'pillar');

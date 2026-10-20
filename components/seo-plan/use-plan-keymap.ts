@@ -8,7 +8,7 @@ import { isPendingStageTaskId } from '@/lib/seo-plan/stage-add';
 /**
  * The one key listener for the SEO Plan tab.
  * Month steps, row focus, and the side panel's j/k/Enter/Escape all go through it.
- * `onRowTimer` is the seam for the row timer. Until that lands, `t` is reserved.
+ * `t` starts or pauses the focused row through `onRowTimer`.
  */
 export function usePlanKeymap({
     rootRef,

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
-import { Check, ChevronRight, GripVertical } from 'lucide-react';
+import { Check, ChevronRight, GripVertical, Play } from 'lucide-react';
 import { isPendingStageTaskId } from '@/lib/seo-plan/stage-add';
 import { effectOfPlanDrop } from '@/lib/seo-plan/plan-drag';
 import {
@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils';
 import { LiveUrlResultLine } from '@/components/search-reporting/LiveUrlResultLine';
 import { LiveUrlControl } from '@/components/tasks/LiveUrlControl';
 import { aggregateUrlResults, type UrlResultReadout } from '@/lib/search-reporting/url-results';
+import { planRowTimeText, planRowTimerLabel, type PlanRowTimerView } from '@/lib/seo-plan/row-timer';
 import { DoneThisMonthFooter } from './DoneThisMonthFooter';
 import { PlanAddLine, type PlanAddSubmission } from './PlanAddLine';
 import { PlanShortcutSheet } from './PlanShortcutSheet';
@@ -193,7 +194,6 @@ export function StagePlanListView({
     onReorder,
     onSetLiveUrl,
     onToggleCheck,
-    onRowTimer,
     resultsByTaskId,
     today,
     initialMonth,
@@ -206,6 +206,10 @@ export function StagePlanListView({
     clientId,
     onOpenResults,
     clientName,
+    timerByTaskId,
+    onRowTimer,
+    onCheckRunning,
+    urlPromptTaskId,
     panel,
     panelTaskId = null,
     onClosePanel,
@@ -219,8 +223,6 @@ export function StagePlanListView({
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
     /** `x` and the row checkbox. Done flips back to to do. */
     onToggleCheck?: (taskId: string) => void | Promise<void>;
-    /** `t` on the focused row. The row timer wires this. Absent reserves the key. */
-    onRowTimer?: (taskId: string) => void;
     /** Search Console readout keyed by task id. Absent rows stay quiet. */
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
     /** Calendar day YYYY-MM-DD in the org timezone. Defaults to today in Pacific time. */
@@ -230,6 +232,14 @@ export function StagePlanListView({
     people?: readonly PlanAssignee[];
     /** Logged hours by task id. All-time, finalized logs only. */
     loggedHours?: Readonly<Record<string, number>>;
+    /** Open global-timer attempts keyed by task. Absent tasks are idle. */
+    timerByTaskId?: Readonly<Record<string, PlanRowTimerView>>;
+    /** Start, pause, or resume the global timer for this task. */
+    onRowTimer?: (taskId: string) => void;
+    /** Checking a row whose timer is running. Ordinary check-off stays with the caller. */
+    onCheckRunning?: (taskId: string) => void;
+    /** After a confirmed stop-and-complete, open the live URL field on this task. */
+    urlPromptTaskId?: string | null;
     /**
      * Finalized time logs for the selected month. Null while that query is in flight.
      * Omit it when the caller has no logs to load; the footer then shows zeros.
@@ -372,6 +382,10 @@ export function StagePlanListView({
                 people={people}
                 loggedHours={loggedHours}
                 focusedId={focusedId}
+                timerByTaskId={timerByTaskId}
+                onRowTimer={onRowTimer}
+                onCheckRunning={onCheckRunning}
+                urlPromptTaskId={urlPromptTaskId}
                 onOpenTask={openTask}
                 onReorder={onReorder}
                 onSetLiveUrl={onSetLiveUrl}
@@ -423,6 +437,10 @@ function PlanSections({
     people,
     loggedHours,
     focusedId,
+    timerByTaskId,
+    onRowTimer,
+    onCheckRunning,
+    urlPromptTaskId,
     onOpenTask,
     onReorder,
     onSetLiveUrl,
@@ -439,6 +457,10 @@ function PlanSections({
     people: readonly PlanAssignee[];
     loggedHours: Readonly<Record<string, number>>;
     focusedId: string | null;
+    timerByTaskId?: Readonly<Record<string, PlanRowTimerView>>;
+    onRowTimer?: (taskId: string) => void;
+    onCheckRunning?: (taskId: string) => void;
+    urlPromptTaskId?: string | null;
     onOpenTask: (taskId: string, field: PlanPanelField | null) => void;
     onReorder: (move: StageReorderMove) => Promise<void>;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
@@ -561,6 +583,10 @@ function PlanSections({
                                             today={today}
                                             people={people}
                                             loggedHours={loggedHours}
+                                            timerByTaskId={timerByTaskId}
+                                            onRowTimer={onRowTimer}
+                                            onCheckRunning={onCheckRunning}
+                                            urlPromptTaskId={urlPromptTaskId}
                                             dragId={dragId}
                                             foldDone={foldDone}
                                             baseId={baseId}
@@ -618,6 +644,10 @@ function PlanRow({
     today,
     people,
     loggedHours,
+    timerByTaskId,
+    onRowTimer,
+    onCheckRunning,
+    urlPromptTaskId,
     dragId,
     foldDone,
     baseId,
@@ -639,6 +669,10 @@ function PlanRow({
     today: string;
     people: readonly PlanAssignee[];
     loggedHours: Readonly<Record<string, number>>;
+    timerByTaskId?: Readonly<Record<string, PlanRowTimerView>>;
+    onRowTimer?: (taskId: string) => void;
+    onCheckRunning?: (taskId: string) => void;
+    urlPromptTaskId?: string | null;
     dragId: string | null;
     foldDone: boolean;
     baseId: string;
@@ -680,6 +714,10 @@ function PlanRow({
             ? planHourRollup(task.id, group.rollupChildIds, loggedHours)
             : null;
         const logged = hours ? hours.total : (loggedHours[task.id] ?? 0);
+        const timer = timerByTaskId?.[task.id] ?? { phase: 'idle' as const, seconds: 0 };
+        const loggedLabel = options.pillar ? `Σ ${formatPlanHours(logged)}` : formatPlanHours(logged);
+        const timeText = onRowTimer ? planRowTimeText(timer, loggedLabel) : loggedLabel;
+        const stopOnCheck = timer.phase === 'running' && Boolean(onCheckRunning) && !pending;
         const childResults = options.pillar
             ? group.children.flatMap(child => {
                 const result = resultsByTaskId?.[child.id];
@@ -707,6 +745,8 @@ function PlanRow({
                 data-plan-row={task.id}
                 data-plan-focused={focusedId === task.id ? 'true' : undefined}
                 data-late={due.late ? 'true' : undefined}
+                data-plan-status={task.status}
+                data-plan-timer={onRowTimer ? timer.phase : undefined}
                 draggable={draggable || undefined}
                 onDragStart={event => {
                     if (!draggable) return;
@@ -748,14 +788,30 @@ function PlanRow({
                     options.role === 'subtask' && 'pl-9',
                     draggable && 'cursor-grab',
                     dragId === task.id && 'opacity-40',
-                    focusedId === task.id && 'bg-[#1d1d22] shadow-[inset_2px_0_0_#ec4899]',
+                    focusedId === task.id && 'bg-[#1d1d22]',
+                    (focusedId === task.id || (timer.phase === 'running' && onRowTimer)) && 'shadow-[inset_2px_0_0_0_#ec4899]',
                 )}
             >
                 <span className="flex justify-center">
                     {options.leading ?? <span className="w-3.5" />}
                 </span>
                 <span className="flex justify-center">
-                    {options.pillar
+                    {stopOnCheck ? (
+                        <button
+                            type="button"
+                            data-plan-check-action="stop-timer"
+                            aria-label={`Log time and mark ${task.title} done`}
+                            onClick={event => {
+                                event.stopPropagation();
+                                onCheckRunning?.(task.id);
+                            }}
+                            className="rounded-[4px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                        >
+                            {options.pillar
+                                ? <ProgressRing done={options.childDone ?? 0} total={options.childCount ?? 0} />
+                                : <CheckBox done={done} />}
+                        </button>
+                    ) : options.pillar
                         ? <ProgressRing done={options.childDone ?? 0} total={options.childCount ?? 0} />
                         : (
                             <CheckBox
@@ -802,6 +858,7 @@ function PlanRow({
                     <LiveUrlControl
                         url={task.publishedUrl}
                         category={task.category}
+                        openRequest={urlPromptTaskId === task.id ? 1 : 0}
                         onSave={!pending && onSetLiveUrl ? raw => onSetLiveUrl(task.id, raw) : undefined}
                     />
                     <LiveUrlResultLine result={result} />
@@ -832,13 +889,42 @@ function PlanRow({
                 >
                     <AssigneeStack ids={assigneeIds} people={people} />
                 </button>
-                <span
-                    className={cn('text-right text-[12px]', logged > 0 ? 'text-[#cfcfd4]' : 'text-[#6d6d75]')}
-                    title={hours ? hours.tooltip : undefined}
-                    data-plan-time={options.pillar ? `Σ ${formatPlanHours(logged)}` : formatPlanHours(logged)}
-                >
-                    {options.pillar ? `Σ ${formatPlanHours(logged)}` : formatPlanHours(logged)}
-                </span>
+                {onRowTimer ? (
+                    <button
+                        type="button"
+                        disabled={pending || timer.phase === 'reviewing'}
+                        aria-label={planRowTimerLabel(timer.phase, task.title)}
+                        title={timer.phase === 'idle' && hours ? hours.tooltip : undefined}
+                        data-plan-time={timeText}
+                        onClick={event => {
+                            event.stopPropagation();
+                            if (!pending) onRowTimer(task.id);
+                        }}
+                        className={cn(
+                            'inline-flex w-full items-center justify-end gap-1 text-right text-[12px] tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-70',
+                            timer.phase === 'running' && 'rounded-full bg-[#ec4899]/15 px-1.5 py-0.5 font-mono text-[#ec4899]',
+                            timer.phase === 'paused' && 'text-[#cfcfd4]',
+                            timer.phase === 'reviewing' && 'text-[#8b8b93]',
+                            timer.phase === 'idle' && (logged > 0 ? 'text-[#cfcfd4]' : 'text-[#6d6d75]'),
+                        )}
+                    >
+                        {timer.phase === 'running' && (
+                            <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ec4899] animate-pulse" />
+                        )}
+                        {timer.phase === 'idle' && (
+                            <Play aria-hidden="true" className="h-3 w-0 fill-current opacity-0 group-hover:w-3 group-hover:opacity-100 group-focus-within:w-3 group-focus-within:opacity-100" />
+                        )}
+                        <span>{timeText}</span>
+                    </button>
+                ) : (
+                    <span
+                        className={cn('text-right text-[12px]', logged > 0 ? 'text-[#cfcfd4]' : 'text-[#6d6d75]')}
+                        title={hours ? hours.tooltip : undefined}
+                        data-plan-time={loggedLabel}
+                    >
+                        {loggedLabel}
+                    </span>
+                )}
             </div>
         );
     };
