@@ -46,20 +46,25 @@ function tracking(task: ProgressTask) {
     };
 }
 
+function titled(task: ProgressTask | null | undefined): { title: string } | null {
+    if (!task) return null;
+    return { title: task.title ?? '' };
+}
+
 /** Pillar this row renders under. Null is a top-level task. `'missing'` has no loaded parent. */
 export function nestingParentId(
     task: ProgressTask,
     byId: ReadonlyMap<string, ProgressTask>,
 ): string | 'missing' | null {
     const direct = task.parentTaskId ? byId.get(task.parentTaskId) : undefined;
-    if (timeTrackingTaskId(tracking(task), direct ?? null) === task.id) return null;
+    if (timeTrackingTaskId(tracking(task), titled(direct)) === task.id) return null;
     if (!task.parentTaskId) return null;
     if (!direct) return 'missing';
 
     let current: ProgressTask = direct;
     for (let guard = 0; guard < 8; guard += 1) {
         const parentOfCurrent = current.parentTaskId ? byId.get(current.parentTaskId) : undefined;
-        if (timeTrackingTaskId(tracking(current), parentOfCurrent ?? null) === current.id) return current.id;
+        if (timeTrackingTaskId(tracking(current), titled(parentOfCurrent)) === current.id) return current.id;
         if (!current.parentTaskId || !parentOfCurrent) return 'missing';
         current = parentOfCurrent;
     }

@@ -216,7 +216,7 @@ async function childProgressRows(
         if (scope.clientId) query = query.eq('client_id', scope.clientId);
         const { data, error } = await query;
         if (error) return null;
-        return (data ?? []).map(row => progressTaskFromRow(row as Record<string, unknown>));
+        return (data ?? []).map((row: Record<string, unknown>) => progressTaskFromRow(row));
     } catch {
         return null;
     }
