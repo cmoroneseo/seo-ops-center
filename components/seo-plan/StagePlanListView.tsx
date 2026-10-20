@@ -18,6 +18,7 @@ import {
     type PlanSectionId,
     type PlanSectionModel,
 } from '@/lib/seo-plan/plan-sections';
+import type { DoneThisMonthLog } from '@/lib/seo-plan/done-this-month';
 import {
     planPanelKeyAction,
     planShortcutBlocked,
@@ -25,13 +26,14 @@ import {
     type PlanPanelField,
 } from '@/lib/seo-plan/plan-panel';
 import { stageListTitleParts, type StageListTask } from '@/lib/seo-plan/stage-list';
-import { calendarDay } from '@/lib/seo-plan/this-month';
+import { calendarDay, STAGE_LIST_TIME_ZONE } from '@/lib/seo-plan/this-month';
 import type { StageReorderMove } from '@/lib/seo-plan/stage-reorder';
 import type { TaskStage } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { LiveUrlResultLine } from '@/components/search-reporting/LiveUrlResultLine';
 import { LiveUrlControl } from '@/components/tasks/LiveUrlControl';
 import { aggregateUrlResults, type UrlResultReadout } from '@/lib/search-reporting/url-results';
+import { DoneThisMonthFooter } from './DoneThisMonthFooter';
 import { PlanAddLine, type PlanAddSubmission } from './PlanAddLine';
 import { planRowTimeText, planRowTimerLabel, type PlanRowTimerView } from '@/lib/seo-plan/row-timer';
 
@@ -188,6 +190,11 @@ export function StagePlanListView({
     initialMonth,
     people = [],
     loggedHours = {},
+    monthLogs,
+    monthLogsFor,
+    onMonthChange,
+    timeZone = STAGE_LIST_TIME_ZONE,
+    clientId,
     onOpenResults,
     clientName,
     timerByTaskId,
@@ -222,7 +229,20 @@ export function StagePlanListView({
     onCheckRunning?: (taskId: string) => void;
     /** After a confirmed stop-and-complete, open the live URL field on this task. */
     urlPromptTaskId?: string | null;
-    onOpenResults?: () => void;
+    /**
+     * Finalized time logs for the selected month. Null while that query is in flight.
+     * Omit it when the caller has no logs to load; the footer then shows zeros.
+     */
+    monthLogs?: readonly DoneThisMonthLog[] | null;
+    /** Month the `monthLogs` array was loaded for. A mismatch keeps hours pending. */
+    monthLogsFor?: string | null;
+    /** Tells the parent which month the footer hours should cover. */
+    onMonthChange?: (month: string) => void;
+    /** Org timezone for completion and log boundaries. Defaults to Pacific. */
+    timeZone?: string;
+    clientId?: string;
+    /** Opens this client's Results view for the selected month. */
+    onOpenResults?: (month: string) => void;
     /** Kept for callers. The plan header does not repeat the client name. */
     clientName?: string;
     /** Beside the list. No scrim, and the list stays clickable. */
@@ -251,6 +271,10 @@ export function StagePlanListView({
         setFocusedId(taskId);
         onOpenTask(taskId, field);
     }, [onOpenTask]);
+
+    useEffect(() => {
+        onMonthChange?.(month);
+    }, [month, onMonthChange]);
 
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
@@ -340,15 +364,6 @@ export function StagePlanListView({
                     </button>
                 </div>
                 <div className="flex items-center gap-3">
-                    {onOpenResults && (
-                        <button
-                            type="button"
-                            onClick={onOpenResults}
-                            className="text-xs text-[#8b8b93] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
-                        >
-                            Results
-                        </button>
-                    )}
                     <label htmlFor={searchId} className="sr-only">Search tasks</label>
                     <input
                         ref={searchRef}
@@ -406,6 +421,15 @@ export function StagePlanListView({
                 onReorder={onReorder}
                 onSetLiveUrl={onSetLiveUrl}
                 resultsByTaskId={resultsByTaskId}
+            />
+            <DoneThisMonthFooter
+                tasks={tasks}
+                logs={monthLogs}
+                hoursPending={monthLogs === null || (monthLogsFor != null && monthLogsFor !== month)}
+                month={month}
+                timeZone={timeZone}
+                clientId={clientId}
+                onOpenResults={onOpenResults}
             />
         </div>
     );

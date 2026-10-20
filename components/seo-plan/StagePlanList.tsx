@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
@@ -27,6 +27,7 @@ import {
     type PlanPanelField,
     type PlanPanelSave,
 } from '@/lib/seo-plan/plan-panel';
+import type { DoneThisMonthLog } from '@/lib/seo-plan/done-this-month';
 import { parseStageListTasks, type StageListTask } from '@/lib/seo-plan/stage-list';
 import { useStageListMoves } from '@/lib/seo-plan/stage-list-moves';
 import { calendarDay } from '@/lib/seo-plan/this-month';
@@ -63,13 +64,21 @@ export function StagePlanList({
 }: {
     clientId: string;
     clientName: string;
-    onOpenResults?: () => void;
+    onOpenResults?: (month: string) => void;
 }) {
     const { userId } = useCurrentMember();
     const { organization } = useOrganization();
     const [query, setQuery] = useState('');
     const [people, setPeople] = useState<PlanAssignee[]>([]);
     const [loggedHours, setLoggedHours] = useState<Record<string, number>>({});
+    const [footerMonth, setFooterMonth] = useState<string | null>(null);
+    const [footerLogs, setFooterLogs] = useState<DoneThisMonthLog[] | null>(null);
+    const [footerLogsFor, setFooterLogsFor] = useState<string | null>(null);
+    const footerMonthRef = useRef(footerMonth);
+    footerMonthRef.current = footerMonth;
+    const onMonthChange = useCallback((month: string) => {
+        setFooterMonth(month);
+    }, []);
     const [error, setError] = useState(false);
     const [reloadKey, setReloadKey] = useState(0);
     const [detail, setDetail] = useState<Task | null>(null);
@@ -184,6 +193,32 @@ export function StagePlanList({
         }).catch(() => undefined);
         return () => { cancelled = true; };
     }, [organization?.id, clientId, reloadKey]);
+
+    // One client-scoped read for the footer. Row totals above stay all-time.
+    // getTimeLogs already drops the running timer and unconfirmed imports.
+    useEffect(() => {
+        const organizationId = organization?.id;
+        if (!organizationId || !footerMonth) return;
+        let cancelled = false;
+        setFooterLogs(null);
+        setFooterLogsFor(null);
+        getTimeLogs(organizationId, { clientId, month: footerMonth }).then(logs => {
+            if (cancelled) return;
+            setFooterLogs(logs.map(log => ({
+                clientId: log.clientId,
+                hours: log.hours,
+                countsTowardBudget: log.countsTowardBudget,
+                date: log.date,
+                status: log.status,
+            })));
+            setFooterLogsFor(footerMonth);
+        }).catch(() => {
+            if (cancelled) return;
+            setFooterLogs([]);
+            setFooterLogsFor(footerMonth);
+        });
+        return () => { cancelled = true; };
+    }, [organization?.id, clientId, footerMonth, reloadKey]);
 
     const reload = () => setReloadKey(key => key + 1);
 
@@ -478,6 +513,18 @@ export function StagePlanList({
             }
             setLoggedHours(totals);
             setLogs(entries);
+            const month = footerMonth;
+            if (!month) return;
+            const monthEntries = await getTimeLogs(organizationId, { clientId, month });
+            if (seenClient.current !== clientId || footerMonthRef.current !== month) return;
+            setFooterLogs(monthEntries.map(log => ({
+                clientId: log.clientId,
+                hours: log.hours,
+                countsTowardBudget: log.countsTowardBudget,
+                date: log.date,
+                status: log.status,
+            })));
+            setFooterLogsFor(month);
         }).catch(caught => {
             setTimerError(caught instanceof Error ? caught.message : 'Unable to update this task.');
         });
@@ -532,6 +579,10 @@ export function StagePlanList({
                 onRowTimer={onRowTimer}
                 onCheckRunning={onCheckRunning}
                 urlPromptTaskId={urlPromptTaskId}
+                monthLogs={footerLogs}
+                monthLogsFor={footerLogsFor}
+                onMonthChange={onMonthChange}
+                clientId={clientId}
                 onOpenResults={onOpenResults}
                 panel={model ? (
                     <PlanSidePanel

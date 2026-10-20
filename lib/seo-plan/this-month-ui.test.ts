@@ -138,6 +138,7 @@ test('a future month shows what is due then, and the new current month carries l
     assert.match(month, /data-plan-due="Oct 4 28d late"/);
     assert.match(section(november, 'onboarding'), /data-plan-due="Oct 31 1d late"/);
     assert.match(section(november, 'onboarding'), /Set cookies/);
-    assert.doesNotMatch(november, /Done this month/);
+    assert.doesNotMatch(november, /data-task-id="done"/);
+    assert.match(november, /data-plan-footer/);
     assert.match(section(november, 'backlog'), /Create roadmap/);
 });
