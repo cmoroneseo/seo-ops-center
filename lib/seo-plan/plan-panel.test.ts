@@ -4,14 +4,13 @@ import assert from 'node:assert/strict';
 import type { StageListTask } from './stage-list.ts';
 import { applyStageReorder } from './stage-reorder.ts';
 import {
-    PLAN_BLOCKED_LABEL_FOLLOW_UP,
+    planPanelStatus,
     PLAN_LABELS,
     PLAN_PANEL_STATUSES,
     PLAN_PANEL_STATUS_LABEL,
     basecampTodoHref,
     commitPlanTextSave,
     completionForPlanStatus,
-    displayPlanStatus,
     formatPlanCreated,
     formatSyncedAgo,
     groupPlanTimeByMonth,
@@ -36,6 +35,7 @@ import {
     togglePlanValue,
     writePlanLabels,
 } from './plan-panel.ts';
+import { normalizeBlockedReason } from '../tasks/status.ts';
 import type { Task } from '../types.ts';
 
 function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'title'>): StageListTask {
@@ -84,27 +84,82 @@ const yelp = task({
 });
 const setup = task({ id: 'setup', title: 'SEO Setup', stage: 'onboarding', position: 1 });
 
-test('status offers To do, In progress, and Done, and maps legacy values', () => {
+test('status is To do, In progress, or Done', () => {
     assert.deepEqual(PLAN_PANEL_STATUSES.map(status => PLAN_PANEL_STATUS_LABEL[status]), [
         'To do',
         'In progress',
         'Done',
     ]);
-    assert.equal(displayPlanStatus('todo'), 'todo');
-    assert.equal(displayPlanStatus('in_progress'), 'in_progress');
-    assert.equal(displayPlanStatus('review'), 'in_progress');
-    assert.equal(displayPlanStatus('done'), 'done');
-    assert.equal(displayPlanStatus('approved'), 'done');
-    assert.equal(displayPlanStatus('blocked'), 'todo');
-    assert.equal(PLAN_BLOCKED_LABEL_FOLLOW_UP, 'tasks.blocked_reason');
+    assert.equal(planPanelStatus('todo'), 'todo');
+    assert.equal(planPanelStatus('in_progress'), 'in_progress');
+    assert.equal(planPanelStatus('done'), 'done');
+    assert.equal(planPanelStatus(''), 'todo');
     assert.equal(PLAN_LABELS.some(label => label.id === 'blocked'), false);
+});
+
+test('Blocked is a label with a one-line reason, and Done clears it', () => {
+    assert.equal(normalizeBlockedReason('   ').ok, false);
+    assert.equal(normalizeBlockedReason('waiting\non client').ok, false);
+    assert.equal(normalizeBlockedReason('x'.repeat(201)).ok, false);
+    const kept = normalizeBlockedReason('  Waiting on client logins  ');
+    assert.equal(kept.ok, true);
+    if (kept.ok) assert.equal(kept.reason, 'Waiting on client logins');
+    assert.equal(normalizeBlockedReason('x'.repeat(200)).ok, true);
+
+    const now = '2026-10-20T12:00:00.000Z';
+    const row = task({ id: 'kitchen', title: 'Kitchen', status: 'in_progress', blockedReason: null });
+    const blocked = applyPlanPanelSave(row, { field: 'blocked', blockedReason: 'Waiting on client logins' }, now);
+    assert.equal(blocked.status, 'in_progress');
+    assert.equal(blocked.blockedReason, 'Waiting on client logins');
+    const removed = applyPlanPanelSave(blocked, { field: 'blocked', blockedReason: null }, now);
+    assert.equal(removed.blockedReason, null);
+    const done = applyPlanPanelSave(blocked, { field: 'status', status: 'done' }, now);
+    assert.equal(done.status, 'done');
+    assert.equal(done.blockedReason, null);
+    assert.equal(done.completedAt, now);
+
+    const model = planPanelTask({ task: blocked, tasks: [blocked] });
+    assert.equal(model.blockedReason, 'Waiting on client logins');
+    assert.equal(model.status, 'in_progress');
+    const fromDetail = planPanelTask({
+        task: task({ id: 'kitchen', title: 'Kitchen' }),
+        tasks: [],
+        detail: {
+            id: 'kitchen',
+            description: '',
+            estimatedHours: null,
+            tags: [],
+            createdBy: null,
+            basecampTodoId: null,
+            basecampProjectId: null,
+            lastSyncedAt: null,
+            blockedReason: 'Waiting on the permit',
+        },
+    });
+    assert.equal(fromDetail.blockedReason, 'Waiting on the permit');
+    const listedNull = planPanelTask({
+        task: task({ id: 'kitchen', title: 'Kitchen', blockedReason: null }),
+        tasks: [],
+        detail: {
+            id: 'kitchen',
+            description: '',
+            estimatedHours: null,
+            tags: [],
+            createdBy: null,
+            basecampTodoId: null,
+            basecampProjectId: null,
+            lastSyncedAt: null,
+            blockedReason: 'Stale reason',
+        },
+    });
+    assert.equal(listedNull.blockedReason, null);
 });
 
 test('Done keeps an existing completion time and any other status clears it', () => {
     assert.equal(completionForPlanStatus('done', { status: 'done', completedAt: '2026-10-16T00:00:00.000Z' }, '2026-10-20T00:00:00.000Z'), '2026-10-16T00:00:00.000Z');
     assert.equal(completionForPlanStatus('done', { status: 'todo', completedAt: null }, '2026-10-20T00:00:00.000Z'), '2026-10-20T00:00:00.000Z');
     assert.equal(completionForPlanStatus('todo', { status: 'done', completedAt: '2026-10-16T00:00:00.000Z' }, '2026-10-20T00:00:00.000Z'), null);
-    assert.equal(completionForPlanStatus('in_progress', { status: 'review', completedAt: null }, 'now'), null);
+    assert.equal(completionForPlanStatus('in_progress', { status: 'todo', completedAt: null }, 'now'), null);
 });
 
 test('text autosave waits, then saves a changed title once', () => {

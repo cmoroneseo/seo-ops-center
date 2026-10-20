@@ -10,17 +10,11 @@ import type { Task, TaskStage } from '../types';
 /**
  * Side panel for one SEO Plan task.
  *
- * Status on screen is To do, In progress, or Done. #187 (open, not merged)
- * rewrites review → in_progress, approved → done, and blocked → the previous
- * status plus tasks.blocked_reason. Until that lands, this panel only offers
- * the three statuses and shows a legacy value as the closest of those three.
- * Opening a task does not rewrite it.
- *
- * FOLLOW-UP: the Blocked label (reason required, chip on the row, cleared on
- * Done) waits on tasks.blocked_reason from #187. This panel does not store it.
+ * Status is To do, In progress, or Done. Blocked is a label stored on
+ * tasks.blocked_reason: one line, required, at most 200 characters. The chip
+ * shows that reason, and removing the chip clears the column. Marking Done
+ * clears it here; the completion trigger clears it on the row as well.
  */
-export const PLAN_BLOCKED_LABEL_FOLLOW_UP = 'tasks.blocked_reason' as const;
-
 export const PLAN_PANEL_STATUSES = ['todo', 'in_progress', 'done'] as const;
 export type PlanPanelStatus = (typeof PLAN_PANEL_STATUSES)[number];
 
@@ -54,11 +48,9 @@ export function planLabelText(id: string): string {
     return PLAN_LABELS.find(label => label.id === id)?.label ?? id;
 }
 
-/** Legacy rows stay readable. The select never offers review, approved, or blocked. */
-export function displayPlanStatus(stored: string): PlanPanelStatus {
-    if (stored === 'in_progress' || stored === 'review') return 'in_progress';
-    if (stored === 'done' || stored === 'approved') return 'done';
-    return 'todo';
+/** The status select only has the three stored values. Anything else stays To do. */
+export function planPanelStatus(stored: string): PlanPanelStatus {
+    return (PLAN_PANEL_STATUSES as readonly string[]).includes(stored) ? stored as PlanPanelStatus : 'todo';
 }
 
 export function readPlanLabels(
@@ -388,7 +380,7 @@ export interface PlanPanelTask {
     title: string;
     description: string;
     detailsReady: boolean;
-    status: string;
+    status: PlanPanelStatus;
     dueDate: string | null;
     assigneeIds: string[];
     estimatedHours: number | null;
@@ -406,13 +398,19 @@ export interface PlanPanelTask {
     lastSyncedAt: string | null;
     createdAt: string | null;
     createdByLabel: string | null;
+    blockedReason: string | null;
     timeByMonth: { month: string; label: string; hours: number }[];
+}
+
+function listedBlockedReason(task: StageListTask, detailReason: string | null | undefined): string | null {
+    if ('blockedReason' in task) return task.blockedReason?.trim() || null;
+    return detailReason?.trim() || null;
 }
 
 export function planPanelTask(input: {
     task: StageListTask;
     tasks: readonly StageListTask[];
-    detail?: Pick<Task, 'id' | 'description' | 'estimatedHours' | 'tags' | 'createdBy' | 'basecampTodoId' | 'basecampProjectId' | 'lastSyncedAt'> | null;
+    detail?: Pick<Task, 'id' | 'description' | 'estimatedHours' | 'tags' | 'createdBy' | 'basecampTodoId' | 'basecampProjectId' | 'lastSyncedAt' | 'blockedReason'> | null;
     people?: readonly PlanPanelPerson[];
     accountId?: string | null;
     basecampListName?: string | null;
@@ -433,7 +431,7 @@ export function planPanelTask(input: {
         title: input.task.title,
         description: detail?.description ?? '',
         detailsReady: ready,
-        status: input.task.status,
+        status: planPanelStatus(input.task.status),
         dueDate: input.task.dueDate ?? null,
         assigneeIds: input.task.assigneeIds ?? [],
         estimatedHours: detail ? (detail.estimatedHours ?? null) : null,
@@ -451,6 +449,7 @@ export function planPanelTask(input: {
         lastSyncedAt: detail?.lastSyncedAt ?? null,
         createdAt: input.task.createdAt,
         createdByLabel: creator ? (creator.initials || creator.name) : null,
+        blockedReason: listedBlockedReason(input.task, detail?.blockedReason),
         timeByMonth: groupPlanTimeByMonth(logs),
     };
 }
@@ -463,6 +462,7 @@ export type PlanPanelSave =
     | { field: 'assignees'; assigneeIds: string[] }
     | { field: 'estimate'; estimatedHours: number | null }
     | { field: 'labels'; category: string | null; tags: string[] }
+    | { field: 'blocked'; blockedReason: string | null }
     | { field: 'onboarding'; stage: TaskStage }
     | { field: 'parent'; parentTaskId: string | null }
     | { field: 'liveUrl'; publishedUrl: string | null };
@@ -479,6 +479,7 @@ export function mergePlanTask(task: StageListTask, data: Task): StageListTask {
         dueDate: data.dueDate ?? null,
         completedAt: data.completedAt ?? null,
         assigneeIds: data.assigneeIds ?? [],
+        blockedReason: data.blockedReason?.trim() ? data.blockedReason.trim() : null,
     };
 }
 
@@ -494,7 +495,10 @@ export function applyPlanPanelSave(task: StageListTask, save: PlanPanelSave, now
                 ...task,
                 status: save.status,
                 completedAt: completionForPlanStatus(save.status, task, now),
+                blockedReason: save.status === 'done' ? null : task.blockedReason,
             };
+        case 'blocked':
+            return { ...task, blockedReason: save.blockedReason };
         case 'assignees':
             return { ...task, assigneeIds: [...save.assigneeIds] };
         case 'labels':

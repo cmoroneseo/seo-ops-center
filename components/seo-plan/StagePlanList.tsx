@@ -480,6 +480,8 @@ function panelPatch(save: Exclude<PlanPanelSave, { field: 'parent' }>) {
             return { estimatedHours: save.estimatedHours };
         case 'labels':
             return { category: save.category, tags: save.tags };
+        case 'blocked':
+            return { blockedReason: save.blockedReason };
         case 'onboarding':
             return { stage: save.stage };
         case 'liveUrl':
@@ -506,5 +508,6 @@ function stageRowFromTask(
         dueDate: created.dueDate ?? null,
         completedAt: created.completedAt ?? null,
         assigneeIds: created.assigneeIds ?? [],
+        blockedReason: created.blockedReason?.trim() ? created.blockedReason.trim() : null,
     };
 }
