@@ -139,6 +139,30 @@ test('leaving backlog creates a to-do even without a due date', async () => {
     assert.deepEqual(calls, ['create']);
 });
 
+test('an imported onboarding task updates its existing to-do and does not create another', async () => {
+    const { dependencies, calls, links } = harness({
+        task: task({
+            title: 'SEO Set Up',
+            stage: 'onboarding',
+            dueDate: null,
+            basecampTodoId: '10425524627',
+            children: [{
+                id: 'step-1',
+                title: 'Connect Google Analytics',
+                basecampTodoId: '10425524630',
+            }],
+        }),
+        client: client({ todolistId: '10424778903' }),
+        parent: null,
+    });
+    const outcome = await syncPlanTask('task-1', dependencies);
+    assert.equal(outcome.status, 'ok');
+    assert.equal(calls.includes('create'), false);
+    assert.equal(calls.some(call => call.startsWith('step:')), false);
+    assert.equal(calls[0], 'update');
+    assert.deepEqual(links, []);
+});
+
 test('a later change updates the existing to-do and does not create another', async () => {
     const { dependencies, calls } = harness({
         task: task({
