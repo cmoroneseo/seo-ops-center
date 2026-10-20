@@ -101,7 +101,7 @@ test('status offers To do, In progress, and Done, and maps legacy values', () =>
 });
 
 test('Done keeps an existing completion time and any other status clears it', () => {
-    assert.equal(completionForPlanStatus('done', { status: 'approved', completedAt: '2026-10-16T00:00:00.000Z' }, '2026-10-20T00:00:00.000Z'), '2026-10-16T00:00:00.000Z');
+    assert.equal(completionForPlanStatus('done', { status: 'done', completedAt: '2026-10-16T00:00:00.000Z' }, '2026-10-20T00:00:00.000Z'), '2026-10-16T00:00:00.000Z');
     assert.equal(completionForPlanStatus('done', { status: 'todo', completedAt: null }, '2026-10-20T00:00:00.000Z'), '2026-10-20T00:00:00.000Z');
     assert.equal(completionForPlanStatus('todo', { status: 'done', completedAt: '2026-10-16T00:00:00.000Z' }, '2026-10-20T00:00:00.000Z'), null);
     assert.equal(completionForPlanStatus('in_progress', { status: 'review', completedAt: null }, 'now'), null);
