@@ -11,6 +11,11 @@ import { OrganizationContext } from '../../components/providers/organization-pro
 import { TimerContext } from '../../components/providers/timer-provider.tsx';
 import type { ClientProject, Organization, Task, TaskInsert } from '../types.ts';
 
+// CI provides public Supabase credentials. These forms look up the signed-in
+// user and the client's Basecamp flags, and a live client keeps the process open.
+delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost', pretendToBeVisual: true });

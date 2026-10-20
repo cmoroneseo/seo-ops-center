@@ -9,6 +9,11 @@ import { OrganizationContext } from '../../components/providers/organization-pro
 import { publishMyTimeRefresh } from './my-time.ts';
 import type { Organization } from '../types.ts';
 
+// CI provides public Supabase credentials. The widget asks who is signed in,
+// and a real browser client then holds the process open after the test passes.
+delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost', pretendToBeVisual: true });
