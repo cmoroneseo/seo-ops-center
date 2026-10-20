@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
+import { useTimer } from '@/components/providers/timer-provider';
+import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
 import {
     appendStageTasks,
@@ -27,6 +29,7 @@ import {
 } from '@/lib/seo-plan/plan-panel';
 import { parsePlanBasecampBanner, type PlanBasecampBanner, type PlanBasecampSyncState } from '@/lib/seo-plan/basecamp-push';
 import { queuePlanBasecampPush } from '@/lib/seo-plan/basecamp-push-queue';
+import type { DoneThisMonthLog } from '@/lib/seo-plan/done-this-month';
 import { parseStageListTasks, type StageListTask } from '@/lib/seo-plan/stage-list';
 import { useStageListMoves } from '@/lib/seo-plan/stage-list-moves';
 import { calendarDay } from '@/lib/seo-plan/this-month';
@@ -34,6 +37,12 @@ import { createTask, deleteTask, getTask, updateTask } from '@/lib/supabase/task
 import type { UrlResultReadout } from '@/lib/search-reporting/url-results';
 import { parseLiveUrlInput, subtaskLineDrafts } from '@/lib/tasks/live-url';
 import type { Task, TimeLog } from '@/lib/types';
+import {
+    clickPlanRowTimer,
+    closePlanStopReview,
+    openPlanStopReview,
+    planRowTimerView,
+} from '@/lib/seo-plan/row-timer';
 import { PanelSkeleton } from './PanelSkeleton';
 import { PlanSidePanel } from './PlanSidePanel';
 import { StagePlanListView, type PlanAssignee, type StageAddRequest } from './StagePlanListView';
@@ -57,13 +66,21 @@ export function StagePlanList({
 }: {
     clientId: string;
     clientName: string;
-    onOpenResults?: () => void;
+    onOpenResults?: (month: string) => void;
 }) {
     const { userId } = useCurrentMember();
     const { organization } = useOrganization();
     const [query, setQuery] = useState('');
     const [people, setPeople] = useState<PlanAssignee[]>([]);
     const [loggedHours, setLoggedHours] = useState<Record<string, number>>({});
+    const [footerMonth, setFooterMonth] = useState<string | null>(null);
+    const [footerLogs, setFooterLogs] = useState<DoneThisMonthLog[] | null>(null);
+    const [footerLogsFor, setFooterLogsFor] = useState<string | null>(null);
+    const footerMonthRef = useRef(footerMonth);
+    footerMonthRef.current = footerMonth;
+    const onMonthChange = useCallback((month: string) => {
+        setFooterMonth(month);
+    }, []);
     const [error, setError] = useState(false);
     const [reloadKey, setReloadKey] = useState(0);
     const [detail, setDetail] = useState<Task | null>(null);
@@ -72,6 +89,19 @@ export function StagePlanList({
     const [basecamp, setBasecamp] = useState<PlanBasecampBanner | null>(null);
     const [logs, setLogs] = useState<TimeLog[]>([]);
     const [resultsByTaskId, setResultsByTaskId] = useState<Record<string, UrlResultReadout>>({});
+    const [review, setReview] = useState<{ attemptId: string; taskId: string } | null>(null);
+    const [urlPromptTaskId, setUrlPromptTaskId] = useState<string | null>(null);
+    const [timerError, setTimerError] = useState<string | null>(null);
+    const {
+        runningTimer,
+        pausedTimers,
+        getElapsedSeconds,
+        startTask,
+        pause,
+        resume,
+        beginStop,
+        getAttemptById,
+    } = useTimer();
     const seenClient = useRef<string | null>(null);
     const { tasks, setList, updateList, move } = useStageListMoves(async (requested) => {
         const requestedClient = clientId;
@@ -169,6 +199,32 @@ export function StagePlanList({
         }).catch(() => undefined);
         return () => { cancelled = true; };
     }, [organization?.id, clientId, reloadKey]);
+
+    // One client-scoped read for the footer. Row totals above stay all-time.
+    // getTimeLogs already drops the running timer and unconfirmed imports.
+    useEffect(() => {
+        const organizationId = organization?.id;
+        if (!organizationId || !footerMonth) return;
+        let cancelled = false;
+        setFooterLogs(null);
+        setFooterLogsFor(null);
+        getTimeLogs(organizationId, { clientId, month: footerMonth }).then(logs => {
+            if (cancelled) return;
+            setFooterLogs(logs.map(log => ({
+                clientId: log.clientId,
+                hours: log.hours,
+                countsTowardBudget: log.countsTowardBudget,
+                date: log.date,
+                status: log.status,
+            })));
+            setFooterLogsFor(footerMonth);
+        }).catch(() => {
+            if (cancelled) return;
+            setFooterLogs([]);
+            setFooterLogsFor(footerMonth);
+        });
+        return () => { cancelled = true; };
+    }, [organization?.id, clientId, footerMonth, reloadKey]);
 
     const reload = () => setReloadKey(key => key + 1);
 
@@ -422,6 +478,95 @@ export function StagePlanList({
         return next;
     };
 
+    const timerByTaskId: Record<string, ReturnType<typeof planRowTimerView>> = {};
+    for (const task of tasks ?? []) {
+        const view = planRowTimerView(task.id, runningTimer, pausedTimers, getElapsedSeconds);
+        if (view.phase !== 'idle') timerByTaskId[task.id] = view;
+    }
+
+    const onRowTimer = (taskId: string) => {
+        const task = tasks?.find(item => item.id === taskId);
+        if (!task || isPendingStageTaskId(taskId)) return;
+        setTimerError(null);
+        void clickPlanRowTimer({
+            taskId,
+            taskTitle: task.title,
+            taskStatus: task.status,
+            clientId,
+            clientName,
+            running: runningTimer,
+            paused: pausedTimers,
+            controls: { startTask, pause, resume, beginStop },
+        }).then(result => {
+            if (result.action === 'start' && result.promoted) {
+                updateList(current => current?.map(item => item.id === taskId && item.status === 'todo'
+                    ? { ...item, status: 'in_progress' }
+                    : item) ?? current);
+                setDetail(current => current?.id === taskId && current.status === 'todo'
+                    ? { ...current, status: 'in_progress' }
+                    : current);
+            }
+        }).catch(caught => {
+            setTimerError(caught instanceof Error ? caught.message : 'Unable to update the timer.');
+        });
+    };
+
+    const onCheckRunning = (taskId: string) => {
+        setTimerError(null);
+        void openPlanStopReview({ taskId, running: runningTimer, beginStop }).then(opened => {
+            if (opened) setReview({ attemptId: opened.attemptId, taskId });
+        }).catch(caught => {
+            setTimerError(caught instanceof Error ? caught.message : 'Unable to stop this timer.');
+        });
+    };
+
+    const onReviewClose = () => {
+        const current = review;
+        setReview(null);
+        if (!current) return;
+        const attempt = getAttemptById(current.attemptId);
+        void closePlanStopReview({ attempt, resume }).then(async outcome => {
+            if (outcome === 'resumed') return;
+            queuePlanBasecampPush(current.taskId);
+            if (seenClient.current !== clientId) return;
+            const result = await getTask(current.taskId);
+            if (!result.task || seenClient.current !== clientId) return;
+            const fresh = result.task;
+            updateList(list => list?.map(item => item.id === current.taskId ? {
+                ...item,
+                status: fresh.status,
+                completedAt: fresh.completedAt ?? null,
+                publishedUrl: fresh.publishedUrl ?? item.publishedUrl ?? null,
+            } : item) ?? list);
+            setDetail(shown => shown?.id === fresh.id ? fresh : shown);
+            if (fresh.status === 'done' && !fresh.publishedUrl) setUrlPromptTaskId(current.taskId);
+            const organizationId = organization?.id;
+            if (!organizationId) return;
+            const entries = await getTimeLogs(organizationId, { clientId });
+            const totals: Record<string, number> = {};
+            for (const log of entries) {
+                if (!log.taskId) continue;
+                totals[log.taskId] = (totals[log.taskId] ?? 0) + log.hours;
+            }
+            setLoggedHours(totals);
+            setLogs(entries);
+            const month = footerMonth;
+            if (!month) return;
+            const monthEntries = await getTimeLogs(organizationId, { clientId, month });
+            if (seenClient.current !== clientId || footerMonthRef.current !== month) return;
+            setFooterLogs(monthEntries.map(log => ({
+                clientId: log.clientId,
+                hours: log.hours,
+                countsTowardBudget: log.countsTowardBudget,
+                date: log.date,
+                status: log.status,
+            })));
+            setFooterLogsFor(month);
+        }).catch(caught => {
+            setTimerError(caught instanceof Error ? caught.message : 'Unable to update this task.');
+        });
+    };
+
     if (error) {
         return (
             <p className="text-sm text-[#8b8b93]">
@@ -449,42 +594,52 @@ export function StagePlanList({
     }) : null;
 
     return (
-        <StagePlanListView
-            tasks={tasks}
-            query={query}
-            onQueryChange={setQuery}
-            clientName={clientName}
-            panelTaskId={open?.id ?? null}
-            onClosePanel={() => setPanel(null)}
-            onOpenTask={(taskId, field) => {
-                if (isPendingStageTaskId(taskId)) return;
-                setPanel({ id: taskId, field: field === 'due' || field === 'assignee' ? field : null });
-            }}
-            onAddTasks={addTasks}
-            onReorder={move}
-            resultsByTaskId={resultsByTaskId}
-            people={people}
-            loggedHours={loggedHours}
-            onOpenResults={onOpenResults}
-            basecamp={basecamp}
-            integrationsHref={`/workspace/${clientId}?tab=integrations`}
-            onRetrySync={retryBasecamp}
-            panel={model ? (
-                <PlanSidePanel
-                    key={model.id}
-                    task={model}
-                    tasks={tasks}
-                    people={people}
-                    clientName={clientName}
-                    today={calendarDay(new Date())}
-                    focusField={open?.field ?? null}
-                    onSave={savePanel}
-                    onDuplicate={duplicatePanel}
-                    onDelete={deletePanel}
-                    onClose={() => setPanel(null)}
-                />
-            ) : null}
-            onSetLiveUrl={async (taskId, raw) => {
+        <>
+            {timerError && <p role="alert" className="mb-2 text-sm text-[#f87171]">{timerError}</p>}
+            <StagePlanListView
+                tasks={tasks}
+                query={query}
+                onQueryChange={setQuery}
+                clientName={clientName}
+                panelTaskId={open?.id ?? null}
+                onClosePanel={() => setPanel(null)}
+                onOpenTask={(taskId, field) => {
+                    if (isPendingStageTaskId(taskId)) return;
+                    setPanel({ id: taskId, field: field === 'due' || field === 'assignee' ? field : null });
+                }}
+                onAddTasks={addTasks}
+                onReorder={move}
+                resultsByTaskId={resultsByTaskId}
+                people={people}
+                loggedHours={loggedHours}
+                timerByTaskId={timerByTaskId}
+                onRowTimer={onRowTimer}
+                onCheckRunning={onCheckRunning}
+                urlPromptTaskId={urlPromptTaskId}
+                monthLogs={footerLogs}
+                monthLogsFor={footerLogsFor}
+                onMonthChange={onMonthChange}
+                clientId={clientId}
+                onOpenResults={onOpenResults}
+                basecamp={basecamp}
+                integrationsHref={`/workspace/${clientId}?tab=integrations`}
+                onRetrySync={retryBasecamp}
+                panel={model ? (
+                    <PlanSidePanel
+                        key={model.id}
+                        task={model}
+                        tasks={tasks}
+                        people={people}
+                        clientName={clientName}
+                        today={calendarDay(new Date())}
+                        focusField={open?.field ?? null}
+                        onSave={savePanel}
+                        onDuplicate={duplicatePanel}
+                        onDelete={deletePanel}
+                        onClose={() => setPanel(null)}
+                    />
+                ) : null}
+                onSetLiveUrl={async (taskId, raw) => {
                     if (isPendingStageTaskId(taskId)) return 'Could not save that link.';
                     const parsed = parseLiveUrlInput(raw);
                     if (!parsed.ok) return parsed.error;
@@ -498,7 +653,15 @@ export function StagePlanList({
                         : current);
                     return null;
                 }}
-        />
+            />
+            {review && (
+                <StopConfirmSheet
+                    attemptId={review.attemptId}
+                    defaultMarkTaskComplete
+                    onClose={onReviewClose}
+                />
+            )}
+        </>
     );
 }
 

@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState, Suspense } from 'react';
+import { useSuppressPlanToasts } from '@/components/providers/toast-gate';
+import { seoPlanTabHidesToasts } from '@/lib/toasts/plan-tab';
 import { useParams, useRouter } from 'next/navigation';
 import { MissingClient } from '@/components/workspace/MissingClient';
 import { ArrowLeft, Calendar, Clock, Shield, UserCheck, Plug, Target, ScanSearch, Map, FileCheck2, Globe, Archive } from 'lucide-react';
@@ -64,6 +66,7 @@ import { TaskToolbar } from '@/components/seo-plan/TaskToolbar';
 import { SearchReporting } from '@/components/seo-plan/SearchReporting';
 import { monthKey } from '@/lib/marketing-plan-execution';
 import { managerIsAssigned, planHourLabel, planHoursNarrative } from '@/lib/seo-plan/overview';
+import { planChooseTaskClass } from '@/lib/seo-plan/row-timer';
 
 type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'inventory' | 'topical-map' | 'approvals' | 'portal' | 'vault';
 
@@ -86,6 +89,7 @@ export default function ClientDetailPage() {
     const [activityRefreshKey, setActivityRefreshKey] = useState(0);
     const [activeTab, setActiveTabState] = useState<Tab>('overview');
     const [planView, setPlanView] = useState<PlanView>('plan');
+    useSuppressPlanToasts(seoPlanTabHidesToasts({ activeTab, planView, stageListOn }));
     const [importOpen, setImportOpen] = useState(false);
     const setActiveTab = (tab: Tab, extras?: Record<string, string | null>) => {
         const v2 = v2Ref.current;
@@ -344,11 +348,10 @@ export default function ClientDetailPage() {
                         <button
                             onClick={handleTimerClick}
                             title={isThisClientRunning ? 'Pause timer' : 'Choose a task to start timer'}
+                            data-choose-task={activeTab === 'campaign' && stageListOn && !isThisClientRunning ? 'secondary' : undefined}
                             className={cn(
                                 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150',
-                                isThisClientRunning
-                                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 hover:bg-amber-500/25'
-                                    : 'bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-green-500/20 border border-green-500/20'
+                                planChooseTaskClass(activeTab === 'campaign' && stageListOn, isThisClientRunning),
                             )}
                         >
                             {isThisClientRunning
@@ -493,7 +496,7 @@ export default function ClientDetailPage() {
                 <StagePlanList
                     clientId={client.id}
                     clientName={client.clientName}
-                    onOpenResults={() => setActiveTab('insights')}
+                    onOpenResults={month => setActiveTab('insights', { range: month })}
                 />
             )}
             {(v2On ? activeTab === 'campaign' : activeTab === 'campaign' && planView === 'plan') && !stageListOn && (

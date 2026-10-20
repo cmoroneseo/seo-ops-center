@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
-import { Check, ChevronRight, GripVertical } from 'lucide-react';
+import { Check, ChevronRight, GripVertical, Play } from 'lucide-react';
 import { isPendingStageTaskId } from '@/lib/seo-plan/stage-add';
 import { effectOfPlanDrop } from '@/lib/seo-plan/plan-drag';
 import {
@@ -18,6 +18,7 @@ import {
     type PlanSectionId,
     type PlanSectionModel,
 } from '@/lib/seo-plan/plan-sections';
+import type { DoneThisMonthLog } from '@/lib/seo-plan/done-this-month';
 import {
     planPanelKeyAction,
     planShortcutBlocked,
@@ -25,16 +26,18 @@ import {
     type PlanPanelField,
 } from '@/lib/seo-plan/plan-panel';
 import { stageListTitleParts, type StageListTask } from '@/lib/seo-plan/stage-list';
-import { calendarDay } from '@/lib/seo-plan/this-month';
+import { calendarDay, STAGE_LIST_TIME_ZONE } from '@/lib/seo-plan/this-month';
 import type { StageReorderMove } from '@/lib/seo-plan/stage-reorder';
 import type { TaskStage } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { LiveUrlResultLine } from '@/components/search-reporting/LiveUrlResultLine';
 import { LiveUrlControl } from '@/components/tasks/LiveUrlControl';
 import { aggregateUrlResults, type UrlResultReadout } from '@/lib/search-reporting/url-results';
+import { DoneThisMonthFooter } from './DoneThisMonthFooter';
 import { PlanAddLine, type PlanAddSubmission } from './PlanAddLine';
 import { PlanSyncBanner, PlanSyncDot } from './PlanSyncFailure';
 import type { PlanBasecampBanner, PlanBasecampSyncState } from '@/lib/seo-plan/basecamp-push';
+import { planRowTimeText, planRowTimerLabel, type PlanRowTimerView } from '@/lib/seo-plan/row-timer';
 
 export interface StageAddRequest {
     stage: TaskStage;
@@ -189,8 +192,17 @@ export function StagePlanListView({
     initialMonth,
     people = [],
     loggedHours = {},
+    monthLogs,
+    monthLogsFor,
+    onMonthChange,
+    timeZone = STAGE_LIST_TIME_ZONE,
+    clientId,
     onOpenResults,
     clientName,
+    timerByTaskId,
+    onRowTimer,
+    onCheckRunning,
+    urlPromptTaskId,
     panel,
     panelTaskId = null,
     onClosePanel,
@@ -214,7 +226,28 @@ export function StagePlanListView({
     people?: readonly PlanAssignee[];
     /** Logged hours by task id. All-time, finalized logs only. */
     loggedHours?: Readonly<Record<string, number>>;
-    onOpenResults?: () => void;
+    /** Open global-timer attempts keyed by task. Absent tasks are idle. */
+    timerByTaskId?: Readonly<Record<string, PlanRowTimerView>>;
+    /** Start, pause, or resume the global timer for this task. */
+    onRowTimer?: (taskId: string) => void;
+    /** Checking a row whose timer is running. Ordinary check-off stays with the caller. */
+    onCheckRunning?: (taskId: string) => void;
+    /** After a confirmed stop-and-complete, open the live URL field on this task. */
+    urlPromptTaskId?: string | null;
+    /**
+     * Finalized time logs for the selected month. Null while that query is in flight.
+     * Omit it when the caller has no logs to load; the footer then shows zeros.
+     */
+    monthLogs?: readonly DoneThisMonthLog[] | null;
+    /** Month the `monthLogs` array was loaded for. A mismatch keeps hours pending. */
+    monthLogsFor?: string | null;
+    /** Tells the parent which month the footer hours should cover. */
+    onMonthChange?: (month: string) => void;
+    /** Org timezone for completion and log boundaries. Defaults to Pacific. */
+    timeZone?: string;
+    clientId?: string;
+    /** Opens this client's Results view for the selected month. */
+    onOpenResults?: (month: string) => void;
     /** Kept for callers. The plan header does not repeat the client name. */
     clientName?: string;
     /** Beside the list. No scrim, and the list stays clickable. */
@@ -248,6 +281,10 @@ export function StagePlanListView({
         setFocusedId(taskId);
         onOpenTask(taskId, field);
     }, [onOpenTask]);
+
+    useEffect(() => {
+        onMonthChange?.(month);
+    }, [month, onMonthChange]);
 
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
@@ -292,11 +329,16 @@ export function StagePlanListView({
                 onClosePanel?.();
                 return;
             }
+            if (event.key === 't' && !blocked && focusedId && onRowTimer) {
+                event.preventDefault();
+                onRowTimer(focusedId);
+                return;
+            }
             if (event.key === 'Escape' && query && !blocked) onQueryChange('');
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [focusedId, onClosePanel, onOpenTask, onQueryChange, openTask, panelTaskId, query]);
+    }, [focusedId, onClosePanel, onOpenTask, onQueryChange, onRowTimer, openTask, panelTaskId, query]);
 
     const list = (
         <div ref={listRef} data-seo-plan-stage-list data-plan-month={month} className="min-w-0 flex-1 space-y-3 text-[13px] text-[#ececee]">
@@ -332,15 +374,6 @@ export function StagePlanListView({
                     </button>
                 </div>
                 <div className="flex items-center gap-3">
-                    {onOpenResults && (
-                        <button
-                            type="button"
-                            onClick={onOpenResults}
-                            className="text-xs text-[#8b8b93] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
-                        >
-                            Results
-                        </button>
-                    )}
                     <label htmlFor={searchId} className="sr-only">Search tasks</label>
                     <input
                         ref={searchRef}
@@ -395,10 +428,23 @@ export function StagePlanListView({
                 showSyncDots={!clientFailure}
                 integrationsHref={integrationsHref}
                 onRetrySync={onRetrySync}
+                timerByTaskId={timerByTaskId}
+                onRowTimer={onRowTimer}
+                onCheckRunning={onCheckRunning}
+                urlPromptTaskId={urlPromptTaskId}
                 onOpenTask={openTask}
                 onReorder={onReorder}
                 onSetLiveUrl={onSetLiveUrl}
                 resultsByTaskId={resultsByTaskId}
+            />
+            <DoneThisMonthFooter
+                tasks={tasks}
+                logs={monthLogs}
+                hoursPending={monthLogs === null || (monthLogsFor != null && monthLogsFor !== month)}
+                month={month}
+                timeZone={timeZone}
+                clientId={clientId}
+                onOpenResults={onOpenResults}
             />
         </div>
     );
@@ -434,6 +480,10 @@ function PlanSections({
     showSyncDots,
     integrationsHref,
     onRetrySync,
+    timerByTaskId,
+    onRowTimer,
+    onCheckRunning,
+    urlPromptTaskId,
     onOpenTask,
     onReorder,
     onSetLiveUrl,
@@ -452,6 +502,10 @@ function PlanSections({
     showSyncDots: boolean;
     integrationsHref: string;
     onRetrySync?: (taskId: string) => Promise<PlanBasecampSyncState | null>;
+    timerByTaskId?: Readonly<Record<string, PlanRowTimerView>>;
+    onRowTimer?: (taskId: string) => void;
+    onCheckRunning?: (taskId: string) => void;
+    urlPromptTaskId?: string | null;
     onOpenTask: (taskId: string, field: PlanPanelField | null) => void;
     onReorder: (move: StageReorderMove) => Promise<void>;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
@@ -573,6 +627,10 @@ function PlanSections({
                                             today={today}
                                             people={people}
                                             loggedHours={loggedHours}
+                                            timerByTaskId={timerByTaskId}
+                                            onRowTimer={onRowTimer}
+                                            onCheckRunning={onCheckRunning}
+                                            urlPromptTaskId={urlPromptTaskId}
                                             dragId={dragId}
                                             foldDone={foldDone}
                                             baseId={baseId}
@@ -632,6 +690,10 @@ function PlanRow({
     today,
     people,
     loggedHours,
+    timerByTaskId,
+    onRowTimer,
+    onCheckRunning,
+    urlPromptTaskId,
     dragId,
     foldDone,
     baseId,
@@ -655,6 +717,10 @@ function PlanRow({
     today: string;
     people: readonly PlanAssignee[];
     loggedHours: Readonly<Record<string, number>>;
+    timerByTaskId?: Readonly<Record<string, PlanRowTimerView>>;
+    onRowTimer?: (taskId: string) => void;
+    onCheckRunning?: (taskId: string) => void;
+    urlPromptTaskId?: string | null;
     dragId: string | null;
     foldDone: boolean;
     baseId: string;
@@ -698,6 +764,10 @@ function PlanRow({
             ? planHourRollup(task.id, group.rollupChildIds, loggedHours)
             : null;
         const logged = hours ? hours.total : (loggedHours[task.id] ?? 0);
+        const timer = timerByTaskId?.[task.id] ?? { phase: 'idle' as const, seconds: 0 };
+        const loggedLabel = options.pillar ? `Σ ${formatPlanHours(logged)}` : formatPlanHours(logged);
+        const timeText = onRowTimer ? planRowTimeText(timer, loggedLabel) : loggedLabel;
+        const stopOnCheck = timer.phase === 'running' && Boolean(onCheckRunning) && !pending;
         const childResults = options.pillar
             ? group.children.flatMap(child => {
                 const result = resultsByTaskId?.[child.id];
@@ -725,6 +795,8 @@ function PlanRow({
                 data-plan-row={task.id}
                 data-plan-focused={focusedId === task.id ? 'true' : undefined}
                 data-late={due.late ? 'true' : undefined}
+                data-plan-status={task.status}
+                data-plan-timer={onRowTimer ? timer.phase : undefined}
                 draggable={draggable || undefined}
                 onDragStart={event => {
                     if (!draggable) return;
@@ -766,14 +838,30 @@ function PlanRow({
                     options.role === 'subtask' && 'pl-9',
                     draggable && 'cursor-grab',
                     dragId === task.id && 'opacity-40',
-                    focusedId === task.id && 'bg-[#1d1d22] shadow-[inset_2px_0_0_#ec4899]',
+                    focusedId === task.id && 'bg-[#1d1d22]',
+                    (focusedId === task.id || (timer.phase === 'running' && onRowTimer)) && 'shadow-[inset_2px_0_0_0_#ec4899]',
                 )}
             >
                 <span className="flex justify-center">
                     {options.leading ?? <span className="w-3.5" />}
                 </span>
                 <span className="flex justify-center">
-                    {options.pillar
+                    {stopOnCheck ? (
+                        <button
+                            type="button"
+                            data-plan-check-action="stop-timer"
+                            aria-label={`Log time and mark ${task.title} done`}
+                            onClick={event => {
+                                event.stopPropagation();
+                                onCheckRunning?.(task.id);
+                            }}
+                            className="rounded-[4px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                        >
+                            {options.pillar
+                                ? <ProgressRing done={options.childDone ?? 0} total={options.childCount ?? 0} />
+                                : <CheckBox done={done} />}
+                        </button>
+                    ) : options.pillar
                         ? <ProgressRing done={options.childDone ?? 0} total={options.childCount ?? 0} />
                         : <CheckBox done={done} />}
                 </span>
@@ -823,6 +911,7 @@ function PlanRow({
                     <LiveUrlControl
                         url={task.publishedUrl}
                         category={task.category}
+                        openRequest={urlPromptTaskId === task.id ? 1 : 0}
                         onSave={!pending && onSetLiveUrl ? raw => onSetLiveUrl(task.id, raw) : undefined}
                     />
                     <LiveUrlResultLine result={result} />
@@ -853,13 +942,42 @@ function PlanRow({
                 >
                     <AssigneeStack ids={assigneeIds} people={people} />
                 </button>
-                <span
-                    className={cn('text-right text-[12px]', logged > 0 ? 'text-[#cfcfd4]' : 'text-[#6d6d75]')}
-                    title={hours ? hours.tooltip : undefined}
-                    data-plan-time={options.pillar ? `Σ ${formatPlanHours(logged)}` : formatPlanHours(logged)}
-                >
-                    {options.pillar ? `Σ ${formatPlanHours(logged)}` : formatPlanHours(logged)}
-                </span>
+                {onRowTimer ? (
+                    <button
+                        type="button"
+                        disabled={pending || timer.phase === 'reviewing'}
+                        aria-label={planRowTimerLabel(timer.phase, task.title)}
+                        title={timer.phase === 'idle' && hours ? hours.tooltip : undefined}
+                        data-plan-time={timeText}
+                        onClick={event => {
+                            event.stopPropagation();
+                            if (!pending) onRowTimer(task.id);
+                        }}
+                        className={cn(
+                            'inline-flex w-full items-center justify-end gap-1 text-right text-[12px] tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-70',
+                            timer.phase === 'running' && 'rounded-full bg-[#ec4899]/15 px-1.5 py-0.5 font-mono text-[#ec4899]',
+                            timer.phase === 'paused' && 'text-[#cfcfd4]',
+                            timer.phase === 'reviewing' && 'text-[#8b8b93]',
+                            timer.phase === 'idle' && (logged > 0 ? 'text-[#cfcfd4]' : 'text-[#6d6d75]'),
+                        )}
+                    >
+                        {timer.phase === 'running' && (
+                            <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ec4899] animate-pulse" />
+                        )}
+                        {timer.phase === 'idle' && (
+                            <Play aria-hidden="true" className="h-3 w-0 fill-current opacity-0 group-hover:w-3 group-hover:opacity-100 group-focus-within:w-3 group-focus-within:opacity-100" />
+                        )}
+                        <span>{timeText}</span>
+                    </button>
+                ) : (
+                    <span
+                        className={cn('text-right text-[12px]', logged > 0 ? 'text-[#cfcfd4]' : 'text-[#6d6d75]')}
+                        title={hours ? hours.tooltip : undefined}
+                        data-plan-time={loggedLabel}
+                    >
+                        {loggedLabel}
+                    </span>
+                )}
             </div>
         );
     };
