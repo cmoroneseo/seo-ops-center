@@ -18,6 +18,8 @@ export type TimerMutationRequest =
         toTaskId?: string;
         plannerEventId?: string;
         now?: string;
+        /** IANA zone for a log this switch creates. Omitted callers store UTC. */
+        timeZone?: string;
     }
     | { action: 'begin_stop'; timeLogId: string; now?: string }
     | {

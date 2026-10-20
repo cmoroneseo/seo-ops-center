@@ -39,6 +39,11 @@ test('startTimerMutation includes the selected backdated instant only when provi
         action: 'start',
         taskId: 'task-1',
     });
+    assert.deepEqual(startTimerMutation('task-1', undefined, 'America/Los_Angeles'), {
+        action: 'start',
+        taskId: 'task-1',
+        timeZone: 'America/Los_Angeles',
+    });
     assert.deepEqual(startTimerMutation('task-1', startedAt, 'America/Los_Angeles'), {
         action: 'start',
         taskId: 'task-1',

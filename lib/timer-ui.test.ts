@@ -47,6 +47,31 @@ test('declining a switch leaves server state untouched', async () => {
     assert.deepEqual(calls, []);
 });
 
+test('start on the running task is a no-op and a paused task resumes', () => {
+    const running = attempt({ id: 'running', taskId: 'alpha', timerStartedAt: '2026-10-20T06:07:27.000Z' });
+    const paused = attempt({ id: 'paused', taskId: 'bravo' });
+    const reviewing = attempt({ id: 'review', taskId: 'charlie', reviewingAt: '2026-10-20T06:07:34.000Z' });
+
+    assert.deepEqual(timerUi.resolveTaskStart({
+        taskId: 'alpha', running, paused: [paused],
+    }), { action: 'noop' });
+    assert.deepEqual(timerUi.resolveTaskStart({
+        taskId: 'bravo', running, paused: [paused, reviewing],
+    }), { action: 'resume', attemptId: 'paused' });
+    assert.deepEqual(timerUi.resolveTaskStart({
+        taskId: 'charlie', running: null, paused: [reviewing],
+    }), { action: 'noop' });
+    assert.deepEqual(timerUi.resolveTaskStart({
+        taskId: 'delta', running, paused: [paused],
+    }), { action: 'switch' });
+    assert.deepEqual(timerUi.resolveTaskStart({
+        taskId: 'delta', running: null, paused: [],
+    }), { action: 'start' });
+    assert.deepEqual(timerUi.resolveTaskStart({
+        taskId: 'alpha', plannerEventId: 'block-1', running, paused: [],
+    }), { action: 'switch' });
+});
+
 test('accepted switches issue one canonical switch mutation', async () => {
     const calls: unknown[] = [];
     const switched = await timerUi.confirmAndSwitchTimer({

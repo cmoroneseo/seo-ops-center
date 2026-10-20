@@ -49,6 +49,48 @@ export function findTimerAttempt(state: TimerUiState, attemptId: string): TimerA
     return state.pausedTimers.find(attempt => attempt.id === attemptId) ?? null;
 }
 
+export type TaskStartDecision =
+    | { action: 'noop' }
+    | { action: 'resume'; attemptId: string }
+    | { action: 'switch' }
+    | { action: 'start' };
+
+/**
+ * Start on the task that is already running does nothing.
+ * Start on a task that already has this user's paused attempt resumes that
+ * attempt. A focus block still switches or starts, because each block is its
+ * own log. The database enforces the same rule for task timers.
+ */
+export function resolveTaskStart(input: {
+    taskId: string;
+    plannerEventId?: string;
+    startedAt?: string;
+    running: TimerAttempt | null;
+    paused: readonly TimerAttempt[];
+}): TaskStartDecision {
+    if (input.plannerEventId) {
+        return input.running ? { action: 'switch' } : { action: 'start' };
+    }
+    if (
+        input.running?.taskId === input.taskId
+        && !input.running.reviewingAt
+    ) {
+        return { action: 'noop' };
+    }
+    if (!input.startedAt) {
+        const paused = input.paused.find(attempt => (
+            attempt.taskId === input.taskId && !attempt.reviewingAt
+        ));
+        if (paused) return { action: 'resume', attemptId: paused.id };
+        const reviewing = input.paused.find(attempt => (
+            attempt.taskId === input.taskId && attempt.reviewingAt
+        ));
+        if (reviewing && !input.running) return { action: 'noop' };
+    }
+    if (input.running) return { action: 'switch' };
+    return { action: 'start' };
+}
+
 export async function confirmAndSwitchTimer({
     running,
     target,

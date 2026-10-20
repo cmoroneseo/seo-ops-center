@@ -111,7 +111,7 @@ const actionFields: Record<TimerMutationRequest['action'], readonly string[]> = 
     start: ['action', 'taskId', 'now', 'timeZone', 'plannerEventId'],
     pause: ['action', 'timeLogId', 'now'],
     resume: ['action', 'timeLogId', 'now'],
-    switch: ['action', 'fromTimeLogId', 'toTimeLogId', 'toTaskId', 'now', 'plannerEventId'],
+    switch: ['action', 'fromTimeLogId', 'toTimeLogId', 'toTaskId', 'now', 'plannerEventId', 'timeZone'],
     begin_stop: ['action', 'timeLogId', 'now'],
     finalize: [
         'action',
@@ -186,19 +186,19 @@ function parseTimerRequest(value: unknown): TimerMutationRequest | null {
 
     if (action === 'start') {
         const hasExplicitInstant = value.now !== undefined;
-        const hasTimeZone = value.timeZone !== undefined;
         if (
             !isNonEmptyString(value.taskId)
             || !isOptionalInstant(value.now)
-            || hasExplicitInstant !== hasTimeZone
-            || (hasTimeZone && !isValidTimeZone(value.timeZone))
+            || (hasExplicitInstant && !isValidTimeZone(value.timeZone))
+            || (value.timeZone !== undefined && !isValidTimeZone(value.timeZone))
             || (value.plannerEventId !== undefined && !isNonEmptyString(value.plannerEventId))
         ) return null;
         return {
             action,
             taskId: value.taskId,
             ...(value.plannerEventId ? { plannerEventId: value.plannerEventId as string } : {}),
-            ...(value.now ? { now: value.now, timeZone: value.timeZone as string } : {}),
+            ...(value.timeZone ? { timeZone: value.timeZone as string } : {}),
+            ...(value.now ? { now: value.now } : {}),
         };
     }
     if (action === 'pause' || action === 'resume' || action === 'begin_stop') {
@@ -214,6 +214,7 @@ function parseTimerRequest(value: unknown): TimerMutationRequest | null {
             || hasAttempt === hasTask
             || (value.plannerEventId !== undefined && (!hasTask || !isNonEmptyString(value.plannerEventId)))
             || !isOptionalInstant(value.now)
+            || (value.timeZone !== undefined && !isValidTimeZone(value.timeZone))
         ) return null;
         return {
             action,
@@ -222,6 +223,7 @@ function parseTimerRequest(value: unknown): TimerMutationRequest | null {
             ...(hasTask ? { toTaskId: value.toTaskId as string } : {}),
             ...(value.plannerEventId ? { plannerEventId: value.plannerEventId as string } : {}),
             ...(value.now ? { now: value.now } : {}),
+            ...(value.timeZone ? { timeZone: value.timeZone as string } : {}),
         };
     }
     if (action === 'finalize') {
@@ -293,6 +295,10 @@ function mutationInstant(now?: string): string {
     return now ?? new Date().toISOString();
 }
 
+function attemptTimeZone(timeZone?: string): string {
+    return timeZone ?? 'UTC';
+}
+
 async function mutateSimple(
     input: Exclude<TimerMutationRequest, { action: 'finalize' | 'retry_basecamp' }>,
     deps: AttemptRouteDeps,
@@ -304,12 +310,14 @@ async function mutateSimple(
                 p_event_id: input.plannerEventId,
                 p_started_at: mutationInstant(input.now),
                 p_from_time_log_id: null,
+                p_time_zone: attemptTimeZone(input.timeZone),
             });
             return;
         }
         await deps.mutateRpc('start_task_timer', {
             p_task_id: input.taskId,
             p_started_at: mutationInstant(input.now),
+            p_time_zone: attemptTimeZone(input.timeZone),
         });
         return;
     }
@@ -334,6 +342,7 @@ async function mutateSimple(
                 p_event_id: input.plannerEventId,
                 p_started_at: mutationInstant(input.now),
                 p_from_time_log_id: input.fromTimeLogId,
+                p_time_zone: attemptTimeZone(input.timeZone),
             });
             return;
         }
@@ -342,6 +351,7 @@ async function mutateSimple(
             p_to_time_log_id: input.toTimeLogId ?? null,
             p_to_task_id: input.toTaskId ?? null,
             p_switched_at: mutationInstant(input.now),
+            p_time_zone: attemptTimeZone(input.timeZone),
         });
         return;
     }
