@@ -31,12 +31,16 @@ import { cn } from '@/lib/utils';
 import { LiveUrlResultLine } from '@/components/search-reporting/LiveUrlResultLine';
 import { LiveUrlControl } from '@/components/tasks/LiveUrlControl';
 import { aggregateUrlResults, type UrlResultReadout } from '@/lib/search-reporting/url-results';
-import { StageAddBar } from './StageAddBar';
+import { PlanAddLine, type PlanAddSubmission } from './PlanAddLine';
 
 export interface StageAddRequest {
     stage: TaskStage;
     titles: string[];
     parentTaskId?: string;
+    /** Set by the plan add line. Null is Backlog or Onboarding. */
+    dueDate?: string | null;
+    /** Mixed parents. Depth 1 belongs to the nearest depth-0 line above it. */
+    items?: PlanAddSubmission['items'];
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -178,7 +182,6 @@ function StageSections({
     query,
     searching,
     onOpenTask,
-    onAddTasks,
     onReorder,
     onSetLiveUrl,
     resultsByTaskId,
@@ -190,7 +193,6 @@ function StageSections({
     query: string;
     searching: boolean;
     onOpenTask: (taskId: string) => void;
-    onAddTasks: (input: StageAddRequest) => Promise<void>;
     onReorder: (move: StageReorderMove) => Promise<void>;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
@@ -407,14 +409,6 @@ function StageSections({
                             <span className="text-xs font-normal text-muted-foreground" data-count={section.count}>{section.count}</span>
                             <span className="sr-only">{section.count === 1 ? 'task' : 'tasks'}</span>
                         </h3>
-                        <div className="border-t border-border px-4 py-2" data-stage-add={section.stage}>
-                            <StageAddBar
-                                stage={section.stage}
-                                label={`Add task to ${section.label}`}
-                                placeholder="Add a task…"
-                                onAdd={titles => onAddTasks({ stage: section.stage, titles })}
-                            />
-                        </div>
                         {section.groups.length === 0 ? (
                             <p className="border-t border-border px-4 py-3 text-sm text-muted-foreground">No tasks</p>
                         ) : section.groups.map(group => {
@@ -517,19 +511,6 @@ function StageSections({
                                                 </div>
                                             ))}
                                             {dropLine(null, group.task.id, section.stage)}
-                                            <div className="border-t border-border py-2 pl-11 pr-4">
-                                                <StageAddBar
-                                                    stage={section.stage}
-                                                    parentTaskId={group.task.id}
-                                                    label={`Add subtask to ${group.task.title}`}
-                                                    placeholder="Add a subtask…"
-                                                    onAdd={titles => onAddTasks({
-                                                        stage: section.stage,
-                                                        titles,
-                                                        parentTaskId: group.task.id,
-                                                    })}
-                                                />
-                                            </div>
                                         </div>
                                     )}
                                 </div>
@@ -544,7 +525,7 @@ function StageSections({
 }
 
 /**
- * Stage list. Collapse state is local. The add bar creates tasks. Dragging a
+ * Stage list. Collapse state is local. One add line creates tasks. Dragging a
  * row reorders it or moves it between stages. The server assigns the positions.
  */
 export function StagePlanListView({
@@ -560,6 +541,8 @@ export function StagePlanListView({
     thisMonth = false,
     onThisMonthChange,
     today,
+    month,
+    timeZone,
 }: {
     tasks: readonly StageListTask[];
     query: string;
@@ -575,6 +558,12 @@ export function StagePlanListView({
     onThisMonthChange?: (thisMonth: boolean) => void;
     /** Calendar day YYYY-MM-DD in the org timezone. Defaults to today in Pacific time. */
     today?: string;
+    /**
+     * YYYY-MM for the add-line due chip. Omitted until the month control
+     * exists; the chip then uses the month of `today`.
+     */
+    month?: string;
+    timeZone?: string;
 }) {
     const searchId = useId();
     const day = today ?? calendarDay(new Date());
@@ -610,6 +599,16 @@ export function StagePlanListView({
                     This month
                 </button>
             </div>
+            <PlanAddLine
+                month={month ?? day.slice(0, 7)}
+                timeZone={timeZone}
+                onAdd={submission => onAddTasks({
+                    stage: submission.stage,
+                    titles: submission.items.map(item => item.title),
+                    dueDate: submission.dueDate,
+                    items: submission.items,
+                })}
+            />
             <div className="overflow-hidden rounded-xl border border-border bg-card">
                 <StageSections
                     key={`${query}:${thisMonth ? 'month' : 'all'}`}
@@ -618,7 +617,6 @@ export function StagePlanListView({
                     query={query}
                     searching={searching}
                     onOpenTask={onOpenTask}
-                    onAddTasks={onAddTasks}
                     onReorder={onReorder}
                     onSetLiveUrl={onSetLiveUrl}
                     resultsByTaskId={resultsByTaskId}

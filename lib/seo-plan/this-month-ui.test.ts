@@ -100,8 +100,8 @@ test('This month keeps open work due this month and overdue work, under its pill
     assert.doesNotMatch(keywords, /Overdue|data-overdue/);
     assert.match(html, /data-task-id="setup"[\s\S]*data-stage-drag="task"/);
     assert.match(html, /data-task-id="sitemap"[\s\S]*data-stage-drag="task"/);
-    assert.match(html, /Add task to Onboarding/);
-    assert.match(html, /Add task to Backlog/);
+    assert.equal(html.match(/data-plan-add="true"/g)?.length, 1);
+    assert.doesNotMatch(html, /Add task to Onboarding|Add task to Backlog|Add a subtask/);
 });
 
 test('the calendar month boundary moves last month into overdue and admits the new month', () => {

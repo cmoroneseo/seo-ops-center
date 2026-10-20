@@ -105,6 +105,10 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
     const reload = () => setReloadKey(key => key + 1);
 
     const addTasks = async (input: StageAddRequest) => {
+        if (input.items && input.items.length > 0) {
+            await addPlanLines(input);
+            return;
+        }
         const requestedClient = clientId;
         const parentTaskId = input.parentTaskId ?? null;
         const ids = input.titles.map(() => pendingStageTaskId());
@@ -139,6 +143,76 @@ export function StagePlanList({ clientId, clientName }: { clientId: string; clie
             const payload = await response.json().catch(() => null) as { tasks?: unknown } | null;
             const created = parseStageListTasks(payload?.tasks);
             if (!response.ok || created.length === 0) throw new Error('add failed');
+            if (seenClient.current !== requestedClient) return;
+            updateList(current => current ? commitStageTasks(current, ids, created) : created);
+        } catch (caught) {
+            if (seenClient.current === requestedClient) {
+                updateList(current => current ? rollbackStageTasks(current, ids) : current);
+            }
+            throw caught instanceof Error ? caught : new Error('add failed');
+        }
+    };
+
+    const addPlanLines = async (input: StageAddRequest) => {
+        const requestedClient = clientId;
+        const items = input.items ?? [];
+        const ids = items.map(() => pendingStageTaskId());
+        const createdAt = new Date().toISOString();
+        const parentIds: (string | null)[] = [];
+        let lastTop: string | null = null;
+        items.forEach((item, index) => {
+            if (item.depth === 1 && lastTop) parentIds.push(lastTop);
+            else {
+                parentIds.push(null);
+                lastTop = ids[index];
+            }
+        });
+        updateList(current => {
+            if (!current) return current;
+            const topCount = parentIds.filter(parentId => parentId == null).length;
+            const topPositions = nextStagePositions(endPosition(current, input.stage, null), topCount);
+            let topCursor = 0;
+            const childCursor = new Map<string, number>();
+            return appendStageTasks(current, items.map((item, index) => {
+                const parentTaskId = parentIds[index] ?? null;
+                let position: number;
+                if (parentTaskId == null) {
+                    position = topPositions[topCursor] ?? topCursor + 1;
+                    topCursor += 1;
+                } else {
+                    const next = (childCursor.get(parentTaskId) ?? 0) + 1;
+                    childCursor.set(parentTaskId, next);
+                    position = next;
+                }
+                return {
+                    id: ids[index] ?? pendingStageTaskId(),
+                    title: item.title.trim(),
+                    status: 'todo',
+                    stage: input.stage,
+                    position,
+                    parentTaskId,
+                    createdAt,
+                    category: null,
+                    basecamp: false,
+                    recurring: false,
+                    dueDate: input.dueDate ?? null,
+                };
+            }));
+        });
+        try {
+            const response = await fetch(`/api/seo-plan/stage-list/${encodeURIComponent(clientId)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                cache: 'no-store',
+                body: JSON.stringify({
+                    stage: input.stage,
+                    dueDate: input.dueDate ?? null,
+                    items: items.map(item => ({ title: item.title, depth: item.depth })),
+                }),
+            });
+            const payload = await response.json().catch(() => null) as { tasks?: unknown } | null;
+            const created = parseStageListTasks(payload?.tasks);
+            if (!response.ok || created.length !== items.length) throw new Error('add failed');
             if (seenClient.current !== requestedClient) return;
             updateList(current => current ? commitStageTasks(current, ids, created) : created);
         } catch (caught) {

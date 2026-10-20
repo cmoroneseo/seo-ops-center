@@ -45,35 +45,34 @@ function render(query = '') {
         onAddTasks: async () => undefined,
         onReorder: async () => undefined,
         clientName: 'Floor Co Design USA',
+        month: '2026-10',
+        today: '2026-10-19',
     }));
 }
 
-test('every stage section has an add bar, including an empty stage', () => {
+test('the plan has one add line and no per-stage or per-pillar bars', () => {
     const html = render();
-    for (const [stage, label] of [
-        ['onboarding', 'Onboarding'],
-        ['backlog', 'Backlog'],
-    ] as const) {
-        assert.match(html, new RegExp(`data-stage-add="${stage}"[\\s\\S]*?aria-label="Add task to ${label}"`));
-        assert.match(html, new RegExp(`data-add="${stage}"`));
-    }
-    assert.match(html, /placeholder="Add a task…"/);
+    assert.equal(html.match(/data-plan-add="true"/g)?.length, 1);
+    assert.match(html, /placeholder="Add task. Paste a list to add several."/);
+    assert.match(html, /data-plan-add-chip="month"/);
+    assert.match(html, /data-plan-add-label="Due Oct 31"/);
+    assert.match(html, /data-plan-add-due="2026-10-31"/);
+    assert.doesNotMatch(html, /data-stage-add|data-add-parent|Add a subtask|Add a task…/);
     assert.doesNotMatch(html, /Month 1|Month 2|Month 3|data-stage="month_|Template library|data-lib/);
+    assert.match(html, /data-stage="onboarding"/);
+    assert.match(html, /data-stage="backlog"/);
 });
 
-test('an expanded pillar accepts a subtask, and a collapsed pillar does not', () => {
+test('an expanded pillar has no subtask field, and search still has the one add line', () => {
     const open = render();
     const children = open.slice(open.indexOf('data-stage-children="setup"'), open.indexOf('data-task-id="robots"'));
-    assert.match(children, /aria-label="Add subtask to SEO Setup"/);
-    assert.match(children, /data-add="onboarding"/);
-    assert.match(children, /data-add-parent="setup"/);
-    assert.match(children, /placeholder="Add a subtask…"/);
+    assert.doesNotMatch(children, /Add subtask|data-plan-add|data-add/);
 
     const collapsed = render('seo setup');
     assert.match(collapsed, /aria-expanded="false"/);
     assert.doesNotMatch(collapsed, /Add subtask to SEO Setup/);
     assert.doesNotMatch(collapsed, /data-add-parent="setup"/);
-    assert.match(collapsed, /aria-label="Add task to Onboarding"/);
+    assert.equal(collapsed.match(/data-plan-add="true"/g)?.length, 1);
 });
 
 test('a pending row is visible and cannot be opened', () => {
