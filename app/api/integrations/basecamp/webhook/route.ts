@@ -19,8 +19,9 @@ export const dynamic = 'force-dynamic';
  * Treat the payload as an untrusted notification, then verify the canonical
  * linked to-do through the authenticated Basecamp API before changing state.
  * Handles:
- *   - Todo completion → marks the linked SEO PM task as done
- *   - Todo uncomplete → reopens the linked SEO PM task
+ *   - Todo completion → marks the linked task as done, with completed_at
+ *   - Todo uncomplete → reopens a non-plan task. SEO Plan tasks stay as they
+ *     are: a Basecamp reopen does not reopen a plan task.
  *
  * Timesheet entry events are not imported. No importer is passed, so
  * `timesheet_entry_*` deliveries are recorded as skipped. Hours are logged
@@ -76,7 +77,7 @@ export const POST = createBasecampWebhookPost({
         async getTaskByTodoId(todoId) {
             const { data, error } = await createAdminClient()
                 .from('tasks')
-                .select('id, status, status_history, organization_id, client_id, title, basecamp_todo_id, basecamp_project_id')
+                .select('id, status, status_history, organization_id, client_id, title, stage, basecamp_sync_state, basecamp_todo_id, basecamp_project_id')
                 .eq('basecamp_todo_id', todoId)
                 .maybeSingle();
             if (error) throw error;
@@ -88,6 +89,8 @@ export const POST = createBasecampWebhookPost({
                 organizationId: data.organization_id,
                 clientId: data.client_id,
                 title: data.title,
+                stage: typeof data.stage === 'string' ? data.stage : null,
+                basecampSyncState: typeof data.basecamp_sync_state === 'string' ? data.basecamp_sync_state : null,
                 basecampTodoId: String(data.basecamp_todo_id),
                 basecampProjectId: String(data.basecamp_project_id),
             };

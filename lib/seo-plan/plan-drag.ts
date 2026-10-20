@@ -14,7 +14,7 @@ import { dueDay } from './this-month';
  * What a drag should write.
  * `dueDate` is omitted when the due date stays as it is. `null` clears it.
  * The stage move still goes through the existing reorder (position and parent).
- * A due-date write does not push to Basecamp; that push rule is a later change.
+ * The reorder route pushes when the row qualifies after the drop.
  */
 export interface PlanDragEffect {
     move: StageReorderMove;

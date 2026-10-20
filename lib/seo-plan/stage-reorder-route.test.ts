@@ -279,11 +279,15 @@ test('a rewrite failure returns one error and does not expose the underlying mes
     assert.equal(JSON.stringify(result.body).includes('token'), false);
 });
 
-test('a due date is stored without a Basecamp push and a bad date is refused', async () => {
+test('a dragged due date is stored and pushed, and a bad date is refused', async () => {
     const dated = deps();
     const dues: { taskId: string; dueDate: string | null }[] = [];
+    const pushes: string[] = [];
     dated.dependencies.setDue = async (_organizationId, _clientId, taskId, dueDate) => {
         dues.push({ taskId, dueDate });
+    };
+    dated.dependencies.pushPlanTask = async taskId => {
+        pushes.push(taskId);
     };
     const result = await reorderStageTasks(clientId, {
         taskId: robots,
@@ -296,12 +300,17 @@ test('a due date is stored without a Basecamp push and a bad date is refused', a
     if (result.status !== 200) return;
     assert.equal(dated.calls.writes.length, 0);
     assert.deepEqual(dues, [{ taskId: robots, dueDate: '2026-10-31' }]);
+    assert.deepEqual(pushes, [robots]);
     assert.equal(result.body.tasks.find(item => item.id === robots)?.dueDate, '2026-10-31');
 
     const cleared = deps();
     const clears: Array<string | null> = [];
+    const clearPushes: string[] = [];
     cleared.dependencies.setDue = async (_organizationId, _clientId, _taskId, dueDate) => {
         clears.push(dueDate);
+    };
+    cleared.dependencies.pushPlanTask = async taskId => {
+        clearPushes.push(taskId);
     };
     const clear = await reorderStageTasks(clientId, {
         taskId: roadmap,
@@ -313,6 +322,21 @@ test('a due date is stored without a Basecamp push and a bad date is refused', a
     assert.equal(clear.status, 200);
     if (clear.status === 200) assert.equal(clear.body.tasks.find(item => item.id === roadmap)?.dueDate, null);
     assert.deepEqual(clears, [null]);
+    assert.deepEqual(clearPushes, []);
+
+    const onboarded = deps();
+    const onboardPushes: string[] = [];
+    onboarded.dependencies.pushPlanTask = async taskId => {
+        onboardPushes.push(taskId);
+    };
+    const leftBacklog = await reorderStageTasks(clientId, {
+        taskId: robots,
+        stage: 'onboarding',
+        parentTaskId: null,
+        index: 0,
+    }, onboarded.dependencies);
+    assert.equal(leftBacklog.status, 200);
+    assert.deepEqual(onboardPushes, [robots]);
 
     const invalid = deps();
     let setCalls = 0;

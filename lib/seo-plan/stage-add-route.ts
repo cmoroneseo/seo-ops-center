@@ -6,6 +6,7 @@ import { nextStagePositions } from './stage-add';
 import { stageAddTitlesError, STAGE_ADD_MAX_TITLE_LENGTH } from './stage-add-lines';
 import { subtaskLineDrafts, subtaskLinesError } from '../tasks/live-url';
 import type { StageAddParent } from './stage-add-db';
+import { planTaskQualifiesForBasecampPush, type PlanBasecampSyncState } from './basecamp-push';
 import type { StageListTask } from './stage-list';
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -15,13 +16,11 @@ export interface StageAddDependencies {
     /** Whether the stage list is on for the session organization. */
     enabled: (organizationId: string) => boolean;
     /**
-     * Basecamp push follows createTask: only when this is true.
-     * The add bar has no sync toggle, and the route leaves it false.
-     * That is the same default as the Create Task dialog.
+     * Push one task that already qualifies (due date, or it left Backlog).
+     * Undated backlog tasks are not passed here. A returned sync state is
+     * copied onto the task so a failure dot can render without a reload.
      */
-    syncToBasecamp?: boolean;
-    /** Fire-and-forget. The same hook createTask uses when sync is requested. */
-    pushToBasecamp?: (taskId: string) => void;
+    pushToBasecamp?: (taskId: string) => void | PlanBasecampSyncState | null | Promise<void | PlanBasecampSyncState | null>;
     now?: () => string;
     /** False when the client is not in the session organization. */
     loadClient: (organizationId: string, clientId: string) => Promise<boolean>;
@@ -328,8 +327,25 @@ async function insertPlanItems(input: {
         cursor += count;
     }
     const titlesById = new Map(parents.map(parent => [parent.id, parent.title]));
-    await finishCreatedTasks(tasks, input, parentId => titlesById.get(parentId));
+    await finishCreatedTasks(tasks, input, parentId => titlesById.get(parentId), input.stage, input.dueDate);
     return { status: 200, body: { tasks } };
+}
+
+async function pushQualifiedTasks(
+    tasks: readonly StageListTask[],
+    dependencies: StageAddDependencies,
+    stage: TaskStage,
+    dueDate: string | null,
+): Promise<void> {
+    if (!planTaskQualifiesForBasecampPush({ stage, dueDate })) return;
+    for (const task of tasks) {
+        try {
+            const sync = await dependencies.pushToBasecamp?.(task.id);
+            if (sync && typeof sync === 'object') task.basecampSync = sync;
+        } catch {
+            // The push records its own failure. The task is already saved.
+        }
+    }
 }
 
 async function finishCreatedTasks(
@@ -341,16 +357,10 @@ async function finishCreatedTasks(
         dependencies: StageAddDependencies;
     },
     parentTitle: (parentTaskId: string) => string | undefined,
+    stage: TaskStage,
+    dueDate: string | null,
 ): Promise<void> {
-    if (input.dependencies.syncToBasecamp) {
-        for (const task of tasks) {
-            try {
-                input.dependencies.pushToBasecamp?.(task.id);
-            } catch {
-                // createTask reports a push failure on its own and still returns the task.
-            }
-        }
-    }
+    await pushQualifiedTasks(tasks, input.dependencies, stage, dueDate);
     if (!input.dependencies.logCreated) return;
     for (const task of tasks) {
         const title = task.parentTaskId ? parentTitle(task.parentTaskId) : undefined;
@@ -373,7 +383,7 @@ async function finishCreatedTasks(
  * The client id is only a path key. Organization, role, and user id come from
  * the session. A flag that is off never writes. Viewers never write.
  * A body with `items` creates mixed parents in this request: pillars first,
- * then their subtasks. Basecamp push still follows `dependencies.syncToBasecamp`.
+ * then their subtasks. A qualifying task is pushed; an undated backlog task is not.
  */
 export async function createStageTasks(
     clientIdInput: unknown,
@@ -447,15 +457,7 @@ export async function createStageTasks(
         const tasks = orderCreated(rows, inserted);
         if (tasks.length !== parsed.value.titles.length) return { status: 500, body: { error: 'Could not add tasks' } };
 
-        if (dependencies.syncToBasecamp) {
-            for (const task of tasks) {
-                try {
-                    dependencies.pushToBasecamp?.(task.id);
-                } catch {
-                    // createTask reports a push failure on its own and still returns the task.
-                }
-            }
-        }
+        await pushQualifiedTasks(tasks, dependencies, stage, null);
         if (dependencies.logCreated) {
             for (const task of tasks) {
                 try {

@@ -13,7 +13,8 @@ import {
 import { createStageTasks } from '@/lib/seo-plan/stage-add-route';
 import { rewriteStageTasks, setStageTaskDueDate } from '@/lib/seo-plan/stage-reorder-db';
 import { reorderStageTasks } from '@/lib/seo-plan/stage-reorder-route';
-import { loadClientStageTasks } from '@/lib/seo-plan/stage-list-load';
+import { syncStoredPlanTask } from '@/lib/seo-plan/basecamp-push-server';
+import { loadClientStageTasks, loadPlanBasecampBanner } from '@/lib/seo-plan/stage-list-load';
 import { readClientStageList } from '@/lib/seo-plan/stage-list-route';
 import { logClientActivity } from '@/lib/supabase/client-activity';
 
@@ -39,13 +40,19 @@ async function stageListDb() {
 /** Read-only. Client id is the path key. Organization comes from the session. */
 export async function GET(_request: Request, { params }: { params: Promise<{ clientId: string }> }) {
     const { clientId } = await params;
+    const db = await stageListDb();
     const result = await readClientStageList(clientId, {
         session: resolveSessionOrganization,
         enabled: organizationId => seoPlanStageListEnabled(process.env, organizationId),
-        load: async (organizationId, id) => loadClientStageTasks(await stageListDb(), organizationId, id),
+        load: (organizationId, id) => loadClientStageTasks(db, organizationId, id),
         basecampAccountId: process.env.BASECAMP_ACCOUNT_ID ?? null,
     });
-    return NextResponse.json(result.body, { status: result.status, headers: NO_STORE });
+    if (result.status !== 200) return NextResponse.json(result.body, { status: result.status, headers: NO_STORE });
+    const session = await resolveSessionOrganization();
+    const basecamp = session.ok
+        ? await loadPlanBasecampBanner(db, session.organizationId, clientId)
+        : null;
+    return NextResponse.json({ ...result.body, basecamp }, { status: 200, headers: NO_STORE });
 }
 
 function actorLabel(user: { email?: string; user_metadata?: Record<string, unknown> } | null): string | undefined {
@@ -57,8 +64,8 @@ function actorLabel(user: { email?: string; user_metadata?: Record<string, unkno
 
 /**
  * Create tasks in one stage. The client id is the path key. Organization and
- * the acting user come from the session. Basecamp push stays off, matching
- * the Create Task dialog before its sync toggle is turned on.
+ * the acting user come from the session. A task pushes once it has a due date
+ * or leaves Backlog. An undated backlog task does not.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ clientId: string }> }) {
     const { clientId } = await params;
@@ -72,8 +79,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ cli
     const result = await createStageTasks(clientId, body, {
         session: resolveSessionOrganization,
         enabled: organizationId => seoPlanStageListEnabled(process.env, organizationId),
-        syncToBasecamp: false,
         now: () => new Date().toISOString(),
+        pushToBasecamp: async taskId => {
+            const outcome = await syncStoredPlanTask(taskId);
+            return outcome.status === 'skipped' ? null : outcome.sync;
+        },
         loadClient: (organizationId, id) => clientBelongsToOrganization(db, organizationId, id),
         loadParent: (organizationId, id, parentTaskId) => loadStageAddParent(db, organizationId, id, parentTaskId),
         maxPosition: (organizationId, id, stage, parentTaskId) => (
@@ -100,7 +110,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ cli
             });
         },
     });
-    return NextResponse.json(result.body, { status: result.status, headers: NO_STORE });
+    if (result.status !== 200) return NextResponse.json(result.body, { status: result.status, headers: NO_STORE });
+    const session = await resolveSessionOrganization();
+    const basecamp = session.ok ? await loadPlanBasecampBanner(db, session.organizationId, clientId) : null;
+    return NextResponse.json({ ...result.body, basecamp }, { status: 200, headers: NO_STORE });
 }
 
 /**
@@ -123,6 +136,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ cl
         load: (organizationId, id) => loadClientStageTasks(db, organizationId, id),
         rewrite: (organizationId, id, writes) => rewriteStageTasks(db, organizationId, id, writes),
         setDue: (organizationId, id, taskId, dueDate) => setStageTaskDueDate(db, organizationId, id, taskId, dueDate),
+        pushPlanTask: async taskId => {
+            const outcome = await syncStoredPlanTask(taskId);
+            return outcome.status === 'skipped' ? null : outcome.sync;
+        },
     });
-    return NextResponse.json(result.body, { status: result.status, headers: NO_STORE });
+    if (result.status !== 200) return NextResponse.json(result.body, { status: result.status, headers: NO_STORE });
+    const session = await resolveSessionOrganization();
+    const basecamp = session.ok ? await loadPlanBasecampBanner(db, session.organizationId, clientId) : null;
+    return NextResponse.json({ ...result.body, basecamp }, { status: 200, headers: NO_STORE });
 }

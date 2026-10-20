@@ -6,6 +6,7 @@ import {
     type StageReorderMove,
     type StageReorderWrite,
 } from './stage-reorder';
+import { planTaskQualifiesForBasecampPush, type PlanBasecampSyncState } from './basecamp-push';
 import type { StageListTask } from './stage-list';
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -26,7 +27,6 @@ export interface StageReorderDependencies {
     ) => Promise<StageListTask[]>;
     /**
      * Write tasks.due_date for the dragged row. Null clears it.
-     * This does not push to Basecamp.
      */
     setDue?: (
         organizationId: string,
@@ -34,6 +34,13 @@ export interface StageReorderDependencies {
         taskId: string,
         dueDate: string | null,
     ) => Promise<void>;
+    /**
+     * Push a task that qualifies after the move. Undated backlog moves are
+     * not passed here. The same function create uses.
+     */
+    pushPlanTask?: (
+        taskId: string,
+    ) => Promise<PlanBasecampSyncState | null | void> | PlanBasecampSyncState | null | void;
 }
 
 export type StageReorderResult =
@@ -112,15 +119,33 @@ export async function reorderStageTasks(
             updated = await dependencies.rewrite(session.organizationId, clientId, plan.writes);
             if (updated.length !== plan.writes.length) return { status: 500, body: { error: 'Could not move tasks' } };
         }
+        const current = tasks.find(task => task.id === parsed.value.taskId);
         if (parsed.value.dueDate !== undefined) {
             if (!dependencies.setDue) return { status: 500, body: { error: 'Could not move tasks' } };
             await dependencies.setDue(session.organizationId, clientId, parsed.value.taskId, parsed.value.dueDate);
             const dueDate = parsed.value.dueDate;
             if (updated.some(task => task.id === parsed.value.taskId)) {
                 updated = updated.map(task => task.id === parsed.value.taskId ? { ...task, dueDate } : task);
-            } else {
-                const current = tasks.find(task => task.id === parsed.value.taskId);
-                if (current) updated = [...updated, { ...current, dueDate }];
+            } else if (current) {
+                updated = [...updated, { ...current, dueDate }];
+            }
+        }
+        const dueDate = parsed.value.dueDate !== undefined
+            ? parsed.value.dueDate
+            : (current?.dueDate ?? null);
+        if (planTaskQualifiesForBasecampPush({ stage: parsed.value.stage, dueDate })) {
+            try {
+                const sync = await dependencies.pushPlanTask?.(parsed.value.taskId);
+                if (sync && typeof sync === 'object') {
+                    updated = updated.map(task => task.id === parsed.value.taskId
+                        ? { ...task, basecampSync: sync }
+                        : task);
+                    if (!updated.some(task => task.id === parsed.value.taskId) && current) {
+                        updated = [...updated, { ...current, dueDate, basecampSync: sync }];
+                    }
+                }
+            } catch {
+                // The move is saved. The push records its own failure.
             }
         }
         return { status: 200, body: { tasks: updated } };
