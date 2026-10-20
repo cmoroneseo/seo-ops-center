@@ -32,6 +32,7 @@ import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { useTimer } from '@/components/providers/timer-provider';
 import { ClientProject } from '@/lib/types';
+import { mergeSavedTask } from '@/lib/tasks/merge-saved-task';
 import { clientScopeLabel } from '@/lib/hour-format';
 import { Pencil, Play, Pause } from 'lucide-react';
 import { TaskListView } from '@/components/tasks/TaskListView';
@@ -782,8 +783,8 @@ export default function ClientDetailPage() {
                 isOpen={isTaskDetailOpen}
                 onClose={() => setIsTaskDetailOpen(false)}
                 onUpdate={(updated) => {
-                    setClientTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
-                    setSelectedTask(updated);
+                    setClientTasks(prev => prev.map(t => t.id === updated.id ? mergeSavedTask(t, updated) : t));
+                    setSelectedTask(current => current && current.id === updated.id ? mergeSavedTask(current, updated) : updated);
                     setActivityRefreshKey(key => key + 1);
                 }}
             />

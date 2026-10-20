@@ -599,6 +599,44 @@ function estimateLabel(hours?: number | null): string {
     return Number.isInteger(rounded) ? `${rounded}h estimate` : `${rounded.toFixed(1)}h estimate`;
 }
 
+/** Replace one canvas task from a panel edit. An empty saved subtask list is not a count. */
+export function canvasTaskFromUpdate(previous: CanvasTask, updated: Task): CanvasTask {
+    const knowsSubtasks = updated.subtasksState === 'ready'
+        || updated.subtasksState === 'unavailable'
+        || updated.subtasksState === 'loading';
+    return {
+        ...previous,
+        title: updated.title,
+        description: updated.description !== undefined ? updated.description : previous.description,
+        status: updated.status,
+        blockedReason: updated.blockedReason,
+        dueDate: updated.dueDate,
+        startDate: updated.startDate,
+        completedAt: updated.completedAt,
+        estimatedHours: updated.estimatedHours,
+        subtasks: knowsSubtasks ? updated.subtasks : previous.subtasks,
+        subtasksState: knowsSubtasks ? updated.subtasksState : previous.subtasksState,
+    };
+}
+
+/** Reproject the overview from a panel edit without waiting for another read. */
+export function applyCanvasTaskEdit(input: WorkspaceCanvasInput, updated: Task): WorkspaceCanvasInput {
+    if (!input.tasks.ok) return input;
+    const tasks = input.tasks.value.map(task => task.id === updated.id ? canvasTaskFromUpdate(task, updated) : task);
+    const plan = input.plan.ok ? {
+        ok: true as const,
+        value: input.plan.value ? {
+            ...input.plan.value,
+            items: input.plan.value.items.map(item => (
+                item.linkedTask?.id === updated.id
+                    ? { ...item, linkedTask: canvasTaskFromUpdate(item.linkedTask, updated) }
+                    : item
+            )),
+        } : input.plan.value,
+    } : input.plan;
+    return { ...input, tasks: { ok: true, value: tasks }, plan };
+}
+
 /** Same figure as the plan and the task panel. Loading is never `0/N`. */
 export function workCardSubtaskProgress(task: Pick<CanvasTask, 'subtasks' | 'subtasksState'>): string {
     const progress = listedSubtaskProgress(task);

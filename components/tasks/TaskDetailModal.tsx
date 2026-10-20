@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { taskDescriptionText, taskDescriptionChanged } from '@/lib/tasks/description';
 import { descriptionSaveLabel } from '@/lib/tasks/description-save';
 import { useDescriptionAutosave } from '@/lib/tasks/use-description-autosave';
+import { mergeSavedTask } from '@/lib/tasks/merge-saved-task';
 import { listedSubtaskProgress, progressOf } from '@/lib/tasks/subtask-progress';
 import { SubtaskProgressText } from './SubtaskProgressText';
 import { Task, TaskComment, TaskStatus, TaskPriority, TaskCategory, TimerAttempt } from '@/lib/types';
@@ -198,16 +199,14 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             const current = taskRef.current;
             if (!current) return false;
             if (!taskDescriptionChanged(current.description, text)) return true;
+            onUpdateRef.current?.(mergeSavedTask(current, { ...current, description: text }));
             const result = await updateTask(current.id, { description: text, updatedBy: currentUserId });
-            if (!result.success || !result.data) return false;
+            if (!result.success || !result.data) {
+                onUpdateRef.current?.(current);
+                return false;
+            }
             const latest = taskRef.current ?? current;
-            onUpdateRef.current?.({
-                ...latest,
-                ...result.data,
-                description: text,
-                subtasks: latest.subtasksState ? latest.subtasks : result.data.subtasks,
-                subtasksState: result.data.subtasksState ?? latest.subtasksState,
-            });
+            onUpdateRef.current?.(mergeSavedTask({ ...latest, description: text }, result.data));
             if (hideBasecampSend) queuePlanBasecampPush(result.data.id);
             return true;
         },
@@ -300,11 +299,11 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const publishSubtasks = useCallback((rows: Task[]) => {
         const current = taskRef.current;
         if (!current) return;
-        onUpdateRef.current?.({
+        onUpdateRef.current?.(mergeSavedTask(current, {
             ...current,
             subtasks: rows.map(row => ({ id: row.id, title: row.title, completed: row.status === 'done' })),
             subtasksState: 'ready',
-        });
+        }));
     }, []);
 
     const loadTaskData = useCallback(async () => {
@@ -333,11 +332,11 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             setSubtasksReady(true);
             const latest = taskRef.current;
             if (latest) {
-                onUpdateRef.current?.({
+                onUpdateRef.current?.(mergeSavedTask(latest, {
                     ...latest,
                     subtasks: taskData.task.subtasks,
                     subtasksState: 'ready',
-                });
+                }));
             }
         } catch {
             if (taskRef.current?.id === requestedId) {
@@ -442,23 +441,23 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const save = useCallback(async (patch: Parameters<typeof updateTask>[1]) => {
         const current = taskRef.current;
         if (!current) return;
+        const optimistic = mergeSavedTask(current, { ...current, ...patch } as Task);
+        onUpdateRef.current?.(optimistic);
         setSaving(true);
         setSaveError(null);
         try {
             const result = await updateTask(current.id, { ...patch, updatedBy: currentUserId });
             if (result.success && result.data) {
-                const latest = taskRef.current ?? current;
-                onUpdateRef.current?.({
-                    ...result.data,
-                    subtasks: latest.subtasksState ? latest.subtasks : result.data.subtasks,
-                    subtasksState: result.data.subtasksState ?? latest.subtasksState,
-                });
+                const latest = taskRef.current ?? optimistic;
+                onUpdateRef.current?.(mergeSavedTask(latest, result.data));
                 if (hideBasecampSend) queuePlanBasecampPush(result.data.id);
                 return true;
             }
+            onUpdateRef.current?.(current);
             setSaveError('Could not save changes. Check the task and try again.');
             return false;
         } catch {
+            onUpdateRef.current?.(current);
             setSaveError('Could not confirm the save. Refresh the task before retrying.');
             return false;
         } finally { setSaving(false); }
@@ -822,7 +821,12 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                 type="text"
                                 disabled={saving}
                                 value={title}
-                                onChange={e => setTitle(e.target.value)}
+                                onChange={e => {
+                                    const next = e.target.value;
+                                    setTitle(next);
+                                    const current = taskRef.current;
+                                    if (current) onUpdateRef.current?.(mergeSavedTask(current, { ...current, title: next }));
+                                }}
                                 onBlur={handleTitleBlur}
                                 className="w-full bg-transparent border-none text-xl font-bold p-0 focus:ring-0 placeholder:text-muted-foreground"
                                 placeholder="Task title…"
@@ -853,7 +857,12 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                             <textarea
                                 id={`${fieldId}-description`}
                                 value={descriptionSave.text}
-                                onChange={e => descriptionSave.edit(e.target.value)}
+                                onChange={e => {
+                                    const next = e.target.value;
+                                    descriptionSave.edit(next);
+                                    const current = taskRef.current;
+                                    if (current) onUpdateRef.current?.(mergeSavedTask(current, { ...current, description: next }));
+                                }}
                                 onBlur={() => descriptionSave.flush()}
                                 className="w-full bg-transparent border-none text-sm p-0 mt-1 focus:ring-0 resize-none min-h-[80px] placeholder:text-muted-foreground"
                                 placeholder="Add details…"
