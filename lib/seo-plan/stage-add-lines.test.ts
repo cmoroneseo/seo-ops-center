@@ -4,12 +4,23 @@ import test from 'node:test';
 import {
     STAGE_ADD_MAX_TITLE_LENGTH,
     STAGE_ADD_MAX_TITLES,
+    linesFromStageAddPaste,
     parseStageAddLines,
+    stageAddLineRole,
+    stageAddLinesWithout,
     stageAddTitlesError,
     stripStageAddLine,
     titlesFromStageAddEnter,
     titlesFromStageAddPaste,
 } from './stage-add-lines.ts';
+
+function titles(text: string): string[] {
+    return parseStageAddLines(text).map(line => line.title);
+}
+
+function depths(text: string): number[] {
+    return parseStageAddLines(text).map(line => line.depth);
+}
 
 test('a typed title is kept as entered, including a leading number', () => {
     assert.deepEqual(titlesFromStageAddEnter('  Review robots.txt  '), ['Review robots.txt']);
@@ -36,7 +47,7 @@ test('a multi-line paste strips bullets and numbering and skips blanks', () => {
         '12. Build local landing pages',
     ].join('\n');
 
-    assert.deepEqual(parseStageAddLines(pasted), [
+    assert.deepEqual(titles(pasted), [
         'Review robots.txt',
         'Fix crawl errors',
         'Check HTTPS',
@@ -50,6 +61,7 @@ test('a multi-line paste strips bullets and numbering and skips blanks', () => {
         'Respond to reviews',
         'Build local landing pages',
     ]);
+    assert.deepEqual(depths(pasted), Array(12).fill(0));
     assert.deepEqual(titlesFromStageAddPaste(pasted)?.slice(0, 2), [
         'Review robots.txt',
         'Fix crawl errors',
@@ -57,11 +69,88 @@ test('a multi-line paste strips bullets and numbering and skips blanks', () => {
 });
 
 test('paste order is preserved and a single line is not submitted by the paste', () => {
-    assert.deepEqual(parseStageAddLines('beta\nalpha\n'), ['beta', 'alpha']);
-    assert.deepEqual(parseStageAddLines('beta\r\nalpha\rgamma'), ['beta', 'alpha', 'gamma']);
+    assert.deepEqual(titles('beta\nalpha\n'), ['beta', 'alpha']);
+    assert.deepEqual(titles('beta\r\nalpha\rgamma'), ['beta', 'alpha', 'gamma']);
     assert.equal(titlesFromStageAddPaste('1. Only one line'), null);
+    assert.equal(linesFromStageAddPaste('1. Only one line'), null);
     assert.equal(titlesFromStageAddPaste('\n- \n'), null);
     assert.equal(titlesFromStageAddPaste(''), null);
+});
+
+test('indented lines become one-level subtasks of the latest top-level line', () => {
+    const pasted = [
+        'Citations round 2',
+        '  - Houzz photos + project gallery',
+        '  - Porch.com listing',
+        '  - Thumbtack profile',
+        'Update GBP holiday hours',
+        'Add financing FAQ to service pages',
+    ].join('\n');
+    const lines = parseStageAddLines(pasted);
+    assert.deepEqual(lines.map(line => line.title), [
+        'Citations round 2',
+        'Houzz photos + project gallery',
+        'Porch.com listing',
+        'Thumbtack profile',
+        'Update GBP holiday hours',
+        'Add financing FAQ to service pages',
+    ]);
+    assert.deepEqual(lines.map(line => line.depth), [0, 1, 1, 1, 0, 0]);
+    assert.deepEqual(lines.map((_, index) => stageAddLineRole(lines, index)), [
+        'pillar', 'subtask', 'subtask', 'subtask', 'task', 'task',
+    ]);
+});
+
+test('a tab or a nested bullet marks a subtask, and deeper indents flatten', () => {
+    const pasted = [
+        'Citations round 2',
+        '\tHouzz photos',
+        '\t\tPorch.com listing',
+        ' - Thumbtack profile',
+        '  2) Update the hours',
+        '   [x] Confirm the profile',
+        'Update GBP holiday hours',
+        '    Still a subtask of the new pillar',
+        '      And so is this',
+    ].join('\n');
+    assert.deepEqual(depths(pasted), [0, 1, 1, 1, 1, 1, 0, 1, 1]);
+    assert.deepEqual(titles(pasted).slice(3, 6), [
+        'Thumbtack profile',
+        'Update the hours',
+        'Confirm the profile',
+    ]);
+});
+
+test('an indented first line is top-level, and a single space without a mark is not a subtask', () => {
+    assert.deepEqual(depths('  First\n  Second\n    Third'), [0, 0, 1]);
+    assert.deepEqual(depths('\tFirst\n\t\tSecond'), [0, 1]);
+    assert.deepEqual(depths('Parent\n child'), [0, 0]);
+    assert.deepEqual(titles('Parent\n  -\nSibling'), ['Parent', 'Sibling']);
+    assert.deepEqual(depths('Parent\n  -\nSibling'), [0, 0]);
+});
+
+test('the parser keeps lines past the caps so the preview can refuse them', () => {
+    const many = Array.from({ length: STAGE_ADD_MAX_TITLES + 1 }, (_, index) => `Task ${index}`).join('\n');
+    assert.equal(parseStageAddLines(many).length, STAGE_ADD_MAX_TITLES + 1);
+    assert.equal(linesFromStageAddPaste(many)?.length, STAGE_ADD_MAX_TITLES + 1);
+    const long = 'x'.repeat(STAGE_ADD_MAX_TITLE_LENGTH + 1);
+    assert.equal(parseStageAddLines(`Short\n${long}`)[1]?.title.length, STAGE_ADD_MAX_TITLE_LENGTH + 1);
+    assert.equal(stageAddTitlesError(parseStageAddLines(many).map(line => line.title)), 'Add up to 40 tasks at a time.');
+    assert.equal(stageAddTitlesError([long]), 'Keep each title under 300 characters.');
+});
+
+test('dropping a line reparses the indent so a removed pillar does not orphan its subtasks', () => {
+    const lines = parseStageAddLines('Citations\n  Houzz\n  Porch\nUpdate GBP');
+    const withoutPillar = stageAddLinesWithout(lines, 0);
+    assert.deepEqual(withoutPillar.map(line => line.depth), [0, 0, 0]);
+    assert.deepEqual(withoutPillar.map(line => line.title), ['Houzz', 'Porch', 'Update GBP']);
+    const withoutChild = stageAddLinesWithout(lines, 1);
+    assert.deepEqual(withoutChild.map(line => [line.title, line.depth]), [
+        ['Citations', 0],
+        ['Porch', 1],
+        ['Update GBP', 0],
+    ]);
+    assert.equal(stageAddLineRole(withoutChild, 0), 'pillar');
 });
 
 test('a title that merely starts with a number is not treated as a list marker', () => {

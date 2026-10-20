@@ -156,6 +156,7 @@ test('titles are created at the end of the stage for the session organization', 
     assert.equal(calls.rows[0].priority, 'medium');
     assert.equal(calls.rows[0].created_by, userId);
     assert.equal(calls.rows[0].parent_task_id, undefined);
+    assert.equal(calls.rows[0].due_date, undefined);
     assert.deepEqual(calls.rows[0].status_history, [{ status: 'todo', at: '2026-10-16T17:00:00.000Z', by: userId }]);
     assert.equal(Object.hasOwn(calls.rows[0], 'basecamp_todo_id'), false);
     assert.equal(calls.rows.some(row => row.organization_id === other || row.client_id === other || row.created_by === 'attacker'), false);
@@ -302,6 +303,228 @@ test('a top-level task keeps a pasted URL in the title', async () => {
     assert.equal(result.status, 200);
     assert.equal(calls.rows[0].title, 'Check https://example.com/chino');
     assert.equal(Object.hasOwn(calls.rows[0], 'published_url'), false);
+});
+
+test('one request creates pillars first, then links each subtask to its own pillar', async () => {
+    const batches: Record<string, unknown>[][] = [];
+    const { dependencies, calls } = deps({
+        insertTasks: async rows => {
+            batches.push(rows.map(row => ({ ...row })));
+            calls.rows.push(...rows);
+            return rows.map((row, index) => ({
+                id: `created-${batches.length}-${index + 1}`,
+                title: String(row.title),
+                status: 'todo',
+                stage: String(row.stage),
+                position: typeof row.position === 'number' ? row.position : null,
+                parentTaskId: typeof row.parent_task_id === 'string' ? row.parent_task_id : null,
+                createdAt: '2026-10-16T00:00:00.000Z',
+                category: null,
+                basecamp: false,
+                recurring: false,
+                ...(typeof row.due_date === 'string' || row.due_date === null ? { dueDate: row.due_date as string | null } : {}),
+            }));
+        },
+    });
+    const result = await createStageTasks(clientId, {
+        stage: 'backlog',
+        dueDate: '2026-10-31',
+        organizationId: other,
+        syncToBasecamp: true,
+        items: [
+            { title: ' Citations round 2 ', depth: 0 },
+            { title: 'Houzz photos', depth: 1 },
+            { title: 'Porch.com listing', depth: 1 },
+            { title: 'Update GBP holiday hours', depth: 0 },
+            { title: 'Confirm the hours', depth: 1 },
+            { title: 'Add financing FAQ', depth: 0 },
+        ],
+    }, dependencies);
+    assert.equal(result.status, 200);
+    if (result.status !== 200) return;
+    assert.deepEqual(result.body.tasks.map(task => task.title), [
+        'Citations round 2',
+        'Houzz photos',
+        'Porch.com listing',
+        'Update GBP holiday hours',
+        'Confirm the hours',
+        'Add financing FAQ',
+    ]);
+    assert.equal(batches.length, 2);
+    assert.deepEqual(batches[0].map(row => row.title), [
+        'Citations round 2',
+        'Update GBP holiday hours',
+        'Add financing FAQ',
+    ]);
+    assert.deepEqual(batches[0].map(row => row.position), [5, 6, 7]);
+    assert.deepEqual(batches[0].map(row => row.stage), ['backlog', 'backlog', 'backlog']);
+    assert.deepEqual(batches[0].map(row => row.due_date), ['2026-10-31', '2026-10-31', '2026-10-31']);
+    assert.deepEqual(batches[0].map(row => row.assignee_ids), [[], [], []]);
+    assert.equal(batches[0].every(row => row.status === 'todo' && row.estimated_hours === undefined), true);
+    assert.equal(batches[0].every(row => row.parent_task_id === undefined), true);
+    assert.equal(batches[0].some(row => row.organization_id === other || row.created_by === 'attacker'), false);
+    assert.deepEqual(batches[1].map(row => [row.title, row.parent_task_id, row.position, row.due_date]), [
+        ['Houzz photos', 'created-1-1', 1, '2026-10-31'],
+        ['Porch.com listing', 'created-1-1', 2, '2026-10-31'],
+        ['Confirm the hours', 'created-1-2', 1, '2026-10-31'],
+    ]);
+    assert.deepEqual(result.body.tasks.map(task => task.parentTaskId), [
+        null,
+        'created-1-1',
+        'created-1-1',
+        null,
+        'created-1-2',
+        null,
+    ]);
+    assert.deepEqual(calls.positions, [`${org}:${clientId}:backlog:`]);
+    assert.equal(calls.parents.length, 0);
+    assert.equal(calls.pushes.length, 0);
+    assert.deepEqual(calls.logs.map(log => [log.title, log.parentTitle]), [
+        ['Citations round 2', undefined],
+        ['Houzz photos', 'Citations round 2'],
+        ['Porch.com listing', 'Citations round 2'],
+        ['Update GBP holiday hours', undefined],
+        ['Confirm the hours', 'Update GBP holiday hours'],
+        ['Add financing FAQ', undefined],
+    ]);
+});
+
+test('onboarding and backlog chips write the stage and leave the due date empty', async () => {
+    const onboarding = deps();
+    const onboardingResult = await createStageTasks(clientId, {
+        stage: 'onboarding',
+        dueDate: null,
+        items: [{ title: 'Connect Search Console', depth: 0 }],
+    }, onboarding.dependencies);
+    assert.equal(onboardingResult.status, 200);
+    assert.equal(onboarding.calls.rows[0].stage, 'onboarding');
+    assert.equal(onboarding.calls.rows[0].due_date, null);
+    assert.deepEqual(onboarding.calls.rows[0].assignee_ids, []);
+
+    const backlog = deps();
+    const backlogResult = await createStageTasks(clientId, {
+        stage: 'backlog',
+        items: [{ title: 'Someday', depth: 0 }],
+    }, backlog.dependencies);
+    assert.equal(backlogResult.status, 200);
+    assert.equal(backlog.calls.rows[0].stage, 'backlog');
+    assert.equal(backlog.calls.rows[0].due_date, null);
+});
+
+test('a leading subtask is promoted, and a child insert failure removes the pillars', async () => {
+    const promoted = deps();
+    const promotedResult = await createStageTasks(clientId, {
+        stage: 'backlog',
+        dueDate: '2026-10-31',
+        items: [
+            { title: 'Orphan', depth: 1 },
+            { title: 'Sibling', depth: 0 },
+        ],
+    }, promoted.dependencies);
+    assert.equal(promotedResult.status, 200);
+    assert.equal(promoted.calls.rows.length, 2);
+    assert.equal(promoted.calls.rows.every(row => row.parent_task_id === undefined), true);
+
+    const deleted: string[][] = [];
+    let inserts = 0;
+    const failed = deps({
+        insertTasks: async rows => {
+            inserts += 1;
+            if (inserts > 1) throw new Error('child write failed token sk_live_secret');
+            return rows.map((row, index) => ({
+                id: `pillar-${index + 1}`,
+                title: String(row.title),
+                status: 'todo',
+                stage: 'backlog',
+                position: typeof row.position === 'number' ? row.position : null,
+                parentTaskId: null,
+                createdAt: '2026-10-16T00:00:00.000Z',
+                category: null,
+                basecamp: false,
+                recurring: false,
+            }));
+        },
+        deleteTasks: async ids => {
+            deleted.push(ids);
+        },
+        syncToBasecamp: true,
+    });
+    const result = await createStageTasks(clientId, {
+        stage: 'backlog',
+        dueDate: '2026-10-31',
+        items: [
+            { title: 'Citations', depth: 0 },
+            { title: 'Houzz', depth: 1 },
+        ],
+    }, failed.dependencies);
+    assert.equal(result.status, 500);
+    assert.deepEqual(result.body, { error: 'Could not add tasks' });
+    assert.equal(JSON.stringify(result.body).includes('sk_live'), false);
+    assert.deepEqual(deleted, [['pillar-1']]);
+    assert.equal(failed.calls.pushes.length, 0);
+    assert.equal(failed.calls.logs.length, 0);
+});
+
+test('an explicit server sync pushes every created row, including subtasks', async () => {
+    let created = 0;
+    const { dependencies, calls } = deps({
+        syncToBasecamp: true,
+        insertTasks: async rows => rows.map(row => {
+            created += 1;
+            return {
+                id: `task-${created}`,
+                title: String(row.title),
+                status: 'todo',
+                stage: String(row.stage),
+                position: typeof row.position === 'number' ? row.position : null,
+                parentTaskId: typeof row.parent_task_id === 'string' ? row.parent_task_id : null,
+                createdAt: '2026-10-16T00:00:00.000Z',
+                category: null,
+                basecamp: false,
+                recurring: false,
+            };
+        }),
+    });
+    const result = await createStageTasks(clientId, {
+        stage: 'backlog',
+        dueDate: '2026-10-31',
+        syncToBasecamp: false,
+        items: [
+            { title: 'Citations', depth: 0 },
+            { title: 'Houzz', depth: 1 },
+        ],
+    }, dependencies);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls.pushes, ['task-1', 'task-2']);
+});
+
+test('a bad due date or an oversized paste never inserts', async () => {
+    const { dependencies, calls } = deps();
+    const badDay = await createStageTasks(clientId, {
+        stage: 'backlog',
+        dueDate: '2026-02-31',
+        items: [{ title: 'Citations', depth: 0 }],
+    }, dependencies);
+    const many = await createStageTasks(clientId, {
+        stage: 'backlog',
+        dueDate: '2026-10-31',
+        items: Array.from({ length: 41 }, (_, index) => ({ title: `Task ${index}`, depth: 0 })),
+    }, dependencies);
+    const long = await createStageTasks(clientId, {
+        stage: 'onboarding',
+        items: [{ title: 'x'.repeat(301), depth: 0 }],
+    }, dependencies);
+    const deep = await createStageTasks(clientId, {
+        stage: 'backlog',
+        items: [{ title: 'Too deep', depth: 2 }],
+    }, dependencies);
+    assert.equal(badDay.status, 400);
+    assert.equal(many.status, 400);
+    assert.deepEqual(many.body, { error: 'Add up to 40 tasks at a time.' });
+    assert.equal(long.status, 400);
+    assert.equal(deep.status, 400);
+    assert.equal(calls.rows.length, 0);
+    assert.equal(calls.clients.length, 0);
 });
 
 test('a write failure does not return the underlying message', async () => {

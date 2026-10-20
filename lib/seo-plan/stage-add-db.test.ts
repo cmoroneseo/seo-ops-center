@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
     clientBelongsToOrganization,
+    deleteStageTasks,
     insertStageTasks,
     loadStageAddParent,
     maxStageAddPosition,
@@ -153,6 +154,47 @@ test('database failures stay generic', async () => {
     await assert.rejects(insertStageTasks(fake({ insert: secret }).client, [{}]), (error: Error) => {
         assert.equal(error.message.includes('sk_live'), false);
         assert.equal(error.message.includes('token'), false);
+        return true;
+    });
+});
+
+test('undoing an add deletes only the ids from that add', async () => {
+    const calls: { column?: string; ids?: string[] }[] = [];
+    const db = {
+        from() {
+            return {
+                delete() {
+                    return {
+                        in(column: string, ids: string[]) {
+                            calls.push({ column, ids });
+                            return Promise.resolve({ error: null });
+                        },
+                    };
+                },
+            };
+        },
+    } as unknown as SupabaseClient;
+    await deleteStageTasks(db, []);
+    assert.equal(calls.length, 0);
+    await deleteStageTasks(db, ['pillar-1', 'pillar-2']);
+    assert.deepEqual(calls, [{ column: 'id', ids: ['pillar-1', 'pillar-2'] }]);
+
+    const failing = {
+        from() {
+            return {
+                delete() {
+                    return {
+                        in() {
+                            return Promise.resolve({ error: { message: 'token sk_live_secret' } });
+                        },
+                    };
+                },
+            };
+        },
+    } as unknown as SupabaseClient;
+    await assert.rejects(deleteStageTasks(failing, ['pillar-1']), (error: Error) => {
+        assert.equal(error.message, 'Unable to undo tasks');
+        assert.equal(error.message.includes('sk_live'), false);
         return true;
     });
 });

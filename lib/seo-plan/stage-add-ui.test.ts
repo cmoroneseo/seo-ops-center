@@ -36,7 +36,7 @@ const tasks: StageListTask[] = [
     task({ id: 'pending:draft', title: 'Saving this title', stage: 'backlog', position: 2 }),
 ];
 
-function render(query = '') {
+function render(query = '', initialMonth = '2026-10') {
     return renderToStaticMarkup(createElement(StagePlanListView, {
         tasks,
         query,
@@ -46,18 +46,28 @@ function render(query = '') {
         onReorder: async () => undefined,
         clientName: 'Floor Co Design USA',
         today: '2026-10-19',
-        initialMonth: '2026-10',
+        initialMonth,
     }));
 }
 
-test('one add bar sits above the three sections', () => {
+test('one add line sits under the plan header and follows the selected month', () => {
     const html = render();
-    assert.equal((html.match(/data-stage-add=/g) ?? []).length, 1);
-    assert.match(html, /data-stage-add="backlog"[\s\S]*?aria-label="Add task"/);
-    assert.match(html, /data-add="backlog"/);
-    assert.match(html, /placeholder="Add a task\. Paste a list to add several\."/);
-    assert.doesNotMatch(html, /Add task to Onboarding|Add task to Backlog|Add subtask|data-add-parent/);
+    assert.equal(html.match(/data-plan-add="true"/g)?.length, 1);
+    assert.match(html, /data-plan-month="2026-10"/);
+    assert.match(html, /placeholder="Add task. Paste a list to add several."/);
+    assert.match(html, /data-plan-add-chip="month"/);
+    assert.match(html, /data-plan-add-label="Due Oct 31"/);
+    assert.match(html, /data-plan-add-due="2026-10-31"/);
+    assert.doesNotMatch(html, /data-stage-add|data-add-parent|Add a subtask|Add task to Onboarding|Add task to Backlog/);
     assert.doesNotMatch(html, /Month 1|Month 2|Month 3|data-stage="month_|Template library|data-lib/);
+    const headerEnd = html.indexOf('data-plan-add="true"');
+    const sections = html.indexOf('data-plan-section="onboarding"');
+    assert.ok(headerEnd > 0 && sections > headerEnd);
+
+    const november = render('', '2026-11');
+    assert.match(november, /data-plan-month="2026-11"/);
+    assert.match(november, /data-plan-add-due="2026-11-30"/);
+    assert.match(november, /data-plan-add-label="Due Nov 30"/);
 });
 
 test('a collapsed pillar does not grow an add field', () => {
@@ -65,7 +75,7 @@ test('a collapsed pillar does not grow an add field', () => {
     assert.match(collapsed, /aria-expanded="false"/);
     assert.doesNotMatch(collapsed, /Add subtask to SEO Setup/);
     assert.doesNotMatch(collapsed, /data-add-parent="setup"/);
-    assert.match(collapsed, /aria-label="Add task"/);
+    assert.equal(collapsed.match(/data-plan-add="true"/g)?.length, 1);
 });
 
 test('a pending row is visible and cannot be opened', () => {
