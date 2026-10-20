@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
+import { PlanSyncDot } from '../../components/seo-plan/PlanSyncFailure.tsx';
 import { StagePlanListView } from '../../components/seo-plan/StagePlanListView.tsx';
 import type { StageListTask } from './stage-list.ts';
 
@@ -105,6 +106,73 @@ test('a subtask-only match expands the parent and hides the other subtask', () =
     assert.doesNotMatch(html, /Review robots\.txt/);
     assert.match(html, /No tasks match (?:&quot;|")cookies(?:&quot;|") in October\./);
     assert.match(html, /data-plan-section="backlog"[^>]*data-plan-collapsed="true"/);
+});
+
+test('a failed push shows one red dot and the popover, and a client-wide failure is one line', () => {
+    const failed = task({
+        id: 'robots',
+        title: 'Review robots.txt and XML sitemap',
+        stage: 'backlog',
+        position: 1,
+        category: 'technical',
+        dueDate: '2026-10-22',
+        basecampSync: {
+            state: 'failed',
+            error: 'Basecamp returned 404: the to-do list "SEO: October" no longer exists in project "Maya\'s Construction".',
+            attemptedAt: '2026-10-20T18:14:00.000Z',
+        },
+    });
+    const dot = renderToStaticMarkup(createElement(StagePlanListView, {
+        tasks: [failed],
+        query: '',
+        onQueryChange: () => undefined,
+        onOpenTask: () => undefined,
+        onAddTasks: async () => undefined,
+        onReorder: async () => undefined,
+        today: '2026-10-19',
+        initialMonth: '2026-10',
+        basecamp: { connected: true, failure: null },
+        integrationsHref: '/workspace/client-1?tab=integrations',
+    }));
+    assert.match(dot, /data-plan-sync-dot="robots"/);
+    assert.match(dot, /aria-label="Didn(?:'|&#x27;)t reach Basecamp"/);
+    assert.match(dot, /h-\[7px\] w-\[7px\]/);
+    assert.doesNotMatch(dot, /data-plan-basecamp-banner/);
+    assert.doesNotMatch(dot, /auto-retries/);
+
+    const popover = renderToStaticMarkup(createElement(PlanSyncDot, {
+        taskId: 'robots',
+        error: failed.basecampSync?.error ?? null,
+        attemptedAt: '2026-10-20T18:14:00.000Z',
+        integrationsHref: '/workspace/client-1?tab=integrations',
+        defaultOpen: true,
+    }));
+    assert.match(popover, /Didn(?:'|&#x27;)t reach Basecamp/);
+    assert.match(popover, /The last change to this task wasn(?:'|&#x27;)t pushed/);
+    assert.match(popover, /SEO: October/);
+    assert.match(popover, /Maya(?:'|&#x27;)s Construction/);
+    assert.match(popover, />Retry</);
+    assert.match(popover, /Open Integrations/);
+    assert.match(popover, /href="\/workspace\/client-1\?tab=integrations"/);
+    assert.match(popover, /Last try /);
+    assert.doesNotMatch(popover, /auto-retries/);
+
+    const banner = renderToStaticMarkup(createElement(StagePlanListView, {
+        tasks: [failed],
+        query: '',
+        onQueryChange: () => undefined,
+        onOpenTask: () => undefined,
+        onAddTasks: async () => undefined,
+        onReorder: async () => undefined,
+        today: '2026-10-19',
+        initialMonth: '2026-10',
+        basecamp: { connected: true, failure: 'revoked' },
+        integrationsHref: '/workspace/client-1?tab=integrations',
+    }));
+    assert.match(banner, /data-plan-basecamp-banner/);
+    assert.match(banner, /Basecamp isn(?:'|&#x27;)t accepting pushes for this client/);
+    assert.match(banner, /Fix in Integrations/);
+    assert.doesNotMatch(banner, /data-plan-sync-dot/);
 });
 
 test('a pillar-only match stays collapsed', () => {
