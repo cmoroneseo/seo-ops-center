@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -23,12 +23,15 @@ export function LiveUrlControl({
     url,
     category,
     prominent = false,
+    openRequest = 0,
     onSave,
 }: {
     url?: string | null;
     category?: string | null;
     /** The open task already has the reader's attention, so the control stays visible. */
     prominent?: boolean;
+    /** Bumps when a just-completed row should open the field. Zero leaves it alone. */
+    openRequest?: number;
     onSave?: (raw: string) => Promise<string | null>;
 }) {
     const stored = url?.trim() ?? '';
@@ -38,8 +41,17 @@ export function LiveUrlControl({
     const [busy, setBusy] = useState(false);
     const lock = useRef(false);
     const skipBlur = useRef(false);
+    const opened = useRef(0);
     const canEdit = Boolean(onSave);
     const content = category === 'content';
+
+    useEffect(() => {
+        if (!openRequest || openRequest === opened.current || stored || !canEdit) return;
+        opened.current = openRequest;
+        setDraft('');
+        setError(null);
+        setEditing(true);
+    }, [canEdit, openRequest, stored]);
 
     if (!stored && !canEdit) return null;
 
@@ -66,7 +78,7 @@ export function LiveUrlControl({
         }
     }
 
-    const collapsed = !stored && !prominent && !content;
+    const collapsed = !stored && !prominent && !content && !editing;
 
     return (
         <div
