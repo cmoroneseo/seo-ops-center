@@ -13,6 +13,7 @@ import { setupHoursStatus, type ClientSetupScope } from '../client-setup';
 import { dateOffset, historyDates, historyWindow } from '../gsc/history';
 import { taskIsComplete } from '../marketing-plan-execution';
 import { ROADMAP_PHASES, isInRoadmap, type RoadmapPhase } from '../marketing-plan-roadmap';
+import { listedSubtaskProgress } from '../tasks/subtask-progress';
 import type { Task } from '../types';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -120,6 +121,8 @@ export interface CanvasTask {
     estimatedHours?: number | null;
     assignees: string[];
     subtasks: { id: string; title: string; completed: boolean }[];
+    /** Absent means this card was not asked for a live subtask count. */
+    subtasksState?: 'loading' | 'ready' | 'unavailable';
 }
 
 export interface CanvasPlanItem {
@@ -596,10 +599,13 @@ function estimateLabel(hours?: number | null): string {
     return Number.isInteger(rounded) ? `${rounded}h estimate` : `${rounded.toFixed(1)}h estimate`;
 }
 
-function subtaskProgress(subtasks: CanvasTask['subtasks']): string {
-    if (subtasks.length === 0) return 'No subtasks';
-    const done = subtasks.filter(item => item.completed).length;
-    return `${done} / ${subtasks.length}`;
+/** Same figure as the plan and the task panel. Loading is never `0/N`. */
+export function workCardSubtaskProgress(task: Pick<CanvasTask, 'subtasks' | 'subtasksState'>): string {
+    const progress = listedSubtaskProgress(task);
+    if (progress.state === 'loading') return 'Loading subtasks';
+    if (progress.state === 'unavailable') return 'Subtasks unavailable';
+    if (progress.state === 'empty' || !progress.label) return 'No subtasks';
+    return progress.label;
 }
 
 function cardFromTask(task: CanvasTask, month: string, today: string): WorkCard {
@@ -622,7 +628,7 @@ function cardFromTask(task: CanvasTask, month: string, today: string): WorkCard 
         assigneeLabel: assigneeLabel(task.assignees),
         estimateLabel: estimateLabel(task.estimatedHours),
         subtasks: task.subtasks,
-        subtaskProgress: subtaskProgress(task.subtasks),
+        subtaskProgress: workCardSubtaskProgress(task),
     };
 }
 

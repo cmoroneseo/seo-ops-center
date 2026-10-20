@@ -446,8 +446,8 @@ export function PlanSidePanel({
                     </Field>
                     <Field label="Pillar">
                         {parent.kind === 'pillar' ? (
-                            <span data-plan-pillar={parent.childCount} className="text-[#8b8b93]">
-                                This is a pillar · {parent.childCount} {parent.childCount === 1 ? 'subtask' : 'subtasks'}
+                            <span data-plan-pillar={parent.childCount} data-subtask-progress={`${task.childDone}/${task.childCount}`} className="text-[#8b8b93]">
+                                This is a pillar · {task.childDone}/{task.childCount}
                             </span>
                         ) : parent.kind === 'locked' ? (
                             <span className="text-[#8b8b93]">{parent.currentTitle ?? 'None'}</span>

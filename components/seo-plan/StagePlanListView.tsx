@@ -894,7 +894,10 @@ function PlanRow({
                     )}
                     <BlockedChip reason={task.blockedReason} />
                     {options.pillar && (
-                        <span className="shrink-0 rounded-full bg-[#1d1d22] px-1.5 py-0.5 text-[11px] text-[#cfcfd4]">
+                        <span
+                            data-subtask-progress={`${options.childDone ?? 0}/${options.childCount ?? 0}`}
+                            className="shrink-0 rounded-full bg-[#1d1d22] px-1.5 py-0.5 text-[11px] text-[#cfcfd4]"
+                        >
                             {options.childDone}/{options.childCount}
                         </span>
                     )}

@@ -3,7 +3,9 @@
 import { Calendar, User, Play, Pause } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Task } from '@/lib/types';
+import { listedSubtaskProgress } from '@/lib/tasks/subtask-progress';
 import { useTimer } from '@/components/providers/timer-provider';
+import { SubtaskProgressText } from './SubtaskProgressText';
 
 interface TaskCardProps {
     task: Task;
@@ -46,6 +48,8 @@ export function TaskCard({ task, clientId, clientName, memberMap = {} }: TaskCar
                     "bg-blue-500"
                 )} />
             </div>
+
+            <SubtaskProgressText progress={listedSubtaskProgress(task)} className="text-xs text-muted-foreground" />
 
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
                 <div className="flex items-center gap-1">

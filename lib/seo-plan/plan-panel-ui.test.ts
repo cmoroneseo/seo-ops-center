@@ -428,7 +428,8 @@ test('the parent picker stays one level deep', async () => {
     }));
     try {
         assert.equal(document.querySelector('[data-plan-pillar]')?.getAttribute('data-plan-pillar'), '2');
-        assert.match(document.querySelector('[data-plan-pillar]')?.textContent ?? '', /This is a pillar · 2 subtasks/);
+        assert.match(document.querySelector('[data-plan-pillar]')?.textContent ?? '', /This is a pillar · 0\/2/);
+        assert.equal(document.querySelector('[data-subtask-progress]')?.getAttribute('data-subtask-progress'), '0/2');
         assert.equal(document.querySelector('[data-plan-field="parent"]'), null);
     } finally {
         await act(async () => { pillarRoot.unmount(); });
