@@ -1038,6 +1038,7 @@ export async function createTaskFromTemplate(
             subtaskTitles: overrides.subtaskTitles,
             syncToBasecamp: overrides.syncToBasecamp,
             basecampTodolistId: overrides.basecampTodolistId,
+            stage: overrides.stage,
             actorName: overrides.actorName,
         });
     } catch (err: any) {

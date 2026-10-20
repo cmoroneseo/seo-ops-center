@@ -30,6 +30,8 @@ import { queuePlanBasecampPush } from '@/lib/seo-plan/basecamp-push-queue';
 import { LiveUrlControl } from './LiveUrlControl';
 import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
 import { localTimeZone, workedWindowForEdit } from '@/lib/timer/manual-segment';
+import { basecampSendHint, manualTimeDefaults, manualTimeWrite } from '@/lib/timer/manual-entry';
+import { ReviewToggle } from '@/components/timer/ReviewToggle';
 
 interface TaskDetailModalProps {
     task: Task | null;
@@ -46,6 +48,8 @@ interface TaskDetailModalProps {
      * the shared push after a field save.
      */
     hideBasecampSend?: boolean;
+    /** Tests pass a recorder. The modal otherwise writes the time log itself. */
+    saveTimeLog?: typeof createTimeLog;
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
@@ -165,7 +169,7 @@ function TaskTimeLogRow({
     );
 }
 
-export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId, initialCompletion = false, embedded = false, hideBasecampSend = false }: TaskDetailModalProps) {
+export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId, initialCompletion = false, embedded = false, hideBasecampSend = false, saveTimeLog = createTimeLog }: TaskDetailModalProps) {
     const { organization, memberships } = useOrganization();
     const { runningTimer, pausedTimers, startTask, pause, beginStop } = useTimer();
     const [mounted, setMounted] = useState(false);
@@ -219,6 +223,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const [logFinish, setLogFinish] = useState('');
     const [logNote, setLogNote] = useState('');
     const [logFormError, setLogFormError] = useState('');
+    const [logBillable, setLogBillable] = useState(true);
+    const [logCountsTowardBudget, setLogCountsTowardBudget] = useState(true);
+    const [logSendOverride, setLogSendOverride] = useState<boolean | undefined>(undefined);
     const [submittingLog, setSubmittingLog] = useState(false);
     const [showCompletion, setShowCompletion] = useState(false);
     const [completing, setCompleting] = useState(false);
@@ -1117,6 +1124,10 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                         setLogFinish('');
                                         setLogNote('');
                                         setLogFormError('');
+                                        const defaults = manualTimeDefaults();
+                                        setLogBillable(defaults.billable);
+                                        setLogCountsTowardBudget(defaults.countsTowardBudget);
+                                        setLogSendOverride(undefined);
                                         setLogDate(new Date().toISOString().slice(0, 10));
                                     }}
                                     className="flex items-center gap-1 text-[10px] text-primary hover:underline"
@@ -1224,6 +1235,37 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                             className="w-full text-sm bg-background border border-border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
                                         />
                                     </div>
+                                    <div className="space-y-3">
+                                        <ReviewToggle
+                                            checked={logBillable}
+                                            label="Billable"
+                                            onChange={setLogBillable}
+                                        />
+                                        <ReviewToggle
+                                            checked={Boolean(task.clientId) && logCountsTowardBudget}
+                                            disabled={!task.clientId}
+                                            label="Counts toward SEO hours"
+                                            hint={task.clientId
+                                                ? "Adds this time to the client's monthly SEO-hour usage."
+                                                : 'Internal work never consumes a client\u2019s SEO hours.'}
+                                            onChange={setLogCountsTowardBudget}
+                                        />
+                                        <ReviewToggle
+                                            checked={manualTimeWrite({
+                                                billable: logBillable,
+                                                countsTowardBudget: logCountsTowardBudget,
+                                                sendOverride: logSendOverride,
+                                            }, { clientId: task.clientId, basecampEligible: basecampAvailable }).syncToBasecamp}
+                                            disabled={!basecampAvailable}
+                                            label="Send to Basecamp"
+                                            hint={basecampSendHint({
+                                                clientId: task.clientId,
+                                                checking: false,
+                                                eligible: basecampAvailable,
+                                            })}
+                                            onChange={setLogSendOverride}
+                                        />
+                                    </div>
                                     {(manualPlacement.error || logFormError) && (
                                         <p className="text-[11px] text-destructive">{manualPlacement.error || logFormError}</p>
                                     )}
@@ -1241,7 +1283,12 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                                 setSubmittingLog(true);
                                                 setLogFormError('');
                                                 const currentMember = memberships.find(m => m.organizationId === organization.id);
-                                                const result = await createTimeLog({
+                                                const saved = manualTimeWrite({
+                                                    billable: logBillable,
+                                                    countsTowardBudget: logCountsTowardBudget,
+                                                    sendOverride: logSendOverride,
+                                                }, { clientId: task.clientId, basecampEligible: basecampAvailable });
+                                                const result = await saveTimeLog({
                                                     organizationId: organization.id,
                                                     clientId: task.clientId,
                                                     taskId: timeTrackingTaskId(task),
@@ -1249,10 +1296,11 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                                     hours: manualPlacement.window?.hours ?? parseFloat(hoursValue),
                                                     date: logDate,
                                                     description: logNote || undefined,
-                                                    billable: true,
+                                                    billable: saved.billable,
+                                                    countsTowardBudget: saved.countsTowardBudget,
                                                 }, {
-                                                    syncToBasecamp: basecampAvailable,
-                                                    waitForBasecampSync: basecampAvailable,
+                                                    syncToBasecamp: saved.syncToBasecamp,
+                                                    waitForBasecampSync: saved.syncToBasecamp,
                                                     workedWindow: manualPlacement.window,
                                                 });
                                                 if (result.success) {

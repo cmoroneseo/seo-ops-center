@@ -18,6 +18,7 @@ import { defaultSendToBasecamp } from '@/lib/basecamp/send-default';
 import { SessionNote } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { isExternalHref, safeHref } from '@/lib/links/safe-href';
+import { ReviewToggle } from './ReviewToggle';
 
 function renderNoteText(text: string) {
     const parts = text.split(/(\[[^\]]+\]\([^)]+\))/g);
@@ -87,49 +88,6 @@ function formatHHMM(s: number) {
     const m = Math.floor((s % 3600) / 60);
     const sec = s % 60;
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-}
-
-function ReviewToggle({
-    checked,
-    disabled = false,
-    label,
-    hint,
-    onChange,
-}: {
-    checked: boolean;
-    disabled?: boolean;
-    label: string;
-    hint?: string;
-    onChange: (next: boolean) => void;
-}) {
-    return (
-        <label className={cn('flex items-start gap-2 select-none text-sm', disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer')}>
-            <input
-                type="checkbox"
-                role="switch"
-                checked={checked}
-                disabled={disabled}
-                onChange={event => onChange(event.target.checked)}
-                className="sr-only peer"
-            />
-            <span
-                aria-hidden="true"
-                className={cn(
-                    'relative mt-0.5 w-9 h-5 shrink-0 rounded-full transition-colors duration-200 peer-focus-visible:ring-2 peer-focus-visible:ring-primary/50',
-                    checked ? 'bg-primary' : 'bg-muted-foreground/30',
-                )}
-            >
-                <span className={cn(
-                    'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200',
-                    checked ? 'translate-x-4' : 'translate-x-0',
-                )} />
-            </span>
-            <span className="text-muted-foreground">
-                {label}
-                {hint && <span className="block text-xs text-muted-foreground/60">{hint}</span>}
-            </span>
-        </label>
-    );
 }
 
 interface StopConfirmSheetProps {
