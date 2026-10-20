@@ -19,6 +19,12 @@ globalThis.Element = dom.window.Element;
 globalThis.Node = dom.window.Node;
 Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom has no ResizeObserver. The timer publishes toast clearance with one.
+globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+} as unknown as typeof ResizeObserver;
 
 function attempt(overrides: Partial<TimerAttempt> = {}): TimerAttempt {
     return {
