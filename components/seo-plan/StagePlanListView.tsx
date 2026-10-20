@@ -26,12 +26,16 @@ import { cn } from '@/lib/utils';
 import { LiveUrlResultLine } from '@/components/search-reporting/LiveUrlResultLine';
 import { LiveUrlControl } from '@/components/tasks/LiveUrlControl';
 import { aggregateUrlResults, type UrlResultReadout } from '@/lib/search-reporting/url-results';
-import { StageAddBar } from './StageAddBar';
+import { PlanAddLine, type PlanAddSubmission } from './PlanAddLine';
 
 export interface StageAddRequest {
     stage: TaskStage;
     titles: string[];
     parentTaskId?: string;
+    /** Set by the plan add line. Null is Backlog or Onboarding. */
+    dueDate?: string | null;
+    /** Mixed parents. Depth 1 belongs to the nearest depth-0 line above it. */
+    items?: PlanAddSubmission['items'];
 }
 
 export interface PlanAssignee {
@@ -280,14 +284,15 @@ export function StagePlanListView({
                 </div>
             </div>
 
-            <div data-stage-add="backlog">
-                <StageAddBar
-                    stage="backlog"
-                    label="Add task"
-                    placeholder="Add a task. Paste a list to add several."
-                    onAdd={titles => onAddTasks({ stage: 'backlog', titles })}
-                />
-            </div>
+            <PlanAddLine
+                month={month}
+                onAdd={submission => onAddTasks({
+                    stage: submission.stage,
+                    titles: submission.items.map(item => item.title),
+                    dueDate: submission.dueDate,
+                    items: submission.items,
+                })}
+            />
 
             {nothingMatches && (
                 <p className="text-[13px] text-[#8b8b93]">

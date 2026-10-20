@@ -5,6 +5,7 @@ import { resolveSessionOrganization } from '@/lib/reports/session-org';
 import { seoPlanStageListEnabled } from '@/lib/seo-plan/flags';
 import {
     clientBelongsToOrganization,
+    deleteStageTasks,
     insertStageTasks,
     loadStageAddParent,
     maxStageAddPosition,
@@ -78,6 +79,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ cli
             maxStageAddPosition(db, organizationId, id, stage, parentTaskId)
         ),
         insertTasks: rows => insertStageTasks(db, rows),
+        deleteTasks: ids => deleteStageTasks(db, ids),
         logCreated: async event => {
             const { data: { user } } = await db.auth.getUser();
             await logClientActivity({
