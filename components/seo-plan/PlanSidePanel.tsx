@@ -85,12 +85,12 @@ export function PlanSidePanel({
     const estimateDirty = useRef(false);
     const titleTimer = useRef<number | null>(null);
     const descriptionTimer = useRef<number | null>(null);
-    const seenTaskId = useRef(task.id);
-    const switchingTask = seenTaskId.current !== task.id;
-    if (switchingTask) seenTaskId.current = task.id;
+    const titleRef = useRef(title);
+    const descriptionRef = useRef(description);
+    titleRef.current = title;
+    descriptionRef.current = description;
 
     useEffect(() => {
-        if (!switchingTask) return;
         titleDirty.current = false;
         descriptionDirty.current = false;
         estimateDirty.current = false;
@@ -105,7 +105,9 @@ export function PlanSidePanel({
         setAssigneeOpen(false);
         setLabelOpen(false);
         setParentOpen(false);
-    }, [switchingTask, task.id, task.title, task.description, task.estimatedHours, task.publishedUrl]);
+        // The id is the only signal. Title and description from this render belong to the task being opened.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [task.id]);
 
     useEffect(() => {
         if (descriptionDirty.current || !task.detailsReady) return;
@@ -144,44 +146,64 @@ export function PlanSidePanel({
     }
 
     useEffect(() => {
-        if (switchingTask || !titleDirty.current) return;
+        const taskId = task.id;
+        const savedTitle = task.title;
+        const savedDescription = task.description;
+        return () => {
+            if (titleTimer.current) {
+                window.clearTimeout(titleTimer.current);
+                titleTimer.current = null;
+            }
+            if (descriptionTimer.current) {
+                window.clearTimeout(descriptionTimer.current);
+                descriptionTimer.current = null;
+            }
+            if (titleDirty.current) {
+                const latest = planTitleSave(titleRef.current, savedTitle);
+                titleDirty.current = false;
+                if (latest) void persist(taskId, { field: 'title', title: latest });
+            }
+            if (descriptionDirty.current) {
+                const latest = planDescriptionSave(descriptionRef.current, savedDescription);
+                descriptionDirty.current = false;
+                if (latest != null) void persist(taskId, { field: 'description', description: latest });
+            }
+        };
+    }, [task.id, task.title, task.description, persist]);
+
+    useEffect(() => {
+        if (!titleDirty.current) return;
         const taskId = task.id;
         const savedTitle = task.title;
         const value = planTitleSave(title, savedTitle);
         if (!value) return;
         titleTimer.current = window.setTimeout(() => {
             titleTimer.current = null;
+            titleDirty.current = false;
             void persist(taskId, { field: 'title', title: value });
         }, autosaveMs);
         return () => {
             if (titleTimer.current) window.clearTimeout(titleTimer.current);
             titleTimer.current = null;
-            if (seenTaskId.current !== taskId && titleDirty.current) {
-                const latest = planTitleSave(title, savedTitle);
-                if (latest) void persist(taskId, { field: 'title', title: latest });
-            }
         };
-    }, [title, task.title, task.id, autosaveMs, persist, switchingTask]);
+    }, [title, task.title, task.id, autosaveMs, persist]);
 
     useEffect(() => {
-        if (switchingTask || !descriptionDirty.current || !task.detailsReady) return;
+        if (!descriptionDirty.current || !task.detailsReady) return;
         const taskId = task.id;
         const savedDescription = task.description;
         const value = planDescriptionSave(description, savedDescription);
         if (value == null) return;
         descriptionTimer.current = window.setTimeout(() => {
             descriptionTimer.current = null;
+            descriptionDirty.current = false;
             void persist(taskId, { field: 'description', description: value });
         }, autosaveMs);
         return () => {
             if (descriptionTimer.current) window.clearTimeout(descriptionTimer.current);
             descriptionTimer.current = null;
-            if (seenTaskId.current !== taskId && descriptionDirty.current) {
-                const latest = planDescriptionSave(description, savedDescription);
-                if (latest != null) void persist(taskId, { field: 'description', description: latest });
-            }
         };
-    }, [description, task.description, task.detailsReady, task.id, autosaveMs, persist, switchingTask]);
+    }, [description, task.description, task.detailsReady, task.id, autosaveMs, persist]);
 
     function flushTitle() {
         if (titleTimer.current) {

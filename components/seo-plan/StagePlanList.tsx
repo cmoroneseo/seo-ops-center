@@ -433,6 +433,7 @@ export function StagePlanList({
             onOpenResults={onOpenResults}
             panel={model ? (
                 <PlanSidePanel
+                    key={model.id}
                     task={model}
                     tasks={tasks}
                     people={people}
