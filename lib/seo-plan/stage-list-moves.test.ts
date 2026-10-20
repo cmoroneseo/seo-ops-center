@@ -7,7 +7,7 @@ import { JSDOM } from 'jsdom';
 import { StagePlanListView } from '../../components/seo-plan/StagePlanListView.tsx';
 import type { StageListTask } from './stage-list.ts';
 import { useStageListMoves } from './stage-list-moves.ts';
-import type { StageReorderMove } from './stage-reorder.ts';
+import { stageMoveBy, type StageMoveDirection, type StageReorderMove } from './stage-reorder.ts';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
@@ -58,15 +58,37 @@ function Harness({
     persist: (move: StageReorderMove) => Promise<StageListTask[]>;
 }) {
     const list = useStageListMoves(persist, initial);
-    return createElement(StagePlanListView, {
-        tasks: list.tasks ?? [],
-        query: '',
-        onQueryChange: () => undefined,
-        onOpenTask: () => undefined,
-        onAddTasks: async () => undefined,
-        onReorder: list.move,
-        clientName: 'Acme',
-    });
+    const click = (id: string, direction: StageMoveDirection) => {
+        const move = stageMoveBy(list.tasks ?? [], id, direction);
+        if (move) void list.move(move);
+    };
+    const buttons: [string, string, StageMoveDirection][] = [
+        ['Move Alpha down', 'alpha', 'down'],
+        ['Move Alpha to Backlog', 'alpha', 'next-stage'],
+        ['Move Add keywords out of SEO Setup', 'keywords', 'unnest'],
+        ['Move Add keywords to Backlog', 'keywords', 'next-stage'],
+    ];
+    return createElement(
+        'div',
+        null,
+        buttons.map(([label, id, direction]) => createElement('button', {
+            key: label,
+            type: 'button',
+            'aria-label': label,
+            onClick: () => click(id, direction),
+        }, label)),
+        createElement(StagePlanListView, {
+            tasks: list.tasks ?? [],
+            query: '',
+            onQueryChange: () => undefined,
+            onOpenTask: () => undefined,
+            onAddTasks: async () => undefined,
+            onReorder: list.move,
+            clientName: 'Acme',
+            today: '2026-10-19',
+            initialMonth: '2026-10',
+        }),
+    );
 }
 
 function button(label: string): HTMLButtonElement {
