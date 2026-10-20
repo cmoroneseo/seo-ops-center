@@ -122,7 +122,7 @@ export function QuickStartPopover({ clients, onClose }: QuickStartPopoverProps) 
             <button
                 onClick={handleStart}
                 disabled={!canStartTaskTimer(clientId, taskId)}
-                className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-green-500 text-white text-sm font-medium hover:bg-green-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-[#ec4899] text-white text-sm font-medium hover:bg-[#ec4899]/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
                 <Play className="h-3.5 w-3.5 fill-current" />
                 Start Timer

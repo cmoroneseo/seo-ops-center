@@ -64,6 +64,7 @@ import { TaskToolbar } from '@/components/seo-plan/TaskToolbar';
 import { SearchReporting } from '@/components/seo-plan/SearchReporting';
 import { monthKey } from '@/lib/marketing-plan-execution';
 import { managerIsAssigned, planHourLabel, planHoursNarrative } from '@/lib/seo-plan/overview';
+import { planChooseTaskClass } from '@/lib/seo-plan/row-timer';
 
 type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'inventory' | 'topical-map' | 'approvals' | 'portal' | 'vault';
 
@@ -344,11 +345,10 @@ export default function ClientDetailPage() {
                         <button
                             onClick={handleTimerClick}
                             title={isThisClientRunning ? 'Pause timer' : 'Choose a task to start timer'}
+                            data-choose-task={activeTab === 'campaign' && stageListOn && !isThisClientRunning ? 'secondary' : undefined}
                             className={cn(
                                 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150',
-                                isThisClientRunning
-                                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 hover:bg-amber-500/25'
-                                    : 'bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-green-500/20 border border-green-500/20'
+                                planChooseTaskClass(activeTab === 'campaign' && stageListOn, isThisClientRunning),
                             )}
                         >
                             {isThisClientRunning
