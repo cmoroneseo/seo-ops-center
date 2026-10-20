@@ -13,6 +13,7 @@ import {
     sumBudgetHoursByClient,
     sumTrackedHoursByClient,
     sumInternalHours,
+    sumTaskLoggedHours,
     type BudgetableLog,
 } from './time-budget-logic.ts';
 
@@ -79,6 +80,18 @@ test('fractional hours do not drift', () => {
     ];
     // 0.1 + 0.2 is 0.30000000000000004 without rounding.
     assert.equal(sumBudgetHoursByClient(logs)[VOLT], 0.3);
+});
+
+test('a task total adds every log, manual windows and timer sessions alike', () => {
+    // 0.82 is a 12:42–1:31 manual window. 2 is a resumed timer whose segments
+    // are not summed again — the ledger hours are the total.
+    assert.equal(sumTaskLoggedHours([
+        { hours: 0.82 },
+        { hours: 1.25 },
+        { hours: 2 },
+        { hours: null },
+    ]), 4.07);
+    assert.equal(sumTaskLoggedHours([]), 0);
 });
 
 test('empty input yields empty rollups, not a crash', () => {

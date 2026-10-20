@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { Task, TimeLogSegment, TimerAttempt } from '../types.ts';
 import {
     actualAttemptToItems,
+    actualAttemptsToItems,
     monthItemPresentation,
     resolvePlannerSelection,
     shouldRenderForecast,
@@ -197,4 +198,110 @@ test('month presentation gives actual work state, range, duration, and controls'
     assert.match(presentation.accessibleName, /5:00 PM – 6:00 PM/);
     assert.match(presentation.accessibleName, /1 hr active/);
     assert.match(presentation.accessibleName, /Paused/);
+});
+
+test('a manual start and finish render as one timed block, and hours-only stays off the grid', () => {
+    const placed = actualAttemptToItems(makeAttempt({
+        status: 'logged',
+        hours: 0.82,
+        plannedStartsAt: undefined,
+        plannedMinutes: undefined,
+        segments: [segment('segment-1', '2026-07-15T19:42:00.000Z', '2026-07-15T20:31:00.000Z')],
+    }), new Date('2026-07-16T00:00:00.000Z'));
+
+    assert.equal(placed.length, 1);
+    assert.equal(placed[0].allDay, false);
+    assert.equal(placed[0].source, 'actual_time');
+    assert.equal(placed[0].id, 'actual:attempt-1:0');
+    assert.equal(placed[0].startsAt, '2026-07-15T19:42:00.000Z');
+    assert.equal(placed[0].endsAt, '2026-07-15T20:31:00.000Z');
+
+    const hoursOnly = actualAttemptToItems(makeAttempt({
+        status: 'logged',
+        hours: 0.82,
+        plannedStartsAt: undefined,
+        plannedMinutes: undefined,
+        segments: [],
+    }), new Date('2026-07-16T00:00:00.000Z'));
+    assert.deepEqual(hoursOnly, []);
+});
+
+test('several manual logs on one task each keep their own slot', () => {
+    const now = new Date('2026-07-18T00:00:00.000Z');
+    const logs = [
+        makeAttempt({
+            id: 'mon',
+            date: '2026-07-13',
+            status: 'logged',
+            hours: 1,
+            plannedStartsAt: undefined,
+            segments: [segment('mon-1', '2026-07-13T16:00:00.000Z', '2026-07-13T17:00:00.000Z')],
+        }),
+        makeAttempt({
+            id: 'tue',
+            date: '2026-07-14',
+            status: 'logged',
+            hours: 0.82,
+            plannedStartsAt: undefined,
+            segments: [segment('tue-1', '2026-07-14T19:42:00.000Z', '2026-07-14T20:31:00.000Z')],
+        }),
+        makeAttempt({
+            id: 'wed',
+            date: '2026-07-15',
+            status: 'logged',
+            hours: 0.75,
+            plannedStartsAt: undefined,
+            segments: [segment('wed-1', '2026-07-15T18:15:00.000Z', '2026-07-15T19:00:00.000Z')],
+        }),
+    ];
+
+    const items = actualAttemptsToItems(logs, now);
+    assert.deepEqual(items.map(item => [item.id, item.allDay, item.startsAt, item.endsAt]), [
+        ['actual:mon:0', false, '2026-07-13T16:00:00.000Z', '2026-07-13T17:00:00.000Z'],
+        ['actual:tue:0', false, '2026-07-14T19:42:00.000Z', '2026-07-14T20:31:00.000Z'],
+        ['actual:wed:0', false, '2026-07-15T18:15:00.000Z', '2026-07-15T19:00:00.000Z'],
+    ]);
+    assert.equal(new Set(items.map(item => item.id)).size, items.length);
+});
+
+test('a resumed timer and nearby manual logs all stay visible', () => {
+    // Migration 112 resumes the same open attempt, so the pause is two segments
+    // on one log. The five-minute rule still merges only inside that log.
+    // A manual entry two minutes after a segment is a different log and must
+    // not be folded into the timer card or dropped.
+    const now = new Date('2026-08-20T20:00:00.000Z');
+    const resumed = makeAttempt({
+        id: 'timer',
+        status: 'logged',
+        hours: 2,
+        segments: [
+            segment('run-1', '2026-08-20T17:00:00.000Z', '2026-08-20T18:00:00.000Z'),
+            segment('run-2', '2026-08-20T18:45:00.000Z', '2026-08-20T19:45:00.000Z'),
+        ],
+    });
+    const justAfter = makeAttempt({
+        id: 'manual-after',
+        status: 'logged',
+        hours: 0.5,
+        plannedStartsAt: undefined,
+        segments: [segment('manual-1', '2026-08-20T18:02:00.000Z', '2026-08-20T18:32:00.000Z')],
+    });
+    const otherDay = makeAttempt({
+        id: 'manual-friday',
+        date: '2026-08-21',
+        status: 'logged',
+        hours: 0.82,
+        plannedStartsAt: undefined,
+        segments: [segment('manual-2', '2026-08-21T19:42:00.000Z', '2026-08-21T20:31:00.000Z')],
+    });
+
+    const items = actualAttemptsToItems([resumed, justAfter, otherDay], now);
+    assert.deepEqual(items.map(item => [item.id, item.startsAt, item.endsAt]), [
+        ['actual:timer:0', '2026-08-20T17:00:00.000Z', '2026-08-20T18:00:00.000Z'],
+        ['actual:timer:1', '2026-08-20T18:45:00.000Z', '2026-08-20T19:45:00.000Z'],
+        ['actual:manual-after:0', '2026-08-20T18:02:00.000Z', '2026-08-20T18:32:00.000Z'],
+        ['actual:manual-friday:0', '2026-08-21T19:42:00.000Z', '2026-08-21T20:31:00.000Z'],
+    ]);
+    assert.equal(items.every(item => item.allDay === false && item.source === 'actual_time'), true);
+    assert.equal(shouldRenderForecast(makeTask(), [justAfter, otherDay]), true);
 });

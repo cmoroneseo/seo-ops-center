@@ -60,6 +60,16 @@ export function loggedWindow(
     };
 }
 
+/**
+ * Every attempt becomes its own cards. A resumed timer's segments stay on
+ * that one log and use the existing five-minute grouping. A separate manual
+ * log — even two minutes later — is a different attempt and stays a different
+ * block. Concatenating every segment into one group would hide that session.
+ */
+export function actualAttemptsToItems(attempts: TimerAttempt[], now: Date): PlannerItem[] {
+    return attempts.flatMap(attempt => actualAttemptToItems(attempt, now));
+}
+
 /** Convert one canonical attempt into read-only, five-minute-grouped evidence. */
 export function actualAttemptToItems(attempt: TimerAttempt, now: Date): PlannerItem[] {
     const state = timerState(attempt);

@@ -33,7 +33,7 @@ import {
 import { planTaskDrop } from '@/lib/planner/priority-updates';
 import { createLatestRequestGate } from '@/lib/planner/latest-request';
 import {
-    actualAttemptToItems, resolvePlannerSelection, shouldRenderForecast,
+    actualAttemptToItems, actualAttemptsToItems, resolvePlannerSelection, shouldRenderForecast,
     type PlannerTimerAction,
 } from '@/lib/planner/actual-items';
 import { ForecastSyncButton } from '@/components/forecast/ForecastSyncButton';
@@ -244,9 +244,7 @@ export default function PlannerPage() {
             .filter(task => shouldRenderForecast(task, attempts))
             .map(taskToItem)
             .filter((i): i is PlannerItem => i !== null);
-        const actual = attempts.flatMap(attempt => (
-            actualAttemptToItems(attempt, new Date(clockNow))
-        ));
+        const actual = actualAttemptsToItems(attempts, new Date(clockNow));
 
         // Overdue work that isn't scheduled anywhere would otherwise be invisible
         // on the grid. Surfaced as all-day chips on today so it stays in view.

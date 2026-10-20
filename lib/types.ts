@@ -920,6 +920,11 @@ export interface TimeLog {
     reviewedAt?: string;
     reviewedBy?: string;
     reviewNote?: string;
+    /**
+     * Closed or open segments, when the query embedded them. Empty means the
+     * log was read with its segments and has none — hours-only manual entries.
+     */
+    segments?: TimeLogSegment[];
 }
 
 // ---------------------------------------------------------------------------
