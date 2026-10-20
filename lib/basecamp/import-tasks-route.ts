@@ -1,5 +1,12 @@
 import { isTaskStage } from '../tasks/stage.ts';
 import {
+    assignOnboardingPositions,
+    EMPTY_ONBOARDING_SCOPE,
+    importedTodoLandsInOnboarding,
+    providerParentListId,
+    type OnboardingListScope,
+} from './import-stage.ts';
+import {
     authorizeBasecampProject,
     type BasecampProjectAccessSource,
 } from './project-access.ts';
@@ -37,6 +44,11 @@ export interface ProviderTodo {
     assignees?: Array<{ id: number | string }> | null;
     /** Checklist steps embedded on the to-do payload. Merged with `getSteps`. */
     steps?: unknown;
+    /**
+     * List or group this to-do sits in. A step's parent is the to-do, and
+     * that parent is not a list. Absent on callers that never read it.
+     */
+    parent?: { id?: number | string; type?: string } | null;
 }
 
 /**
@@ -86,6 +98,11 @@ export interface BasecampImportOptions {
      * is omitted rather than guessed at.
      */
     resolveAssignees?(personIds: number[]): Promise<Map<number, string>>;
+    /**
+     * Client's configured onboarding list, plus groups that belong to it.
+     * Absent, or empty, leaves every new row on the backlog default.
+     */
+    onboarding?: OnboardingListScope;
 }
 
 type ClientAuthorization =
@@ -150,6 +167,16 @@ interface Dependencies {
      * from authorizeClient, never the organizationId on the request body.
      */
     resolveAssignees(organizationId: string, personIds: number[]): Promise<Map<number, string>>;
+    /**
+     * Configured onboarding list for this client. A failure is the caller's
+     * to swallow: import still inserts, and those rows stay in Backlog.
+     */
+    loadOnboardingScope?(organizationId: string, clientId: string): Promise<OnboardingListScope>;
+    /**
+     * Highest position among top-level Onboarding tasks. Null means the
+     * column has no positioned row yet, so the next import starts at 1.
+     */
+    maxOnboardingPosition?(organizationId: string, clientId: string): Promise<number | null>;
     now(): string;
 }
 
@@ -475,6 +502,12 @@ export async function buildBasecampTaskRows(input: {
         const sourceListId = sourceTodolistId(task.basecampTodolistId);
         const priority = task.priority ?? 'medium';
         const category = task.category || null;
+        const onboarding = input.options?.onboarding;
+        const landsInOnboarding = !!onboarding && importedTodoLandsInOnboarding({
+            requestedListId: sourceListId && sourceListId !== 'invalid' ? sourceListId : null,
+            providerParentId: providerParentListId(providerTodo),
+            scope: onboarding,
+        });
 
         for (const [index, step] of (stepsByKey.get(`${projectId}:${todoId}`) ?? []).entries()) {
             steps.push(draftImportedStep({
@@ -505,6 +538,9 @@ export async function buildBasecampTaskRows(input: {
             tags: [],
             assignee_ids: assigneeIds,
             sort_order: 0,
+            // Omitted on every other list so the backlog default stays in place.
+            // Position is applied later, only to rows this import actually inserts.
+            ...(landsInOnboarding ? { stage: 'onboarding' as const } : {}),
             basecamp_todo_id: Number(todoId),
             basecamp_project_id: Number(projectId),
             last_synced_at: input.now,
@@ -558,6 +594,18 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
                 return json({ error: 'Basecamp not configured', configured: false }, 503);
             }
 
+            let onboarding = EMPTY_ONBOARDING_SCOPE;
+            if (dependencies.loadOnboardingScope) {
+                try {
+                    onboarding = await dependencies.loadOnboardingScope(
+                        authorization.organizationId,
+                        authorization.clientId,
+                    );
+                } catch {
+                    onboarding = EMPTY_ONBOARDING_SCOPE;
+                }
+            }
+
             const built = await buildBasecampTaskRows({
                 tasks,
                 organizationId: authorization.organizationId,
@@ -577,6 +625,7 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
                         authorization.organizationId,
                         personIds,
                     ),
+                    onboarding,
                 },
             });
             if (!built.ok) return json({ error: built.error }, built.status);
@@ -602,8 +651,25 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
             const errors: string[] = [];
             const insertedRows: Array<Record<string, unknown>> = [];
             const failedParentIds = new Set<number>();
+            // Already-imported to-dos are left out of this list, so a second
+            // import cannot move a task someone already dragged to another stage.
             const newParentRows = built.rows.filter(row => !parentsByTodo.has(Number(row.basecamp_todo_id)));
-            for (const part of chunk(newParentRows)) {
+            let rowsToInsert = newParentRows;
+            if (newParentRows.some(row => row.stage === 'onboarding')) {
+                let maxPosition: number | null = null;
+                if (dependencies.maxOnboardingPosition) {
+                    try {
+                        maxPosition = await dependencies.maxOnboardingPosition(
+                            authorization.organizationId,
+                            authorization.clientId,
+                        );
+                    } catch {
+                        maxPosition = null;
+                    }
+                }
+                rowsToInsert = assignOnboardingPositions(newParentRows, maxPosition);
+            }
+            for (const part of chunk(rowsToInsert)) {
                 const error = await writer.insertTasks(part);
                 if (error) {
                     errors.push(error);
