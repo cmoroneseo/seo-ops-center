@@ -156,6 +156,24 @@ export function AgencyDashboard({
     );
 }
 
+function DashboardHistorySkeleton() {
+    return (
+        <div className="mt-8 space-y-4" role="status" aria-busy="true">
+            <span className="sr-only">Loading Search Console history…</span>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {Array.from({ length: 4 }, (_, index) => (
+                    <div key={index} className="h-24 animate-pulse rounded-xl border border-white/10 bg-white/5" />
+                ))}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {Array.from({ length: 6 }, (_, index) => (
+                    <div key={index} className="h-40 animate-pulse rounded-xl border border-white/10 bg-white/5" />
+                ))}
+            </div>
+        </div>
+    );
+}
+
 export function AgencyDashboardView({
     model,
     loading = false,
@@ -429,7 +447,7 @@ export function AgencyDashboardView({
             </div>
 
             {error && <p role="alert" className="mt-4 rounded-lg border border-rose-400/30 bg-rose-950/40 px-3 py-2 text-sm text-rose-200">{error}</p>}
-            {loading && !model && !error && <p className="mt-8 text-sm text-zinc-400">Loading Search Console history…</p>}
+            {loading && !model && !error && <DashboardHistorySkeleton />}
             {model && !error && model.clientsConnected === 0 && (
                 <p className="mt-8 text-sm text-zinc-400">No active clients have Google Search Console connected.</p>
             )}

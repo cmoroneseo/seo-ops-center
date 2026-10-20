@@ -11,7 +11,7 @@ import { TimerNotifications } from '@/components/timer/TimerNotifications';
 import { FloatingTimer } from '@/components/timer/FloatingTimer';
 import { useClients } from '@/lib/hooks/use-clients';
 import { useRouter, usePathname } from 'next/navigation';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { OnboardingChecklist } from '@/components/dashboard/OnboardingChecklist';
 import { FeedbackWidget } from '@/components/feedback/FeedbackWidget';
@@ -27,20 +27,15 @@ export function DashboardShell({
     const { clients } = useClients({ statuses: ['Active'] });
     const router = useRouter();
     const pathname = usePathname();
-    const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
-        setMounted(true);
-    }, []);
-
-    useEffect(() => {
-        if (mounted && !isLoading && !organization && !pathname.startsWith('/setup-organization')) {
+        if (!isLoading && !organization && !pathname.startsWith('/setup-organization')) {
             router.push('/setup-organization');
         }
-    }, [organization, isLoading, router, pathname, mounted]);
+    }, [organization, isLoading, router, pathname]);
 
-    if (!mounted || isLoading) {
-        return <div className="flex h-screen items-center justify-center">Loading...</div>;
+    if (isLoading) {
+        return <DashboardLoadingSkeleton />;
     }
 
     if (!organization && !pathname.startsWith('/setup-organization')) {
@@ -111,6 +106,30 @@ function ClientListFallback() {
                 {Array.from({ length: 8 }, (_, index) => (
                     <div key={index} className="h-8 animate-pulse rounded-lg bg-muted" />
                 ))}
+            </div>
+        </div>
+    );
+}
+
+function DashboardLoadingSkeleton() {
+    return (
+        <div className="flex h-screen bg-background" role="status" aria-busy="true">
+            <span className="sr-only">Loading</span>
+            <div className="hidden w-20 border-r border-border bg-card lg:block" />
+            <div className="flex min-w-0 flex-1 flex-col">
+                <div className="h-16 border-b border-border" />
+                <div className="flex min-h-0 flex-1">
+                    <div className="hidden w-72 border-r border-border bg-muted/30 lg:block" />
+                    <div className="flex-1 space-y-6 p-8">
+                        <div className="h-10 w-56 animate-pulse rounded bg-muted" />
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                            {Array.from({ length: 4 }, (_, index) => (
+                                <div key={index} className="h-40 animate-pulse rounded-xl bg-muted" />
+                            ))}
+                        </div>
+                        <div className="h-64 animate-pulse rounded-xl bg-muted" />
+                    </div>
+                </div>
             </div>
         </div>
     );
