@@ -1,7 +1,10 @@
 import { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getBasecampTodo, isBasecampConfigured, listBasecampTodoSteps } from '@/lib/basecamp/api';
+import { getBasecampTodo, isBasecampConfigured, listBasecampTodolistGroups, listBasecampTodoSteps } from '@/lib/basecamp/api';
 import { createBasecampImportTasksPost } from '@/lib/basecamp/import-tasks-route';
+import { containedIdsFromBasecampGroups, type OnboardingListScope } from '@/lib/basecamp/import-stage';
+import { readBasecampPlanLists } from '@/lib/basecamp/plan-lists';
+import { normalizeJsonObject } from '@/lib/basecamp/project-access';
 import { createSupabaseBasecampProjectAccessSource } from '@/lib/basecamp/supabase-project-access-source';
 import { requireClientOrgMember } from '@/lib/security/tenant-authz';
 import { logClientActivity } from '@/lib/supabase/client-activity';
@@ -61,6 +64,42 @@ export async function POST(req: NextRequest) {
             };
         },
         resolveAssignees: membersByBasecampPersonId,
+        async loadOnboardingScope(organizationId, clientId): Promise<OnboardingListScope> {
+            const admin = createAdminClient();
+            const { data, error } = await admin
+                .from('clients')
+                .select('custom_fields')
+                .eq('id', clientId)
+                .eq('organization_id', organizationId)
+                .maybeSingle();
+            if (error || !data) return { onboardingTodolistId: '', containedIds: [] };
+            const lists = readBasecampPlanLists(normalizeJsonObject(data.custom_fields));
+            if (!lists.onboardingTodolistId) return { onboardingTodolistId: '', containedIds: [] };
+            const groups = lists.projectId
+                ? await listBasecampTodolistGroups(lists.projectId, lists.onboardingTodolistId)
+                : [];
+            return {
+                onboardingTodolistId: lists.onboardingTodolistId,
+                containedIds: containedIdsFromBasecampGroups(groups)
+                    .filter(id => id !== lists.onboardingTodolistId),
+            };
+        },
+        async maxOnboardingPosition(organizationId, clientId) {
+            const admin = createAdminClient();
+            const { data, error } = await admin
+                .from('tasks')
+                .select('position')
+                .eq('organization_id', organizationId)
+                .eq('client_id', clientId)
+                .eq('stage', 'onboarding')
+                .is('parent_task_id', null)
+                .order('position', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            if (error) return null;
+            const position = data?.position;
+            return typeof position === 'number' && Number.isFinite(position) ? position : null;
+        },
         now: () => new Date().toISOString(),
     });
 
