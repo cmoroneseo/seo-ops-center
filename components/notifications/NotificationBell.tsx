@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Bell, CheckCheck, Briefcase, CheckSquare, MessageSquare, AlarmClock } from 'lucide-react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Bell, CheckCheck, CheckSquare, MessageSquare, AlarmClock, AlertTriangle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -9,6 +9,9 @@ import { useNotifications } from '@/lib/hooks/useNotifications';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import type { AppNotification, NotificationType } from '@/lib/supabase/notifications';
+import { markRetainerTrayAllRead, markRetainerTrayRead, retainerTraySnapshot, subscribeRetainerTray, type RetainerTrayItem } from '@/lib/toasts/retainer-tray';
+
+const emptyRetainerTray: RetainerTrayItem[] = [];
 
 // ── Icon by notification type ───────────────────────────────────────────────
 function NotificationIcon({ type }: { type: NotificationType }) {
@@ -19,6 +22,34 @@ function NotificationIcon({ type }: { type: NotificationType }) {
 }
 
 // ── Navigation URL helper ───────────────────────────────────────────────────
+function RetainerTrayRow({ item }: { item: RetainerTrayItem }) {
+  const router = useRouter();
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        markRetainerTrayRead(item.id);
+        router.push(`/workspace/${item.clientId}`);
+      }}
+      className={cn(
+        'flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/20',
+        !item.isRead && 'bg-primary/5',
+      )}
+    >
+      <div className="mt-0.5 flex-shrink-0">
+        <AlertTriangle className="h-4 w-4 text-amber-500" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className={cn('text-sm leading-tight', !item.isRead ? 'font-medium text-foreground' : 'text-muted-foreground')}>
+          {item.title}
+        </p>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.body}</p>
+      </div>
+      {!item.isRead && <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-primary" />}
+    </button>
+  );
+}
+
 function buildUrl(n: AppNotification): string {
   if (n.clientId && (n.type === 'vault_proposal_accepted' || n.type === 'vault_proposal_dismissed')) {
     return `/workspace/${n.clientId}?tab=vault`;
@@ -96,10 +127,12 @@ export function NotificationBell() {
   const { organization } = useOrganization();
   const { userId } = useCurrentMember();
 
-  const { notifications, unreadCount, markRead, markAllRead, loading } = useNotifications(
+  const { notifications, unreadCount: storedUnread, markRead, markAllRead, loading } = useNotifications(
     userId || undefined,
     organization?.id,
   );
+  const retainerTray = useSyncExternalStore(subscribeRetainerTray, retainerTraySnapshot, () => emptyRetainerTray);
+  const unreadCount = storedUnread + retainerTray.filter(item => !item.isRead).length;
 
   // Close on outside click
   useEffect(() => {
@@ -169,7 +202,10 @@ export function NotificationBell() {
             </div>
             {unreadCount > 0 && (
               <button
-                onClick={() => markAllRead()}
+                onClick={() => {
+                  markRetainerTrayAllRead();
+                  void markAllRead();
+                }}
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 <CheckCheck className="h-3.5 w-3.5" />
@@ -180,20 +216,23 @@ export function NotificationBell() {
 
           {/* Feed */}
           <div className="flex-1 overflow-y-auto">
-            {loading ? (
+            {loading && retainerTray.length === 0 ? (
               <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div>
-            ) : notifications.length === 0 ? (
+            ) : notifications.length === 0 && retainerTray.length === 0 ? (
               <div className="py-10 flex flex-col items-center gap-2 text-muted-foreground">
                 <Bell className="h-8 w-8 opacity-30" />
                 <p className="text-sm">No notifications yet</p>
               </div>
             ) : (
               <>
-                {todayNotifs.length > 0 && (
+                {(todayNotifs.length > 0 || retainerTray.length > 0) && (
                   <>
                     <div className="px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 bg-muted/20">
                       Today
                     </div>
+                    {retainerTray.map((item) => (
+                      <RetainerTrayRow key={item.id} item={item} />
+                    ))}
                     {todayNotifs.map((n) => (
                       <NotificationRow key={n.id} notification={n} onRead={markRead} />
                     ))}

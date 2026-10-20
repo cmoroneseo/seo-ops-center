@@ -151,6 +151,25 @@ export async function getClients(organizationId: string): Promise<ClientProject[
     }
 }
 
+/** One client in an organization. Null when it is missing or the read fails. */
+export async function getClient(organizationId: string, clientId: string): Promise<ClientProject | null> {
+    const supabase = createClient();
+    if (!supabase) return null;
+    try {
+        const { data, error } = await supabase
+            .from('clients')
+            .select('*')
+            .eq('organization_id', organizationId)
+            .eq('id', clientId)
+            .maybeSingle();
+        if (error) throw error;
+        return data ? rowToClientProject(data) : null;
+    } catch (err) {
+        console.error('Error fetching client:', err);
+        return null;
+    }
+}
+
 export async function updateClientProject(
     id: string,
     patch: Partial<ClientProject>,

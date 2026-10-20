@@ -10,6 +10,7 @@ import {
     GA4_PROPERTY_ID,
     parseGa4Aggregate,
     type Ga4Aggregate,
+    type Ga4AttachInput,
 } from './ga4';
 import {
     attachBingDashboard,
@@ -18,6 +19,7 @@ import {
     EMPTY_BING_PAYLOAD,
     readBingLink,
     readBingPageRow,
+    type BingAttachInput,
     type BingLinkInput,
     type BingPageSource,
 } from './bing';
@@ -56,9 +58,10 @@ export async function loadAgencyDashboard(
 ): Promise<{ ok: true; dashboard: DashboardModel } | { ok: false; status: number; error: string }> {
     const admin = createAdminClient();
 
-    const [clients, integrations] = await Promise.all([
+    const [clients, integrations, asOfResult] = await Promise.all([
         readAll<Record<string, unknown>>(span => admin.from('clients').select('id, name, domain').eq('organization_id', organizationId).eq('status', 'active').order('id').range(span, span + PAGE - 1)),
         readAll<Record<string, unknown>>(span => admin.from('client_integrations').select('client_id, sync_status, last_synced_at, site_url:credentials->>site_url').eq('organization_id', organizationId).eq('service', 'gsc').in('sync_status', ['active', 'error']).order('client_id').range(span, span + PAGE - 1)),
+        admin.rpc('agency_dashboard_as_of', { p_organization_id: organizationId }),
     ]);
 
     if (clients.error || integrations.error) return { ok: false, status: 500, error: 'Could not load the dashboard.' };
@@ -86,7 +89,6 @@ export async function loadAgencyDashboard(
         }];
     });
 
-    const asOfResult = await admin.rpc('agency_dashboard_as_of', { p_organization_id: organizationId });
     if (asOfResult.error) {
         if (unavailable(asOfResult.error)) return { ok: false, status: 503, error: 'Apply migration 090 before using the agency dashboard.' };
         return { ok: false, status: 500, error: 'Could not load the dashboard.' };
@@ -105,6 +107,10 @@ export async function loadAgencyDashboard(
     }
 
     const window = dashboardWindow(range, asOf);
+    // Bing and GA4 do not need the Search Console aggregate. Start them now so
+    // they share this wave instead of waiting until GSC returns.
+    const bingPromise = loadBingInput(admin, organizationId, window);
+    const ga4Promise = loadGa4Input(admin, organizationId, window);
     const aggregate = await admin.rpc('agency_dashboard_gsc', {
         p_organization_id: organizationId,
         p_current_start: window.current.start,
@@ -133,11 +139,21 @@ export async function loadAgencyDashboard(
         aggregates: parsed.clients,
         freshness: parsed.freshness,
     });
-    return { ok: true, dashboard: await finish(admin, organizationId, window, dashboard) };
+    const [bing, ga4] = await Promise.all([bingPromise, ga4Promise]);
+    return { ok: true, dashboard: applySideSources(dashboard, bing, ga4) };
+}
+
+function applySideSources(dashboard: DashboardModel, bing: BingAttachInput | null, ga4: Ga4AttachInput | null): DashboardModel {
+    const withBing = bing ? attachBingDashboard(dashboard, bing) : dashboard;
+    return ga4 ? attachGa4Dashboard(withBing, ga4) : withBing;
 }
 
 async function finish(admin: Admin, organizationId: string, window: DashboardWindow | null, dashboard: DashboardModel): Promise<DashboardModel> {
-    return withGa4(admin, organizationId, window, await withBing(admin, organizationId, window, dashboard));
+    const [bing, ga4] = await Promise.all([
+        loadBingInput(admin, organizationId, window),
+        loadGa4Input(admin, organizationId, window),
+    ]);
+    return applySideSources(dashboard, bing, ga4);
 }
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -146,19 +162,20 @@ type Admin = ReturnType<typeof createAdminClient>;
  * Bing is optional. A failed read leaves the Google dashboard up and says why
  * on the Bing side. The driver error stays off the response.
  */
-async function withBing(admin: Admin, organizationId: string, window: DashboardWindow | null, dashboard: DashboardModel): Promise<DashboardModel> {
-    if (!bingWebmasterEnabled(process.env, organizationId)) return dashboard;
+async function loadBingInput(admin: Admin, organizationId: string, window: DashboardWindow | null): Promise<BingAttachInput | null> {
+    if (!bingWebmasterEnabled(process.env, organizationId)) return null;
     const bucket = window?.bucket ?? 'day';
     const expectedDays = window ? daysInclusive(window.current.start, window.current.end) : 0;
     const expectedPreviousDays = window ? daysInclusive(window.previous.start, window.previous.end) : 0;
     const base = { bucket, expectedDays, expectedPreviousDays };
     try {
-        const links = await readBingLinks(admin, organizationId);
-        if (!links.ok) return attachBingDashboard(dashboard, { ...base, failed: true });
         if (!window) {
-            return attachBingDashboard(dashboard, { ...base, links: links.links, payload: EMPTY_BING_PAYLOAD, pages: [] });
+            const links = await readBingLinks(admin, organizationId);
+            if (!links.ok) return { ...base, failed: true };
+            return { ...base, links: links.links, payload: EMPTY_BING_PAYLOAD, pages: [] };
         }
-        const [aggregate, pages] = await Promise.all([
+        const [links, aggregate, pages] = await Promise.all([
+            readBingLinks(admin, organizationId),
             admin.rpc('agency_dashboard_bing', {
                 p_organization_id: organizationId,
                 p_current_start: window.current.start,
@@ -169,16 +186,16 @@ async function withBing(admin: Admin, organizationId: string, window: DashboardW
             }),
             readBingPages(admin, organizationId, window.current.start, window.current.end),
         ]);
-        if (aggregate.error) return attachBingDashboard(dashboard, { ...base, failed: true });
-        return attachBingDashboard(dashboard, {
+        if (!links.ok || aggregate.error) return { ...base, failed: true };
+        return {
             ...base,
             links: links.links,
             payload: aggregate.data,
             pages: pages.ok ? pages.rows : [],
             pagesFailed: !pages.ok,
-        });
+        };
     } catch {
-        return attachBingDashboard(dashboard, { ...base, failed: true });
+        return { ...base, failed: true };
     }
 }
 
@@ -187,21 +204,27 @@ async function withBing(admin: Admin, organizationId: string, window: DashboardW
  * Mapped clients show an em dash. Unmapped clients still offer Connect GA4.
  * The driver error stays off the response.
  */
-async function withGa4(admin: Admin, organizationId: string, window: DashboardWindow | null, dashboard: DashboardModel): Promise<DashboardModel> {
-    if (!ga4CardsEnabled(process.env)) return dashboard;
+async function loadGa4Input(admin: Admin, organizationId: string, window: DashboardWindow | null): Promise<Ga4AttachInput | null> {
+    if (!ga4CardsEnabled(process.env)) return null;
     const expectedPreviousDays = window ? daysInclusive(window.previous.start, window.previous.end) : 0;
     try {
-        const links = await readGa4Links(admin, organizationId);
-        if (!links.ok) return attachGa4Dashboard(dashboard, { links: null, aggregate: null, expectedPreviousDays });
-        if (!window) return attachGa4Dashboard(dashboard, { links: links.links, aggregate: EMPTY_GA4_AGGREGATE, expectedPreviousDays });
-        const aggregate = await admin.rpc('agency_dashboard_ga4', {
-            p_organization_id: organizationId,
-            p_current_start: window.current.start,
-            p_current_end: window.current.end,
-            p_previous_start: window.previous.start,
-            p_previous_end: window.previous.end,
-            p_bucket: window.bucket,
-        });
+        if (!window) {
+            const links = await readGa4Links(admin, organizationId);
+            if (!links.ok) return { links: null, aggregate: null, expectedPreviousDays };
+            return { links: links.links, aggregate: EMPTY_GA4_AGGREGATE, expectedPreviousDays };
+        }
+        const [links, aggregate] = await Promise.all([
+            readGa4Links(admin, organizationId),
+            admin.rpc('agency_dashboard_ga4', {
+                p_organization_id: organizationId,
+                p_current_start: window.current.start,
+                p_current_end: window.current.end,
+                p_previous_start: window.previous.start,
+                p_previous_end: window.previous.end,
+                p_bucket: window.bucket,
+            }),
+        ]);
+        if (!links.ok) return { links: null, aggregate: null, expectedPreviousDays };
         let parsed: Ga4Aggregate | null = null;
         if (!aggregate.error) {
             try {
@@ -210,9 +233,9 @@ async function withGa4(admin: Admin, organizationId: string, window: DashboardWi
                 parsed = null;
             }
         }
-        return attachGa4Dashboard(dashboard, { links: links.links, aggregate: parsed, expectedPreviousDays });
+        return { links: links.links, aggregate: parsed, expectedPreviousDays };
     } catch {
-        return attachGa4Dashboard(dashboard, { links: null, aggregate: null, expectedPreviousDays });
+        return { links: null, aggregate: null, expectedPreviousDays };
     }
 }
 

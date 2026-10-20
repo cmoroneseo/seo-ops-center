@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import {
   Menu, X, Search, LogOut, Users, Settings, Check,
   LayoutDashboard, Briefcase, CheckSquare, PackageCheck, MoreHorizontal,
@@ -218,7 +218,9 @@ export function MobileNav({ showClientList }: { showClientList: boolean }) {
 
       {/* Client list drawer */}
       <Drawer open={clientsOpen} onClose={() => setClientsOpen(false)} side="left" title="Clients" noPadding>
-        <ClientListPanel variant="drawer" onNavigate={() => setClientsOpen(false)} />
+        <Suspense fallback={<div className="space-y-2 p-3" aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <div key={index} className="h-8 animate-pulse rounded-lg bg-muted" />)}</div>}>
+          <ClientListPanel variant="drawer" onNavigate={() => setClientsOpen(false)} />
+        </Suspense>
       </Drawer>
 
       <GlobalSearch isOpen={searchOpen} onClose={() => setSearchOpen(false)} />

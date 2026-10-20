@@ -25,7 +25,8 @@ import { ClientOverviewWidget } from '@/components/workspace/ClientOverviewWidge
 import { ClientWorkspaceCanvas } from '@/components/workspace/canvas/ClientWorkspaceCanvas';
 import { workspaceCanvasEnabled } from '@/lib/workspace-canvas/flag';
 import { EditClientPanel, ClientAvatar } from '@/components/workspace/EditClientPanel';
-import { getClients } from '@/lib/supabase/clients';
+import { getClient } from '@/lib/supabase/clients';
+import { beginClientOverviewReads } from '@/lib/supabase/client-overview';
 import { ClientActionsMenu } from '@/components/workspace/ClientActionsMenu';
 import { archivedClientPath, canDeleteClient, notifyClientsChanged } from '@/lib/clients/delete-client';
 import { useOrganization } from '@/components/providers/organization-provider';
@@ -179,12 +180,16 @@ export default function ClientDetailPage() {
     useEffect(() => {
         const organizationId = organization?.id;
         if (!organizationId) return;
+        void beginClientOverviewReads(organizationId, id);
+    }, [organization?.id, id]);
+
+    useEffect(() => {
+        const organizationId = organization?.id;
+        if (!organizationId) return;
         let cancelled = false;
         setClient(undefined);
-        getClients(organizationId).then((all) => {
-            if (cancelled) return;
-            const found = all.find(c => c.id === id);
-            setClient(found ?? null);
+        getClient(organizationId, id).then((found) => {
+            if (!cancelled) setClient(found);
         });
         return () => { cancelled = true; };
     }, [organization?.id, id]);
@@ -210,7 +215,7 @@ export default function ClientDetailPage() {
         let cancelled = false;
         if (canvasEnabled) return;
         const month = new Date().toISOString().slice(0, 7);
-        getLoggedHoursByClient(organization.id, month).then(byClient => {
+        getLoggedHoursByClient(organization.id, month, id).then(byClient => {
             if (!cancelled) setLoggedHours(byClient[id] ?? 0);
         });
         return () => { cancelled = true; };

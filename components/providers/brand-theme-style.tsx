@@ -1,4 +1,4 @@
-import { buildThemeCss } from '@/lib/theme/palette';
+import { buildThemeCss, type OrganizationTheme } from '@/lib/theme/palette';
 import { resolveServerTheme } from '@/lib/theme/server';
 
 /**
@@ -13,8 +13,8 @@ import { resolveServerTheme } from '@/lib/theme/server';
  * switch, or the Appearance tab preview), which is why there is exactly one
  * brand stylesheet in the document no matter how the theme was resolved.
  */
-export async function BrandThemeStyle() {
-    const theme = await resolveServerTheme();
+export async function BrandThemeStyle({ theme }: { theme?: OrganizationTheme } = {}) {
+    const resolved = theme ?? await resolveServerTheme();
 
     return (
         <style
@@ -22,7 +22,7 @@ export async function BrandThemeStyle() {
             // The client mutates this element's text directly, so React must
             // not try to reconcile its contents.
             suppressHydrationWarning
-            dangerouslySetInnerHTML={{ __html: buildThemeCss(theme) }}
+            dangerouslySetInnerHTML={{ __html: buildThemeCss(resolved) }}
         />
     );
 }

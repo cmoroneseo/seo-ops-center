@@ -6,7 +6,7 @@ import { CheckSquare, Clock, AlertCircle, Users, ArrowUpRight, TrendingUp, Check
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
-import { createClient } from '@/lib/supabase/client';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
 import { formatMyTimeHours, summarizeMyTime } from '@/lib/dashboard/my-time';
 
@@ -254,24 +254,23 @@ interface ClientHours {
 
 export function MyTimeWidget() {
     const { organization } = useOrganization();
+    const { userId, isLoading: memberLoading } = useCurrentMember();
     const [hoursThisWeek, setHoursThisWeek] = useState<number | null>(null);
     const [hoursThisMonth, setHoursThisMonth] = useState<number | null>(null);
     const [byClient, setByClient] = useState<ClientHours[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (!organization) return;
+        if (!organization || memberLoading) return;
         let cancelled = false;
 
         const load = async () => {
             setLoading(true);
             try {
-                const supabase = createClient();
-                const userId = supabase ? (await supabase.auth.getUser()).data.user?.id : undefined;
                 if (!userId) throw new Error('Time data unavailable');
                 const today = new Date();
                 const month = today.toISOString().slice(0, 7);
-                const logs = await getTimeLogs(organization.id, { month, throwOnError: true });
+                const logs = await getTimeLogs(organization.id, { month, userId, throwOnError: true });
                 const totals = summarizeMyTime(logs, userId, today);
                 const clientMap: Record<string, ClientHours> = {};
                 for (const log of logs) {
@@ -304,7 +303,7 @@ export function MyTimeWidget() {
 
         void load();
         return () => { cancelled = true; };
-    }, [organization?.id]);
+    }, [organization?.id, userId, memberLoading]);
 
     const maxHours = byClient[0]?.hours || 1;
 
@@ -316,8 +315,13 @@ export function MyTimeWidget() {
             </div>
 
             {loading ? (
-                <div className="flex items-center justify-center py-8">
-                    <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <div className="space-y-3" role="status" aria-busy="true">
+                    <span className="sr-only">Loading time</span>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="h-16 animate-pulse rounded-lg bg-muted" />
+                        <div className="h-16 animate-pulse rounded-lg bg-muted" />
+                    </div>
+                    <div className="h-24 animate-pulse rounded-lg bg-muted" />
                 </div>
             ) : (
                 <>
