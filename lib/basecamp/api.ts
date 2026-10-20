@@ -347,6 +347,35 @@ async function fetchTodoPages(startUrl: string): Promise<BasecampTodoFull[]> {
 }
 
 /**
+ * Groups inside one todolist. A group is a section of that list, not a
+ * sibling list in the to-do set. A failed read returns nothing so the
+ * caller can still match the list id itself.
+ */
+export async function listBasecampTodolistGroups(
+    projectId: number | string,
+    todolistId: number | string,
+): Promise<unknown[]> {
+    try {
+        const project = safeId(projectId, 'projectId');
+        const list = safeId(todolistId, 'todolistId');
+        const results: unknown[] = [];
+        let url: string | null = `${BASE_URL()}/buckets/${project}/todolists/${list}/groups.json`;
+        const seen = new Set<string>();
+        while (url && !seen.has(url)) {
+            seen.add(url);
+            const res = await basecampFetch(url);
+            if (!res.ok) return results;
+            const page = await res.json() as unknown;
+            if (Array.isArray(page)) results.push(...page);
+            url = parseNextLink(res.headers.get('Link'));
+        }
+        return results;
+    } catch {
+        return [];
+    }
+}
+
+/**
  * List todos for a todolist, following pagination. Excludes completed by default.
  *
  * Basecamp splits these across two responses from the same endpoint:

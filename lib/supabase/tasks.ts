@@ -318,6 +318,46 @@ export async function getTasksByClient(clientId: string, throwOnError = false): 
     }
 }
 
+export interface DirectChildStage {
+    id: string;
+    stage: string | null;
+    parentTaskId: string;
+    position: number | null;
+}
+
+/**
+ * Stage and order of direct subtasks. Used when an onboarding parent is
+ * placed so its steps follow. An empty parent list is not a query.
+ * A failed read throws so the caller can still place the parents.
+ */
+export async function getDirectChildStages(parentIds: readonly string[]): Promise<DirectChildStage[]> {
+    if (parentIds.length === 0) return [];
+    const supabase = createClient();
+    if (!supabase) throw new Error('Tasks unavailable');
+    const rows: DirectChildStage[] = [];
+    const size = 100;
+    for (let index = 0; index < parentIds.length; index += size) {
+        const part = parentIds.slice(index, index + size);
+        const { data, error } = await supabase
+            .from('tasks')
+            .select('id, stage, parent_task_id, position')
+            .in('parent_task_id', [...part]);
+        if (error) throw error;
+        for (const row of data ?? []) {
+            const id = typeof row.id === 'string' ? row.id : '';
+            const parentTaskId = typeof row.parent_task_id === 'string' ? row.parent_task_id : '';
+            if (!id || !parentTaskId) continue;
+            rows.push({
+                id,
+                stage: typeof row.stage === 'string' ? row.stage : null,
+                parentTaskId,
+                position: typeof row.position === 'number' && Number.isFinite(row.position) ? row.position : null,
+            });
+        }
+    }
+    return rows;
+}
+
 /** Single task with its subtasks and total logged hours. */
 export async function getTask(taskId: string): Promise<{
     task: Task | null;
@@ -554,6 +594,8 @@ export async function updateTask(
         category?: string | null;
         /** Onboarding flag. Written directly so a nested task can change it. */
         stage?: Task['stage'];
+        /** Order in the stage column. Only a finite number is written. */
+        position?: number;
     },
 ): Promise<{ success: boolean; data?: Task; error?: string }> {
     const supabase = createClient();
@@ -570,6 +612,7 @@ export async function updateTask(
             ...(patch.status !== undefined && { status: patch.status }),
             ...(patch.category !== undefined && { category: patch.category }),
             ...(patch.stage !== undefined && { stage: patch.stage }),
+            ...(typeof patch.position === 'number' && Number.isFinite(patch.position) && { position: patch.position }),
             ...(patch.tags !== undefined && { tags: patch.tags }),
             ...(patch.estimatedHours !== undefined && { estimated_hours: patch.estimatedHours }),
             ...(patch.scheduledMinutes !== undefined && { scheduled_minutes: patch.scheduledMinutes }),
