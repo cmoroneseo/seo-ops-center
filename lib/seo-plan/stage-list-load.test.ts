@@ -71,7 +71,8 @@ test('stage task reads are limited to the session organization and the client', 
     assert.deepEqual(fake.orders.map(item => item.column), ['position', 'created_at', 'id']);
     assert.equal(fake.selected.includes(`tasks:${STAGE_LIST_TASK_COLUMNS}`), true);
     assert.equal(fake.selected.includes(`clients:${STAGE_LIST_CLIENT_COLUMNS}`), true);
-    assert.equal(/credential|email|description|assignee|secret/i.test(STAGE_LIST_TASK_COLUMNS), false);
+    assert.equal(/credential|email|description|secret/i.test(STAGE_LIST_TASK_COLUMNS), false);
+    assert.match(STAGE_LIST_TASK_COLUMNS, /\bassignee_ids\b/);
 });
 
 test('a client outside the session organization does not load tasks', async () => {
