@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 
 import { PlanSidePanel } from '../../components/seo-plan/PlanSidePanel.tsx';
 import { StagePlanListView } from '../../components/seo-plan/StagePlanListView.tsx';
-import { planPanelTask, type PlanPanelSave } from './plan-panel.ts';
+import { applyPlanPanelSave, planPanelTask, type PlanPanelSave } from './plan-panel.ts';
 import type { StageListTask } from './stage-list.ts';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
@@ -74,7 +74,7 @@ const plan: StageListTask[] = [
         dueDate: '2026-10-17',
         assigneeIds: ['miguel'],
         category: 'content',
-        status: 'review',
+        status: 'in_progress',
     }),
     task({ id: 'later', title: 'Later backlog', stage: 'backlog', position: 2 }),
 ];
@@ -289,7 +289,7 @@ test('title and description autosave, and fields save the whole selection', asyn
     try {
         const select = document.querySelector('[data-plan-field="status"]');
         assert.ok(select instanceof dom.window.HTMLSelectElement);
-        assert.equal(select.getAttribute('data-plan-status-stored'), 'review');
+        assert.equal(select.getAttribute('data-plan-status-stored'), 'in_progress');
         assert.deepEqual([...select.options].map(option => option.textContent), ['To do', 'In progress', 'Done']);
         assert.doesNotMatch(select.textContent ?? '', /Review|Approved|Blocked/);
 
@@ -432,5 +432,129 @@ test('the parent picker stays one level deep', async () => {
         assert.equal(document.querySelector('[data-plan-field="parent"]'), null);
     } finally {
         await act(async () => { pillarRoot.unmount(); });
+    }
+});
+
+test('Blocked asks for a one-line reason, the chip shows it, and Done clears it', async () => {
+    const saves: PlanPanelSave[] = [];
+    const source = task({
+        id: 'kitchen',
+        title: 'Kitchen remodel',
+        status: 'in_progress',
+        blockedReason: null,
+        category: 'content',
+        dueDate: '2026-10-17',
+    });
+    function BlockedHarness() {
+        const [tasks, setTasks] = useState<StageListTask[]>([source]);
+        const current = tasks[0];
+        const model = planPanelTask({
+            task: current,
+            tasks,
+            detail: {
+                id: current.id,
+                description: '',
+                estimatedHours: 2,
+                tags: ['content'],
+                createdBy: 'carlos',
+                basecampTodoId: null,
+                basecampProjectId: null,
+                lastSyncedAt: null,
+            },
+        });
+        return createElement(StagePlanListView, {
+            tasks,
+            query: '',
+            onQueryChange: () => undefined,
+            onOpenTask: () => undefined,
+            onAddTasks: async () => undefined,
+            onReorder: async () => undefined,
+            clientName: "Maya's Construction",
+            today: '2026-10-20',
+            initialMonth: '2026-10',
+            people,
+            panelTaskId: current.id,
+            panel: createElement(PlanSidePanel, {
+                task: model,
+                tasks,
+                people,
+                clientName: "Maya's Construction",
+                today: '2026-10-20',
+                focusField: null,
+                onSave: async (id, save) => {
+                    saves.push(save);
+                    setTasks(currentTasks => currentTasks.map(item => (
+                        item.id === id ? applyPlanPanelSave(item, save, '2026-10-20T12:00:00.000Z') : item
+                    )));
+                    return null;
+                },
+                onDuplicate: async () => null,
+                onDelete: async () => null,
+                onClose: () => undefined,
+            }),
+        });
+    }
+
+    const root = await mount(createElement(BlockedHarness));
+    try {
+        assert.equal(document.querySelector('[data-plan-row] [data-plan-blocked]'), null);
+        const addLabel = document.querySelector('[data-plan-field="labels"]');
+        assert.ok(addLabel instanceof dom.window.HTMLButtonElement);
+        await act(async () => { addLabel.click(); });
+        const addBlocked = document.querySelector('[data-plan-blocked-add]');
+        assert.ok(addBlocked instanceof dom.window.HTMLInputElement);
+        await act(async () => { addBlocked.click(); });
+        const reason = document.querySelector('[data-plan-field="blocked-reason"]');
+        assert.ok(reason instanceof dom.window.HTMLInputElement);
+        const submit = reason.form?.querySelector('button[type="submit"]');
+        assert.ok(submit instanceof dom.window.HTMLButtonElement);
+        await act(async () => { submit.click(); });
+        assert.match(document.body.textContent ?? '', /Add a one-line reason for the block/);
+        assert.equal(saves.length, 0);
+
+        await act(async () => { setValue(reason, 'Waiting on client logins'); });
+        await act(async () => {
+            submit.click();
+            await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        assert.deepEqual(saves.at(-1), { field: 'blocked', blockedReason: 'Waiting on client logins' });
+        const panelChip = document.querySelector('[data-plan-panel] [data-plan-blocked]');
+        assert.match(panelChip?.textContent ?? '', /Blocked: Waiting on client logins/);
+        const rowChip = document.querySelector('[data-plan-row] [data-plan-blocked]');
+        assert.equal(rowChip?.textContent, 'Blocked');
+        assert.equal(rowChip?.getAttribute('title'), 'Blocked: Waiting on client logins');
+        assert.equal(rowChip?.className.includes('text-[#f87171]'), false);
+
+        const remove = document.querySelector('[data-plan-blocked-remove]');
+        assert.ok(remove instanceof dom.window.HTMLButtonElement);
+        await act(async () => {
+            remove.click();
+            await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        assert.deepEqual(saves.at(-1), { field: 'blocked', blockedReason: null });
+        assert.equal(document.querySelector('[data-plan-blocked]'), null);
+
+        await act(async () => { document.querySelector<HTMLButtonElement>('[data-plan-field="labels"]')?.click(); });
+        await act(async () => { document.querySelector<HTMLInputElement>('[data-plan-blocked-add]')?.click(); });
+        const again = document.querySelector('[data-plan-field="blocked-reason"]');
+        assert.ok(again instanceof dom.window.HTMLInputElement);
+        await act(async () => { setValue(again, 'Waiting on the permit'); });
+        await act(async () => {
+            again.form?.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
+            await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        const status = document.querySelector('[data-plan-field="status"]');
+        assert.ok(status instanceof dom.window.HTMLSelectElement);
+        await act(async () => {
+            status.value = 'done';
+            status.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+            await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        assert.deepEqual(saves.at(-1), { field: 'status', status: 'done' });
+        assert.equal(document.querySelector('[data-plan-blocked]'), null);
+        await act(async () => { document.querySelector<HTMLButtonElement>('[data-plan-field="labels"]')?.click(); });
+        assert.equal(document.querySelector('[data-plan-blocked-add]'), null);
+    } finally {
+        await act(async () => { root.unmount(); });
     }
 });

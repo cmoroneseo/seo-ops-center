@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ExternalLink, X } from 'lucide-react';
 import type { StageListTask } from '@/lib/seo-plan/stage-list';
+import { normalizeBlockedReason } from '@/lib/tasks/status';
 import {
     PLAN_LABELS,
     PLAN_PANEL_STATUSES,
     PLAN_PANEL_STATUS_LABEL,
     PLAN_TEXT_AUTOSAVE_MS,
-    displayPlanStatus,
     formatPlanCreated,
     formatPlanEstimateInput,
     formatPlanHours,
@@ -36,7 +36,7 @@ import { cn } from '@/lib/utils';
 /**
  * Non-modal task panel for the SEO Plan.
  * Fields save themselves. The list beside it stays usable.
- * Blocked-as-a-label is intentionally absent until tasks.blocked_reason exists.
+ * Blocked is a label on tasks.blocked_reason. Adding it asks for one line.
  */
 export function PlanSidePanel({
     task,
@@ -78,6 +78,9 @@ export function PlanSidePanel({
     const [estimateError, setEstimateError] = useState<string | null>(null);
     const [assigneeOpen, setAssigneeOpen] = useState(false);
     const [labelOpen, setLabelOpen] = useState(false);
+    const [blockedOpen, setBlockedOpen] = useState(false);
+    const [blockedDraft, setBlockedDraft] = useState('');
+    const [blockedError, setBlockedError] = useState<string | null>(null);
     const [parentOpen, setParentOpen] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const titleDirty = useRef(false);
@@ -104,6 +107,9 @@ export function PlanSidePanel({
         setConfirmDelete(false);
         setAssigneeOpen(false);
         setLabelOpen(false);
+        setBlockedOpen(false);
+        setBlockedDraft('');
+        setBlockedError(null);
         setParentOpen(false);
         // The id is the only signal. Title and description from this render belong to the task being opened.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -237,8 +243,8 @@ export function PlanSidePanel({
     }
 
     const due = planPanelDue({ dueDate: task.dueDate, status: task.status, completedAt: null }, today);
-    const shownStatus = displayPlanStatus(task.status);
     const labels = readPlanLabels(task.category, task.detailsReady ? task.tags : task.category ? [] : []);
+    const blockedReason = task.blockedReason?.trim() || null;
     const basecamp = planBasecampLine({
         linked: task.basecampLinked,
         href: task.basecampHref,
@@ -259,10 +265,12 @@ export function PlanSidePanel({
             aria-label="Task details"
             onKeyDown={event => {
                 if (event.key !== 'Escape') return;
-                if (!assigneeOpen && !labelOpen && !parentOpen && !confirmDelete) return;
+                if (!assigneeOpen && !labelOpen && !blockedOpen && !parentOpen && !confirmDelete) return;
                 event.stopPropagation();
                 setAssigneeOpen(false);
                 setLabelOpen(false);
+                setBlockedOpen(false);
+                setBlockedError(null);
                 setParentOpen(false);
                 setConfirmDelete(false);
             }}
@@ -358,7 +366,7 @@ export function PlanSidePanel({
                             data-plan-field="status"
                             data-plan-status-stored={task.status}
                             aria-label="Status"
-                            value={shownStatus}
+                            value={task.status}
                             onChange={event => { void commit({ field: 'status', status: event.target.value as PlanPanelStatus }); }}
                             className="bg-transparent text-[12px] text-[#cfcfd4] outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                         >
@@ -503,6 +511,24 @@ export function PlanSidePanel({
                                 {planLabelText(label)} ×
                             </button>
                         ))}
+                        {blockedReason && (
+                            <span
+                                data-plan-blocked
+                                title={`Blocked: ${blockedReason}`}
+                                className="inline-flex max-w-full items-center gap-1 rounded border border-[#2a2a2e] px-1.5 py-0.5 text-[10.5px] text-[#cfcfd4]"
+                            >
+                                <span className="min-w-0 break-words">Blocked: {blockedReason}</span>
+                                <button
+                                    type="button"
+                                    data-plan-blocked-remove
+                                    aria-label="Remove blocked label"
+                                    onClick={() => { void commit({ field: 'blocked', blockedReason: null }); }}
+                                    className="shrink-0 hover:text-white"
+                                >
+                                    ×
+                                </button>
+                            </span>
+                        )}
                         <button
                             type="button"
                             data-plan-field="labels"
@@ -528,7 +554,70 @@ export function PlanSidePanel({
                                         <span>{label.label}</span>
                                     </label>
                                 ))}
+                                {task.status !== 'done' && (
+                                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-[#1d1d22]">
+                                        <input
+                                            type="checkbox"
+                                            data-plan-blocked-add
+                                            checked={Boolean(blockedReason)}
+                                            onChange={() => {
+                                                if (blockedReason) {
+                                                    void commit({ field: 'blocked', blockedReason: null });
+                                                    return;
+                                                }
+                                                setLabelOpen(false);
+                                                setBlockedDraft('');
+                                                setBlockedError(null);
+                                                setBlockedOpen(true);
+                                            }}
+                                        />
+                                        <span>Blocked</span>
+                                    </label>
+                                )}
                             </div>
+                        )}
+                        {blockedOpen && task.status !== 'done' && !blockedReason && (
+                            <form
+                                data-plan-menu="blocked"
+                                className="mt-1 w-full space-y-1"
+                                onSubmit={event => {
+                                    event.preventDefault();
+                                    const parsed = normalizeBlockedReason(blockedDraft);
+                                    if (!parsed.ok) {
+                                        setBlockedError(parsed.error);
+                                        return;
+                                    }
+                                    setBlockedOpen(false);
+                                    setBlockedError(null);
+                                    void commit({ field: 'blocked', blockedReason: parsed.reason });
+                                }}
+                            >
+                                <label htmlFor={`${task.id}-blocked`} className="sr-only">Why is this blocked?</label>
+                                <input
+                                    id={`${task.id}-blocked`}
+                                    data-plan-field="blocked-reason"
+                                    value={blockedDraft}
+                                    maxLength={200}
+                                    autoFocus
+                                    placeholder="One-line reason"
+                                    onChange={event => {
+                                        setBlockedDraft(event.target.value);
+                                        setBlockedError(null);
+                                    }}
+                                    className="w-full rounded border border-[#2a2a2e] bg-transparent px-2 py-1 text-[12px] outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                                />
+                                {blockedError && <p className="text-[11px] text-[#f87171]">{blockedError}</p>}
+                                <div className="flex gap-2">
+                                    <button type="submit" className="rounded bg-[#ec4899] px-2 py-1 text-[11px] font-semibold text-white">Save block</button>
+                                    <button
+                                        type="button"
+                                        className="rounded border border-[#2a2a2e] px-2 py-1 text-[11px]"
+                                        onClick={() => { setBlockedOpen(false); setBlockedError(null); }}
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </form>
                         )}
                     </Field>
                     <Field label="Onboarding">

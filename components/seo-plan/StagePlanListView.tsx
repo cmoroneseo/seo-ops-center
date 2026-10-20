@@ -52,6 +52,21 @@ export interface PlanAssignee {
 
 const ROW_GRID = 'grid grid-cols-[18px_22px_minmax(0,1fr)_104px_72px_86px] items-center gap-1.5 px-3';
 
+function BlockedChip({ reason }: { reason: string | null | undefined }) {
+    const text = reason?.trim();
+    if (!text) return null;
+    return (
+        <span
+            data-plan-blocked
+            tabIndex={0}
+            title={`Blocked: ${text}`}
+            className="shrink-0 rounded border border-[#2a2a2e] px-1.5 py-0.5 text-[11px] text-[#8b8b93] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+        >
+            Blocked
+        </span>
+    );
+}
+
 function TitleText({ title, query, done }: { title: string; query: string; done: boolean }) {
     const parts = stageListTitleParts(title, query);
     return (
@@ -746,6 +761,7 @@ function PlanRow({
                         {options.parentTitle && <span className="sr-only">Subtask of {options.parentTitle}. </span>}
                         <TitleText title={task.title} query={query} done={done} />
                     </button>
+                    <BlockedChip reason={task.blockedReason} />
                     {options.pillar && (
                         <span className="shrink-0 rounded-full bg-[#1d1d22] px-1.5 py-0.5 text-[11px] text-[#cfcfd4]">
                             {options.childDone}/{options.childCount}
