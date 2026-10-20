@@ -245,6 +245,21 @@ test('a durable finalization with a failed side effect warns without claiming fa
     });
     assert.equal(basecamp.status, 'warned');
     assert.match(basecamp.message ?? '', /Basecamp/i);
+
+    const reasoned = timerUi.stopSubmitOutcome({
+        running: null, paused: [], finalizedTimeLogIds: ['day-1'],
+        basecampStatus: 'failed',
+        basecampMessage: 'Send the task to Basecamp first',
+    });
+    assert.equal(reasoned.message, 'Send the task to Basecamp first');
+
+    const skipped = timerUi.stopSubmitOutcome({
+        running: null, paused: [], finalizedTimeLogIds: ['day-1'],
+        basecampStatus: 'not_requested',
+        basecampMessage: 'Skipped: timesheet sync not enabled for this client',
+    });
+    assert.equal(skipped.status, 'warned');
+    assert.equal(skipped.message, 'Skipped: timesheet sync not enabled for this client');
 });
 
 test('a rejected finalization reports failure so the attempt stays retryable', () => {
@@ -262,6 +277,7 @@ test('only finalization refreshes client activity and task state', () => {
         'timer:data-changed',
         'task:data-changed',
         'client-activity:data-changed',
+        'my-time:refresh',
     ]);
     assert.deepEqual(timerUi.timerRefreshEvents('retry_basecamp'), [
         'planner:data-changed',

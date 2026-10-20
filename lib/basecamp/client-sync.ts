@@ -2,6 +2,8 @@ export interface ClientBasecampSyncResult {
     success: boolean;
     providerId?: string;
     error?: string;
+    /** The destination declined the entry. `error` is the reason, when it sent one. */
+    skipped?: boolean;
 }
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -20,9 +22,17 @@ async function requestSync(
         });
         const payload = await response.json().catch(() => null) as {
             success?: boolean;
+            skipped?: boolean;
             error?: string;
+            reason?: string;
             [key: string]: unknown;
         } | null;
+        if (response.ok && payload?.skipped === true) {
+            const reason = typeof payload.reason === 'string' && payload.reason.trim()
+                ? payload.reason
+                : undefined;
+            return { success: false, skipped: true, ...(reason ? { error: reason } : {}) };
+        }
         if (!response.ok || payload?.success !== true) {
             return {
                 success: false,

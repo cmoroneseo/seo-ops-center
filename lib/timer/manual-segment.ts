@@ -265,6 +265,7 @@ export interface BasecampPushResult {
     success: boolean;
     error?: string;
     providerId?: string;
+    skipped?: boolean;
 }
 
 export interface ManualLogStore {
@@ -284,6 +285,8 @@ export interface RecordManualTimeLogOptions {
     waitForBasecampSync?: boolean;
     /** Omitted or null: hours-only. The log is saved and no segment is written. */
     workedWindow?: { startedAt: string; endedAt: string } | null;
+    /** Called when the send finishes, including the fire-and-forget path. */
+    onBasecampResult?: (timeLogId: string, result: BasecampPushResult) => void;
 }
 
 const SEGMENT_WARNING = 'Saved the hours, but could not place them on the calendar.';
@@ -323,15 +326,19 @@ export async function recordManualTimeLog(
 
     let basecampSync: BasecampPushResult | undefined;
     if (opts.syncToBasecamp) {
-        const push = store.pushBasecamp(String(inserted.data.id), true);
+        const timeLogId = String(inserted.data.id);
+        const push = store.pushBasecamp(timeLogId, true);
+        const report = (result: BasecampPushResult) => {
+            opts.onBasecampResult?.(timeLogId, result);
+            if (!result.success && !opts.onBasecampResult) {
+                console.error('[Basecamp timesheet] push failed:', result.error);
+            }
+            return result;
+        };
         if (opts.waitForBasecampSync && push) {
-            basecampSync = await push;
+            basecampSync = report(await push);
         } else if (push) {
-            void push.then(result => {
-                if (!result.success) {
-                    console.error('[Basecamp timesheet] push failed:', result.error);
-                }
-            });
+            void push.then(report);
         }
     }
 

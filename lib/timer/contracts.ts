@@ -42,6 +42,8 @@ export interface TimerStateResponse {
     completionWarning?: string;
     recoveryWarning?: string;
     basecampStatus?: 'not_requested' | 'syncing' | 'synced' | 'failed';
+    /** Why a send failed or was skipped. Absent when nothing needs saying. */
+    basecampMessage?: string;
 }
 
 type DatabaseRow = Record<string, unknown>;

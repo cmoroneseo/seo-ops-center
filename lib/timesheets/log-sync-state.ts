@@ -37,3 +37,44 @@ export function timeLogSyncState(
 export function canPushToBasecamp(state: TimeLogSyncState): boolean {
     return state === 'failed' || state === 'unsent';
 }
+
+export interface TimeLogBasecampCopy {
+    /** Primary line. Null when this client does not sync and nothing failed. */
+    status: string | null;
+    /** A skip reason, shown with the status. */
+    detail: string | null;
+    canPush: boolean;
+}
+
+/**
+ * What the time-entry row says about Basecamp.
+ * A stored error is the line itself. A live skip notice stays visible even
+ * when the row was never marked failed.
+ */
+export function timeLogBasecampCopy(
+    log: SyncableTimeLog,
+    basecampAvailable: boolean,
+    notice?: string | null,
+): TimeLogBasecampCopy {
+    const skipped = notice?.startsWith('Skipped:') ? notice : null;
+    const liveFailure = notice && !skipped ? notice : null;
+    const state = timeLogSyncState(log, basecampAvailable);
+    if (state === 'synced') {
+        return { status: 'Synced to Basecamp', detail: skipped, canPush: false };
+    }
+    if (state === 'failed') {
+        return {
+            status: liveFailure || log.basecampSyncError || 'Basecamp sync failed',
+            detail: skipped,
+            canPush: true,
+        };
+    }
+    if (state === 'unsent') {
+        return {
+            status: liveFailure || 'Not sent to Basecamp',
+            detail: skipped,
+            canPush: true,
+        };
+    }
+    return { status: skipped, detail: null, canPush: false };
+}

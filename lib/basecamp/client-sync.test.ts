@@ -36,6 +36,24 @@ test('timesheet conversion reports the provider error instead of claiming succes
     assert.deepEqual(result, { success: false, error: 'Timesheet disabled' });
 });
 
+test('a skipped timesheet send returns the reason instead of a generic failure', async () => {
+    const result = await requestTimeLogBasecampSync('log-1', async () => (
+        new Response(JSON.stringify({
+            skipped: true,
+            reason: 'timesheet sync not enabled for this client',
+        }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+        })
+    ));
+
+    assert.deepEqual(result, {
+        success: false,
+        skipped: true,
+        error: 'timesheet sync not enabled for this client',
+    });
+});
+
 test('a network failure is returned as a retryable sync failure', async () => {
     // Catches an unhandled rejection that would strand the modal in its saving state.
     const result = await requestTaskBasecampSync('task-1', async () => {

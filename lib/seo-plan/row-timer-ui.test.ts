@@ -160,6 +160,41 @@ test('starting a second row is the time control, and a promoted status shows on 
     next.unmount();
 });
 
+test('a subtask play button starts the parent and shows that parent\'s clock', () => {
+    const rows = [
+        task({ id: 'pillar', title: 'SEO Setup', position: 1, status: 'todo' }),
+        task({ id: 'chore', title: 'Submit sitemap', position: 2, parentTaskId: 'pillar', status: 'todo' }),
+    ];
+    const timers: string[] = [];
+    const view = mount({
+        rows,
+        onRowTimer: taskId => { timers.push(taskId); },
+    });
+    const child = row(view.container, 'chore');
+    const button = child.querySelector<HTMLButtonElement>('[data-plan-time]');
+    assert.equal(button?.getAttribute('title'), 'Tracks time on SEO Setup');
+    assert.equal(button?.getAttribute('data-plan-tracks'), 'Tracks time on SEO Setup');
+    assert.equal(button?.getAttribute('aria-label'), 'Start timer for SEO Setup. Tracks time on SEO Setup');
+    assert.equal(child.getAttribute('data-plan-timer'), 'idle');
+    act(() => { button?.click(); });
+    assert.deepEqual(timers, ['pillar']);
+    view.unmount();
+
+    const running = mount({
+        rows,
+        timerByTaskId: { pillar: { phase: 'running', seconds: 90 } },
+        onRowTimer: () => undefined,
+    });
+    const runningChild = row(running.container, 'chore');
+    assert.equal(runningChild.getAttribute('data-plan-timer'), 'running');
+    assert.equal(runningChild.querySelector('[data-plan-time]')?.getAttribute('data-plan-time'), '1:30');
+    assert.equal(
+        runningChild.querySelector('[data-plan-time]')?.getAttribute('aria-label'),
+        'Pause timer for SEO Setup. Tracks time on SEO Setup',
+    );
+    running.unmount();
+});
+
 test('t toggles the focused row timer once per press', () => {
     const timers: string[] = [];
     const view = mount({

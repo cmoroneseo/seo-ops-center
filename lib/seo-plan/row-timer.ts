@@ -1,4 +1,5 @@
 import type { TimerAttempt } from '../types';
+import { timeTrackingTaskId } from '../tasks/pillars';
 
 /**
  * The plan row is a view on the global timer.
@@ -78,6 +79,31 @@ export function planRowTimeText(view: PlanRowTimerView, loggedLabel: string): st
     if (view.phase === 'running') return formatPlanClock(view.seconds);
     if (view.phase === 'paused' || view.phase === 'reviewing') return `❙❙ ${formatPlanClock(view.seconds)}`;
     return loggedLabel;
+}
+
+export function tracksOnParentLabel(parentTitle: string): string {
+    return `Tracks time on ${parentTitle}`;
+}
+
+/**
+ * Where a plan-row play button should start the timer.
+ * New time is stored on the parent (`resolve_time_tracking_task_id`), so a
+ * subtask button starts that parent and says so. A recurring successor keeps
+ * its own row.
+ */
+export function planTimerTask(
+    task: { id: string; title: string; parentTaskId?: string | null; recurring?: boolean },
+    parent?: { title: string } | null,
+): { taskId: string; label: string | null; parentTitle: string | null } {
+    const taskId = timeTrackingTaskId({
+        id: task.id,
+        title: task.title,
+        parentTaskId: task.parentTaskId,
+        recurrence: task.recurring ? { freq: 'weekly' } : undefined,
+    }, parent ?? null);
+    if (taskId === task.id) return { taskId, label: null, parentTitle: null };
+    const parentTitle = parent?.title || 'the parent task';
+    return { taskId, label: tracksOnParentLabel(parentTitle), parentTitle };
 }
 
 export function planRowTimerLabel(phase: PlanRowTimerPhase, title: string): string {

@@ -6,11 +6,13 @@ import {
     sumTrackedHoursByClient,
     sumInternalHours,
 } from '../time-budget-logic';
+import { noteTimeLogSaved } from '../dashboard/my-time';
 import { deleteTimeLogAcrossSystems } from '../time-log-deletion';
 import {
     requestTimeLogBasecampSync,
     type ClientBasecampSyncResult,
 } from '../basecamp/client-sync';
+import { noticeForBasecampResult, publishTimeLogBasecampNotice } from '../basecamp/sync-notice';
 import { clientBasecampTimesheetEnabled } from '../basecamp/send-default';
 import {
     timerAttemptFromRow,
@@ -52,27 +54,43 @@ function rowToTimeLog(row: any): TimeLog {
  * Server-side no-op unless the client has timesheet sync enabled;
  * only creates a new Basecamp entry when createIfMissing is true.
  */
+function reportBasecampPush(timeLogId: string, result: ClientBasecampSyncResult): ClientBasecampSyncResult {
+    const notice = noticeForBasecampResult(timeLogId, result);
+    if (notice) publishTimeLogBasecampNotice(notice);
+    return result;
+}
+
 export function pushTimeLogToBasecamp(
     timeLogId: string,
     createIfMissing = false,
 ): Promise<ClientBasecampSyncResult> {
-    if (createIfMissing) return requestTimeLogBasecampSync(timeLogId);
-    return fetch('/api/integrations/basecamp/timesheet', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'sync', timeLogId, createIfMissing: false }),
-    }).then(async response => {
-        const payload = await response.json().catch(() => null) as {
-            success?: boolean;
-            error?: string;
-        } | null;
-        return response.ok && payload?.success === true
-            ? { success: true }
-            : { success: false, error: payload?.error || `Basecamp sync failed (${response.status})` };
-    }).catch(error => ({
-        success: false,
-        error: error instanceof Error ? error.message : 'Basecamp sync failed',
-    }));
+    const request = createIfMissing
+        ? requestTimeLogBasecampSync(timeLogId)
+        : fetch('/api/integrations/basecamp/timesheet', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'sync', timeLogId, createIfMissing: false }),
+        }).then(async response => {
+            const payload = await response.json().catch(() => null) as {
+                success?: boolean;
+                skipped?: boolean;
+                error?: string;
+                reason?: string;
+            } | null;
+            if (response.ok && payload?.skipped === true) {
+                const reason = typeof payload.reason === 'string' && payload.reason.trim()
+                    ? payload.reason
+                    : undefined;
+                return { success: false, skipped: true, ...(reason ? { error: reason } : {}) };
+            }
+            return response.ok && payload?.success === true
+                ? { success: true }
+                : { success: false, error: payload?.error || payload?.reason || `Basecamp sync failed (${response.status})` };
+        }).catch(error => ({
+            success: false,
+            error: error instanceof Error ? error.message : 'Basecamp sync failed',
+        }));
+    return request.then(result => reportBasecampPush(timeLogId, result));
 }
 
 /** True when this client's time entries should offer "Send to Basecamp". */
@@ -313,14 +331,14 @@ export async function createTimeLog(
             pushBasecamp: pushTimeLogToBasecamp,
         }, timeLogInsertRow(log), opts);
         if (!recorded.success || !recorded.data) {
-            return { success: false, error: recorded.error ?? 'Time entry was not saved' };
+            return noteTimeLogSaved({ success: false as const, error: recorded.error ?? 'Time entry was not saved' });
         }
-        return {
-            success: true,
+        return noteTimeLogSaved({
+            success: true as const,
             data: rowToTimeLog(recorded.data),
             ...(recorded.segmentWarning ? { segmentWarning: recorded.segmentWarning } : {}),
             ...(recorded.basecampSync ? { basecampSync: recorded.basecampSync } : {}),
-        };
+        });
     } catch (err: any) {
         console.error('Error creating time log:', err);
         return { success: false, error: err.message };
@@ -396,9 +414,9 @@ export async function logTaskCompletionTime(input: {
         if (error) throw error;
         const row = Array.isArray(data) ? data[0] : data;
         const timeLogId = row?.time_log_id as string | undefined;
-        if (!timeLogId) return { success: false, error: 'Time entry was not returned' };
+        if (!timeLogId) return noteTimeLogSaved({ success: false, error: 'Time entry was not returned' });
         if (input.syncToBasecamp) pushTimeLogToBasecamp(timeLogId, true);
-        return { success: true, timeLogId };
+        return noteTimeLogSaved({ success: true, timeLogId });
     } catch (error: any) {
         console.error('Error logging task completion time:', error);
         return { success: false, error: error.message };
@@ -460,7 +478,7 @@ export async function reconcilePlannerEventTimeLog(
             .select('*, clients(name), tasks(title)')
             .single();
         if (error) throw error;
-        return { success: true, data: rowToTimeLog(data) };
+        return noteTimeLogSaved({ success: true, data: rowToTimeLog(data) });
     } catch (error: any) {
         console.error('[time-logs] planner event reconcile error:', error);
         return { success: false, error: error.message };
@@ -482,7 +500,7 @@ export async function updateTimeLog(
         if (error) throw error;
         // Keep an already-synced Basecamp entry in step (no-op otherwise)
         pushTimeLogToBasecamp(id, false);
-        return { success: true };
+        return noteTimeLogSaved({ success: true });
     } catch (err: any) {
         console.error('Error updating time log:', err);
         return { success: false, error: err.message };
@@ -501,7 +519,7 @@ export async function deleteTimeLog(id: string): Promise<{ success: boolean; err
             .maybeSingle();
         if (lookupError) throw lookupError;
 
-        return await deleteTimeLogAcrossSystems({
+        return noteTimeLogSaved(await deleteTimeLogAcrossSystems({
             basecampEntryId: existing?.basecamp_entry_id,
             removeBasecampEntry: () => fetch('/api/integrations/basecamp/timesheet', {
                 method: 'POST',
@@ -516,7 +534,7 @@ export async function deleteTimeLog(id: string): Promise<{ success: boolean; err
                 const { error } = await supabase.from('time_logs').delete().eq('id', id);
                 if (error) throw error;
             },
-        });
+        }));
     } catch (err: any) {
         console.error('Error deleting time log:', err);
         return { success: false, error: err.message };

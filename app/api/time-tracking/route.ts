@@ -7,6 +7,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import {
     completeFinalizedTask,
     handleTimerMutation,
+    outcomeFromTimesheetResponse,
     type AttemptRouteDeps,
     type CompletedTask,
     type FinalizeAttemptInput,
@@ -211,9 +212,7 @@ export async function POST(request: NextRequest): Promise<Response> {
                 error?: string;
                 reason?: string;
             };
-            return response.ok && (payload.success === true || payload.skipped === true)
-                ? { ok: true }
-                : { ok: false, error: payload.error || payload.reason || 'Basecamp sync failed' };
+            return outcomeFromTimesheetResponse(response.ok, payload);
         },
     };
 

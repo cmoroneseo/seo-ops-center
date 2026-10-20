@@ -1,13 +1,14 @@
 'use client';
 
-import { ClientProject, Task } from '@/lib/types';
-import { cn } from '@/lib/utils';
+import { ClientProject } from '@/lib/types';
 import { X, Clock, Calendar, FileText, CheckCircle2 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { createTimeLog, getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
-import { defaultSendToBasecamp } from '@/lib/basecamp/send-default';
+import { basecampSyncNotice } from '@/lib/basecamp/sync-notice';
 import { createClient } from '@/lib/supabase/client';
 import { localTimeZone, workedWindowForEdit } from '@/lib/timer/manual-segment';
+import { basecampSendHint, manualTimeDefaults, manualTimeWrite } from '@/lib/timer/manual-entry';
+import { ReviewToggle } from '@/components/timer/ReviewToggle';
 
 interface TimeLogModalProps {
     isOpen: boolean;
@@ -15,9 +16,11 @@ interface TimeLogModalProps {
     clients: ClientProject[];
     initialClientId?: string;
     organizationId?: string;
+    /** Tests pass a recorder. The modal otherwise writes the time log itself. */
+    saveTimeLog?: typeof createTimeLog;
 }
 
-export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organizationId }: TimeLogModalProps) {
+export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organizationId, saveTimeLog = createTimeLog }: TimeLogModalProps) {
     const [selectedClientId, setSelectedClientId] = useState(initialClientId || '');
     const [selectedTaskId, setSelectedTaskId] = useState('');
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -29,7 +32,10 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
     const [bcAvailable, setBcAvailable] = useState(false);
+    const [checkingBasecamp, setCheckingBasecamp] = useState(false);
     const [sendOverride, setSendOverride] = useState<boolean | undefined>(undefined);
+    const [billable, setBillable] = useState(true);
+    const [countsTowardBudget, setCountsTowardBudget] = useState(true);
     const basecampCheck = useRef<Promise<boolean>>(Promise.resolve(false));
 
     useEffect(() => {
@@ -43,6 +49,9 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
             setFormError('');
             setShowSuccess(false);
             setSendOverride(undefined);
+            const defaults = manualTimeDefaults();
+            setBillable(defaults.billable);
+            setCountsTowardBudget(defaults.countsTowardBudget);
         }
     }, [isOpen, initialClientId]);
 
@@ -52,19 +61,27 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
         if (!selectedClientId) {
             basecampCheck.current = Promise.resolve(false);
             setBcAvailable(false);
+            setCheckingBasecamp(false);
             return;
         }
         let active = true;
         setBcAvailable(false);
+        setCheckingBasecamp(true);
         const pending = getClientTimesheetSyncEnabled(selectedClientId);
         basecampCheck.current = pending;
         pending.then(enabled => {
-            if (active) setBcAvailable(enabled);
+            if (!active) return;
+            setBcAvailable(enabled);
+            setCheckingBasecamp(false);
         });
         return () => { active = false; };
     }, [selectedClientId]);
 
-    const sendToBasecamp = defaultSendToBasecamp(bcAvailable, sendOverride);
+    const entry = manualTimeWrite({
+        billable,
+        countsTowardBudget,
+        sendOverride,
+    }, { clientId: selectedClientId, basecampEligible: bcAvailable });
     const placement = workedWindowForEdit({
         segmentCount: 0,
         date,
@@ -102,7 +119,12 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
         }
 
         const clientEligible = await basecampCheck.current;
-        const result = await createTimeLog({
+        const saved = manualTimeWrite({
+            billable,
+            countsTowardBudget,
+            sendOverride,
+        }, { clientId: selectedClientId, basecampEligible: clientEligible });
+        const result = await saveTimeLog({
             organizationId: organizationId ?? 'org-1',
             clientId: selectedClientId,
             taskId: selectedTaskId || undefined,
@@ -110,9 +132,11 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
             date,
             hours: loggedHours,
             description,
-            billable: true,
+            billable: saved.billable,
+            countsTowardBudget: saved.countsTowardBudget,
         }, {
-            syncToBasecamp: defaultSendToBasecamp(clientEligible, sendOverride),
+            syncToBasecamp: saved.syncToBasecamp,
+            waitForBasecampSync: saved.syncToBasecamp,
             workedWindow: placement.window,
         });
 
@@ -121,10 +145,12 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
             setFormError(result.error || 'Could not save this entry.');
             return;
         }
+        const syncNotice = basecampSyncNotice(result.basecampSync);
         if (result.segmentWarning) setFormError(result.segmentWarning);
+        else if (syncNotice) setFormError(syncNotice);
         setShowSuccess(true);
 
-        if (!result.segmentWarning) {
+        if (!result.segmentWarning && !syncNotice) {
             setTimeout(() => {
                 onClose();
             }, 1500);
@@ -265,27 +291,33 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
                             />
                         </div>
 
-                        {/* Send to Basecamp toggle — only when this client syncs its timesheet */}
-                        {bcAvailable && (
-                            <label className="flex items-center gap-2 cursor-pointer select-none text-sm">
-                                <div
-                                    className={cn(
-                                        'relative w-9 h-5 rounded-full transition-colors duration-200',
-                                        sendToBasecamp ? 'bg-primary' : 'bg-muted-foreground/30'
-                                    )}
-                                    onClick={() => setSendOverride(current => !defaultSendToBasecamp(bcAvailable, current))}
-                                >
-                                    <span className={cn(
-                                        'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200',
-                                        sendToBasecamp ? 'translate-x-4' : 'translate-x-0'
-                                    )} />
-                                </div>
-                                <span className="text-muted-foreground">
-                                    Send to Basecamp
-                                    <span className="text-xs text-muted-foreground/60 ml-1.5">adds to the client's project timesheet</span>
-                                </span>
-                            </label>
-                        )}
+                        <div className="space-y-3">
+                            <ReviewToggle
+                                checked={billable}
+                                label="Billable"
+                                onChange={setBillable}
+                            />
+                            <ReviewToggle
+                                checked={Boolean(selectedClientId) && countsTowardBudget}
+                                disabled={!selectedClientId}
+                                label="Counts toward SEO hours"
+                                hint={selectedClientId
+                                    ? "Adds this time to the client's monthly SEO-hour usage."
+                                    : 'Internal work never consumes a client\u2019s SEO hours.'}
+                                onChange={setCountsTowardBudget}
+                            />
+                            <ReviewToggle
+                                checked={entry.syncToBasecamp}
+                                disabled={!bcAvailable || checkingBasecamp}
+                                label={checkingBasecamp ? 'Checking Basecamp\u2026' : 'Send to Basecamp'}
+                                hint={basecampSendHint({
+                                    clientId: selectedClientId,
+                                    checking: checkingBasecamp,
+                                    eligible: bcAvailable,
+                                })}
+                                onChange={setSendOverride}
+                            />
+                        </div>
 
                         {(placement.error || formError) && !showSuccess && (
                             <p className="text-sm text-destructive">{placement.error || formError}</p>

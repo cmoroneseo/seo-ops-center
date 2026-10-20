@@ -23,7 +23,8 @@ import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useTimer } from '@/components/providers/timer-provider';
 import { groupSegmentsForDisplay, sumActiveSeconds } from '@/lib/timer/segments';
-import { timeLogSyncState, canPushToBasecamp } from '@/lib/timesheets/log-sync-state';
+import { timeLogBasecampCopy } from '@/lib/timesheets/log-sync-state';
+import { TIME_LOG_BASECAMP_EVENT, type TimeLogBasecampNotice, basecampSyncNotice } from '@/lib/basecamp/sync-notice';
 import { completeTaskWithReconciliation } from '@/lib/tasks/task-completion';
 import { TaskCompletionDrawer } from './TaskCompletionDrawer';
 import { startDateForDay, scheduleDateError, estimateFromInput } from '@/lib/tasks/schedule-edit';
@@ -34,6 +35,8 @@ import { queuePlanBasecampPush } from '@/lib/seo-plan/basecamp-push-queue';
 import { LiveUrlControl } from './LiveUrlControl';
 import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
 import { localTimeZone, workedWindowForEdit } from '@/lib/timer/manual-segment';
+import { basecampSendHint, manualTimeDefaults, manualTimeWrite } from '@/lib/timer/manual-entry';
+import { ReviewToggle } from '@/components/timer/ReviewToggle';
 
 interface TaskDetailModalProps {
     task: Task | null;
@@ -50,6 +53,8 @@ interface TaskDetailModalProps {
      * the shared push after a field save.
      */
     hideBasecampSend?: boolean;
+    /** Tests pass a recorder. The modal otherwise writes the time log itself. */
+    saveTimeLog?: typeof createTimeLog;
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
@@ -93,6 +98,7 @@ function TaskTimeLogRow({
     retrying,
     onRetryBasecamp,
     basecampAvailable,
+    syncNotice,
 }: {
     log: TimerAttempt;
     loggerName?: string;
@@ -100,6 +106,8 @@ function TaskTimeLogRow({
     onRetryBasecamp: (log: TimerAttempt) => void;
     /** Whether this client syncs timesheets at all. */
     basecampAvailable: boolean;
+    /** Live send result, including a skip the row has not stored yet. */
+    syncNotice?: string | null;
 }) {
     const groups = groupSegmentsForDisplay(log.segments);
     const activeSeconds = sumActiveSeconds(log.segments);
@@ -133,30 +141,32 @@ function TaskTimeLogRow({
                 </ul>
             )}
             {(() => {
-                const state = timeLogSyncState(log, basecampAvailable);
-                if (state === 'synced') {
-                    return <p className="text-[11px] text-muted-foreground/70">Synced to Basecamp</p>;
-                }
-                if (!canPushToBasecamp(state)) return null;
+                const copy = timeLogBasecampCopy(log, basecampAvailable, syncNotice);
+                if (!copy.status && !copy.detail) return null;
+                const failed = Boolean(log.basecampSyncError) || Boolean(syncNotice && !syncNotice.startsWith('Skipped:'));
                 return (
-                    <div className="flex items-center gap-2 pt-0.5">
-                        <span
-                            className={cn(
-                                'text-[11px]',
-                                state === 'failed' ? 'text-destructive' : 'text-muted-foreground',
-                            )}
-                        >
-                            {state === 'failed' ? 'Basecamp sync failed' : 'Not sent to Basecamp'}
-                        </span>
-                        <button
-                            type="button"
-                            onClick={() => onRetryBasecamp(log)}
-                            disabled={retrying}
-                            className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-50"
-                        >
-                            <RefreshCw className={cn('h-3 w-3', retrying && 'animate-spin')} />
-                            {retrying ? 'Sending' : state === 'failed' ? 'Retry' : 'Send'}
-                        </button>
+                    <div className="space-y-0.5 pt-0.5">
+                        {copy.status && (
+                            <div className="flex items-center gap-2">
+                                <span className={cn('text-[11px]', failed ? 'text-destructive' : 'text-muted-foreground/70')}>
+                                    {copy.status}
+                                </span>
+                                {copy.canPush && (
+                                    <button
+                                        type="button"
+                                        onClick={() => onRetryBasecamp(log)}
+                                        disabled={retrying}
+                                        className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-50"
+                                    >
+                                        <RefreshCw className={cn('h-3 w-3', retrying && 'animate-spin')} />
+                                        {retrying ? 'Sending' : failed ? 'Retry' : 'Send'}
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                        {copy.detail && (
+                            <p className="text-[11px] text-muted-foreground">{copy.detail}</p>
+                        )}
                     </div>
                 );
             })()}
@@ -164,7 +174,7 @@ function TaskTimeLogRow({
     );
 }
 
-export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId, initialCompletion = false, embedded = false, hideBasecampSend = false }: TaskDetailModalProps) {
+export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId, initialCompletion = false, embedded = false, hideBasecampSend = false, saveTimeLog = createTimeLog }: TaskDetailModalProps) {
     const { organization, memberships } = useOrganization();
     const { runningTimer, pausedTimers, startTask, pause, beginStop } = useTimer();
     const [mounted, setMounted] = useState(false);
@@ -176,6 +186,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const [loadingTaskTime, setLoadingTaskTime] = useState(false);
     const [timeLogs, setTimeLogs] = useState<TimerAttempt[]>([]);
     const [retryingLogId, setRetryingLogId] = useState<string | null>(null);
+    const [syncNotices, setSyncNotices] = useState<Record<string, string>>({});
     // Whether this client syncs timesheets. Needed as state, not on demand,
     // because the log rows have to say when time never reached Basecamp.
     const [basecampAvailable, setBasecampAvailable] = useState(false);
@@ -245,6 +256,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const [logFinish, setLogFinish] = useState('');
     const [logNote, setLogNote] = useState('');
     const [logFormError, setLogFormError] = useState('');
+    const [logBillable, setLogBillable] = useState(true);
+    const [logCountsTowardBudget, setLogCountsTowardBudget] = useState(true);
+    const [logSendOverride, setLogSendOverride] = useState<boolean | undefined>(undefined);
     const [submittingLog, setSubmittingLog] = useState(false);
     const [showCompletion, setShowCompletion] = useState(false);
     const [completing, setCompleting] = useState(false);
@@ -400,19 +414,40 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         }
     }, [task, pushingTodo, loadTaskData]);
 
+    const rememberSyncNotice = useCallback((timeLogId: string, message: string | null) => {
+        setSyncNotices(current => {
+            if (!message) {
+                if (!(timeLogId in current)) return current;
+                const next = { ...current };
+                delete next[timeLogId];
+                return next;
+            }
+            return { ...current, [timeLogId]: message };
+        });
+    }, []);
+
     const handleRetryBasecamp = useCallback(async (log: TimerAttempt) => {
         setRetryingLogId(log.id);
         try {
-            await retryTimeLogBasecampSync(log.id);
+            const state = await retryTimeLogBasecampSync(log.id);
+            rememberSyncNotice(log.id, state.basecampMessage ?? (state.basecampStatus === 'failed' ? 'Basecamp sync failed' : null));
         } catch (error) {
-            // A failed retry leaves the logged time and its stored error intact.
-            console.error('Basecamp retry failed');
-            void error;
+            rememberSyncNotice(log.id, error instanceof Error && error.message ? error.message : 'Basecamp sync failed');
         } finally {
             setRetryingLogId(null);
             await loadTaskData();
         }
-    }, [loadTaskData]);
+    }, [loadTaskData, rememberSyncNotice]);
+
+    useEffect(() => {
+        const onSync = (event: Event) => {
+            const detail = (event as CustomEvent<TimeLogBasecampNotice>).detail;
+            if (!detail?.timeLogId || !detail.message) return;
+            rememberSyncNotice(detail.timeLogId, detail.message);
+        };
+        window.addEventListener(TIME_LOG_BASECAMP_EVENT, onSync);
+        return () => window.removeEventListener(TIME_LOG_BASECAMP_EVENT, onSync);
+    }, [rememberSyncNotice]);
 
     useEffect(() => {
         setSubtasks([]);
@@ -1212,6 +1247,10 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                         setLogFinish('');
                                         setLogNote('');
                                         setLogFormError('');
+                                        const defaults = manualTimeDefaults();
+                                        setLogBillable(defaults.billable);
+                                        setLogCountsTowardBudget(defaults.countsTowardBudget);
+                                        setLogSendOverride(undefined);
                                         setLogDate(new Date().toISOString().slice(0, 10));
                                     }}
                                     className="flex items-center gap-1 text-[10px] text-primary hover:underline"
@@ -1238,6 +1277,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                             retrying={retryingLogId === log.id}
                                             onRetryBasecamp={handleRetryBasecamp}
                                             basecampAvailable={basecampAvailable}
+                                            syncNotice={syncNotices[log.id]}
                                         />
                                     ))}
                                     {timeLogs.length > 5 && (
@@ -1318,6 +1358,37 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                             className="w-full text-sm bg-background border border-border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
                                         />
                                     </div>
+                                    <div className="space-y-3">
+                                        <ReviewToggle
+                                            checked={logBillable}
+                                            label="Billable"
+                                            onChange={setLogBillable}
+                                        />
+                                        <ReviewToggle
+                                            checked={Boolean(task.clientId) && logCountsTowardBudget}
+                                            disabled={!task.clientId}
+                                            label="Counts toward SEO hours"
+                                            hint={task.clientId
+                                                ? "Adds this time to the client's monthly SEO-hour usage."
+                                                : 'Internal work never consumes a client\u2019s SEO hours.'}
+                                            onChange={setLogCountsTowardBudget}
+                                        />
+                                        <ReviewToggle
+                                            checked={manualTimeWrite({
+                                                billable: logBillable,
+                                                countsTowardBudget: logCountsTowardBudget,
+                                                sendOverride: logSendOverride,
+                                            }, { clientId: task.clientId, basecampEligible: basecampAvailable }).syncToBasecamp}
+                                            disabled={!basecampAvailable}
+                                            label="Send to Basecamp"
+                                            hint={basecampSendHint({
+                                                clientId: task.clientId,
+                                                checking: false,
+                                                eligible: basecampAvailable,
+                                            })}
+                                            onChange={setLogSendOverride}
+                                        />
+                                    </div>
                                     {(manualPlacement.error || logFormError) && (
                                         <p className="text-[11px] text-destructive">{manualPlacement.error || logFormError}</p>
                                     )}
@@ -1335,7 +1406,12 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                                 setSubmittingLog(true);
                                                 setLogFormError('');
                                                 const currentMember = memberships.find(m => m.organizationId === organization.id);
-                                                const result = await createTimeLog({
+                                                const saved = manualTimeWrite({
+                                                    billable: logBillable,
+                                                    countsTowardBudget: logCountsTowardBudget,
+                                                    sendOverride: logSendOverride,
+                                                }, { clientId: task.clientId, basecampEligible: basecampAvailable });
+                                                const result = await saveTimeLog({
                                                     organizationId: organization.id,
                                                     clientId: task.clientId,
                                                     taskId: timeTrackingTaskId(task),
@@ -1343,12 +1419,16 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                                     hours: manualPlacement.window?.hours ?? parseFloat(hoursValue),
                                                     date: logDate,
                                                     description: logNote || undefined,
-                                                    billable: true,
+                                                    billable: saved.billable,
+                                                    countsTowardBudget: saved.countsTowardBudget,
                                                 }, {
-                                                    syncToBasecamp: basecampAvailable,
+                                                    syncToBasecamp: saved.syncToBasecamp,
+                                                    waitForBasecampSync: saved.syncToBasecamp,
                                                     workedWindow: manualPlacement.window,
                                                 });
                                                 if (result.success) {
+                                                    const notice = basecampSyncNotice(result.basecampSync);
+                                                    if (notice && result.data) rememberSyncNotice(result.data.id, notice);
                                                     void loadTaskData();
                                                     if (result.segmentWarning) {
                                                         setLogFormError(result.segmentWarning);

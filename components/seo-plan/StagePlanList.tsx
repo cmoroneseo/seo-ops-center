@@ -43,6 +43,7 @@ import {
     closePlanStopReview,
     openPlanStopReview,
     planRowTimerView,
+    planTimerTask,
 } from '@/lib/seo-plan/row-timer';
 import { PanelSkeleton } from './PanelSkeleton';
 import { PlanSidePanel } from './PlanSidePanel';
@@ -486,27 +487,38 @@ export function StagePlanList({
     }
 
     const onRowTimer = (taskId: string) => {
-        const task = tasks?.find(item => item.id === taskId);
-        if (!task || isPendingStageTaskId(taskId)) return;
+        // The row button passes the task that keeps the time. Keyboard `t`
+        // passes the focused row, which may be the subtask.
+        const direct = tasks?.find(item => item.id === taskId);
+        const task = direct ?? tasks?.find(item => {
+            const itemParent = item.parentTaskId
+                ? tasks?.find(row => row.id === item.parentTaskId)
+                : undefined;
+            return planTimerTask(item, itemParent ?? null).taskId === taskId;
+        });
+        if (!task || isPendingStageTaskId(task.id)) return;
+        const parent = task.parentTaskId ? tasks?.find(item => item.id === task.parentTaskId) : undefined;
+        const tracked = planTimerTask(task, parent ?? null);
+        const target = tasks?.find(item => item.id === tracked.taskId);
+        if (target && isPendingStageTaskId(target.id)) return;
         setTimerError(null);
         void clickPlanRowTimer({
-            taskId,
-            taskTitle: task.title,
-            taskStatus: task.status,
+            taskId: tracked.taskId,
+            taskTitle: target?.title ?? tracked.parentTitle ?? task.title,
+            taskStatus: target?.status ?? 'in_progress',
             clientId,
             clientName,
             running: runningTimer,
             paused: pausedTimers,
             controls: { startTask, pause, resume, beginStop },
         }).then(result => {
-            if (result.action === 'start' && result.promoted) {
-                updateList(current => current?.map(item => item.id === taskId && item.status === 'todo'
-                    ? { ...item, status: 'in_progress' }
-                    : item) ?? current);
-                setDetail(current => current?.id === taskId && current.status === 'todo'
-                    ? { ...current, status: 'in_progress' }
-                    : current);
-            }
+            if (!target || result.action !== 'start' || !result.promoted) return;
+            updateList(current => current?.map(item => item.id === target.id && item.status === 'todo'
+                ? { ...item, status: 'in_progress' }
+                : item) ?? current);
+            setDetail(current => current?.id === target.id && current.status === 'todo'
+                ? { ...current, status: 'in_progress' }
+                : current);
         }).catch(caught => {
             setTimerError(caught instanceof Error ? caught.message : 'Unable to update the timer.');
         });

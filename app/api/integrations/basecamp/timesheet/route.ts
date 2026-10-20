@@ -157,6 +157,14 @@ export async function POST(req: NextRequest) {
                 },
             };
         },
+        async recordSyncError({ timeLogId, organizationId, message }) {
+            const admin = createAdminClient();
+            const { error } = await admin.from('time_logs')
+                .update({ basecamp_sync_error: message })
+                .eq('id', timeLogId)
+                .eq('organization_id', organizationId);
+            if (error) throw error;
+        },
         createAccessSource: () => createSupabaseBasecampProjectAccessSource(createAdminClient()),
         async verifyEntry(projectId, entryId) {
             const entry = await getBasecampProjectTimesheetEntry(projectId, entryId);
