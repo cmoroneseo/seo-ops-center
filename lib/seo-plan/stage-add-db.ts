@@ -83,6 +83,13 @@ export async function maxStageAddPosition(
     return typeof position === 'number' && Number.isFinite(position) ? position : null;
 }
 
+/** Remove rows created earlier in the same add, after a later insert failed. */
+export async function deleteStageTasks(db: SupabaseClient, ids: readonly string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const removed = await db.from('tasks').delete().in('id', [...ids]);
+    if (removed.error) throw new Error('Unable to undo tasks');
+}
+
 /** Insert the rows and return them in the stage-list shape. One statement, so a failure writes nothing. */
 export async function insertStageTasks(
     db: SupabaseClient,
