@@ -11,6 +11,8 @@ import {
 } from '@/lib/supabase/time-logs';
 import { cn } from '@/lib/utils';
 import { taskDescriptionText, taskDescriptionChanged } from '@/lib/tasks/description';
+import { descriptionSaveLabel } from '@/lib/tasks/description-save';
+import { useDescriptionAutosave } from '@/lib/tasks/use-description-autosave';
 import { listedSubtaskProgress, progressOf } from '@/lib/tasks/subtask-progress';
 import { SubtaskProgressText } from './SubtaskProgressText';
 import { Task, TaskComment, TaskStatus, TaskPriority, TaskCategory, TimerAttempt } from '@/lib/types';
@@ -189,13 +191,37 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const onUpdateRef = useRef(onUpdate);
     taskRef.current = task;
     onUpdateRef.current = onUpdate;
+    const descriptionSave = useDescriptionAutosave({
+        savedText: taskDescriptionText(task?.description),
+        resetKey: task?.id ?? '',
+        persist: async text => {
+            const current = taskRef.current;
+            if (!current) return false;
+            if (!taskDescriptionChanged(current.description, text)) return true;
+            const result = await updateTask(current.id, { description: text, updatedBy: currentUserId });
+            if (!result.success || !result.data) return false;
+            const latest = taskRef.current ?? current;
+            onUpdateRef.current?.({
+                ...latest,
+                ...result.data,
+                description: text,
+                subtasks: latest.subtasksState ? latest.subtasks : result.data.subtasks,
+                subtasksState: result.data.subtasksState ?? latest.subtasksState,
+            });
+            if (hideBasecampSend) queuePlanBasecampPush(result.data.id);
+            return true;
+        },
+    });
+    const closePanel = () => {
+        descriptionSave.flush();
+        onClose();
+    };
     const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
     const [addingSubtask, setAddingSubtask] = useState(false);
 
     // Local editable state
     const [title, setTitle] = useState('');
     const [liveUrl, setLiveUrl] = useState<string | undefined>();
-    const [description, setDescription] = useState('');
     const [status, setStatus] = useState<TaskStatus>('todo');
     const [blockedReason, setBlockedReason] = useState<string | null>(null);
     const [blockedDraft, setBlockedDraft] = useState('');
@@ -234,7 +260,6 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         if (!task) return;
         setTitle(task.title ?? '');
         setLiveUrl(task.publishedUrl);
-        setDescription(taskDescriptionText(task.description));
         setStatus(task.status ?? 'todo');
         setBlockedReason(task.blockedReason?.trim() ? task.blockedReason.trim() : null);
         setBlockedDraft('');
@@ -400,6 +425,12 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         if (isOpen && task) loadTaskData();
     }, [isOpen, task?.id, loadTaskData]);
 
+    const wasOpen = useRef(isOpen);
+    useEffect(() => {
+        if (wasOpen.current && !isOpen) descriptionSave.flush();
+        wasOpen.current = isOpen;
+    }, [isOpen, descriptionSave.flush]);
+
     // Confirmed time must appear here as soon as a Stop confirmation lands.
     useEffect(() => {
         if (!isOpen || !task) return;
@@ -560,10 +591,6 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         if (title !== task?.title) await save({ title });
     };
 
-    const handleDescriptionBlur = async () => {
-        if (taskDescriptionChanged(task?.description, description)) await save({ description });
-    };
-
     const handleDueDateChange = async (date: string) => {
         const error = scheduleDateError(startDate, date);
         if (error) { setSaveError(error); return; }
@@ -714,7 +741,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
 
     return (
         <>
-            {!embedded && <div className={cn("fixed inset-0 z-[110] bg-background/80 backdrop-blur-sm transition-opacity duration-300", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")} onClick={onClose} />}
+            {!embedded && <div className={cn("fixed inset-0 z-[110] bg-background/80 backdrop-blur-sm transition-opacity duration-300", isOpen ? "opacity-100" : "opacity-0 pointer-events-none")} onClick={closePanel} />}
 
             {/* Slide-over panel */}
             <div
@@ -778,7 +805,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                 </button>
                             )}
                             <button
-                                onClick={onClose}
+                                onClick={closePanel}
                                 aria-label="Close task details"
                                 className="p-2 hover:bg-muted rounded-lg text-muted-foreground transition-colors"
                             >
@@ -825,13 +852,23 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                             <label htmlFor={`${fieldId}-description`} className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Description</label>
                             <textarea
                                 id={`${fieldId}-description`}
-                                disabled={saving}
-                                value={description}
-                                onChange={e => setDescription(e.target.value)}
-                                onBlur={handleDescriptionBlur}
+                                value={descriptionSave.text}
+                                onChange={e => descriptionSave.edit(e.target.value)}
+                                onBlur={() => descriptionSave.flush()}
                                 className="w-full bg-transparent border-none text-sm p-0 mt-1 focus:ring-0 resize-none min-h-[80px] placeholder:text-muted-foreground"
                                 placeholder="Add details…"
                             />
+                            {descriptionSaveLabel(descriptionSave.phase) && (
+                                <p role="status" data-description-save={descriptionSave.phase} className="mt-1 text-[11px] text-muted-foreground">
+                                    {descriptionSaveLabel(descriptionSave.phase)}
+                                    {descriptionSave.phase === 'failed' && (
+                                        <>
+                                            {' · '}
+                                            <button type="button" onClick={() => descriptionSave.retry()} className="font-medium text-primary hover:underline">Retry</button>
+                                        </>
+                                    )}
+                                </p>
+                            )}
                         </div>
 
                         {/* Status & Priority */}
