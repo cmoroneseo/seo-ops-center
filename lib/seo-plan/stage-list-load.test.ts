@@ -73,6 +73,7 @@ test('stage task reads are limited to the session organization and the client', 
     assert.equal(fake.selected.includes(`clients:${STAGE_LIST_CLIENT_COLUMNS}`), true);
     assert.equal(/credential|email|description|secret/i.test(STAGE_LIST_TASK_COLUMNS), false);
     assert.match(STAGE_LIST_TASK_COLUMNS, /\bassignee_ids\b/);
+    assert.match(STAGE_LIST_TASK_COLUMNS, /\bblocked_reason\b/);
 });
 
 test('a client outside the session organization does not load tasks', async () => {

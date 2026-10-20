@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { Check, ChevronRight, GripVertical } from 'lucide-react';
 import { isPendingStageTaskId } from '@/lib/seo-plan/stage-add';
 import { effectOfPlanDrop } from '@/lib/seo-plan/plan-drag';
@@ -18,6 +18,12 @@ import {
     type PlanSectionId,
     type PlanSectionModel,
 } from '@/lib/seo-plan/plan-sections';
+import {
+    planPanelKeyAction,
+    planShortcutBlocked,
+    visiblePlanRowIds,
+    type PlanPanelField,
+} from '@/lib/seo-plan/plan-panel';
 import { stageListTitleParts, type StageListTask } from '@/lib/seo-plan/stage-list';
 import { calendarDay } from '@/lib/seo-plan/this-month';
 import type { StageReorderMove } from '@/lib/seo-plan/stage-reorder';
@@ -45,6 +51,21 @@ export interface PlanAssignee {
 }
 
 const ROW_GRID = 'grid grid-cols-[18px_22px_minmax(0,1fr)_104px_72px_86px] items-center gap-1.5 px-3';
+
+function BlockedChip({ reason }: { reason: string | null | undefined }) {
+    const text = reason?.trim();
+    if (!text) return null;
+    return (
+        <span
+            data-plan-blocked
+            tabIndex={0}
+            title={`Blocked: ${text}`}
+            className="shrink-0 rounded border border-[#2a2a2e] px-1.5 py-0.5 text-[11px] text-[#8b8b93] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+        >
+            Blocked
+        </span>
+    );
+}
 
 function TitleText({ title, query, done }: { title: string; query: string; done: boolean }) {
     const parts = stageListTitleParts(title, query);
@@ -168,11 +189,14 @@ export function StagePlanListView({
     loggedHours = {},
     onOpenResults,
     clientName,
+    panel,
+    panelTaskId = null,
+    onClosePanel,
 }: {
     tasks: readonly StageListTask[];
     query: string;
     onQueryChange: (query: string) => void;
-    onOpenTask: (taskId: string) => void;
+    onOpenTask: (taskId: string, field?: PlanPanelField | null) => void;
     onAddTasks: (input: StageAddRequest) => Promise<void>;
     onReorder: (move: StageReorderMove) => Promise<void>;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
@@ -188,9 +212,15 @@ export function StagePlanListView({
     onOpenResults?: () => void;
     /** Kept for callers. The plan header does not repeat the client name. */
     clientName?: string;
+    /** Beside the list. No scrim, and the list stays clickable. */
+    panel?: ReactNode;
+    panelTaskId?: string | null;
+    onClosePanel?: () => void;
 }) {
     const searchId = useId();
     const searchRef = useRef<HTMLInputElement>(null);
+    const listRef = useRef<HTMLDivElement>(null);
+    const [focusedId, setFocusedId] = useState<string | null>(null);
     const day = today ?? calendarDay(new Date());
     const [month, setMonth] = useState(() => (initialMonth && isPlanMonth(initialMonth) ? initialMonth : monthKeyFromDay(day)));
     const sections = groupTasksByPlanMonth(tasks, { month, today: day, query });
@@ -200,29 +230,66 @@ export function StagePlanListView({
     void clientName;
 
     useEffect(() => {
+        if (panelTaskId) setFocusedId(panelTaskId);
+    }, [panelTaskId]);
+
+    const openTask = useCallback((taskId: string, field: PlanPanelField | null = null) => {
+        if (isPendingStageTaskId(taskId)) return;
+        setFocusedId(taskId);
+        onOpenTask(taskId, field);
+    }, [onOpenTask]);
+
+    useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
             if (event.metaKey || event.ctrlKey || event.altKey) return;
-            const target = event.target;
-            if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable="true"]')) return;
-            if (event.key === '/') {
+            const blocked = planShortcutBlocked(event.target, event.key);
+            if (event.key === '/' && !blocked) {
                 event.preventDefault();
                 searchRef.current?.focus();
-            } else if (event.key === '[') {
-                event.preventDefault();
-                setMonth(currentMonth => shiftPlanMonth(currentMonth, -1));
-            } else if (event.key === ']') {
-                event.preventDefault();
-                setMonth(currentMonth => shiftPlanMonth(currentMonth, 1));
-            } else if (event.key === 'Escape' && query) {
-                onQueryChange('');
+                return;
             }
+            if ((event.key === '[' || event.key === ']') && !blocked) {
+                event.preventDefault();
+                setMonth(currentMonth => shiftPlanMonth(currentMonth, event.key === '[' ? -1 : 1));
+                return;
+            }
+            const visibleIds = visiblePlanRowIds(listRef.current ?? document)
+                .filter(id => !isPendingStageTaskId(id));
+            const action = planPanelKeyAction({
+                key: event.key,
+                blocked,
+                panelOpen: Boolean(panelTaskId),
+                focusedId,
+                visibleIds,
+            });
+            if (action.type === 'move') {
+                event.preventDefault();
+                setFocusedId(action.taskId);
+                if (action.panel) onOpenTask(action.taskId, null);
+                const row = listRef.current?.querySelector(`[data-plan-row="${action.taskId}"]`);
+                if (row instanceof HTMLElement && typeof row.scrollIntoView === 'function') {
+                    try { row.scrollIntoView({ block: 'nearest' }); } catch { /* not available in every test DOM */ }
+                }
+                return;
+            }
+            if (action.type === 'open') {
+                event.preventDefault();
+                openTask(action.taskId, null);
+                return;
+            }
+            if (action.type === 'close') {
+                event.preventDefault();
+                onClosePanel?.();
+                return;
+            }
+            if (event.key === 'Escape' && query && !blocked) onQueryChange('');
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [onQueryChange, query]);
+    }, [focusedId, onClosePanel, onOpenTask, onQueryChange, openTask, panelTaskId, query]);
 
-    return (
-        <div data-seo-plan-stage-list data-plan-month={month} className="space-y-3 text-[13px] text-[#ececee]">
+    const list = (
+        <div ref={listRef} data-seo-plan-stage-list data-plan-month={month} className="min-w-0 flex-1 space-y-3 text-[13px] text-[#ececee]">
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2" data-plan-month-control>
                     <button
@@ -312,11 +379,19 @@ export function StagePlanListView({
                 today={day}
                 people={people}
                 loggedHours={loggedHours}
-                onOpenTask={onOpenTask}
+                focusedId={focusedId}
+                onOpenTask={openTask}
                 onReorder={onReorder}
                 onSetLiveUrl={onSetLiveUrl}
                 resultsByTaskId={resultsByTaskId}
             />
+        </div>
+    );
+    if (!panel) return list;
+    return (
+        <div data-plan-shell="open" className="flex items-start">
+            {list}
+            {panel}
         </div>
     );
 }
@@ -340,6 +415,7 @@ function PlanSections({
     today,
     people,
     loggedHours,
+    focusedId,
     onOpenTask,
     onReorder,
     onSetLiveUrl,
@@ -354,7 +430,8 @@ function PlanSections({
     today: string;
     people: readonly PlanAssignee[];
     loggedHours: Readonly<Record<string, number>>;
-    onOpenTask: (taskId: string) => void;
+    focusedId: string | null;
+    onOpenTask: (taskId: string, field: PlanPanelField | null) => void;
     onReorder: (move: StageReorderMove) => Promise<void>;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
@@ -478,6 +555,7 @@ function PlanSections({
                                             dragId={dragId}
                                             foldDone={foldDone}
                                             baseId={baseId}
+                                            focusedId={focusedId}
                                             onOpenTask={onOpenTask}
                                             onSetLiveUrl={onSetLiveUrl}
                                             resultsByTaskId={resultsByTaskId}
@@ -533,6 +611,7 @@ function PlanRow({
     dragId,
     foldDone,
     baseId,
+    focusedId,
     onOpenTask,
     onSetLiveUrl,
     resultsByTaskId,
@@ -552,7 +631,8 @@ function PlanRow({
     dragId: string | null;
     foldDone: boolean;
     baseId: string;
-    onOpenTask: (taskId: string) => void;
+    focusedId: string | null;
+    onOpenTask: (taskId: string, field: PlanPanelField | null) => void;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
     onDragStart: (id: string | null) => void;
@@ -612,6 +692,8 @@ function PlanRow({
                 data-parent-id={options.parentId}
                 data-pending={pending ? 'true' : undefined}
                 data-stage-drag={draggable ? 'task' : undefined}
+                data-plan-row={task.id}
+                data-plan-focused={focusedId === task.id ? 'true' : undefined}
                 data-late={due.late ? 'true' : undefined}
                 draggable={draggable || undefined}
                 onDragStart={event => {
@@ -654,6 +736,7 @@ function PlanRow({
                     options.role === 'subtask' && 'pl-9',
                     draggable && 'cursor-grab',
                     dragId === task.id && 'opacity-40',
+                    focusedId === task.id && 'bg-[#1d1d22] shadow-[inset_2px_0_0_#ec4899]',
                 )}
             >
                 <span className="flex justify-center">
@@ -667,8 +750,9 @@ function PlanRow({
                 <div className="flex min-w-0 items-center gap-2">
                     <button
                         type="button"
+                        data-plan-open="title"
                         disabled={pending}
-                        onClick={() => { if (!pending) onOpenTask(task.id); }}
+                        onClick={() => { if (!pending) onOpenTask(task.id, null); }}
                         className={cn(
                             'flex min-w-0 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-70',
                             options.pillar && 'font-semibold',
@@ -677,6 +761,7 @@ function PlanRow({
                         {options.parentTitle && <span className="sr-only">Subtask of {options.parentTitle}. </span>}
                         <TitleText title={task.title} query={query} done={done} />
                     </button>
+                    <BlockedChip reason={task.blockedReason} />
                     {options.pillar && (
                         <span className="shrink-0 rounded-full bg-[#1d1d22] px-1.5 py-0.5 text-[11px] text-[#cfcfd4]">
                             {options.childDone}/{options.childCount}
@@ -706,12 +791,29 @@ function PlanRow({
                         <span className="shrink-0 text-[11px] text-[#8b8b93]">{group.parentBreadcrumb}</span>
                     )}
                 </div>
-                <span className={cn('truncate text-right text-[12px]', due.late ? 'text-[#f87171]' : due.undated ? 'text-[#6d6d75]' : 'text-[#cfcfd4]')} data-plan-due={due.text}>
+                <button
+                    type="button"
+                    data-plan-open="due"
+                    data-plan-due={due.text}
+                    disabled={pending}
+                    onClick={() => { if (!pending) onOpenTask(task.id, 'due'); }}
+                    className={cn(
+                        'min-w-0 truncate text-right text-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]',
+                        due.late ? 'text-[#f87171]' : due.undated ? 'text-[#6d6d75]' : 'text-[#cfcfd4]',
+                    )}
+                >
                     {due.text}
-                </span>
-                <span className="flex justify-end">
+                </button>
+                <button
+                    type="button"
+                    data-plan-open="assignee"
+                    disabled={pending}
+                    aria-label={assigneeIds.length === 0 ? 'Assignee, unassigned' : 'Assignee'}
+                    onClick={() => { if (!pending) onOpenTask(task.id, 'assignee'); }}
+                    className="flex justify-end focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                >
                     <AssigneeStack ids={assigneeIds} people={people} />
-                </span>
+                </button>
                 <span
                     className={cn('text-right text-[12px]', logged > 0 ? 'text-[#cfcfd4]' : 'text-[#6d6d75]')}
                     title={hours ? hours.tooltip : undefined}

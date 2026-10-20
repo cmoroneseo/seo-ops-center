@@ -12,10 +12,15 @@ export interface StageListReadDependencies {
      * A null result means the client is not in that organization.
      */
     load: (organizationId: string, clientId: string) => Promise<StageListTask[] | null>;
+    /**
+     * Account id for a read-only Basecamp link. The list does not call Basecamp.
+     * Blank and omitted both mean the panel has no href.
+     */
+    basecampAccountId?: string | null;
 }
 
 export type StageListReadResult =
-    | { status: 200; body: { tasks: StageListTask[] } }
+    | { status: 200; body: { tasks: StageListTask[]; basecampAccountId: string | null } }
     | { status: 400 | 401 | 403 | 404 | 500; body: { error: string } };
 
 /**
@@ -37,7 +42,8 @@ export async function readClientStageList(
     try {
         const tasks = await dependencies.load(session.organizationId, clientId);
         if (!tasks) return { status: 404, body: { error: 'Not found' } };
-        return { status: 200, body: { tasks } };
+        const accountId = dependencies.basecampAccountId?.trim() || null;
+        return { status: 200, body: { tasks, basecampAccountId: accountId } };
     } catch {
         return { status: 500, body: { error: 'Could not load tasks' } };
     }

@@ -26,6 +26,8 @@ export interface StageListTask {
     completedAt?: string | null;
     /** tasks.assignee_ids. Absent when that column was not selected. Ids only, never names. */
     assigneeIds?: string[];
+    /** tasks.blocked_reason. Absent when that column was not selected. Empty means not blocked. */
+    blockedReason?: string | null;
 }
 
 export interface StageListGroup {
@@ -262,6 +264,7 @@ export function stageListTaskFromRow(row: unknown): StageListTask | null {
         ...('due_date' in record ? { dueDate: readDueDay(record.due_date) } : {}),
         ...('completed_at' in record ? { completedAt: readTimestamp(record.completed_at) } : {}),
         ...('assignee_ids' in record ? { assigneeIds: readAssigneeIds(record.assignee_ids) } : {}),
+        ...('blocked_reason' in record ? { blockedReason: readBlockedReason(record.blocked_reason) } : {}),
     };
 }
 
@@ -278,6 +281,12 @@ function readTimestamp(value: unknown): string | null {
 function readAssigneeIds(value: unknown): string[] {
     if (!Array.isArray(value)) return [];
     return value.filter((id): id is string => typeof id === 'string' && id !== '');
+}
+
+function readBlockedReason(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const reason = value.trim();
+    return reason || null;
 }
 
 /** Accept the stage-list JSON. Unknown fields and malformed rows are dropped. */
@@ -307,6 +316,7 @@ export function parseStageListTasks(value: unknown): StageListTask[] {
             ...('dueDate' in record ? { dueDate: readDueDay(record.dueDate) } : {}),
             ...('completedAt' in record ? { completedAt: readTimestamp(record.completedAt) } : {}),
             ...('assigneeIds' in record ? { assigneeIds: readAssigneeIds(record.assigneeIds) } : {}),
+            ...('blockedReason' in record ? { blockedReason: readBlockedReason(record.blockedReason) } : {}),
         });
     }
     return tasks;

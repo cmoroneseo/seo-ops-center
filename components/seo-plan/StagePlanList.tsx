@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
@@ -16,18 +15,30 @@ import {
     pendingStageTasks,
     rollbackStageTasks,
 } from '@/lib/seo-plan/stage-add';
-import { parseStageListTasks } from '@/lib/seo-plan/stage-list';
+import {
+    applyPlanPanelSave,
+    mergePlanTask,
+    planDuplicateTitle,
+    planPanelTask,
+    planParentMove,
+    planTasksWithout,
+    type PlanPanelField,
+    type PlanPanelSave,
+} from '@/lib/seo-plan/plan-panel';
+import { parseStageListTasks, type StageListTask } from '@/lib/seo-plan/stage-list';
 import { useStageListMoves } from '@/lib/seo-plan/stage-list-moves';
-import { getTask, updateTask } from '@/lib/supabase/tasks';
+import { calendarDay } from '@/lib/seo-plan/this-month';
+import { createTask, deleteTask, getTask, updateTask } from '@/lib/supabase/tasks';
 import type { UrlResultReadout } from '@/lib/search-reporting/url-results';
 import { parseLiveUrlInput, subtaskLineDrafts } from '@/lib/tasks/live-url';
-import type { Task } from '@/lib/types';
+import type { Task, TimeLog } from '@/lib/types';
 import { PanelSkeleton } from './PanelSkeleton';
+import { PlanSidePanel } from './PlanSidePanel';
 import { StagePlanListView, type PlanAssignee, type StageAddRequest } from './StagePlanListView';
 
 /**
- * Loads the session-scoped stage list, creates tasks from the add bar, moves
- * them by drag, and opens the existing task drawer.
+ * Loads the session-scoped stage list, creates tasks from the add bar, and
+ * moves them by drag. A title, due, or assignee click opens the side panel.
  * Requests carry only the route client id. The server decides the organization.
  */
 function initialsOf(name: string): string {
@@ -54,6 +65,9 @@ export function StagePlanList({
     const [error, setError] = useState(false);
     const [reloadKey, setReloadKey] = useState(0);
     const [detail, setDetail] = useState<Task | null>(null);
+    const [panel, setPanel] = useState<{ id: string; field: PlanPanelField | null } | null>(null);
+    const [accountId, setAccountId] = useState<string | null>(null);
+    const [logs, setLogs] = useState<TimeLog[]>([]);
     const [resultsByTaskId, setResultsByTaskId] = useState<Record<string, UrlResultReadout>>({});
     const seenClient = useRef<string | null>(null);
     const { tasks, setList, updateList, move } = useStageListMoves(async (requested) => {
@@ -83,15 +97,19 @@ export function StagePlanList({
             seenClient.current = clientId;
             setList(null);
             setQuery('');
+            setPanel(null);
+            setDetail(null);
         }
         setError(false);
         fetch(`/api/seo-plan/stage-list/${encodeURIComponent(clientId)}`, { cache: 'no-store' })
             .then(async response => {
                 if (!response.ok) throw new Error('unavailable');
-                return response.json() as Promise<{ tasks?: unknown }>;
+                return response.json() as Promise<{ tasks?: unknown; basecampAccountId?: unknown }>;
             })
             .then(body => {
                 if (cancelled) return;
+                const account = typeof body?.basecampAccountId === 'string' ? body.basecampAccountId.trim() : '';
+                setAccountId(account || null);
                 const fresh = parseStageListTasks(body?.tasks);
                 updateList(loaded => {
                     if (!loaded) return fresh;
@@ -141,11 +159,114 @@ export function StagePlanList({
                 totals[log.taskId] = (totals[log.taskId] ?? 0) + log.hours;
             }
             setLoggedHours(totals);
+            setLogs(logs);
         }).catch(() => undefined);
         return () => { cancelled = true; };
     }, [organization?.id, clientId, reloadKey]);
 
     const reload = () => setReloadKey(key => key + 1);
+
+    useEffect(() => {
+        const id = panel?.id;
+        if (!id || isPendingStageTaskId(id)) return;
+        let cancelled = false;
+        getTask(id).then(result => {
+            if (cancelled || result.task?.id !== id) return;
+            setDetail(current => {
+                if (
+                    current?.id === id
+                    && current.updatedAt
+                    && result.task?.updatedAt
+                    && current.updatedAt > result.task.updatedAt
+                ) return current;
+                return result.task ?? current;
+            });
+        }).catch(() => undefined);
+        return () => { cancelled = true; };
+    }, [panel?.id]);
+
+    const savePanel = async (taskId: string, save: PlanPanelSave): Promise<string | null> => {
+        if (seenClient.current !== clientId) return null;
+        if (isPendingStageTaskId(taskId)) return 'That task is still being added.';
+        const currentTasks = tasks ?? [];
+        const snapshot = currentTasks.find(task => task.id === taskId);
+        if (!snapshot) return 'That task is not on this plan.';
+        if (save.field === 'parent') {
+            const planned = planParentMove(currentTasks, taskId, save.parentTaskId);
+            if (!planned.ok) return planned.error;
+            if (!planned.move) return null;
+            try {
+                await move(planned.move);
+            } catch {
+                return 'Could not move that task.';
+            }
+            return null;
+        }
+        const now = new Date().toISOString();
+        updateList(current => current?.map(task => (
+            task.id === taskId ? applyPlanPanelSave(task, save, now) : task
+        )) ?? current);
+        const result = await updateTask(taskId, panelPatch(save));
+        if (seenClient.current !== clientId) return null;
+        if (!result.success || !result.data) {
+            updateList(current => current?.map(task => (task.id === taskId ? snapshot : task)) ?? current);
+            return result.error || 'Could not save that change.';
+        }
+        const saved = result.data;
+        updateList(current => current?.map(task => (task.id === taskId ? mergePlanTask(task, saved) : task)) ?? current);
+        setDetail(current => (current?.id === taskId ? saved : current));
+        return null;
+    };
+
+    const duplicatePanel = async (): Promise<string | null> => {
+        const sourceId = panel?.id;
+        const organizationId = organization?.id;
+        const source = tasks?.find(task => task.id === sourceId);
+        if (!sourceId || !source || !organizationId) return 'Could not duplicate that task.';
+        if (isPendingStageTaskId(sourceId)) return 'That task is still being added.';
+        const stage = source.stage === 'onboarding' ? 'onboarding' : 'backlog';
+        const parentTaskId = source.parentTaskId;
+        const position = nextStagePositions(endPosition(tasks ?? [], stage, parentTaskId), 1)[0];
+        const full = detail?.id === source.id ? detail : null;
+        const result = await createTask({
+            organizationId,
+            clientId,
+            title: planDuplicateTitle(source.title),
+            ...(full?.description ? { description: full.description } : {}),
+            assigneeIds: source.assigneeIds ?? [],
+            ...(source.dueDate ? { dueDate: source.dueDate } : {}),
+            ...(full?.estimatedHours != null ? { estimatedHours: full.estimatedHours } : {}),
+            ...(source.category ? { category: source.category } : {}),
+            ...(full ? { tags: full.tags ?? [] } : {}),
+            status: 'todo',
+            stage,
+            ...(parentTaskId ? { parentTaskId } : {}),
+            position,
+            ...(userId ? { createdBy: userId } : {}),
+            syncToBasecamp: false,
+        });
+        if (!result.success || !result.data) return result.error || 'Could not duplicate that task.';
+        if (seenClient.current !== clientId) return null;
+        const created = result.data;
+        const row = stageRowFromTask(created, { stage, position, parentTaskId });
+        updateList(current => current ? [...current.filter(task => task.id !== created.id), row] : [row]);
+        setDetail(created);
+        setPanel({ id: created.id, field: null });
+        return null;
+    };
+
+    const deletePanel = async (): Promise<string | null> => {
+        const id = panel?.id;
+        if (!id) return null;
+        if (isPendingStageTaskId(id)) return 'That task is still being added.';
+        const result = await deleteTask(id);
+        if (!result.success) return result.error || 'Could not delete that task.';
+        if (seenClient.current !== clientId) return null;
+        updateList(current => current ? planTasksWithout(current, id) : current);
+        setPanel(null);
+        setDetail(current => (current?.id === id ? null : current));
+        return null;
+    };
 
     const addTasks = async (input: StageAddRequest) => {
         if (input.items && input.items.length > 0) {
@@ -276,25 +397,56 @@ export function StagePlanList({
     }
     if (!tasks) return <PanelSkeleton label="Loading SEO plan" />;
 
+    const open = panel && tasks.some(task => task.id === panel.id) ? panel : null;
+    const selected = open ? tasks.find(task => task.id === open.id) : undefined;
+    const model = open && selected ? planPanelTask({
+        task: selected,
+        tasks,
+        detail: detail?.id === selected.id ? detail : null,
+        people,
+        accountId,
+        logs: logs.filter(log => log.status === 'logged').map(log => ({
+            taskId: log.taskId,
+            date: log.date,
+            hours: log.hours,
+        })),
+        loggedHours: loggedHours[selected.id],
+    }) : null;
+
     return (
-        <>
-            <StagePlanListView
-                tasks={tasks}
-                query={query}
-                onQueryChange={setQuery}
-                clientName={clientName}
-                onOpenTask={taskId => {
-                    void getTask(taskId).then(result => {
-                        if (result.task) setDetail(result.task);
-                    }).catch(() => undefined);
-                }}
-                onAddTasks={addTasks}
-                onReorder={move}
-                resultsByTaskId={resultsByTaskId}
-                people={people}
-                loggedHours={loggedHours}
-                onOpenResults={onOpenResults}
-                onSetLiveUrl={async (taskId, raw) => {
+        <StagePlanListView
+            tasks={tasks}
+            query={query}
+            onQueryChange={setQuery}
+            clientName={clientName}
+            panelTaskId={open?.id ?? null}
+            onClosePanel={() => setPanel(null)}
+            onOpenTask={(taskId, field) => {
+                if (isPendingStageTaskId(taskId)) return;
+                setPanel({ id: taskId, field: field === 'due' || field === 'assignee' ? field : null });
+            }}
+            onAddTasks={addTasks}
+            onReorder={move}
+            resultsByTaskId={resultsByTaskId}
+            people={people}
+            loggedHours={loggedHours}
+            onOpenResults={onOpenResults}
+            panel={model ? (
+                <PlanSidePanel
+                    key={model.id}
+                    task={model}
+                    tasks={tasks}
+                    people={people}
+                    clientName={clientName}
+                    today={calendarDay(new Date())}
+                    focusField={open?.field ?? null}
+                    onSave={savePanel}
+                    onDuplicate={duplicatePanel}
+                    onDelete={deletePanel}
+                    onClose={() => setPanel(null)}
+                />
+            ) : null}
+            onSetLiveUrl={async (taskId, raw) => {
                     if (isPendingStageTaskId(taskId)) return 'Could not save that link.';
                     const parsed = parseLiveUrlInput(raw);
                     if (!parsed.ok) return parsed.error;
@@ -308,17 +460,54 @@ export function StagePlanList({
                         : current);
                     return null;
                 }}
-            />
-            {detail && (
-                <TaskDetailModal
-                    task={detail}
-                    isOpen
-                    currentUserId={userId}
-                    onClose={() => { setDetail(null); reload(); }}
-                    onUpdate={() => reload()}
-                    onDelete={() => { setDetail(null); reload(); }}
-                />
-            )}
-        </>
+        />
     );
+}
+
+function panelPatch(save: Exclude<PlanPanelSave, { field: 'parent' }>) {
+    switch (save.field) {
+        case 'title':
+            return { title: save.title };
+        case 'description':
+            return { description: save.description };
+        case 'dueDate':
+            return { dueDate: save.dueDate };
+        case 'status':
+            return { status: save.status };
+        case 'assignees':
+            return { assigneeIds: save.assigneeIds };
+        case 'estimate':
+            return { estimatedHours: save.estimatedHours };
+        case 'labels':
+            return { category: save.category, tags: save.tags };
+        case 'blocked':
+            return { blockedReason: save.blockedReason };
+        case 'onboarding':
+            return { stage: save.stage };
+        case 'liveUrl':
+            return { publishedUrl: save.publishedUrl };
+    }
+}
+
+function stageRowFromTask(
+    created: Task,
+    fallback: { stage: 'onboarding' | 'backlog'; position: number; parentTaskId: string | null },
+): StageListTask {
+    return {
+        id: created.id,
+        title: created.title,
+        status: created.status,
+        stage: created.stage ?? fallback.stage,
+        position: created.position ?? fallback.position,
+        parentTaskId: created.parentTaskId ?? fallback.parentTaskId,
+        createdAt: created.createdAt ?? new Date().toISOString(),
+        category: created.category ?? null,
+        basecamp: Boolean(created.basecampTodoId),
+        recurring: Boolean(created.recurrence),
+        publishedUrl: created.publishedUrl ?? null,
+        dueDate: created.dueDate ?? null,
+        completedAt: created.completedAt ?? null,
+        assigneeIds: created.assigneeIds ?? [],
+        blockedReason: created.blockedReason?.trim() ? created.blockedReason.trim() : null,
+    };
 }

@@ -43,6 +43,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ cli
         session: resolveSessionOrganization,
         enabled: organizationId => seoPlanStageListEnabled(process.env, organizationId),
         load: async (organizationId, id) => loadClientStageTasks(await stageListDb(), organizationId, id),
+        basecampAccountId: process.env.BASECAMP_ACCOUNT_ID ?? null,
     });
     return NextResponse.json(result.body, { status: result.status, headers: NO_STORE });
 }
