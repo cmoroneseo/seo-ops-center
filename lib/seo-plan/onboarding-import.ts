@@ -193,6 +193,24 @@ function pickItem(items: OnboardingItemRef[], taskTitle: string): OnboardingItem
     return items.find(item => sameTokens(item.title, taskTitle)) ?? items[0];
 }
 
+export function isOnboardingImportTask(input: {
+    taskId: string;
+    basecampTodoId?: number | null;
+    sourceTodolistId?: string | null;
+    onboardingTodolistId: string;
+    liveTodoIds: ReadonlySet<number>;
+    onlyTaskIds?: ReadonlySet<string>;
+    onlyBasecampTodoIds?: ReadonlySet<number>;
+}): boolean {
+    const todoId = input.basecampTodoId;
+    if (!todoId) return false;
+    if (input.onlyTaskIds && !input.onlyTaskIds.has(input.taskId)) return false;
+    if (input.onlyBasecampTodoIds && !input.onlyBasecampTodoIds.has(todoId)) return false;
+    const stamped = !!input.onboardingTodolistId
+        && input.sourceTodolistId === input.onboardingTodolistId;
+    return input.liveTodoIds.has(todoId) || stamped;
+}
+
 export function planOnboardingAdditions(input: {
     tasks: OnboardingTaskRef[];
     items: OnboardingItemRef[];
@@ -210,13 +228,15 @@ export function planOnboardingAdditions(input: {
     const placements: OnboardingPlacement[] = [];
 
     for (const task of input.tasks) {
-        const todoId = task.basecampTodoId;
-        if (!todoId) continue;
-        if (input.onlyTaskIds && !input.onlyTaskIds.has(task.id)) continue;
-        if (input.onlyBasecampTodoIds && !input.onlyBasecampTodoIds.has(todoId)) continue;
-        const stamped = !!input.onboardingTodolistId
-            && task.sourceTodolistId === input.onboardingTodolistId;
-        if (!live.has(todoId) && !stamped) continue;
+        if (!isOnboardingImportTask({
+            taskId: task.id,
+            basecampTodoId: task.basecampTodoId,
+            sourceTodolistId: task.sourceTodolistId,
+            onboardingTodolistId: input.onboardingTodolistId,
+            liveTodoIds: live,
+            onlyTaskIds: input.onlyTaskIds,
+            onlyBasecampTodoIds: input.onlyBasecampTodoIds,
+        })) continue;
 
         if (linkedTaskIds.has(task.id)) {
             placements.push({ action: 'skip', taskId: task.id, reason: 'already-linked' });
