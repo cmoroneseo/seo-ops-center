@@ -7,6 +7,7 @@ import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { getTimeLogs, getLoggedHoursByClient } from '@/lib/supabase/time-logs';
 import { getClients } from '@/lib/supabase/clients';
 import { calendarDateInTimeZone, decideEndOfDayReminder, endOfDayLogLookup, type EndOfDayLog } from '@/lib/timer/log-reminder';
+import { ToastGate } from '@/components/providers/toast-gate';
 import { cn } from '@/lib/utils';
 
 interface Notification {
@@ -166,6 +167,7 @@ export function TimerNotifications() {
     if (notes.length === 0) return null;
 
     return (
+        <ToastGate>
         <div className="fixed bottom-40 lg:bottom-24 right-6 z-50 flex flex-col gap-2 max-w-sm w-full">
             {notes.map(note => (
                 <div
@@ -199,5 +201,6 @@ export function TimerNotifications() {
                 </div>
             ))}
         </div>
+        </ToastGate>
     );
 }
