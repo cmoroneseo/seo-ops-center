@@ -1,3 +1,4 @@
+import type { PlanBasecampSyncState } from './basecamp-push';
 import { timeTrackingTaskId, type TimeTrackingTask } from '../tasks/pillars';
 import { isTaskStage } from '../tasks/stage';
 import { TASK_STAGES, type TaskStage } from '../types';
@@ -28,6 +29,11 @@ export interface StageListTask {
     assigneeIds?: string[];
     /** tasks.blocked_reason. Absent when that column was not selected. Empty means not blocked. */
     blockedReason?: string | null;
+    /**
+     * Last plan push. Absent when the sync columns were not selected.
+     * Null means the task has not been pushed. 'ok' stays invisible.
+     */
+    basecampSync?: PlanBasecampSyncState | null;
 }
 
 export interface StageListGroup {
@@ -265,6 +271,30 @@ export function stageListTaskFromRow(row: unknown): StageListTask | null {
         ...('completed_at' in record ? { completedAt: readTimestamp(record.completed_at) } : {}),
         ...('assignee_ids' in record ? { assigneeIds: readAssigneeIds(record.assignee_ids) } : {}),
         ...('blocked_reason' in record ? { blockedReason: readBlockedReason(record.blocked_reason) } : {}),
+        ...('basecamp_sync_state' in record ? { basecampSync: readBasecampSync(record) } : {}),
+    };
+}
+
+function readClientBasecampSync(value: unknown): PlanBasecampSyncState | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const record = value as Record<string, unknown>;
+    if (record.state !== 'ok' && record.state !== 'failed') return null;
+    return {
+        state: record.state,
+        error: typeof record.error === 'string' ? record.error : null,
+        attemptedAt: typeof record.attemptedAt === 'string' ? record.attemptedAt : null,
+    };
+}
+
+function readBasecampSync(record: Record<string, unknown>): PlanBasecampSyncState | null {
+    const state = record.basecamp_sync_state;
+    if (state !== 'ok' && state !== 'failed') return null;
+    return {
+        state,
+        error: typeof record.basecamp_sync_error === 'string' ? record.basecamp_sync_error : null,
+        attemptedAt: typeof record.basecamp_sync_attempted_at === 'string'
+            ? record.basecamp_sync_attempted_at
+            : null,
     };
 }
 
@@ -317,6 +347,7 @@ export function parseStageListTasks(value: unknown): StageListTask[] {
             ...('completedAt' in record ? { completedAt: readTimestamp(record.completedAt) } : {}),
             ...('assigneeIds' in record ? { assigneeIds: readAssigneeIds(record.assigneeIds) } : {}),
             ...('blockedReason' in record ? { blockedReason: readBlockedReason(record.blockedReason) } : {}),
+            ...('basecampSync' in record ? { basecampSync: readClientBasecampSync(record.basecampSync) } : {}),
         });
     }
     return tasks;

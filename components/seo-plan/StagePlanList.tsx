@@ -28,6 +28,8 @@ import {
     type PlanPanelField,
     type PlanPanelSave,
 } from '@/lib/seo-plan/plan-panel';
+import { parsePlanBasecampBanner, type PlanBasecampBanner, type PlanBasecampSyncState } from '@/lib/seo-plan/basecamp-push';
+import { queuePlanBasecampPush } from '@/lib/seo-plan/basecamp-push-queue';
 import type { DoneThisMonthLog } from '@/lib/seo-plan/done-this-month';
 import { parseStageListTasks, type StageListTask } from '@/lib/seo-plan/stage-list';
 import { useStageListMoves } from '@/lib/seo-plan/stage-list-moves';
@@ -85,6 +87,7 @@ export function StagePlanList({
     const [detail, setDetail] = useState<Task | null>(null);
     const [panel, setPanel] = useState<{ id: string; field: PlanPanelField | null } | null>(null);
     const [accountId, setAccountId] = useState<string | null>(null);
+    const [basecamp, setBasecamp] = useState<PlanBasecampBanner | null>(null);
     const [logs, setLogs] = useState<TimeLog[]>([]);
     const [resultsByTaskId, setResultsByTaskId] = useState<Record<string, UrlResultReadout>>({});
     const [review, setReview] = useState<{ attemptId: string; taskId: string } | null>(null);
@@ -115,8 +118,9 @@ export function StagePlanList({
                 ...(requested.dueDate !== undefined ? { dueDate: requested.dueDate } : {}),
             }),
         });
-        const payload = await response.json().catch(() => null) as { tasks?: unknown } | null;
+        const payload = await response.json().catch(() => null) as { tasks?: unknown; basecamp?: unknown } | null;
         const updated = parseStageListTasks(payload?.tasks);
+        if (payload && 'basecamp' in payload) setBasecamp(parsePlanBasecampBanner(payload.basecamp));
         if (!response.ok) throw new Error('move failed');
         if (seenClient.current !== requestedClient) return [];
         return updated;
@@ -130,17 +134,19 @@ export function StagePlanList({
             setQuery('');
             setPanel(null);
             setDetail(null);
+            setBasecamp(null);
         }
         setError(false);
         fetch(`/api/seo-plan/stage-list/${encodeURIComponent(clientId)}`, { cache: 'no-store' })
             .then(async response => {
                 if (!response.ok) throw new Error('unavailable');
-                return response.json() as Promise<{ tasks?: unknown; basecampAccountId?: unknown }>;
+                return response.json() as Promise<{ tasks?: unknown; basecampAccountId?: unknown; basecamp?: unknown }>;
             })
             .then(body => {
                 if (cancelled) return;
                 const account = typeof body?.basecampAccountId === 'string' ? body.basecampAccountId.trim() : '';
                 setAccountId(account || null);
+                setBasecamp(parsePlanBasecampBanner(body?.basecamp));
                 const fresh = parseStageListTasks(body?.tasks);
                 updateList(loaded => {
                     if (!loaded) return fresh;
@@ -272,6 +278,7 @@ export function StagePlanList({
         const saved = result.data;
         updateList(current => current?.map(task => (task.id === taskId ? mergePlanTask(task, saved) : task)) ?? current);
         setDetail(current => (current?.id === taskId ? saved : current));
+        queuePlanBasecampPush(taskId);
         return null;
     };
 
@@ -300,11 +307,11 @@ export function StagePlanList({
             ...(parentTaskId ? { parentTaskId } : {}),
             position,
             ...(userId ? { createdBy: userId } : {}),
-            syncToBasecamp: false,
         });
         if (!result.success || !result.data) return result.error || 'Could not duplicate that task.';
         if (seenClient.current !== clientId) return null;
         const created = result.data;
+        queuePlanBasecampPush(created.id);
         const row = stageRowFromTask(created, { stage, position, parentTaskId });
         updateList(current => current ? [...current.filter(task => task.id !== created.id), row] : [row]);
         setDetail(created);
@@ -361,8 +368,9 @@ export function StagePlanList({
                     ...(parentTaskId ? { parentTaskId } : {}),
                 }),
             });
-            const payload = await response.json().catch(() => null) as { tasks?: unknown } | null;
+            const payload = await response.json().catch(() => null) as { tasks?: unknown; basecamp?: unknown } | null;
             const created = parseStageListTasks(payload?.tasks);
+            if (payload && 'basecamp' in payload) setBasecamp(parsePlanBasecampBanner(payload.basecamp));
             if (!response.ok || created.length === 0) throw new Error('add failed');
             if (seenClient.current !== requestedClient) return;
             updateList(current => current ? commitStageTasks(current, ids, created) : created);
@@ -431,8 +439,9 @@ export function StagePlanList({
                     items: items.map(item => ({ title: item.title, depth: item.depth })),
                 }),
             });
-            const payload = await response.json().catch(() => null) as { tasks?: unknown } | null;
+            const payload = await response.json().catch(() => null) as { tasks?: unknown; basecamp?: unknown } | null;
             const created = parseStageListTasks(payload?.tasks);
+            if (payload && 'basecamp' in payload) setBasecamp(parsePlanBasecampBanner(payload.basecamp));
             if (!response.ok || created.length !== items.length) throw new Error('add failed');
             if (seenClient.current !== requestedClient) return;
             updateList(current => current ? commitStageTasks(current, ids, created) : created);
@@ -442,6 +451,32 @@ export function StagePlanList({
             }
             throw caught instanceof Error ? caught : new Error('add failed');
         }
+    };
+
+    const retryBasecamp = async (taskId: string): Promise<PlanBasecampSyncState | null> => {
+        const response = await fetch('/api/seo-plan/basecamp-sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId }),
+        });
+        const payload = await response.json().catch(() => null) as {
+            sync?: { state?: unknown; error?: unknown; attemptedAt?: unknown };
+            basecamp?: unknown;
+        } | null;
+        if (payload && 'basecamp' in payload) setBasecamp(parsePlanBasecampBanner(payload.basecamp));
+        const sync = payload?.sync;
+        if (!response.ok || !sync || (sync.state !== 'ok' && sync.state !== 'failed')) return null;
+        const next: PlanBasecampSyncState = {
+            state: sync.state,
+            error: typeof sync.error === 'string' ? sync.error : null,
+            attemptedAt: typeof sync.attemptedAt === 'string' ? sync.attemptedAt : null,
+        };
+        if (seenClient.current === clientId) {
+            updateList(current => current?.map(task => (
+                task.id === taskId ? { ...task, basecampSync: next } : task
+            )) ?? current);
+        }
+        return next;
     };
 
     const timerByTaskId: Record<string, ReturnType<typeof planRowTimerView>> = {};
@@ -492,7 +527,9 @@ export function StagePlanList({
         if (!current) return;
         const attempt = getAttemptById(current.attemptId);
         void closePlanStopReview({ attempt, resume }).then(async outcome => {
-            if (outcome === 'resumed' || seenClient.current !== clientId) return;
+            if (outcome === 'resumed') return;
+            queuePlanBasecampPush(current.taskId);
+            if (seenClient.current !== clientId) return;
             const result = await getTask(current.taskId);
             if (!result.task || seenClient.current !== clientId) return;
             const fresh = result.task;
@@ -585,6 +622,9 @@ export function StagePlanList({
                 onMonthChange={onMonthChange}
                 clientId={clientId}
                 onOpenResults={onOpenResults}
+                basecamp={basecamp}
+                integrationsHref={`/workspace/${clientId}?tab=integrations`}
+                onRetrySync={retryBasecamp}
                 panel={model ? (
                     <PlanSidePanel
                         key={model.id}

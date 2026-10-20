@@ -140,6 +140,94 @@ test('uses authenticated provider state instead of trusting a stale completion p
     assert.deepEqual(calls.updated, ['todo']);
 });
 
+test('a plan task marked done in Basecamp is marked done here', async () => {
+    const { createBasecampWebhookPost } = await loadRouteModule();
+    const { value, calls } = dependencies({
+        store: {
+            async claimDelivery() { return 'new' as const; },
+            async markDeliveryProcessed(eventId: string) { calls.processed.push(eventId); },
+            async getTaskByTodoId() {
+                return { ...task, stage: 'backlog', basecampSyncState: 'ok', status: 'todo' };
+            },
+            async updateTaskStatus(_task: typeof task, status: string) {
+                calls.updated.push(status);
+                return true;
+            },
+        },
+    });
+    const post = createBasecampWebhookPost(value);
+    const response = await post(request(completionPayload));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await responseBody(response), {
+        ok: true,
+        action: 'completed',
+        taskId: 'task-a',
+    });
+    assert.deepEqual(calls.updated, ['done']);
+});
+
+test('reopening a plan task in Basecamp does not reopen it here', async () => {
+    const { createBasecampWebhookPost } = await loadRouteModule();
+    const { value, calls } = dependencies({
+        provider: {
+            isConfigured: () => true,
+            async getTodo() {
+                return { id: 77, completed: false };
+            },
+        },
+        store: {
+            async claimDelivery() { return 'new' as const; },
+            async markDeliveryProcessed(eventId: string, result: string) {
+                calls.processed.push(`${eventId}:${result}`);
+            },
+            async getTaskByTodoId() {
+                return { ...task, stage: 'onboarding', basecampSyncState: 'failed', status: 'done' };
+            },
+            async updateTaskStatus() {
+                throw new Error('plan reopen must not write status');
+            },
+        },
+    });
+    const post = createBasecampWebhookPost(value);
+    const response = await post(request({
+        ...completionPayload,
+        kind: 'todo_uncompleted',
+    }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await responseBody(response), { ok: true, skipped: 'plan reopen' });
+    assert.deepEqual(calls.processed, ['1695159515:skipped:plan-reopen']);
+    assert.deepEqual(calls.updated, []);
+});
+
+test('a backlog task that was not pushed by the plan still reopens', async () => {
+    const { createBasecampWebhookPost } = await loadRouteModule();
+    const { value, calls } = dependencies({
+        provider: {
+            isConfigured: () => true,
+            async getTodo(projectId: string, todoId: string) {
+                calls.provider.push(`${projectId}:${todoId}`);
+                return { id: 77, completed: false };
+            },
+        },
+        store: {
+            async claimDelivery() { return 'new' as const; },
+            async markDeliveryProcessed(eventId: string) { calls.processed.push(eventId); },
+            async getTaskByTodoId() {
+                return { ...task, stage: 'backlog', basecampSyncState: null, status: 'done' };
+            },
+            async updateTaskStatus(_task: typeof task, status: string) {
+                calls.updated.push(status);
+                return true;
+            },
+        },
+    });
+    const post = createBasecampWebhookPost(value);
+    const response = await post(request(completionPayload));
+    assert.equal(response.status, 200);
+    assert.equal((await responseBody(response)).action, 'reopened');
+    assert.deepEqual(calls.updated, ['todo']);
+});
+
 test('deduplicates an already-processed Basecamp event before provider or task work', async () => {
     const { createBasecampWebhookPost } = await loadRouteModule();
     const { value, calls } = dependencies({

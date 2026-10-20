@@ -25,6 +25,7 @@ import { startDateForDay, scheduleDateError, estimateFromInput } from '@/lib/tas
 import { parseLiveUrlInput } from '@/lib/tasks/live-url';
 import { normalizeBlockedReason } from '@/lib/tasks/status';
 import { PILLAR_TIME_BEHAVIOR, timeTrackingTaskId } from '@/lib/tasks/pillars';
+import { queuePlanBasecampPush } from '@/lib/seo-plan/basecamp-push-queue';
 import { LiveUrlControl } from './LiveUrlControl';
 import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
 
@@ -38,6 +39,11 @@ interface TaskDetailModalProps {
     onUpdate?: (task: Task) => void;
     onDelete?: (taskId: string) => void;
     currentUserId?: string;
+    /**
+     * The SEO Plan pushes on its own. Hide the manual send control and queue
+     * the shared push after a field save.
+     */
+    hideBasecampSend?: boolean;
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
@@ -152,7 +158,7 @@ function TaskTimeLogRow({
     );
 }
 
-export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId, initialCompletion = false, embedded = false }: TaskDetailModalProps) {
+export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId, initialCompletion = false, embedded = false, hideBasecampSend = false }: TaskDetailModalProps) {
     const { organization, memberships } = useOrganization();
     const { runningTimer, pausedTimers, startTask, pause, beginStop } = useTimer();
     const [mounted, setMounted] = useState(false);
@@ -358,6 +364,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             const result = await updateTask(task.id, { ...patch, updatedBy: currentUserId });
             if (result.success && result.data) {
                 onUpdate?.(result.data);
+                if (hideBasecampSend) queuePlanBasecampPush(result.data.id);
                 return true;
             }
             setSaveError('Could not save changes. Check the task and try again.');
@@ -366,7 +373,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             setSaveError('Could not confirm the save. Refresh the task before retrying.');
             return false;
         } finally { setSaving(false); }
-    }, [task?.id, currentUserId, onUpdate]);
+    }, [task?.id, currentUserId, onUpdate, hideBasecampSend]);
 
     const handleStatusChange = async (newStatus: TaskStatus) => {
         if (newStatus === 'done' && status !== 'done') {
@@ -430,6 +437,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         setShowBlockedForm(false);
         setShowCompletion(false);
         completionOperationId.current = null;
+        if (hideBasecampSend) queuePlanBasecampPush(task.id);
         onUpdate?.(result.task);
         await loadTaskData();
         window.dispatchEvent(new Event('planner:data-changed'));
@@ -551,6 +559,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         if (result.success && result.data) {
             setSubtasks(prev => [...prev, result.data!]);
             setNewSubtaskTitle('');
+            if (hideBasecampSend) queuePlanBasecampPush(task.id);
         }
         setAddingSubtask(false);
     };
@@ -560,6 +569,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         const result = await updateTask(subtask.id, { status: newStatus });
         if (result.success && result.data) {
             setSubtasks(prev => prev.map(s => s.id === subtask.id ? result.data! : s));
+            if (hideBasecampSend) queuePlanBasecampPush(subtask.id);
         }
     };
 
@@ -1022,7 +1032,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                           Only when this client takes Basecamp to-dos and this
                           task has none. A task that already synced says nothing.
                         */}
-                        {basecampTodoTarget && !task.basecampTodoId && (
+                        {!hideBasecampSend && basecampTodoTarget && !task.basecampTodoId && (
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
                                     <RefreshCw className="h-3 w-3" /> Basecamp

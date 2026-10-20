@@ -31,6 +31,8 @@ import { aggregateUrlResults, type UrlResultReadout } from '@/lib/search-reporti
 import { planRowTimeText, planRowTimerLabel, type PlanRowTimerView } from '@/lib/seo-plan/row-timer';
 import { DoneThisMonthFooter } from './DoneThisMonthFooter';
 import { PlanAddLine, type PlanAddSubmission } from './PlanAddLine';
+import { PlanSyncBanner, PlanSyncDot } from './PlanSyncFailure';
+import type { PlanBasecampBanner, PlanBasecampSyncState } from '@/lib/seo-plan/basecamp-push';
 import { PlanShortcutSheet } from './PlanShortcutSheet';
 import { usePlanKeymap } from './use-plan-keymap';
 
@@ -102,14 +104,27 @@ function ProgressRing({ done, total }: { done: number; total: number }) {
     );
 }
 
-function CheckBox({ done, disabled, onToggle }: { done: boolean; disabled?: boolean; onToggle?: () => void }) {
+function CheckBox({
+    done,
+    disabled,
+    onToggle,
+    label,
+    action,
+}: {
+    done: boolean;
+    disabled?: boolean;
+    onToggle?: () => void;
+    label?: string;
+    action?: string;
+}) {
     return (
         <button
             type="button"
             role="checkbox"
             aria-checked={done}
-            aria-label={done ? 'Mark not done' : 'Mark done'}
+            aria-label={label ?? (done ? 'Mark not done' : 'Mark done')}
             data-plan-check={done ? 'done' : 'open'}
+            data-plan-check-action={action}
             disabled={disabled}
             onClick={event => {
                 event.stopPropagation();
@@ -213,6 +228,9 @@ export function StagePlanListView({
     panel,
     panelTaskId = null,
     onClosePanel,
+    basecamp = null,
+    integrationsHref = '/settings',
+    onRetrySync,
 }: {
     tasks: readonly StageListTask[];
     query: string;
@@ -260,6 +278,10 @@ export function StagePlanListView({
     panel?: ReactNode;
     panelTaskId?: string | null;
     onClosePanel?: () => void;
+    /** Client-wide Basecamp health. Unconnected clients pass null or connected: false. */
+    basecamp?: PlanBasecampBanner | null;
+    integrationsHref?: string;
+    onRetrySync?: (taskId: string) => Promise<PlanBasecampSyncState | null>;
 }) {
     const searchId = useId();
     const searchRef = useRef<HTMLInputElement>(null);
@@ -271,6 +293,7 @@ export function StagePlanListView({
     const searching = query.trim().length > 0;
     const nothingMatches = searching && sections.every(section => section.groups.length === 0);
     const current = month === monthKeyFromDay(day);
+    const clientFailure = Boolean(basecamp?.connected && basecamp.failure);
     void clientName;
 
     useEffect(() => {
@@ -363,6 +386,8 @@ export function StagePlanListView({
                 })}
             />
 
+            {clientFailure && <PlanSyncBanner href={integrationsHref} />}
+
             {nothingMatches && (
                 <p className="text-[13px] text-[#8b8b93]">
                     {planSearchMissCopy(query)}{' '}
@@ -382,6 +407,9 @@ export function StagePlanListView({
                 people={people}
                 loggedHours={loggedHours}
                 focusedId={focusedId}
+                showSyncDots={!clientFailure}
+                integrationsHref={integrationsHref}
+                onRetrySync={onRetrySync}
                 timerByTaskId={timerByTaskId}
                 onRowTimer={onRowTimer}
                 onCheckRunning={onCheckRunning}
@@ -437,6 +465,9 @@ function PlanSections({
     people,
     loggedHours,
     focusedId,
+    showSyncDots,
+    integrationsHref,
+    onRetrySync,
     timerByTaskId,
     onRowTimer,
     onCheckRunning,
@@ -457,6 +488,9 @@ function PlanSections({
     people: readonly PlanAssignee[];
     loggedHours: Readonly<Record<string, number>>;
     focusedId: string | null;
+    showSyncDots: boolean;
+    integrationsHref: string;
+    onRetrySync?: (taskId: string) => Promise<PlanBasecampSyncState | null>;
     timerByTaskId?: Readonly<Record<string, PlanRowTimerView>>;
     onRowTimer?: (taskId: string) => void;
     onCheckRunning?: (taskId: string) => void;
@@ -591,6 +625,9 @@ function PlanSections({
                                             foldDone={foldDone}
                                             baseId={baseId}
                                             focusedId={focusedId}
+                                            showSyncDots={showSyncDots}
+                                            integrationsHref={integrationsHref}
+                                            onRetrySync={onRetrySync}
                                             onOpenTask={onOpenTask}
                                             onSetLiveUrl={onSetLiveUrl}
                                             onToggleCheck={onToggleCheck}
@@ -652,6 +689,9 @@ function PlanRow({
     foldDone,
     baseId,
     focusedId,
+    showSyncDots,
+    integrationsHref,
+    onRetrySync,
     onOpenTask,
     onSetLiveUrl,
     onToggleCheck,
@@ -677,6 +717,9 @@ function PlanRow({
     foldDone: boolean;
     baseId: string;
     focusedId: string | null;
+    showSyncDots: boolean;
+    integrationsHref: string;
+    onRetrySync?: (taskId: string) => Promise<PlanBasecampSyncState | null>;
     onOpenTask: (taskId: string, field: PlanPanelField | null) => void;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
     onToggleCheck?: (taskId: string) => void | Promise<void>;
@@ -796,7 +839,7 @@ function PlanRow({
                     {options.leading ?? <span className="w-3.5" />}
                 </span>
                 <span className="flex justify-center">
-                    {stopOnCheck ? (
+                    {stopOnCheck && options.pillar ? (
                         <button
                             type="button"
                             data-plan-check-action="stop-timer"
@@ -807,10 +850,15 @@ function PlanRow({
                             }}
                             className="rounded-[4px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                         >
-                            {options.pillar
-                                ? <ProgressRing done={options.childDone ?? 0} total={options.childCount ?? 0} />
-                                : <CheckBox done={done} />}
+                            <ProgressRing done={options.childDone ?? 0} total={options.childCount ?? 0} />
                         </button>
+                    ) : stopOnCheck ? (
+                        <CheckBox
+                            done={done}
+                            action="stop-timer"
+                            label={`Log time and mark ${task.title} done`}
+                            onToggle={() => onCheckRunning?.(task.id)}
+                        />
                     ) : options.pillar
                         ? <ProgressRing done={options.childDone ?? 0} total={options.childCount ?? 0} />
                         : (
@@ -835,6 +883,15 @@ function PlanRow({
                         {options.parentTitle && <span className="sr-only">Subtask of {options.parentTitle}. </span>}
                         <TitleText title={task.title} query={query} done={done} />
                     </button>
+                    {showSyncDots && task.basecampSync?.state === 'failed' && !pending && (
+                        <PlanSyncDot
+                            taskId={task.id}
+                            error={task.basecampSync.error}
+                            attemptedAt={task.basecampSync.attemptedAt}
+                            integrationsHref={integrationsHref}
+                            onRetry={onRetrySync}
+                        />
+                    )}
                     <BlockedChip reason={task.blockedReason} />
                     {options.pillar && (
                         <span className="shrink-0 rounded-full bg-[#1d1d22] px-1.5 py-0.5 text-[11px] text-[#cfcfd4]">

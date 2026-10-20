@@ -244,25 +244,33 @@ test('rejected titles never insert', async () => {
     assert.equal(calls.clients.length, 0);
 });
 
-test('a caller-supplied sync flag does not push, and an explicit server sync pushes each new task', async () => {
-    const off = deps();
-    await createStageTasks(clientId, body, off.dependencies);
-    assert.deepEqual(off.calls.pushes, []);
+test('an undated backlog task does not push, and leaving backlog does', async () => {
+    const backlog = deps();
+    await createStageTasks(clientId, body, backlog.dependencies);
+    assert.deepEqual(backlog.calls.pushes, []);
 
-    const on = deps({ syncToBasecamp: true });
-    const result = await createStageTasks(clientId, { stage: 'backlog', titles: ['One', 'Two'] }, on.dependencies);
-    assert.equal(result.status, 200);
-    assert.deepEqual(on.calls.pushes, ['task-1', 'task-2']);
+    const dated = deps();
+    const withDate = await createStageTasks(clientId, {
+        stage: 'backlog',
+        dueDate: '2026-10-31',
+        items: [{ title: 'One', depth: 0 }, { title: 'Two', depth: 0 }],
+    }, dated.dependencies);
+    assert.equal(withDate.status, 200);
+    assert.deepEqual(dated.calls.pushes, ['task-1', 'task-2']);
+
+    const onboarding = deps();
+    const left = await createStageTasks(clientId, { stage: 'onboarding', titles: ['Kickoff'] }, onboarding.dependencies);
+    assert.equal(left.status, 200);
+    assert.deepEqual(onboarding.calls.pushes, ['task-1']);
 });
 
 test('a Basecamp push failure still returns the created tasks', async () => {
     const { dependencies, calls } = deps({
-        syncToBasecamp: true,
         pushToBasecamp: () => {
             throw new Error('basecamp down');
         },
     });
-    const result = await createStageTasks(clientId, { stage: 'backlog', titles: ['One'] }, dependencies);
+    const result = await createStageTasks(clientId, { stage: 'onboarding', titles: ['One'] }, dependencies);
     assert.equal(result.status, 200);
     assert.equal(calls.rows.length, 1);
 });
@@ -378,7 +386,14 @@ test('one request creates pillars first, then links each subtask to its own pill
     ]);
     assert.deepEqual(calls.positions, [`${org}:${clientId}:backlog:`]);
     assert.equal(calls.parents.length, 0);
-    assert.equal(calls.pushes.length, 0);
+    assert.deepEqual(calls.pushes, [
+        'created-1-1',
+        'created-2-1',
+        'created-2-2',
+        'created-1-2',
+        'created-2-3',
+        'created-1-3',
+    ]);
     assert.deepEqual(calls.logs.map(log => [log.title, log.parentTitle]), [
         ['Citations round 2', undefined],
         ['Houzz photos', 'Citations round 2'],
@@ -447,7 +462,6 @@ test('a leading subtask is promoted, and a child insert failure removes the pill
         deleteTasks: async ids => {
             deleted.push(ids);
         },
-        syncToBasecamp: true,
     });
     const result = await createStageTasks(clientId, {
         stage: 'backlog',
@@ -465,10 +479,9 @@ test('a leading subtask is promoted, and a child insert failure removes the pill
     assert.equal(failed.calls.logs.length, 0);
 });
 
-test('an explicit server sync pushes every created row, including subtasks', async () => {
+test('a dated paste pushes every created row, including subtasks', async () => {
     let created = 0;
     const { dependencies, calls } = deps({
-        syncToBasecamp: true,
         insertTasks: async rows => rows.map(row => {
             created += 1;
             return {
@@ -488,7 +501,6 @@ test('an explicit server sync pushes every created row, including subtasks', asy
     const result = await createStageTasks(clientId, {
         stage: 'backlog',
         dueDate: '2026-10-31',
-        syncToBasecamp: false,
         items: [
             { title: 'Citations', depth: 0 },
             { title: 'Houzz', depth: 1 },

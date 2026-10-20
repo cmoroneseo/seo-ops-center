@@ -99,6 +99,43 @@ function buildHeaders(token: string): Record<string, string> {
  */
 const STALE_TOKEN_STATUSES = new Set([401, 406]);
 
+/**
+ * One Basecamp write. `path` is account-relative (`/buckets/...`).
+ * Failures keep the status and a short body so the plan can show the raw error.
+ * This does not retry. Callers decide what a failure means.
+ */
+export async function basecampWriteJson(
+    path: string,
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    body?: Record<string, unknown> | null,
+): Promise<{ ok: true; body: unknown } | { ok: false; status: number; detail: string }> {
+    if (!path.startsWith('/') || path.includes('://') || path.includes('..')) {
+        return { ok: false, status: 400, detail: 'Invalid Basecamp path' };
+    }
+    try {
+        const res = await basecampFetch(`${BASE_URL()}${path}`, {
+            method,
+            ...(body ? { body: JSON.stringify(body) } : {}),
+        });
+        const text = await res.text();
+        if (!res.ok) return { ok: false, status: res.status, detail: text.slice(0, 500) };
+        if (!text) return { ok: true, body: null };
+        try {
+            return { ok: true, body: JSON.parse(text) as unknown };
+        } catch {
+            return { ok: true, body: null };
+        }
+    } catch (err) {
+        const message = err instanceof Error ? err.message : 'Basecamp request failed';
+        const auth = /token|unauthorized|BASECAMP_/i.test(message);
+        const detail = message
+            .replace(/bearer\s+\S+/gi, 'bearer [redacted]')
+            .replace(/access_token[=:]\S+/gi, 'access_token=[redacted]')
+            .slice(0, 240);
+        return { ok: false, status: auth ? 401 : 502, detail: auth ? 'Basecamp authorization failed' : detail };
+    }
+}
+
 async function basecampFetch(url: string, init?: RequestInit): Promise<Response> {
     const token = await getAccessToken();
     const res = await fetch(url, { ...init, headers: { ...buildHeaders(token), ...init?.headers } });
