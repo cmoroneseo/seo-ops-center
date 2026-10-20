@@ -107,10 +107,10 @@ test('the footer shows completed leaves, URL chips, and billable hours', () => {
     assert.match(html, /data-plan-hours="4\.5h"/);
     assert.match(html, /title="4\.5h billable · 5\.0h total logged \(0\.5h non-billable\)"/);
     assert.match(html, /logged · running timer adds on stop/);
-    assert.match(html, /yelp\.com\/biz\/mayas-construction-austin/);
-    assert.match(html, /bbb\.org\/us\/tx\/austin\/profile\/mayas-construction/);
-    assert.match(html, /angi\.com\/companylist\/us\/tx\/austin\/mayas-construction/);
-    assert.match(html, /mayasconstruction\.com\/bathroom-remodeling/);
+    assert.ok(html.includes('yelp.com/biz/mayas-construction-austin'));
+    assert.ok(html.includes('bbb.org/us/tx/austin/profile/mayas-construction'));
+    assert.ok(html.includes('angi.com/companylist/us/tx/austin/mayas-construction'));
+    assert.ok(html.includes('mayasconstruction.com/bathroom-remodeling'));
     assert.match(html, /data-plan-missing-urls="1"/);
     assert.match(html, /\+1 without a URL/);
     assert.doesNotMatch(html, /Citations cleanup/);
