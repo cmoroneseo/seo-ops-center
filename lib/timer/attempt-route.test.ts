@@ -79,7 +79,11 @@ test('start accepts intent only and delegates tenant resolution to start_task_ti
     assert.equal(response.status, 200);
     assert.deepEqual(calls, [[
         'start_task_timer',
-        { p_task_id: 'task-1', p_started_at: '2026-08-20T20:00:00.000Z' },
+        {
+            p_task_id: 'task-1',
+            p_started_at: '2026-08-20T20:00:00.000Z',
+            p_time_zone: 'America/Los_Angeles',
+        },
     ]]);
 
     const spoofed = await handleTimerMutation(request({
@@ -118,11 +122,28 @@ test('backdated start requires a valid timezone whenever an explicit instant is 
     for (const input of [
         { action: 'start', taskId: 'task-1', now: '2026-09-03T06:00:00.000Z' },
         { action: 'start', taskId: 'task-1', now: '2026-09-03T06:00:00.000Z', timeZone: 'Mars/Olympus' },
-        { action: 'start', taskId: 'task-1', timeZone: 'America/Los_Angeles' },
+        { action: 'start', taskId: 'task-1', timeZone: 'Mars/Olympus' },
     ]) {
         const response = await handleTimerMutation(request(input), dependencies());
         assert.equal(response.status, 400);
     }
+});
+
+test('a start without an explicit instant still forwards the local timezone', async () => {
+    const calls: Array<[string, Record<string, unknown>]> = [];
+    const response = await handleTimerMutation(request({
+        action: 'start',
+        taskId: 'task-1',
+        timeZone: 'America/Los_Angeles',
+    }), dependencies({
+        mutateRpc: async (name, args) => { calls.push([name, args]); },
+    }));
+
+    assert.equal(response.status, 200);
+    assert.equal(calls[0][0], 'start_task_timer');
+    assert.equal(calls[0][1].p_task_id, 'task-1');
+    assert.equal(calls[0][1].p_time_zone, 'America/Los_Angeles');
+    assert.equal(Number.isNaN(Date.parse(String(calls[0][1].p_started_at))), false);
 });
 
 test('maps an inaccessible time log RPC rejection to 403', async () => {
@@ -172,6 +193,7 @@ test('switch requires exactly one target and uses the atomic switch RPC', async 
             p_to_time_log_id: 'to-1',
             p_to_task_id: null,
             p_switched_at: '2026-08-20T21:00:00.000Z',
+            p_time_zone: 'UTC',
         },
     ]]);
 });
@@ -618,15 +640,17 @@ test('session starts and switches pass task and session identity to the atomic s
     const calls: Array<{name: string; args: Record<string, unknown>}> = [];
     const deps = dependencies({ mutateRpc: async (name, args) => { calls.push({name, args}); } });
     assert.equal((await handleTimerMutation(request({action: 'start', taskId: 'task-1', plannerEventId: 'event-1'}), deps)).status, 200);
-    assert.equal((await handleTimerMutation(request({action: 'switch', fromTimeLogId: 'log-1', toTaskId: 'task-2', plannerEventId: 'event-2'}), deps)).status, 200);
+    assert.equal((await handleTimerMutation(request({action: 'switch', fromTimeLogId: 'log-1', toTaskId: 'task-2', plannerEventId: 'event-2', timeZone: 'America/Los_Angeles'}), deps)).status, 200);
     assert.equal(calls[0].name, 'start_planner_task_session');
     assert.equal(calls[0].args.p_event_id, 'event-1');
     assert.equal(calls[0].args.p_task_id, 'task-1');
     assert.equal(calls[0].args.p_from_time_log_id, null);
+    assert.equal(calls[0].args.p_time_zone, 'UTC');
     assert.equal(calls[1].name, 'start_planner_task_session');
     assert.equal(calls[1].args.p_event_id, 'event-2');
     assert.equal(calls[1].args.p_task_id, 'task-2');
     assert.equal(calls[1].args.p_from_time_log_id, 'log-1');
+    assert.equal(calls[1].args.p_time_zone, 'America/Los_Angeles');
 });
 
 test('session identity cannot be supplied to an attempt resume or as an empty value', async () => {

@@ -12,6 +12,7 @@ import {
     confirmAndSwitchTimer,
     finalizeTimerAttempt,
     findTimerAttempt,
+    resolveTaskStart,
     timerRefreshEvents,
     timerUiStateFromResponse,
     totalAttemptActiveSeconds,
@@ -159,25 +160,19 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         };
     }, [refreshAttempts]);
 
-    const switchToTask = useCallback((target: TimerSwitchTarget, confirmSwitch: TimerSwitchConfirmation = confirmInBrowser) => (
-        confirmAndSwitchTimer({ running: runningTimer, target, confirm: confirmSwitch, mutate })
-    ), [mutate, runningTimer]);
+    const browserTimeZone = useCallback(
+        () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        [],
+    );
 
-    const startTask = useCallback(async (options: StartTaskOptions, confirmSwitch?: TimerSwitchConfirmation) => {
-        if (!options.taskId) return false;
-        if (runningTimer) {
-            if (options.startedAt) {
-                throw new Error('Pause or stop the current timer before starting from an earlier time.');
-            }
-            return switchToTask({ taskId: options.taskId, title: options.taskTitle ?? options.clientName, plannerEventId: options.plannerEventId }, confirmSwitch);
-        }
-        await mutate({ ...startTimerMutation(
-            options.taskId,
-            options.startedAt,
-            Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-        ), ...(options.plannerEventId ? { plannerEventId: options.plannerEventId } : {}) });
-        return true;
-    }, [mutate, runningTimer, switchToTask]);
+    const switchToTask = useCallback((target: TimerSwitchTarget, confirmSwitch: TimerSwitchConfirmation = confirmInBrowser) => (
+        confirmAndSwitchTimer({
+            running: runningTimer,
+            target,
+            confirm: confirmSwitch,
+            mutate: request => mutate({ ...request, timeZone: browserTimeZone() }),
+        })
+    ), [browserTimeZone, mutate, runningTimer]);
 
     const pause = useCallback(async (attempt: TimerAttempt) => {
         if (attempt.id !== runningTimer?.id) return;
@@ -193,6 +188,38 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         await mutate({ action: 'resume', timeLogId: attempt.id });
         return true;
     }, [mutate, runningTimer, switchToTask]);
+
+    const startTask = useCallback(async (options: StartTaskOptions, confirmSwitch?: TimerSwitchConfirmation) => {
+        if (!options.taskId) return false;
+        if (runningTimer && options.startedAt) {
+            throw new Error('Pause or stop the current timer before starting from an earlier time.');
+        }
+        const decision = resolveTaskStart({
+            taskId: options.taskId,
+            plannerEventId: options.plannerEventId,
+            startedAt: options.startedAt,
+            running: runningTimer,
+            paused: pausedTimers,
+        });
+        if (decision.action === 'noop') return true;
+        if (decision.action === 'resume') {
+            const attempt = pausedTimers.find(item => item.id === decision.attemptId);
+            if (!attempt) return false;
+            return resume(attempt, confirmSwitch);
+        }
+        if (decision.action === 'switch') {
+            return switchToTask({
+                taskId: options.taskId,
+                title: options.taskTitle ?? options.clientName,
+                plannerEventId: options.plannerEventId,
+            }, confirmSwitch);
+        }
+        await mutate({
+            ...startTimerMutation(options.taskId, options.startedAt, browserTimeZone()),
+            ...(options.plannerEventId ? { plannerEventId: options.plannerEventId } : {}),
+        });
+        return true;
+    }, [browserTimeZone, mutate, pausedTimers, resume, runningTimer, switchToTask]);
 
     const beginStop = useCallback(async (attempt: TimerAttempt) => {
         return mutate({ action: 'begin_stop', timeLogId: attempt.id });

@@ -57,6 +57,7 @@ export function startTimerMutation(
     return {
         action: 'start',
         taskId,
+        ...(timeZone ? { timeZone } : {}),
         ...(startedAt ? {
             now: startedAt,
             timeZone: timeZone || 'UTC',
