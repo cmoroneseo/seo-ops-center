@@ -40,10 +40,16 @@ export function useStageListMoves(
         const current = tasksRef.current;
         if (!current) return Promise.resolve();
         const plan = applyStageReorder(current, requested);
-        if (!plan.ok || plan.writes.length === 0) return Promise.resolve();
+        const dueDate = requested.dueDate;
+        const currentDue = current.find(task => task.id === requested.taskId)?.dueDate ?? null;
+        const dueChanges = dueDate !== undefined && (currentDue ?? null) !== dueDate;
+        if (!plan.ok || (plan.writes.length === 0 && !dueChanges)) return Promise.resolve();
         const snapshot = current;
         const writeIds = plan.writes.map(write => write.id);
-        const optimistic = plan.tasks;
+        if (dueChanges && !writeIds.includes(requested.taskId)) writeIds.push(requested.taskId);
+        const optimistic = dueDate === undefined
+            ? plan.tasks
+            : plan.tasks.map(task => task.id === requested.taskId ? { ...task, dueDate } : task);
         const save = persistRef.current;
         tasksRef.current = optimistic;
         setTasks(optimistic);

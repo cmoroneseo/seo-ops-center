@@ -9,6 +9,7 @@ import {
 import type { StageListTask } from './stage-list';
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_PATCHES = 500;
 
 export interface StageReorderDependencies {
@@ -23,11 +24,28 @@ export interface StageReorderDependencies {
         clientId: string,
         writes: readonly StageReorderWrite[],
     ) => Promise<StageListTask[]>;
+    /**
+     * Write tasks.due_date for the dragged row. Null clears it.
+     * This does not push to Basecamp.
+     */
+    setDue?: (
+        organizationId: string,
+        clientId: string,
+        taskId: string,
+        dueDate: string | null,
+    ) => Promise<void>;
 }
 
 export type StageReorderResult =
     | { status: 200; body: { tasks: StageListTask[] } }
     | { status: 400 | 401 | 403 | 404 | 500; body: { error: string } };
+
+function readDueDate(record: Record<string, unknown>): { ok: true; dueDate?: string | null } | { ok: false } {
+    if (!Object.hasOwn(record, 'dueDate')) return { ok: true };
+    if (record.dueDate === null) return { ok: true, dueDate: null };
+    if (typeof record.dueDate === 'string' && DAY.test(record.dueDate)) return { ok: true, dueDate: record.dueDate };
+    return { ok: false };
+}
 
 function readMove(body: unknown): { ok: true; value: StageReorderMove } | { ok: false } {
     if (!body || typeof body !== 'object' || Array.isArray(body)) return { ok: false };
@@ -42,6 +60,8 @@ function readMove(body: unknown): { ok: true; value: StageReorderMove } | { ok: 
         if (typeof record.parentTaskId !== 'string' || !ID.test(record.parentTaskId.trim())) return { ok: false };
         parentTaskId = record.parentTaskId.trim();
     }
+    const due = readDueDate(record);
+    if (!due.ok) return { ok: false };
     return {
         ok: true,
         value: {
@@ -49,6 +69,7 @@ function readMove(body: unknown): { ok: true; value: StageReorderMove } | { ok: 
             stage: record.stage,
             parentTaskId,
             index: record.index,
+            ...(due.dueDate !== undefined ? { dueDate: due.dueDate } : {}),
         },
     };
 }
@@ -84,11 +105,24 @@ export async function reorderStageTasks(
             const status = plan.error === STAGE_REORDER_NOT_FOUND ? 404 : 400;
             return { status, body: { error: plan.error } };
         }
-        if (plan.writes.length === 0) return { status: 200, body: { tasks: [] } };
         if (plan.writes.length > MAX_PATCHES) return { status: 400, body: { error: 'Choose a task to move.' } };
 
-        const updated = await dependencies.rewrite(session.organizationId, clientId, plan.writes);
-        if (updated.length !== plan.writes.length) return { status: 500, body: { error: 'Could not move tasks' } };
+        let updated: StageListTask[] = [];
+        if (plan.writes.length > 0) {
+            updated = await dependencies.rewrite(session.organizationId, clientId, plan.writes);
+            if (updated.length !== plan.writes.length) return { status: 500, body: { error: 'Could not move tasks' } };
+        }
+        if (parsed.value.dueDate !== undefined) {
+            if (!dependencies.setDue) return { status: 500, body: { error: 'Could not move tasks' } };
+            await dependencies.setDue(session.organizationId, clientId, parsed.value.taskId, parsed.value.dueDate);
+            const dueDate = parsed.value.dueDate;
+            if (updated.some(task => task.id === parsed.value.taskId)) {
+                updated = updated.map(task => task.id === parsed.value.taskId ? { ...task, dueDate } : task);
+            } else {
+                const current = tasks.find(task => task.id === parsed.value.taskId);
+                if (current) updated = [...updated, { ...current, dueDate }];
+            }
+        }
         return { status: 200, body: { tasks: updated } };
     } catch {
         return { status: 500, body: { error: 'Could not move tasks' } };
