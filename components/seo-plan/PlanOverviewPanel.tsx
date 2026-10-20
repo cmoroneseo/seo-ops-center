@@ -44,7 +44,7 @@ export function PlanOverviewPanel({
     const progress = load.status === 'ready' ? onboardingProgress(load.items) : null;
     const counts = load.status === 'ready' ? taskDateCounts(load.tasks, month) : null;
     const due = load.status === 'ready'
-        ? load.tasks.filter(task => task.status !== 'done' && task.status !== 'approved' && task.dueDate?.slice(0, 7) === month)
+        ? load.tasks.filter(task => task.status !== 'done' && task.dueDate?.slice(0, 7) === month)
         : [];
 
     return (

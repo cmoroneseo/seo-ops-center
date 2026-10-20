@@ -23,6 +23,7 @@ import { completeTaskWithReconciliation } from '@/lib/tasks/task-completion';
 import { TaskCompletionDrawer } from './TaskCompletionDrawer';
 import { startDateForDay, scheduleDateError, estimateFromInput } from '@/lib/tasks/schedule-edit';
 import { parseLiveUrlInput } from '@/lib/tasks/live-url';
+import { normalizeBlockedReason } from '@/lib/tasks/status';
 import { PILLAR_TIME_BEHAVIOR, timeTrackingTaskId } from '@/lib/tasks/pillars';
 import { LiveUrlControl } from './LiveUrlControl';
 import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
@@ -42,9 +43,6 @@ interface TaskDetailModalProps {
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
     { value: 'todo', label: 'To Do' },
     { value: 'in_progress', label: 'In Progress' },
-    { value: 'review', label: 'Review' },
-    { value: 'approved', label: 'Approved' },
-    { value: 'blocked', label: 'Blocked' },
     { value: 'done', label: 'Done' },
 ];
 
@@ -184,6 +182,10 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const [liveUrl, setLiveUrl] = useState<string | undefined>();
     const [description, setDescription] = useState('');
     const [status, setStatus] = useState<TaskStatus>('todo');
+    const [blockedReason, setBlockedReason] = useState<string | null>(null);
+    const [blockedDraft, setBlockedDraft] = useState('');
+    const [blockedError, setBlockedError] = useState<string | null>(null);
+    const [showBlockedForm, setShowBlockedForm] = useState(false);
     const [priority, setPriority] = useState<TaskPriority>('medium');
     const [category, setCategory] = useState<TaskCategory | ''>('');
     const fieldId = useId();
@@ -216,6 +218,10 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         setLiveUrl(task.publishedUrl);
         setDescription(taskDescriptionText(task.description));
         setStatus(task.status ?? 'todo');
+        setBlockedReason(task.blockedReason?.trim() ? task.blockedReason.trim() : null);
+        setBlockedDraft('');
+        setBlockedError(null);
+        setShowBlockedForm(false);
         setPriority(task.priority ?? 'medium');
         setCategory((task.category as TaskCategory) ?? '');
         setDueDate(task.dueDate ? task.dueDate.slice(0, 10) : '');
@@ -420,6 +426,8 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             return;
         }
         setStatus('done');
+        setBlockedReason(null);
+        setShowBlockedForm(false);
         setShowCompletion(false);
         completionOperationId.current = null;
         onUpdate?.(result.task);
@@ -445,9 +453,36 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         const refreshed = await getTask(task.id);
         if (refreshed.task) {
             setStatus(refreshed.task.status);
+            setBlockedReason(refreshed.task.blockedReason?.trim() ? refreshed.task.blockedReason.trim() : null);
             onUpdate?.(refreshed.task);
         }
         await loadTaskData();
+    };
+
+    const saveBlockedReason = async (event: React.FormEvent) => {
+        event.preventDefault();
+        if (!task || status === 'done') return;
+        const parsed = normalizeBlockedReason(blockedDraft);
+        if (!parsed.ok) {
+            setBlockedError(parsed.error);
+            return;
+        }
+        const previous = blockedReason;
+        setBlockedReason(parsed.reason);
+        setBlockedError(null);
+        if (!await save({ blockedReason: parsed.reason })) {
+            setBlockedReason(previous);
+            return;
+        }
+        setShowBlockedForm(false);
+        setBlockedDraft('');
+    };
+
+    const clearBlockedReason = async () => {
+        const previous = blockedReason;
+        setBlockedReason(null);
+        setBlockedError(null);
+        if (!await save({ blockedReason: null })) setBlockedReason(previous);
     };
 
     const handlePriorityChange = async (newPriority: TaskPriority) => {
@@ -710,6 +745,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                 <div className="relative">
                                     <select
                                         id={`${fieldId}-status`}
+                                        data-testid="task-status-field"
                                         disabled={saving}
                                         value={status}
                                         onChange={e => handleStatusChange(e.target.value as TaskStatus)}
@@ -739,6 +775,55 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                 </div>
                             </div>
                         </div>
+
+                        {status !== 'done' && (
+                            <div data-testid="task-blocked-label" className="space-y-2">
+                                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Blocked</p>
+                                {blockedReason ? (
+                                    <div className="flex items-start justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
+                                        <p className="text-sm text-foreground">{blockedReason}</p>
+                                        <button
+                                            type="button"
+                                            disabled={saving}
+                                            onClick={clearBlockedReason}
+                                            className="shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground"
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
+                                ) : showBlockedForm ? (
+                                    <form onSubmit={saveBlockedReason} className="space-y-2">
+                                        <label htmlFor={`${fieldId}-blocked`} className="sr-only">Why is this blocked?</label>
+                                        <input
+                                            id={`${fieldId}-blocked`}
+                                            value={blockedDraft}
+                                            disabled={saving}
+                                            maxLength={200}
+                                            onChange={event => {
+                                                setBlockedDraft(event.target.value);
+                                                setBlockedError(null);
+                                            }}
+                                            placeholder="One-line reason"
+                                            className="w-full rounded-lg border border-border bg-muted/30 p-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                                        />
+                                        {blockedError && <p className="text-xs text-destructive">{blockedError}</p>}
+                                        <div className="flex gap-2">
+                                            <button type="submit" disabled={saving} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground">Save block</button>
+                                            <button type="button" disabled={saving} onClick={() => { setShowBlockedForm(false); setBlockedError(null); }} className="rounded-lg border border-border px-3 py-1.5 text-xs">Cancel</button>
+                                        </div>
+                                    </form>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        disabled={saving}
+                                        onClick={() => setShowBlockedForm(true)}
+                                        className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                                    >
+                                        Mark blocked
+                                    </button>
+                                )}
+                            </div>
+                        )}
 
                         {/* Category */}
                         <div className="space-y-2">

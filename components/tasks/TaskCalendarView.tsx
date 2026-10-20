@@ -28,9 +28,6 @@ const PRIORITY_CHIP: Record<string, string> = {
 const STATUS_DOT: Record<string, string> = {
     done: 'bg-green-500',
     in_progress: 'bg-orange-500',
-    review: 'bg-yellow-500',
-    approved: 'bg-blue-500',
-    blocked: 'bg-red-500',
     todo: 'bg-muted-foreground/40',
 };
 

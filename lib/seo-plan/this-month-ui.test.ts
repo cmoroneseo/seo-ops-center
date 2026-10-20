@@ -38,7 +38,7 @@ const tasks: StageListTask[] = [
         stage: 'onboarding',
         parentTaskId: 'setup',
         position: 2,
-        status: 'blocked',
+        status: 'todo',
         dueDate: '2026-09-15',
     }),
     task({

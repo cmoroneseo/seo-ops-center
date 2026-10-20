@@ -12,7 +12,7 @@ export interface PlanHourInput {
     month: string;
 }
 
-const OPEN_TASK = new Set(['done', 'approved']);
+const OPEN_TASK = new Set(['done']);
 
 /** Library rows stay out. Only selected Onboarding roadmap items count. */
 export function onboardingProgress(items: MarketingPlanItem[]): { done: number; total: number; items: MarketingPlanItem[] } {

@@ -47,7 +47,7 @@ function currentMonthKey(date = new Date()): string {
 }
 
 function isOpenTask(task: Task): boolean {
-    return task.status !== 'done' && task.status !== 'approved';
+    return task.status !== 'done';
 }
 
 function campaignPlanSummary(plan: CampaignPlan | null): ClientOverview['campaignPlan'] {
@@ -80,7 +80,7 @@ export async function getClientOverview(
     const overdueDeliverables = cells.reduce((sum, cell) => sum + cell.overdue, 0);
     const atRiskDeliverables = cells.filter((cell) => cell.status.severity === 'warn' || cell.status.severity === 'critical').length;
     const openTasks = tasks.filter(isOpenTask);
-    const blockedTasks = openTasks.filter((task) => task.status === 'blocked').length;
+    const blockedTasks = openTasks.filter((task) => Boolean(task.blockedReason?.trim())).length;
     const hasCampaignPlan = Boolean(marketingPlan || plan);
 
     const scoreInput: HealthScoreInput = {

@@ -527,8 +527,8 @@ export default function ClientDetailPage() {
                 <div className="space-y-4">
                     <TaskToolbar
                         clientName={client.clientName}
-                        activeCount={clientTasks.filter(t => t.status !== 'done' && t.status !== 'approved').length}
-                        completedCount={clientTasks.filter(t => t.status === 'done' || t.status === 'approved').length}
+                        activeCount={clientTasks.filter(t => t.status !== 'done').length}
+                        completedCount={clientTasks.filter(t => t.status === 'done').length}
                         overflowImport={v2On}
                         onImport={() => setImportOpen(true)}
                         onCreate={() => setIsCreateTaskOpen(true)}

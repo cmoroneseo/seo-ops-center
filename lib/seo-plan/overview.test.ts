@@ -35,7 +35,7 @@ test('undated tasks increment need a date and do not increment a due count', () 
         { status: 'todo', dueDate: '2026-10-12' },
         { status: 'todo', dueDate: '2026-11-02' },
         { status: 'done', dueDate: null },
-        { status: 'approved', dueDate: '2026-10-03' },
+        { status: 'done', dueDate: '2026-10-03' },
     ], '2026-10');
     assert.equal(counts.needDate, 3);
     assert.equal(counts.due, 1);

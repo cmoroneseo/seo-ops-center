@@ -42,7 +42,7 @@ import type { ForecastItem, ForecastItemClient, ForecastPayloadBodyV2 } from './
  * the hours as internal.
  */
 
-const DONE = new Set(['done', 'approved']);
+const DONE = new Set(['done']);
 const MAX_MINUTES = 1440;
 const MAX_TIME_LOG_IDS = 50;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

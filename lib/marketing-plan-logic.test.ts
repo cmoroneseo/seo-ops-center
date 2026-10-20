@@ -159,17 +159,13 @@ test('task fields copy title, description, priority, assignee, and due date', ()
     assert.equal(bare.dueDate, undefined);
 });
 
-test('checklist follows done and approved, and never rewrites ignored items', () => {
-    assert.deepEqual([...TASK_STATUSES_THAT_COMPLETE_CHECKLIST], ['done', 'approved']);
+test('checklist follows done and never rewrites ignored items', () => {
+    assert.deepEqual([...TASK_STATUSES_THAT_COMPLETE_CHECKLIST], ['done']);
     assert.equal(nextChecklistStatusForTask('todo', 'done'), 'done');
-    assert.equal(nextChecklistStatusForTask('todo', 'approved'), 'done');
+    assert.equal(nextChecklistStatusForTask('todo', 'in_progress'), null);
     assert.equal(nextChecklistStatusForTask('done', 'done'), null);
-    assert.equal(nextChecklistStatusForTask('done', 'approved'), null);
     assert.equal(nextChecklistStatusForTask('done', 'todo'), 'todo');
     assert.equal(nextChecklistStatusForTask('done', 'in_progress'), 'todo');
-    assert.equal(nextChecklistStatusForTask('done', 'review'), 'todo');
-    assert.equal(nextChecklistStatusForTask('done', 'blocked'), 'todo');
-    assert.equal(nextChecklistStatusForTask('todo', 'in_progress'), null);
     assert.equal(nextChecklistStatusForTask('ignored', 'done'), null);
     assert.equal(nextChecklistStatusForTask('ignored', 'todo'), null);
 });
@@ -192,15 +188,7 @@ test('checkbox completes a linked task and does not rewind in-progress work', ()
         { write: 'task', status: 'todo' },
     );
     assert.deepEqual(
-        checklistTogglePlan({ itemStatus: 'done', taskId: 'task-1', taskStatus: 'approved' }),
-        { write: 'task', status: 'todo' },
-    );
-    assert.deepEqual(
         checklistTogglePlan({ itemStatus: 'done', taskId: 'task-1', taskStatus: 'in_progress' }),
-        { write: 'item', status: 'todo' },
-    );
-    assert.deepEqual(
-        checklistTogglePlan({ itemStatus: 'done', taskId: 'task-1', taskStatus: 'review' }),
         { write: 'item', status: 'todo' },
     );
     assert.deepEqual(

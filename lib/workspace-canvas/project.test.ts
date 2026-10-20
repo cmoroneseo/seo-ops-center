@@ -173,8 +173,8 @@ test('lanes dedupe linked tasks, keep carryover, and leave undated work undated'
             task({ id: 'later', title: 'December content', dueDate: '2026-12-01', status: 'todo' }),
             task({ id: 'none', title: 'Unscheduled backlog', status: 'todo', dueDate: null }),
             task({ id: 'finished', title: 'Done already', dueDate: '2026-10-01', status: 'done' }),
-            task({ id: 'approved', title: 'Approved already', dueDate: '2026-09-01', status: 'approved' }),
-            task({ id: 'blocked', title: 'Blocked launch', dueDate: '2026-10-20', status: 'blocked' }),
+            task({ id: 'approved', title: 'Approved already', dueDate: '2026-09-01', status: 'done' }),
+            task({ id: 'blocked', title: 'Blocked launch', dueDate: '2026-10-20', status: 'todo', blockedReason: 'Waiting on the client' }),
         ] },
         plan: { ok: true, value: { items: [
             planItem({ id: 'dup', taskId: 'linked', linkedTask: linked, title: 'Stale checklist title' }),
@@ -259,7 +259,7 @@ test('attention counts documents once, keeps errors off zero, and lists real blo
             { id: 'done', title: 'Published blog', status: 'Published', dueDate: '2026-10-01' },
             { id: 'open', title: 'Future blog', status: 'Pending', dueDate: '2026-10-30' },
         ] },
-        tasks: { ok: true, value: [task({ id: 'block', title: 'Waiting on client', status: 'blocked', dueDate: '2026-10-12' })] },
+        tasks: { ok: true, value: [task({ id: 'block', title: 'Waiting on client', status: 'todo', blockedReason: 'Waiting on the client', dueDate: '2026-10-12' })] },
     }));
     assert.equal(model.attention.approvalDocuments, 3);
     assert.equal(model.attention.items.filter(item => item.kind === 'approval').length, 3);
@@ -287,7 +287,7 @@ test('imported work previews remove markup, preserve readable entities, and omit
 test('attention prioritizes decisions and blocked work, retaining older overdue records separately', () => {
     const model = projectWorkspaceCanvas(baseInput({ today: '2026-10-15',
         approvals: { ok: true, value: [{ id: 'approval', batchId: 'batch', batchName: 'Content', batchStatus: 'in_review', sentAt: '2026-05-01', title: 'Decision needed', status: 'pending' }] },
-        tasks: { ok: true, value: [task({ id: 'blocked', title: 'Blocked work', status: 'blocked', dueDate: '2026-05-01' })] },
+        tasks: { ok: true, value: [task({ id: 'blocked', title: 'Blocked work', status: 'in_progress', blockedReason: 'Waiting on the client', dueDate: '2026-05-01' })] },
         deliverables: { ok: true, value: [
             { id: 'old', title: 'Older item', status: 'Pending', dueDate: '2026-05-31' },
             { id: 'recent', title: 'Recent overdue', status: 'Pending', dueDate: '2026-10-14' },

@@ -90,7 +90,7 @@ function stageOf(task: StageListTask): TaskStage {
 }
 
 function doneStatus(status: string): boolean {
-    return status === 'done' || status === 'approved';
+    return status === 'done';
 }
 
 /**

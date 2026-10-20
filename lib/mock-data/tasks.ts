@@ -50,7 +50,7 @@ export const mockTasks: Task[] = [
         assignees: ['Jon Fish'],
         dueDate: '2026-01-28',
         priority: 'low',
-        status: 'review',
+        status: 'in_progress',
         tags: ['content'],
         subtasks: []
     },

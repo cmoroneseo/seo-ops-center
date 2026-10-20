@@ -44,7 +44,7 @@ test('this month includes the open work due in the calendar month', () => {
     const blank = task({ id: 'blank', title: 'Blank date', dueDate: '' });
     const junk = task({ id: 'junk', title: 'Bad date', dueDate: '2026-10' });
     const done = task({ id: 'done', title: 'Finished', status: 'done', dueDate: '2026-10-15' });
-    const approved = task({ id: 'approved', title: 'Approved', status: 'approved', dueDate: '2026-10-20' });
+    const approved = task({ id: 'approved', title: 'Approved', status: 'done', dueDate: '2026-10-20' });
 
     assert.equal(isThisMonthTask(dueToday, today), true);
     assert.equal(isOverdueTask(dueToday, today), false);
@@ -63,8 +63,8 @@ test('this month includes the open work due in the calendar month', () => {
 test('the month boundary drops the next month and keeps the last day of this one', () => {
     const lastDay = task({ id: 'last', title: 'October 31', dueDate: '2026-10-31', position: 1 });
     const firstNext = task({ id: 'first', title: 'November 1', dueDate: '2026-11-01', position: 2 });
-    const review = task({ id: 'review', title: 'In review', status: 'review', dueDate: '2026-10-02', position: 3 });
-    const blocked = task({ id: 'blocked', title: 'Blocked', status: 'blocked', dueDate: '2026-11-15', position: 4 });
+    const review = task({ id: 'review', title: 'In review', status: 'in_progress', dueDate: '2026-10-02', position: 3 });
+    const blocked = task({ id: 'blocked', title: 'Blocked', status: 'todo', dueDate: '2026-11-15', position: 4 });
 
     const before = selectThisMonthTasks([firstNext, lastDay, review, blocked], octoberEnd);
     assert.deepEqual(before.map(item => item.id), ['last', 'review']);
@@ -115,7 +115,7 @@ test('a not-done subtask due this month stays under its pillar', () => {
         parentTaskId: 'setup',
         position: 3,
         dueDate: '2026-09-15',
-        status: 'blocked',
+        status: 'todo',
     });
     const selected = selectThisMonthTasks([pillar, later, overdue, due], octoberEnd);
     const section = groupTasksByStage(selected, '').find(item => item.stage === 'onboarding');

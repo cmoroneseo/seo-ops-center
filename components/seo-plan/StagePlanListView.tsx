@@ -54,17 +54,12 @@ function statusLabel(status: string): string {
     if (status === 'in_progress') return 'In progress';
     if (status === 'todo') return 'To do';
     if (status === 'done') return 'Done';
-    if (status === 'approved') return 'Approved';
-    if (status === 'review') return 'Review';
-    if (status === 'blocked') return 'Blocked';
     return status.replaceAll('_', ' ');
 }
 
 function statusDot(status: string): string {
     if (status === 'in_progress') return 'bg-blue-500';
-    if (status === 'review') return 'bg-amber-500';
-    if (status === 'done' || status === 'approved') return 'bg-emerald-600';
-    if (status === 'blocked') return 'bg-red-500';
+    if (status === 'done') return 'bg-emerald-600';
     return 'bg-muted-foreground/40';
 }
 
@@ -259,7 +254,7 @@ function StageSections({
         result?: UrlResultReadout | null;
         key?: string;
     }) => {
-        const done = task.status === 'done' || task.status === 'approved';
+        const done = task.status === 'done';
         const pending = isPendingStageTaskId(task.id);
         const movable = !searching && !pending;
         const draggable = movable && options.role === 'task';
