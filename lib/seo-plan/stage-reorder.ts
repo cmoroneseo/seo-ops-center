@@ -13,6 +13,13 @@ export interface StageReorderMove {
     stage: TaskStage;
     parentTaskId: string | null;
     index: number;
+    /**
+     * Set when a cross-section drag should write tasks.due_date.
+     * Null clears it. Omitted leaves the due date alone.
+     * The reorder RPC does not store this; the route writes it separately
+     * and does not push the change to Basecamp.
+     */
+    dueDate?: string | null;
 }
 
 /** One row the atomic rewrite must persist. Positions are 1-based inside the sibling group. */
@@ -263,6 +270,8 @@ export function mergeStageTasks(current: readonly StageListTask[], updated: read
         if (!next) return task;
         if (next.publishedUrl === undefined && task.publishedUrl) next = { ...next, publishedUrl: task.publishedUrl };
         if (next.dueDate === undefined && task.dueDate !== undefined) next = { ...next, dueDate: task.dueDate };
+        if (next.completedAt === undefined && task.completedAt !== undefined) next = { ...next, completedAt: task.completedAt };
+        if (next.assigneeIds === undefined && task.assigneeIds !== undefined) next = { ...next, assigneeIds: task.assigneeIds };
         return next;
     });
 }

@@ -54,54 +54,57 @@ function render(query = '', extraTasks: StageListTask[] = []) {
         onAddTasks: async () => undefined,
         onReorder: async () => undefined,
         clientName: 'Floor Co Design USA',
+        today: '2026-10-19',
+        initialMonth: '2026-10',
     }));
 }
 
-test('the list renders every stage, including empty ones, in roadmap order', () => {
+test('the list renders Onboarding, This month, and Backlog, including empty ones', () => {
     const html = render();
-    const headings = ['Onboarding', 'Backlog'];
+    const sections = ['onboarding', 'this_month', 'backlog'];
     let cursor = 0;
-    for (const heading of headings) {
-        const index = html.indexOf(heading, cursor);
-        assert.equal(index > cursor || (cursor === 0 && index === 0) || index > 0, true, heading);
-        cursor = index + heading.length;
+    for (const section of sections) {
+        const index = html.indexOf(`data-plan-section="${section}"`, cursor);
+        assert.ok(index > cursor, section);
+        cursor = index + 1;
     }
-    assert.doesNotMatch(html, /Month 1|Month 2|Month 3|data-stage="month_/);
-    assert.match(html, /data-stage="backlog"/);
-    assert.equal((html.match(/No tasks/g) ?? []).length, 0);
-    assert.match(html, /data-stage="onboarding"[\s\S]*data-count="2"/);
-    assert.match(html, /data-stage="backlog"[\s\S]*data-count="1"/);
-    assert.match(html, /Search tasks for Floor Co Design USA/);
-    assert.match(html, /Search all tasks and subtasks/);
+    assert.doesNotMatch(html, /Month 1|Month 2|Month 3|data-stage="month_|SEO Plan sections/);
+    assert.doesNotMatch(html, /emerald|text-green|#22c55e|#16a34a|Basecamp/);
+    assert.doesNotMatch(html, /Floor Co Design USA/);
+    assert.match(html, /data-plan-section="onboarding"[\s\S]*data-count="4"/);
+    assert.match(html, /data-plan-section="this_month"[\s\S]*data-count="0"/);
+    assert.match(html, /data-plan-section="backlog"[\s\S]*data-count="1"/);
+    assert.match(html, /data-plan-section="backlog"[^>]*data-plan-collapsed="true"/);
+    assert.match(html, /Nothing due in October\. Add a task above, or give a Backlog task a date\./);
+    assert.match(html, /placeholder="Search tasks"/);
+    assert.match(html, />Search tasks</);
 });
 
-test('subtasks render under the pillar and not as peer rows', () => {
+test('subtasks render under the pillar and a done subtask stays folded', () => {
     const html = render();
     const children = html.slice(html.indexOf('data-stage-children="setup"'), html.indexOf('data-task-id="roadmap"'));
-    assert.match(children, /data-stage-role="subtask" data-task-id="cookies"/);
     assert.match(children, /data-stage-role="subtask" data-task-id="keywords"/);
-    assert.match(children, /in SEO Setup/);
-    assert.match(children, /Basecamp/);
-    assert.equal(html.indexOf('data-task-id="cookies"'), html.indexOf('data-task-id="keywords"') === -1
-        ? -1
-        : html.indexOf('data-task-id="cookies"'));
-    assert.ok(html.indexOf('data-task-id="cookies"') < html.indexOf('data-task-id="keywords"'));
-    assert.doesNotMatch(html, /data-stage-role="task" data-task-id="cookies"/);
+    assert.match(children, /Subtask of SEO Setup/);
+    assert.doesNotMatch(children, /data-task-id="cookies"/);
     assert.doesNotMatch(html, /data-stage-role="task" data-task-id="keywords"/);
-    assert.match(html, /Pillar · 1\/2/);
-    assert.match(html, /aria-expanded="true"/);
+    assert.match(html, />1\/2</);
+    assert.doesNotMatch(html, /Pillar · 1\/2/);
+    assert.match(html, /aria-expanded="true"[^>]*aria-label="Hide 2 subtasks of SEO Setup"/);
+    assert.match(html, /Show 1 done/);
+    assert.doesNotMatch(html, /Set Up Empire Cookies/);
 });
 
 test('a subtask-only match expands the parent and hides the other subtask', () => {
     const html = render('cookies');
     assert.match(html, /data-stage-role="task" data-task-id="setup"/);
-    assert.match(html, /aria-expanded="true" aria-controls="[^"]+" aria-label="Hide 1 subtask of SEO Setup"/);
+    assert.match(html, /aria-expanded="true" aria-controls="[^"]+" aria-label="Hide 2 subtasks of SEO Setup"/);
     assert.match(html, /Set Up Empire /);
     assert.match(html, /<mark[^>]*>Cookies<\/mark>/);
     assert.doesNotMatch(html, /Add keywords to Position tracking/);
     assert.doesNotMatch(html, /Create SEO Roadmap/);
     assert.doesNotMatch(html, /Review robots\.txt/);
-    assert.match(html, /data-stage="backlog"[\s\S]*?No tasks/);
+    assert.match(html, /No tasks match (?:&quot;|")cookies(?:&quot;|") in October\./);
+    assert.match(html, /data-plan-section="backlog"[^>]*data-plan-collapsed="true"/);
 });
 
 test('a pillar-only match stays collapsed', () => {

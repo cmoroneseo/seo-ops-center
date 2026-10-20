@@ -32,6 +32,8 @@ function render(tasks: StageListTask[]) {
         onReorder: async () => undefined,
         onSetLiveUrl: async () => null,
         clientName: 'Scott Cole',
+        today: '2026-10-19',
+        initialMonth: '2026-10',
     }));
 }
 
@@ -52,6 +54,7 @@ test('a content row offers a live URL and other rows keep it on hover', () => {
             position: 1,
             publishedUrl: 'https://example.com/chino',
             status: 'done',
+            completedAt: '2026-10-12T18:00:00.000Z',
         }),
         task({ id: 'robots', title: 'Review robots.txt', category: 'technical', stage: 'onboarding', position: 1 }),
     ]);
@@ -81,6 +84,7 @@ test('a done subtask shows its result and the pillar adds the subtasks', () => {
                 position: 1,
                 publishedUrl: 'https://example.com/chino',
                 status: 'done',
+                completedAt: '2026-10-12T18:00:00.000Z',
             }),
             task({
                 id: 'eastvale',
@@ -90,6 +94,7 @@ test('a done subtask shows its result and the pillar adds the subtasks', () => {
                 position: 2,
                 publishedUrl: 'https://example.com/eastvale',
                 status: 'done',
+                completedAt: '2026-10-13T18:00:00.000Z',
             }),
             task({
                 id: 'solo',
@@ -99,6 +104,7 @@ test('a done subtask shows its result and the pillar adds the subtasks', () => {
                 position: 1,
                 status: 'done',
                 publishedUrl: 'https://example.com/ontario',
+                completedAt: '2026-10-14T18:00:00.000Z',
             }),
         ],
         query: '',
@@ -108,6 +114,8 @@ test('a done subtask shows its result and the pillar adds the subtasks', () => {
         onReorder: async () => undefined,
         onSetLiveUrl: async () => null,
         clientName: 'Scott Cole',
+        today: '2026-10-19',
+        initialMonth: '2026-10',
         resultsByTaskId: {
             piece: {
                 kind: 'measured',

@@ -475,7 +475,7 @@ export default function ClientDetailPage() {
             )}
 
             {/* SEO Marketing Plan tab */}
-            {activeTab === 'campaign' && seoPlanV2 === false && <nav aria-label="SEO Plan sections" className="mb-5 flex flex-wrap items-center gap-2 border-b border-border pb-3">
+            {activeTab === 'campaign' && seoPlanV2 === false && !stageListOn && <nav aria-label="SEO Plan sections" className="mb-5 flex flex-wrap items-center gap-2 border-b border-border pb-3">
                 {([
                     ['plan', 'Monthly plan'],
                     ['tasks', 'All client tasks'],
@@ -489,8 +489,12 @@ export default function ClientDetailPage() {
                     window.history.replaceState(null, '', url);
                 }} className={cn('rounded-lg px-4 py-2 text-sm font-medium', planView === view ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>{label}</button>)}
             </nav>}
-            {(v2On ? activeTab === 'campaign' : activeTab === 'campaign' && planView === 'plan') && stageListOn && (
-                <StagePlanList clientId={client.id} clientName={client.clientName} />
+            {activeTab === 'campaign' && stageListOn && (
+                <StagePlanList
+                    clientId={client.id}
+                    clientName={client.clientName}
+                    onOpenResults={() => setActiveTab('insights')}
+                />
             )}
             {(v2On ? activeTab === 'campaign' : activeTab === 'campaign' && planView === 'plan') && !stageListOn && (
                 <MarketingPlanTab
@@ -513,7 +517,7 @@ export default function ClientDetailPage() {
                 />
             )}
 
-            {!v2On && activeTab === 'campaign' && planView === 'results' && (
+            {!v2On && !stageListOn && activeTab === 'campaign' && planView === 'results' && (
                 <ResultsView
                     organizationId={organization?.id ?? ''}
                     clientId={client.id}
@@ -523,7 +527,7 @@ export default function ClientDetailPage() {
             )}
 
             {/* Tasks tab */}
-            {(v2On ? activeTab === 'tasks' : activeTab === 'campaign' && planView === 'tasks') && (
+            {(v2On ? activeTab === 'tasks' : activeTab === 'campaign' && planView === 'tasks' && !stageListOn) && (
                 <div className="space-y-4">
                     <TaskToolbar
                         clientName={client.clientName}
