@@ -36,7 +36,7 @@ const tasks: StageListTask[] = [
     task({ id: 'pending:draft', title: 'Saving this title', stage: 'backlog', position: 2 }),
 ];
 
-function render(query = '') {
+function render(query = '', initialMonth = '2026-10') {
     return renderToStaticMarkup(createElement(StagePlanListView, {
         tasks,
         query,
@@ -45,29 +45,32 @@ function render(query = '') {
         onAddTasks: async () => undefined,
         onReorder: async () => undefined,
         clientName: 'Floor Co Design USA',
-        month: '2026-10',
         today: '2026-10-19',
+        initialMonth,
     }));
 }
 
-test('the plan has one add line and no per-stage or per-pillar bars', () => {
+test('one add line sits under the plan header and follows the selected month', () => {
     const html = render();
     assert.equal(html.match(/data-plan-add="true"/g)?.length, 1);
+    assert.match(html, /data-plan-month="2026-10"/);
     assert.match(html, /placeholder="Add task. Paste a list to add several."/);
     assert.match(html, /data-plan-add-chip="month"/);
     assert.match(html, /data-plan-add-label="Due Oct 31"/);
     assert.match(html, /data-plan-add-due="2026-10-31"/);
-    assert.doesNotMatch(html, /data-stage-add|data-add-parent|Add a subtask|Add a task…/);
+    assert.doesNotMatch(html, /data-stage-add|data-add-parent|Add a subtask|Add task to Onboarding|Add task to Backlog/);
     assert.doesNotMatch(html, /Month 1|Month 2|Month 3|data-stage="month_|Template library|data-lib/);
-    assert.match(html, /data-stage="onboarding"/);
-    assert.match(html, /data-stage="backlog"/);
+    const headerEnd = html.indexOf('data-plan-add="true"');
+    const sections = html.indexOf('data-plan-section="onboarding"');
+    assert.ok(headerEnd > 0 && sections > headerEnd);
+
+    const november = render('', '2026-11');
+    assert.match(november, /data-plan-month="2026-11"/);
+    assert.match(november, /data-plan-add-due="2026-11-30"/);
+    assert.match(november, /data-plan-add-label="Due Nov 30"/);
 });
 
-test('an expanded pillar has no subtask field, and search still has the one add line', () => {
-    const open = render();
-    const children = open.slice(open.indexOf('data-stage-children="setup"'), open.indexOf('data-task-id="robots"'));
-    assert.doesNotMatch(children, /Add subtask|data-plan-add|data-add/);
-
+test('a collapsed pillar does not grow an add field', () => {
     const collapsed = render('seo setup');
     assert.match(collapsed, /aria-expanded="false"/);
     assert.doesNotMatch(collapsed, /Add subtask to SEO Setup/);

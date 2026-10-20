@@ -22,6 +22,10 @@ export interface StageListTask {
     publishedUrl?: string | null;
     /** Calendar day from tasks.due_date. Absent when that column was not selected. */
     dueDate?: string | null;
+    /** Timestamp from tasks.completed_at. Absent when that column was not selected. */
+    completedAt?: string | null;
+    /** tasks.assignee_ids. Absent when that column was not selected. Ids only, never names. */
+    assigneeIds?: string[];
 }
 
 export interface StageListGroup {
@@ -256,6 +260,8 @@ export function stageListTaskFromRow(row: unknown): StageListTask | null {
                 : null,
         } : {}),
         ...('due_date' in record ? { dueDate: readDueDay(record.due_date) } : {}),
+        ...('completed_at' in record ? { completedAt: readTimestamp(record.completed_at) } : {}),
+        ...('assignee_ids' in record ? { assigneeIds: readAssigneeIds(record.assignee_ids) } : {}),
     };
 }
 
@@ -263,6 +269,15 @@ function readDueDay(value: unknown): string | null {
     if (typeof value !== 'string') return null;
     const day = value.trim().slice(0, 10);
     return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
+}
+
+function readTimestamp(value: unknown): string | null {
+    return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function readAssigneeIds(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return value.filter((id): id is string => typeof id === 'string' && id !== '');
 }
 
 /** Accept the stage-list JSON. Unknown fields and malformed rows are dropped. */
@@ -290,6 +305,8 @@ export function parseStageListTasks(value: unknown): StageListTask[] {
                     : null,
             } : {}),
             ...('dueDate' in record ? { dueDate: readDueDay(record.dueDate) } : {}),
+            ...('completedAt' in record ? { completedAt: readTimestamp(record.completedAt) } : {}),
+            ...('assigneeIds' in record ? { assigneeIds: readAssigneeIds(record.assigneeIds) } : {}),
         });
     }
     return tasks;

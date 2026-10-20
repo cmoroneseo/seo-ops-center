@@ -11,7 +11,7 @@ import {
     maxStageAddPosition,
 } from '@/lib/seo-plan/stage-add-db';
 import { createStageTasks } from '@/lib/seo-plan/stage-add-route';
-import { rewriteStageTasks } from '@/lib/seo-plan/stage-reorder-db';
+import { rewriteStageTasks, setStageTaskDueDate } from '@/lib/seo-plan/stage-reorder-db';
 import { reorderStageTasks } from '@/lib/seo-plan/stage-reorder-route';
 import { loadClientStageTasks } from '@/lib/seo-plan/stage-list-load';
 import { readClientStageList } from '@/lib/seo-plan/stage-list-route';
@@ -121,6 +121,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ cl
         enabled: organizationId => seoPlanStageListEnabled(process.env, organizationId),
         load: (organizationId, id) => loadClientStageTasks(db, organizationId, id),
         rewrite: (organizationId, id, writes) => rewriteStageTasks(db, organizationId, id, writes),
+        setDue: (organizationId, id, taskId, dueDate) => setStageTaskDueDate(db, organizationId, id, taskId, dueDate),
     });
     return NextResponse.json(result.body, { status: result.status, headers: NO_STORE });
 }

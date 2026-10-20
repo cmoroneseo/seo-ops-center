@@ -279,6 +279,67 @@ test('a rewrite failure returns one error and does not expose the underlying mes
     assert.equal(JSON.stringify(result.body).includes('token'), false);
 });
 
+test('a due date is stored without a Basecamp push and a bad date is refused', async () => {
+    const dated = deps();
+    const dues: { taskId: string; dueDate: string | null }[] = [];
+    dated.dependencies.setDue = async (_organizationId, _clientId, taskId, dueDate) => {
+        dues.push({ taskId, dueDate });
+    };
+    const result = await reorderStageTasks(clientId, {
+        taskId: robots,
+        stage: 'backlog',
+        parentTaskId: null,
+        index: 0,
+        dueDate: '2026-10-31',
+    }, dated.dependencies);
+    assert.equal(result.status, 200);
+    if (result.status !== 200) return;
+    assert.equal(dated.calls.writes.length, 0);
+    assert.deepEqual(dues, [{ taskId: robots, dueDate: '2026-10-31' }]);
+    assert.equal(result.body.tasks.find(item => item.id === robots)?.dueDate, '2026-10-31');
+
+    const cleared = deps();
+    const clears: Array<string | null> = [];
+    cleared.dependencies.setDue = async (_organizationId, _clientId, _taskId, dueDate) => {
+        clears.push(dueDate);
+    };
+    const clear = await reorderStageTasks(clientId, {
+        taskId: roadmap,
+        stage: 'backlog',
+        parentTaskId: null,
+        index: 0,
+        dueDate: null,
+    }, cleared.dependencies);
+    assert.equal(clear.status, 200);
+    if (clear.status === 200) assert.equal(clear.body.tasks.find(item => item.id === roadmap)?.dueDate, null);
+    assert.deepEqual(clears, [null]);
+
+    const invalid = deps();
+    let setCalls = 0;
+    invalid.dependencies.setDue = async () => { setCalls += 1; };
+    const refused = await reorderStageTasks(clientId, {
+        taskId: robots,
+        stage: 'backlog',
+        parentTaskId: null,
+        index: 0,
+        dueDate: 'October 31',
+    }, invalid.dependencies);
+    assert.equal(refused.status, 400);
+    assert.equal(invalid.calls.loads.length, 0);
+    assert.equal(setCalls, 0);
+
+    const missing = deps();
+    const blocked = await reorderStageTasks(clientId, {
+        taskId: robots,
+        stage: 'backlog',
+        parentTaskId: null,
+        index: 0,
+        dueDate: '2026-10-31',
+    }, missing.dependencies);
+    assert.equal(blocked.status, 500);
+    assert.equal(missing.calls.writes.length, 0);
+});
+
 test('a short rewrite is a failure, not a partial order', async () => {
     let calls = 0;
     const { dependencies } = deps({

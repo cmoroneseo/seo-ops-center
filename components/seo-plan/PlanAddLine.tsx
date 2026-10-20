@@ -24,9 +24,9 @@ import { cn } from '@/lib/utils';
 /**
  * One add line for the whole client plan.
  *
- * Mounted at the top of StagePlanListView, in place of the per-stage and
- * per-pillar bars. The month control should pass `month` (YYYY-MM) and can
- * move this component under that header:
+ * Mounted once, under the plan header in StagePlanListView. The month
+ * control passes the selected month so the due chip defaults to the end
+ * of that month:
  *
  *   <PlanAddLine
  *     month={selectedMonth}
