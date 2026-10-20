@@ -6,6 +6,7 @@ import { X, Clock, Calendar, FileText, CheckCircle2 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { createTimeLog, getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
 import { defaultSendToBasecamp } from '@/lib/basecamp/send-default';
+import { basecampSyncNotice } from '@/lib/basecamp/sync-notice';
 import { createClient } from '@/lib/supabase/client';
 import { localTimeZone, workedWindowForEdit } from '@/lib/timer/manual-segment';
 
@@ -113,6 +114,7 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
             billable: true,
         }, {
             syncToBasecamp: defaultSendToBasecamp(clientEligible, sendOverride),
+            waitForBasecampSync: defaultSendToBasecamp(clientEligible, sendOverride),
             workedWindow: placement.window,
         });
 
@@ -121,10 +123,12 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
             setFormError(result.error || 'Could not save this entry.');
             return;
         }
+        const syncNotice = basecampSyncNotice(result.basecampSync);
         if (result.segmentWarning) setFormError(result.segmentWarning);
+        else if (syncNotice) setFormError(syncNotice);
         setShowSuccess(true);
 
-        if (!result.segmentWarning) {
+        if (!result.segmentWarning && !syncNotice) {
             setTimeout(() => {
                 onClose();
             }, 1500);

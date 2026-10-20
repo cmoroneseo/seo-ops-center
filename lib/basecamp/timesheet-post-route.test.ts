@@ -528,3 +528,53 @@ test('repeated lost responses adopt the oldest unclaimed duplicate rather than c
 
     assert.equal(adopted, '41');
 });
+
+test('setup failures are stored on the time log before any provider write', async () => {
+    const { createBasecampTimesheetPost, SEND_TASK_TO_BASECAMP_FIRST } = await loadRouteModule();
+    const recorded: string[] = [];
+    const post = createBasecampTimesheetPost({
+        authorizeTimeLog: async () => clientAuthorization,
+        createStore: () => ({
+            getTimeLog: async () => ({
+                ...baseLog,
+                taskBasecampTodoId: null,
+                taskBasecampProjectId: null,
+                cachedRecordingId: null,
+            }),
+        }),
+        createAccessSource: () => externalSource(),
+        verifyEntry: async () => { throw new Error('provider must not run'); },
+        resolveRecording: async () => null,
+        recordSyncError: async ({ message }) => { recorded.push(message); },
+        performAuthorized: async () => { throw new Error('provider work must not run'); },
+    });
+
+    const response = await post(request({ action: 'sync', timeLogId: 'log-a' }));
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), { error: SEND_TASK_TO_BASECAMP_FIRST });
+    assert.deepEqual(recorded, [SEND_TASK_TO_BASECAMP_FIRST]);
+});
+
+test('a missing project and a mismatched task link are stored as the send error', async () => {
+    const { createBasecampTimesheetPost } = await loadRouteModule();
+    const recorded: string[] = [];
+    const postFor = (log: Record<string, unknown>) => createBasecampTimesheetPost({
+        authorizeTimeLog: async () => clientAuthorization,
+        createStore: () => ({ getTimeLog: async () => ({ ...baseLog, ...log }) as typeof baseLog }),
+        createAccessSource: () => { throw new Error('access source must not run'); },
+        verifyEntry: async () => { throw new Error('provider must not run'); },
+        resolveRecording: async () => { throw new Error('provider must not run'); },
+        recordSyncError: async ({ message }) => { recorded.push(message); },
+        performAuthorized: async () => { throw new Error('provider work must not run'); },
+    });
+
+    const unlinked = await postFor({ configuredProjectId: null })(request({ action: 'sync', timeLogId: 'log-a' }));
+    const mismatched = await postFor({ taskBasecampProjectId: '303' })(request({ action: 'sync', timeLogId: 'log-a' }));
+
+    assert.equal(unlinked.status, 409);
+    assert.equal(mismatched.status, 409);
+    assert.deepEqual(recorded, [
+        'Time log has no authorized Basecamp project',
+        'Task Basecamp link does not match client configuration',
+    ]);
+});

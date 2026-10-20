@@ -234,6 +234,25 @@ test('skipping Basecamp does not push after the segment', async () => {
     assert.deepEqual(order, ['log', 'segment']);
 });
 
+test('a background Basecamp failure is reported on the saved entry', async () => {
+    const { store } = recordingStore();
+    store.pushBasecamp = () => Promise.resolve({
+        success: false,
+        error: 'Send the task to Basecamp first',
+    });
+    let reported: { id: string; error?: string } | null = null;
+    const result = await recordManualTimeLog(store, { hours: 1 }, {
+        syncToBasecamp: true,
+        onBasecampResult: (id, sync) => {
+            reported = { id, error: sync.error };
+        },
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(result.success, true);
+    assert.equal(result.basecampSync, undefined);
+    assert.deepEqual(reported, { id: 'log-1', error: 'Send the task to Basecamp first' });
+});
+
 function windowStore(overrides: Partial<WorkedWindowStore> = {}): {
     store: WorkedWindowStore;
     pushes: { id: string; createIfMissing: boolean }[];

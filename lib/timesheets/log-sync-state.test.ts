@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { timeLogSyncState, canPushToBasecamp } from './log-sync-state.ts';
+import { timeLogSyncState, canPushToBasecamp, timeLogBasecampCopy } from './log-sync-state.ts';
 
 test('a log that landed reports as synced', () => {
     assert.equal(timeLogSyncState({ basecampSyncedAt: '2026-08-27T00:00:00Z' }, true), 'synced');
@@ -34,4 +34,19 @@ test('a failure is reported even when sync is currently off', () => {
 
 test('a synced log is never offered a push', () => {
     assert.equal(canPushToBasecamp(timeLogSyncState({ basecampEntryId: 9 }, true)), false);
+});
+
+test('the row shows the stored reason, and a skip stays readable', () => {
+    assert.equal(
+        timeLogBasecampCopy({ basecampSyncError: 'Send the task to Basecamp first' }, true).status,
+        'Send the task to Basecamp first',
+    );
+    const skipped = timeLogBasecampCopy({}, true, 'Skipped: timesheet sync not enabled for this client');
+    assert.equal(skipped.status, 'Not sent to Basecamp');
+    assert.equal(skipped.detail, 'Skipped: timesheet sync not enabled for this client');
+    assert.equal(skipped.canPush, true);
+
+    const live = timeLogBasecampCopy({}, true, 'Send the task to Basecamp first');
+    assert.equal(live.status, 'Send the task to Basecamp first');
+    assert.equal(live.canPush, true);
 });

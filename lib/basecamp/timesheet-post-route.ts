@@ -204,6 +204,21 @@ export async function resolveBasecampTimesheetRecording(
     return !candidate || candidate === projectRecording ? projectRecording : null;
 }
 
+export const SEND_TASK_TO_BASECAMP_FIRST = 'Send the task to Basecamp first';
+
+export const NO_TIMESHEET_RECORDING = 'No verified Basecamp timesheet recording is available';
+
+/**
+ * A task with no Basecamp to-do cannot land on a project that also has no
+ * timesheet. The useful next step is to create the to-do, not to retry the
+ * same missing recording.
+ */
+export function timesheetRecordingFailureMessage(
+    log: Pick<CanonicalTimeLog, 'taskBasecampTodoId'>,
+): string {
+    return numericId(log.taskBasecampTodoId) ? NO_TIMESHEET_RECORDING : SEND_TASK_TO_BASECAMP_FIRST;
+}
+
 interface Dependencies {
     authorizeTimeLog(timeLogId: unknown): Promise<TimeLogAuthorization>;
     createStore(): {
@@ -223,6 +238,15 @@ interface Dependencies {
         candidateRecordingId: string | null,
         candidateKind: RecordingCandidateKind,
     ): Promise<string | null>;
+    /**
+     * Persist a setup rejection that returns before provider work. Optional so
+     * callers that only care about the HTTP answer can omit it.
+     */
+    recordSyncError?(input: {
+        timeLogId: string;
+        organizationId: string;
+        message: string;
+    }): Promise<void>;
     performAuthorized(
         body: Record<string, unknown>,
         context: AuthorizedTimeLogContext,
@@ -260,13 +284,24 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
             );
             if (!log) return json({ error: 'Time log not found' }, 404);
 
+            const rejectSetup = async (message: string, status = 409) => {
+                if (action === 'sync' && status === 409 && dependencies.recordSyncError) {
+                    await dependencies.recordSyncError({
+                        timeLogId: log.id,
+                        organizationId: log.organizationId,
+                        message,
+                    });
+                }
+                return json({ error: message }, status);
+            };
+
             let projectId: string | null;
             let recordingId: string | null = null;
             let recordingCandidateKind: RecordingCandidateKind = 'project-timesheet';
             if (log.clientId) {
                 projectId = numericId(log.configuredProjectId);
                 if (!projectId) {
-                    return json({ error: 'Time log has no authorized Basecamp project' }, 409);
+                    return rejectSetup('Time log has no authorized Basecamp project');
                 }
                 if (action === 'sync' && (!log.syncEnabled || !log.timesheetEnabled)) {
                     return json({ skipped: true, reason: 'timesheet sync not enabled for this client' });
@@ -275,7 +310,7 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
                 const taskProjectId = numericId(log.taskBasecampProjectId);
                 const taskTodoId = numericId(log.taskBasecampTodoId);
                 if (taskProjectId && taskProjectId !== projectId) {
-                    return json({ error: 'Task Basecamp link does not match client configuration' }, 409);
+                    return rejectSetup('Task Basecamp link does not match client configuration');
                 }
                 if (action === 'sync') {
                     if (taskProjectId === projectId && taskTodoId) {
@@ -289,7 +324,7 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
                     return json({ error: 'Internal Basecamp time requires a trusted internal organization manager' }, 403);
                 }
                 projectId = numericId(log.selectedBasecampProjectId);
-                if (!projectId) return json({ error: 'No authorized Basecamp project selected' }, 409);
+                if (!projectId) return rejectSetup('No authorized Basecamp project selected');
             }
 
             const projectAccess = await authorizeBasecampProject(
@@ -308,7 +343,7 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
             if (action === 'remove') {
                 const entryId = numericId(body.entryId);
                 if (!entryId || !canonicalEntryId || entryId !== canonicalEntryId) {
-                    return json({ error: 'Entry does not belong to this time log' }, 409);
+                    return rejectSetup('Entry does not belong to this time log');
                 }
             }
 
@@ -318,20 +353,18 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
                     canonicalEntryId,
                 );
                 if (!verifiedEntry || verifiedEntry.entryId !== canonicalEntryId) {
-                    return json({ error: 'Basecamp entry could not be verified in the authorized project' }, 409);
+                    return rejectSetup('Basecamp entry could not be verified in the authorized project');
                 }
                 const protectedRecordingId = numericId(log.basecampRecordingId);
                 if (!protectedRecordingId) {
-                    return json({
-                        error: 'Legacy Basecamp entry requires operator provenance audit',
-                    }, 409);
+                    return rejectSetup('Legacy Basecamp entry requires operator provenance audit');
                 }
                 if (protectedRecordingId !== verifiedEntry.recordingId) {
-                    return json({ error: 'Basecamp entry recording does not match the protected link' }, 409);
+                    return rejectSetup('Basecamp entry recording does not match the protected link');
                 }
                 recordingId = protectedRecordingId;
             } else if (action === 'remove') {
-                return json({ error: 'Entry does not belong to this time log' }, 409);
+                return rejectSetup('Entry does not belong to this time log');
             } else {
                 recordingId = await dependencies.resolveRecording(
                     projectAccess.projectId,
@@ -339,7 +372,7 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
                     recordingCandidateKind,
                 );
                 if (!recordingId) {
-                    return json({ error: 'No verified Basecamp timesheet recording is available' }, 409);
+                    return rejectSetup(timesheetRecordingFailureMessage(log));
                 }
             }
 

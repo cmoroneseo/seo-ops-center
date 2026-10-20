@@ -11,6 +11,7 @@ import {
     requestTimeLogBasecampSync,
     type ClientBasecampSyncResult,
 } from '../basecamp/client-sync';
+import { noticeForBasecampResult, publishTimeLogBasecampNotice } from '../basecamp/sync-notice';
 import { clientBasecampTimesheetEnabled } from '../basecamp/send-default';
 import {
     timerAttemptFromRow,
@@ -52,27 +53,43 @@ function rowToTimeLog(row: any): TimeLog {
  * Server-side no-op unless the client has timesheet sync enabled;
  * only creates a new Basecamp entry when createIfMissing is true.
  */
+function reportBasecampPush(timeLogId: string, result: ClientBasecampSyncResult): ClientBasecampSyncResult {
+    const notice = noticeForBasecampResult(timeLogId, result);
+    if (notice) publishTimeLogBasecampNotice(notice);
+    return result;
+}
+
 export function pushTimeLogToBasecamp(
     timeLogId: string,
     createIfMissing = false,
 ): Promise<ClientBasecampSyncResult> {
-    if (createIfMissing) return requestTimeLogBasecampSync(timeLogId);
-    return fetch('/api/integrations/basecamp/timesheet', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'sync', timeLogId, createIfMissing: false }),
-    }).then(async response => {
-        const payload = await response.json().catch(() => null) as {
-            success?: boolean;
-            error?: string;
-        } | null;
-        return response.ok && payload?.success === true
-            ? { success: true }
-            : { success: false, error: payload?.error || `Basecamp sync failed (${response.status})` };
-    }).catch(error => ({
-        success: false,
-        error: error instanceof Error ? error.message : 'Basecamp sync failed',
-    }));
+    const request = createIfMissing
+        ? requestTimeLogBasecampSync(timeLogId)
+        : fetch('/api/integrations/basecamp/timesheet', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'sync', timeLogId, createIfMissing: false }),
+        }).then(async response => {
+            const payload = await response.json().catch(() => null) as {
+                success?: boolean;
+                skipped?: boolean;
+                error?: string;
+                reason?: string;
+            } | null;
+            if (response.ok && payload?.skipped === true) {
+                const reason = typeof payload.reason === 'string' && payload.reason.trim()
+                    ? payload.reason
+                    : undefined;
+                return { success: false, skipped: true, ...(reason ? { error: reason } : {}) };
+            }
+            return response.ok && payload?.success === true
+                ? { success: true }
+                : { success: false, error: payload?.error || payload?.reason || `Basecamp sync failed (${response.status})` };
+        }).catch(error => ({
+            success: false,
+            error: error instanceof Error ? error.message : 'Basecamp sync failed',
+        }));
+    return request.then(result => reportBasecampPush(timeLogId, result));
 }
 
 /** True when this client's time entries should offer "Send to Basecamp". */

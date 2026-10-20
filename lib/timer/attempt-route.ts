@@ -47,6 +47,46 @@ export function basecampStatusFromOutcomes(
     return outcomes.every(outcome => outcome.skipped === true) ? 'not_requested' : 'synced';
 }
 
+/** The timesheet route's JSON, turned into the outcome the timer response reports. */
+export function outcomeFromTimesheetResponse(
+    httpOk: boolean,
+    payload: {
+        success?: boolean;
+        skipped?: boolean;
+        error?: string;
+        reason?: string;
+    } | null,
+): BasecampSyncOutcome {
+    if (httpOk && payload?.skipped === true) {
+        const reason = payload.reason?.trim();
+        return { ok: true, skipped: true, ...(reason ? { error: reason } : {}) };
+    }
+    if (httpOk && payload?.success === true) return { ok: true };
+    return { ok: false, error: payload?.error || payload?.reason || 'Basecamp sync failed' };
+}
+
+/**
+ * Status plus the sentence a person should see.
+ * A skip stays `not_requested` so it is not reported as a timesheet entry,
+ * and the reason is prefixed so the row can say why it was not sent.
+ */
+export function basecampFeedback(outcomes: BasecampSyncOutcome[]): {
+    status: NonNullable<TimerStateResponse['basecampStatus']>;
+    message?: string;
+} {
+    const status = basecampStatusFromOutcomes(outcomes);
+    const failed = outcomes.filter(outcome => !outcome.ok);
+    if (failed.length > 0) {
+        const reason = failed.map(outcome => outcome.error?.trim()).filter((reason): reason is string => Boolean(reason)).join(' ');
+        return reason ? { status, message: reason } : { status };
+    }
+    if (outcomes.length > 0 && outcomes.every(outcome => outcome.skipped === true)) {
+        const reason = outcomes.map(outcome => outcome.error?.trim()).filter((reason): reason is string => Boolean(reason)).join(' ');
+        return reason ? { status, message: `Skipped: ${reason}` } : { status };
+    }
+    return { status };
+}
+
 export interface CompletedTask {
     id: string;
     organizationId: string;
@@ -418,7 +458,7 @@ export async function handleTimerMutation(
                     }
                 }
             }
-            const basecampStatus = basecampStatusFromOutcomes(results);
+            const feedback = basecampFeedback(results);
 
             const attempts = await loadAttemptsAfterDurableMutation(
                 deps,
@@ -431,7 +471,8 @@ export async function handleTimerMutation(
                 ...(finalized.completionWarning
                     ? { completionWarning: finalized.completionWarning }
                     : {}),
-                basecampStatus,
+                basecampStatus: feedback.status,
+                ...(feedback.message ? { basecampMessage: feedback.message } : {}),
             } satisfies TimerStateResponse);
         }
 
@@ -443,6 +484,7 @@ export async function handleTimerMutation(
                 if (isOwnershipError(error)) throw error;
                 result = { ok: false };
             }
+            const feedback = basecampFeedback([result]);
             const attempts = await loadAttemptsAfterDurableMutation(
                 deps,
                 user.id,
@@ -451,7 +493,8 @@ export async function handleTimerMutation(
             return json({
                 ...attempts,
                 finalizedTimeLogIds: [input.timeLogId],
-                basecampStatus: basecampStatusFromOutcomes([result]),
+                basecampStatus: feedback.status,
+                ...(feedback.message ? { basecampMessage: feedback.message } : {}),
             } satisfies TimerStateResponse);
         }
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     completeFinalizedTask,
     handleTimerMutation,
+    outcomeFromTimesheetResponse,
     type AttemptRouteDeps,
     type FinalizeAttemptInput,
 } from './attempt-route.ts';
@@ -313,6 +314,41 @@ test('a skipped provider sync is never reported as a synced timesheet entry', as
     assert.equal((await body(retried)).basecampStatus, 'not_requested');
 });
 
+test('the timesheet route answer keeps a skip distinct from a successful send', () => {
+    assert.deepEqual(
+        outcomeFromTimesheetResponse(true, { skipped: true, reason: 'timesheet sync not enabled for this client' }),
+        { ok: true, skipped: true, error: 'timesheet sync not enabled for this client' },
+    );
+    assert.deepEqual(outcomeFromTimesheetResponse(true, { success: true }), { ok: true });
+    assert.deepEqual(
+        outcomeFromTimesheetResponse(false, { error: 'Send the task to Basecamp first' }),
+        { ok: false, error: 'Send the task to Basecamp first' },
+    );
+});
+
+test('a skipped send keeps its reason instead of looking synced', async () => {
+    const response = await handleTimerMutation(request(finalizeRequest), dependencies({
+        finalizeOwnedAttempt: async () => ({ finalizedTimeLogIds: ['day-1'] }),
+        syncBasecamp: async () => ({ ok: true, skipped: true, error: 'timesheet sync not enabled for this client' }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.basecampStatus, 'not_requested');
+    assert.equal(payload.basecampMessage, 'Skipped: timesheet sync not enabled for this client');
+});
+
+test('a failed send returns the provider reason with the failed status', async () => {
+    const response = await handleTimerMutation(request({ action: 'retry_basecamp', timeLogId: 'logged-owned' }), dependencies({
+        syncBasecamp: async () => ({ ok: false, error: 'Send the task to Basecamp first' }),
+    }));
+
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(payload.basecampStatus, 'failed');
+    assert.equal(payload.basecampMessage, 'Send the task to Basecamp first');
+});
+
 test('a partially skipped multi-date sync still reports the dates that reached Basecamp', async () => {
     const response = await handleTimerMutation(request(finalizeRequest), dependencies({
         finalizeOwnedAttempt: async () => ({ finalizedTimeLogIds: ['day-1', 'day-2'] }),
@@ -356,6 +392,7 @@ test('Basecamp failure reports failed while retaining every finalized local ID',
         paused: [],
         finalizedTimeLogIds: ['day-1', 'day-2'],
         basecampStatus: 'failed',
+        basecampMessage: 'provider unavailable',
     });
 });
 

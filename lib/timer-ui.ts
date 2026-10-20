@@ -264,8 +264,12 @@ export function stopSubmitOutcome(state: TimerStateResponse): StopSubmitOutcome 
     if (state.basecampStatus === 'failed') {
         return {
             status: 'warned',
-            message: 'Time was saved, but the Basecamp timesheet entry failed. Retry it from the task.',
+            message: state.basecampMessage
+                ?? 'Time was saved, but the Basecamp timesheet entry failed. Retry it from the task.',
         };
+    }
+    if (state.basecampMessage?.startsWith('Skipped:')) {
+        return { status: 'warned', message: state.basecampMessage };
     }
     return { status: 'saved' };
 }
