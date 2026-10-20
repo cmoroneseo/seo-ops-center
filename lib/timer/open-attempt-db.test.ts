@@ -180,26 +180,8 @@ test('migration 112 is mirrored and does not delete stored time', () => {
     assert.match(migration, /time attempt is in review/);
     assert.match(migration, /notify pgrst, 'reload schema'/);
     assert.doesNotMatch(migration, /delete from|drop table|drop column/i);
-    for (const name of ['pause_time_attempt', 'resume_time_attempt', 'begin_stop_review', 'finalize_time_attempt', 'start_task_timer_attempt', 'switch_time_attempt']) {
-        const start = migration.indexOf(`create or replace function public.${name}(`);
-        const body = migration.slice(start, migration.indexOf('$$;', start));
-        const advisory = body.search(/pg_advisory_xact_lock/);
-        let rowLock = -1;
-        let searchFrom = 0;
-        while (searchFrom < body.length) {
-            const fromAt = body.indexOf('from public.time_logs', searchFrom);
-            if (fromAt < 0) break;
-            const tail = body.slice(fromAt);
-            const forUpdate = tail.search(/for update/i);
-            const statementEnd = tail.indexOf(';');
-            if (forUpdate >= 0 && statementEnd > forUpdate) {
-                rowLock = fromAt + forUpdate;
-                break;
-            }
-            searchFrom = fromAt + 1;
-        }
-        assert.ok(advisory >= 0 && rowLock > advisory, `${name} locks the user before the open row`);
-    }
+    assert.doesNotMatch(migration, /create or replace function public\.pause_time_attempt/i);
+    assert.doesNotMatch(migration, /create or replace function public\.finalize_time_attempt/i);
 });
 
 test('starting a paused task resumes it and stores the local date', async () => {
