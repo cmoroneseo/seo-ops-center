@@ -28,10 +28,18 @@ function writeSelectedOrgCookie(organizationId: string) {
     document.cookie = `${SELECTED_ORG_COOKIE}=${organizationId}; path=/; max-age=${ORG_COOKIE_MAX_AGE}; SameSite=Lax`
 }
 
-export function OrganizationProvider({ children }: { children: React.ReactNode }) {
-    const [organization, setOrganization] = useState<Organization | null>(null)
-    const [memberships, setMemberships] = useState<OrganizationMember[]>([])
-    const [isLoading, setIsLoading] = useState(true)
+export function OrganizationProvider({
+    children,
+    initial = null,
+}: {
+    children: React.ReactNode
+    /** Server-resolved memberships. Present on the dashboard so the shell does not wait on a second round trip. */
+    initial?: { organization: Organization | null; memberships: OrganizationMember[] } | null
+}) {
+    const seeded = initial != null
+    const [organization, setOrganization] = useState<Organization | null>(initial?.organization ?? null)
+    const [memberships, setMemberships] = useState<OrganizationMember[]>(initial?.memberships ?? [])
+    const [isLoading, setIsLoading] = useState(!seeded)
     const router = useRouter()
     const supabase = createClient()
 
@@ -60,6 +68,7 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
         const loadOrg = async () => {
             // MOCK MODE: If no supabase client, use mock data
             if (!supabase) {
+                if (seeded) return;
                 console.log('OrganizationProvider: No Supabase client found, using mock data');
                 setMemberships([mockMember]);
                 setOrganization(mockOrganization);
@@ -72,7 +81,9 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
                 const { data: { session } } = await supabase.auth.getSession();
                 if (!session?.user) {
                     console.log('OrganizationProvider: No session found');
-                    if (isMounted) {
+                    // A seeded shell already has the server membership. Don't blank it
+                    // when the browser session read hasn't caught up.
+                    if (isMounted && !seeded) {
                         setOrganization(null);
                         setMemberships([]);
                         setIsLoading(false);

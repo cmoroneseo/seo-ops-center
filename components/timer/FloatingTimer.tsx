@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Clock, ChevronDown, Pause, Play, Plus, Square, StickyNote } from 'lucide-react';
 import { useTimer } from '@/components/providers/timer-provider';
 import { StopConfirmSheet } from './StopConfirmSheet';
@@ -8,7 +8,28 @@ import { QuickStartPopover } from './QuickStartPopover';
 import { TimerNotes } from './TimerNotes';
 import type { ClientProject, TimerAttempt } from '@/lib/types';
 import { formatTimerStartClock, runningSegmentStartedAt, timerTaskLabel } from '@/lib/timer/widget-label';
+import { toastClearancePx } from '@/lib/toasts/toast-clearance';
 import { cn } from '@/lib/utils';
+
+/** Publishes the gap toasts must leave so they stack above this widget. */
+function useToastClearance(node: HTMLElement | null) {
+    useEffect(() => {
+        if (!node || typeof document === 'undefined') return;
+        const apply = () => {
+            const clearance = toastClearancePx(window.innerHeight, node.getBoundingClientRect().top);
+            document.documentElement.style.setProperty('--toast-clearance', `${clearance}px`);
+        };
+        apply();
+        const observer = new ResizeObserver(apply);
+        observer.observe(node);
+        window.addEventListener('resize', apply);
+        return () => {
+            observer.disconnect();
+            window.removeEventListener('resize', apply);
+            document.documentElement.style.removeProperty('--toast-clearance');
+        };
+    }, [node]);
+}
 
 function formatElapsed(seconds: number) {
     const hours = Math.floor(seconds / 3600);
@@ -29,7 +50,8 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
     const [showNotes, setShowNotes] = useState(false);
     const [showQuickStart, setShowQuickStart] = useState(false);
     const [reviewAttemptId, setReviewAttemptId] = useState<string | null>(null);
-    const widgetRef = useRef<HTMLDivElement>(null);
+    const [widgetNode, setWidgetNode] = useState<HTMLDivElement | null>(null);
+    useToastClearance(widgetNode);
     const primaryTimer = runningTimer ?? pausedTimers[0] ?? null;
 
     useEffect(() => {
@@ -45,11 +67,11 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
     useEffect(() => {
         if (!expanded) return;
         const handleClick = (event: MouseEvent) => {
-            if (widgetRef.current && !widgetRef.current.contains(event.target as Node)) setExpanded(false);
+            if (widgetNode && !widgetNode.contains(event.target as Node)) setExpanded(false);
         };
         document.addEventListener('mousedown', handleClick);
         return () => document.removeEventListener('mousedown', handleClick);
-    }, [expanded]);
+    }, [expanded, widgetNode]);
 
     const [stopError, setStopError] = useState<string | null>(null);
 
@@ -71,7 +93,7 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
         // primaryTimer, and its outcome panel still has to report a failed
         // completion or Basecamp push.
         return (
-            <div ref={widgetRef} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50">
+            <div ref={setWidgetNode} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50">
                 {reviewAttemptId && <StopConfirmSheet attemptId={reviewAttemptId} onClose={() => setReviewAttemptId(null)} />}
                 <div className="relative">
                     <button
@@ -100,7 +122,7 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
 
     if (!expanded) {
         return (
-            <div className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50">
+            <div ref={setWidgetNode} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50">
                 <button
                     onClick={() => setExpanded(true)}
                     title={runningStarted ? `${primaryLabel}. ${runningStarted}` : primaryLabel}
@@ -120,7 +142,7 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
     }
 
     return (
-        <div ref={widgetRef} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50 w-72 animate-in slide-in-from-bottom-3 fade-in duration-200">
+        <div ref={setWidgetNode} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50 w-72 animate-in slide-in-from-bottom-3 fade-in duration-200">
             <div className={cn('bg-card border rounded-2xl shadow-2xl overflow-hidden', runningTimer ? 'border-[#ec4899]/30 shadow-[#ec4899]/5' : 'border-amber-500/30')}>
                 <div className={cn('h-0.5 w-full', runningTimer ? 'bg-gradient-to-r from-[#ec4899]/0 via-[#ec4899] to-[#ec4899]/0 animate-pulse' : 'bg-amber-500/60')} />
 

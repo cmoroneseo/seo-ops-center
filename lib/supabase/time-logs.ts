@@ -275,8 +275,9 @@ export async function getTimerAttemptsForRange(
 export async function getLoggedHoursByClient(
     organizationId: string,
     month: string,
+    clientId?: string,
 ): Promise<Record<string, number>> {
-    return sumBudgetHoursByClient(await getTimeLogs(organizationId, { month, budgetMonth: true }));
+    return sumBudgetHoursByClient(await getTimeLogs(organizationId, { month, budgetMonth: true, clientId }));
 }
 
 /** Every tracked hour against a client, budget-consuming or not. */

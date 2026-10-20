@@ -6,7 +6,7 @@ import { CheckSquare, Clock, AlertCircle, Users, ArrowUpRight, TrendingUp, Check
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
-import { createClient } from '@/lib/supabase/client';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
 import { formatMyTimeHours, subscribeMyTimeRefresh, summarizeMyTime } from '@/lib/dashboard/my-time';
 
@@ -258,13 +258,11 @@ export interface MyTimeSnapshot {
     byClient: ClientHours[];
 }
 
-export async function loadMyTimeSnapshot(organizationId: string): Promise<MyTimeSnapshot> {
-    const supabase = createClient();
-    const userId = supabase ? (await supabase.auth.getUser()).data.user?.id : undefined;
+export async function loadMyTimeSnapshot(organizationId: string, userId: string): Promise<MyTimeSnapshot> {
     if (!userId) throw new Error('Time data unavailable');
     const today = new Date();
     const month = today.toISOString().slice(0, 7);
-    const logs = await getTimeLogs(organizationId, { month, throwOnError: true });
+    const logs = await getTimeLogs(organizationId, { month, userId, throwOnError: true });
     const totals = summarizeMyTime(logs, userId, today);
     const clientMap: Record<string, ClientHours> = {};
     for (const log of logs) {
@@ -287,16 +285,17 @@ export async function loadMyTimeSnapshot(organizationId: string): Promise<MyTime
 export function MyTimeWidget({
     loadSnapshot = loadMyTimeSnapshot,
 }: {
-    loadSnapshot?: (organizationId: string) => Promise<MyTimeSnapshot>;
+    loadSnapshot?: (organizationId: string, userId: string) => Promise<MyTimeSnapshot>;
 } = {}) {
     const { organization } = useOrganization();
+    const { userId, isLoading: memberLoading } = useCurrentMember();
     const [hoursThisWeek, setHoursThisWeek] = useState<number | null>(null);
     const [hoursThisMonth, setHoursThisMonth] = useState<number | null>(null);
     const [byClient, setByClient] = useState<ClientHours[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (!organization) return;
+        if (!organization || memberLoading) return;
         let cancelled = false;
 
         const apply = (snapshot: MyTimeSnapshot) => {
@@ -308,7 +307,7 @@ export function MyTimeWidget({
         const load = async (background: boolean) => {
             if (!background) setLoading(true);
             try {
-                const snapshot = await loadSnapshot(organization.id);
+                const snapshot = await loadSnapshot(organization.id, userId);
                 if (cancelled) return;
                 apply(snapshot);
             } catch {
@@ -327,7 +326,7 @@ export function MyTimeWidget({
             cancelled = true;
             unsubscribe();
         };
-    }, [organization?.id, loadSnapshot]);
+    }, [organization?.id, userId, memberLoading, loadSnapshot]);
 
     const maxHours = byClient[0]?.hours || 1;
 
@@ -339,8 +338,13 @@ export function MyTimeWidget({
             </div>
 
             {loading ? (
-                <div className="flex items-center justify-center py-8" data-my-time-loading="true">
-                    <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <div className="space-y-3" role="status" aria-busy="true" data-my-time-loading="true">
+                    <span className="sr-only">Loading time</span>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="h-16 animate-pulse rounded-lg bg-muted" />
+                        <div className="h-16 animate-pulse rounded-lg bg-muted" />
+                    </div>
+                    <div className="h-24 animate-pulse rounded-lg bg-muted" />
                 </div>
             ) : (
                 <>

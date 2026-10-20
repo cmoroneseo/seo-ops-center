@@ -5,8 +5,9 @@ import { Search, Plus, FolderOpen, Archive } from 'lucide-react';
 import { useClients } from '@/lib/hooks/use-clients';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { clientScopeLabel } from '@/lib/hour-format';
+import { activeClientId, clientListHref, clientListRowClass } from '@/lib/workspace/client-list-nav';
 
 export function ClientListPanel({
     variant = 'sidebar',
@@ -18,6 +19,9 @@ export function ClientListPanel({
     const [searchQuery, setSearchQuery] = useState('');
     const [showArchived, setShowArchived] = useState(false);
     const pathname = usePathname();
+    const searchParams = useSearchParams();
+    const router = useRouter();
+    const currentClientId = activeClientId(pathname, searchParams.get('client'));
 
     const { clients: activeClients, isLoading } = useClients({ statuses: ['Active', 'Onboarding'] });
     const { clients: archivedClients } = useClients({ statuses: ['Cancelled', 'Paused'] });
@@ -88,29 +92,26 @@ export function ClientListPanel({
                         {searchQuery ? 'No matches' : showArchived ? 'No archived clients' : 'No active clients'}
                     </div>
                 ) : (
-                    <div className="space-y-1 px-2">
+                    <div className="flex flex-col gap-2 px-2">
                         {filteredClients.map((client) => {
-                            const isTasksPage = pathname.startsWith('/tasks');
-                            const targetHref = isTasksPage ? `/tasks?client=${client.id}` : `/workspace/${client.id}`;
-                            const isActive = pathname === `/workspace/${client.id}` ||
-                                (isTasksPage && pathname.includes(`client=${client.id}`));
+                            const targetHref = clientListHref(pathname, client.id);
+                            const isActive = currentClientId === client.id;
 
                             return (
                                 <Link
                                     key={client.id}
                                     href={targetHref}
+                                    prefetch
+                                    aria-current={isActive ? 'page' : undefined}
                                     onClick={onNavigate}
-                                    className={cn(
-                                        'group flex flex-col gap-1 p-2 rounded-lg transition-all',
-                                        isActive
-                                            ? 'bg-background shadow-sm border border-border'
-                                            : 'hover:bg-background/50'
-                                    )}
+                                    onMouseEnter={() => router.prefetch(targetHref)}
+                                    onFocus={() => router.prefetch(targetHref)}
+                                    className={clientListRowClass(isActive)}
                                 >
                                     <div className="flex items-center justify-between">
                                         <span className={cn(
-                                            "text-sm font-medium truncate",
-                                            isActive ? "text-primary font-semibold" : "text-muted-foreground"
+                                            'truncate text-sm font-medium',
+                                            isActive ? 'font-semibold text-primary' : 'text-foreground'
                                         )}>
                                             {client.clientName}
                                         </span>
