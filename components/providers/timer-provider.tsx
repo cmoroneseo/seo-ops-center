@@ -69,7 +69,7 @@ interface TimerContextType {
     getAttemptById: (attemptId: string) => TimerAttempt | null;
 }
 
-const TimerContext = createContext<TimerContextType | undefined>(undefined);
+export const TimerContext = createContext<TimerContextType | undefined>(undefined);
 
 export function TimerProvider({ children }: { children: React.ReactNode }) {
     const { organization } = useOrganization();

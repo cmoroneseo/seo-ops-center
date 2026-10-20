@@ -7,6 +7,7 @@ import { StopConfirmSheet } from './StopConfirmSheet';
 import { QuickStartPopover } from './QuickStartPopover';
 import { TimerNotes } from './TimerNotes';
 import type { ClientProject, TimerAttempt } from '@/lib/types';
+import { formatTimerStartClock, runningSegmentStartedAt, timerTaskLabel } from '@/lib/timer/widget-label';
 import { cn } from '@/lib/utils';
 
 function formatElapsed(seconds: number) {
@@ -92,18 +93,24 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
 
     const runningElapsed = runningTimer ? getElapsedSeconds(runningTimer) : null;
     const primaryIsRunning = primaryTimer.id === runningTimer?.id;
+    const primaryLabel = timerTaskLabel(primaryTimer);
+    const runningStarted = runningTimer
+        ? formatTimerStartClock(runningSegmentStartedAt(runningTimer))
+        : null;
 
     if (!expanded) {
         return (
             <div className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50">
                 <button
                     onClick={() => setExpanded(true)}
+                    title={runningStarted ? `${primaryLabel}. ${runningStarted}` : primaryLabel}
                     className={cn(
                         'group flex items-center gap-2.5 pl-3 pr-4 h-12 rounded-full shadow-lg border transition-all duration-200 hover:scale-105',
                         primaryIsRunning ? 'bg-card border-[#ec4899]/40 shadow-[#ec4899]/10 hover:border-[#ec4899]/70' : 'bg-card border-amber-500/30 shadow-amber-500/10 hover:border-amber-500/60',
                     )}
                 >
                     <span className={cn('h-2 w-2 rounded-full shrink-0', primaryIsRunning ? 'bg-[#ec4899] animate-pulse' : 'bg-amber-500')} />
+                    <span data-timer-task className="max-w-[10rem] truncate text-xs font-medium text-foreground">{primaryLabel}</span>
                     <span className={cn('font-mono font-semibold text-sm tabular-nums', primaryIsRunning ? 'text-[#ec4899]' : 'text-amber-400')}>
                         {formatElapsed(runningElapsed ?? getElapsedSeconds(primaryTimer))}
                     </span>
@@ -132,7 +139,10 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
                         <>
                             <div>
                                 <p className="font-semibold text-foreground truncate">{runningTimer.clientName || 'Unassigned'}</p>
-                                {runningTimer.taskTitle && <p className="text-xs text-muted-foreground truncate mt-0.5">{runningTimer.taskTitle}</p>}
+                                <p data-timer-task className="text-xs text-muted-foreground truncate mt-0.5">{timerTaskLabel(runningTimer)}</p>
+                                {runningStarted && (
+                                    <p data-timer-started className="text-xs text-muted-foreground truncate">{runningStarted}</p>
+                                )}
                             </div>
                             <div className="text-4xl font-mono font-bold tabular-nums tracking-tight text-[#ec4899]">{formatElapsed(runningElapsed!)}</div>
                             <div className="flex items-center gap-2 pt-1">
@@ -154,14 +164,20 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
                         <div className={cn('space-y-2', runningTimer && 'border-t border-border/50 pt-3')}>
                             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Paused Work</p>
                             {pausedTimers.map(attempt => (
-                                <div key={attempt.id} className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5 space-y-2">
+                                <div key={attempt.id} data-timer-paused={attempt.id} className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5 space-y-2">
                                     <div className="min-w-0">
                                         <p className="text-sm font-medium text-foreground truncate">{attempt.clientName || 'Unassigned'}</p>
-                                        <p className="text-xs text-muted-foreground truncate">{attempt.taskTitle || 'General work'} · {formatElapsed(getElapsedSeconds(attempt))}</p>
+                                        <p className="text-xs text-muted-foreground truncate">{timerTaskLabel(attempt)} · {formatElapsed(getElapsedSeconds(attempt))}</p>
                                     </div>
                                     <div className="flex gap-2">
                                         {!attempt.reviewingAt && (
-                                            <button onClick={() => void resume(attempt)} className="flex-1 flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 transition-colors">
+                                            <button
+                                                type="button"
+                                                data-timer-resume={attempt.id}
+                                                aria-label={`Resume ${timerTaskLabel(attempt)}`}
+                                                onClick={() => void resume(attempt)}
+                                                className="flex-1 flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 transition-colors"
+                                            >
                                                 <Play className="h-3 w-3 fill-current" /> Resume
                                             </button>
                                         )}

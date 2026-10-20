@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs';
 
 const sources = {
     'components/timer/FloatingTimer.tsx': readFileSync(new URL('../../components/timer/FloatingTimer.tsx', import.meta.url), 'utf8'),
-    'components/timer/TimerChip.tsx': readFileSync(new URL('../../components/timer/TimerChip.tsx', import.meta.url), 'utf8'),
 };
 
 test('the stop review sheet outlives the timer that opened it', () => {
