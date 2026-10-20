@@ -42,6 +42,15 @@ export function sumTrackedHoursByClient(logs: BudgetableLog[]): Record<string, n
     }, {});
 }
 
+/**
+ * Hours recorded against one task, whatever produced them.
+ * Manual start/finish logs and timer sessions both live in `time_logs.hours`.
+ * Segment duration is only the calendar shape; it is not added again here.
+ */
+export function sumTaskLoggedHours(rows: { hours?: number | null }[]): number {
+    return round2(rows.reduce((sum, row) => sum + (Number(row.hours) || 0), 0));
+}
+
 /** Hours with no client attached — internal meetings, admin, and the like. */
 export function sumInternalHours(logs: BudgetableLog[]): number {
     return round2(logs.reduce((total, l) => (l.clientId ? total : total + l.hours), 0));

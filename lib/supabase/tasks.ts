@@ -20,6 +20,7 @@ import { taskCreateRow } from '../tasks/create-row';
 import { completedAtForLiveUrl, parseLiveUrlInput, splitLiveUrl } from '../tasks/live-url';
 import { isTaskStage } from '../tasks/stage';
 import { normalizeBlockedReason, taskStatusColumns } from '../tasks/status';
+import { sumTaskLoggedHours } from '../time-budget-logic';
 
 // ---------------------------------------------------------------------------
 // Basecamp integration helpers (fire-and-forget, server-side only)
@@ -298,7 +299,7 @@ export async function getTask(taskId: string): Promise<{
             .eq('status', 'logged');
         if (hoursRes.error) throw hoursRes.error;
 
-        const loggedHours = (hoursRes.data || []).reduce((sum: number, row: any) => sum + (row.hours || 0), 0);
+        const loggedHours = sumTaskLoggedHours(hoursRes.data || []);
 
         return {
             task: taskRes.data ? rowToTask(taskRes.data) : null,
