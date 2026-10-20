@@ -15,6 +15,7 @@ import {
     formatPlanCreated,
     formatSyncedAgo,
     groupPlanTimeByMonth,
+    applyPlanPanelSave,
     mergePlanTask,
     parsePlanEstimate,
     planBasecampLine,
@@ -275,6 +276,20 @@ test('a saved task row keeps the list fields the panel writes', () => {
     assert.deepEqual(merged.assigneeIds, ['miguel', 'carlos']);
     assert.equal(merged.completedAt, null);
     assert.equal(merged.publishedUrl, 'https://mayasconstruction.com/kitchen');
+});
+
+test('a panel save updates the list row, including Done and a cleared label', () => {
+    const row = task({ id: 'kitchen', title: 'Kitchen', status: 'todo', category: 'content', dueDate: '2026-10-17' });
+    const renamed = applyPlanPanelSave(row, { field: 'title', title: 'Kitchen remodel' }, '2026-10-20T12:00:00.000Z');
+    assert.equal(renamed.title, 'Kitchen remodel');
+    const done = applyPlanPanelSave(row, { field: 'status', status: 'done' }, '2026-10-20T12:00:00.000Z');
+    assert.equal(done.status, 'done');
+    assert.equal(done.completedAt, '2026-10-20T12:00:00.000Z');
+    const cleared = applyPlanPanelSave(row, { field: 'labels', category: null, tags: [] }, '2026-10-20T12:00:00.000Z');
+    assert.equal(cleared.category, null);
+    const flagged = applyPlanPanelSave(row, { field: 'onboarding', stage: 'onboarding' }, '2026-10-20T12:00:00.000Z');
+    assert.equal(flagged.stage, 'onboarding');
+    assert.equal(applyPlanPanelSave(row, { field: 'parent', parentTaskId: 'pillar' }, '2026-10-20T12:00:00.000Z'), row);
 });
 
 test('j and k move the visible row, and the open panel follows', () => {

@@ -87,6 +87,15 @@ test('a client outside the session organization is not found', async () => {
     assert.deepEqual(result.body, { error: 'Not found' });
 });
 
+test('the account id is only a read-only link hint', async () => {
+    const present = await readClientStageList(clientId, deps({ basecampAccountId: ' 4242 ' }));
+    assert.equal(present.status, 200);
+    if (present.status === 200) assert.equal(present.body.basecampAccountId, '4242');
+    const absent = await readClientStageList(clientId, deps({ basecampAccountId: '  ' }));
+    assert.equal(absent.status, 200);
+    if (absent.status === 200) assert.equal(absent.body.basecampAccountId, null);
+});
+
 test('a read failure does not return the underlying message', async () => {
     const dependencies = deps({
         load: async () => {
