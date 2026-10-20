@@ -28,6 +28,7 @@ import { PILLAR_TIME_BEHAVIOR, timeTrackingTaskId } from '@/lib/tasks/pillars';
 import { queuePlanBasecampPush } from '@/lib/seo-plan/basecamp-push-queue';
 import { LiveUrlControl } from './LiveUrlControl';
 import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
+import { localTimeZone, workedWindowForEdit } from '@/lib/timer/manual-segment';
 
 interface TaskDetailModalProps {
     task: Task | null;
@@ -207,7 +208,10 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const [showLogForm, setShowLogForm] = useState(false);
     const [logHours, setLogHours] = useState('');
     const [logDate, setLogDate] = useState(new Date().toISOString().slice(0, 10));
+    const [logStart, setLogStart] = useState('');
+    const [logFinish, setLogFinish] = useState('');
     const [logNote, setLogNote] = useState('');
+    const [logFormError, setLogFormError] = useState('');
     const [submittingLog, setSubmittingLog] = useState(false);
     const [showCompletion, setShowCompletion] = useState(false);
     const [completing, setCompleting] = useState(false);
@@ -625,6 +629,17 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     };
 
     if (!mounted || !task) return null;
+
+    const manualPlacement = workedWindowForEdit({
+        segmentCount: 0,
+        date: logDate,
+        startTime: logStart,
+        finishTime: logFinish,
+        timeZone: localTimeZone(),
+    });
+    const hoursLocked = Boolean(manualPlacement.window);
+    const hoursValue = manualPlacement.window ? String(manualPlacement.window.hours) : logHours;
+    const hoursOk = parseFloat(hoursValue) > 0;
 
     return (
         <>
@@ -1067,7 +1082,15 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                     <Clock className="h-3 w-3" /> Time Logged
                                 </label>
                                 <button
-                                    onClick={() => { setShowLogForm(v => !v); setLogHours(''); setLogNote(''); setLogDate(new Date().toISOString().slice(0, 10)); }}
+                                    onClick={() => {
+                                        setShowLogForm(v => !v);
+                                        setLogHours('');
+                                        setLogStart('');
+                                        setLogFinish('');
+                                        setLogNote('');
+                                        setLogFormError('');
+                                        setLogDate(new Date().toISOString().slice(0, 10));
+                                    }}
                                     className="flex items-center gap-1 text-[10px] text-primary hover:underline"
                                 >
                                     <PenLine className="h-3 w-3" /> Log time manually
@@ -1112,20 +1135,48 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                 <div className="border border-border rounded-xl p-4 space-y-3 bg-muted/20">
                                     <div className="grid grid-cols-2 gap-3">
                                         <div className="space-y-1">
-                                            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Hours</label>
+                                            <label htmlFor="task-log-start" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Start time</label>
                                             <input
-                                                type="number"
-                                                min="0.1"
-                                                step="0.25"
-                                                placeholder="e.g. 1.5"
-                                                value={logHours}
-                                                onChange={e => setLogHours(e.target.value)}
+                                                id="task-log-start"
+                                                type="time"
+                                                step={60}
+                                                value={logStart}
+                                                onChange={e => { setLogStart(e.target.value); setLogFormError(''); }}
                                                 className="w-full text-sm bg-background border border-border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
                                             />
                                         </div>
                                         <div className="space-y-1">
-                                            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Date</label>
+                                            <label htmlFor="task-log-finish" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Finish time</label>
                                             <input
+                                                id="task-log-finish"
+                                                type="time"
+                                                step={60}
+                                                value={logFinish}
+                                                onChange={e => { setLogFinish(e.target.value); setLogFormError(''); }}
+                                                className="w-full text-sm bg-background border border-border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
+                                            />
+                                        </div>
+                                    </div>
+                                    <p className="text-[11px] text-muted-foreground">Optional. Both times place this work on the planner. Leave them blank to record hours only.</p>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="space-y-1">
+                                            <label htmlFor="task-log-hours" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Hours</label>
+                                            <input
+                                                id="task-log-hours"
+                                                type="number"
+                                                min="0.01"
+                                                step="0.01"
+                                                placeholder="e.g. 1.5"
+                                                value={hoursValue}
+                                                readOnly={hoursLocked}
+                                                onChange={e => setLogHours(e.target.value)}
+                                                className="w-full text-sm bg-background border border-border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary read-only:bg-muted/40"
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label htmlFor="task-log-date" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Date</label>
+                                            <input
+                                                id="task-log-date"
                                                 type="date"
                                                 value={logDate}
                                                 onChange={e => setLogDate(e.target.value)}
@@ -1134,8 +1185,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                         </div>
                                     </div>
                                     <div className="space-y-1">
-                                        <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Note (optional)</label>
+                                        <label htmlFor="task-log-note" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Note (optional)</label>
                                         <input
+                                            id="task-log-note"
                                             type="text"
                                             placeholder="What did you work on?"
                                             value={logNote}
@@ -1143,6 +1195,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                             className="w-full text-sm bg-background border border-border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
                                         />
                                     </div>
+                                    {(manualPlacement.error || logFormError) && (
+                                        <p className="text-[11px] text-destructive">{manualPlacement.error || logFormError}</p>
+                                    )}
                                     <div className="flex items-center gap-2 justify-end">
                                         <button
                                             onClick={() => setShowLogForm(false)}
@@ -1151,26 +1206,38 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                             Cancel
                                         </button>
                                         <button
-                                            disabled={!logHours || parseFloat(logHours) <= 0 || submittingLog || !task.clientId}
+                                            disabled={!hoursOk || Boolean(manualPlacement.error) || submittingLog || !task.clientId}
                                             onClick={async () => {
-                                                if (!task.clientId || !organization) return;
+                                                if (!task.clientId || !organization || manualPlacement.error || !hoursOk) return;
                                                 setSubmittingLog(true);
+                                                setLogFormError('');
                                                 const currentMember = memberships.find(m => m.organizationId === organization.id);
                                                 const result = await createTimeLog({
                                                     organizationId: organization.id,
                                                     clientId: task.clientId,
                                                     taskId: timeTrackingTaskId(task),
                                                     userId: currentUserId ?? currentMember?.userId,
-                                                    hours: parseFloat(logHours),
+                                                    hours: manualPlacement.window?.hours ?? parseFloat(hoursValue),
                                                     date: logDate,
                                                     description: logNote || undefined,
                                                     billable: true,
-                                                }, { syncToBasecamp: basecampAvailable });
+                                                }, {
+                                                    syncToBasecamp: basecampAvailable,
+                                                    workedWindow: manualPlacement.window,
+                                                });
                                                 if (result.success) {
                                                     void loadTaskData();
-                                                    setShowLogForm(false);
-                                                    setLogHours('');
-                                                    setLogNote('');
+                                                    if (result.segmentWarning) {
+                                                        setLogFormError(result.segmentWarning);
+                                                    } else {
+                                                        setShowLogForm(false);
+                                                        setLogHours('');
+                                                        setLogStart('');
+                                                        setLogFinish('');
+                                                        setLogNote('');
+                                                    }
+                                                } else {
+                                                    setLogFormError(result.error || 'Could not save this entry.');
                                                 }
                                                 setSubmittingLog(false);
                                             }}

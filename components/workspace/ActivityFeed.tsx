@@ -1154,6 +1154,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
 
             {editingLog && (
                 <EditTimeLogSheet
+                    key={editingLog.id}
                     log={editingLog}
                     onClose={() => setEditingLog(null)}
                     onSaved={updated => {

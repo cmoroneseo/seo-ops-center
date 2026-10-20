@@ -2,8 +2,9 @@
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
 import { X, Clock, CheckCircle2, StickyNote, ChevronDown, ChevronUp, Pencil, Check, Plus, Trash2, AlertTriangle, Send } from 'lucide-react';
-import { TimeLog, SessionNote } from '@/lib/types';
-import { updateTimeLog, getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
+import { TimeLog, SessionNote, TimeLogSegment } from '@/lib/types';
+import { updateTimeLog, setTimeLogWorkedWindow, getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
+import { localTimeZone, saveTimeLogEdit, workedWindowForEdit } from '@/lib/timer/manual-segment';
 import { cn } from '@/lib/utils';
 import { isExternalHref, safeHref } from '@/lib/links/safe-href';
 
@@ -132,6 +133,8 @@ interface EditTimeLogSheetProps {
 export function EditTimeLogSheet({ log, onClose, onSaved }: EditTimeLogSheetProps) {
     const [description, setDescription] = useState(log.description);
     const [hours, setHours] = useState(String(log.hours));
+    const [startTime, setStartTime] = useState('');
+    const [finishTime, setFinishTime] = useState('');
     const [billable, setBillable] = useState(log.billable);
     const [category, setCategory] = useState(log.category ?? '');
     const [date, setDate] = useState(log.date.slice(0, 10));
@@ -139,7 +142,10 @@ export function EditTimeLogSheet({ log, onClose, onSaved }: EditTimeLogSheetProp
     const [showNotes, setShowNotes] = useState((log.sessionNotes?.length ?? 0) > 0);
     const [newNoteText, setNewNoteText] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+    const [formError, setFormError] = useState('');
     const [showSuccess, setShowSuccess] = useState(false);
+    const [pendingSaved, setPendingSaved] = useState<TimeLog | null>(null);
+    const canPlaceWindow = (log.segments?.length ?? 0) === 0;
     // Basecamp sync state: 'synced' | 'error' | 'available' (can send) | 'off'
     const [bcState, setBcState] = useState<'synced' | 'error' | 'available' | 'off'>(
         log.basecampEntryId ? 'synced' : log.basecampSyncError ? 'error' : 'off'
@@ -179,34 +185,75 @@ export function EditTimeLogSheet({ log, onClose, onSaved }: EditTimeLogSheetProp
         }
     };
 
+    const placement = canPlaceWindow
+        ? workedWindowForEdit({
+            segmentCount: 0,
+            date,
+            startTime,
+            finishTime,
+            timeZone: localTimeZone(),
+        })
+        : { window: null, error: null };
+    const hoursLocked = Boolean(placement.window);
+    const hoursValue = placement.window ? String(placement.window.hours) : hours;
+
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!description.trim()) return;
+        if (!description.trim() || placement.error) return;
         setIsSaving(true);
+        setFormError('');
 
-        const result = await updateTimeLog(log.id, {
-            description: description.trim(),
-            hours: parseFloat(hours) || log.hours,
-            billable,
-            category: category || undefined,
-            date,
-            sessionNotes: notes,
+        const result = await saveTimeLogEdit({
+            updateLog: updateTimeLog,
+            attachWindow: setTimeLogWorkedWindow,
+        }, {
+            id: log.id,
+            patch: {
+                description: description.trim(),
+                hours: parseFloat(hoursValue) || log.hours,
+                billable,
+                category: category || undefined,
+                date,
+                sessionNotes: notes,
+            },
+            // updateTimeLog syncs Basecamp in place. The segment insert does not
+            // push, so an edit never creates a second timesheet entry.
+            workedWindow: placement.window,
         });
 
         if (result.success) {
+            const placedSegment: TimeLogSegment[] = placement.window && !result.segmentWarning
+                ? [...(log.segments ?? []), {
+                    id: `placed:${log.id}`,
+                    timeLogId: log.id,
+                    organizationId: log.organizationId,
+                    userId: log.userId,
+                    startedAt: placement.window.startedAt,
+                    endedAt: placement.window.endedAt,
+                }]
+                : (log.segments ?? []);
+            const saved = {
+                ...log,
+                description: description.trim(),
+                hours: result.hours,
+                billable,
+                category: category || undefined,
+                date,
+                sessionNotes: notes,
+                segments: placedSegment,
+            };
+            if (result.segmentWarning) setFormError(result.segmentWarning);
             setShowSuccess(true);
-            setTimeout(() => {
-                setShowSuccess(false);
-                onSaved({
-                    ...log,
-                    description: description.trim(),
-                    hours: parseFloat(hours) || log.hours,
-                    billable,
-                    category: category || undefined,
-                    date,
-                    sessionNotes: notes,
-                });
-            }, 900);
+            if (result.segmentWarning) {
+                setPendingSaved(saved);
+            } else {
+                setTimeout(() => {
+                    setShowSuccess(false);
+                    onSaved(saved);
+                }, 900);
+            }
+        } else {
+            setFormError(result.error || 'Could not save this entry.');
         }
         setIsSaving(false);
     };
@@ -226,10 +273,15 @@ export function EditTimeLogSheet({ log, onClose, onSaved }: EditTimeLogSheetProp
         setNotes(prev => prev.filter(n => n.id !== id));
     };
 
+    const close = () => {
+        if (pendingSaved) onSaved(pendingSaved);
+        else onClose();
+    };
+
     return (
         <div
             className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm"
-            onClick={onClose}
+            onClick={close}
         >
             <div
                 className="w-full max-w-lg mb-0 bg-card border border-border border-b-0 rounded-t-2xl shadow-2xl animate-in slide-in-from-bottom-4 duration-200"
@@ -249,7 +301,7 @@ export function EditTimeLogSheet({ log, onClose, onSaved }: EditTimeLogSheetProp
                             {new Date(log.date.includes('T') ? log.date : log.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         </span>
                     </div>
-                    <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+                    <button onClick={close} className="text-muted-foreground hover:text-foreground transition-colors">
                         <X className="h-4 w-4" />
                     </button>
                 </div>
@@ -260,6 +312,18 @@ export function EditTimeLogSheet({ log, onClose, onSaved }: EditTimeLogSheetProp
                             <CheckCircle2 className="h-6 w-6" />
                         </div>
                         <p className="font-semibold">Entry updated!</p>
+                        {formError && (
+                            <p className="text-xs text-center text-destructive max-w-xs">{formError}</p>
+                        )}
+                        {pendingSaved && (
+                            <button
+                                type="button"
+                                onClick={close}
+                                className="text-sm font-medium text-primary hover:underline"
+                            >
+                                Done
+                            </button>
+                        )}
                     </div>
                 ) : (
                     <form onSubmit={handleSave} className="px-5 py-4 space-y-4 max-h-[80vh] overflow-y-auto">
@@ -323,17 +387,53 @@ export function EditTimeLogSheet({ log, onClose, onSaved }: EditTimeLogSheetProp
                             />
                         </div>
 
+                        {canPlaceWindow && (
+                            <div className="space-y-1.5">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1.5">
+                                        <label htmlFor="edit-log-start" className="text-xs font-medium text-muted-foreground">Start time</label>
+                                        <input
+                                            id="edit-log-start"
+                                            type="time"
+                                            step={60}
+                                            value={startTime}
+                                            onChange={e => { setStartTime(e.target.value); setFormError(''); }}
+                                            className="w-full p-2 rounded-lg bg-background border border-border text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all"
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label htmlFor="edit-log-finish" className="text-xs font-medium text-muted-foreground">Finish time</label>
+                                        <input
+                                            id="edit-log-finish"
+                                            type="time"
+                                            step={60}
+                                            value={finishTime}
+                                            onChange={e => { setFinishTime(e.target.value); setFormError(''); }}
+                                            className="w-full p-2 rounded-lg bg-background border border-border text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all"
+                                        />
+                                    </div>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground">Optional. Both times place this entry on the planner and set the hours.</p>
+                            </div>
+                        )}
+
+                        {(placement.error || formError) && (
+                            <p className="text-xs text-destructive">{placement.error || formError}</p>
+                        )}
+
                         <div className="grid grid-cols-3 gap-3">
                             {/* Hours */}
                             <div className="space-y-1.5">
-                                <label className="text-xs font-medium text-muted-foreground">Hours</label>
+                                <label htmlFor="edit-log-hours" className="text-xs font-medium text-muted-foreground">Hours</label>
                                 <input
+                                    id="edit-log-hours"
                                     type="number"
                                     step="any"
                                     min="0"
-                                    value={hours}
+                                    readOnly={hoursLocked}
+                                    value={hoursValue}
                                     onChange={e => setHours(e.target.value)}
-                                    className="w-full p-2 rounded-lg bg-background border border-border text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all"
+                                    className="w-full p-2 rounded-lg bg-background border border-border text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all read-only:bg-muted/40"
                                 />
                             </div>
 
@@ -446,14 +546,14 @@ export function EditTimeLogSheet({ log, onClose, onSaved }: EditTimeLogSheetProp
                         <div className="flex gap-3 pt-1 pb-2">
                             <button
                                 type="button"
-                                onClick={onClose}
+                                onClick={close}
                                 className="flex-1 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-muted transition-colors"
                             >
                                 Cancel
                             </button>
                             <button
                                 type="submit"
-                                disabled={isSaving || !description.trim()}
+                                disabled={isSaving || !description.trim() || Boolean(placement.error)}
                                 className="flex-[2] py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                             >
                                 {isSaving ? (

@@ -7,6 +7,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createTimeLog, getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
 import { defaultSendToBasecamp } from '@/lib/basecamp/send-default';
 import { createClient } from '@/lib/supabase/client';
+import { localTimeZone, workedWindowForEdit } from '@/lib/timer/manual-segment';
 
 interface TimeLogModalProps {
     isOpen: boolean;
@@ -20,8 +21,11 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
     const [selectedClientId, setSelectedClientId] = useState(initialClientId || '');
     const [selectedTaskId, setSelectedTaskId] = useState('');
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [startTime, setStartTime] = useState('');
+    const [finishTime, setFinishTime] = useState('');
     const [hours, setHours] = useState('');
     const [description, setDescription] = useState('');
+    const [formError, setFormError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
     const [bcAvailable, setBcAvailable] = useState(false);
@@ -32,8 +36,11 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
         if (isOpen) {
             setSelectedClientId(initialClientId || '');
             setSelectedTaskId('');
+            setStartTime('');
+            setFinishTime('');
             setHours('');
             setDescription('');
+            setFormError('');
             setShowSuccess(false);
             setSendOverride(undefined);
         }
@@ -58,6 +65,15 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
     }, [selectedClientId]);
 
     const sendToBasecamp = defaultSendToBasecamp(bcAvailable, sendOverride);
+    const placement = workedWindowForEdit({
+        segmentCount: 0,
+        date,
+        startTime,
+        finishTime,
+        timeZone: localTimeZone(),
+    });
+    const hoursLocked = Boolean(placement.window);
+    const hoursValue = placement.window ? String(placement.window.hours) : hours;
 
     const selectedClient = clients.find(c => c.id === selectedClientId);
     const clientTasks = selectedClient?.tasks || [];
@@ -73,24 +89,46 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
             userId = data.session?.user?.id;
         }
 
+        if (placement.error) {
+            setFormError(placement.error);
+            setIsSubmitting(false);
+            return;
+        }
+        const loggedHours = placement.window?.hours ?? parseFloat(hoursValue);
+        if (!(loggedHours > 0)) {
+            setFormError('Enter the hours you worked.');
+            setIsSubmitting(false);
+            return;
+        }
+
         const clientEligible = await basecampCheck.current;
-        await createTimeLog({
+        const result = await createTimeLog({
             organizationId: organizationId ?? 'org-1',
             clientId: selectedClientId,
             taskId: selectedTaskId || undefined,
             userId: userId ?? 'mock-user-1',
             date,
-            hours: parseFloat(hours),
+            hours: loggedHours,
             description,
             billable: true,
-        }, { syncToBasecamp: defaultSendToBasecamp(clientEligible, sendOverride) });
+        }, {
+            syncToBasecamp: defaultSendToBasecamp(clientEligible, sendOverride),
+            workedWindow: placement.window,
+        });
 
         setIsSubmitting(false);
+        if (!result.success) {
+            setFormError(result.error || 'Could not save this entry.');
+            return;
+        }
+        if (result.segmentWarning) setFormError(result.segmentWarning);
         setShowSuccess(true);
 
-        setTimeout(() => {
-            onClose();
-        }, 1500);
+        if (!result.segmentWarning) {
+            setTimeout(() => {
+                onClose();
+            }, 1500);
+        }
     };
 
     if (!isOpen) return null;
@@ -114,7 +152,9 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
                             <CheckCircle2 className="h-6 w-6" />
                         </div>
                         <h4 className="text-lg font-semibold">Time Logged!</h4>
-                        <p className="text-muted-foreground text-sm">Your hours have been successfully recorded.</p>
+                        <p className="text-muted-foreground text-sm">
+                            {formError || 'Your hours have been successfully recorded.'}
+                        </p>
                     </div>
                 ) : (
                     <form onSubmit={handleSubmit} className="p-4 space-y-4">
@@ -154,10 +194,37 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-muted-foreground">Date</label>
+                                <label htmlFor="time-log-start" className="text-sm font-medium text-muted-foreground">Start time</label>
+                                <input
+                                    id="time-log-start"
+                                    type="time"
+                                    step={60}
+                                    value={startTime}
+                                    onChange={(e) => { setStartTime(e.target.value); setFormError(''); }}
+                                    className="w-full px-3 py-2 rounded-md bg-background border border-border focus:ring-2 focus:ring-primary/50 outline-none transition-all"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label htmlFor="time-log-finish" className="text-sm font-medium text-muted-foreground">Finish time</label>
+                                <input
+                                    id="time-log-finish"
+                                    type="time"
+                                    step={60}
+                                    value={finishTime}
+                                    onChange={(e) => { setFinishTime(e.target.value); setFormError(''); }}
+                                    className="w-full px-3 py-2 rounded-md bg-background border border-border focus:ring-2 focus:ring-primary/50 outline-none transition-all"
+                                />
+                            </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Optional. Both times place this work on the planner. Leave them blank to record hours only.</p>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label htmlFor="time-log-date" className="text-sm font-medium text-muted-foreground">Date</label>
                                 <div className="relative">
                                     <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                     <input
+                                        id="time-log-date"
                                         type="date"
                                         required
                                         value={date}
@@ -167,18 +234,20 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
                                 </div>
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-muted-foreground">Hours</label>
+                                <label htmlFor="time-log-hours" className="text-sm font-medium text-muted-foreground">Hours</label>
                                 <div className="relative">
                                     <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                     <input
+                                        id="time-log-hours"
                                         type="number"
-                                        step="0.25"
+                                        step="0.01"
                                         min="0"
                                         required
+                                        readOnly={hoursLocked}
                                         placeholder="0.00"
-                                        value={hours}
+                                        value={hoursValue}
                                         onChange={(e) => setHours(e.target.value)}
-                                        className="w-full pl-9 pr-3 py-2 rounded-md bg-background border border-border focus:ring-2 focus:ring-primary/50 outline-none transition-all"
+                                        className="w-full pl-9 pr-3 py-2 rounded-md bg-background border border-border focus:ring-2 focus:ring-primary/50 outline-none transition-all read-only:bg-muted/40"
                                     />
                                 </div>
                             </div>
@@ -218,10 +287,14 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
                             </label>
                         )}
 
+                        {(placement.error || formError) && !showSuccess && (
+                            <p className="text-sm text-destructive">{placement.error || formError}</p>
+                        )}
+
                         <div className="pt-2">
                             <button
                                 type="submit"
-                                disabled={isSubmitting}
+                                disabled={isSubmitting || Boolean(placement.error)}
                                 className="w-full py-2 rounded-md bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                             >
                                 {isSubmitting ? (
