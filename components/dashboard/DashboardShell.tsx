@@ -11,7 +11,7 @@ import { TimerNotifications } from '@/components/timer/TimerNotifications';
 import { FloatingTimer } from '@/components/timer/FloatingTimer';
 import { useClients } from '@/lib/hooks/use-clients';
 import { useRouter, usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { OnboardingChecklist } from '@/components/dashboard/OnboardingChecklist';
 import { FeedbackWidget } from '@/components/feedback/FeedbackWidget';
@@ -65,7 +65,11 @@ export function DashboardShell({
                 <div className="flex flex-1 min-w-0 flex-col">
                     {!isSetupPage && <TopNav />}
                     <div className="flex flex-1 min-h-0">
-                        {showProjectSidebar && <ClientListPanel />}
+                        {showProjectSidebar && (
+                            <Suspense fallback={<ClientListFallback />}>
+                                <ClientListPanel />
+                            </Suspense>
+                        )}
                         <main className={cn(
                             "flex-1 min-w-0 overflow-y-auto",
                             // Classic scrollbars are ~15px. Without a stable gutter, opening
@@ -97,5 +101,17 @@ export function DashboardShell({
             {!isSetupPage && <RemindersPanel />}
             </ToastGateProvider>
         </TimerProvider>
+    );
+}
+
+function ClientListFallback() {
+    return (
+        <div className="hidden h-full w-72 flex-col border-r border-border bg-muted/30 lg:flex" aria-hidden="true">
+            <div className="flex flex-1 flex-col gap-2 p-3">
+                {Array.from({ length: 8 }, (_, index) => (
+                    <div key={index} className="h-8 animate-pulse rounded-lg bg-muted" />
+                ))}
+            </div>
+        </div>
     );
 }
