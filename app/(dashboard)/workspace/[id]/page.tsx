@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState, Suspense } from 'react';
+import { useSuppressPlanToasts } from '@/components/providers/toast-gate';
+import { seoPlanTabHidesToasts } from '@/lib/toasts/plan-tab';
 import { useParams, useRouter } from 'next/navigation';
 import { MissingClient } from '@/components/workspace/MissingClient';
 import { ArrowLeft, Calendar, Clock, Shield, UserCheck, Plug, Target, ScanSearch, Map, FileCheck2, Globe, Archive } from 'lucide-react';
@@ -86,6 +88,7 @@ export default function ClientDetailPage() {
     const [activityRefreshKey, setActivityRefreshKey] = useState(0);
     const [activeTab, setActiveTabState] = useState<Tab>('overview');
     const [planView, setPlanView] = useState<PlanView>('plan');
+    useSuppressPlanToasts(seoPlanTabHidesToasts({ activeTab, planView, stageListOn }));
     const [importOpen, setImportOpen] = useState(false);
     const setActiveTab = (tab: Tab, extras?: Record<string, string | null>) => {
         const v2 = v2Ref.current;
@@ -493,7 +496,7 @@ export default function ClientDetailPage() {
                 <StagePlanList
                     clientId={client.id}
                     clientName={client.clientName}
-                    onOpenResults={() => setActiveTab('insights')}
+                    onOpenResults={month => setActiveTab('insights', { range: month })}
                 />
             )}
             {(v2On ? activeTab === 'campaign' : activeTab === 'campaign' && planView === 'plan') && !stageListOn && (

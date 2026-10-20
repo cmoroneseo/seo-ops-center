@@ -6,6 +6,7 @@ import { TopNav } from '@/components/dashboard/TopNav';
 import { ClientListPanel } from '@/components/workspace/ClientListPanel';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { TimerProvider } from '@/components/providers/timer-provider';
+import { ToastGateProvider } from '@/components/providers/toast-gate';
 import { TimerNotifications } from '@/components/timer/TimerNotifications';
 import { FloatingTimer } from '@/components/timer/FloatingTimer';
 import { useClients } from '@/lib/hooks/use-clients';
@@ -57,6 +58,7 @@ export function DashboardShell({
 
     return (
         <TimerProvider>
+            <ToastGateProvider>
             <div className="flex h-screen overflow-hidden bg-background">
                 {!isSetupPage && <Sidebar />}
                 {!isSetupPage && <MobileNav showClientList={showProjectSidebar} />}
@@ -93,6 +95,7 @@ export function DashboardShell({
             {!isSetupPage && <FeedbackWidget />}
             {!isSetupPage && <NotepadPanel />}
             {!isSetupPage && <RemindersPanel />}
+            </ToastGateProvider>
         </TimerProvider>
     );
 }
