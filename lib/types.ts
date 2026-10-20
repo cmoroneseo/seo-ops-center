@@ -186,7 +186,7 @@ export interface Subtask {
 
 export type TaskCategory = 'content' | 'technical' | 'local' | 'links' | 'strategy' | 'admin' | string;
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
-export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'done' | 'approved' | 'blocked';
+export type TaskStatus = 'todo' | 'in_progress' | 'done';
 
 /** Roadmap columns for tasks.stage. Onboarding, then backlog. Migration 107 retired the month columns. */
 export const TASK_STAGES = ['onboarding', 'backlog'] as const;
@@ -244,6 +244,11 @@ export interface Task {
     dueDate?: string | null;
     startDate?: string;
     completedAt?: string;
+    /**
+     * Removable blocked label. Null when the task is not blocked.
+     * Marking the task done clears it. Column from migration 110.
+     */
+    blockedReason?: string | null;
     /** Live page this task shipped. Column from migration 105. */
     publishedUrl?: string;
     priority: TaskPriority;
