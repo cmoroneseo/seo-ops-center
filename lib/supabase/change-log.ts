@@ -34,13 +34,12 @@ function rowToEntry(row: any): ClientChangeLogEntry {
  * effective_date falls after the last day of that month, the *previous* value
  * was active then. Falls back to currentHours if no changes predate the month.
  */
-export async function getSeoHoursForMonth(
-    organizationId: string,
-    clientId: string,
+/** Hours in effect at the end of `month`, from the change log. Pure. */
+export function seoHoursFromChangeLog(
+    entries: readonly ClientChangeLogEntry[],
     month: string,
     currentHours: number,
-): Promise<number | null> {
-    const entries = await getClientChangeLog(organizationId, clientId);
+): number {
     if (!entries.length) return currentHours;
 
     // Last day of the requested month (inclusive)
@@ -66,6 +65,16 @@ export async function getSeoHoursForMonth(
     }
 
     return result;
+}
+
+export async function getSeoHoursForMonth(
+    organizationId: string,
+    clientId: string,
+    month: string,
+    currentHours: number,
+): Promise<number | null> {
+    const entries = await getClientChangeLog(organizationId, clientId);
+    return seoHoursFromChangeLog(entries, month, currentHours);
 }
 
 /**

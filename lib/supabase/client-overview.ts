@@ -5,7 +5,8 @@ import { getLoggedHoursByClient } from './time-logs';
 import { getTasks } from './tasks';
 import { getCampaignPlan } from './campaign-plans';
 import { getMarketingPlan } from './marketing-plans';
-import {getSeoHoursForMonth} from './change-log';
+import { getClientChangeLog, seoHoursFromChangeLog } from './change-log';
+import { loadOverviewParts } from './client-overview-load';
 import { fulfillmentStatus, hoursUsageStatus } from '../seo-ops-logic';
 import type { HoursStatusResult, StatusResult } from '../seo-ops-logic';
 import { computeHealthScore, computeNextBestActions } from './client-overview-logic';
@@ -55,21 +56,55 @@ function campaignPlanSummary(plan: CampaignPlan | null): ClientOverview['campaig
     return { exists: true, status: plan.status, title: plan.title };
 }
 
+const OVERVIEW_READ_MS = 15_000;
+const overviewReads = new Map<string, { at: number; pending: ReturnType<typeof beginClientOverviewReads> }>();
+
+type OverviewRead = [
+    Record<string, number>,
+    Awaited<ReturnType<typeof getFulfillmentMatrix>>,
+    Awaited<ReturnType<typeof getTasks>>,
+    Awaited<ReturnType<typeof getCampaignPlan>>,
+    Awaited<ReturnType<typeof getMarketingPlan>>,
+    Awaited<ReturnType<typeof getClientChangeLog>>,
+];
+
+/**
+ * Start every overview read as soon as the client id is known. The page calls
+ * this beside the single-client fetch so the widget does not wait on it.
+ */
+export function beginClientOverviewReads(
+    orgId: string,
+    clientId: string,
+    month: string = currentMonthKey(),
+): Promise<OverviewRead> {
+    const key = `${orgId}:${clientId}:${month}`;
+    const hit = overviewReads.get(key);
+    if (hit && Date.now() - hit.at < OVERVIEW_READ_MS) return hit.pending;
+    const pending = loadOverviewParts({
+        hours: () => getLoggedHoursByClient(orgId, month, clientId),
+        fulfillment: () => getFulfillmentMatrix(orgId, month, { clientId }),
+        tasks: () => getTasks(orgId, { clientId }),
+        plan: () => getCampaignPlan(clientId),
+        marketingPlan: () => getMarketingPlan(clientId),
+        changeLog: () => getClientChangeLog(orgId, clientId),
+    });
+    overviewReads.set(key, { at: Date.now(), pending });
+    void pending.catch(() => {
+        const current = overviewReads.get(key);
+        if (current?.pending === pending) overviewReads.delete(key);
+    });
+    return pending;
+}
+
 export async function getClientOverview(
     client: ClientProject,
     orgId: string,
     month: string = currentMonthKey(),
 ): Promise<ClientOverview> {
-    const [hoursByClient, fulfillment, tasks, plan, marketingPlan] = await Promise.all([
-        getLoggedHoursByClient(orgId, month),
-        getFulfillmentMatrix(orgId, month, { clientId: client.id }),
-        getTasks(orgId, { clientId: client.id }),
-        getCampaignPlan(client.id),
-        getMarketingPlan(client.id),
-    ]);
+    const [hoursByClient, fulfillment, tasks, plan, marketingPlan, changeLog] = await beginClientOverviewReads(orgId, client.id, month);
 
     const hoursLogged = hoursByClient[client.id] ?? 0;
-    const quota = client.setupScope?.mode === 'custom' ? null : await getSeoHoursForMonth(orgId,client.id,month,client.seoHours);
+    const quota = client.setupScope?.mode === 'custom' ? null : seoHoursFromChangeLog(changeLog, month, client.seoHours);
     const hoursBudget = quota ?? 0;
     const hoursStatus = client.setupScope ? setupHoursStatus(client.setupScope, client.status, client.launchDate, hoursLogged, hoursBudget, month) : hoursUsageStatus(hoursLogged, hoursBudget);
     const daysLeft = daysLeftInMonth(month);
