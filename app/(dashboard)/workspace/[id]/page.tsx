@@ -493,7 +493,7 @@ export default function ClientDetailPage() {
                 <StagePlanList
                     clientId={client.id}
                     clientName={client.clientName}
-                    onOpenResults={() => setActiveTab('insights')}
+                    onOpenResults={month => setActiveTab('insights', { range: month })}
                 />
             )}
             {(v2On ? activeTab === 'campaign' : activeTab === 'campaign' && planView === 'plan') && !stageListOn && (
