@@ -81,9 +81,11 @@ test('a collapsed pillar does not grow an add field', () => {
 test('a pending row is visible and cannot be opened', () => {
     const html = render();
     assert.match(html, /data-pending="true"[^>]*data-task-id="pending:draft"|data-task-id="pending:draft"[^>]*data-pending="true"/);
-    const row = html.slice(html.indexOf('data-task-id="pending:draft"') - 80, html.indexOf('Saving this title') + 40);
-    assert.match(row, /disabled=""/);
-    assert.match(html, /Saving this title/);
+    const start = html.indexOf('data-task-id="pending:draft"');
+    const row = html.slice(start, start + 2500);
+    assert.match(row, /aria-label="Mark &quot;Saving this title&quot; done"[^>]*disabled=""/);
+    assert.match(row, /data-plan-open="title"[^>]*disabled=""/);
+    assert.match(row, /Saving this title/);
 });
 
 test('the add bar renders a labeled field and no template control', () => {

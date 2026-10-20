@@ -3,6 +3,7 @@ import { groupTasksByStage, type StageListTask } from './stage-list';
 import { isPendingStageTaskId } from './stage-add';
 import { formatPlanDue, formatPlanHours, isPlanDone, planMonthTitle } from './plan-sections';
 import { dueDay, formatDueDay } from './this-month';
+import { liveSubtasks } from '../tasks/subtask-progress';
 import { isTaskStage } from '../tasks/stage';
 import { parseLiveUrlInput } from '../tasks/live-url';
 import type { Task, TaskStage } from '../types';
@@ -201,7 +202,8 @@ export type PlanParentField =
     | { kind: 'picker'; currentId: string | null; currentTitle: string | null; choices: PlanParentChoice[] };
 
 function directChildren(tasks: readonly StageListTask[], taskId: string): StageListTask[] {
-    return tasks.filter(task => task.parentTaskId === taskId && task.id !== taskId);
+    const ids = new Set(liveSubtasks(taskId, tasks).map(task => task.id));
+    return tasks.filter(task => ids.has(task.id));
 }
 
 /** One level. A pillar stays put. A subtask can move under another top-level task, or to None. */
@@ -390,6 +392,7 @@ export interface PlanPanelTask {
     stage: TaskStage;
     parentTaskId: string | null;
     childCount: number;
+    childDone: number;
     publishedUrl: string | null;
     recurring: boolean;
     basecampLinked: boolean;
@@ -426,6 +429,7 @@ export function planPanelTask(input: {
         : undefined;
     const todoId = detail?.basecampTodoId ?? null;
     const linked = Boolean(todoId) || (!detail && input.task.basecamp);
+    const children = directChildren(input.tasks, input.task.id);
     return {
         id: input.task.id,
         title: input.task.title,
@@ -440,7 +444,8 @@ export function planPanelTask(input: {
         tags: detail?.tags ?? [],
         stage: input.task.stage === 'onboarding' ? 'onboarding' : 'backlog',
         parentTaskId: input.task.parentTaskId,
-        childCount: directChildren(input.tasks, input.task.id).length,
+        childCount: children.length,
+        childDone: children.filter(task => task.status === 'done').length,
         publishedUrl: input.task.publishedUrl ?? null,
         recurring: input.task.recurring,
         basecampLinked: linked,

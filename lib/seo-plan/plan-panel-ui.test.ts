@@ -428,7 +428,8 @@ test('the parent picker stays one level deep', async () => {
     }));
     try {
         assert.equal(document.querySelector('[data-plan-pillar]')?.getAttribute('data-plan-pillar'), '2');
-        assert.match(document.querySelector('[data-plan-pillar]')?.textContent ?? '', /This is a pillar · 2 subtasks/);
+        assert.match(document.querySelector('[data-plan-pillar]')?.textContent ?? '', /This is a pillar · 0\/2/);
+        assert.equal(document.querySelector('[data-subtask-progress]')?.getAttribute('data-subtask-progress'), '0/2');
         assert.equal(document.querySelector('[data-plan-field="parent"]'), null);
     } finally {
         await act(async () => { pillarRoot.unmount(); });
@@ -554,6 +555,54 @@ test('Blocked asks for a one-line reason, the chip shows it, and Done clears it'
         assert.equal(document.querySelector('[data-plan-blocked]'), null);
         await act(async () => { document.querySelector<HTMLButtonElement>('[data-plan-field="labels"]')?.click(); });
         assert.equal(document.querySelector('[data-plan-blocked-add]'), null);
+    } finally {
+        await act(async () => { root.unmount(); });
+    }
+});
+
+test('marking an onboarding subtask done names the checkbox and offers Undo before it hides', async () => {
+    function CheckHarness() {
+        const [tasks, setTasks] = useState(plan);
+        return createElement(StagePlanListView, {
+            tasks,
+            query: '',
+            onQueryChange: () => undefined,
+            onOpenTask: () => undefined,
+            onAddTasks: async () => undefined,
+            onReorder: async () => undefined,
+            today: '2026-10-20',
+            initialMonth: '2026-10',
+            clientName: "Maya's Construction",
+            doneHoldMs: 60_000,
+            onToggleCheck: taskId => {
+                setTasks(current => current.map(item => item.id === taskId
+                    ? { ...item, status: item.status === 'done' ? 'todo' : 'done' }
+                    : item));
+            },
+        });
+    }
+    const root = await mount(createElement(CheckHarness));
+    try {
+        const box = document.querySelector('[data-task-id="child"] [role="checkbox"]');
+        assert.ok(box instanceof dom.window.HTMLButtonElement);
+        assert.equal(box.getAttribute('aria-checked'), 'false');
+        assert.match(box.getAttribute('aria-label') ?? '', /Mark "Fix NAP" done/);
+        const space = new dom.window.KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+        box.dispatchEvent(space);
+        assert.equal(space.defaultPrevented, false);
+        await act(async () => { box.click(); });
+        const row = document.querySelector('[data-task-id="child"]');
+        assert.ok(row);
+        assert.match(row.textContent ?? '', /Marked done/);
+        assert.match(row.textContent ?? '', /Undo/);
+        const checked = row.querySelector('[role="checkbox"]');
+        assert.equal(checked?.getAttribute('aria-checked'), 'true');
+        const undo = row.querySelector('[data-subtask-undo="child"]');
+        assert.ok(undo instanceof dom.window.HTMLButtonElement);
+        await act(async () => { undo.click(); });
+        const restored = document.querySelector('[data-task-id="child"] [role="checkbox"]');
+        assert.equal(restored?.getAttribute('aria-checked'), 'false');
+        assert.equal((document.querySelector('[data-task-id="child"]')?.textContent ?? '').includes('Marked done'), false);
     } finally {
         await act(async () => { root.unmount(); });
     }

@@ -9,6 +9,7 @@ import {
     stageListTitleParts,
     type StageListTask,
 } from './stage-list.ts';
+import { subtaskProgress } from '../tasks/subtask-progress.ts';
 import { TASK_STAGES } from '../types.ts';
 
 function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'title'>): StageListTask {
@@ -181,6 +182,59 @@ test('a recurring successor stays its own row, and a grandchild nests under the 
     assert.deepEqual(onboarding?.groups[0].children.map(child => child.id), ['grand', 'middle']);
     assert.equal(sections.find(item => item.stage === 'backlog')?.groups[0].task.id, 'successor');
     assert.equal(sections.flatMap(item => item.groups.map(group => group.task.id)).includes('grand'), false);
+});
+
+test('SEO Setup progress matches the shared live set and drops recurring and excluded rows', () => {
+    const sitemap = task({
+        id: 'sitemap',
+        title: 'Submit sitemap',
+        stage: 'onboarding',
+        position: 4,
+        parentTaskId: 'setup',
+    });
+    const robotsChild = task({ ...robots, parentTaskId: 'setup', status: 'done', stage: 'onboarding' });
+    const grand = task({
+        id: 'grand',
+        title: 'Confirm sitemap index',
+        stage: 'onboarding',
+        position: 1,
+        parentTaskId: 'sitemap',
+    });
+    const successor = task({
+        id: 'successor',
+        title: 'SEO Setup',
+        stage: 'backlog',
+        position: 1,
+        parentTaskId: 'setup',
+        recurring: true,
+    });
+    const archived = task({
+        id: 'old',
+        title: 'Retired checklist row',
+        stage: 'onboarding',
+        position: 5,
+        parentTaskId: 'setup',
+        status: 'done',
+        excluded: true,
+    });
+    const rows = [
+        setup,
+        task({ ...keywords, status: 'done' }),
+        task({ ...cookies, status: 'done' }),
+        robotsChild,
+        sitemap,
+        grand,
+        successor,
+        archived,
+    ];
+    const pillar = groupTasksByStage(rows, '').flatMap(item => item.groups).find(group => group.task.id === 'setup');
+    const shared = subtaskProgress('setup', rows);
+    assert.equal(shared.label, '3/5');
+    assert.equal(pillar?.childCount, shared.total);
+    assert.equal(pillar?.childDone, shared.done);
+    assert.equal(pillar?.children.some(child => child.id === 'grand'), true);
+    assert.equal(pillar?.children.some(child => child.id === 'successor'), false);
+    assert.equal(pillar?.children.some(child => child.id === 'old'), false);
 });
 
 test('a subtask with no loaded parent is not a peer pillar', () => {

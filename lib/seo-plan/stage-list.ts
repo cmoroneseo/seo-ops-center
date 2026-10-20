@@ -1,5 +1,5 @@
 import type { PlanBasecampSyncState } from './basecamp-push';
-import { timeTrackingTaskId, type TimeTrackingTask } from '../tasks/pillars';
+import { nestingParentId, progressOf, taskExcluded, type ProgressTask } from '../tasks/subtask-progress';
 import { isTaskStage } from '../tasks/stage';
 import { TASK_STAGES, type TaskStage } from '../types';
 
@@ -29,6 +29,11 @@ export interface StageListTask {
     assigneeIds?: string[];
     /** tasks.blocked_reason. Absent when that column was not selected. Empty means not blocked. */
     blockedReason?: string | null;
+    /**
+     * Deleted, archived, or hidden. These rows are not live subtasks.
+     * A month filter or the "Show done" fold is not this flag.
+     */
+    excluded?: boolean;
     /**
      * Last plan push. Absent when the sync columns were not selected.
      * Null means the task has not been pushed. 'ok' stays invisible.
@@ -88,21 +93,8 @@ function titleMatches(task: StageListTask, words: readonly string[]): boolean {
     return words.every(word => title.includes(word));
 }
 
-function tracking(task: StageListTask): TimeTrackingTask {
-    return {
-        id: task.id,
-        title: task.title,
-        parentTaskId: task.parentTaskId,
-        recurrence: task.recurring ? { freq: 'weekly' } : undefined,
-    };
-}
-
 function stageOf(task: StageListTask): TaskStage {
     return isTaskStage(task.stage) ? task.stage : 'backlog';
-}
-
-function doneStatus(status: string): boolean {
-    return status === 'done';
 }
 
 /**
@@ -110,29 +102,24 @@ function doneStatus(status: string): boolean {
  * Recurring successors stay on their own row. A deeper chore nests under the
  * pillar, one level, so it never sits beside that pillar as a peer.
  */
+function asProgress(task: StageListTask): ProgressTask {
+    return task;
+}
+
 function displayParent(
     task: StageListTask,
     byId: ReadonlyMap<string, StageListTask>,
 ): StageListTask | 'missing' | undefined {
-    const direct = task.parentTaskId ? byId.get(task.parentTaskId) : undefined;
-    if (timeTrackingTaskId(tracking(task), direct ?? null) === task.id) return undefined;
-    if (!task.parentTaskId) return undefined;
-    if (!direct) return 'missing';
-
-    let current: StageListTask = direct;
-    for (let guard = 0; guard < 8; guard += 1) {
-        const parentOfCurrent = current.parentTaskId ? byId.get(current.parentTaskId) : undefined;
-        if (timeTrackingTaskId(tracking(current), parentOfCurrent ?? null) === current.id) return current;
-        if (!current.parentTaskId || !parentOfCurrent) return 'missing';
-        current = parentOfCurrent;
-    }
-    return 'missing';
+    const parentId = nestingParentId(asProgress(task), byId);
+    if (parentId === null) return undefined;
+    if (parentId === 'missing') return 'missing';
+    return byId.get(parentId) ?? 'missing';
 }
 
 function uniqueTasks(tasks: readonly StageListTask[]): StageListTask[] {
     const byId = new Map<string, StageListTask>();
     for (const task of tasks) {
-        if (!task.id || byId.has(task.id)) continue;
+        if (!task.id || task.excluded || byId.has(task.id)) continue;
         byId.set(task.id, task);
     }
     return [...byId.values()];
@@ -188,11 +175,12 @@ export function groupTasksByStage(tasks: readonly StageListTask[], query: string
         const matchingChildren = searching ? allChildren.filter(child => titleMatches(child, words)) : [];
         const parentHit = searching && titleMatches(task, words);
         const children = !searching || parentHit ? allChildren : matchingChildren;
+        const progress = progressOf(allChildren);
         groups.push({
             task,
             children,
-            childCount: allChildren.length,
-            childDone: allChildren.filter(child => doneStatus(child.status)).length,
+            childCount: progress.total,
+            childDone: progress.done,
             expandChildren: searching && children.length > 0 && (matchingChildren.length > 0 || !parentHit),
         });
     }
@@ -262,6 +250,7 @@ export function stageListTaskFromRow(row: unknown): StageListTask | null {
         category: typeof record.category === 'string' && record.category ? record.category : null,
         basecamp: typeof basecampId === 'number' || (typeof basecampId === 'string' && basecampId !== ''),
         recurring: record.recurrence != null,
+        ...(taskExcluded(record) ? { excluded: true } : {}),
         ...('published_url' in record ? {
             publishedUrl: typeof record.published_url === 'string' && record.published_url.trim()
                 ? record.published_url.trim()
@@ -338,6 +327,7 @@ export function parseStageListTasks(value: unknown): StageListTask[] {
             category: typeof record.category === 'string' && record.category ? record.category : null,
             basecamp: record.basecamp === true,
             recurring: record.recurring === true,
+            ...(record.excluded === true ? { excluded: true } : {}),
             ...('publishedUrl' in record ? {
                 publishedUrl: typeof record.publishedUrl === 'string' && record.publishedUrl.trim()
                     ? record.publishedUrl.trim()

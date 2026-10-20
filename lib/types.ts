@@ -256,6 +256,11 @@ export interface Task {
     category?: TaskCategory;
     tags: string[];
     subtasks: Subtask[];
+    /**
+     * Whether `subtasks` is the live pillar set.
+     * Loading and unavailable must not render as 0/N. Absent means the list was not requested.
+     */
+    subtasksState?: 'loading' | 'ready' | 'unavailable';
     deliverableId?: string;
     parentTaskId?: string;
     /** How long the work takes. Never written by the planner. */

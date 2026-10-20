@@ -27,6 +27,21 @@ test('overview renders an em dash for a failed hour load and does not invent an 
     assert.equal(html.includes('0h'), false);
 });
 
+test('overview shows a loading state instead of 0 of N before onboarding has loaded', () => {
+    const html = renderToStaticMarkup(createElement(OverviewCommand, {
+        hoursLabel: '10h',
+        monthLabel: 'October 2026',
+        onboarding: { status: 'loading', done: 0, total: 5 },
+        tasks: { status: 'loading' },
+        onOpenPlan: () => {},
+        onOpenTasks: () => {},
+    }));
+    assert.match(html, /Loading onboarding/);
+    assert.match(html, /Loading tasks/);
+    assert.equal(html.includes('0 of 5'), false);
+    assert.equal(html.includes('0/5'), false);
+});
+
 test('overview counts selected onboarding work and undated tasks without a due count', () => {
     const html = renderToStaticMarkup(createElement(OverviewCommand, {
         hoursLabel: 'Hours start after launch',

@@ -21,6 +21,12 @@ import { completedAtForLiveUrl, parseLiveUrlInput, splitLiveUrl } from '../tasks
 import { isTaskStage } from '../tasks/stage';
 import { normalizeBlockedReason, taskStatusColumns } from '../tasks/status';
 import { sumTaskLoggedHours } from '../time-budget-logic';
+import {
+    attachSubtaskSnapshots,
+    liveSubtasks,
+    taskExcluded,
+    type ProgressTask,
+} from '../tasks/subtask-progress';
 
 // ---------------------------------------------------------------------------
 // Basecamp integration helpers (fire-and-forget, server-side only)
@@ -185,6 +191,37 @@ function taskToRow(t: Partial<TaskInsert>) {
     return taskCreateRow(t);
 }
 
+function progressTaskFromRow(row: Record<string, unknown>): ProgressTask {
+    return {
+        id: typeof row.id === 'string' ? row.id : '',
+        title: typeof row.title === 'string' ? row.title : '',
+        status: typeof row.status === 'string' ? row.status : 'todo',
+        parentTaskId: typeof row.parent_task_id === 'string' ? row.parent_task_id : null,
+        recurring: row.recurrence != null,
+        excluded: taskExcluded(row),
+    };
+}
+
+/** Child rows for the shared counter. A failed read is null so parents stay and the counter is unavailable. */
+async function childProgressRows(
+    supabase: NonNullable<ReturnType<typeof createClient>>,
+    scope: { organizationId: string; clientId?: string },
+): Promise<ProgressTask[] | null> {
+    try {
+        let query = supabase
+            .from('tasks')
+            .select('id, title, status, parent_task_id, recurrence')
+            .eq('organization_id', scope.organizationId)
+            .not('parent_task_id', 'is', null);
+        if (scope.clientId) query = query.eq('client_id', scope.clientId);
+        const { data, error } = await query;
+        if (error) return null;
+        return (data ?? []).map((row: Record<string, unknown>) => progressTaskFromRow(row));
+    } catch {
+        return null;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
@@ -229,7 +266,12 @@ export async function getTasks(
 
         const { data, error } = await q.order('sort_order', { ascending: true }).order('created_at', { ascending: false });
         if (error) throw error;
-        return (data || []).map(rowToTask);
+        const parents = (data || []).map(rowToTask);
+        const children = await childProgressRows(supabase, {
+            organizationId,
+            clientId: filters.clientId,
+        });
+        return attachSubtaskSnapshots(parents, children);
     } catch (err) {
         console.error('Error fetching tasks:', err);
         return [];
@@ -263,11 +305,12 @@ export async function getTasksByClient(clientId: string, throwOnError = false): 
             .from('tasks')
             .select('*, clients(name)')
             .eq('client_id', clientId)
-            .is('parent_task_id', null)
             .order('sort_order', { ascending: true })
             .order('due_date', { ascending: true });
         if (error) throw error;
-        return (data || []).map(rowToTask);
+        const rows = data || [];
+        const parents = rows.filter((row: { parent_task_id?: string | null }) => !row.parent_task_id).map(rowToTask);
+        return attachSubtaskSnapshots(parents, rows.map(progressTaskFromRow));
     } catch (err) {
         console.error('Error fetching tasks by client:', err);
         if (throwOnError) throw err;
@@ -324,26 +367,54 @@ export async function getTask(taskId: string): Promise<{
     const supabase = createClient();
     if (!supabase) return { task: null, subtasks: [], loggedHours: 0 };
     try {
-        const [taskRes, subtasksRes] = await Promise.all([
-            supabase.from('tasks').select('*, clients(name)').eq('id', taskId).single(),
-            supabase.from('tasks').select('*, clients(name)').eq('parent_task_id', taskId).order('sort_order'),
-        ]);
-
+        const taskRes = await supabase.from('tasks').select('*, clients(name)').eq('id', taskId).single();
         if (taskRes.error) throw taskRes.error;
+        const task = rowToTask(taskRes.data);
 
-        const subtaskIds = (subtasksRes.data || []).map((row: { id: string }) => row.id);
+        let rows: Record<string, unknown>[] | null = null;
+        if (task.clientId) {
+            const clientRes = await supabase.from('tasks').select('*, clients(name)').eq('client_id', task.clientId);
+            if (!clientRes.error) rows = (clientRes.data ?? []) as Record<string, unknown>[];
+        }
+        if (!rows) {
+            const direct = await supabase.from('tasks').select('*, clients(name)').eq('parent_task_id', taskId).order('sort_order');
+            if (direct.error) throw direct.error;
+            rows = (direct.data ?? []) as Record<string, unknown>[];
+        }
+
+        const tree: ProgressTask[] = [
+            {
+                id: task.id,
+                title: task.title,
+                status: task.status,
+                parentTaskId: task.parentTaskId ?? null,
+                recurring: Boolean(task.recurrence),
+            },
+            ...rows.map(progressTaskFromRow),
+        ];
+        const liveIds = new Set(liveSubtasks(task.id, tree).map(item => item.id));
+        const subtasks = rows
+            .filter(row => typeof row.id === 'string' && liveIds.has(row.id))
+            .map(row => rowToTask(row))
+            .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.title.localeCompare(b.title));
+        const snapshots = subtasks.map(item => ({
+            id: item.id,
+            title: item.title,
+            completed: item.status === 'done',
+        }));
+
         const hoursRes = await supabase
             .from('time_logs')
             .select('hours')
-            .in('task_id', [taskId, ...subtaskIds])
+            .in('task_id', [taskId, ...subtasks.map(item => item.id)])
             .eq('status', 'logged');
         if (hoursRes.error) throw hoursRes.error;
 
         const loggedHours = sumTaskLoggedHours(hoursRes.data || []);
 
         return {
-            task: taskRes.data ? rowToTask(taskRes.data) : null,
-            subtasks: (subtasksRes.data || []).map(rowToTask),
+            task: { ...task, subtasks: snapshots, subtasksState: 'ready' },
+            subtasks,
             loggedHours,
         };
     } catch (err) {
