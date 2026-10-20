@@ -11,6 +11,8 @@ import {
     planRowTimeText,
     planRowTimerSwitch,
     planRowTimerView,
+    planTimerTask,
+    tracksOnParentLabel,
     type PlanTimerControls,
 } from './row-timer.ts';
 
@@ -205,4 +207,41 @@ test('Choose Task is a ghost button on the plan and stays the primary elsewhere'
     assert.doesNotMatch(planChooseTaskClass(true, false), /green/);
     assert.match(planChooseTaskClass(false, false), /green-500/);
     assert.match(planChooseTaskClass(true, true), /amber/);
+});
+
+test('a subtask play button tracks time on its parent and says so', () => {
+    const parent = { title: 'SEO Setup' };
+    const subtask = planTimerTask({
+        id: 'chore',
+        title: 'Submit sitemap',
+        parentTaskId: 'pillar',
+    }, parent);
+    assert.deepEqual(subtask, {
+        taskId: 'pillar',
+        label: 'Tracks time on SEO Setup',
+        parentTitle: 'SEO Setup',
+    });
+    assert.equal(tracksOnParentLabel('SEO Setup'), subtask.label);
+
+    const own = planTimerTask({ id: 'pillar', title: 'SEO Setup' }, null);
+    assert.deepEqual(own, { taskId: 'pillar', label: null, parentTitle: null });
+
+    const successor = planTimerTask({
+        id: 'next-week',
+        title: 'SEO Setup',
+        parentTaskId: 'pillar',
+        recurring: true,
+    }, parent);
+    assert.deepEqual(successor, { taskId: 'next-week', label: null, parentTitle: null });
+});
+
+test('a subtask with no loaded parent still names the parent task', () => {
+    const tracked = planTimerTask({
+        id: 'chore',
+        title: 'Submit sitemap',
+        parentTaskId: 'pillar',
+    }, null);
+    assert.equal(tracked.taskId, 'pillar');
+    assert.equal(tracked.label, 'Tracks time on the parent task');
+    assert.equal(tracked.parentTitle, 'the parent task');
 });

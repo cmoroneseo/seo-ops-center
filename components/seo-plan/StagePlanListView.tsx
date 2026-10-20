@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils';
 import { LiveUrlResultLine } from '@/components/search-reporting/LiveUrlResultLine';
 import { LiveUrlControl } from '@/components/tasks/LiveUrlControl';
 import { aggregateUrlResults, type UrlResultReadout } from '@/lib/search-reporting/url-results';
-import { planRowTimeText, planRowTimerLabel, type PlanRowTimerView } from '@/lib/seo-plan/row-timer';
+import { planRowTimeText, planRowTimerLabel, planTimerTask, type PlanRowTimerView } from '@/lib/seo-plan/row-timer';
 import { DoneThisMonthFooter } from './DoneThisMonthFooter';
 import { PlanAddLine, type PlanAddSubmission } from './PlanAddLine';
 import { PlanSyncBanner, PlanSyncDot } from './PlanSyncFailure';
@@ -509,6 +509,11 @@ function PlanSections({
     const dragIdRef = useRef<string | null>(null);
     const seenHint = useRef('');
     const baseId = useId();
+    const tasksById = new Map(tasks.map(task => [task.id, task]));
+    const timerTargetById = new Map(tasks.map(task => {
+        const parent = task.parentTaskId ? tasksById.get(task.parentTaskId) : undefined;
+        return [task.id, planTimerTask(task, parent ?? null)] as const;
+    }));
 
     const rememberDrag = (id: string | null) => {
         dragIdRef.current = id;
@@ -618,6 +623,7 @@ function PlanSections({
                                             people={people}
                                             loggedHours={loggedHours}
                                             timerByTaskId={timerByTaskId}
+                                            timerTargetById={timerTargetById}
                                             onRowTimer={onRowTimer}
                                             onCheckRunning={onCheckRunning}
                                             urlPromptTaskId={urlPromptTaskId}
@@ -682,6 +688,7 @@ function PlanRow({
     people,
     loggedHours,
     timerByTaskId,
+    timerTargetById,
     onRowTimer,
     onCheckRunning,
     urlPromptTaskId,
@@ -710,6 +717,7 @@ function PlanRow({
     people: readonly PlanAssignee[];
     loggedHours: Readonly<Record<string, number>>;
     timerByTaskId?: Readonly<Record<string, PlanRowTimerView>>;
+    timerTargetById: ReadonlyMap<string, { taskId: string; label: string | null; parentTitle: string | null }>;
     onRowTimer?: (taskId: string) => void;
     onCheckRunning?: (taskId: string) => void;
     urlPromptTaskId?: string | null;
@@ -757,7 +765,8 @@ function PlanRow({
             ? planHourRollup(task.id, group.rollupChildIds, loggedHours)
             : null;
         const logged = hours ? hours.total : (loggedHours[task.id] ?? 0);
-        const timer = timerByTaskId?.[task.id] ?? { phase: 'idle' as const, seconds: 0 };
+        const tracked = timerTargetById.get(task.id) ?? { taskId: task.id, label: null as string | null, parentTitle: null as string | null };
+        const timer = timerByTaskId?.[tracked.taskId] ?? { phase: 'idle' as const, seconds: 0 };
         const loggedLabel = options.pillar ? `Σ ${formatPlanHours(logged)}` : formatPlanHours(logged);
         const timeText = onRowTimer ? planRowTimeText(timer, loggedLabel) : loggedLabel;
         const stopOnCheck = timer.phase === 'running' && Boolean(onCheckRunning) && !pending;
@@ -950,12 +959,15 @@ function PlanRow({
                     <button
                         type="button"
                         disabled={pending || timer.phase === 'reviewing'}
-                        aria-label={planRowTimerLabel(timer.phase, task.title)}
-                        title={timer.phase === 'idle' && hours ? hours.tooltip : undefined}
+                        aria-label={tracked.label
+                            ? `${planRowTimerLabel(timer.phase, tracked.parentTitle || 'the parent task')}. ${tracked.label}`
+                            : planRowTimerLabel(timer.phase, task.title)}
+                        title={tracked.label ?? (timer.phase === 'idle' && hours ? hours.tooltip : undefined)}
                         data-plan-time={timeText}
+                        data-plan-tracks={tracked.label ?? undefined}
                         onClick={event => {
                             event.stopPropagation();
-                            if (!pending) onRowTimer(task.id);
+                            if (!pending) onRowTimer(tracked.taskId);
                         }}
                         className={cn(
                             'inline-flex w-full items-center justify-end gap-1 text-right text-[12px] tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-70',
