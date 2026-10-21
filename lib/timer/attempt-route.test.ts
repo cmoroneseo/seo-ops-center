@@ -574,6 +574,18 @@ test('maps conflicting transitions to 409 without leaking database messages', as
     assert.deepEqual(await body(response), { error: 'Timer state conflict' });
 });
 
+test('a start blocked because the open attempt is in review says so', async () => {
+    const conflict = Object.assign(new Error('time attempt is in review'), { code: '55000' });
+    const response = await handleTimerMutation(request({ action: 'start', taskId: 'task-1' }), dependencies({
+        mutateRpc: async () => { throw conflict; },
+    }));
+
+    assert.equal(response.status, 409);
+    const payload = await body(response) as { error?: string };
+    assert.equal(payload.error, 'This task already has a timer in review. Finish or discard it before starting another.');
+    assert.equal(payload.error?.includes('time attempt is in review'), false);
+});
+
 test('canonical recovery maps attempt and segment rows without leaking snake_case', () => {
     const state = timerStateFromRows([
         {

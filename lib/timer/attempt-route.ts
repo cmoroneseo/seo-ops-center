@@ -1,3 +1,4 @@
+import { timerConflictMessage } from './attempt-state.ts';
 import type { TimerMutationRequest, TimerStateResponse } from './contracts.ts';
 
 export interface FinalizeAttemptInput {
@@ -306,7 +307,7 @@ function errorResponse(error: unknown): Response {
         return json({ error: 'Forbidden' }, 403);
     }
     if (code === '23505' || code === '23P01' || code === '55000') {
-        return json({ error: 'Timer state conflict' }, 409);
+        return json({ error: timerConflictMessage(error) ?? 'Timer state conflict' }, 409);
     }
     if (code?.startsWith('22')) {
         return json({ error: 'Invalid timer mutation' }, 400);
