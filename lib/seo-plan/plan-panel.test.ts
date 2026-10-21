@@ -26,8 +26,11 @@ import {
     planPanelDue,
     planPanelKeyAction,
     planPanelTask,
+    planCanAddSubtasks,
+    planMoveUnderChoice,
     planParentField,
     planParentMove,
+    planSubtasks,
     planTasksWithout,
     planTitleSave,
     queuePlanTextSave,
@@ -214,13 +217,23 @@ test('the parent picker is one level, and a pillar cannot move under another tas
     if (pillar.kind === 'pillar') assert.equal(pillar.childCount, 2);
     assert.equal(planParentMove(tasks, 'citations', 'kitchen').ok, false);
 
-    const leaf = planParentField(tasks, 'houzz');
+    const finished = task({ id: 'finished', title: 'Old kickoff', status: 'done', position: 4 });
+    const completed = task({ id: 'completed', title: 'Completed audit', status: 'completed', position: 5 });
+    const open = [...tasks, finished, completed];
+    const leaf = planParentField(open, 'houzz');
     assert.equal(leaf.kind, 'picker');
     if (leaf.kind === 'picker') {
         assert.deepEqual(leaf.choices.map(choice => choice.id), ['kitchen', 'citations', 'setup']);
         assert.equal(leaf.choices.some(choice => choice.id === 'yelp' || choice.id === 'houzz'), false);
+        assert.equal(leaf.choices.some(choice => choice.id === 'finished' || choice.id === 'completed'), false);
         assert.equal(leaf.currentId, 'citations');
     }
+    assert.equal(planMoveUnderChoice(finished, 'houzz'), false);
+    assert.equal(planMoveUnderChoice(completed, 'houzz'), false);
+    assert.equal(planMoveUnderChoice(kitchen, 'houzz'), true);
+    assert.equal(planCanAddSubtasks(citations), true);
+    assert.equal(planCanAddSubtasks(houzz), false);
+    assert.deepEqual(planSubtasks(open, 'citations').map(item => item.id), ['houzz', 'yelp']);
 
     const under = planParentMove(tasks, 'kitchen', 'citations');
     assert.equal(under.ok, true);
@@ -239,6 +252,23 @@ test('the parent picker is one level, and a pillar cannot move under another tas
     assert.equal(unnest.move.parentTaskId, null);
     assert.equal(unnest.move.stage, 'backlog');
     assert.equal(planParentMove(tasks, 'kitchen', null).move, null);
+});
+
+test('adding a subtask updates the live count from the same rows', () => {
+    const parent = task({ id: 'citations', title: 'Citations cleanup' });
+    const before = planPanelTask({ task: parent, tasks: [parent] });
+    assert.equal(before.childCount, 0);
+    assert.equal(before.childDone, 0);
+    const child = task({ id: 'houzz', title: 'Houzz photos', parentTaskId: 'citations', status: 'todo' });
+    const after = planPanelTask({ task: parent, tasks: [parent, child] });
+    assert.equal(after.childCount, 1);
+    assert.equal(after.childDone, 0);
+    const done = planPanelTask({
+        task: parent,
+        tasks: [parent, { ...child, status: 'done' }],
+    });
+    assert.equal(done.childDone, 1);
+    assert.equal(done.childCount, 1);
 });
 
 test('duplicate, delete, time, and Basecamp stay on data the task already has', () => {
