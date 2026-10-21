@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { hoursStringFromMinutes } from './contract.ts';
 import { parseForecastPayloadV2 } from './contract-v2.ts';
 import { buildForecastV2, clockTimeInTimeZone, splitMinutesEvenly, type ForecastV2Input } from './v2.ts';
+import { rowToForecastLog } from './source.ts';
 import type { ForecastEvent, ForecastLog, ForecastTask } from './build.ts';
 
 const ORG = '22222222-2222-4222-8222-222222222222';
@@ -646,4 +647,202 @@ test('version 2 still leaves a zero-minute row out of the payload', () => {
     }));
     assert.equal(items(result).length, 0);
     assert.equal(JSON.stringify(result.payloadBody).includes('"minutes":0'), false);
+});
+
+const FLOOR = 'Floor Co Design USA';
+const SEO_TASK = '44444444-4444-4444-8444-444444444451';
+const FIX_TASK = '44444444-4444-4444-8444-444444444452';
+const MON_LOG = '55555555-5555-4555-8555-555555555581';
+const TUE_TIMER = '55555555-5555-4555-8555-555555555582';
+const TUE_MANUAL = '55555555-5555-4555-8555-555555555583';
+const OPEN_LOG = '55555555-5555-4555-8555-555555555584';
+
+/** Week of 19 Oct 2026, America/Los_Angeles. Hours are the stored hundredths. */
+function floorLog(overrides: {
+    id: string;
+    date: string;
+    hours: string;
+    task_id: string;
+    task_title: string;
+    status?: string;
+    segments: { started_at: string; ended_at: string }[];
+}): ForecastLog {
+    return rowToForecastLog({
+        id: overrides.id,
+        user_id: carlos.userId,
+        client_id: CLIENT,
+        date: overrides.date,
+        hours: overrides.hours,
+        status: overrides.status ?? 'logged',
+        import_status: 'mapped',
+        voided_at: null,
+        planner_event_id: null,
+        planned_starts_at: null,
+        task_id: overrides.task_id,
+        description: overrides.task_title,
+        clients: { name: FLOOR, domain: null },
+        tasks: { title: overrides.task_title },
+        time_log_segments: overrides.segments,
+    });
+}
+
+function floorWeek(logs: ForecastLog[]) {
+    return buildForecastV2(input({
+        today: '2026-10-21',
+        timeZone: 'America/Los_Angeles',
+        selectedWeekStarts: ['2026-10-19'],
+        deskClients: [{ id: 'rc_floor', name: FLOOR }],
+        logs,
+    }));
+}
+
+test('timer and manual logs send the segment start on the log date', () => {
+    const logs = [
+        floorLog({
+            id: MON_LOG,
+            date: '2026-10-19',
+            hours: '0.76',
+            task_id: SEO_TASK,
+            task_title: 'SEO Setup',
+            segments: [{
+                started_at: '2026-10-20T06:07:34.586+00:00',
+                ended_at: '2026-10-20T06:52:53.626+00:00',
+            }],
+        }),
+        floorLog({
+            id: TUE_TIMER,
+            date: '2026-10-20',
+            hours: '0.38',
+            task_id: SEO_TASK,
+            task_title: 'SEO Setup',
+            segments: [{
+                started_at: '2026-10-20T17:29:20.582+00:00',
+                ended_at: '2026-10-20T17:52:04.027+00:00',
+            }],
+        }),
+        floorLog({
+            id: TUE_MANUAL,
+            date: '2026-10-20',
+            hours: '0.82',
+            task_id: FIX_TASK,
+            task_title: "Fix 404s on Floor Co's 323 city pages",
+            segments: [{
+                started_at: '2026-10-20T19:42:00+00:00',
+                ended_at: '2026-10-20T20:31:00+00:00',
+            }],
+        }),
+        floorLog({
+            id: OPEN_LOG,
+            date: '2026-10-20',
+            hours: '0.25',
+            task_id: SEO_TASK,
+            task_title: 'SEO Setup',
+            status: 'in_progress',
+            segments: [{
+                started_at: '2026-10-20T21:00:00+00:00',
+                ended_at: '2026-10-20T21:15:00+00:00',
+            }],
+        }),
+    ];
+    // 23:07 PT is already the next UTC day. The item stays on the log's local date.
+    assert.equal(logs[0].workedStartsAt, '2026-10-20T06:07:34.586Z');
+    assert.equal(logs[0].plannedStartsAt, undefined);
+
+    const result = floorWeek(logs);
+    const sent = items(result);
+    assert.equal(sent.length, 3);
+    assert.equal(sent.some(item => item.sourceIds.timeLogIds.includes(OPEN_LOG)), false);
+
+    const monday = sent.find(item => item.sourceIds.timeLogIds.includes(MON_LOG));
+    assert.equal(monday?.date, '2026-10-19');
+    assert.equal(monday?.startTime, '23:07');
+    assert.equal(monday?.minutes, 46);
+    assert.equal(monday?.hours, '0.77');
+    assert.equal(monday?.title, 'SEO Setup');
+
+    const tuesdayTimer = sent.find(item => item.sourceIds.timeLogIds.includes(TUE_TIMER));
+    assert.equal(tuesdayTimer?.date, '2026-10-20');
+    assert.equal(tuesdayTimer?.startTime, '10:29');
+    assert.equal(tuesdayTimer?.minutes, 23);
+    assert.equal(tuesdayTimer?.hours, '0.38');
+
+    const tuesdayManual = sent.find(item => item.sourceIds.timeLogIds.includes(TUE_MANUAL));
+    assert.equal(tuesdayManual?.date, '2026-10-20');
+    assert.equal(tuesdayManual?.startTime, '12:42');
+    assert.equal(tuesdayManual?.minutes, 49);
+    assert.equal(tuesdayManual?.hours, '0.82');
+    assert.equal(tuesdayManual?.title, "Fix 404s on Floor Co's 323 city pages");
+
+    const parsed = parseForecastPayloadV2({
+        ...result.payloadBody,
+        runId: '11111111-1111-4111-8111-111111111111',
+    });
+    const days = parsed.weeks[0].people[0].days;
+    assert.deepEqual(days.map(day => day.date), ['2026-10-19', '2026-10-20']);
+    assert.deepEqual(Object.keys(days[0]).sort(), ['date', 'items']);
+    const sentItems = days.flatMap(day => day.items);
+    assert.equal(sentItems.reduce((sum, item) => sum + item.minutes, 0), 118);
+    for (const item of sentItems) {
+        assert.equal(item.hours, hoursStringFromMinutes(item.minutes));
+    }
+});
+
+test('several segments use the earliest start, and the focus block still wins', () => {
+    const focusId = '66666666-6666-4666-8666-666666666690';
+    const focusTask = '44444444-4444-4444-8444-444444444453';
+    const resumed = floorLog({
+        id: TUE_TIMER,
+        date: '2026-10-20',
+        hours: '0.50',
+        task_id: SEO_TASK,
+        task_title: 'SEO Setup',
+        segments: [
+            { started_at: '2026-10-20T18:15:00.000Z', ended_at: '2026-10-20T18:30:00.000Z' },
+            { started_at: '2026-10-20T17:29:20.582Z', ended_at: '2026-10-20T17:52:04.027Z' },
+        ],
+    });
+    assert.equal(resumed.workedStartsAt, '2026-10-20T17:29:20.582Z');
+
+    const placed = buildForecastV2(input({
+        today: '2026-10-21',
+        timeZone: 'America/Los_Angeles',
+        selectedWeekStarts: ['2026-10-19'],
+        deskClients: [{ id: 'rc_floor', name: FLOOR }],
+        logs: [
+            resumed,
+            log({
+                id: LOG_A,
+                date: '2026-10-20',
+                hours: 1,
+                taskId: focusTask,
+                taskTitle: 'Pre Launch',
+                clientName: FLOOR,
+                plannerEventId: focusId,
+                plannedStartsAt: '2026-10-20T18:00:00.000Z',
+                workedStartsAt: '2026-10-20T17:29:20.582Z',
+            }),
+        ],
+        events: [{
+            id: focusId,
+            userId: carlos.userId,
+            attendeeIds: [],
+            kind: 'focus',
+            startsAt: '2026-10-20T19:00:00.000Z',
+            endsAt: '2026-10-20T20:00:00.000Z',
+            allDay: false,
+            clientId: CLIENT,
+            taskId: focusTask,
+            title: 'Pre Launch',
+        }],
+    }));
+
+    const sent = items(placed);
+    const setup = sent.find(item => item.sourceIds.timeLogIds.includes(TUE_TIMER));
+    assert.equal(setup?.startTime, '10:29');
+    assert.equal(setup?.date, '2026-10-20');
+
+    const focus = sent.find(item => item.itemKey === `task:${focusTask}:2026-10-20`);
+    assert.equal(focus?.startTime, '12:00');
+    assert.equal(focus?.date, '2026-10-20');
+    assert.equal(sent.length, 2);
 });

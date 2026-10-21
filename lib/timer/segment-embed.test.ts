@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 const sources = {
     'app/api/time-tracking/route.ts': readFileSync(new URL('../../app/api/time-tracking/route.ts', import.meta.url), 'utf8'),
     'lib/supabase/time-logs.ts': readFileSync(new URL('../supabase/time-logs.ts', import.meta.url), 'utf8'),
+    'lib/forecast/source.ts': readFileSync(new URL('../forecast/source.ts', import.meta.url), 'utf8'),
 };
 
 const migration = readFileSync(new URL('../../migrations/033_planner_time_segments.sql', import.meta.url), 'utf8');

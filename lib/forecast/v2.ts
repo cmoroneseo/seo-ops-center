@@ -32,9 +32,10 @@ import type { ForecastItem, ForecastItemClient, ForecastPayloadBodyV2 } from './
  *
  * startTime places an item on the hour grid. It does not decide whether the
  * minutes count. For actuals the clock is the focus block start, then the
- * time log's planned start, then the event start. An estimate uses the task
- * start when the timestamp includes a time. A bare date, an all-day block,
- * and any other unscheduled item stay null so Campaign Desk can queue them.
+ * worked segment start, then the time log's planned start, then the event
+ * start. The day stays the log's own date. An estimate uses the task start
+ * when the timestamp includes a time. A bare date, an all-day block, and any
+ * other unscheduled item stay null so Campaign Desk can queue them.
  *
  * Time logged from a planner block is the time log whose planner event id
  * is that block. When that log names a Basecamp project, the hours prefer
@@ -81,7 +82,7 @@ interface Group {
     source: 'actual' | 'estimate';
     minutes: number;
     startTime: string | null;
-    /** Higher wins when several logs share an item. Focus, then planned, then event. */
+    /** Higher wins when several logs share an item. Focus, then worked, then planned, then event. */
     startRank: number;
     taskId: string | null;
     plannerEventId: string | null;
@@ -147,8 +148,10 @@ function scheduledTaskStartTime(startDate: string, timeZone: string): string | n
 }
 
 /**
- * Clock for one actual. Focus wins, then the time the log was planned to
- * start, then the block on the planner. All-day blocks have no clock.
+ * Clock for one actual. Focus wins, then the segment the person actually
+ * worked, then the time the log was planned to start, then the block on the
+ * planner. All-day blocks have no clock. The day bucket stays `log.date`,
+ * so a segment that is already the next UTC day is not moved.
  */
 function actualStartTime(
     log: ForecastLog,
@@ -156,7 +159,11 @@ function actualStartTime(
     timeZone: string,
 ): { time: string | null; rank: number } {
     const focus = focusStartTime(event, timeZone);
-    if (focus) return { time: focus, rank: 3 };
+    if (focus) return { time: focus, rank: 4 };
+    if (log.workedStartsAt) {
+        const worked = clockTimeInTimeZone(log.workedStartsAt, timeZone);
+        if (worked) return { time: worked, rank: 3 };
+    }
     if (log.plannedStartsAt) {
         const planned = clockTimeInTimeZone(log.plannedStartsAt, timeZone);
         if (planned) return { time: planned, rank: 2 };
