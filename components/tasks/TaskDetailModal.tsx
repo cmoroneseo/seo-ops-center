@@ -22,6 +22,7 @@ import { PUSH_OUTCOME_MESSAGE, pushOutcomeFor, type PushOutcome } from '@/lib/ti
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useTimer } from '@/components/providers/timer-provider';
+import { RESUMED_OPEN_TIMER_MESSAGE, REVIEWING_TIMER_MESSAGE } from '@/lib/timer/attempt-state';
 import { groupSegmentsForDisplay, sumActiveSeconds } from '@/lib/timer/segments';
 import { timeLogBasecampCopy } from '@/lib/timesheets/log-sync-state';
 import { TIME_LOG_BASECAMP_EVENT, type TimeLogBasecampNotice, basecampSyncNotice } from '@/lib/basecamp/sync-notice';
@@ -176,7 +177,10 @@ function TaskTimeLogRow({
 
 export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId, initialCompletion = false, embedded = false, hideBasecampSend = false, saveTimeLog = createTimeLog }: TaskDetailModalProps) {
     const { organization, memberships } = useOrganization();
-    const { runningTimer, pausedTimers, startTask, pause, beginStop } = useTimer();
+    const { runningTimer, pausedTimers, startTask, pause, resume, beginStop } = useTimer();
+    const [timerPending, setTimerPending] = useState(false);
+    const [timerNotice, setTimerNotice] = useState<string | null>(null);
+    const timerPendingRef = useRef<string | null>(null);
     const [mounted, setMounted] = useState(false);
     const [saving, setSaving] = useState(false);
     const [comments, setComments] = useState<TaskComment[]>([]);
@@ -734,16 +738,31 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const isThisTaskRunning = !!trackingTaskId && (runningTimer?.taskId === trackingTaskId || runningTimer?.taskId === task?.id);
 
     const handleTimerClick = async () => {
-        if (!task || !trackingTaskId) return;
-        if (isThisTaskRunning && runningTimer) {
-            await pause(runningTimer);
-        } else if (task.clientId || task.projectId) {
-            await startTask({
-                clientId: task.clientId ?? task.projectId ?? '',
-                clientName: task.clientName ?? 'Unknown',
-                taskId: trackingTaskId,
-                taskTitle: task.title,
-            });
+        if (!task || !trackingTaskId || timerPendingRef.current) return;
+        timerPendingRef.current = trackingTaskId;
+        setTimerPending(true);
+        setTimerNotice(null);
+        try {
+            if (isThisTaskRunning && runningTimer) {
+                await pause(runningTimer);
+            } else if (openAttempt?.reviewingAt) {
+                setTimerNotice(REVIEWING_TIMER_MESSAGE);
+            } else if (openAttempt) {
+                const ok = await resume(openAttempt);
+                if (ok) setTimerNotice(RESUMED_OPEN_TIMER_MESSAGE);
+            } else if (task.clientId || task.projectId) {
+                await startTask({
+                    clientId: task.clientId ?? task.projectId ?? '',
+                    clientName: task.clientName ?? 'Unknown',
+                    taskId: trackingTaskId,
+                    taskTitle: task.title,
+                });
+            }
+        } catch (error) {
+            setTimerNotice(error instanceof Error ? error.message : 'Unable to update the timer.');
+        } finally {
+            timerPendingRef.current = null;
+            setTimerPending(false);
         }
     };
 
@@ -795,19 +814,26 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                         <div className="flex items-center gap-1">
                             {(task.clientId || task.projectId) && (
                                 <button
-                                    onClick={handleTimerClick}
-                                    title={isThisTaskRunning ? 'Pause timer' : 'Start timer'}
+                                    type="button"
+                                    onClick={() => void handleTimerClick()}
+                                    disabled={timerPending || Boolean(openAttempt?.reviewingAt && !isThisTaskRunning)}
+                                    aria-busy={timerPending || undefined}
+                                    title={isThisTaskRunning ? 'Pause timer' : openAttempt ? 'Resume timer' : 'Start timer'}
+                                    data-task-timer={timerPending ? 'pending' : isThisTaskRunning ? 'running' : openAttempt?.reviewingAt ? 'reviewing' : openAttempt ? 'paused' : 'idle'}
                                     className={cn(
-                                        "p-2 rounded-lg transition-colors text-xs font-medium flex items-center gap-1.5",
+                                        "p-2 rounded-lg transition-colors text-xs font-medium flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-70",
                                         isThisTaskRunning
-                                            ? "bg-amber-500/15 text-amber-500 hover:bg-amber-500/25"
-                                            : "hover:bg-muted text-muted-foreground"
+                                            ? "bg-[#ec4899]/15 text-[#ec4899]"
+                                            : openAttempt
+                                                ? "bg-amber-500/15 text-amber-500"
+                                                : "hover:bg-muted text-muted-foreground"
                                     )}
                                 >
                                     <Clock className="h-4 w-4" />
-                                    {isThisTaskRunning ? 'Pause' : 'Start Timer'}
+                                    {timerPending ? 'Starting…' : isThisTaskRunning ? 'Pause' : openAttempt?.reviewingAt ? 'In review' : openAttempt ? 'Resume' : 'Start Timer'}
                                 </button>
                             )}
+                            {timerNotice && <span role="status" className="max-w-[12rem] truncate text-[10px] text-muted-foreground">{timerNotice}</span>}
                             {confirmDelete ? (
                                 <div className="flex items-center gap-2">
                                     <span className="text-xs text-red-500 font-medium">Delete this task?</span>

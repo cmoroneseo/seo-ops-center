@@ -222,6 +222,7 @@ export function StagePlanListView({
     onOpenResults,
     clientName,
     timerByTaskId,
+    pendingTimerTaskId = null,
     onRowTimer,
     onCheckRunning,
     urlPromptTaskId,
@@ -253,6 +254,8 @@ export function StagePlanListView({
     loggedHours?: Readonly<Record<string, number>>;
     /** Open global-timer attempts keyed by task. Absent tasks are idle. */
     timerByTaskId?: Readonly<Record<string, PlanRowTimerView>>;
+    /** Task whose play click is in flight. The control stays disabled until it settles. */
+    pendingTimerTaskId?: string | null;
     /** Start, pause, or resume the global timer for this task. */
     onRowTimer?: (taskId: string) => void;
     /** Checking a row whose timer is running. Ordinary check-off stays with the caller. */
@@ -414,6 +417,7 @@ export function StagePlanListView({
                 integrationsHref={integrationsHref}
                 onRetrySync={onRetrySync}
                 timerByTaskId={timerByTaskId}
+                pendingTimerTaskId={pendingTimerTaskId}
                 onRowTimer={onRowTimer}
                 onCheckRunning={onCheckRunning}
                 urlPromptTaskId={urlPromptTaskId}
@@ -473,6 +477,7 @@ function PlanSections({
     integrationsHref,
     onRetrySync,
     timerByTaskId,
+    pendingTimerTaskId,
     onRowTimer,
     onCheckRunning,
     urlPromptTaskId,
@@ -497,6 +502,7 @@ function PlanSections({
     integrationsHref: string;
     onRetrySync?: (taskId: string) => Promise<PlanBasecampSyncState | null>;
     timerByTaskId?: Readonly<Record<string, PlanRowTimerView>>;
+    pendingTimerTaskId?: string | null;
     onRowTimer?: (taskId: string) => void;
     onCheckRunning?: (taskId: string) => void;
     urlPromptTaskId?: string | null;
@@ -662,6 +668,7 @@ function PlanSections({
                                             people={people}
                                             loggedHours={loggedHours}
                                             timerByTaskId={timerByTaskId}
+                                            pendingTimerTaskId={pendingTimerTaskId}
                                             timerTargetById={timerTargetById}
                                             onRowTimer={onRowTimer}
                                             onCheckRunning={onCheckRunning}
@@ -730,6 +737,7 @@ function PlanRow({
     people,
     loggedHours,
     timerByTaskId,
+    pendingTimerTaskId,
     timerTargetById,
     onRowTimer,
     onCheckRunning,
@@ -762,6 +770,7 @@ function PlanRow({
     people: readonly PlanAssignee[];
     loggedHours: Readonly<Record<string, number>>;
     timerByTaskId?: Readonly<Record<string, PlanRowTimerView>>;
+    pendingTimerTaskId?: string | null;
     timerTargetById: ReadonlyMap<string, { taskId: string; label: string | null; parentTitle: string | null }>;
     onRowTimer?: (taskId: string) => void;
     onCheckRunning?: (taskId: string) => void;
@@ -817,7 +826,8 @@ function PlanRow({
         const timer = timerByTaskId?.[tracked.taskId] ?? { phase: 'idle' as const, seconds: 0 };
         const loggedLabel = options.pillar ? `Σ ${formatPlanHours(logged)}` : formatPlanHours(logged);
         const timeText = onRowTimer ? planRowTimeText(timer, loggedLabel) : loggedLabel;
-        const stopOnCheck = timer.phase === 'running' && Boolean(onCheckRunning) && !pending;
+        const timerPending = Boolean(onRowTimer) && pendingTimerTaskId === tracked.taskId;
+        const stopOnCheck = timer.phase === 'running' && Boolean(onCheckRunning) && !pending && !timerPending;
         const childResults = options.pillar
             ? group.children.flatMap(child => {
                 const result = resultsByTaskId?.[child.id];
@@ -846,7 +856,7 @@ function PlanRow({
                 data-plan-focused={focusedId === task.id ? 'true' : undefined}
                 data-late={due.late ? 'true' : undefined}
                 data-plan-status={task.status}
-                data-plan-timer={onRowTimer ? timer.phase : undefined}
+                data-plan-timer={onRowTimer ? (timerPending ? 'pending' : timer.phase) : undefined}
                 draggable={draggable || undefined}
                 onDragStart={event => {
                     if (!draggable) return;
@@ -1030,32 +1040,39 @@ function PlanRow({
                 {onRowTimer ? (
                     <button
                         type="button"
-                        disabled={pending || timer.phase === 'reviewing'}
-                        aria-label={tracked.label
-                            ? `${planRowTimerLabel(timer.phase, tracked.parentTitle || 'the parent task')}. ${tracked.label}`
-                            : planRowTimerLabel(timer.phase, task.title)}
+                        disabled={pending || timerPending || timer.phase === 'reviewing'}
+                        aria-busy={timerPending || undefined}
+                        aria-label={timerPending
+                            ? `Starting timer for ${tracked.parentTitle || task.title}`
+                            : tracked.label
+                                ? `${planRowTimerLabel(timer.phase, tracked.parentTitle || 'the parent task')}. ${tracked.label}`
+                                : planRowTimerLabel(timer.phase, task.title)}
                         title={tracked.label ?? (timer.phase === 'idle' && hours ? hours.tooltip : undefined)}
-                        data-plan-time={timeText}
+                        data-plan-time={timerPending ? 'Starting…' : timeText}
                         data-plan-tracks={tracked.label ?? undefined}
                         onClick={event => {
                             event.stopPropagation();
-                            if (!pending) onRowTimer(tracked.taskId);
+                            if (!pending && !timerPending) onRowTimer(tracked.taskId);
                         }}
                         className={cn(
                             'inline-flex w-full items-center justify-end gap-1 text-right text-[12px] tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-70',
-                            timer.phase === 'running' && 'rounded-full bg-[#ec4899]/15 px-1.5 py-0.5 font-mono text-[#ec4899]',
-                            timer.phase === 'paused' && 'text-[#cfcfd4]',
+                            timer.phase === 'running' && !timerPending && 'rounded-full bg-[#ec4899]/15 px-1.5 py-0.5 font-mono text-[#ec4899]',
+                            timer.phase === 'paused' && !timerPending && 'text-amber-400',
                             timer.phase === 'reviewing' && 'text-[#8b8b93]',
-                            timer.phase === 'idle' && (logged > 0 ? 'text-[#cfcfd4]' : 'text-[#6d6d75]'),
+                            (timer.phase === 'idle' || timerPending) && (logged > 0 ? 'text-[#cfcfd4]' : 'text-[#6d6d75]'),
                         )}
                     >
-                        {timer.phase === 'running' && (
+                        {timerPending && <span>Starting…</span>}
+                        {!timerPending && timer.phase === 'running' && (
                             <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ec4899] animate-pulse" />
                         )}
-                        {timer.phase === 'idle' && (
-                            <Play aria-hidden="true" className="h-3 w-0 fill-current opacity-0 group-hover:w-3 group-hover:opacity-100 group-focus-within:w-3 group-focus-within:opacity-100" />
+                        {!timerPending && timer.phase === 'paused' && (
+                            <span data-plan-resume className="font-medium">Resume</span>
                         )}
-                        <span>{timeText}</span>
+                        {!timerPending && timer.phase === 'idle' && (
+                            <Play aria-hidden="true" className="h-3 w-3 shrink-0 fill-current opacity-80" />
+                        )}
+                        {!timerPending && <span>{timeText}</span>}
                     </button>
                 ) : (
                     <span

@@ -4,6 +4,7 @@ import test from 'node:test';
 import type { TimerAttempt } from '../types.ts';
 import {
     clickPlanRowTimer,
+    planTimerNotice,
     closePlanStopReview,
     formatPlanClock,
     openPlanStopReview,
@@ -200,6 +201,14 @@ test('checking a running row opens stop review with mark-complete, and cancel re
 
     assert.equal(await closePlanStopReview({ attempt: null, resume: api.resume }), 'settled');
     assert.equal(api.resumes.length, 1);
+});
+
+test('a row play that finds an open entry explains the resume or the review', () => {
+    assert.equal(planTimerNotice({ action: 'resume', ok: true }), 'Resumed the paused timer on this task.');
+    assert.equal(planTimerNotice({ action: 'noop' }), 'This timer is in review. Finish or discard it from the timer widget.');
+    assert.equal(planTimerNotice({ action: 'pause' }), null);
+    assert.equal(planTimerNotice({ action: 'start', ok: true, promoted: false }), null);
+    assert.equal(planTimerNotice({ action: 'resume', ok: false }), null);
 });
 
 test('Choose Task is a ghost button on the plan and stays the primary elsewhere', () => {

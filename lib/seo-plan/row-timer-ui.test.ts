@@ -16,6 +16,7 @@ globalThis.document = dom.window.document;
 globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.Element = dom.window.Element;
 globalThis.Node = dom.window.Node;
+globalThis.SVGElement = dom.window.SVGElement;
 Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.requestAnimationFrame = (callback: FrameRequestCallback) => setTimeout(() => callback(Date.now()), 0) as unknown as number;
@@ -43,6 +44,7 @@ const tasks: StageListTask[] = [
 
 function mount(props: {
     timerByTaskId?: Readonly<Record<string, PlanRowTimerView>>;
+    pendingTimerTaskId?: string | null;
     onRowTimer?: (taskId: string) => void;
     onCheckRunning?: (taskId: string) => void;
     loggedHours?: Record<string, number>;
@@ -63,6 +65,7 @@ function mount(props: {
             initialMonth: '2026-10',
             loggedHours: props.loggedHours,
             timerByTaskId: props.timerByTaskId,
+            pendingTimerTaskId: props.pendingTimerTaskId,
             onRowTimer: props.onRowTimer,
             onCheckRunning: props.onCheckRunning,
         }));
@@ -102,6 +105,8 @@ test('a running row shows the pink clock and a paused row shows the pause mark',
     assert.equal(running.querySelector('[data-plan-time]')?.textContent, '2:05');
     assert.doesNotMatch(running.textContent ?? '', /1\.5h/);
     assert.equal(paused.querySelector('[data-plan-time]')?.getAttribute('data-plan-time'), '❙❙ 8:07');
+    assert.equal(paused.querySelector('[data-plan-resume]')?.textContent, 'Resume');
+    assert.equal(paused.querySelector('[data-plan-time]')?.getAttribute('aria-label'), 'Resume timer for Houzz profile');
     assert.doesNotMatch(paused.textContent ?? '', /45m|0\.75h/);
     assert.equal(running.querySelector('[data-plan-check-action]')?.getAttribute('data-plan-check-action'), 'stop-timer');
     assert.equal(paused.querySelector('[data-plan-check-action]'), null);
@@ -193,6 +198,25 @@ test('a subtask play button starts the parent and shows that parent\'s clock', (
         'Pause timer for SEO Setup. Tracks time on SEO Setup',
     );
     running.unmount();
+});
+
+test('a play click shows Starting and ignores a second click while it is in flight', () => {
+    const timers: string[] = [];
+    const view = mount({
+        onRowTimer: taskId => { timers.push(taskId); },
+        pendingTimerTaskId: 'alpha',
+    });
+    const button = row(view.container, 'alpha').querySelector<HTMLButtonElement>('[data-plan-time]');
+    assert.equal(row(view.container, 'alpha').getAttribute('data-plan-timer'), 'pending');
+    assert.equal(button?.disabled, true);
+    assert.equal(button?.getAttribute('aria-busy'), 'true');
+    assert.equal(button?.textContent, 'Starting…');
+    act(() => { button?.click(); });
+    assert.deepEqual(timers, []);
+    const idle = row(view.container, 'bravo').querySelector<HTMLButtonElement>('[data-plan-time]');
+    assert.equal(idle?.querySelector('svg') instanceof SVGElement, true);
+    assert.equal(idle?.className.includes('opacity-0'), false);
+    view.unmount();
 });
 
 test('t toggles the focused row timer once per press', () => {

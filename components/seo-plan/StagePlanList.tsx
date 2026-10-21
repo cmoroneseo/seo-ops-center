@@ -5,6 +5,7 @@ import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { useTimer } from '@/components/providers/timer-provider';
+import { OpenTimerStrip } from '@/components/timer/OpenTimerStrip';
 import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
 import {
@@ -34,6 +35,7 @@ import type { DoneThisMonthLog } from '@/lib/seo-plan/done-this-month';
 import { parseStageListTasks, type StageListTask } from '@/lib/seo-plan/stage-list';
 import { useStageListMoves } from '@/lib/seo-plan/stage-list-moves';
 import { calendarDay } from '@/lib/seo-plan/this-month';
+import { RESUMED_OPEN_TIMER_MESSAGE, openTimerRows } from '@/lib/timer/attempt-state';
 import { createTask, deleteTask, getTask, updateTask } from '@/lib/supabase/tasks';
 import type { UrlResultReadout } from '@/lib/search-reporting/url-results';
 import { parseLiveUrlInput, subtaskLineDrafts } from '@/lib/tasks/live-url';
@@ -43,6 +45,7 @@ import {
     closePlanStopReview,
     openPlanStopReview,
     planRowTimerView,
+    planTimerNotice,
     planTimerTask,
 } from '@/lib/seo-plan/row-timer';
 import { PanelSkeleton } from './PanelSkeleton';
@@ -94,6 +97,9 @@ export function StagePlanList({
     const [review, setReview] = useState<{ attemptId: string; taskId: string } | null>(null);
     const [urlPromptTaskId, setUrlPromptTaskId] = useState<string | null>(null);
     const [timerError, setTimerError] = useState<string | null>(null);
+    const [timerNotice, setTimerNotice] = useState<string | null>(null);
+    const [pendingTimerTaskId, setPendingTimerTaskId] = useState<string | null>(null);
+    const pendingTimerRef = useRef<string | null>(null);
     const {
         runningTimer,
         pausedTimers,
@@ -487,6 +493,7 @@ export function StagePlanList({
     }
 
     const onRowTimer = (taskId: string) => {
+        if (pendingTimerRef.current) return;
         // The row button passes the task that keeps the time. Keyboard `t`
         // passes the focused row, which may be the subtask.
         const direct = tasks?.find(item => item.id === taskId);
@@ -501,7 +508,10 @@ export function StagePlanList({
         const tracked = planTimerTask(task, parent ?? null);
         const target = tasks?.find(item => item.id === tracked.taskId);
         if (target && isPendingStageTaskId(target.id)) return;
+        pendingTimerRef.current = tracked.taskId;
+        setPendingTimerTaskId(tracked.taskId);
         setTimerError(null);
+        setTimerNotice(null);
         void clickPlanRowTimer({
             taskId: tracked.taskId,
             taskTitle: target?.title ?? tracked.parentTitle ?? task.title,
@@ -512,6 +522,8 @@ export function StagePlanList({
             paused: pausedTimers,
             controls: { startTask, pause, resume, beginStop },
         }).then(result => {
+            const notice = planTimerNotice(result);
+            if (notice) setTimerNotice(notice);
             if (!target || result.action !== 'start' || !result.promoted) return;
             updateList(current => current?.map(item => item.id === target.id && item.status === 'todo'
                 ? { ...item, status: 'in_progress' }
@@ -521,6 +533,9 @@ export function StagePlanList({
                 : current);
         }).catch(caught => {
             setTimerError(caught instanceof Error ? caught.message : 'Unable to update the timer.');
+        }).finally(() => {
+            pendingTimerRef.current = null;
+            setPendingTimerTaskId(null);
         });
     };
 
@@ -608,6 +623,20 @@ export function StagePlanList({
 
     return (
         <>
+            <OpenTimerStrip
+                rows={openTimerRows(runningTimer, pausedTimers, getElapsedSeconds, clientId)}
+                onResume={attemptId => {
+                    const attempt = [runningTimer, ...pausedTimers].find(item => item?.id === attemptId);
+                    if (!attempt) return;
+                    setTimerNotice(null);
+                    void resume(attempt).then(ok => {
+                        if (ok) setTimerNotice(RESUMED_OPEN_TIMER_MESSAGE);
+                    }).catch(caught => {
+                        setTimerError(caught instanceof Error ? caught.message : 'Unable to resume this timer.');
+                    });
+                }}
+            />
+            {timerNotice && <p role="status" data-plan-timer-notice className="mb-2 text-sm text-muted-foreground">{timerNotice}</p>}
             {timerError && <p role="alert" className="mb-2 text-sm text-[#f87171]">{timerError}</p>}
             <StagePlanListView
                 tasks={tasks}
@@ -626,6 +655,7 @@ export function StagePlanList({
                 people={people}
                 loggedHours={loggedHours}
                 timerByTaskId={timerByTaskId}
+                pendingTimerTaskId={pendingTimerTaskId}
                 onRowTimer={onRowTimer}
                 onCheckRunning={onCheckRunning}
                 urlPromptTaskId={urlPromptTaskId}

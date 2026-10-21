@@ -106,6 +106,8 @@ test('the floating timer shows the running task and start time, and resumes a pa
     assert.equal(task?.textContent, 'Submit sitemap');
     assert.equal(clock?.textContent, formatTimerStartClock(started.toISOString()));
     assert.equal(container.querySelector('[data-timer-paused="pause"]')?.textContent?.includes('Keyword map'), true);
+    assert.equal(container.querySelector('[data-timer-short]'), null);
+    assert.equal(container.querySelector('[data-timer-discard]'), null);
 
     await act(async () => {
         container.querySelector<HTMLButtonElement>('[data-timer-resume="pause"]')?.click();
@@ -119,6 +121,52 @@ test('the floating timer shows the running task and start time, and resumes a pa
     assert.equal(chip?.querySelector('[data-timer-task]')?.textContent, 'Submit sitemap');
     assert.match(chip?.getAttribute('title') ?? '', /Submit sitemap/);
     assert.match(chip?.getAttribute('title') ?? '', /Started /);
+
+    act(() => root.unmount());
+    container.remove();
+});
+
+test('a paused entry under a minute can be discarded in one click and is not deleted otherwise', async () => {
+    const discarded: string[] = [];
+    const paused = attempt({
+        id: 'short',
+        clientName: 'Fixture',
+        taskTitle: 'Check the homepage',
+        elapsedSeconds: 7,
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+        root.render(createElement(
+            TimerContext.Provider,
+            {
+                value: {
+                    runningTimer: null,
+                    pausedTimers: [paused],
+                    getElapsedSeconds: item => item.elapsedSeconds,
+                    startTask: async () => true,
+                    pause: async () => undefined,
+                    resume: async () => true,
+                    switchToTask: async () => true,
+                    beginStop: async () => ({ running: null, paused: [] }),
+                    finalize: async () => ({ running: null, paused: [] }),
+                    discard: async item => { discarded.push(item.id); },
+                    addNote: async () => undefined,
+                    editNote: async () => undefined,
+                    deleteNote: async () => undefined,
+                    getAttemptById: () => paused,
+                },
+            },
+            createElement(FloatingTimer, { clients: [] }),
+        ));
+    });
+
+    assert.match(container.querySelector('[data-timer-short="short"]')?.textContent ?? '', /Under 1 minute/);
+    await act(async () => {
+        container.querySelector<HTMLButtonElement>('[data-timer-discard="short"]')?.click();
+    });
+    assert.deepEqual(discarded, ['short']);
 
     act(() => root.unmount());
     container.remove();

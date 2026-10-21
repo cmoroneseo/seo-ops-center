@@ -26,6 +26,8 @@ interface LedgerRow {
     source: string | null;
     import_status: string | null;
     voided_at: string | null;
+    operation_id: string | null;
+    elapsed_seconds: number | string | null;
     clients: { name: string } | null;
     tasks: { title: string } | null;
 }
@@ -33,7 +35,7 @@ interface LedgerRow {
 const SELECT = [
     'id', 'organization_id', 'client_id', 'task_id', 'user_id', 'date', 'hours',
     'description', 'counts_toward_budget', 'status', 'source', 'import_status',
-    'voided_at', 'clients(name)', 'tasks(title)',
+    'voided_at', 'operation_id', 'elapsed_seconds', 'clients(name)', 'tasks(title)',
 ].join(', ');
 
 function rowToLedgerLog(row: LedgerRow): LedgerLog {
@@ -55,6 +57,8 @@ function rowToLedgerLog(row: LedgerRow): LedgerLog {
         source: (row.source as TimeLogSource) ?? 'seo_pm',
         importStatus: (row.import_status as TimeLogImportStatus) ?? 'mapped',
         voidedAt: row.voided_at ?? undefined,
+        operationId: row.operation_id ?? undefined,
+        elapsedSeconds: row.elapsed_seconds == null ? undefined : Number(row.elapsed_seconds),
     };
 }
 

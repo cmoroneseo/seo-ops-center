@@ -6,6 +6,7 @@ import { useTimer } from '@/components/providers/timer-provider';
 import { ClientProject } from '@/lib/types';
 import type { Task } from '@/lib/types';
 import { getTasksByClient } from '@/lib/supabase/tasks';
+import { GLOBAL_TIMER_BUTTON, GLOBAL_TIMER_HINT, GLOBAL_TIMER_LABEL } from '@/lib/timer/attempt-state';
 import { canStartTaskTimer } from '@/lib/timer-ui';
 
 interface QuickStartPopoverProps {
@@ -80,11 +81,12 @@ export function QuickStartPopover({ clients, onClose }: QuickStartPopoverProps) 
             className="w-72 bg-popover border border-border rounded-xl shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-150 p-3 space-y-3"
         >
             <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold">Start Timer</span>
+                <span className="text-sm font-semibold">{GLOBAL_TIMER_LABEL}</span>
                 <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
                     <X className="h-3.5 w-3.5" />
                 </button>
             </div>
+            <p className="text-xs text-muted-foreground">{GLOBAL_TIMER_HINT}</p>
 
             <select
                 ref={selectRef}
@@ -125,7 +127,7 @@ export function QuickStartPopover({ clients, onClose }: QuickStartPopoverProps) 
                 className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-[#ec4899] text-white text-sm font-medium hover:bg-[#ec4899]/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
                 <Play className="h-3.5 w-3.5 fill-current" />
-                Start Timer
+                {GLOBAL_TIMER_BUTTON}
             </button>
         </div>
     );
