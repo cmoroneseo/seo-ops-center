@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { Check, ChevronRight, GripVertical, Play } from 'lucide-react';
 import { isPendingStageTaskId } from '@/lib/seo-plan/stage-add';
+import { hrefWithOverviewMonth, readOverviewMonth } from '@/lib/seo-plan/plan-month-url';
+import { isChecklistTaskId } from '@/lib/seo-plan/plan-work';
 import { effectOfPlanDrop } from '@/lib/seo-plan/plan-drag';
 import {
     formatPlanDue,
@@ -296,6 +298,7 @@ export function StagePlanListView({
     const [focusedId, setFocusedId] = useState<string | null>(null);
     const day = today ?? calendarDay(new Date());
     const [month, setMonth] = useState(() => (initialMonth && isPlanMonth(initialMonth) ? initialMonth : monthKeyFromDay(day)));
+    const urlMonth = useRef<string | null | undefined>(undefined);
     const sections = groupTasksByPlanMonth(tasks, { month, today: day, query });
     const searching = query.trim().length > 0;
     const nothingMatches = searching && sections.every(section => section.groups.length === 0);
@@ -330,6 +333,21 @@ export function StagePlanListView({
         onRowTimer,
         onShiftMonth: shiftMonth,
     });
+
+    useEffect(() => {
+        const requested = readOverviewMonth(window.location.search);
+        urlMonth.current = requested;
+        if (requested) setMonth(requested);
+    }, []);
+
+    useEffect(() => {
+        if (urlMonth.current === undefined) return;
+        if (typeof urlMonth.current === 'string' && month !== urlMonth.current) return;
+        urlMonth.current = null;
+        const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        const next = hrefWithOverviewMonth(current, month);
+        if (next !== current) window.history.replaceState(window.history.state, '', next);
+    }, [month]);
 
     useEffect(() => {
         onMonthChange?.(month);
@@ -440,12 +458,12 @@ export function StagePlanListView({
             />
         </div>
     );
-    const body = panel ? (
-        <div data-plan-shell="open" className="flex items-start">
+    const body = (
+        <div data-plan-shell={panel ? 'open' : 'closed'} className="flex items-start">
             {list}
             {panel}
         </div>
-    ) : list;
+    );
     return (
         <>
             {body}
@@ -818,6 +836,8 @@ function PlanRow({
     }) => {
         const done = isPlanDone(task.status);
         const pending = isPendingStageTaskId(task.id);
+        const checklist = isChecklistTaskId(task.id);
+        const locked = pending || checklist;
         const due = formatPlanDue(task, today);
         const hours = options.pillar
             ? planHourRollup(task.id, group.rollupChildIds, loggedHours)
@@ -828,7 +848,7 @@ function PlanRow({
         const loggedLabel = options.pillar ? `Σ ${formatPlanHours(logged)}` : formatPlanHours(logged);
         const timeText = onRowTimer ? planRowTimeText(timer, loggedLabel) : loggedLabel;
         const timerPending = Boolean(onRowTimer) && pendingTimerTaskId === tracked.taskId;
-        const stopOnCheck = timer.phase === 'running' && Boolean(onCheckRunning) && !pending && !timerPending;
+        const stopOnCheck = timer.phase === 'running' && Boolean(onCheckRunning) && !locked && !timerPending;
         const childResults = options.pillar
             ? group.children.flatMap(child => {
                 const result = resultsByTaskId?.[child.id];
@@ -844,7 +864,7 @@ function PlanRow({
                 return child?.assigneeIds ?? [];
             })])
             : (task.assigneeIds ?? []);
-        const draggable = !searching && !pending && options.role === 'task';
+        const draggable = !searching && !locked && options.role === 'task';
         return (
             <div
                 key={task.id}
@@ -872,7 +892,7 @@ function PlanRow({
                     onDragStart(task.id);
                 }}
                 onDragOver={event => {
-                    if (searching || !dragId || pending) return;
+                    if (searching || !dragId || locked) return;
                     event.preventDefault();
                     event.stopPropagation();
                     const before = pointerFraction(event) < 0.5;
@@ -883,7 +903,7 @@ function PlanRow({
                     });
                 }}
                 onDrop={event => {
-                    if (searching || pending) return;
+                    if (searching || locked) return;
                     event.preventDefault();
                     event.stopPropagation();
                     const before = pointerFraction(event) < 0.5;
@@ -932,9 +952,9 @@ function PlanRow({
                         : (
                             <CheckBox
                                 done={done}
-                                disabled={pending}
+                                disabled={locked}
                                 label={done ? `Mark "${task.title}" not done` : `Mark "${task.title}" done`}
-                                onToggle={pending || (!onMark && !onToggleCheck) ? undefined : () => {
+                                onToggle={locked || (!onMark && !onToggleCheck) ? undefined : () => {
                                     if (onMark) onMark(task);
                                     else void onToggleCheck?.(task.id);
                                 }}
@@ -945,8 +965,8 @@ function PlanRow({
                     <button
                         type="button"
                         data-plan-open="title"
-                        disabled={pending}
-                        onClick={() => { if (!pending) onOpenTask(task.id, null); }}
+                        disabled={locked}
+                        onClick={() => { if (!locked) onOpenTask(task.id, null); }}
                         className={cn(
                             'flex min-w-0 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-70',
                             options.pillar && 'font-semibold',
@@ -955,6 +975,11 @@ function PlanRow({
                         {options.parentTitle && <span className="sr-only">Subtask of {options.parentTitle}. </span>}
                         <TitleText title={task.title} query={query} done={done} />
                     </button>
+                    {checklist && (
+                        <span data-plan-checklist className="shrink-0 rounded-full bg-[#1d1d22] px-1.5 py-0.5 text-[11px] text-[#8b8b93]">
+                            Checklist
+                        </span>
+                    )}
                     {heldDone?.[task.id] && done && (
                         <span role="status" data-subtask-confirm={task.id} className="shrink-0 text-[11px] text-[#cfcfd4]">
                             Marked done
@@ -1008,7 +1033,7 @@ function PlanRow({
                         url={task.publishedUrl}
                         category={task.category}
                         openRequest={urlPromptTaskId === task.id ? 1 : 0}
-                        onSave={!pending && onSetLiveUrl ? raw => onSetLiveUrl(task.id, raw) : undefined}
+                        onSave={!locked && onSetLiveUrl ? raw => onSetLiveUrl(task.id, raw) : undefined}
                     />
                     <LiveUrlResultLine result={result} />
                     {group.parentBreadcrumb && options.role === 'task' && task.id === group.task.id && (
@@ -1019,8 +1044,8 @@ function PlanRow({
                     type="button"
                     data-plan-open="due"
                     data-plan-due={due.text}
-                    disabled={pending}
-                    onClick={() => { if (!pending) onOpenTask(task.id, 'due'); }}
+                    disabled={locked}
+                    onClick={() => { if (!locked) onOpenTask(task.id, 'due'); }}
                     className={cn(
                         'min-w-0 truncate text-right text-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]',
                         due.late ? 'text-[#f87171]' : due.undated ? 'text-[#6d6d75]' : 'text-[#cfcfd4]',
@@ -1031,10 +1056,10 @@ function PlanRow({
                 <button
                     type="button"
                     data-plan-open="assignee"
-                    disabled={pending}
+                    disabled={locked}
                     aria-label={assigneeIds.length === 0 ? 'Assign' : 'Assignee'}
                     title={assigneeIds.length === 0 ? 'Assign' : undefined}
-                    onClick={() => { if (!pending) onOpenTask(task.id, 'assignee'); }}
+                    onClick={() => { if (!locked) onOpenTask(task.id, 'assignee'); }}
                     className="flex justify-end focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                 >
                     <AssigneeStack ids={assigneeIds} people={people} />
@@ -1042,7 +1067,7 @@ function PlanRow({
                 {onRowTimer ? (
                     <button
                         type="button"
-                        disabled={pending || timerPending || timer.phase === 'reviewing'}
+                        disabled={locked || timerPending || timer.phase === 'reviewing'}
                         aria-busy={timerPending || undefined}
                         aria-label={timerPending
                             ? `Starting timer for ${tracked.parentTitle || task.title}`
@@ -1054,7 +1079,7 @@ function PlanRow({
                         data-plan-tracks={tracked.label ?? undefined}
                         onClick={event => {
                             event.stopPropagation();
-                            if (!pending && !timerPending) onRowTimer(tracked.taskId);
+                            if (!locked && !timerPending) onRowTimer(tracked.taskId);
                         }}
                         className={cn(
                             'inline-flex w-full items-center justify-end gap-1 text-right text-[12px] tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-70',

@@ -9,6 +9,7 @@ import { getTimeLogs } from '../supabase/time-logs';
 import { sumBudgetHoursByClient } from '../time-budget-logic';
 import {getSeoHoursForMonth} from '../supabase/change-log';
 import type { ClientProject, Task } from '../types';
+import { parseStageListTasks, type StageListTask } from '../seo-plan/stage-list';
 import {
     buildDailySeries,
     availableThrough,
@@ -21,6 +22,21 @@ import {
     type CanvasTask,
     type WorkspaceCanvasInput,
 } from './project';
+
+async function loadStageTasks(clientId: string, signal: AbortSignal): Promise<StageListTask[] | undefined> {
+    try {
+        const response = await fetch(`/api/seo-plan/stage-list/${encodeURIComponent(clientId)}`, {
+            cache: 'no-store',
+            signal,
+        });
+        if (!response.ok) return undefined;
+        const body = await response.json() as { tasks?: unknown };
+        return parseStageListTasks(body?.tasks);
+    } catch (error) {
+        if (signal.aborted) throw error;
+        return undefined;
+    }
+}
 
 export interface WorkspaceCanvasLoad {
     input: WorkspaceCanvasInput;
@@ -122,8 +138,9 @@ export async function loadWorkspaceCanvas(args: {
         })));
     })();
     const searchPromise = loadSearch(client.id, month, through, signal);
+    const stageTasksPromise = loadStageTasks(client.id, signal);
 
-    const [tasksResult, planResult, monthResult, campaignResult, deliverableResult, approvalResult, searchResult, members, historicalBudget] = await Promise.all([
+    const [tasksResult, planResult, monthResult, campaignResult, deliverableResult, approvalResult, searchResult, members, historicalBudget, stageTasks] = await Promise.all([
         tasksPromise.then(value => ({ ok: true as const, value })).catch(() => ({ ok: false as const })),
         planPromise.then(value => ({ ok: true as const, value })).catch(() => ({ ok: false as const })),
         monthHoursPromise.then(value => ({ ok: true as const, value })).catch(() => ({ ok: false as const })),
@@ -133,6 +150,7 @@ export async function loadWorkspaceCanvas(args: {
         searchPromise.then(value => ({ ok: true as const, value })).catch(error => ({ ok: false as const, message: error instanceof Error ? error.message : 'Search Console data could not be loaded.' })),
         membersPromise.then(value => value.map(member => ({ id: member.userId, name: member.user.fullName ?? '' }))).catch(() => []),
         historicalBudgetPromise.catch(()=>null),
+        stageTasksPromise,
     ]);
     if (signal.aborted) return null;
 
@@ -188,6 +206,7 @@ export async function loadWorkspaceCanvas(args: {
             : { ok: false },
         approvals: approvalResult.ok ? { ok: true, value: approvalResult.value } : { ok: false },
         search: searchResult.ok ? searchResult.value : { ok: false, message: searchResult.message },
+        ...(stageTasks ? { stageTasks } : {}),
     };
 
     return { input, tasks };

@@ -338,7 +338,36 @@ test('the panel model reads the list row and fills detail without dropping assig
     const waiting = planPanelTask({ task: kitchen, tasks: [kitchen], detail: null });
     assert.equal(waiting.detailsReady, false);
     assert.equal(waiting.description, '');
+    assert.equal(waiting.estimatedHours, null);
     assert.equal(waiting.basecampLinked, false);
+
+    const known = task({
+        id: 'r30',
+        title: 'November pages',
+        description: 'Publish the November pages.',
+        estimatedHours: 2,
+    });
+    const immediate = planPanelTask({ task: known, tasks: [known], detail: null });
+    assert.equal(immediate.detailsReady, true);
+    assert.equal(immediate.description, 'Publish the November pages.');
+    assert.equal(immediate.estimatedHours, 2);
+    const staleDetail = planPanelTask({
+        task: known,
+        tasks: [known],
+        detail: {
+            id: 'r30',
+            description: '',
+            estimatedHours: null,
+            tags: [],
+        } as Task,
+    });
+    assert.equal(staleDetail.description, 'Publish the November pages.');
+    assert.equal(staleDetail.estimatedHours, 2);
+    const described = applyPlanPanelSave(known, { field: 'description', description: 'Updated notes' }, '2026-10-21T19:00:00.000Z');
+    const estimated = applyPlanPanelSave(described, { field: 'estimate', estimatedHours: 3 }, '2026-10-21T19:00:00.000Z');
+    assert.equal(estimated.description, 'Updated notes');
+    assert.equal(estimated.estimatedHours, 3);
+    assert.equal(estimated.status, known.status);
 });
 
 test('a saved task row keeps the list fields the panel writes', () => {

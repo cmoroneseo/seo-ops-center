@@ -281,6 +281,40 @@ test('phases count roadmap items without claiming an active stage', () => {
     assert.equal(broken.phases.state, 'error');
 });
 
+test('stage-list tasks override the onboarding chip when that read succeeded', () => {
+    const stageTasks = [
+        { id: 'setup', title: 'SEO Setup', status: 'done', stage: 'onboarding', position: 1, parentTaskId: null, createdAt: null, category: null, basecamp: false, recurring: false },
+        { id: 'ga', title: 'Connect GA4', status: 'done', stage: 'onboarding', position: 1, parentTaskId: 'setup', createdAt: null, category: null, basecamp: false, recurring: false },
+        { id: 'ahrefs', title: 'Add project', status: 'done', stage: 'onboarding', position: 2, parentTaskId: 'setup', createdAt: null, category: null, basecamp: false, recurring: false },
+        { id: 'rank', title: 'Rank tracking', status: 'done', stage: 'onboarding', position: 3, parentTaskId: 'setup', createdAt: null, category: null, basecamp: false, recurring: false },
+        { id: 'cookies', title: 'Empire Cookies', status: 'done', stage: 'onboarding', position: 4, parentTaskId: 'setup', createdAt: null, category: null, basecamp: false, recurring: false },
+        { id: 'roadmap', title: 'Create the roadmap', status: 'in_progress', stage: 'onboarding', position: 2, parentTaskId: null, createdAt: null, category: null, basecamp: false, recurring: false },
+    ];
+    const planItems = [
+        planItem({ id: 'a', roadmapPhase: 'onboarding', title: 'SEO Setup', status: 'done' }),
+        planItem({ id: 'b', roadmapPhase: 'onboarding', title: 'Activate directory listings' }),
+        planItem({ id: 'c', roadmapPhase: 'onboarding', title: 'Complete initial GBP' }),
+        planItem({ id: 'd', roadmapPhase: 'onboarding', title: 'Prepare SEO strategy' }),
+        planItem({ id: 'e', roadmapPhase: 'onboarding', title: 'Build the editorial calendar' }),
+    ];
+    const fromPlan = projectWorkspaceCanvas(baseInput({
+        plan: { ok: true, value: { items: planItems } },
+    }));
+    assert.equal(fromPlan.phases.phases.find(phase => phase.key === 'onboarding')?.done, 1);
+    assert.equal(fromPlan.phases.phases.find(phase => phase.key === 'onboarding')?.total, 5);
+    const fromStage = projectWorkspaceCanvas(baseInput({
+        plan: { ok: true, value: { items: planItems } },
+        stageTasks,
+    }));
+    assert.equal(fromStage.phases.phases.find(phase => phase.key === 'onboarding')?.done, 5);
+    assert.equal(fromStage.phases.phases.find(phase => phase.key === 'onboarding')?.total, 6);
+    const empty = projectWorkspaceCanvas(baseInput({
+        plan: { ok: true, value: { items: planItems } },
+        stageTasks: [],
+    }));
+    assert.equal(empty.phases.phases.find(phase => phase.key === 'onboarding')?.total, 0);
+});
+
 test('attention counts documents once, keeps errors off zero, and lists real blocked work', () => {
     const doc = (patch: Partial<CanvasApprovalDoc>): CanvasApprovalDoc => ({
         id: 'doc', batchId: 'batch', batchName: 'October content', batchStatus: 'in_review', sentAt: '2026-10-01T00:00:00Z',
