@@ -220,6 +220,32 @@ export function basecampSubtaskCreatePath(parentTodoId: number | string): string
     return `/recordings/${safeId(parentTodoId, 'parentTodoId')}/subtasks.json`;
 }
 
+export interface BasecampTodoUpdateParams {
+    content: string;
+    description?: string | null;
+    dueOn?: string | null;
+    assigneePersonIds: readonly number[];
+    completionSubscriberPersonIds: readonly number[];
+}
+
+/**
+ * One Basecamp to-do update.
+ *
+ * Update requires `content` on every call. A PATCH that sends only
+ * `assignee_ids` is 422, and any field left out is cleared, including
+ * assignees and completion subscribers. Empty lists are sent on purpose:
+ * they are the current value, not an omission.
+ */
+export function basecampTodoUpdateBody(params: BasecampTodoUpdateParams): Record<string, unknown> {
+    return {
+        content: params.content,
+        description: params.description ?? '',
+        due_on: params.dueOn ?? null,
+        assignee_ids: [...params.assigneePersonIds],
+        completion_subscriber_ids: [...params.completionSubscriberPersonIds],
+    };
+}
+
 /** Map SEO PM's camelCase task data to Basecamp's documented create fields. */
 export function basecampTodoCreateBody(params: BasecampTodoCreateParams): Record<string, unknown> {
     const body: Record<string, unknown> = { content: params.content };

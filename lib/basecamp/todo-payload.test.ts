@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { basecampSubtaskCreatePath, basecampSubtaskSupport, basecampTodoCreateBody } from './api.ts';
+import { basecampSubtaskCreatePath, basecampSubtaskSupport, basecampTodoCreateBody, basecampTodoUpdateBody } from './api.ts';
 
 test('Basecamp create payload uses the official fields for every mapped SEO PM value', () => {
     assert.deepEqual(basecampTodoCreateBody({
@@ -15,6 +15,35 @@ test('Basecamp create payload uses the official fields for every mapped SEO PM v
         due_on: '2026-09-01',
         assignee_ids: [10, 11],
         completion_subscriber_ids: [12],
+    });
+});
+
+test('a to-do update sends content with the assignee and subscriber lists, including when they are empty', () => {
+    assert.deepEqual(basecampTodoUpdateBody({
+        content: 'Indexing + bloat triage',
+        description: 'Pick one page per service and city.',
+        dueOn: '2026-11-30',
+        assigneePersonIds: [],
+        completionSubscriberPersonIds: [],
+    }), {
+        content: 'Indexing + bloat triage',
+        description: 'Pick one page per service and city.',
+        due_on: '2026-11-30',
+        assignee_ids: [],
+        completion_subscriber_ids: [],
+    });
+    assert.deepEqual(basecampTodoUpdateBody({
+        content: 'Indexing + bloat triage',
+        description: null,
+        dueOn: null,
+        assigneePersonIds: [4],
+        completionSubscriberPersonIds: [9],
+    }), {
+        content: 'Indexing + bloat triage',
+        description: '',
+        due_on: null,
+        assignee_ids: [4],
+        completion_subscriber_ids: [9],
     });
 });
 

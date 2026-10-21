@@ -25,6 +25,7 @@ function task(overrides: Partial<PlanPushTask> = {}): PlanPushTask {
         parentTaskId: null,
         basecampTodoId: null,
         assigneePersonIds: [],
+        completionSubscriberPersonIds: [],
         children: [],
         ...overrides,
     };
@@ -78,10 +79,6 @@ function harness(snapshot: PlanPushSnapshot | null, providerOverrides: Partial<P
             },
             async updateTodo() {
                 calls.push('update');
-                return ok();
-            },
-            async setAssignees() {
-                calls.push('assignees');
                 return ok();
             },
             async getTodo() {
@@ -178,9 +175,46 @@ test('a later change updates the existing to-do and does not create another', as
     const outcome = await syncPlanTask('task-1', dependencies);
     assert.equal(outcome.status, 'ok');
     assert.equal(calls.includes('create'), false);
-    assert.deepEqual(calls.slice(0, 3), ['update', 'assignees', 'get']);
+    assert.deepEqual(calls.slice(0, 2), ['update', 'get']);
     assert.equal(calls.includes('complete'), true);
     assert.equal(calls.includes('step:Sources'), true);
+});
+
+test('a later update sends assignees with the content and records ok, clearing a stale error', async () => {
+    const updates: Array<{ title: string; assigneePersonIds: number[]; completionSubscriberPersonIds: number[] }> = [];
+    const { dependencies, calls, recorded } = harness({
+        task: task({
+            dueDate: '2026-11-30',
+            basecampTodoId: '10429396134',
+            description: 'Pick one page per service and city.',
+            assigneePersonIds: [4],
+            completionSubscriberPersonIds: [9],
+        }),
+        client: client(),
+        parent: null,
+    }, {
+        async updateTodo(input) {
+            updates.push({
+                title: input.title,
+                assigneePersonIds: input.assigneePersonIds,
+                completionSubscriberPersonIds: input.completionSubscriberPersonIds,
+            });
+            return { ok: true };
+        },
+    });
+    const outcome = await syncPlanTask('task-1', dependencies);
+    assert.equal(outcome.status, 'ok');
+    if (outcome.status !== 'ok') return;
+    assert.equal(outcome.sync.state, 'ok');
+    assert.equal(outcome.sync.error, null);
+    assert.equal(calls.includes('get'), true);
+    assert.equal(calls.includes('create'), false);
+    assert.deepEqual(updates, [{
+        title: 'Blog: home addition cost',
+        assigneePersonIds: [4],
+        completionSubscriberPersonIds: [9],
+    }]);
+    assert.deepEqual(recorded, [{ id: 'task-1', state: 'ok', error: null }]);
 });
 
 test('one failed attempt is stored and not repeated', async () => {
@@ -272,7 +306,6 @@ test('a qualifying child pushes the parent to-do instead of a second to-do', asy
                 return { ok: true, todoId: '77', supportsSubtasks: true };
             },
             async updateTodo() { return { ok: true }; },
-            async setAssignees() { return { ok: true }; },
             async getTodo() { return { ok: true, completed: false }; },
             async completeTodo() { return { ok: true }; },
             async reopenTodo() { return { ok: true }; },
@@ -282,4 +315,96 @@ test('a qualifying child pushes the parent to-do instead of a second to-do', asy
     const outcome = await syncPlanTask('child-1', dependencies);
     assert.equal(outcome.status, 'ok');
     assert.deepEqual(calls, ['create:Citations']);
+});
+
+test('a child push records the result on the child, and a later success clears it', async () => {
+    const parent = task({
+        id: 'parent-1',
+        title: 'Indexing + bloat triage',
+        dueDate: '2026-11-30',
+        basecampTodoId: '10429396134',
+        description: 'Pick one page per service and city.',
+        children: [{ id: 'child-1', title: 'Hide the duplicates', basecampTodoId: null }],
+    });
+    const child = task({
+        id: 'child-1',
+        parentTaskId: 'parent-1',
+        dueDate: '2026-11-30',
+        title: 'Hide the duplicates',
+    });
+    const recorded: Array<{ id: string; state: string; error: string | null }> = [];
+    const calls: string[] = [];
+    let fail = true;
+    const dependencies: PlanPushDependencies = {
+        now: () => at,
+        store: {
+            async load(id) {
+                if (id === 'child-1') {
+                    return {
+                        task: child,
+                        client: client(),
+                        parent: { id: parent.id, stage: parent.stage, dueDate: parent.dueDate },
+                    };
+                }
+                if (id === 'parent-1') return { task: parent, client: client(), parent: null };
+                return null;
+            },
+            async linkTodo(taskId, _projectId, todoId) {
+                const step = parent.children.find(item => item.id === taskId);
+                if (step) step.basecampTodoId = todoId;
+            },
+            async recordTask(id, sync) {
+                recorded.push({ id, state: sync.state, error: sync.error });
+            },
+            async recordClient() {},
+        },
+        provider: {
+            async createTodo() {
+                throw new Error('an existing parent to-do must be updated, not created');
+            },
+            async updateTodo(input) {
+                calls.push(`update:${input.title}`);
+                assert.deepEqual(input.assigneePersonIds, []);
+                assert.deepEqual(input.completionSubscriberPersonIds, []);
+                if (fail) {
+                    return {
+                        ok: false,
+                        status: 422,
+                        scope: 'task',
+                        message: 'Basecamp returned 422: {"status":422,"error":"Unprocessable Entity"}',
+                    };
+                }
+                return { ok: true };
+            },
+            async getTodo() {
+                calls.push('get');
+                return { ok: true, completed: false, supportsSubtasks: true };
+            },
+            async completeTodo() { return { ok: true }; },
+            async reopenTodo() { return { ok: true }; },
+            async createStep(input) {
+                calls.push(`step:${input.title}`);
+                return { ok: true, todoId: '88' };
+            },
+        },
+    };
+
+    const failed = await syncPlanTask('child-1', dependencies);
+    assert.equal(failed.status, 'failed');
+    assert.deepEqual(calls, ['update:Indexing + bloat triage']);
+    assert.deepEqual(recorded.map(row => row.id), ['parent-1', 'child-1']);
+    assert.ok(recorded.every(row => row.state === 'failed' && /422/.test(row.error ?? '')));
+
+    fail = false;
+    recorded.length = 0;
+    calls.length = 0;
+    const succeeded = await syncPlanTask('child-1', dependencies);
+    assert.equal(succeeded.status, 'ok');
+    if (succeeded.status !== 'ok') return;
+    assert.equal(succeeded.sync.error, null);
+    assert.deepEqual(calls, ['update:Indexing + bloat triage', 'get', 'step:Hide the duplicates']);
+    assert.deepEqual(recorded, [
+        { id: 'parent-1', state: 'ok', error: null },
+        { id: 'child-1', state: 'ok', error: null },
+    ]);
 });

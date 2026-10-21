@@ -25,7 +25,7 @@ import {
 } from './basecamp-push-run';
 
 const TASK_COLUMNS =
-    'id, organization_id, client_id, title, description, due_date, status, stage, parent_task_id, assignee_ids, basecamp_todo_id, basecamp_sync_state, basecamp_sync_error, basecamp_sync_attempted_at';
+    'id, organization_id, client_id, title, description, due_date, status, stage, parent_task_id, assignee_ids, watcher_ids, basecamp_todo_id, basecamp_sync_state, basecamp_sync_error, basecamp_sync_attempted_at';
 
 type TaskRow = {
     id: string;
@@ -38,6 +38,7 @@ type TaskRow = {
     stage: string | null;
     parent_task_id: string | null;
     assignee_ids: unknown;
+    watcher_ids: unknown;
     basecamp_todo_id: number | string | null;
     basecamp_sync_state: string | null;
     basecamp_sync_error: string | null;
@@ -87,11 +88,19 @@ function clientOf(row: ClientRow): PlanPushClient {
     };
 }
 
-async function personIds(organizationId: string, assigneeIds: unknown): Promise<number[]> {
-    const ids = Array.isArray(assigneeIds)
-        ? assigneeIds.filter((id): id is string => typeof id === 'string')
-        : [];
-    if (ids.length === 0) return [];
+function userIds(value: unknown): string[] {
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
+}
+
+async function basecampPeople(
+    organizationId: string,
+    assigneeIds: unknown,
+    watcherIds: unknown,
+): Promise<{ assigneePersonIds: number[]; completionSubscriberPersonIds: number[] }> {
+    const assignees = userIds(assigneeIds);
+    const subscribers = userIds(watcherIds);
+    const ids = [...new Set([...assignees, ...subscribers])];
+    if (ids.length === 0) return { assigneePersonIds: [], completionSubscriberPersonIds: [] };
     const admin = createAdminClient();
     const { data, error } = await admin
         .from('organization_members')
@@ -100,9 +109,20 @@ async function personIds(organizationId: string, assigneeIds: unknown): Promise<
         .in('user_id', ids);
     if (error) throw error;
     const byUser = new Map((data ?? []).map(member => [member.user_id, Number(member.basecamp_person_id)]));
-    return ids
-        .map(id => byUser.get(id))
-        .filter((id): id is number => typeof id === 'number' && Number.isSafeInteger(id) && id > 0);
+    const personId = (id: string) => {
+        const person = byUser.get(id);
+        return typeof person === 'number' && Number.isSafeInteger(person) && person > 0 ? person : null;
+    };
+    return {
+        assigneePersonIds: assignees.flatMap(id => {
+            const person = personId(id);
+            return person == null ? [] : [person];
+        }),
+        completionSubscriberPersonIds: subscribers.flatMap(id => {
+            const person = personId(id);
+            return person == null ? [] : [person];
+        }),
+    };
 }
 
 async function loadTaskRow(taskId: string): Promise<{ task: TaskRow; client: ClientRow } | null> {
@@ -130,6 +150,7 @@ async function loadTaskRow(taskId: string): Promise<{ task: TaskRow; client: Cli
         stage: row.stage,
         parent_task_id: row.parent_task_id,
         assignee_ids: row.assignee_ids,
+        watcher_ids: row.watcher_ids,
         basecamp_todo_id: row.basecamp_todo_id,
         basecamp_sync_state: row.basecamp_sync_state,
         basecamp_sync_error: row.basecamp_sync_error,
@@ -168,7 +189,7 @@ async function loadSnapshot(taskId: string): Promise<PlanPushSnapshot | null> {
         stage: loaded.task.stage,
         parentTaskId: loaded.task.parent_task_id,
         basecampTodoId: todoId(loaded.task.basecamp_todo_id),
-        assigneePersonIds: await personIds(loaded.task.organization_id, loaded.task.assignee_ids),
+        ...await basecampPeople(loaded.task.organization_id, loaded.task.assignee_ids, loaded.task.watcher_ids),
         children: await loadChildren(loaded.task.id),
     };
     let parent: PlanPushSnapshot['parent'] = null;

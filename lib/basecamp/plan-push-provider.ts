@@ -1,11 +1,13 @@
 /**
  * Basecamp calls for one SEO Plan push.
  * Existing task push stays on its own route. This one returns the status and
- * the raw error instead of swallowing them, and it sets assignees to the plan
- * list rather than merging people assigned in Basecamp.
+ * the raw error instead of swallowing them. An update sends content,
+ * description, due date, assignees, and completion subscribers together.
+ * Basecamp clears any of those fields that the call leaves out, and it
+ * rejects a call that has no content.
  */
 
-import { basecampSubtaskCreatePath, basecampSubtaskSupport, basecampWriteJson } from './api';
+import { basecampSubtaskCreatePath, basecampSubtaskSupport, basecampTodoUpdateBody, basecampWriteJson } from './api';
 import {
     classifyBasecampHttpFailure,
     formatBasecampHttpFailure,
@@ -63,6 +65,9 @@ export function createPlanBasecampProvider(hint: {
             if (input.dueDate) body.due_on = input.dueDate;
             if (input.description) body.description = input.description;
             if (input.assigneePersonIds.length > 0) body.assignee_ids = input.assigneePersonIds;
+            if (input.completionSubscriberPersonIds.length > 0) {
+                body.completion_subscriber_ids = input.completionSubscriberPersonIds;
+            }
             const result = await basecampWriteJson(
                 `/buckets/${projectId}/todolists/${todolistId}/todos.json`,
                 'POST',
@@ -74,20 +79,17 @@ export function createPlanBasecampProvider(hint: {
             const projectId = numeric(input.projectId);
             const todoId = numeric(input.todoId);
             if (!projectId || !todoId) return fromWrite({ ok: false, status: 404, detail: '' }, 'todo', names());
-            const result = await basecampWriteJson(`/buckets/${projectId}/todos/${todoId}.json`, 'PATCH', {
-                content: input.title,
-                description: input.description ?? '',
-                due_on: input.dueDate,
-            });
-            return fromWrite(result, 'todo', names());
-        },
-        async setAssignees(input) {
-            const projectId = numeric(input.projectId);
-            const todoId = numeric(input.todoId);
-            if (!projectId || !todoId) return fromWrite({ ok: false, status: 404, detail: '' }, 'todo', names());
-            const result = await basecampWriteJson(`/buckets/${projectId}/todos/${todoId}.json`, 'PATCH', {
-                assignee_ids: input.assigneePersonIds,
-            });
+            const result = await basecampWriteJson(
+                `/buckets/${projectId}/todos/${todoId}.json`,
+                'PATCH',
+                basecampTodoUpdateBody({
+                    content: input.title,
+                    description: input.description,
+                    dueOn: input.dueDate,
+                    assigneePersonIds: input.assigneePersonIds,
+                    completionSubscriberPersonIds: input.completionSubscriberPersonIds,
+                }),
+            );
             return fromWrite(result, 'todo', names());
         },
         async getTodo(input) {
