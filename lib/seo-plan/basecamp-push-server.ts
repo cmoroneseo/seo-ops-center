@@ -16,6 +16,7 @@ import {
     type PlanBasecampReadout,
     type PlanBasecampSyncState,
 } from './basecamp-push';
+import { clearPendingTrashUpdate, readPendingTrashId, taskBasecampLinkUpdate } from './basecamp-nest';
 import {
     syncPlanTask,
     type PlanPushClient,
@@ -163,7 +164,7 @@ async function loadChildren(taskId: string): Promise<PlanPushTask['children']> {
     const admin = createAdminClient();
     const { data, error } = await admin
         .from('tasks')
-        .select('id, title, basecamp_todo_id')
+        .select('id, title, status, basecamp_todo_id, basecamp_sync_error')
         .eq('parent_task_id', taskId)
         .order('position', { ascending: true })
         .order('sort_order', { ascending: true });
@@ -171,7 +172,9 @@ async function loadChildren(taskId: string): Promise<PlanPushTask['children']> {
     return (data ?? []).map(child => ({
         id: child.id,
         title: child.title,
+        status: child.status,
         basecampTodoId: todoId(child.basecamp_todo_id),
+        pendingTrashId: readPendingTrashId(child.basecamp_sync_error),
     }));
 }
 
@@ -189,6 +192,7 @@ async function loadSnapshot(taskId: string): Promise<PlanPushSnapshot | null> {
         stage: loaded.task.stage,
         parentTaskId: loaded.task.parent_task_id,
         basecampTodoId: todoId(loaded.task.basecamp_todo_id),
+        pendingTrashId: readPendingTrashId(loaded.task.basecamp_sync_error),
         ...await basecampPeople(loaded.task.organization_id, loaded.task.assignee_ids, loaded.task.watcher_ids),
         children: await loadChildren(loaded.task.id),
     };
@@ -221,16 +225,44 @@ function dependencies() {
                 }
                 return snapshot;
             },
-            async linkTodo(taskId: string, projectId: string, linkedTodoId: string, at: string) {
+            async linkTodo(taskId: string, projectId: string, linkedTodoId: string, at: string, pendingTrashId?: string | null) {
                 const { error } = await createAdminClient()
                     .from('tasks')
-                    .update({
-                        basecamp_todo_id: Number(linkedTodoId),
-                        basecamp_project_id: Number(projectId),
-                        last_synced_at: at,
-                    })
+                    .update(taskBasecampLinkUpdate({
+                        projectId,
+                        todoId: linkedTodoId,
+                        at,
+                        pendingTrashId,
+                    }))
                     .eq('id', taskId);
                 if (error) throw error;
+            },
+            async clearPendingTrash(taskId: string, at: string) {
+                const admin = createAdminClient();
+                const { data, error } = await admin
+                    .from('tasks')
+                    .select('basecamp_sync_error')
+                    .eq('id', taskId)
+                    .maybeSingle();
+                if (error) throw error;
+                if (!readPendingTrashId(data?.basecamp_sync_error)) return;
+                const { error: updateError } = await admin
+                    .from('tasks')
+                    .update(clearPendingTrashUpdate(at))
+                    .eq('id', taskId);
+                if (updateError) throw updateError;
+            },
+            async listClaimedRecordingIds(clientId: string) {
+                const { data, error } = await createAdminClient()
+                    .from('tasks')
+                    .select('basecamp_todo_id')
+                    .eq('client_id', clientId)
+                    .not('basecamp_todo_id', 'is', null);
+                if (error) throw error;
+                return (data ?? []).flatMap(row => {
+                    const id = todoId(row.basecamp_todo_id);
+                    return id ? [id] : [];
+                });
             },
             async recordTask(taskId: string, sync: PlanBasecampSyncState) {
                 const { error } = await createAdminClient()

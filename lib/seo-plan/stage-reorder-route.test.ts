@@ -378,3 +378,39 @@ test('a short rewrite is a failure, not a partial order', async () => {
     assert.deepEqual(result.body, { error: 'Could not move tasks' });
     if (result.status === 200) assert.fail('partial tasks were returned');
 });
+
+test('changing parent pushes even when the task does not qualify for Basecamp', async () => {
+    const backlogParent = '208dbc36-6666-4666-8666-666666666666';
+    const { dependencies } = deps({
+        load: async () => [
+            ...loaded,
+            task({ id: backlogParent, title: 'Citations', stage: 'backlog', position: 2 }),
+        ],
+    });
+    const pushes: string[] = [];
+    dependencies.pushPlanTask = async taskId => {
+        pushes.push(taskId);
+    };
+    const under = await reorderStageTasks(clientId, {
+        taskId: robots,
+        stage: 'backlog',
+        parentTaskId: backlogParent,
+        index: 0,
+    }, dependencies);
+    assert.equal(under.status, 200);
+    assert.deepEqual(pushes, [robots]);
+
+    const same = deps();
+    const samePushes: string[] = [];
+    same.dependencies.pushPlanTask = async taskId => {
+        samePushes.push(taskId);
+    };
+    const stayed = await reorderStageTasks(clientId, {
+        taskId: robots,
+        stage: 'backlog',
+        parentTaskId: null,
+        index: 0,
+    }, same.dependencies);
+    assert.equal(stayed.status, 200);
+    assert.deepEqual(samePushes, []);
+});
