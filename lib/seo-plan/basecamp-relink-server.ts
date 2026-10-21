@@ -23,6 +23,8 @@ type TaskRow = {
     parent_task_id: string | null;
     basecamp_todo_id: number | string | null;
     basecamp_sync_error: string | null;
+    position: number | null;
+    created_at: string | null;
 };
 
 function todoId(value: number | string | null): string | null {
@@ -39,6 +41,8 @@ export function relinkRows(rows: readonly TaskRow[]): RelinkTaskRow[] {
         parentTaskId: row.parent_task_id,
         basecampTodoId: todoId(row.basecamp_todo_id),
         pendingTrashId: readPendingTrashId(row.basecamp_sync_error),
+        position: typeof row.position === 'number' && Number.isFinite(row.position) ? row.position : null,
+        createdAt: typeof row.created_at === 'string' ? row.created_at : null,
     }));
 }
 
@@ -97,9 +101,12 @@ export async function loadBasecampRelink(
 
     const { data, error } = await admin
         .from('tasks')
-        .select('id, title, status, parent_task_id, basecamp_todo_id, basecamp_sync_error')
+        .select('id, title, status, parent_task_id, basecamp_todo_id, basecamp_sync_error, position, created_at')
         .eq('organization_id', organizationId)
-        .eq('client_id', clientId);
+        .eq('client_id', clientId)
+        .order('position', { ascending: true })
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true });
     if (error) throw error;
     const built = buildRelinkParents(relinkRows((data ?? []) as TaskRow[]), parentTaskId);
     if (!built.ok) return built;

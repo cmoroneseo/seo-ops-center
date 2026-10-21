@@ -18,6 +18,7 @@ import {
     type NestResult,
     type NestTask,
 } from './basecamp-nest';
+import { alignBasecampStepOrder, linkedStepIds, sortByAppOrder } from './basecamp-step-order';
 import {
     classifyBasecampHttpFailure,
     planBasecampBanner,
@@ -35,6 +36,9 @@ export interface PlanPushChild {
     pendingTrashId?: string | null;
     /** `done` is carried onto the Basecamp step. */
     status?: string;
+    /** Plan order. Missing values sort after numbered rows, then by created_at and id. */
+    position?: number | null;
+    createdAt?: string | null;
 }
 
 export interface PlanPushTask {
@@ -105,6 +109,8 @@ export interface PlanPushProvider {
     createStep(input: { projectId: string; parentTodoId: string; title: string }): Promise<PlanProviderResult>;
     /** POST /subtasks/{id}/completion.json. Optional so older fakes still typecheck. */
     completeStep?(input: { projectId: string; stepId: string }): Promise<PlanProviderResult>;
+    /** PUT /subtasks/{id}/position.json. Absent leaves the checklist order alone. */
+    repositionStep?(input: { projectId: string; stepId: string; position: number }): Promise<PlanProviderResult>;
     /**
      * Present when this provider can tell a top-level to-do from a subtask.
      * Without them, a linked child is left as it is.
@@ -259,6 +265,17 @@ export function asBasecampNestProvider(provider: PlanPushProvider): BasecampNest
             if (!result.ok) return { ok: false, status: result.status, message: result.message, scope: result.scope };
             return { ok: true };
         },
+        ...(provider.repositionStep
+            ? {
+                async repositionStep(input: { projectId: string; stepId: string; position: number }) {
+                    const result = await provider.repositionStep!(input);
+                    if (!result.ok) {
+                        return { ok: false as const, status: result.status, message: result.message, scope: result.scope };
+                    }
+                    return { ok: true as const };
+                },
+            }
+            : {}),
     };
 }
 
@@ -317,8 +334,11 @@ function asNestTask(task: PlanPushTask | PlanPushChild): NestTask {
 
 /**
  * A linked child whose recording is a top-level to-do becomes a subtask.
- * Children with no Basecamp id are still created below. A provider that
- * cannot inspect a recording keeps the old behavior and skips linked children.
+ * Children with no Basecamp id are still created below, in plan order
+ * (position, then created_at, then id). After the steps exist, their
+ * Basecamp positions are moved to that same order when they differ.
+ * A provider that cannot inspect a recording keeps the old behavior and
+ * skips linked children.
  */
 async function syncSteps(
     dependencies: PlanPushDependencies,
@@ -329,14 +349,15 @@ async function syncSteps(
     const todoId = parent.basecampTodoId;
     if (!todoId) return { ok: true };
     if (supportsSubtasks === false) return { ok: true };
+    const children = sortByAppOrder(parent.children);
     const provider = asBasecampNestProvider(dependencies.provider);
     if (provider) {
         const claimed = await claimedIds(dependencies, parent.clientId, [
             todoId,
-            ...parent.children.map(child => child.basecampTodoId),
+            ...children.map(child => child.basecampTodoId),
         ]);
         const nesting = nestDependencies(dependencies);
-        for (const child of parent.children) {
+        for (const child of children) {
             if (!child.basecampTodoId && !child.pendingTrashId) continue;
             const nestChild = asNestTask(child);
             const outcome = await nestFlatChild({
@@ -353,7 +374,7 @@ async function syncSteps(
             if (outcome.action === 'failed') return nestFailure(outcome);
         }
     }
-    const unlinked = parent.children.filter(child => !child.basecampTodoId);
+    const unlinked = children.filter(child => !child.basecampTodoId);
     for (const child of unlinked) {
         const step = await dependencies.provider.createStep({
             projectId,
@@ -367,6 +388,61 @@ async function syncSteps(
         await dependencies.store.linkTodo(child.id, projectId, step.todoId, dependencies.now());
         child.basecampTodoId = step.todoId;
     }
+    return alignParentSteps(dependencies, projectId, parent);
+}
+
+/**
+ * Move this parent's steps into plan order. A provider without reposition
+ * leaves the checklist as it is. No linked steps means no Basecamp read.
+ */
+async function alignParentSteps(
+    dependencies: PlanPushDependencies,
+    projectId: string,
+    parent: PlanPushTask,
+): Promise<PlanProviderResult> {
+    const reposition = dependencies.provider.repositionStep;
+    const listSteps = dependencies.provider.listSteps;
+    const todoId = parent.basecampTodoId;
+    if (!reposition || !listSteps || !todoId) return { ok: true };
+    const aligned = await alignBasecampStepOrder({
+        projectId,
+        parentTodoId: todoId,
+        desiredStepIds: linkedStepIds(parent.children),
+        listSteps: () => listSteps({ projectId, parentTodoId: todoId }),
+        repositionStep: move => reposition({ projectId, stepId: move.stepId, position: move.position }),
+    });
+    if (!aligned.ok) return aligned;
+    return { ok: true };
+}
+
+/**
+ * Push checklist order for a parent that already has a to-do.
+ * A drag that only changes sibling positions does not qualify for a full
+ * to-do update. This still moves the steps when their order differs.
+ */
+export async function syncParentStepOrder(
+    parentTaskId: string,
+    dependencies: PlanPushDependencies,
+): Promise<PlanProviderResult> {
+    const snapshot = await dependencies.store.load(parentTaskId);
+    if (!snapshot) return { ok: true };
+    const projectId = snapshot.client.projectId;
+    if (!snapshot.client.syncEnabled || !projectId) return { ok: true };
+    if (!snapshot.task.basecampTodoId || snapshot.task.parentTaskId) return { ok: true };
+    if (!dependencies.provider.repositionStep || !dependencies.provider.listSteps) return { ok: true };
+    if (linkedStepIds(snapshot.task.children).length === 0) return { ok: true };
+    const aligned = await alignParentSteps(dependencies, projectId, snapshot.task);
+    if (!aligned.ok) {
+        await rememberFailure(
+            dependencies,
+            snapshot,
+            aligned.message,
+            aligned.scope,
+            new Set(),
+        );
+        return aligned;
+    }
+    await rememberOk(dependencies, snapshot, snapshot.task.basecampTodoId, new Set());
     return { ok: true };
 }
 

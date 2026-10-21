@@ -340,11 +340,12 @@ async function insertPlanItems(input: {
  * One push of the parent, never of the new subtask ids.
  *
  * syncPlanTask on that parent writes each unlinked child with createStep
- * (`POST /recordings/{parentTodoId}/subtasks.json`, a Kanban::Step), the same
- * nesting the Basecamp import stores. Pushing a child id instead creates a
- * top-level to-do when the parent does not qualify — that is what Move under
- * does to a task that was created on its own. A parent that does not qualify
- * is skipped, and the new rows stay local until a later parent push.
+ * (`POST /recordings/{parentTodoId}/subtasks.json`, a Kanban::Step), in plan
+ * order, then repositions those steps when Basecamp's order differs. Pushing
+ * a child id instead creates a top-level to-do when the parent does not
+ * qualify — that is what Move under does to a task that was created on its
+ * own. A parent that does not qualify is skipped, and the new rows stay
+ * local until a later parent push.
  */
 async function pushParentSubtasks(
     dependencies: StageAddDependencies,

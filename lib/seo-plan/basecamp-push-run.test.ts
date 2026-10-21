@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    syncParentStepOrder,
     syncPlanTask,
     type PlanProviderResult,
     type PlanPushClient,
@@ -777,4 +778,93 @@ test('a qualifying top-level task that is still a subtask becomes a to-do before
     assert.ok(trashAt > createAt);
     assert.ok(updateAt > trashAt);
     assert.equal(row.basecampTodoId, '300');
+});
+
+test('new subtasks are created in plan order and repositioned only when Basecamp disagrees', async () => {
+    const parent = task({
+        id: 'parent-1',
+        title: 'Indexing + bloat triage',
+        stage: 'onboarding',
+        basecampTodoId: '10429396134',
+        children: [
+            { id: 'clean', title: 'Clean the sitemap', basecampTodoId: null, position: 4, createdAt: '2026-10-04T00:00:00.000Z' },
+            { id: 'list', title: 'List duplicate and junk pages', basecampTodoId: null, position: 1, createdAt: '2026-10-01T00:00:00.000Z' },
+            { id: 'pick', title: 'Pick the main page', basecampTodoId: null, position: 2, createdAt: '2026-10-02T00:00:00.000Z' },
+        ],
+    });
+    const created: string[] = [];
+    const positions: string[] = [];
+    const remote: string[] = [];
+    let next = 11;
+    const { dependencies } = harness({ task: parent, client: client(), parent: null }, {
+        async createStep(input) {
+            const id = String(next);
+            next += 11;
+            created.push(input.title);
+            remote.unshift(id);
+            return { ok: true, todoId: id };
+        },
+        async listSteps() {
+            return { ok: true, steps: remote.map(id => ({ id, title: id })) };
+        },
+        async repositionStep(input) {
+            positions.push(`${input.stepId}:${input.position}`);
+            const from = remote.indexOf(input.stepId);
+            if (from >= 0) remote.splice(from, 1);
+            remote.splice(input.position - 1, 0, input.stepId);
+            return { ok: true };
+        },
+    });
+    const outcome = await syncPlanTask(parent.id, dependencies);
+    assert.equal(outcome.status, 'ok');
+    assert.deepEqual(created, [
+        'List duplicate and junk pages',
+        'Pick the main page',
+        'Clean the sitemap',
+    ]);
+    assert.deepEqual(remote, ['11', '22', '33']);
+    assert.ok(positions.length > 0);
+
+    positions.length = 0;
+    const again = await syncPlanTask(parent.id, dependencies);
+    assert.equal(again.status, 'ok');
+    assert.deepEqual(positions, []);
+    assert.deepEqual(created, [
+        'List duplicate and junk pages',
+        'Pick the main page',
+        'Clean the sitemap',
+    ]);
+});
+
+test('reordering children of an unqualified parent still moves the steps', async () => {
+    const positions: string[] = [];
+    const parent = task({
+        id: 'parent-1',
+        title: 'Indexing + bloat triage',
+        stage: 'backlog',
+        dueDate: null,
+        basecampTodoId: '10429396134',
+        children: [
+            { id: 'clean', title: 'Clean the sitemap', basecampTodoId: '44', position: 2, createdAt: '2026-10-04T00:00:00.000Z' },
+            { id: 'list', title: 'List duplicate and junk pages', basecampTodoId: '11', position: 1, createdAt: '2026-10-01T00:00:00.000Z' },
+        ],
+    });
+    const { dependencies, calls, recorded } = harness({ task: parent, client: client(), parent: null }, {
+        async listSteps() {
+            return { ok: true, steps: [{ id: '44', title: 'Clean the sitemap' }, { id: '11', title: 'List duplicate and junk pages' }] };
+        },
+        async repositionStep(input) {
+            positions.push(`${input.stepId}:${input.position}`);
+            return { ok: true };
+        },
+    });
+    const skipped = await syncPlanTask(parent.id, dependencies);
+    assert.equal(skipped.status, 'skipped');
+    assert.deepEqual(positions, []);
+
+    const ordered = await syncParentStepOrder(parent.id, dependencies);
+    assert.equal(ordered.ok, true);
+    assert.deepEqual(positions, ['11:1']);
+    assert.equal(calls.includes('update'), false);
+    assert.equal(recorded.at(-1)?.state, 'ok');
 });

@@ -18,6 +18,7 @@ import {
 } from './basecamp-push';
 import { clearPendingTrashUpdate, readPendingTrashId, taskBasecampLinkUpdate } from './basecamp-nest';
 import {
+    syncParentStepOrder,
     syncPlanTask,
     type PlanPushClient,
     type PlanPushOutcome,
@@ -164,10 +165,11 @@ async function loadChildren(taskId: string): Promise<PlanPushTask['children']> {
     const admin = createAdminClient();
     const { data, error } = await admin
         .from('tasks')
-        .select('id, title, status, basecamp_todo_id, basecamp_sync_error')
+        .select('id, title, status, basecamp_todo_id, basecamp_sync_error, position, created_at')
         .eq('parent_task_id', taskId)
         .order('position', { ascending: true })
-        .order('sort_order', { ascending: true });
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true });
     if (error) throw error;
     return (data ?? []).map(child => ({
         id: child.id,
@@ -175,6 +177,8 @@ async function loadChildren(taskId: string): Promise<PlanPushTask['children']> {
         status: child.status,
         basecampTodoId: todoId(child.basecamp_todo_id),
         pendingTrashId: readPendingTrashId(child.basecamp_sync_error),
+        position: typeof child.position === 'number' && Number.isFinite(child.position) ? child.position : null,
+        createdAt: typeof child.created_at === 'string' ? child.created_at : null,
     }));
 }
 
@@ -295,6 +299,14 @@ function dependencies() {
 /** One attempt. A missing project returns skipped and writes nothing. */
 export async function syncStoredPlanTask(taskId: string): Promise<PlanPushOutcome> {
     return syncPlanTask(taskId, dependencies());
+}
+
+/**
+ * Move an existing parent's steps into plan order.
+ * Used after a sibling drag. A parent with no to-do writes nothing.
+ */
+export async function syncStoredParentStepOrder(parentTaskId: string): Promise<void> {
+    await syncParentStepOrder(parentTaskId, dependencies());
 }
 
 export async function readStoredPlanTask(taskId: string): Promise<PlanBasecampReadout | null> {
