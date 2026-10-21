@@ -13,6 +13,8 @@ import { setupHoursStatus, type ClientSetupScope } from '../client-setup';
 import { dateOffset, historyDates, historyWindow } from '../gsc/history';
 import { taskIsComplete } from '../marketing-plan-execution';
 import { ROADMAP_PHASES, isInRoadmap, type RoadmapPhase } from '../marketing-plan-roadmap';
+import { onboardingSectionProgress } from '../seo-plan/plan-work';
+import type { StageListTask } from '../seo-plan/stage-list';
 import { listedSubtaskProgress } from '../tasks/subtask-progress';
 import type { Task } from '../types';
 
@@ -181,6 +183,12 @@ export interface WorkspaceCanvasInput {
     deliverables: SourceResult<CanvasDeliverable[]>;
     approvals: SourceResult<CanvasApprovalDoc[]>;
     search: SearchInput;
+    /**
+     * SEO Plan stage rows, including onboarding subtasks.
+     * Present only when that read succeeded. An empty array is a real zero.
+     * Omitted, the onboarding chip keeps counting marketing-plan items.
+     */
+    stageTasks?: readonly StageListTask[];
 }
 
 export type SearchInput =
@@ -727,6 +735,10 @@ function projectPhases(input: WorkspaceCanvasInput): PhasesModel {
         state: 'ready',
         phases: ROADMAP_PHASES.map(([key, label]) => {
             const phaseItems = items.filter(item => (item.roadmapPhase ?? 'backlog') === key);
+            if (key === 'onboarding' && input.stageTasks) {
+                const progress = onboardingSectionProgress(input.stageTasks);
+                return { key, label, total: progress.total, done: progress.done };
+            }
             return {
                 key,
                 label,
