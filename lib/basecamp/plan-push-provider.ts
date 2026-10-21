@@ -11,6 +11,7 @@ import {
     basecampRecordingPath,
     basecampSubtaskCompletionPath,
     basecampSubtaskCreatePath,
+    basecampSubtaskPositionPath,
     basecampSubtaskSupport,
     basecampTodoUpdateBody,
     basecampTrashPath,
@@ -129,6 +130,17 @@ export function createPlanBasecampProvider(hint: {
             if (!projectId || !parentTodoId) return fromWrite({ ok: false, status: 404, detail: '' }, 'todo', names());
             const result = await basecampWriteJson(basecampSubtaskCreatePath(parentTodoId), 'POST', {
                 title: input.title,
+            });
+            return fromWrite(result, 'todo', names());
+        },
+        async repositionStep(input) {
+            const projectId = numeric(input.projectId);
+            const stepId = numeric(input.stepId);
+            if (!projectId || !stepId || !Number.isSafeInteger(input.position) || input.position < 1) {
+                return fromWrite({ ok: false, status: 404, detail: '' }, 'todo', names());
+            }
+            const result = await basecampWriteJson(basecampSubtaskPositionPath(stepId), 'PUT', {
+                position: input.position,
             });
             return fromWrite(result, 'todo', names());
         },

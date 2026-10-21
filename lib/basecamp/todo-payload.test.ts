@@ -5,6 +5,7 @@ import {
     basecampRecordingPath,
     basecampSubtaskCompletionPath,
     basecampSubtaskCreatePath,
+    basecampSubtaskPositionPath,
     basecampSubtaskSupport,
     basecampTodoCreateBody,
     basecampTodoUpdateBody,
@@ -62,6 +63,8 @@ test('subtask support follows the recording fields and the create path is the re
     assert.equal(basecampSubtaskSupport({ subtasks_count: undefined, subtasks_url: '' }), false);
     assert.equal(basecampSubtaskCreatePath(77), '/recordings/77/subtasks.json');
     assert.equal(basecampSubtaskCompletionPath(200), '/subtasks/200/completion.json');
+    assert.equal(basecampSubtaskPositionPath(200), '/subtasks/200/position.json');
+    assert.throws(() => basecampSubtaskPositionPath('not-an-id'), /stepId/);
     assert.equal(basecampRecordingPath(12, 77), '/buckets/12/recordings/77.json');
     assert.equal(basecampTrashPath(12, 77), '/buckets/12/recordings/77/status/trashed.json');
     assert.equal(
