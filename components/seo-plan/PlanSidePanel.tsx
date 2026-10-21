@@ -15,12 +15,14 @@ import {
     parsePlanEstimate,
     planBasecampLine,
     planDeleteCopy,
+    planCanAddSubtasks,
     planDescriptionSave,
     planLabelText,
     planLiveUrlSave,
     planOnboardingStage,
     planPanelDue,
     planParentField,
+    planSubtasks,
     planTitleSave,
     readPlanLabels,
     togglePlanValue,
@@ -32,6 +34,7 @@ import {
     type PlanPanelTask,
 } from '@/lib/seo-plan/plan-panel';
 import { cn } from '@/lib/utils';
+import { PlanSubtaskAdd } from './PlanSubtaskAdd';
 
 /**
  * Non-modal task panel for the SEO Plan.
@@ -50,6 +53,7 @@ export function PlanSidePanel({
     onSave,
     onDuplicate,
     onDelete,
+    onAddSubtasks,
     onClose,
 }: {
     task: PlanPanelTask;
@@ -63,6 +67,8 @@ export function PlanSidePanel({
     onSave: (taskId: string, save: PlanPanelSave) => Promise<string | null>;
     onDuplicate: () => Promise<string | null>;
     onDelete: () => Promise<string | null>;
+    /** Creates subtasks under this task through the plan's existing add path. */
+    onAddSubtasks?: (titles: string[]) => Promise<void>;
     onClose: () => void;
 }) {
     const rootRef = useRef<HTMLElement>(null);
@@ -295,6 +301,7 @@ export function PlanSidePanel({
         now: now ?? new Date(),
     });
     const parent = planParentField(tasks, task.id);
+    const subtasks = planCanAddSubtasks(task) ? planSubtasks(tasks, task.id) : [];
     const selectedPeople = task.assigneeIds
         .map(id => people.find(person => person.id === id))
         .filter((person): person is PlanPanelPerson => Boolean(person));
@@ -775,6 +782,38 @@ export function PlanSidePanel({
                         {basecamp.synced && <span className="text-[#8b8b93]">· {basecamp.synced}</span>}
                     </Field>
                 </div>
+                {planCanAddSubtasks(task) && (
+                    <div className="mt-3" data-plan-subtasks={task.id}>
+                        <h3 className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-[#8b8b93]">
+                            Subtasks
+                            {task.childCount > 0 && (
+                                <span
+                                    data-subtask-progress={`${task.childDone}/${task.childCount}`}
+                                    className="ml-1.5 font-normal normal-case tracking-normal text-[#cfcfd4]"
+                                >
+                                    {task.childDone}/{task.childCount}
+                                </span>
+                            )}
+                        </h3>
+                        {subtasks.length > 0 && (
+                            <ul className="mb-1.5 space-y-0.5">
+                                {subtasks.map(child => (
+                                    <li
+                                        key={child.id}
+                                        data-plan-subtask={child.id}
+                                        className={cn(
+                                            'truncate text-[12px] text-[#cfcfd4]',
+                                            child.status === 'done' && 'text-[#8b8b93] line-through',
+                                        )}
+                                    >
+                                        {child.title}
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                        {onAddSubtasks && <PlanSubtaskAdd onAdd={onAddSubtasks} />}
+                    </div>
+                )}
                 <h3 className="mb-1.5 mt-4 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-[#8b8b93]">Time</h3>
                 {task.timeByMonth.length === 0 ? (
                     <p data-plan-time="empty" className="text-[11.5px] text-[#8b8b93]">No time logged</p>

@@ -83,6 +83,14 @@ function key(target: EventTarget, keyName: string) {
     target.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: keyName, bubbles: true }));
 }
 
+function paste(node: HTMLInputElement, text: string) {
+    const event = new dom.window.Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', {
+        value: { getData: (type: string) => (type === 'text' || type === 'text/plain' ? text : '') },
+    });
+    node.dispatchEvent(event);
+}
+
 function setValue(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
     input.focus();
     const prototype = input instanceof dom.window.HTMLTextAreaElement
@@ -217,6 +225,10 @@ test('title, due, assignee, and enter open the panel, and the list stays usable'
 
         const assignee = document.querySelector('[data-plan-row="kitchen"] [data-plan-open="assignee"]');
         assert.ok(assignee instanceof dom.window.HTMLButtonElement);
+        const unassigned = document.querySelector('[data-plan-row="kickoff"] [data-plan-open="assignee"]');
+        assert.equal(unassigned?.getAttribute('aria-label'), 'Assign');
+        assert.equal(unassigned?.getAttribute('title'), 'Assign');
+        assert.equal(unassigned?.textContent?.trim(), '+');
         await act(async () => { assignee.click(); });
         assert.equal(opens.at(-1)?.field, 'assignee');
         assert.equal(document.querySelector('[data-plan-menu="assignee"]') instanceof dom.window.HTMLElement, true);
@@ -398,12 +410,14 @@ test('the parent picker stays one level deep', async () => {
     }));
     try {
         assert.equal(document.querySelector('[data-plan-parent]')?.getAttribute('data-plan-parent'), 'pillar');
+        assert.equal(document.querySelector('[data-plan-subtask-add]'), null);
         const move = document.querySelector('[data-plan-field="parent"]');
         assert.ok(move instanceof dom.window.HTMLButtonElement);
         await act(async () => { move.click(); });
         const choices = [...document.querySelectorAll('[data-plan-parent-choice]')].map(node => node.getAttribute('data-plan-parent-choice'));
         assert.equal(choices.includes('none'), true);
         assert.equal(choices.includes('kickoff'), true);
+        assert.equal(choices.includes('done'), false);
         assert.equal(choices.includes('sibling'), false);
         assert.equal(choices.includes('child'), false);
         const kickoff = document.querySelector('[data-plan-parent-choice="kickoff"]');
@@ -603,6 +617,119 @@ test('marking an onboarding subtask done names the checkbox and offers Undo befo
         const restored = document.querySelector('[data-task-id="child"] [role="checkbox"]');
         assert.equal(restored?.getAttribute('aria-checked'), 'false');
         assert.equal((document.querySelector('[data-task-id="child"]')?.textContent ?? '').includes('Marked done'), false);
+    } finally {
+        await act(async () => { root.unmount(); });
+    }
+});
+
+test('enter adds one subtask, a multi-line paste confirms, and the live count updates', async () => {
+    const added: string[][] = [];
+    function AddHarness() {
+        const [tasks, setTasks] = useState(plan);
+        const selected = tasks.find(item => item.id === 'kitchen');
+        assert.ok(selected);
+        const model = planPanelTask({
+            task: selected,
+            tasks,
+            detail: {
+                id: selected.id,
+                description: '',
+                estimatedHours: null,
+                tags: [],
+                createdBy: null,
+                basecampTodoId: null,
+                basecampProjectId: null,
+                lastSyncedAt: null,
+            },
+            people,
+        });
+        return createElement(StagePlanListView, {
+            tasks,
+            query: '',
+            onQueryChange: () => undefined,
+            onOpenTask: () => undefined,
+            onAddTasks: async () => undefined,
+            onReorder: async () => undefined,
+            clientName: "Maya's Construction",
+            today: '2026-10-20',
+            initialMonth: '2026-10',
+            people,
+            panelTaskId: selected.id,
+            panel: createElement(PlanSidePanel, {
+                task: model,
+                tasks,
+                people,
+                clientName: "Maya's Construction",
+                today: '2026-10-20',
+                focusField: null,
+                onSave: async () => null,
+                onDuplicate: async () => null,
+                onDelete: async () => null,
+                onClose: () => undefined,
+                onAddSubtasks: async titles => {
+                    added.push(titles);
+                    setTasks(current => [
+                        ...current,
+                        ...titles.map((title, index) => task({
+                            id: `added-${added.length}-${index}`,
+                            title,
+                            stage: selected.stage,
+                            parentTaskId: selected.id,
+                            position: index + 1,
+                        })),
+                    ]);
+                },
+            }),
+        });
+    }
+
+    const root = await mount(createElement(AddHarness));
+    try {
+        assert.equal(document.querySelector('[data-plan-row="kitchen"] [data-subtask-progress]'), null);
+        const input = document.querySelector('[data-plan-subtask-add]');
+        assert.ok(input instanceof dom.window.HTMLInputElement);
+        assert.equal(input.getAttribute('aria-label'), 'Add subtask');
+
+        await act(async () => { setValue(input, 'Houzz photos'); });
+        await act(async () => {
+            key(input, 'Enter');
+            await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        assert.deepEqual(added, [['Houzz photos']]);
+        assert.equal(input.value, '');
+        assert.equal(document.activeElement, input);
+        assert.match(document.querySelector('[data-plan-subtasks="kitchen"]')?.textContent ?? '', /Houzz photos/);
+        assert.equal(
+            document.querySelector('[data-plan-row="kitchen"] [data-subtask-progress]')?.getAttribute('data-subtask-progress'),
+            '0/1',
+        );
+        assert.equal(
+            document.querySelector('[data-plan-subtasks="kitchen"] [data-subtask-progress]')?.getAttribute('data-subtask-progress'),
+            '0/1',
+        );
+
+        await act(async () => { paste(input, '- Porch listing\n1. Yelp profile\n[ ] BBB'); });
+        assert.deepEqual(added, [['Houzz photos']]);
+        assert.equal(document.querySelector('[data-plan-subtask-count]')?.getAttribute('data-plan-subtask-count'), '3');
+        assert.deepEqual(
+            [...document.querySelectorAll('[data-plan-subtask-line]')].map(node => node.textContent),
+            ['Porch listing', 'Yelp profile', 'BBB'],
+        );
+        const confirm = document.querySelector('[data-plan-subtask-confirm]');
+        assert.ok(confirm instanceof dom.window.HTMLButtonElement);
+        await act(async () => {
+            confirm.click();
+            await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        assert.deepEqual(added[1], ['Porch listing', 'Yelp profile', 'BBB']);
+        assert.equal(document.querySelector('[data-plan-subtask-preview]'), null);
+        assert.equal(document.activeElement, input);
+        assert.equal(
+            document.querySelector('[data-plan-row="kitchen"] [data-subtask-progress]')?.getAttribute('data-subtask-progress'),
+            '0/4',
+        );
+        const listed = [...document.querySelectorAll('[data-plan-subtasks="kitchen"] [data-plan-subtask]')].map(node => node.textContent);
+        assert.deepEqual(listed, ['Houzz photos', 'Porch listing', 'Yelp profile', 'BBB']);
     } finally {
         await act(async () => { root.unmount(); });
     }

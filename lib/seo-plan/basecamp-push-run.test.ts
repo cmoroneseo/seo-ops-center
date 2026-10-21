@@ -317,6 +317,107 @@ test('a qualifying child pushes the parent to-do instead of a second to-do', asy
     assert.deepEqual(calls, ['create:Citations']);
 });
 
+test('new subtasks are steps on the parent to-do and never their own to-dos', async () => {
+    const parent = task({
+        id: 'parent-1',
+        title: 'Citations cleanup',
+        stage: 'onboarding',
+        basecampTodoId: '77',
+        children: [
+            { id: 'houzz', title: 'Houzz photos', basecampTodoId: null },
+            { id: 'porch', title: 'Porch listing', basecampTodoId: null },
+            { id: 'kept', title: 'Already a to-do', basecampTodoId: '55' },
+        ],
+    });
+    const created: string[] = [];
+    const steps: Array<{ parentTodoId: string; title: string }> = [];
+    const dependencies: PlanPushDependencies = {
+        now: () => at,
+        store: {
+            async load(id) {
+                if (id !== parent.id) return null;
+                return { task: parent, client: client(), parent: null };
+            },
+            async linkTodo(taskId, _projectId, todoId) {
+                const child = parent.children.find(item => item.id === taskId);
+                if (child) child.basecampTodoId = todoId;
+            },
+            async recordTask() {},
+            async recordClient() {},
+        },
+        provider: {
+            async createTodo(input) {
+                created.push(input.title);
+                return { ok: true, todoId: '999', supportsSubtasks: true };
+            },
+            async updateTodo() { return { ok: true }; },
+            async getTodo() { return { ok: true, completed: false, supportsSubtasks: true }; },
+            async completeTodo() { return { ok: true }; },
+            async reopenTodo() { return { ok: true }; },
+            async createStep(input) {
+                steps.push({ parentTodoId: input.parentTodoId, title: input.title });
+                return { ok: true, todoId: String(80 + steps.length) };
+            },
+        },
+    };
+    const outcome = await syncPlanTask(parent.id, dependencies);
+    assert.equal(outcome.status, 'ok');
+    assert.deepEqual(created, []);
+    assert.deepEqual(steps, [
+        { parentTodoId: '77', title: 'Houzz photos' },
+        { parentTodoId: '77', title: 'Porch listing' },
+    ]);
+});
+
+test('a child of an unqualified parent becomes its own to-do when that child is pushed', async () => {
+    const parent = task({ id: 'parent-1', title: 'Later', stage: 'backlog', dueDate: null });
+    const child = task({
+        id: 'child-1',
+        title: 'Houzz photos',
+        parentTaskId: parent.id,
+        stage: 'onboarding',
+        dueDate: null,
+    });
+    const created: string[] = [];
+    const steps: string[] = [];
+    const dependencies: PlanPushDependencies = {
+        now: () => at,
+        store: {
+            async load(id) {
+                if (id === child.id) {
+                    return {
+                        task: child,
+                        client: client(),
+                        parent: { id: parent.id, stage: parent.stage, dueDate: parent.dueDate },
+                    };
+                }
+                return null;
+            },
+            async linkTodo() {},
+            async recordTask() {},
+            async recordClient() {},
+        },
+        provider: {
+            async createTodo(input) {
+                created.push(input.title);
+                return { ok: true, todoId: '41', supportsSubtasks: true };
+            },
+            async updateTodo() { return { ok: true }; },
+            async getTodo() { return { ok: true, completed: false }; },
+            async completeTodo() { return { ok: true }; },
+            async reopenTodo() { return { ok: true }; },
+            async createStep(input) {
+                steps.push(input.title);
+                return { ok: true, todoId: '88' };
+            },
+        },
+    };
+    const outcome = await syncPlanTask(child.id, dependencies);
+    assert.equal(outcome.status, 'ok');
+    assert.deepEqual(created, ['Houzz photos']);
+    assert.deepEqual(steps, []);
+});
+
 test('a child push records the result on the child, and a later success clears it', async () => {
     const parent = task({
         id: 'parent-1',

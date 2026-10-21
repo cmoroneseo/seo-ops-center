@@ -206,6 +206,39 @@ function directChildren(tasks: readonly StageListTask[], taskId: string): StageL
     return tasks.filter(task => ids.has(task.id));
 }
 
+/**
+ * A done task is not a place to file work. Subtasks and rows still saving
+ * are not parents either. `completed` is treated as done for older rows.
+ */
+export function planMoveUnderChoice(
+    task: Pick<StageListTask, 'id' | 'parentTaskId' | 'status'>,
+    taskId: string,
+): boolean {
+    if (task.id === taskId || task.parentTaskId || isPendingStageTaskId(task.id)) return false;
+    if (isPlanDone(task.status) || task.status === 'completed') return false;
+    return true;
+}
+
+/** Top-level tasks can take subtasks. A subtask cannot, and a saving row cannot. */
+export function planCanAddSubtasks(task: { id: string; parentTaskId: string | null }): boolean {
+    if (!task.id || isPendingStageTaskId(task.id)) return false;
+    return task.parentTaskId == null;
+}
+
+/** Live subtasks of this task, in plan order. The same rows the count uses. */
+export function planSubtasks(tasks: readonly StageListTask[], taskId: string): StageListTask[] {
+    return directChildren(tasks, taskId).slice().sort((a, b) => {
+        const aPosition = typeof a.position === 'number' && Number.isFinite(a.position) ? a.position : Number.POSITIVE_INFINITY;
+        const bPosition = typeof b.position === 'number' && Number.isFinite(b.position) ? b.position : Number.POSITIVE_INFINITY;
+        if (aPosition !== bPosition) return aPosition - bPosition;
+        const aCreated = a.createdAt ?? '';
+        const bCreated = b.createdAt ?? '';
+        if (aCreated !== bCreated) return aCreated < bCreated ? -1 : 1;
+        if (a.id !== b.id) return a.id < b.id ? -1 : 1;
+        return 0;
+    });
+}
+
 /** One level. A pillar stays put. A subtask can move under another top-level task, or to None. */
 export function planParentField(tasks: readonly StageListTask[], taskId: string): PlanParentField {
     const task = tasks.find(item => item.id === taskId);
@@ -215,7 +248,7 @@ export function planParentField(tasks: readonly StageListTask[], taskId: string)
     const current = task.parentTaskId ? tasks.find(item => item.id === task.parentTaskId) : undefined;
     if (task.recurring) return { kind: 'locked', currentTitle: current?.title ?? null };
     const choices = tasks
-        .filter(item => item.id !== taskId && !item.parentTaskId && !isPendingStageTaskId(item.id))
+        .filter(item => planMoveUnderChoice(item, taskId))
         .map(item => ({ id: item.id, title: item.title }));
     return {
         kind: 'picker',

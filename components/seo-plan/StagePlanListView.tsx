@@ -149,7 +149,8 @@ function AssigneeStack({ ids, people }: { ids: string[]; people: readonly PlanAs
     if (ids.length === 0) {
         return (
             <span
-                aria-label="Unassigned"
+                aria-hidden="true"
+                title="Assign"
                 className="inline-flex h-[22px] w-[22px] items-center justify-center rounded-full border border-dashed border-[#3a3a40] text-[10px] text-[#8b8b93]"
             >
                 +
@@ -1056,7 +1057,8 @@ function PlanRow({
                     type="button"
                     data-plan-open="assignee"
                     disabled={locked}
-                    aria-label={assigneeIds.length === 0 ? 'Assignee, unassigned' : 'Assignee'}
+                    aria-label={assigneeIds.length === 0 ? 'Assign' : 'Assignee'}
+                    title={assigneeIds.length === 0 ? 'Assign' : undefined}
                     onClick={() => { if (!locked) onOpenTask(task.id, 'assignee'); }}
                     className="flex justify-end focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                 >
