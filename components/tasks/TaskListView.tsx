@@ -4,7 +4,8 @@ import { Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Play, Pause, ChevronDown, ChevronRight, Calendar, MoreVertical } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useTimer } from '@/components/providers/timer-provider';
+import { planRowTimerLabel, planRowTimerView } from '@/lib/seo-plan/row-timer';
+import { useTaskTimerClick } from './use-task-timer-click';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { updateTask } from '@/lib/supabase/tasks';
@@ -24,7 +25,7 @@ interface TaskListViewProps {
 }
 
 export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListViewProps) {
-    const { runningTimer, startTask, pause } = useTimer();
+    const { pendingTaskId, notice, onTimer, runningTimer, pausedTimers, getElapsedSeconds } = useTaskTimerClick();
     const { organization } = useOrganization();
     const [memberMap, setMemberMap] = useState<Record<string, string>>({});
 
@@ -63,23 +64,20 @@ export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListView
 
     const handleTimerClick = async (e: React.MouseEvent, task: Task) => {
         e.stopPropagation();
-        const isRunning = runningTimer?.taskId === task.id;
-        if (isRunning && runningTimer) {
-            await pause(runningTimer);
-        } else if (task.clientId || task.projectId) {
-            await startTask({
-                clientId: task.clientId ?? task.projectId ?? '',
-                clientName: task.clientName ?? 'Unknown',
-                taskId: task.id,
-                taskTitle: task.title,
-            });
-        }
+        await onTimer({
+            id: task.id,
+            title: task.title,
+            clientId: task.clientId,
+            projectId: task.projectId,
+            clientName: task.clientName,
+        });
     };
 
     const today = new Date().toISOString().slice(0, 10);
 
     return (
         <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+            {notice && <p role="status" data-task-timer-notice className="border-b border-border px-4 py-2 text-sm text-muted-foreground">{notice}</p>}
             <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                     <thead className="bg-muted/50 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-b border-border">
@@ -111,7 +109,8 @@ export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListView
                                     </td>
                                 </tr>
                                 {expandedClients.has(clientName) && clientTasks.map((task) => {
-                                    const isRunning = runningTimer?.taskId === task.id;
+                                    const timer = planRowTimerView(task.id, runningTimer, pausedTimers, getElapsedSeconds);
+                                    const timerPending = pendingTaskId === task.id;
                                     const isOverdue = task.dueDate && task.dueDate < today && task.status !== 'done';
                                     const assignees = task.assigneeIds ?? task.assignees ?? [];
                                     const canTimer = !!(task.clientId || task.projectId);
@@ -235,17 +234,28 @@ export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListView
                                                 <div className="flex items-center gap-2">
                                                     {canTimer && (
                                                         <button
+                                                            type="button"
+                                                            disabled={timerPending || timer.phase === 'reviewing'}
+                                                            aria-busy={timerPending || undefined}
+                                                            aria-label={timerPending ? `Starting timer for ${task.title}` : planRowTimerLabel(timer.phase, task.title)}
+                                                            data-task-timer={timerPending ? 'pending' : timer.phase}
                                                             className={cn(
-                                                                "p-1.5 rounded-full transition-all",
-                                                                isRunning
-                                                                    ? "bg-amber-500/15 text-amber-500 opacity-100"
-                                                                    : "hover:bg-muted opacity-0 group-hover:opacity-100 text-muted-foreground"
+                                                                "inline-flex items-center gap-1 rounded-full p-1.5 text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-70",
+                                                                timer.phase === 'running'
+                                                                    ? "bg-[#ec4899]/15 text-[#ec4899]"
+                                                                    : timer.phase === 'paused'
+                                                                        ? "bg-amber-500/15 text-amber-500"
+                                                                        : "text-muted-foreground hover:bg-muted"
                                                             )}
-                                                            onClick={(e) => handleTimerClick(e, task)}
+                                                            onClick={(e) => void handleTimerClick(e, task)}
                                                         >
-                                                            {isRunning
-                                                                ? <Pause className="h-3 w-3 fill-current" />
-                                                                : <Play className="h-3 w-3 fill-current" />}
+                                                            {timerPending
+                                                                ? 'Starting…'
+                                                                : timer.phase === 'running'
+                                                                    ? <Pause className="h-3 w-3 fill-current" />
+                                                                    : timer.phase === 'paused'
+                                                                        ? 'Resume'
+                                                                        : <Play className="h-3 w-3 fill-current" />}
                                                         </button>
                                                     )}
                                                     <button className="p-1.5 rounded-full hover:bg-muted text-muted-foreground opacity-0 group-hover:opacity-100 transition-all">

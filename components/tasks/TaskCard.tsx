@@ -5,8 +5,9 @@ import { cn } from '@/lib/utils';
 import { Task } from '@/lib/types';
 import { taskDescriptionText } from '@/lib/tasks/description';
 import { listedSubtaskProgress } from '@/lib/tasks/subtask-progress';
-import { useTimer } from '@/components/providers/timer-provider';
+import { planRowTimerLabel, planRowTimerView } from '@/lib/seo-plan/row-timer';
 import { SubtaskProgressText } from './SubtaskProgressText';
+import { useTaskTimerClick } from './use-task-timer-click';
 
 interface TaskCardProps {
     task: Task;
@@ -16,23 +17,19 @@ interface TaskCardProps {
 }
 
 export function TaskCard({ task, clientId, clientName, memberMap = {} }: TaskCardProps) {
-    const { runningTimer, startTask, pause } = useTimer();
-
-    const isThisTaskRunning =
-        runningTimer?.taskId === task.id;
+    const { pendingTaskId, notice, onTimer, runningTimer, pausedTimers, getElapsedSeconds } = useTaskTimerClick();
+    const timer = planRowTimerView(task.id, runningTimer, pausedTimers, getElapsedSeconds);
+    const timerPending = pendingTaskId === task.id;
 
     const handleTimerClick = async (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (isThisTaskRunning && runningTimer) {
-            await pause(runningTimer);
-        } else {
-            await startTask({
-                clientId: clientId ?? task.clientId ?? task.projectId ?? '',
-                clientName: clientName ?? task.clientName ?? 'Unknown',
-                taskId: task.id,
-                taskTitle: task.title,
-            });
-        }
+        await onTimer({
+            id: task.id,
+            title: task.title,
+            clientId: clientId ?? task.clientId,
+            projectId: task.projectId,
+            clientName: clientName ?? task.clientName,
+        });
     };
 
     const canStartTimer = !!(clientId || task.clientId || task.projectId);
@@ -76,20 +73,31 @@ export function TaskCard({ task, clientId, clientName, memberMap = {} }: TaskCar
 
             {canStartTimer && (
                 <button
+                    type="button"
                     onClick={handleTimerClick}
+                    disabled={timerPending || timer.phase === 'reviewing'}
+                    aria-busy={timerPending || undefined}
+                    aria-label={timerPending ? `Starting timer for ${task.title}` : planRowTimerLabel(timer.phase, task.title)}
+                    data-task-timer={timerPending ? 'pending' : timer.phase}
                     className={cn(
-                        'flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1 transition-all duration-150 w-fit',
-                        isThisTaskRunning
-                            ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 hover:bg-amber-500/25'
-                            : 'bg-muted text-muted-foreground hover:bg-green-500/15 hover:text-green-600 dark:hover:text-green-400 opacity-0 group-hover:opacity-100'
+                        'flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1 transition-all duration-150 w-fit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-70',
+                        timer.phase === 'running'
+                            ? 'bg-[#ec4899]/15 text-[#ec4899]'
+                            : timer.phase === 'paused'
+                                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                                : 'bg-muted text-muted-foreground hover:bg-muted/80'
                     )}
                 >
-                    {isThisTaskRunning
-                        ? <><Pause className="h-3 w-3 fill-current" /> Pause</>
-                        : <><Play className="h-3 w-3 fill-current" /> Start Timer</>
-                    }
+                    {timerPending
+                        ? 'Starting…'
+                        : timer.phase === 'running'
+                            ? <><Pause className="h-3 w-3 fill-current" /> Pause</>
+                            : timer.phase === 'paused'
+                                ? <><Play className="h-3 w-3 fill-current" /> Resume</>
+                                : <><Play className="h-3 w-3 fill-current" /> Start Timer</>}
                 </button>
             )}
+            {notice && <p role="status" className="text-xs text-muted-foreground">{notice}</p>}
         </div>
     );
 }
