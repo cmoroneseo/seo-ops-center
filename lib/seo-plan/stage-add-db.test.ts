@@ -141,7 +141,9 @@ test('insert selects only the stage-list columns', async () => {
     assert.equal(tasks[0]?.title, 'Review robots.txt');
     assert.equal(tasks[0]?.basecamp, false);
     assert.equal(store.calls.find(call => call.op === 'insert-select')?.columns, STAGE_LIST_TASK_COLUMNS);
-    assert.equal(/credential|email|description|secret/i.test(STAGE_LIST_TASK_COLUMNS), false);
+    assert.equal(/credential|email|secret/i.test(STAGE_LIST_TASK_COLUMNS), false);
+    assert.match(STAGE_LIST_TASK_COLUMNS, /\bdescription\b/);
+    assert.match(STAGE_LIST_TASK_COLUMNS, /\bestimated_hours\b/);
     assert.match(STAGE_LIST_TASK_COLUMNS, /\bassignee_ids\b/);
 });
 

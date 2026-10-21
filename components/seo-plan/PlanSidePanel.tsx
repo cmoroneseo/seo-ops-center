@@ -92,13 +92,17 @@ export function PlanSidePanel({
     const descriptionTimer = useRef<number | null>(null);
     const titleRef = useRef(title);
     const descriptionRef = useRef(description);
+    const estimateRef = useRef(estimate);
+    const holding = useRef({ description: false, estimate: false });
     titleRef.current = title;
     descriptionRef.current = description;
+    estimateRef.current = estimate;
 
     useEffect(() => {
         titleDirty.current = false;
         descriptionDirty.current = false;
         estimateDirty.current = false;
+        holding.current = { description: false, estimate: false };
         setTitle(task.title);
         setDescription(task.description);
         setEstimate(formatPlanEstimateInput(task.estimatedHours));
@@ -118,9 +122,9 @@ export function PlanSidePanel({
     }, [task.id]);
 
     useEffect(() => {
-        if (descriptionDirty.current || !task.detailsReady) return;
-        setDescription(task.description);
-        setEstimate(formatPlanEstimateInput(task.estimatedHours));
+        if (!task.detailsReady) return;
+        if (!descriptionDirty.current && !holding.current.description) setDescription(task.description);
+        if (!estimateDirty.current && !holding.current.estimate) setEstimate(formatPlanEstimateInput(task.estimatedHours));
     }, [task.detailsReady, task.description, task.estimatedHours, task.id]);
 
     useEffect(() => {
@@ -137,6 +141,8 @@ export function PlanSidePanel({
 
     const persist = useCallback(async (taskId: string, save: PlanPanelSave | null) => {
         if (!save) return;
+        if (save.field === 'description') holding.current.description = true;
+        if (save.field === 'estimate') holding.current.estimate = true;
         setPending(count => count + 1);
         setError(null);
         setSavePhase('idle');
@@ -148,6 +154,8 @@ export function PlanSidePanel({
                 setSavePhase('failed');
             } else {
                 failedSave.current = null;
+                if (save.field === 'description') holding.current.description = false;
+                if (save.field === 'estimate') holding.current.estimate = false;
                 setSavePhase('saved');
             }
         } catch (caught) {
@@ -167,6 +175,7 @@ export function PlanSidePanel({
         const taskId = task.id;
         const savedTitle = task.title;
         const savedDescription = task.description;
+        const savedEstimate = task.estimatedHours ?? null;
         return () => {
             if (titleTimer.current) {
                 window.clearTimeout(titleTimer.current);
@@ -186,8 +195,15 @@ export function PlanSidePanel({
                 descriptionDirty.current = false;
                 if (latest != null) void persist(taskId, { field: 'description', description: latest });
             }
+            if (estimateDirty.current) {
+                const parsed = parsePlanEstimate(estimateRef.current);
+                estimateDirty.current = false;
+                if (parsed.ok && parsed.hours !== savedEstimate) {
+                    void persist(taskId, { field: 'estimate', estimatedHours: parsed.hours });
+                }
+            }
         };
-    }, [task.id, task.title, task.description, persist]);
+    }, [task.id, task.title, task.description, task.estimatedHours, persist]);
 
     useEffect(() => {
         if (!titleDirty.current) return;
@@ -249,9 +265,22 @@ export function PlanSidePanel({
         void commit({ field: 'description', description: value });
     }
 
+    function flushEstimate() {
+        if (!estimateDirty.current || !task.detailsReady) return;
+        const parsed = parsePlanEstimate(estimateRef.current);
+        if (!parsed.ok) {
+            setEstimateError(parsed.error);
+            return;
+        }
+        estimateDirty.current = false;
+        if (parsed.hours === (task.estimatedHours ?? null)) return;
+        void commit({ field: 'estimate', estimatedHours: parsed.hours });
+    }
+
     function close() {
         flushTitle();
         flushDescription();
+        flushEstimate();
         onClose();
     }
 
@@ -289,6 +318,25 @@ export function PlanSidePanel({
             }}
             className="sticky top-4 flex h-[calc(100vh-5rem)] w-[380px] max-w-full shrink-0 flex-col border-l border-[#2a2a2e] bg-[#111113] shadow-[-20px_0_50px_rgba(0,0,0,0.45)]"
         >
+            {savePhase === 'failed' && error && (
+                <div
+                    role="alert"
+                    data-plan-save-toast
+                    className="fixed bottom-4 right-4 z-50 flex max-w-sm items-center gap-3 rounded-lg border border-[#7f1d1d] bg-[#1c0f12] px-3 py-2 text-[13px] text-[#fecaca] shadow-lg"
+                >
+                    <span className="min-w-0">{error}</span>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            const save = failedSave.current;
+                            if (save) void persist(task.id, save);
+                        }}
+                        className="shrink-0 font-medium text-white underline-offset-2 hover:underline"
+                    >
+                        Retry
+                    </button>
+                </div>
+            )}
             <div className="flex items-center gap-2 border-b border-[#2a2a2e] px-3.5 py-3 text-[11px] text-[#8b8b93]">
                 <span className="min-w-0 truncate">Task · {clientName}</span>
                 <span data-plan-save={pending > 0 ? 'saving' : savePhase === 'failed' ? 'error' : savePhase === 'saved' ? 'saved' : 'idle'} className="shrink-0 text-[11px] text-[#8b8b93]">
@@ -457,19 +505,11 @@ export function PlanSidePanel({
                             placeholder={task.detailsReady ? 'Hours' : '…'}
                             onChange={event => {
                                 estimateDirty.current = true;
+                                estimateRef.current = event.target.value;
                                 setEstimate(event.target.value);
                                 setEstimateError(null);
                             }}
-                            onBlur={() => {
-                                if (!estimateDirty.current || !task.detailsReady) return;
-                                const parsed = parsePlanEstimate(estimate);
-                                if (!parsed.ok) {
-                                    setEstimateError(parsed.error);
-                                    return;
-                                }
-                                estimateDirty.current = false;
-                                void commit({ field: 'estimate', estimatedHours: parsed.hours });
-                            }}
+                            onBlur={flushEstimate}
                             className="w-16 bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-60"
                         />
                         <span className="text-[#8b8b93]">· {formatPlanHours(task.loggedHours)} logged</span>

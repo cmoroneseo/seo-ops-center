@@ -31,6 +31,7 @@ import { NestUnderPillarPanel } from './NestUnderPillarPanel';
 import { itemsEligibleForPillarNest, nestCandidateFromPlanItem } from '@/lib/tasks/pillars';
 import { ExecutionWorkspace, ExecutionTaskPatch, ScheduleFields } from './ExecutionWorkspace';
 import { monthKey } from '@/lib/marketing-plan-execution';
+import { hrefWithOverviewMonth, readOverviewMonth } from '@/lib/seo-plan/plan-month-url';
 import type { HoursNarrative } from '@/lib/seo-plan/overview';
 import {getSeoHoursForMonth} from '@/lib/supabase/change-log';
 import { getTask, updateTask } from '@/lib/supabase/tasks';
@@ -62,6 +63,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     const [roadmapMonth, setRoadmapMonth] = useState<'all' | RoadmapPhase>('all');
     const [existingOpen, setExistingOpen] = useState(false);
     const [month, setMonth] = useState(monthKey);
+    const urlMonth = useRef<string | null | undefined>(undefined);
     const [periodBudget,setPeriodBudget]=useState(monthlyBudget ?? 0);
     const [capacityMode,setCapacityMode]=useState<'monthly'|'scoped'|'unavailable'>('unavailable');
     const [taskHours, setTaskHours] = useState<Record<string, number>>({});
@@ -122,9 +124,18 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
             setPlanLayout('board');
             setRoadmapMonth(phase as RoadmapPhase);
         }
-        const overviewMonth = query.get('overviewMonth');
-        if (overviewMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(overviewMonth)) setMonth(overviewMonth);
+        const requested = readOverviewMonth(window.location.search);
+        urlMonth.current = requested;
+        if (requested) setMonth(requested);
     }, [clientId]);
+    useEffect(() => {
+        if (urlMonth.current === undefined) return;
+        if (typeof urlMonth.current === 'string' && month !== urlMonth.current) return;
+        urlMonth.current = null;
+        const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        const next = hrefWithOverviewMonth(current, month);
+        if (next !== current) window.history.replaceState(window.history.state, '', next);
+    }, [month]);
     useEffect(() => {
         let cancelled = false;
         setLoggedHours(null);

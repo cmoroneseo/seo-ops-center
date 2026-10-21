@@ -422,6 +422,11 @@ export function planPanelTask(input: {
 }): PlanPanelTask {
     const ready = input.detail?.id === input.task.id;
     const detail = ready ? input.detail : null;
+    // The stage list selects these columns. A key means the value is known,
+    // including an empty description, so the panel does not wait on getTask.
+    // The list wins over detail: a slower read must not blank a newer edit.
+    const descriptionKnown = 'description' in input.task;
+    const estimateKnown = 'estimatedHours' in input.task;
     const logs = (input.logs ?? []).filter(entry => entry.taskId === input.task.id);
     const loggedFromEntries = logs.reduce((sum, entry) => sum + (Number.isFinite(entry.hours) ? entry.hours : 0), 0);
     const creator = detail?.createdBy
@@ -433,12 +438,14 @@ export function planPanelTask(input: {
     return {
         id: input.task.id,
         title: input.task.title,
-        description: detail?.description ?? '',
-        detailsReady: ready,
+        description: descriptionKnown ? (input.task.description ?? '') : (detail?.description ?? ''),
+        detailsReady: descriptionKnown || ready,
         status: planPanelStatus(input.task.status),
         dueDate: input.task.dueDate ?? null,
         assigneeIds: input.task.assigneeIds ?? [],
-        estimatedHours: detail ? (detail.estimatedHours ?? null) : null,
+        estimatedHours: estimateKnown
+            ? (input.task.estimatedHours ?? null)
+            : (detail ? (detail.estimatedHours ?? null) : null),
         loggedHours: input.loggedHours ?? loggedFromEntries,
         category: input.task.category,
         tags: detail?.tags ?? [],
@@ -512,6 +519,10 @@ export function applyPlanPanelSave(task: StageListTask, save: PlanPanelSave, now
             return { ...task, stage: save.stage };
         case 'liveUrl':
             return { ...task, publishedUrl: save.publishedUrl };
+        case 'description':
+            return { ...task, description: save.description };
+        case 'estimate':
+            return { ...task, estimatedHours: save.estimatedHours };
         default:
             return task;
     }

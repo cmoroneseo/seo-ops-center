@@ -29,6 +29,10 @@ export interface StageListTask {
     assigneeIds?: string[];
     /** tasks.blocked_reason. Absent when that column was not selected. Empty means not blocked. */
     blockedReason?: string | null;
+    /** tasks.description. Absent when that column was not selected. Empty string means the task has no description yet. */
+    description?: string;
+    /** tasks.estimated_hours. Absent when that column was not selected. Null means no estimate. */
+    estimatedHours?: number | null;
     /**
      * Deleted, archived, or hidden. These rows are not live subtasks.
      * A month filter or the "Show done" fold is not this flag.
@@ -260,6 +264,8 @@ export function stageListTaskFromRow(row: unknown): StageListTask | null {
         ...('completed_at' in record ? { completedAt: readTimestamp(record.completed_at) } : {}),
         ...('assignee_ids' in record ? { assigneeIds: readAssigneeIds(record.assignee_ids) } : {}),
         ...('blocked_reason' in record ? { blockedReason: readBlockedReason(record.blocked_reason) } : {}),
+        ...('description' in record ? { description: readDescription(record.description) } : {}),
+        ...('estimated_hours' in record ? { estimatedHours: readEstimatedHours(record.estimated_hours) } : {}),
         ...('basecamp_sync_state' in record ? { basecampSync: readBasecampSync(record) } : {}),
     };
 }
@@ -308,6 +314,14 @@ function readBlockedReason(value: unknown): string | null {
     return reason || null;
 }
 
+function readDescription(value: unknown): string {
+    return typeof value === 'string' ? value : '';
+}
+
+function readEstimatedHours(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 /** Accept the stage-list JSON. Unknown fields and malformed rows are dropped. */
 export function parseStageListTasks(value: unknown): StageListTask[] {
     if (!Array.isArray(value)) return [];
@@ -337,6 +351,8 @@ export function parseStageListTasks(value: unknown): StageListTask[] {
             ...('completedAt' in record ? { completedAt: readTimestamp(record.completedAt) } : {}),
             ...('assigneeIds' in record ? { assigneeIds: readAssigneeIds(record.assigneeIds) } : {}),
             ...('blockedReason' in record ? { blockedReason: readBlockedReason(record.blockedReason) } : {}),
+            ...('description' in record ? { description: readDescription(record.description) } : {}),
+            ...('estimatedHours' in record ? { estimatedHours: readEstimatedHours(record.estimatedHours) } : {}),
             ...('basecampSync' in record ? { basecampSync: readClientBasecampSync(record.basecampSync) } : {}),
         });
     }

@@ -2,10 +2,12 @@
  * One SEO Plan push.
  *
  * The first time a task qualifies, this creates its to-do. Later calls update
- * that same to-do (title, due, assignees, description, complete or reopen,
- * and child steps). A task that already has basecamp_todo_id is never created
- * again. There is one attempt: a failure is stored and left for Retry or the
- * nightly pass. Nothing here talks to Basecamp; the provider is injected.
+ * that same to-do in one request (title, description, due, assignees,
+ * completion subscribers), then completion and child steps. A task that
+ * already has basecamp_todo_id is never created again. A child push is that
+ * parent's update, and the result is stored on the child as well. There is
+ * one attempt: a failure is stored and left for Retry or the nightly pass.
+ * Nothing here talks to Basecamp; the provider is injected.
  */
 
 import {
@@ -35,6 +37,7 @@ export interface PlanPushTask {
     parentTaskId: string | null;
     basecampTodoId: string | null;
     assigneePersonIds: number[];
+    completionSubscriberPersonIds: number[];
     children: PlanPushChild[];
 }
 
@@ -71,6 +74,7 @@ export interface PlanPushProvider {
         description: string | null;
         dueDate: string | null;
         assigneePersonIds: number[];
+        completionSubscriberPersonIds: number[];
     }): Promise<PlanProviderResult>;
     updateTodo(input: {
         projectId: string;
@@ -78,11 +82,8 @@ export interface PlanPushProvider {
         title: string;
         description: string | null;
         dueDate: string | null;
-    }): Promise<PlanProviderResult>;
-    setAssignees(input: {
-        projectId: string;
-        todoId: string;
         assigneePersonIds: number[];
+        completionSubscriberPersonIds: number[];
     }): Promise<PlanProviderResult>;
     getTodo(input: { projectId: string; todoId: string }): Promise<PlanProviderResult>;
     completeTodo(input: { projectId: string; todoId: string }): Promise<PlanProviderResult>;
@@ -126,18 +127,26 @@ function failure(
     };
 }
 
+/** The row being pushed, plus any child whose push was redirected onto it. */
+function recordedTaskIds(snapshot: PlanPushSnapshot, seen: ReadonlySet<string>): string[] {
+    return [...new Set([snapshot.task.id, ...seen])];
+}
+
 async function rememberFailure(
     dependencies: PlanPushDependencies,
     snapshot: PlanPushSnapshot,
     error: string,
     scope: PlanBasecampFailureScope,
+    seen: ReadonlySet<string>,
 ): Promise<PlanPushOutcome> {
     const sync: PlanBasecampSyncState = {
         state: 'failed',
         error,
         attemptedAt: dependencies.now(),
     };
-    await dependencies.store.recordTask(snapshot.task.id, sync);
+    for (const taskId of recordedTaskIds(snapshot, seen)) {
+        await dependencies.store.recordTask(taskId, sync);
+    }
     if (scope === 'client') {
         await dependencies.store.recordClient(snapshot.client.id, { state: 'failed', error });
     }
@@ -156,13 +165,16 @@ async function rememberOk(
     dependencies: PlanPushDependencies,
     snapshot: PlanPushSnapshot,
     todoId: string,
+    seen: ReadonlySet<string>,
 ): Promise<PlanPushOutcome> {
     const sync: PlanBasecampSyncState = {
         state: 'ok',
         error: null,
         attemptedAt: dependencies.now(),
     };
-    await dependencies.store.recordTask(snapshot.task.id, sync);
+    for (const taskId of recordedTaskIds(snapshot, seen)) {
+        await dependencies.store.recordTask(taskId, sync);
+    }
     await dependencies.store.recordClient(snapshot.client.id, { state: 'ok', error: null });
     return {
         status: 'ok',
@@ -260,6 +272,7 @@ export async function syncPlanTask(
                 'Basecamp returned 404: the to-do list no longer exists'
                     + (snapshot.client.projectName ? ` in project "${snapshot.client.projectName}".` : '.'),
                 'task',
+                seen,
             );
         }
         const created = await dependencies.provider.createTodo({
@@ -269,13 +282,14 @@ export async function syncPlanTask(
             description: task.description,
             dueDate: task.dueDate,
             assigneePersonIds: task.assigneePersonIds,
+            completionSubscriberPersonIds: task.completionSubscriberPersonIds,
         });
         if (!created.ok) {
             const reason = failure(created);
-            return rememberFailure(dependencies, snapshot, reason.message, reason.scope);
+            return rememberFailure(dependencies, snapshot, reason.message, reason.scope, seen);
         }
         if (!created.todoId) {
-            return rememberFailure(dependencies, snapshot, 'Basecamp returned 502.', 'task');
+            return rememberFailure(dependencies, snapshot, 'Basecamp returned 502.', 'task', seen);
         }
         task.basecampTodoId = created.todoId;
         supportsSubtasks = created.supportsSubtasks;
@@ -284,7 +298,7 @@ export async function syncPlanTask(
             const completed = await dependencies.provider.completeTodo({ projectId, todoId: created.todoId });
             if (!completed.ok) {
                 const reason = failure(completed);
-                return rememberFailure(dependencies, snapshot, reason.message, reason.scope);
+                return rememberFailure(dependencies, snapshot, reason.message, reason.scope, seen);
             }
         }
     } else {
@@ -294,24 +308,17 @@ export async function syncPlanTask(
             title: task.title,
             description: task.description,
             dueDate: task.dueDate,
+            assigneePersonIds: task.assigneePersonIds,
+            completionSubscriberPersonIds: task.completionSubscriberPersonIds,
         });
         if (!updated.ok) {
             const reason = failure(updated);
-            return rememberFailure(dependencies, snapshot, reason.message, reason.scope);
-        }
-        const assignees = await dependencies.provider.setAssignees({
-            projectId,
-            todoId: task.basecampTodoId,
-            assigneePersonIds: task.assigneePersonIds,
-        });
-        if (!assignees.ok) {
-            const reason = failure(assignees);
-            return rememberFailure(dependencies, snapshot, reason.message, reason.scope);
+            return rememberFailure(dependencies, snapshot, reason.message, reason.scope, seen);
         }
         const completion = await syncCompletion(dependencies, projectId, task);
         if (!completion.ok) {
             const reason = failure(completion);
-            return rememberFailure(dependencies, snapshot, reason.message, reason.scope);
+            return rememberFailure(dependencies, snapshot, reason.message, reason.scope, seen);
         }
         supportsSubtasks = completion.supportsSubtasks;
     }
@@ -319,8 +326,8 @@ export async function syncPlanTask(
     const steps = await syncSteps(dependencies, projectId, task, supportsSubtasks);
     if (!steps.ok) {
         const reason = failure(steps);
-        return rememberFailure(dependencies, snapshot, reason.message, reason.scope);
+        return rememberFailure(dependencies, snapshot, reason.message, reason.scope, seen);
     }
 
-    return rememberOk(dependencies, snapshot, task.basecampTodoId ?? '');
+    return rememberOk(dependencies, snapshot, task.basecampTodoId ?? '', seen);
 }
