@@ -1,3 +1,4 @@
+import { RESUMED_OPEN_TIMER_MESSAGE, REVIEWING_TIMER_MESSAGE } from '../timer/attempt-state';
 import type { TimerAttempt } from '../types';
 import { timeTrackingTaskId } from '../tasks/pillars';
 
@@ -154,6 +155,13 @@ export async function clickPlanRowTimer(input: {
         ok,
         promoted: ok && input.taskStatus === 'todo',
     };
+}
+
+/** What to tell the person after a row play click that did not start a new entry. */
+export function planTimerNotice(result: PlanTimerClickResult): string | null {
+    if (result.action === 'resume' && result.ok) return RESUMED_OPEN_TIMER_MESSAGE;
+    if (result.action === 'noop') return REVIEWING_TIMER_MESSAGE;
+    return null;
 }
 
 export async function openPlanStopReview(input: {
