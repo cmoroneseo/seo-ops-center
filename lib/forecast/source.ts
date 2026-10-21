@@ -31,8 +31,18 @@ interface LogRow {
     basecamp_project_id?: number | string | null;
     task_id?: string | null;
     description?: string | null;
+    /**
+     * Closed or open segments. Two FKs point at `time_logs`, so the query
+     * names `time_log_segments_time_log_id_fkey` (migration 033).
+     */
+    time_log_segments?: SegmentRow | SegmentRow[] | null;
     clients: { name?: string | null; domain?: string | null } | { name?: string | null; domain?: string | null }[] | null;
     tasks?: { title?: string | null } | { title?: string | null }[] | null;
+}
+
+interface SegmentRow {
+    started_at?: string | null;
+    ended_at?: string | null;
 }
 
 interface EventRow {
@@ -93,6 +103,28 @@ function instant(value: string | null | undefined): string | undefined {
     return parsed.toISOString();
 }
 
+function segmentRows(value: LogRow['time_log_segments']): SegmentRow[] {
+    if (Array.isArray(value)) return value;
+    if (value) return [value];
+    return [];
+}
+
+/** Earliest segment start. A later pause-and-resume must not move the block. */
+function earliestSegmentStart(value: LogRow['time_log_segments']): string | undefined {
+    let earliest: string | undefined;
+    let earliestMs = Number.POSITIVE_INFINITY;
+    for (const segment of segmentRows(value)) {
+        const started = instant(segment.started_at);
+        if (!started) continue;
+        const ms = Date.parse(started);
+        if (ms < earliestMs) {
+            earliestMs = ms;
+            earliest = started;
+        }
+    }
+    return earliest;
+}
+
 function basecampProjectId(value: number | string | null | undefined): string | undefined {
     if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) return String(value);
     if (typeof value === 'string' && /^\d+$/.test(value.trim())) return value.trim();
@@ -130,6 +162,7 @@ export function rowToForecastLog(row: LogRow): ForecastLog {
         voidedAt: row.voided_at ?? undefined,
         plannerEventId: row.planner_event_id ?? undefined,
         plannedStartsAt: instant(row.planned_starts_at),
+        workedStartsAt: earliestSegmentStart(row.time_log_segments),
         basecampProjectId: basecampProjectId(row.basecamp_project_id),
         taskId: row.task_id ?? undefined,
         taskTitle: task?.title?.trim() || undefined,
@@ -175,7 +208,7 @@ export function rowToForecastTask(row: TaskRow): ForecastTask {
     };
 }
 
-const LOG_COLUMNS = 'id, user_id, client_id, task_id, description, date, hours, status, import_status, voided_at, planner_event_id, planned_starts_at, basecamp_project_id, clients(name, domain), tasks(title)';
+const LOG_COLUMNS = 'id, user_id, client_id, task_id, description, date, hours, status, import_status, voided_at, planner_event_id, planned_starts_at, basecamp_project_id, clients(name, domain), tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(started_at, ended_at)';
 const EVENT_COLUMNS = 'id, user_id, attendee_ids, kind, starts_at, ends_at, all_day, client_id, task_id, title, clients(name, domain), tasks(title)';
 const TASK_COLUMNS = 'id, title, status, assignee_ids, client_id, start_date, estimated_hours, clients(name, domain)';
 

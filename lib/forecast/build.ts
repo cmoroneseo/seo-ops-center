@@ -47,6 +47,11 @@ export interface ForecastLog {
     clientDomain?: string;
     /** When this entry was planned to start. Placement only. */
     plannedStartsAt?: string;
+    /**
+     * Earliest `time_log_segments.started_at`. Timer and manual windows store
+     * the real clock here and leave `plannedStartsAt` empty. Placement only.
+     */
+    workedStartsAt?: string;
     /** Basecamp project the block was logged against, when one was chosen. */
     basecampProjectId?: string;
 }
