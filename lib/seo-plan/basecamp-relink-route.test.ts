@@ -208,3 +208,49 @@ test('a parent that is itself a subtask is refused before Basecamp is called', (
     if (built.ok) return;
     assert.equal(built.status, 400);
 });
+
+test('children are grouped in plan order even when the rows arrive backwards', () => {
+    const built = buildRelinkParents([
+        {
+            id: parentId,
+            title: 'Indexing + bloat triage',
+            parentTaskId: null,
+            basecampTodoId: '10429396134',
+            pendingTrashId: null,
+        },
+        {
+            id: '208dbc36-3333-4333-8333-333333333334',
+            title: 'Clean the sitemap',
+            parentTaskId: parentId,
+            basecampTodoId: '44',
+            pendingTrashId: null,
+            position: 4,
+            createdAt: '2026-10-04T00:00:00.000Z',
+        },
+        {
+            id: childId,
+            title: 'List duplicate and junk pages',
+            parentTaskId: parentId,
+            basecampTodoId: '11',
+            pendingTrashId: null,
+            position: 1,
+            createdAt: '2026-10-02T00:00:00.000Z',
+        },
+        {
+            id: nestedId,
+            title: 'Pick the main page',
+            parentTaskId: parentId,
+            basecampTodoId: '22',
+            pendingTrashId: null,
+            position: 1,
+            createdAt: '2026-10-01T00:00:00.000Z',
+        },
+    ], parentId);
+    assert.equal(built.ok, true);
+    if (!built.ok) return;
+    assert.deepEqual(built.parents[0]?.children.map(child => child.title), [
+        'Pick the main page',
+        'List duplicate and junk pages',
+        'Clean the sitemap',
+    ]);
+});

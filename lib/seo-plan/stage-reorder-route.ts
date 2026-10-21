@@ -41,6 +41,11 @@ export interface StageReorderDependencies {
     pushPlanTask?: (
         taskId: string,
     ) => Promise<PlanBasecampSyncState | null | void> | PlanBasecampSyncState | null | void;
+    /**
+     * Move one parent's Basecamp steps into the new sibling order.
+     * Called for every parent whose children were rewritten.
+     */
+    syncStepOrder?: (parentTaskId: string) => Promise<void> | void;
 }
 
 export type StageReorderResult =
@@ -52,6 +57,27 @@ function readDueDate(record: Record<string, unknown>): { ok: true; dueDate?: str
     if (record.dueDate === null) return { ok: true, dueDate: null };
     if (typeof record.dueDate === 'string' && DAY.test(record.dueDate)) return { ok: true, dueDate: record.dueDate };
     return { ok: false };
+}
+
+/**
+ * Parents whose checklist may have changed.
+ * The dragged row's old parent, its new parent, and any rewritten child.
+ * A top-level reorder has no parent and is not included.
+ */
+export function stepOrderParentIds(
+    tasks: readonly StageListTask[],
+    move: StageReorderMove,
+    writes: readonly StageReorderWrite[],
+): string[] {
+    if (writes.length === 0) return [];
+    const ids: string[] = [];
+    const add = (id: string | null | undefined) => {
+        if (id && !ids.includes(id)) ids.push(id);
+    };
+    add(tasks.find(task => task.id === move.taskId)?.parentTaskId);
+    add(move.parentTaskId);
+    for (const write of writes) add(write.parentTaskId);
+    return ids;
 }
 
 function readMove(body: unknown): { ok: true; value: StageReorderMove } | { ok: false } {
@@ -151,6 +177,16 @@ export async function reorderStageTasks(
                 }
             } catch {
                 // The move is saved. The push records its own failure.
+            }
+        }
+        // Sibling order changed. Push the checklist even when the dragged
+        // row itself does not qualify for a to-do update. A matching
+        // Basecamp order makes no reposition calls.
+        for (const parentId of stepOrderParentIds(tasks, parsed.value, plan.writes)) {
+            try {
+                await dependencies.syncStepOrder?.(parentId);
+            } catch {
+                // The move is saved. The step-order push records its own failure.
             }
         }
         return { status: 200, body: { tasks: updated } };

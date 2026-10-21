@@ -28,6 +28,7 @@ import {
     type NestTask,
     type RelinkParent,
 } from './basecamp-nest';
+import { sortByAppOrder } from './basecamp-step-order';
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -81,6 +82,9 @@ export interface RelinkTaskRow {
     pendingTrashId: string | null;
     /** `done` is carried onto the Basecamp step. */
     status?: string | null;
+    /** Plan order. Absent rows sort after numbered ones. */
+    position?: number | null;
+    createdAt?: string | null;
 }
 
 /** Group loaded tasks into the parents the relink walks. One level only. */
@@ -99,6 +103,8 @@ export function buildRelinkParents(
             basecampTodoId: row.basecampTodoId,
             pendingTrashId: row.pendingTrashId,
             completed: row.status === 'done',
+            position: row.position ?? null,
+            createdAt: row.createdAt ?? null,
         });
         byParent.set(row.parentTaskId, children);
     }
@@ -113,7 +119,7 @@ export function buildRelinkParents(
                 id: parent.id,
                 basecampTodoId: parent.basecampTodoId,
                 completed: parent.status === 'done',
-                children: byParent.get(parent.id) ?? [],
+                children: sortByAppOrder(byParent.get(parent.id) ?? []),
             }],
         };
     }
@@ -123,7 +129,7 @@ export function buildRelinkParents(
             id: row.id,
             basecampTodoId: row.basecampTodoId,
             completed: row.status === 'done',
-            children: byParent.get(row.id) ?? [],
+            children: sortByAppOrder(byParent.get(row.id) ?? []),
         }));
     return { ok: true, parents, claimedRecordingIds: claimed };
 }

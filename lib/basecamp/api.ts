@@ -256,6 +256,16 @@ export function basecampSubtaskCompletionPath(stepId: number | string): string {
     return `/subtasks/${safeId(stepId, 'stepId')}/completion.json`;
 }
 
+/**
+ * Reposition a to-do subtask among its siblings.
+ * PUT /subtasks/{stepId}/position.json with `{ position }` (1-based).
+ * To-do subtasks are `Kanban::Step` recordings. bc3-api's subtasks section is
+ * the route for a step under a to-do; the card-table step routes speak of cards.
+ */
+export function basecampSubtaskPositionPath(stepId: number | string): string {
+    return `/subtasks/${safeId(stepId, 'stepId')}/position.json`;
+}
+
 /** Any recording, including a to-do or a Kanban::Step. */
 export function basecampRecordingPath(projectId: number | string, recordingId: number | string): string {
     return `/buckets/${safeId(projectId, 'projectId')}/recordings/${safeId(recordingId, 'recordingId')}.json`;

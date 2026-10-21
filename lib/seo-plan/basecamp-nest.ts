@@ -14,6 +14,8 @@
  * again before anything is trashed. Trash stays a recoverable status change.
  */
 
+import { alignBasecampStepOrder, linkedStepIds, sortByAppOrder } from './basecamp-step-order';
+
 export type NestScope = 'client' | 'task';
 
 export type BasecampRecording =
@@ -38,6 +40,9 @@ export interface NestTask {
     description?: string | null;
     dueDate?: string | null;
     assigneePersonIds?: number[];
+    /** Plan order. Missing values sort after numbered rows, then by created_at and id. */
+    position?: number | null;
+    createdAt?: string | null;
 }
 
 export type NestAction =
@@ -124,6 +129,11 @@ export interface BasecampNestProvider {
     completeTodo?(input: { projectId: string; todoId: string }): Promise<NestCall>;
     /** DELETE on the to-do completion path. Used to open a completed parent before adding a step. */
     reopenTodo?(input: { projectId: string; todoId: string }): Promise<NestCall>;
+    /**
+     * PUT /subtasks/{id}/position.json. Absent means an older provider
+     * leaves the checklist order alone.
+     */
+    repositionStep?(input: { projectId: string; stepId: string; position: number }): Promise<NestCall>;
     trashRecording(input: { projectId: string; recordingId: string }): Promise<
         | { ok: true; alreadyGone: boolean }
         | { ok: false; status: number; message: string; scope: NestScope }
@@ -1101,8 +1111,9 @@ export interface RelinkParent {
 }
 
 /**
- * One result per child. A failure on one child does not stop the others.
- * `claimedRecordingIds` is copied, so the caller's set is left as it was.
+ * One result per child, in plan order. A failure on one child does not stop
+ * the others. A real run then moves steps when Basecamp's order does not
+ * match. `claimedRecordingIds` is copied, so the caller's set is left as it was.
  */
 export async function relinkChildren(
     input: {
@@ -1116,7 +1127,8 @@ export async function relinkChildren(
     const claimed = new Set(input.claimedRecordingIds);
     const results: NestResult[] = [];
     for (const parent of input.parents) {
-        for (const child of parent.children) {
+        const children = sortByAppOrder(parent.children);
+        for (const child of children) {
             results.push(await nestFlatChild({
                 projectId: input.projectId,
                 parentTodoId: parent.basecampTodoId,
@@ -1126,6 +1138,33 @@ export async function relinkChildren(
                 claimed,
                 dryRun: input.dryRun,
             }, dependencies));
+        }
+        const repositionStep = dependencies.provider.repositionStep;
+        if (input.dryRun || !parent.basecampTodoId || !repositionStep) continue;
+        const parentTodoId = parent.basecampTodoId;
+        const aligned = await alignBasecampStepOrder({
+            projectId: input.projectId,
+            parentTodoId,
+            desiredStepIds: linkedStepIds(children),
+            listSteps: () => dependencies.provider.listSteps({
+                projectId: input.projectId,
+                parentTodoId,
+            }),
+            repositionStep: move => repositionStep({
+                projectId: input.projectId,
+                stepId: move.stepId,
+                position: move.position,
+            }),
+        });
+        if (!aligned.ok) {
+            results.push(failed(
+                { id: parent.id, title: 'Subtask order', basecampTodoId: parentTodoId },
+                parent.id,
+                parentTodoId,
+                aligned.status,
+                aligned.scope,
+                aligned.message,
+            ));
         }
     }
     return results;

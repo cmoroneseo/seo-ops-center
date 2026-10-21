@@ -42,6 +42,7 @@ function harness(options: {
     reopenTodo?: () => Promise<{ ok: true } | { ok: false; status: number; message: string; scope: 'task' }>;
     completeStep?: () => Promise<{ ok: true } | { ok: false; status: number; message: string; scope: 'task' }>;
     completeTodo?: () => Promise<{ ok: true } | { ok: false; status: number; message: string; scope: 'task' }>;
+    repositionStep?: (input: { stepId: string; position: number }) => Promise<{ ok: true } | { ok: false; status: number; message: string; scope: 'task' }>;
 } = {}) {
     const calls: string[] = [];
     const recordings = options.recordings ?? { '100': { kind: 'todo', trashed: false } };
@@ -116,6 +117,14 @@ function harness(options: {
                 if (options.trash) return options.trash(input.recordingId);
                 return { ok: true, alreadyGone: false };
             },
+            ...(options.repositionStep
+                ? {
+                    async repositionStep(input: { projectId: string; stepId: string; position: number }) {
+                        calls.push(`position:${input.stepId}:${input.position}`);
+                        return options.repositionStep!(input);
+                    },
+                }
+                : {}),
         },
     };
     return { dependencies, calls, recordings };
@@ -826,4 +835,104 @@ test('lifting a completed step completes the new to-do before the step is trashe
     const completeAt = calls.indexOf('complete-todo:300');
     const trashAt = calls.indexOf('trash:100');
     assert.ok(linkAt >= 0 && completeAt > linkAt && trashAt > completeAt);
+});
+
+const floorChildren = [
+    child({
+        id: 'clean',
+        title: 'Clean the sitemap',
+        basecampTodoId: '44',
+        position: 4,
+        createdAt: '2026-10-04T00:00:00.000Z',
+    }),
+    child({
+        id: 'list',
+        title: 'List duplicate and junk pages',
+        basecampTodoId: '11',
+        position: 1,
+        createdAt: '2026-10-01T00:00:00.000Z',
+    }),
+    child({
+        id: 'pick',
+        title: 'Pick the main page',
+        basecampTodoId: '22',
+        position: 2,
+        createdAt: '2026-10-02T00:00:00.000Z',
+    }),
+];
+
+const floorRecordings: Record<string, BasecampRecording> = {
+    '77': { kind: 'todo', trashed: false },
+    '11': { kind: 'step', parentTodoId: '77', trashed: false },
+    '22': { kind: 'step', parentTodoId: '77', trashed: false },
+    '44': { kind: 'step', parentTodoId: '77', trashed: false },
+};
+
+test('relink walks children in plan order and repositions a checklist that starts with Clean', async () => {
+    const { dependencies, calls } = harness({
+        recordings: floorRecordings,
+        steps: [
+            { id: '44', title: 'Clean the sitemap' },
+            { id: '11', title: 'List duplicate and junk pages' },
+            { id: '22', title: 'Pick the main page' },
+        ],
+        repositionStep: async () => ({ ok: true }),
+    });
+    const results = await relinkChildren({
+        projectId: '48599958',
+        dryRun: false,
+        claimedRecordingIds: ['11', '22', '44', '77'],
+        parents: [{ id: 'parent-1', basecampTodoId: '77', children: floorChildren }],
+    }, dependencies);
+    assert.deepEqual(results.map(result => result.taskId), ['list', 'pick', 'clean']);
+    assert.ok(results.every(result => result.action === 'already-nested'));
+    assert.ok(calls.indexOf('inspect:11') < calls.indexOf('inspect:22'));
+    assert.ok(calls.indexOf('inspect:22') < calls.indexOf('inspect:44'));
+    assert.deepEqual(calls.filter(call => call.startsWith('position:')), ['position:11:1', 'position:22:2']);
+});
+
+test('a dry run reports plan order and does not reposition', async () => {
+    const { dependencies, calls } = harness({
+        recordings: floorRecordings,
+        steps: [
+            { id: '44', title: 'Clean the sitemap' },
+            { id: '11', title: 'List duplicate and junk pages' },
+            { id: '22', title: 'Pick the main page' },
+        ],
+        repositionStep: async () => ({ ok: true }),
+    });
+    const results = await relinkChildren({
+        projectId: '48599958',
+        dryRun: true,
+        claimedRecordingIds: ['11', '22', '44', '77'],
+        parents: [{ id: 'parent-1', basecampTodoId: '77', children: floorChildren }],
+    }, dependencies);
+    assert.deepEqual(results.map(result => [result.taskId, result.action]), [
+        ['list', 'already-nested'],
+        ['pick', 'already-nested'],
+        ['clean', 'already-nested'],
+    ]);
+    assert.equal(calls.some(call => call.startsWith('position:')), false);
+    assert.equal(calls.includes('list-steps'), false);
+});
+
+test('a reposition failure is reported and does not stop the children that already nested', async () => {
+    const { dependencies } = harness({
+        recordings: floorRecordings,
+        steps: [
+            { id: '44', title: 'Clean the sitemap' },
+            { id: '11', title: 'List duplicate and junk pages' },
+            { id: '22', title: 'Pick the main page' },
+        ],
+        repositionStep: async () => ({ ok: false, status: 422, message: 'Basecamp returned 422.', scope: 'task' }),
+    });
+    const results = await relinkChildren({
+        projectId: '48599958',
+        dryRun: false,
+        claimedRecordingIds: ['11', '22', '44', '77'],
+        parents: [{ id: 'parent-1', basecampTodoId: '77', children: floorChildren }],
+    }, dependencies);
+    assert.deepEqual(results.map(result => result.action), ['already-nested', 'already-nested', 'already-nested', 'failed']);
+    assert.equal(results[3]?.message, 'Basecamp returned 422.');
+    assert.equal(results[3]?.taskId, 'parent-1');
 });
