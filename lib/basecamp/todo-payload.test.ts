@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { basecampSubtaskCreatePath, basecampSubtaskSupport, basecampTodoCreateBody, basecampTodoUpdateBody } from './api.ts';
+import {
+    basecampAccountPath,
+    basecampRecordingPath,
+    basecampSubtaskCompletionPath,
+    basecampSubtaskCreatePath,
+    basecampSubtaskSupport,
+    basecampTodoCreateBody,
+    basecampTodoUpdateBody,
+    basecampTrashPath,
+} from './api.ts';
 
 test('Basecamp create payload uses the official fields for every mapped SEO PM value', () => {
     assert.deepEqual(basecampTodoCreateBody({
@@ -52,5 +61,13 @@ test('subtask support follows the recording fields and the create path is the re
     assert.equal(basecampSubtaskSupport({ subtasks_count: 0, subtasks_url: 'https://3.basecampapi.com/1/recordings/2/subtasks.json' }), true);
     assert.equal(basecampSubtaskSupport({ subtasks_count: undefined, subtasks_url: '' }), false);
     assert.equal(basecampSubtaskCreatePath(77), '/recordings/77/subtasks.json');
+    assert.equal(basecampSubtaskCompletionPath(200), '/subtasks/200/completion.json');
+    assert.equal(basecampRecordingPath(12, 77), '/buckets/12/recordings/77.json');
+    assert.equal(basecampTrashPath(12, 77), '/buckets/12/recordings/77/status/trashed.json');
+    assert.equal(
+        basecampAccountPath('https://3.basecampapi.com/5338018/buckets/12/todos.json?page=2'),
+        '/buckets/12/todos.json?page=2',
+    );
+    assert.equal(basecampAccountPath('https://example.com/buckets/12/todos.json'), null);
     assert.throws(() => basecampSubtaskCreatePath('not-an-id'), /parentTodoId/);
 });

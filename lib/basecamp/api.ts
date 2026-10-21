@@ -106,9 +106,9 @@ const STALE_TOKEN_STATUSES = new Set([401, 406]);
  */
 export async function basecampWriteJson(
     path: string,
-    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     body?: Record<string, unknown> | null,
-): Promise<{ ok: true; body: unknown } | { ok: false; status: number; detail: string }> {
+): Promise<{ ok: true; body: unknown; nextPath: string | null } | { ok: false; status: number; detail: string }> {
     if (!path.startsWith('/') || path.includes('://') || path.includes('..')) {
         return { ok: false, status: 400, detail: 'Invalid Basecamp path' };
     }
@@ -118,12 +118,13 @@ export async function basecampWriteJson(
             ...(body ? { body: JSON.stringify(body) } : {}),
         });
         const text = await res.text();
+        const nextPath = nextAccountPath(res.headers.get('Link'));
         if (!res.ok) return { ok: false, status: res.status, detail: text.slice(0, 500) };
-        if (!text) return { ok: true, body: null };
+        if (!text) return { ok: true, body: null, nextPath };
         try {
-            return { ok: true, body: JSON.parse(text) as unknown };
+            return { ok: true, body: JSON.parse(text) as unknown, nextPath };
         } catch {
-            return { ok: true, body: null };
+            return { ok: true, body: null, nextPath };
         }
     } catch (err) {
         const message = err instanceof Error ? err.message : 'Basecamp request failed';
@@ -244,6 +245,47 @@ export function basecampTodoUpdateBody(params: BasecampTodoUpdateParams): Record
         assignee_ids: [...params.assigneePersonIds],
         completion_subscriber_ids: [...params.completionSubscriberPersonIds],
     };
+}
+
+/**
+ * Complete or uncomplete a step.
+ * POST /subtasks/{id}/completion.json marks it done. DELETE on the same path reopens it.
+ * This is not the to-do completion path: a step id is not a to-do id.
+ */
+export function basecampSubtaskCompletionPath(stepId: number | string): string {
+    return `/subtasks/${safeId(stepId, 'stepId')}/completion.json`;
+}
+
+/** Any recording, including a to-do or a Kanban::Step. */
+export function basecampRecordingPath(projectId: number | string, recordingId: number | string): string {
+    return `/buckets/${safeId(projectId, 'projectId')}/recordings/${safeId(recordingId, 'recordingId')}.json`;
+}
+
+/**
+ * Trash is recoverable for about 25 days.
+ * PUT /buckets/{project}/recordings/{id}/status/trashed.json
+ */
+export function basecampTrashPath(projectId: number | string, recordingId: number | string): string {
+    return `/buckets/${safeId(projectId, 'projectId')}/recordings/${safeId(recordingId, 'recordingId')}/status/trashed.json`;
+}
+
+/**
+ * Turn a Basecamp next-page URL into the account-relative path `basecampWriteJson` accepts.
+ * Anything that is not an https URL on 3.basecampapi.com is ignored.
+ */
+export function basecampAccountPath(url: string): string | null {
+    const match = /^https:\/\/3\.basecampapi\.com\/\d+(\/[^?#]*)(\?[^#]*)?$/.exec(url.trim());
+    if (!match) return null;
+    const path = `${match[1]}${match[2] ?? ''}`;
+    if (!path.startsWith('/') || path.includes('..') || path.includes('//')) return null;
+    return path;
+}
+
+function nextAccountPath(linkHeader: string | null): string | null {
+    if (!linkHeader) return null;
+    const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+    if (!match) return null;
+    return basecampAccountPath(match[1]);
 }
 
 /** Map SEO PM's camelCase task data to Basecamp's documented create fields. */
