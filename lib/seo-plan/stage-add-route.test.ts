@@ -199,6 +199,73 @@ test('a subtask is placed at the end of the pillar and keeps the pillar stage', 
     assert.equal(calls.rows[0].organization_id, org);
 });
 
+test('subtasks under one parent are one insert and one push of that parent', async () => {
+    let inserts = 0;
+    const { dependencies, calls } = deps({
+        insertTasks: async rows => {
+            inserts += 1;
+            calls.rows.push(...rows);
+            return rows.map(taskFromRow);
+        },
+        pushToBasecamp: taskId => {
+            calls.pushes.push(taskId);
+            return { state: 'ok', error: null, attemptedAt: '2026-10-16T17:00:01.000Z' };
+        },
+    });
+    const result = await createStageTasks(clientId, {
+        stage: 'backlog',
+        titles: ['Houzz photos', 'Porch listing', 'Yelp profile'],
+        parentTaskId: parentId,
+        organizationId: other,
+    }, dependencies);
+    assert.equal(result.status, 200);
+    if (result.status !== 200) return;
+    assert.equal(inserts, 1);
+    assert.equal(calls.rows.length, 3);
+    assert.equal(calls.rows.every(row => row.parent_task_id === parentId), true);
+    assert.equal(calls.rows.every(row => row.stage === 'onboarding'), true);
+    assert.equal(calls.rows.every(row => row.client_id === clientId), true);
+    assert.equal(calls.rows.some(row => row.organization_id === other), false);
+    assert.deepEqual(calls.pushes, [parentId]);
+    assert.deepEqual(result.body.parentPush, {
+        taskId: parentId,
+        basecampSync: { state: 'ok', error: null, attemptedAt: '2026-10-16T17:00:01.000Z' },
+    });
+});
+
+test('a backlog parent is pushed once for the whole paste, not once per subtask', async () => {
+    const { dependencies, calls } = deps({
+        loadParent: async () => ({ title: 'Later', stage: 'backlog', parentTaskId: null }),
+    });
+    const result = await createStageTasks(clientId, {
+        stage: 'onboarding',
+        titles: ['One', 'Two', 'Three'],
+        parentTaskId: parentId,
+    }, dependencies);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls.pushes, [parentId]);
+    assert.equal(calls.rows.every(row => row.stage === 'backlog'), true);
+});
+
+test('a parent push that throws still returns the subtasks', async () => {
+    const { dependencies, calls } = deps({
+        pushToBasecamp: taskId => {
+            calls.pushes.push(taskId);
+            throw new Error('basecamp down');
+        },
+    });
+    const result = await createStageTasks(clientId, {
+        stage: 'onboarding',
+        titles: ['One', 'Two'],
+        parentTaskId: parentId,
+    }, dependencies);
+    assert.equal(result.status, 200);
+    if (result.status !== 200) return;
+    assert.equal(result.body.tasks.length, 2);
+    assert.equal(result.body.parentPush, undefined);
+    assert.deepEqual(calls.pushes, [parentId]);
+});
+
 test('a subtask cannot be nested under another subtask', async () => {
     const { dependencies, calls } = deps({
         loadParent: async () => ({ title: 'Add keywords', stage: 'onboarding', parentTaskId: 'setup' }),

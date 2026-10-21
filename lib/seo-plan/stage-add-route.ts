@@ -47,8 +47,13 @@ export interface StageAddDependencies {
     }) => Promise<void>;
 }
 
+export interface StageAddParentPush {
+    taskId: string;
+    basecampSync: PlanBasecampSyncState | null;
+}
+
 export type StageAddResult =
-    | { status: 200; body: { tasks: StageListTask[] } }
+    | { status: 200; body: { tasks: StageListTask[]; parentPush?: StageAddParentPush } }
     | { status: 400 | 401 | 403 | 404 | 500; body: { error: string } };
 
 interface StageAddItem {
@@ -331,6 +336,31 @@ async function insertPlanItems(input: {
     return { status: 200, body: { tasks } };
 }
 
+/**
+ * One push of the parent, never of the new subtask ids.
+ *
+ * syncPlanTask on that parent writes each unlinked child with createStep
+ * (`POST /recordings/{parentTodoId}/subtasks.json`, a Kanban::Step), the same
+ * nesting the Basecamp import stores. Pushing a child id instead creates a
+ * top-level to-do when the parent does not qualify — that is what Move under
+ * does to a task that was created on its own. A parent that does not qualify
+ * is skipped, and the new rows stay local until a later parent push.
+ */
+async function pushParentSubtasks(
+    dependencies: StageAddDependencies,
+    parentTaskId: string,
+): Promise<StageAddParentPush | undefined> {
+    try {
+        const sync = await dependencies.pushToBasecamp?.(parentTaskId);
+        return {
+            taskId: parentTaskId,
+            basecampSync: sync && typeof sync === 'object' ? sync : null,
+        };
+    } catch {
+        return undefined;
+    }
+}
+
 async function pushQualifiedTasks(
     tasks: readonly StageListTask[],
     dependencies: StageAddDependencies,
@@ -384,6 +414,8 @@ async function finishCreatedTasks(
  * the session. A flag that is off never writes. Viewers never write.
  * A body with `items` creates mixed parents in this request: pillars first,
  * then their subtasks. A qualifying task is pushed; an undated backlog task is not.
+ * Subtasks under an existing parent are one insert and one push of that parent.
+ * That push writes each new child as a step, or skips when the parent does not qualify.
  */
 export async function createStageTasks(
     clientIdInput: unknown,
@@ -457,7 +489,12 @@ export async function createStageTasks(
         const tasks = orderCreated(rows, inserted);
         if (tasks.length !== parsed.value.titles.length) return { status: 500, body: { error: 'Could not add tasks' } };
 
-        await pushQualifiedTasks(tasks, dependencies, stage, null);
+        let parentPush: StageAddParentPush | undefined;
+        if (parsed.value.parentTaskId) {
+            parentPush = await pushParentSubtasks(dependencies, parsed.value.parentTaskId);
+        } else {
+            await pushQualifiedTasks(tasks, dependencies, stage, null);
+        }
         if (dependencies.logCreated) {
             for (const task of tasks) {
                 try {
@@ -473,7 +510,7 @@ export async function createStageTasks(
                 }
             }
         }
-        return { status: 200, body: { tasks } };
+        return { status: 200, body: parentPush ? { tasks, parentPush } : { tasks } };
     } catch {
         return { status: 500, body: { error: 'Could not add tasks' } };
     }

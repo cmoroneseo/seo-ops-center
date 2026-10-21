@@ -1,3 +1,4 @@
+import type { PlanBasecampSyncState } from './basecamp-push';
 import type { StageListTask } from './stage-list';
 
 export const PENDING_STAGE_TASK_PREFIX = 'pending:';
@@ -84,4 +85,28 @@ export function commitStageTasks(
     const kept = current.filter(task => !drop.has(task.id));
     const seen = new Set(kept.map(task => task.id));
     return [...kept, ...created.filter(task => task.id.length > 0 && !seen.has(task.id))];
+}
+
+/**
+ * Stamp the one parent push onto that parent.
+ * A missing or skipped sync leaves the list alone. Child rows are not dotted
+ * for a failure that belongs to the parent to-do.
+ */
+export function applyStageAddParentPush(
+    tasks: StageListTask[],
+    parentPush: unknown,
+): StageListTask[] {
+    if (!parentPush || typeof parentPush !== 'object' || Array.isArray(parentPush)) return tasks;
+    const record = parentPush as Record<string, unknown>;
+    if (typeof record.taskId !== 'string' || record.taskId.length === 0) return tasks;
+    const sync = record.basecampSync;
+    if (!sync || typeof sync !== 'object' || Array.isArray(sync)) return tasks;
+    const row = sync as Record<string, unknown>;
+    if (row.state !== 'ok' && row.state !== 'failed') return tasks;
+    const basecampSync: PlanBasecampSyncState = {
+        state: row.state,
+        error: typeof row.error === 'string' ? row.error : null,
+        attemptedAt: typeof row.attemptedAt === 'string' ? row.attemptedAt : null,
+    };
+    return tasks.map(task => (task.id === record.taskId ? { ...task, basecampSync } : task));
 }

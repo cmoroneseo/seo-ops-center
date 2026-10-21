@@ -17,6 +17,7 @@ import {
     pendingStageTaskId,
     pendingStageTasks,
     rollbackStageTasks,
+    applyStageAddParentPush,
 } from '@/lib/seo-plan/stage-add';
 import { planCheckStatus } from '@/lib/seo-plan/plan-keymap';
 import {
@@ -375,12 +376,15 @@ export function StagePlanList({
                     ...(parentTaskId ? { parentTaskId } : {}),
                 }),
             });
-            const payload = await response.json().catch(() => null) as { tasks?: unknown; basecamp?: unknown } | null;
+            const payload = await response.json().catch(() => null) as { tasks?: unknown; basecamp?: unknown; parentPush?: unknown } | null;
             const created = parseStageListTasks(payload?.tasks);
             if (payload && 'basecamp' in payload) setBasecamp(parsePlanBasecampBanner(payload.basecamp));
             if (!response.ok || created.length === 0) throw new Error('add failed');
             if (seenClient.current !== requestedClient) return;
-            updateList(current => current ? commitStageTasks(current, ids, created) : created);
+            updateList(current => {
+                const committed = current ? commitStageTasks(current, ids, created) : created;
+                return applyStageAddParentPush(committed, payload?.parentPush);
+            });
         } catch (caught) {
             if (seenClient.current === requestedClient) {
                 updateList(current => current ? rollbackStageTasks(current, ids) : current);
@@ -679,6 +683,11 @@ export function StagePlanList({
                         onSave={savePanel}
                         onDuplicate={duplicatePanel}
                         onDelete={deletePanel}
+                        onAddSubtasks={titles => addTasks({
+                            stage: model.stage,
+                            titles,
+                            parentTaskId: model.id,
+                        })}
                         onClose={() => setPanel(null)}
                     />
                 ) : null}

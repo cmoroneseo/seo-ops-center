@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
     appendStageTasks,
+    applyStageAddParentPush,
     commitStageTasks,
     endPosition,
     nextStagePositions,
@@ -99,4 +100,27 @@ test('a saved task replaces its pending row and is not duplicated when the list 
 
     const reloaded = commitStageTasks([...current, created], ['pending:kickoff'], [created]);
     assert.equal(reloaded.filter(item => item.id === 'real-kickoff').length, 1);
+});
+
+test('a pasted subtask is counted immediately, and the parent push lands on the parent', () => {
+    const parent = task({ id: 'setup', title: 'SEO Setup', position: 1 });
+    const added = appendStageTasks([parent], pendingStageTasks({
+        titles: ['Houzz photos', 'Porch listing'],
+        stage: 'onboarding',
+        parentTaskId: 'setup',
+        ids: ['pending:houzz', 'pending:porch'],
+        createdAt: '2026-10-16T12:00:00.000Z',
+        positions: [1, 2],
+    }));
+    const group = groupTasksByStage(added, '').flatMap(section => section.groups).find(item => item.task.id === 'setup');
+    assert.equal(group?.childCount, 2);
+    assert.equal(group?.childDone, 0);
+
+    const stamped = applyStageAddParentPush(added, {
+        taskId: 'setup',
+        basecampSync: { state: 'failed', error: 'Basecamp returned 429.', attemptedAt: '2026-10-16T12:00:03.000Z' },
+    });
+    assert.equal(stamped.find(item => item.id === 'setup')?.basecampSync?.state, 'failed');
+    assert.equal(stamped.find(item => item.id === 'pending:houzz')?.basecampSync, undefined);
+    assert.equal(applyStageAddParentPush(added, { taskId: 'setup', basecampSync: null }), added);
 });
