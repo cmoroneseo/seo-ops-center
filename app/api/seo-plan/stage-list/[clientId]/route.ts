@@ -13,7 +13,7 @@ import {
 import { createStageTasks } from '@/lib/seo-plan/stage-add-route';
 import { rewriteStageTasks, setStageTaskDueDate } from '@/lib/seo-plan/stage-reorder-db';
 import { reorderStageTasks } from '@/lib/seo-plan/stage-reorder-route';
-import { syncStoredPlanTask } from '@/lib/seo-plan/basecamp-push-server';
+import { syncStoredParentStepOrder, syncStoredPlanTask } from '@/lib/seo-plan/basecamp-push-server';
 import { loadClientStageTasks, loadPlanBasecampBanner } from '@/lib/seo-plan/stage-list-load';
 import { readClientStageList } from '@/lib/seo-plan/stage-list-route';
 import { logClientActivity } from '@/lib/supabase/client-activity';
@@ -140,6 +140,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ cl
             const outcome = await syncStoredPlanTask(taskId);
             return outcome.status === 'skipped' ? null : outcome.sync;
         },
+        syncStepOrder: parentTaskId => syncStoredParentStepOrder(parentTaskId),
     });
     if (result.status !== 200) return NextResponse.json(result.body, { status: result.status, headers: NO_STORE });
     const session = await resolveSessionOrganization();

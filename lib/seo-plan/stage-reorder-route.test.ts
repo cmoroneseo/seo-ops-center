@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { SessionOrganization } from '../reports/session-org.ts';
-import { reorderStageTasks, type StageReorderDependencies } from './stage-reorder-route.ts';
+import { reorderStageTasks, stepOrderParentIds, type StageReorderDependencies } from './stage-reorder-route.ts';
 import type { StageReorderWrite } from './stage-reorder.ts';
 import type { StageListTask } from './stage-list.ts';
 
@@ -413,4 +413,72 @@ test('changing parent pushes even when the task does not qualify for Basecamp', 
     }, same.dependencies);
     assert.equal(stayed.status, 200);
     assert.deepEqual(samePushes, []);
+});
+
+test('reordering subtasks pushes the parent step order, and a top-level move does not', async () => {
+    const { dependencies } = deps();
+    const parents: string[] = [];
+    dependencies.syncStepOrder = async parentId => {
+        parents.push(parentId);
+    };
+    const nested = await reorderStageTasks(clientId, {
+        taskId: cookies,
+        stage: 'onboarding',
+        parentTaskId: setup,
+        index: 0,
+    }, dependencies);
+    assert.equal(nested.status, 200);
+    assert.deepEqual(parents, [setup]);
+
+    const top = deps();
+    const topParents: string[] = [];
+    top.dependencies.syncStepOrder = async parentId => {
+        topParents.push(parentId);
+    };
+    const moved = await reorderStageTasks(clientId, {
+        taskId: roadmap,
+        stage: 'onboarding',
+        parentTaskId: null,
+        index: 0,
+    }, top.dependencies);
+    assert.equal(moved.status, 200);
+    assert.deepEqual(topParents, []);
+
+    const same = deps();
+    const sameParents: string[] = [];
+    same.dependencies.syncStepOrder = async parentId => {
+        sameParents.push(parentId);
+    };
+    const stayed = await reorderStageTasks(clientId, {
+        taskId: keywords,
+        stage: 'onboarding',
+        parentTaskId: setup,
+        index: 0,
+    }, same.dependencies);
+    assert.equal(stayed.status, 200);
+    assert.deepEqual(sameParents, []);
+});
+
+test('Move under pushes step order for the new parent and the old one', () => {
+    const backlogParent = '208dbc36-6666-4666-8666-666666666666';
+    const tasks = [
+        ...loaded,
+        task({ id: backlogParent, title: 'Citations', stage: 'backlog', position: 2 }),
+    ];
+    const ids = stepOrderParentIds(tasks, {
+        taskId: keywords,
+        stage: 'backlog',
+        parentTaskId: backlogParent,
+        index: 0,
+    }, [
+        { id: keywords, stage: 'backlog', position: 1, parentTaskId: backlogParent },
+        { id: cookies, stage: 'onboarding', position: 1, parentTaskId: setup },
+    ]);
+    assert.deepEqual(ids, [setup, backlogParent]);
+    assert.deepEqual(stepOrderParentIds(loaded, {
+        taskId: roadmap,
+        stage: 'onboarding',
+        parentTaskId: null,
+        index: 0,
+    }, []), []);
 });
