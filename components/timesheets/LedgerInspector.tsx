@@ -6,6 +6,7 @@ import { X, CheckCircle2, AlertTriangle, ExternalLink, Plus } from 'lucide-react
 import { cn } from '@/lib/utils';
 import { formatDayHeading, formatDuration, formatSourceLabel } from '@/lib/timesheets/format';
 import type { LedgerLog, LedgerClientGroup, LedgerTaskRow } from '@/lib/timesheets/ledger';
+import { midnightSplitLabel } from '@/lib/timer/attempt-state';
 
 interface LedgerInspectorProps {
     group: LedgerClientGroup;
@@ -97,6 +98,7 @@ export function LedgerInspector({
                     {rowEntries.map(entry => {
                         const heading = formatDayHeading(entry.date);
                         const needsReview = entry.importStatus === 'needs_context';
+                        const splitNote = midnightSplitLabel(entry, entries);
                         return (
                             <li
                                 key={entry.id}
@@ -117,6 +119,12 @@ export function LedgerInspector({
                                         {formatDuration(Math.round(entry.hours * 60), { zero: '0m' })}
                                     </span>
                                 </div>
+
+                                {splitNote && (
+                                    <p data-split-note className="mt-2 text-sm text-foreground">
+                                        {splitNote}
+                                    </p>
+                                )}
 
                                 <div className="mt-1 flex items-center justify-between gap-3">
                                     <p className="min-w-0 text-sm text-muted-foreground">

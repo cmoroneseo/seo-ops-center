@@ -32,6 +32,10 @@ export interface LedgerLog {
     source: TimeLogSource;
     importStatus: TimeLogImportStatus;
     voidedAt?: string;
+    /** Set when one confirmed timer was stored as a row per local date. */
+    operationId?: string;
+    /** Active seconds on this dated row, before hours were rounded. */
+    elapsedSeconds?: number;
 }
 
 export interface LedgerTaskRow {

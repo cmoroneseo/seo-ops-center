@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, AlertTriangle, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useOrganization } from '@/components/providers/organization-provider';
+import { useTimer } from '@/components/providers/timer-provider';
+import { OpenTimerStrip } from '@/components/timer/OpenTimerStrip';
+import { openTimerRows } from '@/lib/timer/attempt-state';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { formatDuration, formatWeekRange, percentOf } from '@/lib/timesheets/format';
 import { weekStartFor, type WeeklyLedger, type LedgerLog } from '@/lib/timesheets/ledger';
@@ -47,6 +50,7 @@ interface TeamMember {
 
 export function TimesheetsShell({ initialTab }: { initialTab?: Tab }) {
     const { organization } = useOrganization();
+    const { runningTimer, pausedTimers, getElapsedSeconds, resume } = useTimer();
     const { userId, isLoading: memberLoading } = useCurrentMember();
     const [members, setMembers] = useState<TeamMember[]>([]);
 
@@ -268,6 +272,16 @@ export function TimesheetsShell({ initialTab }: { initialTab?: Tab }) {
                     )}
 
                     {ledger && <SummaryStrip ledger={ledger} />}
+
+                    <div className="px-6">
+                        <OpenTimerStrip
+                            rows={openTimerRows(runningTimer, pausedTimers, getElapsedSeconds)}
+                            onResume={attemptId => {
+                                const attempt = [runningTimer, ...pausedTimers].find(item => item?.id === attemptId);
+                                if (attempt) void resume(attempt);
+                            }}
+                        />
+                    </div>
 
                     <div className="flex min-h-0 flex-1 gap-4 overflow-y-auto px-6 pb-6">
                         <div className="min-w-0 flex-1">
