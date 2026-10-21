@@ -133,7 +133,12 @@ export async function reorderStageTasks(
         const dueDate = parsed.value.dueDate !== undefined
             ? parsed.value.dueDate
             : (current?.dueDate ?? null);
-        if (planTaskQualifiesForBasecampPush({ stage: parsed.value.stage, dueDate })) {
+        // A parent change has to relink Basecamp even when the task itself
+        // does not qualify for a push. An undated backlog row would otherwise
+        // keep a flat to-do after Move under.
+        const parentChanged = (current?.parentTaskId ?? null) !== parsed.value.parentTaskId;
+        const qualifies = planTaskQualifiesForBasecampPush({ stage: parsed.value.stage, dueDate });
+        if (parentChanged || qualifies) {
             try {
                 const sync = await dependencies.pushPlanTask?.(parsed.value.taskId);
                 if (sync && typeof sync === 'object') {

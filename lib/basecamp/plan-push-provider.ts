@@ -7,7 +7,17 @@
  * rejects a call that has no content.
  */
 
-import { basecampSubtaskCreatePath, basecampSubtaskSupport, basecampTodoUpdateBody, basecampWriteJson } from './api';
+import {
+    basecampRecordingPath,
+    basecampSubtaskCompletionPath,
+    basecampSubtaskCreatePath,
+    basecampSubtaskSupport,
+    basecampTodoUpdateBody,
+    basecampTrashPath,
+    basecampWriteJson,
+} from './api';
+import { recordingFromRead, type ListedRecording, type NestScope } from '../seo-plan/basecamp-nest';
+import { basecampStepPageItems, mergeBasecampTodoSteps } from './todo-steps';
 import {
     classifyBasecampHttpFailure,
     formatBasecampHttpFailure,
@@ -122,5 +132,102 @@ export function createPlanBasecampProvider(hint: {
             });
             return fromWrite(result, 'todo', names());
         },
+        async inspectRecording(input) {
+            const projectId = numeric(input.projectId);
+            const recordingId = numeric(input.recordingId);
+            if (!projectId || !recordingId) return nestFailure(404, 'todo', names());
+            const result = await basecampWriteJson(basecampRecordingPath(projectId, recordingId), 'GET');
+            if (!result.ok && result.status === 404) return { ok: true as const, recording: { kind: 'missing' as const } };
+            if (!result.ok) return nestFailure(result.status, 'todo', names(), result.detail);
+            return { ok: true as const, recording: recordingFromRead(200, result.body) };
+        },
+        async listSteps(input) {
+            const projectId = numeric(input.projectId);
+            const parentTodoId = numeric(input.parentTodoId);
+            if (!projectId || !parentTodoId) return nestFailure(404, 'todo', names());
+            const pages = await readPages(basecampSubtaskCreatePath(parentTodoId), names());
+            if (!pages.ok) return pages;
+            const steps = mergeBasecampTodoSteps(pages.bodies.map(body => basecampStepPageItems(body)))
+                .map(step => ({ id: String(step.id), title: step.title, completed: step.completed }));
+            return { ok: true as const, steps };
+        },
+        async completeStep(input) {
+            const stepId = numeric(input.stepId);
+            if (!stepId) return fromWrite({ ok: false, status: 404, detail: '' }, 'todo', names());
+            const result = await basecampWriteJson(basecampSubtaskCompletionPath(stepId), 'POST');
+            return fromWrite(result, 'todo', names());
+        },
+        async listTodos(input) {
+            const projectId = numeric(input.projectId);
+            const todolistId = numeric(input.todolistId);
+            if (!projectId || !todolistId) return nestFailure(404, 'todolist', names());
+            const pages = await readPages(`/buckets/${projectId}/todolists/${todolistId}/todos.json`, names());
+            if (!pages.ok) return pages;
+            const todos: ListedRecording[] = [];
+            for (const body of pages.bodies) {
+                if (!Array.isArray(body)) {
+                    return nestFailure(502, 'todolist', names(), 'Basecamp to-do list was not a list.');
+                }
+                for (const value of body) {
+                    const listed = listedTodo(value);
+                    if (listed) todos.push(listed);
+                }
+            }
+            return { ok: true as const, todos };
+        },
+        async trashRecording(input) {
+            const projectId = numeric(input.projectId);
+            const recordingId = numeric(input.recordingId);
+            if (!projectId || !recordingId) return nestFailure(404, 'todo', names());
+            const result = await basecampWriteJson(basecampTrashPath(projectId, recordingId), 'PUT');
+            if (!result.ok && (result.status === 404 || result.status === 410)) {
+                return { ok: true as const, alreadyGone: true };
+            }
+            if (!result.ok) return nestFailure(result.status, 'todo', names(), result.detail);
+            return { ok: true as const, alreadyGone: false };
+        },
     };
+}
+
+function listedTodo(value: unknown): ListedRecording | null {
+    const row = asRecord(value);
+    if (!row || row.status === 'trashed') return null;
+    const id = typeof row.id === 'number' || typeof row.id === 'string' ? numeric(String(row.id)) : null;
+    const title = typeof row.title === 'string' && row.title.trim()
+        ? row.title.trim()
+        : (typeof row.content === 'string' ? row.content.trim() : '');
+    if (!id || !title) return null;
+    return { id, title, completed: row.completed === true };
+}
+
+function nestFailure(
+    status: number,
+    operation: BasecampHttpOperation,
+    hint: { listName?: string | null; projectName?: string | null },
+    detail = '',
+): { ok: false; status: number; message: string; scope: NestScope } {
+    return {
+        ok: false,
+        status,
+        scope: classifyBasecampHttpFailure(status, operation),
+        message: formatBasecampHttpFailure(status, detail, { operation, ...hint }),
+    };
+}
+
+/** Follow Basecamp's Link header. A failed page fails the read so a retry does not create a duplicate. */
+async function readPages(
+    startPath: string,
+    hint: { listName?: string | null; projectName?: string | null },
+): Promise<{ ok: true; bodies: unknown[] } | { ok: false; status: number; message: string; scope: NestScope }> {
+    const bodies: unknown[] = [];
+    let path: string | null = startPath;
+    const seen = new Set<string>();
+    while (path && !seen.has(path)) {
+        seen.add(path);
+        const result = await basecampWriteJson(path, 'GET');
+        if (!result.ok) return nestFailure(result.status, 'todo', hint, result.detail);
+        bodies.push(result.body);
+        path = result.nextPath && !seen.has(result.nextPath) ? result.nextPath : null;
+    }
+    return { ok: true, bodies };
 }

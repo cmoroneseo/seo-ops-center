@@ -11,6 +11,14 @@
  */
 
 import {
+    nestFlatChild,
+    unnestToTodo,
+    type BasecampNestDependencies,
+    type BasecampNestProvider,
+    type NestResult,
+    type NestTask,
+} from './basecamp-nest';
+import {
     classifyBasecampHttpFailure,
     planBasecampBanner,
     planTaskQualifiesForBasecampPush,
@@ -23,6 +31,10 @@ export interface PlanPushChild {
     id: string;
     title: string;
     basecampTodoId: string | null;
+    /** Set when a replacement was saved and the old recording still needs to be trashed. */
+    pendingTrashId?: string | null;
+    /** `done` is carried onto the Basecamp step. */
+    status?: string;
 }
 
 export interface PlanPushTask {
@@ -36,6 +48,8 @@ export interface PlanPushTask {
     stage: string | null;
     parentTaskId: string | null;
     basecampTodoId: string | null;
+    /** Set when a replacement was saved and the old recording still needs to be trashed. */
+    pendingTrashId?: string | null;
     assigneePersonIds: number[];
     completionSubscriberPersonIds: number[];
     children: PlanPushChild[];
@@ -89,11 +103,31 @@ export interface PlanPushProvider {
     completeTodo(input: { projectId: string; todoId: string }): Promise<PlanProviderResult>;
     reopenTodo(input: { projectId: string; todoId: string }): Promise<PlanProviderResult>;
     createStep(input: { projectId: string; parentTodoId: string; title: string }): Promise<PlanProviderResult>;
+    /** POST /subtasks/{id}/completion.json. Optional so older fakes still typecheck. */
+    completeStep?(input: { projectId: string; stepId: string }): Promise<PlanProviderResult>;
+    /**
+     * Present when this provider can tell a top-level to-do from a subtask.
+     * Without them, a linked child is left as it is.
+     */
+    inspectRecording?: BasecampNestProvider['inspectRecording'];
+    listSteps?: BasecampNestProvider['listSteps'];
+    listTodos?: BasecampNestProvider['listTodos'];
+    trashRecording?: BasecampNestProvider['trashRecording'];
 }
 
 export interface PlanPushStore {
     load(taskId: string): Promise<PlanPushSnapshot | null>;
-    linkTodo(taskId: string, projectId: string, todoId: string, at: string): Promise<void>;
+    linkTodo(
+        taskId: string,
+        projectId: string,
+        todoId: string,
+        at: string,
+        pendingTrashId?: string | null,
+    ): Promise<void>;
+    /** Clears a pending-trash error after the old recording is gone. */
+    clearPendingTrash?(taskId: string, at: string): Promise<void>;
+    /** Recording ids already stored on tasks for this client. Used so a retry reuses one step. */
+    listClaimedRecordingIds?(clientId: string): Promise<string[]>;
     recordTask(taskId: string, sync: PlanBasecampSyncState): Promise<void>;
     recordClient(clientId: string, sync: { state: 'ok' | 'failed'; error: string | null }): Promise<void>;
 }
@@ -184,17 +218,142 @@ async function rememberOk(
     };
 }
 
+/** Adapt a plan push provider. Null when it cannot tell a to-do from a subtask. */
+export function asBasecampNestProvider(provider: PlanPushProvider): BasecampNestProvider | null {
+    if (!provider.inspectRecording || !provider.listSteps || !provider.trashRecording) return null;
+    return {
+        inspectRecording: provider.inspectRecording,
+        listSteps: provider.listSteps,
+        listTodos: provider.listTodos,
+        trashRecording: provider.trashRecording,
+        async createStep(input) {
+            const result = await provider.createStep(input);
+            if (!result.ok) return { ok: false, status: result.status, message: result.message, scope: result.scope };
+            if (!result.todoId) return { ok: false, status: 502, message: `Basecamp subtask sync failed: ${input.title}`, scope: 'task' };
+            return { ok: true, id: result.todoId };
+        },
+        async createTodo(input) {
+            const result = await provider.createTodo({
+                ...input,
+                completionSubscriberPersonIds: [],
+            });
+            if (!result.ok) return { ok: false, status: result.status, message: result.message, scope: result.scope };
+            if (!result.todoId) return { ok: false, status: 502, message: 'Basecamp returned 502.', scope: 'task' };
+            return { ok: true, id: result.todoId };
+        },
+        async completeStep(input) {
+            if (!provider.completeStep) {
+                return { ok: false, status: 500, message: 'Basecamp step completion is not available.', scope: 'task' };
+            }
+            const result = await provider.completeStep(input);
+            if (!result.ok) return { ok: false, status: result.status, message: result.message, scope: result.scope };
+            return { ok: true };
+        },
+        async completeTodo(input) {
+            const result = await provider.completeTodo(input);
+            if (!result.ok) return { ok: false, status: result.status, message: result.message, scope: result.scope };
+            return { ok: true };
+        },
+        async reopenTodo(input) {
+            const result = await provider.reopenTodo(input);
+            if (!result.ok) return { ok: false, status: result.status, message: result.message, scope: result.scope };
+            return { ok: true };
+        },
+    };
+}
+
+function nestDependencies(dependencies: PlanPushDependencies): BasecampNestDependencies {
+    return {
+        now: dependencies.now,
+        provider: asBasecampNestProvider(dependencies.provider)!,
+        store: {
+            async linkTodo(taskId, projectId, recordingId, at, pendingTrashId) {
+                await dependencies.store.linkTodo(taskId, projectId, recordingId, at, pendingTrashId);
+            },
+            async clearPendingTrash(taskId, at) {
+                await dependencies.store.clearPendingTrash?.(taskId, at);
+            },
+        },
+    };
+}
+
+async function claimedIds(
+    dependencies: PlanPushDependencies,
+    clientId: string,
+    extra: Array<string | null | undefined>,
+): Promise<Set<string>> {
+    const ids = new Set<string>();
+    for (const id of extra) {
+        if (id) ids.add(id);
+    }
+    if (dependencies.store.listClaimedRecordingIds) {
+        for (const id of await dependencies.store.listClaimedRecordingIds(clientId)) ids.add(id);
+    }
+    return ids;
+}
+
+function nestFailure(result: NestResult): PlanProviderResult {
+    return {
+        ok: false,
+        status: result.status ?? 502,
+        message: result.message ?? 'Basecamp subtask sync failed.',
+        scope: result.scope ?? 'task',
+    };
+}
+
+function asNestTask(task: PlanPushTask | PlanPushChild): NestTask {
+    const full = task as PlanPushTask;
+    return {
+        id: task.id,
+        title: task.title,
+        basecampTodoId: task.basecampTodoId,
+        pendingTrashId: task.pendingTrashId ?? null,
+        completed: task.status === 'done',
+        description: full.description ?? null,
+        dueDate: full.dueDate ?? null,
+        assigneePersonIds: full.assigneePersonIds ?? [],
+    };
+}
+
+/**
+ * A linked child whose recording is a top-level to-do becomes a subtask.
+ * Children with no Basecamp id are still created below. A provider that
+ * cannot inspect a recording keeps the old behavior and skips linked children.
+ */
 async function syncSteps(
     dependencies: PlanPushDependencies,
     projectId: string,
     parent: PlanPushTask,
     supportsSubtasks: boolean | undefined,
 ): Promise<PlanProviderResult> {
-    const unlinked = parent.children.filter(child => !child.basecampTodoId);
-    if (unlinked.length === 0) return { ok: true };
-    if (supportsSubtasks === false) return { ok: true };
     const todoId = parent.basecampTodoId;
     if (!todoId) return { ok: true };
+    if (supportsSubtasks === false) return { ok: true };
+    const provider = asBasecampNestProvider(dependencies.provider);
+    if (provider) {
+        const claimed = await claimedIds(dependencies, parent.clientId, [
+            todoId,
+            ...parent.children.map(child => child.basecampTodoId),
+        ]);
+        const nesting = nestDependencies(dependencies);
+        for (const child of parent.children) {
+            if (!child.basecampTodoId && !child.pendingTrashId) continue;
+            const nestChild = asNestTask(child);
+            const outcome = await nestFlatChild({
+                projectId,
+                parentTodoId: todoId,
+                parentTaskId: parent.id,
+                parentTaskCompleted: parent.status === 'done',
+                child: nestChild,
+                claimed,
+                dryRun: false,
+            }, nesting);
+            child.basecampTodoId = nestChild.basecampTodoId;
+            child.pendingTrashId = nestChild.pendingTrashId ?? null;
+            if (outcome.action === 'failed') return nestFailure(outcome);
+        }
+    }
+    const unlinked = parent.children.filter(child => !child.basecampTodoId);
     for (const child of unlinked) {
         const step = await dependencies.provider.createStep({
             projectId,
@@ -211,20 +370,72 @@ async function syncSteps(
     return { ok: true };
 }
 
+/**
+ * The parent does not qualify for its own push, but it already has a to-do.
+ * Nest this child anyway. Settled means the child's recording is now a step,
+ * so the caller must not also update it as a top-level to-do.
+ */
+async function nestUnderUnqualifiedParent(
+    dependencies: PlanPushDependencies,
+    snapshot: PlanPushSnapshot,
+    projectId: string,
+    seen: ReadonlySet<string>,
+): Promise<{ failed: PlanPushOutcome } | { settled: boolean }> {
+    const provider = asBasecampNestProvider(dependencies.provider);
+    const parent = snapshot.parent;
+    if (!provider || !parent) return { settled: false };
+    if (!snapshot.task.basecampTodoId && !snapshot.task.pendingTrashId) return { settled: false };
+    const parentSnapshot = await dependencies.store.load(parent.id);
+    const parentTodoId = parentSnapshot?.task.basecampTodoId ?? null;
+    if (!parentTodoId) return { settled: false };
+    const claimed = await claimedIds(dependencies, snapshot.task.clientId, [
+        parentTodoId,
+        snapshot.task.basecampTodoId,
+    ]);
+    const child = asNestTask(snapshot.task);
+    const outcome = await nestFlatChild({
+        projectId,
+        parentTodoId,
+        parentTaskId: parent.id,
+        parentTaskCompleted: parentSnapshot?.task.status === 'done',
+        child,
+        claimed,
+        dryRun: false,
+    }, nestDependencies(dependencies));
+    snapshot.task.basecampTodoId = child.basecampTodoId;
+    snapshot.task.pendingTrashId = child.pendingTrashId ?? null;
+    if (outcome.action === 'failed') {
+        return {
+            failed: await rememberFailure(
+                dependencies,
+                snapshot,
+                outcome.message ?? 'Basecamp subtask sync failed.',
+                outcome.scope ?? 'task',
+                seen,
+            ),
+        };
+    }
+    const settled = outcome.action === 'nested'
+        || outcome.action === 'already-nested'
+        || outcome.action === 'finished-trash';
+    return { settled };
+}
+
 async function syncCompletion(
     dependencies: PlanPushDependencies,
     projectId: string,
     task: PlanPushTask,
+    desiredDone = task.status === 'done',
 ): Promise<PlanProviderResult> {
     const todoId = task.basecampTodoId;
     if (!todoId) return { ok: true };
     const remote = await dependencies.provider.getTodo({ projectId, todoId });
     if (!remote.ok) return remote;
     const remoteDone = remote.completed === true;
-    if (task.status === 'done' && !remoteDone) {
+    if (desiredDone && !remoteDone) {
         return dependencies.provider.completeTodo({ projectId, todoId });
     }
-    if (task.status !== 'done' && remoteDone) {
+    if (!desiredDone && remoteDone) {
         return dependencies.provider.reopenTodo({ projectId, todoId });
     }
     return { ok: true };
@@ -254,6 +465,20 @@ export async function syncPlanTask(
         return syncPlanTask(parent.id, dependencies, new Set([...seen, snapshot.task.id]));
     }
 
+    if (parent && !planTaskQualifiesForBasecampPush({ stage: parent.stage, dueDate: parent.dueDate })) {
+        const nested = await nestUnderUnqualifiedParent(dependencies, snapshot, projectId, seen);
+        if ('failed' in nested) return nested.failed;
+        if (nested.settled) {
+            if (!planTaskQualifiesForBasecampPush({
+                stage: snapshot.task.stage,
+                dueDate: snapshot.task.dueDate,
+            })) {
+                return { status: 'skipped', reason: 'not-qualified' };
+            }
+            return rememberOk(dependencies, snapshot, snapshot.task.basecampTodoId ?? '', seen);
+        }
+    }
+
     if (!planTaskQualifiesForBasecampPush({
         stage: snapshot.task.stage,
         dueDate: snapshot.task.dueDate,
@@ -262,6 +487,33 @@ export async function syncPlanTask(
     }
 
     const task = snapshot.task;
+    let carriedCompletion = false;
+    if (!snapshot.parent && task.basecampTodoId && asBasecampNestProvider(dependencies.provider)) {
+        const claimed = await claimedIds(dependencies, task.clientId, [task.basecampTodoId]);
+        const lifted = asNestTask(task);
+        const outcome = await unnestToTodo({
+            projectId,
+            parentTodoId: null,
+            parentTaskId: null,
+            todolistId: snapshot.client.todolistId,
+            child: lifted,
+            claimed,
+            dryRun: false,
+        }, nestDependencies(dependencies));
+        task.basecampTodoId = lifted.basecampTodoId;
+        task.pendingTrashId = lifted.pendingTrashId ?? null;
+        if (outcome.carriedCompletion) carriedCompletion = true;
+        if (outcome.action === 'failed') {
+            return rememberFailure(
+                dependencies,
+                snapshot,
+                outcome.message ?? 'Basecamp subtask sync failed.',
+                outcome.scope ?? 'task',
+                seen,
+            );
+        }
+    }
+
     let supportsSubtasks: boolean | undefined;
     if (!task.basecampTodoId) {
         const todolistId = snapshot.client.todolistId;
@@ -315,7 +567,7 @@ export async function syncPlanTask(
             const reason = failure(updated);
             return rememberFailure(dependencies, snapshot, reason.message, reason.scope, seen);
         }
-        const completion = await syncCompletion(dependencies, projectId, task);
+        const completion = await syncCompletion(dependencies, projectId, task, task.status === 'done' || carriedCompletion);
         if (!completion.ok) {
             const reason = failure(completion);
             return rememberFailure(dependencies, snapshot, reason.message, reason.scope, seen);
