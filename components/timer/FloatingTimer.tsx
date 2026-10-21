@@ -7,6 +7,7 @@ import { StopConfirmSheet } from './StopConfirmSheet';
 import { QuickStartPopover } from './QuickStartPopover';
 import { TimerNotes } from './TimerNotes';
 import type { ClientProject, TimerAttempt } from '@/lib/types';
+import { isShortPausedAttempt } from '@/lib/timer/attempt-state';
 import { formatTimerStartClock, runningSegmentStartedAt, timerTaskLabel } from '@/lib/timer/widget-label';
 import { toastClearancePx } from '@/lib/toasts/toast-clearance';
 import { cn } from '@/lib/utils';
@@ -45,7 +46,7 @@ interface FloatingTimerProps {
 }
 
 export function FloatingTimer({ clients }: FloatingTimerProps) {
-    const { runningTimer, pausedTimers, getElapsedSeconds, pause, resume, beginStop } = useTimer();
+    const { runningTimer, pausedTimers, getElapsedSeconds, pause, resume, beginStop, discard } = useTimer();
     const [expanded, setExpanded] = useState(false);
     const [showNotes, setShowNotes] = useState(false);
     const [showQuickStart, setShowQuickStart] = useState(false);
@@ -98,7 +99,7 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
                 <div className="relative">
                     <button
                         onClick={() => setShowQuickStart(current => !current)}
-                        title="Start Timer  ⌘⇧T"
+                        title="Time a task  ⌘⇧T"
                         className="group h-14 w-14 flex items-center justify-center rounded-full bg-card border border-border shadow-lg hover:border-[#ec4899]/50 hover:bg-[#ec4899]/10 hover:shadow-[#ec4899]/10 transition-all duration-200"
                     >
                         <Clock className="h-5 w-5 text-muted-foreground group-hover:text-[#ec4899] transition-colors" />
@@ -185,11 +186,17 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
                     {pausedTimers.length > 0 && (
                         <div className={cn('space-y-2', runningTimer && 'border-t border-border/50 pt-3')}>
                             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Paused Work</p>
-                            {pausedTimers.map(attempt => (
+                            {pausedTimers.map(attempt => {
+                                const pausedSeconds = getElapsedSeconds(attempt);
+                                const short = !attempt.reviewingAt && isShortPausedAttempt(pausedSeconds);
+                                return (
                                 <div key={attempt.id} data-timer-paused={attempt.id} className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5 space-y-2">
                                     <div className="min-w-0">
                                         <p className="text-sm font-medium text-foreground truncate">{attempt.clientName || 'Unassigned'}</p>
-                                        <p className="text-xs text-muted-foreground truncate">{timerTaskLabel(attempt)} · {formatElapsed(getElapsedSeconds(attempt))}</p>
+                                        <p className="text-xs text-muted-foreground truncate">{timerTaskLabel(attempt)} · {formatElapsed(pausedSeconds)}</p>
+                                        {short && (
+                                            <p data-timer-short={attempt.id} className="mt-1 text-[11px] font-medium text-amber-400">Under 1 minute</p>
+                                        )}
                                     </div>
                                     <div className="flex gap-2">
                                         {!attempt.reviewingAt && (
@@ -203,12 +210,24 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
                                                 <Play className="h-3 w-3 fill-current" /> Resume
                                             </button>
                                         )}
-                                        <button onClick={() => void openStopReview(attempt)} className="flex-1 flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium text-muted-foreground hover:bg-destructive/15 hover:text-red-400 transition-colors">
+                                        {short && (
+                                            <button
+                                                type="button"
+                                                data-timer-discard={attempt.id}
+                                                aria-label={`Discard ${timerTaskLabel(attempt)}`}
+                                                onClick={() => void discard(attempt)}
+                                                className="flex-1 rounded-lg py-1.5 text-xs font-medium text-muted-foreground hover:bg-destructive/15 hover:text-red-400 transition-colors"
+                                            >
+                                                Discard
+                                            </button>
+                                        )}
+                                        <button type="button" onClick={() => void openStopReview(attempt)} className="flex-1 flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium text-muted-foreground hover:bg-destructive/15 hover:text-red-400 transition-colors">
                                             <Square className="h-3 w-3 fill-current" /> {attempt.reviewingAt ? 'Review' : 'Stop'}
                                         </button>
                                     </div>
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>

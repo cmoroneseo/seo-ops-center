@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, KeyboardEvent } from 'react';
-import { X, Clock, CheckCircle2, StickyNote, ChevronDown, ChevronUp, Pencil, Check } from 'lucide-react';
+import { X, Clock, StickyNote, ChevronDown, ChevronUp, Pencil, Check } from 'lucide-react';
 import { useTimer } from '@/components/providers/timer-provider';
 import {
     basecampSyncEligibility,
@@ -13,6 +13,7 @@ import {
     type BasecampSyncEligibility,
     type StopSubmitOutcome,
 } from '@/lib/timer-ui';
+import { overnightSplitSentence } from '@/lib/timer/attempt-state';
 import { getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
 import { defaultSendToBasecamp } from '@/lib/basecamp/send-default';
 import { SessionNote } from '@/lib/types';
@@ -114,6 +115,12 @@ export function StopConfirmSheet({
     const [sendOverride, setSendOverride] = useState<boolean | undefined>(undefined);
     const [isCheckingBasecamp, setIsCheckingBasecamp] = useState(false);
     const [outcome, setOutcome] = useState<StopSubmitOutcome | null>(null);
+    const [saved, setSaved] = useState<{
+        clientName: string;
+        totalSeconds: number;
+        split: string | null;
+        sendToBasecamp: boolean;
+    } | null>(null);
     const timerId = timer?.id;
     const timerNoteCount = timer?.sessionNotes.length ?? 0;
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -164,6 +171,7 @@ export function StopConfirmSheet({
         setIsSubmitting(true);
         setOutcome(null);
         let result: StopSubmitOutcome;
+        const split = overnightSplitSentence(review?.dates ?? []);
         try {
             if (workContext.noteToPersist) {
                 await addNote(timer.id, workContext.noteToPersist);
@@ -175,6 +183,14 @@ export function StopConfirmSheet({
                 markTaskComplete,
                 syncToBasecamp: sendToBasecamp,
             }));
+            if (result.status !== 'warned') {
+                setSaved({
+                    clientName: timer.clientName || 'this work',
+                    totalSeconds: trackedSeconds,
+                    split,
+                    sendToBasecamp,
+                });
+            }
         } catch (error) {
             // The attempt stays in review on the server, so submission can retry.
             setOutcome(stopSubmitFailure(error));
@@ -189,10 +205,12 @@ export function StopConfirmSheet({
             return;
         }
         setShowSuccess(true);
-        setTimeout(() => {
-            setShowSuccess(false);
-            onClose();
-        }, 1200);
+        if (!split) {
+            setTimeout(() => {
+                setShowSuccess(false);
+                onClose();
+            }, 1200);
+        }
     };
 
     const handleDiscard = async () => {
@@ -204,6 +222,37 @@ export function StopConfirmSheet({
         await discard(timer);
         onClose();
     };
+
+    if (saved && showSuccess) {
+        return (
+            <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+                <div
+                    className="w-full max-w-lg bg-card border border-border border-b-0 rounded-t-2xl shadow-2xl px-5 py-6 space-y-3"
+                    onClick={event => event.stopPropagation()}
+                    role="status"
+                    data-timer-logged
+                    aria-label="Time entry saved"
+                >
+                    <p className="font-semibold text-sm">Time logged</p>
+                    <p className="text-sm text-muted-foreground">{formatHHMM(saved.totalSeconds)} for {saved.clientName}</p>
+                    {saved.split && <p data-timer-split className="text-sm text-foreground">{saved.split}</p>}
+                    {saved.sendToBasecamp && (
+                        <p className="text-xs text-muted-foreground/70">Sending to Basecamp timesheet…</p>
+                    )}
+                    {saved.split ? (
+                        <button
+                            type="button"
+                            autoFocus
+                            onClick={onClose}
+                            className="w-full py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                        >
+                            Done
+                        </button>
+                    ) : null}
+                </div>
+            </div>
+        );
+    }
 
     if (outcome?.status === 'warned') {
         return (
@@ -255,18 +304,6 @@ export function StopConfirmSheet({
                     </button>
                 </div>
 
-                {showSuccess ? (
-                    <div className="px-5 py-10 flex flex-col items-center gap-3 animate-in fade-in">
-                        <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center text-green-500">
-                            <CheckCircle2 className="h-6 w-6" />
-                        </div>
-                        <p className="font-semibold">Time logged!</p>
-                        <p className="text-sm text-muted-foreground">{formatHHMM(trackedSeconds)} for {timer.clientName}</p>
-                        {sendToBasecamp && (
-                            <p className="text-xs text-muted-foreground/70">Sending to Basecamp timesheet…</p>
-                        )}
-                    </div>
-                ) : (
                     <form onSubmit={handleStop} className="px-5 py-4 space-y-4">
                         {/* Client / task context */}
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -343,8 +380,8 @@ export function StopConfirmSheet({
                                 </ul>
                             )}
                             {review.dates.length > 1 && (
-                                <p className="mt-1.5 text-[11px] text-muted-foreground/70">
-                                    This work crosses midnight, so one time entry is saved per date.
+                                <p className="mt-1.5 text-xs text-foreground">
+                                    {overnightSplitSentence(review.dates)}
                                 </p>
                             )}
                         </div>
@@ -414,7 +451,6 @@ export function StopConfirmSheet({
                             </button>
                         </div>
                     </form>
-                )}
             </div>
         </div>
     );

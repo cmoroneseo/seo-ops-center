@@ -69,6 +69,7 @@ import { SearchReporting } from '@/components/seo-plan/SearchReporting';
 import { monthKey } from '@/lib/marketing-plan-execution';
 import { managerIsAssigned, planHourLabel, planHoursNarrative } from '@/lib/seo-plan/overview';
 import { planChooseTaskClass } from '@/lib/seo-plan/row-timer';
+import { GLOBAL_TIMER_HINT, GLOBAL_TIMER_LABEL } from '@/lib/timer/attempt-state';
 
 type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'inventory' | 'topical-map' | 'approvals' | 'portal' | 'vault';
 
@@ -353,7 +354,7 @@ export default function ClientDetailPage() {
                         </div>
                         <button
                             onClick={handleTimerClick}
-                            title={isThisClientRunning ? 'Pause timer' : 'Choose a task to start timer'}
+                            title={isThisClientRunning ? 'Pause timer' : GLOBAL_TIMER_HINT}
                             data-choose-task={activeTab === 'campaign' && stageListOn && !isThisClientRunning ? 'secondary' : undefined}
                             className={cn(
                                 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150',
@@ -362,7 +363,7 @@ export default function ClientDetailPage() {
                         >
                             {isThisClientRunning
                                 ? <><Pause className="h-3.5 w-3.5 fill-current" /> Pause</>
-                                : <><Play className="h-3.5 w-3.5 fill-current" /> Choose Task</>
+                                : <><Play className="h-3.5 w-3.5 fill-current" /> {GLOBAL_TIMER_LABEL}</>
                             }
                         </button>
                         <ClientActionsMenu
@@ -380,7 +381,7 @@ export default function ClientDetailPage() {
 
             {timerTaskRequired && (
                 <p className="-mt-3 text-sm text-muted-foreground">
-                    Choose a task below to start time tracking for this client.
+                    {GLOBAL_TIMER_HINT}
                 </p>
             )}
 
