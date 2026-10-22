@@ -10,6 +10,7 @@ import { getClientNotes } from '@/lib/supabase/client-notes';
 import { getClientAssignments } from '@/lib/supabase/client-assignments';
 import { getClientActivity } from '@/lib/supabase/client-activity';
 import { groupClientActivity, type ActivityCorrelationInput } from '@/lib/workspace/activity-grouping';
+import { activityTimeZone, finishedOnAnnotation } from '@/lib/workspace/completion-annotation';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
@@ -422,7 +423,20 @@ function humanizeStatus(s?: string): string {
     return s.replace(/_/g, ' ');
 }
 
-function TaskEventRow({ event }: { event: ClientActivityEvent }) {
+/** Finish day, only when it is not the day this feed row was recorded. */
+function completionNote(
+    occurredAt: string,
+    metadata: Record<string, unknown>,
+    timeZone: string,
+): string | null {
+    return finishedOnAnnotation({
+        occurredAt,
+        completedAt: typeof metadata.completedAt === 'string' ? metadata.completedAt : null,
+        timeZone,
+    });
+}
+
+function TaskEventRow({ event, timeZone }: { event: ClientActivityEvent; timeZone: string }) {
     const { eventType, metadata, actorName, occurredAt } = event;
     const title = metadata.title as string | undefined;
     const category = metadata.category as string | undefined;
@@ -434,6 +448,7 @@ function TaskEventRow({ event }: { event: ClientActivityEvent }) {
     const isCompleted = eventType === 'task.completed';
     const isAssigned = eventType === 'task.assigned';
     const isStatus = eventType === 'task.status_changed';
+    const finished = isCompleted ? completionNote(occurredAt, metadata, timeZone) : null;
     // Real subtask vs. a recurring-task backlink (which reuses the parent's title).
     const isSubtask = eventType === 'task.created' && !!metadata.parentTaskId && parentTitle !== title;
 
@@ -457,6 +472,7 @@ function TaskEventRow({ event }: { event: ClientActivityEvent }) {
                     {actorName && <span className="font-semibold">{actorName} </span>}
                     <span className="text-foreground/80">{verb}</span>
                     {title && <span className={`font-medium ${accent}`}>"{title}"</span>}
+                    {finished && <span className="text-muted-foreground" data-completion-finished={finished}> · {finished}</span>}
                     {isStatus && status && <span className="text-muted-foreground"> → <span className="capitalize">{humanizeStatus(status)}</span></span>}
                     <span className="text-muted-foreground text-xs ml-1.5">
                         {new Date(occurredAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
@@ -684,10 +700,10 @@ function VaultEventRow({ event }: { event: ClientActivityEvent }) {
     );
 }
 
-function EventRow({ event }: { event: ClientActivityEvent }) {
+function EventRow({ event, timeZone }: { event: ClientActivityEvent; timeZone: string }) {
     const t = event.eventType;
     if (t === 'retainer.amended') return <RetainerAmendedRow event={event} />;
-    if (t.startsWith('task.')) return <TaskEventRow event={event} />;
+    if (t.startsWith('task.')) return <TaskEventRow event={event} timeZone={timeZone} />;
     if (t.startsWith('deliverable.')) return <DeliverableEventRow event={event} />;
     if (t.startsWith('client.')) return <ClientEventRow event={event} />;
     if (t.startsWith('campaign.')) return <CampaignEventRow event={event} />;
@@ -708,14 +724,17 @@ function TimeAndCompletionRow({
     event,
     onEdit,
     loggerName,
+    timeZone,
 }: {
     log: TimeLog;
     event: ClientActivityEvent;
     onEdit: (log: TimeLog) => void;
     loggerName?: string;
+    timeZone: string;
 }) {
     const title = (event.metadata.title as string | undefined) ?? log.taskTitle;
     const actor = event.actorName ?? loggerName;
+    const finished = completionNote(event.occurredAt, event.metadata, timeZone);
 
     return (
         <div className="group flex items-start gap-3 py-3">
@@ -728,6 +747,7 @@ function TimeAndCompletionRow({
                         {actor && <span className="font-semibold">{actor} </span>}
                         <span className="text-foreground/80">completed </span>
                         {title && <span className="font-medium text-green-500">&quot;{title}&quot;</span>}
+                        {finished && <span className="text-muted-foreground" data-completion-finished={finished}> · {finished}</span>}
                         <span className="text-foreground/80"> and logged </span>
                         <span className="font-semibold text-blue-500">{log.hours}h</span>
                     </p>
@@ -756,7 +776,7 @@ function clientInitials(name: string) {
     return name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
 }
 
-function buildPrintHTML(client: ClientProject, items: ActivityItem[], memberNames: Record<string, string> = {}, rangeLabel?: string): string {
+function buildPrintHTML(client: ClientProject, items: ActivityItem[], memberNames: Record<string, string> = {}, rangeLabel?: string, timeZone = activityTimeZone()): string {
     const initials = clientInitials(client.clientName);
     const now = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const totalHours = items.reduce((s, i) => s + itemHours(i), 0);
@@ -770,7 +790,8 @@ function buildPrintHTML(client: ClientProject, items: ActivityItem[], memberName
             const log = item.data as TimeLog;
             const who = memberNames[log.userId];
             const title = (item.event.metadata.title as string | undefined) ?? log.taskTitle ?? 'task';
-            return `<tr><td>${fmtDate(item.date)}</td><td><strong>${log.hours}h logged</strong>${who ? ` by ${who}` : ''}</td><td>Completed "${title}"</td></tr>`;
+            const finished = completionNote(item.event.occurredAt, item.event.metadata, timeZone);
+            return `<tr><td>${fmtDate(item.date)}</td><td><strong>${log.hours}h logged</strong>${who ? ` by ${who}` : ''}</td><td>Completed "${title}"${finished ? ` · ${finished}` : ''}</td></tr>`;
         }
         if (item.type === 'time_log') {
             const log = item.data as TimeLog;
@@ -800,6 +821,10 @@ function buildPrintHTML(client: ClientProject, items: ActivityItem[], memberName
                 detail = `${m.fromStatus ?? ''} → ${m.toStatus}`;
             } else if (m.clientName) {
                 detail = String(m.clientName);
+            }
+            if (e.eventType === 'task.completed') {
+                const finished = completionNote(e.occurredAt, m, timeZone);
+                if (finished) detail = detail ? `${detail} · ${finished}` : finished;
             }
             if (e.actorName) detail = detail ? `${detail} · ${e.actorName}` : String(e.actorName);
             return `<tr><td>${fmtDate(item.date)}</td><td>${label}</td><td>${detail}</td></tr>`;
@@ -877,7 +902,7 @@ function formatRangeLabel(from: string, to: string): string | undefined {
 
 // ── Three-dot menu ──────────────────────────────────────────────────────────
 
-function FeedMenu({ client, items, memberNames }: { client: ClientProject; items: ActivityItem[]; memberNames: Record<string, string> }) {
+function FeedMenu({ client, items, memberNames, timeZone }: { client: ClientProject; items: ActivityItem[]; memberNames: Record<string, string>; timeZone: string }) {
     const [open, setOpen] = useState(false);
     const [from, setFrom] = useState('');
     const [to, setTo] = useState('');
@@ -896,7 +921,7 @@ function FeedMenu({ client, items, memberNames }: { client: ClientProject; items
 
     function doExport(print: boolean) {
         setOpen(false);
-        const html = buildPrintHTML(client, ranged, memberNames, rangeLabel);
+        const html = buildPrintHTML(client, ranged, memberNames, rangeLabel, timeZone);
         renderPrintWindow(html, print);
     }
 
@@ -972,6 +997,10 @@ function FeedMenu({ client, items, memberNames }: { client: ClientProject; items
 
 export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
     const { organization } = useOrganization();
+    // Read during render. Rows appear only after the client load effect, so
+    // this is the viewer's zone — the same clock the completion prompt uses —
+    // and falls back to the overview's Pacific day when the zone is unknown.
+    const timeZone = activityTimeZone();
     const [allItems, setAllItems] = useState<ActivityItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<ActivityType>('all');
@@ -1050,7 +1079,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                             </span>
                         )}
                     </div>
-                    <FeedMenu client={client} items={allItems} memberNames={memberNames} />
+                    <FeedMenu client={client} items={allItems} memberNames={memberNames} timeZone={timeZone} />
                 </div>
 
                 {/* Stats row */}
@@ -1134,6 +1163,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                                                 event={item.event}
                                                 onEdit={setEditingLog}
                                                 loggerName={memberNames[item.data.userId]}
+                                                timeZone={timeZone}
                                             />
                                         ) : item.type === 'time_log' ? (
                                             <TimeLogRow log={item.data} onEdit={setEditingLog} loggerName={memberNames[item.data.userId]} />
@@ -1142,7 +1172,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
                                         ) : item.type === 'assignment' ? (
                                             <AssignmentRow assignment={item.data} />
                                         ) : (
-                                            <EventRow event={item.data} />
+                                            <EventRow event={item.data} timeZone={timeZone} />
                                         )}
                                     </div>
                                 ))}
