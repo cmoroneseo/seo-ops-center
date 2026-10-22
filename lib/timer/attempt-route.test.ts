@@ -280,6 +280,33 @@ test('finalize makes local time safe before completion and starts Basecamp last'
     });
 });
 
+test('finalize keeps a supplied completion day and rejects a future one', async () => {
+    let forwarded: string | undefined;
+    const past = '2026-09-30T19:00:00.000Z';
+    const accepted = await handleTimerMutation(request({ ...finalizeRequest, completedAt: past }), dependencies({
+        finalizeOwnedAttempt: async input => {
+            forwarded = input.completedAt;
+            return { finalizedTimeLogIds: ['log-1'] };
+        },
+    }));
+    assert.equal(accepted.status, 200);
+    assert.equal(forwarded, past);
+
+    let ran = false;
+    const future = await handleTimerMutation(request({
+        ...finalizeRequest,
+        completedAt: '2099-01-01T00:00:00.000Z',
+    }), dependencies({
+        finalizeOwnedAttempt: async () => {
+            ran = true;
+            return { finalizedTimeLogIds: ['log-1'] };
+        },
+    }));
+    assert.equal(future.status, 400);
+    assert.equal(ran, false);
+    assert.equal((await body(future)).error, 'Pick today or a past day.');
+});
+
 test('an unselected Basecamp toggle reaches no provider dependency at all', async () => {
     let providerCalls = 0;
     const response = await handleTimerMutation(request({ ...finalizeRequest, syncToBasecamp: false }), dependencies({

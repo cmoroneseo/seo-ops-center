@@ -1,3 +1,4 @@
+import { taskStatusWrite } from '../tasks/status.ts';
 import { timerConflictMessage } from './attempt-state.ts';
 import type { TimerMutationRequest, TimerStateResponse } from './contracts.ts';
 
@@ -11,6 +12,7 @@ export interface FinalizeAttemptInput {
     timeZone: string;
     operationId: string;
     finalizedAt: string;
+    completedAt?: string;
 }
 
 export interface FinalizeResult {
@@ -103,10 +105,11 @@ export interface CompletionInput {
     actorName: string;
     operationId: string;
     finalizedAt: string;
+    completedAt?: string;
 }
 
 export interface CompletionDeps {
-    completeOwnedTask(taskId: string, finalizedAt: string): Promise<CompletedTask | null>;
+    completeOwnedTask(taskId: string, finalizedAt: string, completedAt?: string): Promise<CompletedTask | null>;
     emitTaskCompleted(task: CompletedTask, input: CompletionInput): Promise<void>;
     /**
      * Check off the task's linked Basecamp to-do. Best-effort — matches the
@@ -125,7 +128,7 @@ export async function completeFinalizedTask(
     deps: CompletionDeps,
 ): Promise<string | undefined> {
     try {
-        const completedTask = await deps.completeOwnedTask(input.taskId, input.finalizedAt);
+        const completedTask = await deps.completeOwnedTask(input.taskId, input.finalizedAt, input.completedAt);
         if (!completedTask) return COMPLETION_WARNING;
         if (completedTask.clientId) {
             await deps.emitTaskCompleted(completedTask, input);
@@ -163,6 +166,7 @@ const actionFields: Record<TimerMutationRequest['action'], readonly string[]> = 
         'syncToBasecamp',
         'markTaskComplete',
         'timeZone',
+        'completedAt',
     ],
     discard: ['action', 'timeLogId'],
     retry_basecamp: ['action', 'timeLogId'],
@@ -276,6 +280,8 @@ function parseTimerRequest(value: unknown): TimerMutationRequest | null {
             || typeof value.syncToBasecamp !== 'boolean'
             || typeof value.markTaskComplete !== 'boolean'
             || !isNonEmptyString(value.timeZone)
+            || (value.completedAt !== undefined && !isNonEmptyString(value.completedAt))
+            || (typeof value.completedAt === 'string' && !Number.isFinite(Date.parse(value.completedAt)))
         ) return null;
         return {
             action,
@@ -286,6 +292,7 @@ function parseTimerRequest(value: unknown): TimerMutationRequest | null {
             syncToBasecamp: value.syncToBasecamp,
             markTaskComplete: value.markTaskComplete,
             timeZone: value.timeZone,
+            ...(typeof value.completedAt === 'string' ? { completedAt: value.completedAt } : {}),
         };
     }
     if (action === 'discard' || action === 'retry_basecamp') {
@@ -437,6 +444,15 @@ export async function handleTimerMutation(
         }
 
         if (input.action === 'finalize') {
+            const finalizedAt = new Date().toISOString();
+            if (input.completedAt) {
+                const accepted = taskStatusWrite({
+                    status: 'done',
+                    now: finalizedAt,
+                    completedAt: input.completedAt,
+                });
+                if (!accepted.ok) return json({ error: accepted.error }, 400);
+            }
             const finalized = await deps.finalizeOwnedAttempt({
                 userId: user.id,
                 timeLogId: input.timeLogId,
@@ -446,7 +462,8 @@ export async function handleTimerMutation(
                 markTaskComplete: input.markTaskComplete,
                 timeZone: input.timeZone,
                 operationId: crypto.randomUUID(),
-                finalizedAt: new Date().toISOString(),
+                finalizedAt,
+                ...(input.completedAt ? { completedAt: input.completedAt } : {}),
             });
 
             const results: BasecampSyncOutcome[] = [];
