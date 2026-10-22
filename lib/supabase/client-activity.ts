@@ -1,6 +1,10 @@
 import { createAdminClient } from './admin';
 import { createClient } from './client';
 import { ClientActivityEvent, ActivityEventType } from '../types';
+import {
+    attachRecordedCompletions,
+    type TaskCompletionRecord,
+} from '../workspace/completion-annotation';
 
 /**
  * Set of event types the authenticated /api/activity endpoint will accept from
@@ -119,6 +123,50 @@ export async function logClientActivity(payload: {
     if (error) console.error('logClientActivity error:', error);
 }
 
+function historyEntries(value: unknown): TaskCompletionRecord['statusHistory'] {
+    if (!Array.isArray(value)) return [];
+    return value.filter((entry): entry is { status?: string | null; at?: string | null } => (
+        typeof entry === 'object' && entry !== null
+    ));
+}
+
+/**
+ * Finish instants for task.completed rows that predate metadata.completedAt.
+ * A failure leaves the events as stored: the feed still renders, unannotated.
+ */
+async function loadTaskCompletionRecords(
+    supabase: NonNullable<ReturnType<typeof createClient>>,
+    events: ClientActivityEvent[],
+): Promise<Map<string, TaskCompletionRecord>> {
+    const ids = [...new Set(events.flatMap(event => {
+        if (event.eventType !== 'task.completed') return [];
+        const taskId = event.metadata.taskId;
+        return typeof taskId === 'string' && taskId.length > 0 ? [taskId] : [];
+    }))];
+    const needsLookup = events.some(event => {
+        if (event.eventType !== 'task.completed') return false;
+        const taskId = event.metadata.taskId;
+        if (typeof taskId !== 'string' || taskId.length === 0) return false;
+        const completedAt = event.metadata.completedAt;
+        return typeof completedAt !== 'string' || !Number.isFinite(Date.parse(completedAt));
+    });
+    if (!needsLookup || ids.length === 0) return new Map();
+    const { data, error } = await supabase
+        .from('tasks')
+        .select('id, status, completed_at, status_history')
+        .in('id', ids);
+    if (error) throw error;
+    const records = new Map<string, TaskCompletionRecord>();
+    for (const row of data ?? []) {
+        records.set(String(row.id), {
+            status: typeof row.status === 'string' ? row.status : null,
+            completedAt: typeof row.completed_at === 'string' ? row.completed_at : null,
+            statusHistory: historyEntries(row.status_history),
+        });
+    }
+    return records;
+}
+
 /** Fetch activity events for a client (browser-safe). */
 export async function getClientActivity(clientId: string): Promise<ClientActivityEvent[]> {
     const supabase = createClient();
@@ -133,5 +181,11 @@ export async function getClientActivity(clientId: string): Promise<ClientActivit
         console.error('getClientActivity error:', error);
         return [];
     }
-    return (data ?? []).map(rowToEvent).filter((event: ClientActivityEvent) => isClientVisibleEvent(event.eventType));
+    const events = (data ?? []).map(rowToEvent).filter((event: ClientActivityEvent) => isClientVisibleEvent(event.eventType));
+    try {
+        return attachRecordedCompletions(events, await loadTaskCompletionRecords(supabase, events));
+    } catch (lookupError) {
+        console.error('getClientActivity completion lookup error:', lookupError);
+        return events;
+    }
 }

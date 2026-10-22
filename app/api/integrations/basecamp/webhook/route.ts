@@ -115,14 +115,19 @@ export const POST = createBasecampWebhookPost({
             return Boolean(data);
         },
     },
-    async logCompletion(task: BasecampWebhookTask, actorName: string) {
+    async logCompletion(task: BasecampWebhookTask, actorName: string, completedAt: string) {
         if (!task.clientId) return;
         await logClientActivity({
             organizationId: task.organizationId,
             clientId: task.clientId,
             eventType: 'task.completed',
             actorName,
-            metadata: { taskId: task.id, title: task.title, source: 'basecamp' },
+            metadata: {
+                taskId: task.id,
+                title: task.title,
+                source: 'basecamp',
+                completedAt,
+            },
         });
     },
 });
