@@ -19,7 +19,7 @@ import { seoPlanPushTodolistId } from '../basecamp/plan-lists';
 import { taskCreateRow } from '../tasks/create-row';
 import { completedAtForLiveUrl, parseLiveUrlInput, splitLiveUrl } from '../tasks/live-url';
 import { isTaskStage } from '../tasks/stage';
-import { normalizeBlockedReason, taskStatusColumns } from '../tasks/status';
+import { normalizeBlockedReason, taskStatusUpdate } from '../tasks/status';
 import { sumTaskLoggedHours } from '../time-budget-logic';
 import {
     attachSubtaskSnapshots,
@@ -645,26 +645,45 @@ export async function updateTask(
         if (patch.status || patch.assigneeIds !== undefined) {
             const { data: cur } = await supabase
                 .from('tasks')
-                .select('status_history, recurrence, due_date, title, description, priority, category, tags, estimated_hours, assignee_ids, client_id, project_id, organization_id, template_id')
+                .select('status, completed_at, status_history, recurrence, due_date, title, description, priority, category, tags, estimated_hours, assignee_ids, client_id, project_id, organization_id, template_id')
                 .eq('id', taskId)
                 .single();
             current = cur;
         }
 
-        // Append to status_history when status changes
+        // Append to status_history only when the status actually changes,
+        // or when a completion day is supplied. Resending done without a date
+        // must not replace a backdated completed_at with now().
+        // Basecamp still completes as of this request: its completion endpoint
+        // accepts no date, so this app's completed_at stays authoritative.
+        let statusChanged = false;
         if (patch.status && current) {
             const now = new Date().toISOString();
-            const history: TaskStatusHistoryEntry[] = current.status_history ?? [];
-            history.push({ status: patch.status, at: now, by: patch.updatedBy });
-            candidate.status_history = history;
-            Object.assign(candidate, taskStatusColumns({
+            const previousStatus = typeof current.status === 'string' ? current.status : null;
+            const write = taskStatusUpdate({
+                previousStatus,
                 status: patch.status,
                 now,
                 completedAt: patch.completedAt,
-            }));
+                by: patch.updatedBy,
+            });
+            if (!write.ok) return { success: false, error: write.error };
+            if (write.changed) {
+                statusChanged = true;
+                delete candidate.completed_at;
+                const history: TaskStatusHistoryEntry[] = Array.isArray(current.status_history)
+                    ? [...current.status_history]
+                    : [];
+                history.push({ status: write.historyEntry.status, at: write.historyEntry.at, by: patch.updatedBy });
+                candidate.status_history = history;
+                Object.assign(candidate, write.columns);
+            } else {
+                delete candidate.status;
+                delete candidate.completed_at;
+            }
 
             // Auto-spawn next recurring instance when marking done
-            if (patch.status === 'done' && current.recurrence) {
+            if (statusChanged && patch.status === 'done' && current.recurrence) {
                 const nextDue = getNextDueDate(current.recurrence, current.due_date ?? new Date().toISOString().slice(0, 10));
                 if (nextDue) {
                     // Fire-and-forget — don't block the main update
@@ -686,6 +705,8 @@ export async function updateTask(
                     }).catch(err => console.error('Recurring task spawn error:', err));
                 }
             }
+        } else if (patch.status) {
+            statusChanged = true;
         }
 
         // A done task that gains a live URL and has no ship date gets one.
@@ -744,7 +765,7 @@ export async function updateTask(
         const updatedTask = rowToTask(data);
 
         // Basecamp complete/reopen — fire-and-forget via API route
-        if (patch.status && data.basecamp_todo_id && data.basecamp_project_id) {
+        if (statusChanged && patch.status && data.basecamp_todo_id && data.basecamp_project_id) {
             const bcAction = patch.status === 'done' ? 'complete_todo'
                 : (patch.status === 'todo' || patch.status === 'in_progress') ? 'reopen_todo'
                 : null;
@@ -809,7 +830,7 @@ export async function updateTask(
         // pulls a Pending deliverable into In Progress; finishing one prompts the
         // assignee to move it to Review. One-way only — Basecamp can mutate task
         // status externally, so the contractual record never hard-syncs.
-        if (patch.status && data.deliverable_id) {
+        if (statusChanged && patch.status && data.deliverable_id) {
             (async () => {
                 const { data: d } = await supabase
                     .from('deliverables')
@@ -844,7 +865,7 @@ export async function updateTask(
 
         // Log task status changes to the client activity feed (server derives actor/org).
         // Completion is its own high-value event; other transitions log as status_changed.
-        if (patch.status && data.client_id) {
+        if (statusChanged && patch.status && data.client_id) {
             logActivity({
                 clientId: data.client_id,
                 eventType: patch.status === 'done' ? 'task.completed' : 'task.status_changed',

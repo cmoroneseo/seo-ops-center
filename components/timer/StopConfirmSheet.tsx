@@ -19,6 +19,8 @@ import { defaultSendToBasecamp } from '@/lib/basecamp/send-default';
 import { SessionNote } from '@/lib/types';
 import { isExternalHref, safeHref } from '@/lib/links/safe-href';
 import { ReviewToggle } from './ReviewToggle';
+import { resolveCompletionInstant, type CompletionChoice } from '@/lib/tasks/completion-date';
+import { CompletionDatePrompt } from '@/components/tasks/CompletionDatePrompt';
 
 function renderNoteText(text: string) {
     const parts = text.split(/(\[[^\]]+\]\([^)]+\))/g);
@@ -95,12 +97,15 @@ interface StopConfirmSheetProps {
     onClose: () => void;
     /** Completion initiated from a Done transition keeps that intent selected. */
     defaultMarkTaskComplete?: boolean;
+    /** A completion day already chosen. The sheet does not ask again. */
+    completedAt?: string | null;
 }
 
 export function StopConfirmSheet({
     attemptId,
     onClose,
     defaultMarkTaskComplete = false,
+    completedAt = null,
 }: StopConfirmSheetProps) {
     const { finalize, discard, addNote, editNote, getAttemptById } = useTimer();
     const timer = getAttemptById(attemptId);
@@ -108,6 +113,8 @@ export function StopConfirmSheet({
     const [billable, setBillable] = useState(true);
     const [countsTowardBudget, setCountsTowardBudget] = useState(false);
     const [markTaskComplete, setMarkTaskComplete] = useState(false);
+    const [completionChoice, setCompletionChoice] = useState<CompletionChoice>({ kind: 'today' });
+    const [completionError, setCompletionError] = useState<string | null>(null);
     const [showNotes, setShowNotes] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
@@ -159,6 +166,8 @@ export function StopConfirmSheet({
         setBillable(defaults.billable);
         setCountsTowardBudget(defaults.countsTowardBudget);
         setMarkTaskComplete(defaultMarkTaskComplete || defaults.markTaskComplete);
+        setCompletionChoice({ kind: 'today' });
+        setCompletionError(null);
         setShowNotes(timerNoteCount > 0);
         setSendOverride(undefined);
         // Defaults are seeded once per reviewed attempt.
@@ -168,6 +177,20 @@ export function StopConfirmSheet({
     const handleStop = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!timer || !workContext.description || isCheckingBasecamp || isSubmitting) return;
+        let chosenCompletion = completedAt ?? undefined;
+        if (markTaskComplete && !chosenCompletion) {
+            const resolved = resolveCompletionInstant({
+                choice: completionChoice,
+                now: new Date(),
+                timeZone,
+            });
+            if (!resolved.ok) {
+                setCompletionError(resolved.error);
+                return;
+            }
+            chosenCompletion = resolved.completedAt;
+        }
+        setCompletionError(null);
         setIsSubmitting(true);
         setOutcome(null);
         let result: StopSubmitOutcome;
@@ -182,6 +205,7 @@ export function StopConfirmSheet({
                 countsTowardBudget,
                 markTaskComplete,
                 syncToBasecamp: sendToBasecamp,
+                ...(markTaskComplete && chosenCompletion ? { completedAt: chosenCompletion } : {}),
             }));
             if (result.status !== 'warned') {
                 setSaved({
@@ -420,9 +444,25 @@ export function StopConfirmSheet({
                                 hint={canMarkTaskComplete
                                     ? 'Stopping the timer alone leaves the task open.'
                                     : 'This time is not linked to a task.'}
-                                onChange={setMarkTaskComplete}
+                                onChange={checked => {
+                                    setMarkTaskComplete(checked);
+                                    setCompletionError(null);
+                                    if (checked) setCompletionChoice({ kind: 'today' });
+                                }}
                             />
                         </div>
+
+                        {markTaskComplete && canMarkTaskComplete && !completedAt && (
+                            <CompletionDatePrompt
+                                variant="select"
+                                choice={completionChoice}
+                                onChoice={setCompletionChoice}
+                                timeZone={timeZone}
+                            />
+                        )}
+                        {completionError && (
+                            <p role="alert" className="text-xs text-destructive">{completionError}</p>
+                        )}
 
                         {outcome?.status === 'failed' && (
                             <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">

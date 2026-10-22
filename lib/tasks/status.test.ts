@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    finalizeTaskCompletion,
     MIGRATED_BLOCKED_REASON,
     migrateLegacyTaskStatus,
     normalizeBlockedReason,
     statusAfterTimerStart,
     taskStatusColumns,
+    taskStatusUpdate,
+    taskStatusWrite,
 } from './status.ts';
 
 const NOW = '2026-10-19T18:00:00.000Z';
@@ -179,6 +182,100 @@ test('marking done stamps completed_at and clears the blocked label; unchecking 
     const started = taskStatusColumns({ status: 'in_progress', now: NOW });
     assert.equal(started.completed_at, null);
     assert.equal('blocked_reason' in started, false);
+});
+
+test('a chosen completion day is stored and recorded, and a future day is refused', () => {
+    const backdated = taskStatusWrite({
+        status: 'done',
+        now: NOW,
+        completedAt: DONE_AT,
+        by: 'carlos',
+    });
+    assert.equal(backdated.ok, true);
+    if (!backdated.ok) return;
+    assert.equal(backdated.columns.completed_at, DONE_AT);
+    assert.deepEqual(backdated.historyEntry, { status: 'done', at: DONE_AT, by: 'carlos' });
+
+    const omitted = taskStatusWrite({ status: 'done', now: NOW });
+    assert.equal(omitted.ok, true);
+    if (omitted.ok) assert.equal(omitted.historyEntry.at, NOW);
+
+    const future = taskStatusWrite({
+        status: 'done',
+        now: NOW,
+        completedAt: '2026-11-01T12:00:00.000Z',
+    });
+    assert.equal(future.ok, false);
+
+    const reopened = taskStatusWrite({ status: 'todo', now: NOW, completedAt: DONE_AT });
+    assert.equal(reopened.ok, true);
+    if (!reopened.ok) return;
+    assert.equal(reopened.columns.completed_at, null);
+    assert.equal(reopened.historyEntry.at, NOW);
+});
+
+test('finalizing a timer does not replace a completion date that was already chosen', () => {
+    const kept = finalizeTaskCompletion({
+        status: 'done',
+        existingCompletedAt: DONE_AT,
+        finalizedAt: NOW,
+    });
+    assert.deepEqual(kept, { ok: true, unchanged: true });
+
+    const supplied = finalizeTaskCompletion({
+        status: 'todo',
+        finalizedAt: NOW,
+        suppliedCompletedAt: DONE_AT,
+        by: 'carlos',
+    });
+    assert.equal(supplied.ok, true);
+    if (!supplied.ok || supplied.unchanged) return;
+    assert.equal(supplied.columns.completed_at, DONE_AT);
+    assert.equal(supplied.historyEntry?.at, DONE_AT);
+
+    const stamped = finalizeTaskCompletion({ status: 'in_progress', finalizedAt: NOW });
+    assert.equal(stamped.ok, true);
+    if (!stamped.ok || stamped.unchanged) return;
+    assert.equal(stamped.columns.completed_at, NOW);
+
+    const future = finalizeTaskCompletion({
+        status: 'todo',
+        finalizedAt: NOW,
+        suppliedCompletedAt: '2026-12-01T00:00:00.000Z',
+    });
+    assert.equal(future.ok, false);
+});
+
+test('resaving a done task does not replace its completion date', () => {
+    const kept = taskStatusUpdate({
+        previousStatus: 'done',
+        status: 'done',
+        now: NOW,
+    });
+    assert.deepEqual(kept, { ok: true, changed: false });
+
+    const backdated = taskStatusUpdate({
+        previousStatus: 'todo',
+        status: 'done',
+        now: NOW,
+        completedAt: DONE_AT,
+        by: 'carlos',
+    });
+    assert.equal(backdated.ok, true);
+    if (!backdated.ok || !backdated.changed) return;
+    assert.equal(backdated.columns.completed_at, DONE_AT);
+    assert.equal(backdated.historyEntry.at, DONE_AT);
+
+    const reopened = taskStatusUpdate({
+        previousStatus: 'done',
+        status: 'todo',
+        now: NOW,
+        completedAt: DONE_AT,
+    });
+    assert.equal(reopened.ok, true);
+    if (!reopened.ok || !reopened.changed) return;
+    assert.equal(reopened.columns.completed_at, null);
+    assert.equal(reopened.historyEntry.at, NOW);
 });
 
 test('starting a timer moves a to-do task to in progress and leaves the others', () => {

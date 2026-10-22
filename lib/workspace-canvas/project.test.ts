@@ -142,6 +142,25 @@ test('thin coverage hides the comparison series and a failed search is not zero'
     assert.match(failed.board.impact.map(entry => entry.title).join(' '), /unavailable/i);
 });
 
+test('a completion late in the Pacific evening counts in that month', () => {
+    const finished = '2026-10-01T06:30:00.000Z';
+    const september = projectWorkspaceCanvas(baseInput({
+        month: '2026-09',
+        today: '2026-10-15',
+        tasks: { ok: true, value: [task({ status: 'done', completedAt: finished, dueDate: '2026-09-30' })] },
+    }));
+    const recorded = september.board.impact.find(entry => entry.id === 'work-complete');
+    assert.match(recorded?.detail ?? '', /1 recorded complete this month/);
+    const october = projectWorkspaceCanvas(baseInput({
+        tasks: { ok: true, value: [task({ status: 'done', completedAt: finished, dueDate: '2026-09-30' })] },
+    }));
+    assert.equal(october.board.impact.some(entry => entry.id === 'work-complete'), false);
+    const dated = projectWorkspaceCanvas(baseInput({
+        tasks: { ok: true, value: [task({ status: 'done', completedAt: '2026-10-02', dueDate: '2026-10-02' })] },
+    }));
+    assert.match(dated.board.impact.find(entry => entry.id === 'work-complete')?.detail ?? '', /1 recorded complete this month/);
+});
+
 test('equal coverage reports a percent and does not treat the change as caused by tasks', () => {
     const current = [{ date: '2026-10-01', clicks: 20, impressions: 100 }, { date: '2026-10-02', clicks: 20, impressions: 100 }];
     const previous = [{ date: '2026-09-29', clicks: 10, impressions: 80 }, { date: '2026-09-30', clicks: 10, impressions: 80 }];

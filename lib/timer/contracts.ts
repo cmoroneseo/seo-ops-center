@@ -31,6 +31,8 @@ export type TimerMutationRequest =
         syncToBasecamp: boolean;
         markTaskComplete: boolean;
         timeZone: string;
+        /** Chosen completion instant. Omitted completions use the finalize time. */
+        completedAt?: string;
     }
     | { action: 'discard'; timeLogId: string }
     | { action: 'retry_basecamp'; timeLogId: string };

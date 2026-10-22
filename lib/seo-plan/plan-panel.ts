@@ -435,6 +435,7 @@ export interface PlanPanelTask {
     createdAt: string | null;
     createdByLabel: string | null;
     blockedReason: string | null;
+    completedAt?: string | null;
     timeByMonth: { month: string; label: string; hours: number }[];
 }
 
@@ -495,6 +496,7 @@ export function planPanelTask(input: {
         createdAt: input.task.createdAt,
         createdByLabel: creator ? (creator.initials || creator.name) : null,
         blockedReason: listedBlockedReason(input.task, detail?.blockedReason),
+        completedAt: input.task.completedAt ?? null,
         timeByMonth: groupPlanTimeByMonth(logs),
     };
 }
@@ -503,7 +505,7 @@ export type PlanPanelSave =
     | { field: 'title'; title: string }
     | { field: 'description'; description: string }
     | { field: 'dueDate'; dueDate: string | null }
-    | { field: 'status'; status: PlanPanelStatus }
+    | { field: 'status'; status: PlanPanelStatus; completedAt?: string }
     | { field: 'assignees'; assigneeIds: string[] }
     | { field: 'estimate'; estimatedHours: number | null }
     | { field: 'labels'; category: string | null; tags: string[] }
@@ -539,7 +541,9 @@ export function applyPlanPanelSave(task: StageListTask, save: PlanPanelSave, now
             return {
                 ...task,
                 status: save.status,
-                completedAt: completionForPlanStatus(save.status, task, now),
+                completedAt: save.status === 'done'
+                    ? (save.completedAt ?? completionForPlanStatus(save.status, task, now))
+                    : null,
                 blockedReason: save.status === 'done' ? null : task.blockedReason,
             };
         case 'blocked':

@@ -1,3 +1,9 @@
+import {
+    acceptedCompletionInstant,
+    COMPLETION_FUTURE_ERROR,
+    COMPLETION_INVALID_ERROR,
+} from './completion-date';
+
 /**
  * Task status is todo, in progress, or done.
  *
@@ -148,6 +154,110 @@ export function taskStatusColumns(input: {
         return { status: 'done', completed_at: stamp, blocked_reason: null };
     }
     return { status: input.status, completed_at: null };
+}
+
+export interface TaskStatusWrite {
+    status: CanonicalTaskStatus;
+    at: string;
+    by?: string;
+}
+
+/**
+ * Status columns plus the history entry for one transition.
+ * A supplied completion instant is kept and recorded. A future or unreadable
+ * instant is rejected instead of being replaced with now. Reopening clears
+ * completed_at and records the moment of the reopen.
+ */
+export function taskStatusWrite(input: {
+    status: CanonicalTaskStatus;
+    now: string;
+    completedAt?: string | null;
+    by?: string;
+}): { ok: true; columns: ReturnType<typeof taskStatusColumns>; historyEntry: TaskStatusWrite } | { ok: false; error: string } {
+    const by = input.by ? { by: input.by } : {};
+    if (input.status !== 'done') {
+        return {
+            ok: true,
+            columns: taskStatusColumns({ status: input.status, now: input.now }),
+            historyEntry: { status: input.status, at: input.now, ...by },
+        };
+    }
+    let stamp = input.now;
+    if (input.completedAt != null && input.completedAt !== '') {
+        const accepted = acceptedCompletionInstant(input.completedAt, input.now);
+        if (!accepted) {
+            const readable = Number.isFinite(Date.parse(input.completedAt));
+            return { ok: false, error: readable ? COMPLETION_FUTURE_ERROR : COMPLETION_INVALID_ERROR };
+        }
+        stamp = accepted;
+    }
+    return {
+        ok: true,
+        columns: taskStatusColumns({ status: 'done', now: input.now, completedAt: stamp }),
+        historyEntry: { status: 'done', at: stamp, ...by },
+    };
+}
+
+/**
+ * What a timer finalize may write onto an owned task.
+ * A task that is already done keeps its completion instant. A supplied date
+ * is written as given. Omitting the date stamps the finalize instant.
+ */
+export function finalizeTaskCompletion(input: {
+    status: string | null;
+    existingCompletedAt?: string | null;
+    finalizedAt: string;
+    suppliedCompletedAt?: string | null;
+    by?: string;
+}):
+    | { ok: true; unchanged: true }
+    | { ok: true; unchanged: false; columns: ReturnType<typeof taskStatusColumns>; historyEntry: TaskStatusWrite | null }
+    | { ok: false; error: string } {
+    const supplied = input.suppliedCompletedAt && input.suppliedCompletedAt.trim().length > 0
+        ? input.suppliedCompletedAt
+        : null;
+    if (input.status === 'done' && !supplied) return { ok: true, unchanged: true };
+    const write = taskStatusWrite({
+        status: 'done',
+        now: input.finalizedAt,
+        completedAt: supplied,
+        by: input.by,
+    });
+    if (!write.ok) return write;
+    return {
+        ok: true,
+        unchanged: false,
+        columns: write.columns,
+        historyEntry: input.status === 'done' ? null : write.historyEntry,
+    };
+}
+
+/**
+ * One status save from the task editor.
+ * Resending the current status without a completion date changes nothing,
+ * so a backdated done task keeps its stamp. A supplied date is written.
+ * Moving off done clears completed_at.
+ */
+export function taskStatusUpdate(input: {
+    previousStatus: string | null;
+    status: CanonicalTaskStatus;
+    now: string;
+    completedAt?: string | null;
+    by?: string;
+}):
+    | { ok: true; changed: false }
+    | { ok: true; changed: true; columns: ReturnType<typeof taskStatusColumns>; historyEntry: TaskStatusWrite }
+    | { ok: false; error: string } {
+    const supplied = input.completedAt != null && input.completedAt !== '';
+    if (input.previousStatus === input.status && !supplied) return { ok: true, changed: false };
+    const write = taskStatusWrite({
+        status: input.status,
+        now: input.now,
+        completedAt: input.completedAt,
+        by: input.by,
+    });
+    if (!write.ok) return write;
+    return { ok: true, changed: true, columns: write.columns, historyEntry: write.historyEntry };
 }
 
 /** The first timer start on a to-do task moves it to in progress. Done stays done. */

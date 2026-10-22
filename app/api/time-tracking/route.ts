@@ -14,7 +14,7 @@ import {
     type FinalizeResult,
 } from '@/lib/timer/attempt-route';
 import { timerStateFromRows } from '@/lib/timer/contracts';
-import { taskStatusColumns } from '@/lib/tasks/status';
+import { finalizeTaskCompletion } from '@/lib/tasks/status';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,13 +83,52 @@ export async function POST(request: NextRequest): Promise<Response> {
             actorName: authenticatedActorName,
             operationId: input.operationId,
             finalizedAt: input.finalizedAt,
+            completedAt: input.completedAt,
         }, {
-            async completeOwnedTask(ownedTaskId, finalizedAt): Promise<CompletedTask | null> {
+            async completeOwnedTask(ownedTaskId, finalizedAt, completedAt): Promise<CompletedTask | null> {
+                const { data: current, error: readError } = await supabase
+                    .from('tasks')
+                    .select('status, completed_at, status_history')
+                    .eq('id', ownedTaskId)
+                    .maybeSingle();
+                if (readError) throw readError;
+                if (!current) return null;
+
+                const decision = finalizeTaskCompletion({
+                    status: typeof current.status === 'string' ? current.status : null,
+                    existingCompletedAt: typeof current.completed_at === 'string' ? current.completed_at : null,
+                    finalizedAt,
+                    suppliedCompletedAt: completedAt,
+                    by: input.userId,
+                });
+                if (!decision.ok) throw dependencyError(decision.error, '22023');
+
+                const taskColumns = 'id, organization_id, client_id, title, priority, category';
+                if (decision.unchanged) {
+                    const { data: task, error: keptError } = await supabase
+                        .from('tasks')
+                        .select(taskColumns)
+                        .eq('id', ownedTaskId)
+                        .maybeSingle();
+                    if (keptError) throw keptError;
+                    if (!task) return null;
+                    return {
+                        id: task.id,
+                        organizationId: task.organization_id,
+                        clientId: task.client_id,
+                        title: task.title,
+                        priority: task.priority,
+                        category: task.category,
+                    };
+                }
+
+                const history = Array.isArray(current.status_history) ? [...current.status_history] : [];
+                if (decision.historyEntry) history.push(decision.historyEntry);
                 const { data: task, error: updateError } = await supabase
                     .from('tasks')
-                    .update(taskStatusColumns({ status: 'done', now: finalizedAt, completedAt: finalizedAt }))
+                    .update({ ...decision.columns, status_history: history })
                     .eq('id', ownedTaskId)
-                    .select('id, organization_id, client_id, title, priority, category')
+                    .select(taskColumns)
                     .maybeSingle();
                 if (updateError) throw updateError;
                 if (!task) return null;

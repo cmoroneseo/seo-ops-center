@@ -15,6 +15,8 @@ import { taskIsComplete } from '../marketing-plan-execution';
 import { ROADMAP_PHASES, isInRoadmap, type RoadmapPhase } from '../marketing-plan-roadmap';
 import { onboardingSectionProgress } from '../seo-plan/plan-work';
 import type { StageListTask } from '../seo-plan/stage-list';
+import { STAGE_LIST_TIME_ZONE } from '../seo-plan/this-month';
+import { completionCalendarDay } from '../tasks/completion-date';
 import { listedSubtaskProgress } from '../tasks/subtask-progress';
 import type { Task } from '../types';
 
@@ -379,8 +381,15 @@ function taskComplete(task: CanvasTask): boolean {
 
 function day(value?: string | null): string | undefined {
     if (!value) return undefined;
-    const iso = value.slice(0, 10);
-    return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : undefined;
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    if (!trimmed.includes('T')) {
+        const prefix = trimmed.slice(0, 10);
+        return /^\d{4}-\d{2}-\d{2}$/.test(prefix) ? prefix : undefined;
+    }
+    const parsed = new Date(trimmed);
+    if (Number.isNaN(parsed.getTime())) return undefined;
+    return completionCalendarDay(parsed, STAGE_LIST_TIME_ZONE) ?? undefined;
 }
 
 function coverageOf(points: DailyPoint[], metric: 'clicks' | 'impressions') {

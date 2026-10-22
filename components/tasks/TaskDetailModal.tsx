@@ -28,6 +28,7 @@ import { timeLogBasecampCopy } from '@/lib/timesheets/log-sync-state';
 import { TIME_LOG_BASECAMP_EVENT, type TimeLogBasecampNotice, basecampSyncNotice } from '@/lib/basecamp/sync-notice';
 import { completeTaskWithReconciliation } from '@/lib/tasks/task-completion';
 import { TaskCompletionDrawer } from './TaskCompletionDrawer';
+import { CompletionDatePrompt } from './CompletionDatePrompt';
 import { startDateForDay, scheduleDateError, estimateFromInput } from '@/lib/tasks/schedule-edit';
 import { parseLiveUrlInput } from '@/lib/tasks/live-url';
 import { normalizeBlockedReason } from '@/lib/tasks/status';
@@ -265,6 +266,13 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const [logSendOverride, setLogSendOverride] = useState<boolean | undefined>(undefined);
     const [submittingLog, setSubmittingLog] = useState(false);
     const [showCompletion, setShowCompletion] = useState(false);
+    const [finishAsk, setFinishAsk] = useState<
+        | { source: 'status'; next: 'save' | 'stop' | 'drawer' }
+        | { source: 'subtask'; subtask: Task }
+        | null
+    >(null);
+    const [chosenCompletedAt, setChosenCompletedAt] = useState<string | null>(null);
+    const promptedCompletion = useRef(false);
     const [completing, setCompleting] = useState(false);
     const [completionError, setCompletionError] = useState<string | null>(null);
     const [completionReviewAttemptId, setCompletionReviewAttemptId] = useState<string | null>(null);
@@ -294,13 +302,18 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         setTimeLogs([]);
         setLoadingTaskTime(true);
         setShowCompletion(false);
+        setFinishAsk(null);
+        setChosenCompletedAt(null);
+        promptedCompletion.current = false;
         setCompletionError(null);
         completionOperationId.current = null;
     }, [task?.id]);
 
     useEffect(() => {
-        if (isOpen && initialCompletion && task && task.status !== 'done') setShowCompletion(true);
-    }, [isOpen, initialCompletion, task?.id]);
+        if (!isOpen || !initialCompletion || !task || task.status === 'done' || promptedCompletion.current) return;
+        promptedCompletion.current = true;
+        setFinishAsk({ source: 'status', next: 'drawer' });
+    }, [isOpen, initialCompletion, task?.id, task?.status]);
 
     // Fetch org members once per organization
     useEffect(() => {
@@ -505,12 +518,67 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     const handleStatusChange = async (newStatus: TaskStatus) => {
         if (newStatus === 'done' && status !== 'done') {
             setCompletionError(null);
+            const running = task
+                ? [runningTimer, ...pausedTimers].find(attempt => attempt?.taskId === task.id) ?? null
+                : null;
+            setFinishAsk({ source: 'status', next: running ? 'stop' : 'save' });
+            return;
+        }
+        setFinishAsk(null);
+        const previous = status;
+        setStatus(newStatus);
+        if (!await save({ status: newStatus })) setStatus(previous);
+    };
+
+    const confirmFinished = async (completedAt: string) => {
+        const ask = finishAsk;
+        if (!ask || !task) return;
+        setChosenCompletedAt(completedAt);
+        setFinishAsk(null);
+        if (ask.source === 'subtask') {
+            const subtask = ask.subtask;
+            const previous = subtasks;
+            const next = previous.map(item => item.id === subtask.id
+                ? { ...item, status: 'done' as const, completedAt }
+                : item);
+            setSubtasks(next);
+            publishSubtasks(next);
+            const result = await updateTask(subtask.id, { status: 'done', completedAt, updatedBy: currentUserId });
+            if (result.success && result.data) {
+                const reconciled = next.map(item => item.id === subtask.id
+                    ? { ...item, status: result.data!.status, completedAt: result.data!.completedAt }
+                    : item);
+                setSubtasks(reconciled);
+                publishSubtasks(reconciled);
+                if (hideBasecampSend) queuePlanBasecampPush(subtask.id);
+                return;
+            }
+            setSubtasks(previous);
+            publishSubtasks(previous);
+            return;
+        }
+        if (ask.next === 'drawer') {
             setShowCompletion(true);
             return;
         }
         const previous = status;
-        setStatus(newStatus);
-        if (!await save({ status: newStatus })) setStatus(previous);
+        setStatus('done');
+        setBlockedReason(null);
+        setShowBlockedForm(false);
+        if (!await save({ status: 'done', completedAt })) {
+            setStatus(previous);
+            return;
+        }
+        if (ask.next !== 'stop') return;
+        const attempt = [runningTimer, ...pausedTimers].find(item => item?.taskId === task.id) ?? null;
+        if (!attempt) return;
+        try {
+            if (!attempt.reviewingAt) await beginStop(attempt);
+            setShowCompletion(false);
+            setCompletionReviewAttemptId(attempt.id);
+        } catch (error) {
+            setCompletionError(error instanceof Error ? error.message : 'Unable to stop the timer.');
+        }
     };
 
     const openAttempt = task
@@ -543,6 +611,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                 }
                 const updated = await updateTask(taskId, {
                     status: 'done',
+                    completedAt: chosenCompletedAt ?? undefined,
                     updatedBy: currentUserId,
                 });
                 return {
@@ -690,7 +759,11 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     };
 
     const handleSubtaskToggle = async (subtask: Task) => {
-        const newStatus: TaskStatus = subtask.status === 'done' ? 'todo' : 'done';
+        if (subtask.status !== 'done') {
+            setFinishAsk({ source: 'subtask', subtask });
+            return;
+        }
+        const newStatus: TaskStatus = 'todo';
         const previous = subtasks;
         const next = previous.map(item => item.id === subtask.id ? { ...item, status: newStatus } : item);
         setSubtasks(next);
@@ -977,6 +1050,15 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                     <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 opacity-50 pointer-events-none" />
                                 </div>
                             </div>
+                            {finishAsk && (
+                                <div className="col-span-2">
+                                    <CompletionDatePrompt
+                                        pending={saving || completing}
+                                        onConfirm={completedAt => { void confirmFinished(completedAt); }}
+                                        onCancel={() => setFinishAsk(null)}
+                                    />
+                                </div>
+                            )}
                         </div>
 
                         {status !== 'done' && (
@@ -1556,6 +1638,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                 <StopConfirmSheet
                     attemptId={completionReviewAttemptId}
                     defaultMarkTaskComplete
+                    completedAt={chosenCompletedAt}
                     onClose={() => void finishStopReview()}
                 />
             )}

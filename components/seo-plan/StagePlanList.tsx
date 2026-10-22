@@ -767,10 +767,14 @@ export function StagePlanList({
                         onClose={() => setPanel(null)}
                     />
                 ) : null}
-                onToggleCheck={async taskId => {
+                onToggleCheck={async (taskId, completedAt) => {
                     const task = tasks.find(item => item.id === taskId);
                     if (!task || isPendingStageTaskId(taskId) || isChecklistTaskId(taskId)) return;
-                    await savePanel(taskId, { field: 'status', status: planCheckStatus(task.status) });
+                    await savePanel(taskId, {
+                        field: 'status',
+                        status: planCheckStatus(task.status),
+                        ...(completedAt ? { completedAt } : {}),
+                    });
                 }}
                 onSetLiveUrl={async (taskId, raw) => {
                     if (isPendingStageTaskId(taskId)) return 'Could not save that link.';
@@ -807,7 +811,9 @@ function panelPatch(save: Exclude<PlanPanelSave, { field: 'parent' }>) {
         case 'dueDate':
             return { dueDate: save.dueDate };
         case 'status':
-            return { status: save.status };
+            return save.status === 'done' && save.completedAt
+                ? { status: save.status, completedAt: save.completedAt }
+                : { status: save.status };
         case 'assignees':
             return { assigneeIds: save.assigneeIds };
         case 'estimate':

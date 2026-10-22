@@ -291,6 +291,23 @@ test('legacy rows map once, completion is stamped, and the blocked label follows
     assert.equal(reopened.status, 'todo');
     assert.equal(reopened.completed_at, null);
 
+    const backdatedId = id(23);
+    const backdated = '2026-09-30T19:00:00.000Z';
+    await db.query(
+        `insert into public.tasks (id, organization_id, status) values ($1, $2, 'todo')`,
+        [backdatedId, ORG],
+    );
+    await db.query(
+        `update public.tasks set status = 'done', completed_at = $2 where id = $1`,
+        [backdatedId, backdated],
+    );
+    const kept = (await db.query<{ completed_at: string | null; status: string }>(
+        'select status, completed_at from public.tasks where id = $1',
+        [backdatedId],
+    )).rows[0];
+    assert.equal(kept.status, 'done');
+    assert.equal(instant(kept.completed_at), backdated);
+
     const started = id(22);
     await db.query(
         `insert into public.tasks (id, organization_id, status, status_history) values ($1, $2, 'todo', '[]'::jsonb)`,
