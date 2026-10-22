@@ -28,6 +28,7 @@ import type { StageReorderMove } from '@/lib/seo-plan/stage-reorder';
 import type { TaskStage } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { LiveUrlResultLine } from '@/components/search-reporting/LiveUrlResultLine';
+import { CompletionDatePrompt } from '@/components/tasks/CompletionDatePrompt';
 import { LiveUrlControl } from '@/components/tasks/LiveUrlControl';
 import { aggregateUrlResults, type UrlResultReadout } from '@/lib/search-reporting/url-results';
 import { planRowTimeText, planRowTimerLabel, planTimerTask, type PlanRowTimerView } from '@/lib/seo-plan/row-timer';
@@ -244,8 +245,8 @@ export function StagePlanListView({
     onAddTasks: (input: StageAddRequest) => Promise<void>;
     onReorder: (move: StageReorderMove) => Promise<void>;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
-    /** `x` and the row checkbox. Done flips back to to do. */
-    onToggleCheck?: (taskId: string) => void | Promise<void>;
+    /** `x` and the row checkbox. Done flips back to to do. The second argument is the chosen completion instant. */
+    onToggleCheck?: (taskId: string, completedAt?: string) => void | Promise<void>;
     /** Search Console readout keyed by task id. Absent rows stay quiet. */
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
     /** Calendar day YYYY-MM-DD in the org timezone. Defaults to today in Pacific time. */
@@ -319,6 +320,27 @@ export function StagePlanListView({
     const shiftMonth = useCallback((delta: -1 | 1) => {
         setMonth(currentMonth => shiftPlanMonth(currentMonth, delta));
     }, []);
+    const [finishPrompt, setFinishPrompt] = useState<{ taskId: string; foldDone: boolean } | null>(null);
+    const [holdSeed, setHoldSeed] = useState<{ taskId: string; token: number } | null>(null);
+    const beginFinish = useCallback((taskId: string, foldDone: boolean) => {
+        const task = tasks.find(item => item.id === taskId);
+        if (!task || !onToggleCheck) return;
+        if (isPlanDone(task.status)) {
+            void onToggleCheck(taskId);
+            return;
+        }
+        setFinishPrompt({ taskId, foldDone });
+    }, [onToggleCheck, tasks]);
+    const confirmFinish = useCallback((completedAt: string) => {
+        const current = finishPrompt;
+        if (!current || !onToggleCheck) return;
+        setFinishPrompt(null);
+        if (current.foldDone) setHoldSeed({ taskId: current.taskId, token: Date.now() });
+        void onToggleCheck(current.taskId, completedAt);
+    }, [finishPrompt, onToggleCheck]);
+    const checkFromKeyboard = useCallback((taskId: string) => {
+        beginFinish(taskId, false);
+    }, [beginFinish]);
     const { helpOpen, closeHelp } = usePlanKeymap({
         rootRef: listRef,
         searchRef,
@@ -329,7 +351,7 @@ export function StagePlanListView({
         setFocusedId,
         onOpenTask: openTask,
         onClosePanel,
-        onToggleCheck,
+        onToggleCheck: onToggleCheck ? checkFromKeyboard : undefined,
         onRowTimer,
         onShiftMonth: shiftMonth,
     });
@@ -413,6 +435,13 @@ export function StagePlanListView({
 
             {clientFailure && <PlanSyncBanner href={integrationsHref} />}
 
+            {finishPrompt && (
+                <CompletionDatePrompt
+                    onConfirm={confirmFinish}
+                    onCancel={() => setFinishPrompt(null)}
+                />
+            )}
+
             {nothingMatches && (
                 <p className="text-[13px] text-[#8b8b93]">
                     {planSearchMissCopy(query)}{' '}
@@ -444,6 +473,8 @@ export function StagePlanListView({
                 onReorder={onReorder}
                 onSetLiveUrl={onSetLiveUrl}
                 onToggleCheck={onToggleCheck}
+                onBeginDone={onToggleCheck ? beginFinish : undefined}
+                holdSeed={holdSeed}
                 resultsByTaskId={resultsByTaskId}
                 doneHoldMs={doneHoldMs}
             />
@@ -504,6 +535,8 @@ function PlanSections({
     onReorder,
     onSetLiveUrl,
     onToggleCheck,
+    onBeginDone,
+    holdSeed,
     resultsByTaskId,
     doneHoldMs,
 }: {
@@ -528,7 +561,11 @@ function PlanSections({
     onOpenTask: (taskId: string, field: PlanPanelField | null) => void;
     onReorder: (move: StageReorderMove) => Promise<void>;
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
-    onToggleCheck?: (taskId: string) => void | Promise<void>;
+    onToggleCheck?: (taskId: string, completedAt?: string) => void | Promise<void>;
+    /** Marking a row done asks for the day before the status changes. */
+    onBeginDone?: (taskId: string, foldDone: boolean) => void;
+    /** After the day is confirmed, hold a folded row so Undo can show. */
+    holdSeed?: { taskId: string; token: number } | null;
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
     doneHoldMs: number;
 }) {
@@ -536,6 +573,7 @@ function PlanSections({
     const [showDone, setShowDone] = useState(false);
     const [heldDone, setHeldDone] = useState<Record<string, true>>({});
     const heldTimers = useRef<Record<string, number>>({});
+    const seenHold = useRef(0);
     const [dragId, setDragId] = useState<string | null>(null);
     const [hint, setHint] = useState<DropHint | null>(null);
     const [moveError, setMoveError] = useState<string | null>(null);
@@ -565,14 +603,29 @@ function PlanSections({
         setHeldDone(current => ({ ...current, [taskId]: true }));
         heldTimers.current[taskId] = window.setTimeout(() => releaseDone(taskId), doneHoldMs);
     };
+    const holdDoneRef = useRef(holdDone);
+    holdDoneRef.current = holdDone;
     useEffect(() => () => {
         for (const timer of Object.values(heldTimers.current)) window.clearTimeout(timer);
     }, []);
+    useEffect(() => {
+        if (!holdSeed || holdSeed.token === seenHold.current) return;
+        seenHold.current = holdSeed.token;
+        holdDoneRef.current(holdSeed.taskId);
+    }, [holdSeed]);
     const markTask = (task: StageListTask, foldDone: boolean) => {
-        if (!onToggleCheck) return;
-        if (!isPlanDone(task.status) && foldDone) holdDone(task.id);
-        else releaseDone(task.id);
-        void onToggleCheck(task.id);
+        if (!onToggleCheck && !onBeginDone) return;
+        if (!isPlanDone(task.status)) {
+            if (onBeginDone) {
+                onBeginDone(task.id, foldDone);
+                return;
+            }
+            if (foldDone) holdDone(task.id);
+            void onToggleCheck?.(task.id);
+            return;
+        }
+        releaseDone(task.id);
+        void onToggleCheck?.(task.id);
     };
     const undoDone = (taskId: string) => {
         releaseDone(taskId);

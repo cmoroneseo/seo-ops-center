@@ -399,6 +399,12 @@ test('a panel save updates the list row, including Done and a cleared label', ()
     const done = applyPlanPanelSave(row, { field: 'status', status: 'done' }, '2026-10-20T12:00:00.000Z');
     assert.equal(done.status, 'done');
     assert.equal(done.completedAt, '2026-10-20T12:00:00.000Z');
+    const backdated = applyPlanPanelSave(row, {
+        field: 'status',
+        status: 'done',
+        completedAt: '2026-09-30T19:00:00.000Z',
+    }, '2026-10-20T12:00:00.000Z');
+    assert.equal(backdated.completedAt, '2026-09-30T19:00:00.000Z');
     const cleared = applyPlanPanelSave(row, { field: 'labels', category: null, tags: [] }, '2026-10-20T12:00:00.000Z');
     assert.equal(cleared.category, null);
     const flagged = applyPlanPanelSave(row, { field: 'onboarding', stage: 'onboarding' }, '2026-10-20T12:00:00.000Z');

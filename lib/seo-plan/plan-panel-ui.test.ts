@@ -325,7 +325,16 @@ test('title and description autosave, and fields save the whole selection', asyn
             select.value = 'done';
             select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
         });
-        assert.deepEqual(saves.at(-1), { field: 'status', status: 'done' });
+        assert.equal(saves.some(save => save.field === 'status'), false);
+        const today = document.querySelector('[data-completion-choice="today"]');
+        assert.ok(today instanceof dom.window.HTMLButtonElement);
+        await act(async () => { today.click(); });
+        const statusSave = saves.at(-1);
+        assert.equal(statusSave?.field, 'status');
+        if (statusSave?.field === 'status') {
+            assert.equal(statusSave.status, 'done');
+            assert.match(statusSave.completedAt ?? '', /^\d{4}-\d{2}-\d{2}T/);
+        }
 
         const addLabel = document.querySelector('[data-plan-field="labels"]');
         assert.ok(addLabel instanceof dom.window.HTMLButtonElement);
@@ -565,7 +574,16 @@ test('Blocked asks for a one-line reason, the chip shows it, and Done clears it'
             status.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
             await new Promise(resolve => setTimeout(resolve, 0));
         });
-        assert.deepEqual(saves.at(-1), { field: 'status', status: 'done' });
+        assert.equal(saves.some(save => save.field === 'status'), false);
+        const today = document.querySelector('[data-completion-choice="today"]');
+        assert.ok(today instanceof dom.window.HTMLButtonElement);
+        await act(async () => { today.click(); });
+        const statusSave = saves.at(-1);
+        assert.equal(statusSave?.field, 'status');
+        if (statusSave?.field === 'status') {
+            assert.equal(statusSave.status, 'done');
+            assert.match(statusSave.completedAt ?? '', /^\d{4}-\d{2}-\d{2}T/);
+        }
         assert.equal(document.querySelector('[data-plan-blocked]'), null);
         await act(async () => { document.querySelector<HTMLButtonElement>('[data-plan-field="labels"]')?.click(); });
         assert.equal(document.querySelector('[data-plan-blocked-add]'), null);
@@ -605,6 +623,10 @@ test('marking an onboarding subtask done names the checkbox and offers Undo befo
         box.dispatchEvent(space);
         assert.equal(space.defaultPrevented, false);
         await act(async () => { box.click(); });
+        assert.equal((document.querySelector('[data-task-id="child"]')?.textContent ?? '').includes('Marked done'), false);
+        const today = document.querySelector('[data-completion-choice="today"]');
+        assert.ok(today instanceof dom.window.HTMLButtonElement);
+        await act(async () => { today.click(); });
         const row = document.querySelector('[data-task-id="child"]');
         assert.ok(row);
         assert.match(row.textContent ?? '', /Marked done/);

@@ -34,6 +34,7 @@ import {
     type PlanPanelTask,
 } from '@/lib/seo-plan/plan-panel';
 import { cn } from '@/lib/utils';
+import { CompletionDatePrompt } from '@/components/tasks/CompletionDatePrompt';
 import { PlanSubtaskAdd } from './PlanSubtaskAdd';
 
 /**
@@ -75,6 +76,7 @@ export function PlanSidePanel({
     const saveRef = useRef(onSave);
     saveRef.current = onSave;
     const [pending, setPending] = useState(0);
+    const [finishAsk, setFinishAsk] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [savePhase, setSavePhase] = useState<'idle' | 'saved' | 'failed'>('idle');
     const failedSave = useRef<PlanPanelSave | null>(null);
@@ -173,8 +175,21 @@ export function PlanSidePanel({
         }
     }, []);
 
+    useEffect(() => {
+        setFinishAsk(false);
+    }, [task.id]);
+
     function commit(save: PlanPanelSave | null) {
         void persist(task.id, save);
+    }
+
+    function changeStatus(status: PlanPanelStatus) {
+        if (status === 'done' && task.status !== 'done') {
+            setFinishAsk(true);
+            return;
+        }
+        setFinishAsk(false);
+        commit({ field: 'status', status });
     }
 
     useEffect(() => {
@@ -290,7 +305,11 @@ export function PlanSidePanel({
         onClose();
     }
 
-    const due = planPanelDue({ dueDate: task.dueDate, status: task.status, completedAt: null }, today);
+    const due = planPanelDue({
+        dueDate: task.dueDate,
+        status: task.status,
+        completedAt: task.completedAt ?? null,
+    }, today);
     const labels = readPlanLabels(task.category, task.detailsReady ? task.tags : task.category ? [] : []);
     const blockedReason = task.blockedReason?.trim() || null;
     const basecamp = planBasecampLine({
@@ -453,7 +472,7 @@ export function PlanSidePanel({
                             data-plan-status-stored={task.status}
                             aria-label="Status"
                             value={task.status}
-                            onChange={event => { void commit({ field: 'status', status: event.target.value as PlanPanelStatus }); }}
+                            onChange={event => changeStatus(event.target.value as PlanPanelStatus)}
                             className="bg-transparent text-[12px] text-[#cfcfd4] outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                         >
                             {PLAN_PANEL_STATUSES.map(status => (
@@ -461,6 +480,17 @@ export function PlanSidePanel({
                             ))}
                         </select>
                     </Field>
+                    {finishAsk && (
+                        <CompletionDatePrompt
+                            now={now}
+                            pending={pending > 0}
+                            onConfirm={completedAt => {
+                                setFinishAsk(false);
+                                commit({ field: 'status', status: 'done', completedAt });
+                            }}
+                            onCancel={() => setFinishAsk(false)}
+                        />
+                    )}
                     <Field label="Assignee">
                         <button
                             type="button"

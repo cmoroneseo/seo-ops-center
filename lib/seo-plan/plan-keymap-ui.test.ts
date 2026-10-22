@@ -254,6 +254,10 @@ test('each plan shortcut acts once, and brackets step a single month', async () 
         }
         assert.ok(document.querySelector('[data-plan-row="kitchen"] [data-plan-blocked]'));
         await act(async () => { key(window, 'x'); });
+        assert.deepEqual(checks, []);
+        const today = document.querySelector('[data-completion-choice="today"]');
+        assert.ok(today instanceof dom.window.HTMLButtonElement);
+        await act(async () => { today.click(); });
         assert.deepEqual(checks, ['kitchen']);
         assert.equal(document.querySelector('[data-plan-row="kitchen"] [data-plan-check]')?.getAttribute('data-plan-check'), 'done');
         assert.equal(document.querySelector('[data-plan-row="kitchen"] [data-plan-blocked]'), null);
@@ -264,6 +268,10 @@ test('each plan shortcut acts once, and brackets step a single month', async () 
         const check = document.querySelector('[data-plan-row="kitchen"] [data-plan-check]');
         assert.ok(check instanceof dom.window.HTMLButtonElement);
         await act(async () => { check.click(); });
+        assert.deepEqual(checks, ['kitchen', 'kitchen']);
+        const todayAgain = document.querySelector('[data-completion-choice="today"]');
+        assert.ok(todayAgain instanceof dom.window.HTMLButtonElement);
+        await act(async () => { todayAgain.click(); });
         assert.deepEqual(checks, ['kitchen', 'kitchen', 'kitchen']);
         await act(async () => { check.click(); });
         assert.equal(document.querySelector('[data-plan-row="kitchen"] [data-plan-check]')?.getAttribute('data-plan-check'), 'open');

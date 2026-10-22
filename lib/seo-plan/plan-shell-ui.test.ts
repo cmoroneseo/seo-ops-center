@@ -229,6 +229,10 @@ test('the known description is editable immediately, and a failed save shows a t
         const status = document.querySelector('[data-plan-field="status"]');
         assert.ok(status instanceof dom.window.HTMLSelectElement);
         await act(async () => { setValue(status, 'done'); });
+        assert.equal(document.querySelector('[data-plan-save-toast]'), null);
+        const today = document.querySelector('[data-completion-choice="today"]');
+        assert.ok(today instanceof dom.window.HTMLButtonElement);
+        await act(async () => { today.click(); });
         const toast = document.querySelector('[data-plan-save-toast]');
         assert.equal(toast?.getAttribute('role'), 'alert');
         assert.match(toast?.textContent ?? '', /Could not save that change/);
@@ -241,7 +245,11 @@ test('the known description is editable immediately, and a failed save shows a t
         await act(async () => { retry.click(); });
         assert.equal(document.querySelector('[data-plan-save-toast]'), null);
         assert.equal(document.querySelector('[data-plan-save]')?.textContent, 'Saved');
-        assert.deepEqual(saves.at(-1), { field: 'status', status: 'done' });
+        assert.deepEqual(saves.at(-1), {
+            field: 'status',
+            status: 'done',
+            completedAt: '2026-10-21T19:00:00.000Z',
+        });
 
         const estimate = document.querySelector('[data-plan-field="estimate"]');
         assert.ok(estimate instanceof dom.window.HTMLInputElement);

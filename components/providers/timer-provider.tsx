@@ -39,6 +39,8 @@ export interface FinalizeTimerOptions {
     countsTowardBudget?: boolean;
     syncToBasecamp?: boolean;
     markTaskComplete?: boolean;
+    /** Completion instant chosen before the timer was stopped. */
+    completedAt?: string;
 }
 
 export type { TimerSwitchConfirmation } from '@/lib/timer-ui';
@@ -236,6 +238,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             markTaskComplete: options.markTaskComplete ?? false,
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
             ...(options.countsTowardBudget === undefined ? {} : { countsTowardBudget: options.countsTowardBudget }),
+            ...(options.completedAt ? { completedAt: options.completedAt } : {}),
         }));
         if (!attempt.taskId || attempt.plannerEventId) return state;
         const updated = await updateTask(attempt.taskId, {

@@ -19,9 +19,9 @@ import {
 import { updatePlannerEvent, deletePlannerEvent } from '@/lib/supabase/planner-events';
 import {
     createTimeLog, getTimeLogForPlannerEvent, getClientTimesheetSyncEnabled,
-    getTaskTimeLogs, logTaskCompletionTime,
+    getTaskTimeLogs,
 } from '@/lib/supabase/time-logs';
-import { getTask, updateTask } from '@/lib/supabase/tasks';
+import { updateTask } from '@/lib/supabase/tasks';
 import { timeTrackingTaskId } from '@/lib/tasks/pillars';
 import { localDateForInstant, parseLocalDate } from '@/lib/planner/local-date';
 import { durationMinutes } from '@/lib/planner/layout';
@@ -37,8 +37,7 @@ import { BasecampProjectPicker, type BasecampProject } from './BasecampProjectPi
 import { ACTUAL_STYLE, KIND_STYLES } from './EventCard';
 import { usePlannerDialogFocus } from './usePlannerDialogFocus';
 import { usePlannerSurfaceBehavior } from './usePlannerSurfaceBehavior';
-import { TaskCompletionDrawer } from '@/components/tasks/TaskCompletionDrawer';
-import { completeTaskWithReconciliation } from '@/lib/tasks/task-completion';
+import { CompletionDatePrompt } from '@/components/tasks/CompletionDatePrompt';
 
 interface EventDetailPanelProps {
     item: PlannerItem;
@@ -96,7 +95,9 @@ export function EventDetailPanel({
     // Basecamp destination. Recents remain shortcuts, never an implicit sync.
     const [internalProject, setInternalProject] = useState<BasecampProject | undefined>(undefined);
     const [taskTrackedHours, setTaskTrackedHours] = useState(0);
-    const [isLoadingTaskTime, setIsLoadingTaskTime] = useState(false);
+    const [finishAsk, setFinishAsk] = useState(false);
+    const [savingStatus, setSavingStatus] = useState(false);
+    const [statusError, setStatusError] = useState<string | null>(null);
     // Logging a worked task block. Seeded from the block itself so the common
     // case — "I worked the time I planned" — is one click with nothing to type.
     const [taskLogDuration, setTaskLogDuration] = useState('');
@@ -105,9 +106,6 @@ export function EventDetailPanel({
     const [isLoggingTaskBlock, setIsLoggingTaskBlock] = useState(false);
     const [taskLogError, setTaskLogError] = useState<string | null>(null);
     const [taskLoggedMinutes, setTaskLoggedMinutes] = useState<number | null>(null);
-    const [showCompletion, setShowCompletion] = useState(false);
-    const [isCompleting, setIsCompleting] = useState(false);
-    const [completionError, setCompletionError] = useState<string | null>(null);
     const [isUnscheduling, setIsUnscheduling] = useState(false);
     const [unscheduleError, setUnscheduleError] = useState<string | null>(null);
     const [showEventActions, setShowEventActions] = useState(false);
@@ -118,7 +116,6 @@ export function EventDetailPanel({
     const eventActionsRef = useRef<HTMLDivElement>(null);
     const eventActionsTriggerRef = useRef<HTMLButtonElement>(null);
     const eventActionsMenuRef = useRef<HTMLDivElement>(null);
-    const completionOperationId = useRef<string | null>(null);
 
     const openEarlierStart = () => {
         if (!canStartEarlier) return;
@@ -203,20 +200,15 @@ export function EventDetailPanel({
     useEffect(() => {
         if (!task?.id) {
             setTaskTrackedHours(0);
-            setIsLoadingTaskTime(false);
             return;
         }
         let cancelled = false;
         setTaskTrackedHours(0);
-        setIsLoadingTaskTime(true);
         void getTaskTimeLogs(timeTrackingTaskId(task))
             .then(logs => {
                 if (!cancelled) {
                     setTaskTrackedHours(logs.reduce((sum, log) => sum + log.hours, 0));
                 }
-            })
-            .finally(() => {
-                if (!cancelled) setIsLoadingTaskTime(false);
             });
         return () => { cancelled = true; };
     }, [task?.id]);
@@ -380,12 +372,30 @@ export function EventDetailPanel({
     const changeTaskStatus = async (status: Task['status']) => {
         if (!task) return;
         if (status === 'done' && task.status !== 'done') {
-            setCompletionError(null);
-            setShowCompletion(true);
+            setStatusError(null);
+            setFinishAsk(true);
             return;
         }
+        setFinishAsk(false);
         const result = await updateTask(task.id, { status, updatedBy: userId });
         if (result.success) onChanged();
+        else setStatusError(result.error || 'Could not save that status.');
+    };
+
+    const confirmFinished = async (completedAt: string) => {
+        if (!task || savingStatus) return;
+        setSavingStatus(true);
+        setStatusError(null);
+        const result = await updateTask(task.id, { status: 'done', completedAt, updatedBy: userId });
+        setSavingStatus(false);
+        if (!result.success) {
+            setStatusError(result.error || 'Could not save that status.');
+            return;
+        }
+        setFinishAsk(false);
+        window.dispatchEvent(new Event('planner:data-changed'));
+        window.dispatchEvent(new Event('task:data-changed'));
+        onChanged();
     };
 
     const unschedule = async () => {
@@ -396,65 +406,6 @@ export function EventDetailPanel({
         setIsUnscheduling(false);
         if (success) onChanged();
         else setUnscheduleError('Could not remove this task from the calendar. Try again.');
-    };
-
-    const completeTask = async (additionalMinutes: number) => {
-        if (!task || isCompleting) return;
-        setIsCompleting(true);
-        setCompletionError(null);
-        completionOperationId.current ??= crypto.randomUUID();
-        const operationId = completionOperationId.current;
-        const syncToBasecamp = additionalMinutes > 0
-            ? await getClientTimesheetSyncEnabled(task.clientId)
-            : false;
-        const result = await completeTaskWithReconciliation({
-            taskId: task.id,
-            additionalMinutes,
-            operationId,
-        }, {
-            logTime: async input => {
-                if (item.plannerEventId && organizationId) {
-                    const existing = await getTimeLogForPlannerEvent(item.plannerEventId);
-                    if (existing) return { success: true, timeLogId: existing.id };
-                    const logged = await createTimeLog(taskBlockLogInput({
-                        organizationId, userId, taskId: task.id, clientId: task.clientId,
-                        taskTitle: task.title, date: localDateForInstant(item.startsAt),
-                        plannedStartsAt: item.startsAt, plannedMinutes: blockMinutes,
-                        plannerEventId: item.plannerEventId,
-                    }, { minutes: input.additionalMinutes, note: '', countsTowardBudget: true }), { syncToBasecamp });
-                    return { success: logged.success, timeLogId: logged.data?.id, error: logged.error };
-                }
-                return logTaskCompletionTime({
-                    ...input,
-                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-                    syncToBasecamp,
-                });
-            },
-            markDone: async taskId => {
-                const current = await getTask(taskId);
-                if (current.task?.status === 'done') {
-                    return { success: true, task: current.task };
-                }
-                const updated = await updateTask(taskId, { status: 'done', updatedBy: userId });
-                return {
-                    success: updated.success,
-                    task: updated.data,
-                    error: updated.error,
-                };
-            },
-        });
-        setIsCompleting(false);
-        if (!result.success) {
-            setCompletionError(result.timeLogId
-                ? 'Time was saved, but the task could not be completed. Retry to finish it.'
-                : result.error);
-            return;
-        }
-        completionOperationId.current = null;
-        setShowCompletion(false);
-        window.dispatchEvent(new Event('planner:data-changed'));
-        window.dispatchEvent(new Event('task:data-changed'));
-        onChanged();
     };
 
     const attendeeNames = (event?.attendeeIds ?? [])
@@ -633,6 +584,16 @@ export function EventDetailPanel({
                         <dt className="text-muted-foreground">Due</dt>
                         <dd>{dueDate ? format(dueDate, 'MMM d, yyyy') : 'No due date'}</dd>
                     </dl>
+                )}
+                {finishAsk && task && (
+                    <CompletionDatePrompt
+                        pending={savingStatus}
+                        onConfirm={completedAt => { void confirmFinished(completedAt); }}
+                        onCancel={() => setFinishAsk(false)}
+                    />
+                )}
+                {statusError && (
+                    <p role="alert" className="text-xs text-destructive">{statusError}</p>
                 )}
 
                 {attempt && (
@@ -1063,21 +1024,6 @@ export function EventDetailPanel({
                 )}
             </div>
 
-            {showCompletion && task && (
-                <TaskCompletionDrawer
-                    task={task}
-                    trackedHours={taskTrackedHours}
-                    hasOpenAttempt={false}
-                    isLoadingTime={isLoadingTaskTime}
-                    isSubmitting={isCompleting}
-                    error={completionError}
-                    onClose={() => {
-                        setShowCompletion(false);
-                        setCompletionError(null);
-                    }}
-                    onComplete={minutes => void completeTask(minutes)}
-                />
-            )}
         </aside>
         </>
     );
