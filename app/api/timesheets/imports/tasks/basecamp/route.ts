@@ -78,7 +78,11 @@ export const POST = createImportBasecampTaskPost({
                 eventType: 'task.completed',
                 actorId: payload.actorId,
                 occurredAt: payload.completedAt,
-                metadata: { title: payload.title, source: 'basecamp_import' },
+                metadata: {
+                    title: payload.title,
+                    source: 'basecamp_import',
+                    ...(payload.completedAt ? { completedAt: payload.completedAt } : {}),
+                },
             });
         }
         for (const step of payload.steps ?? []) {
@@ -89,7 +93,11 @@ export const POST = createImportBasecampTaskPost({
                 eventType: 'task.completed',
                 actorId: payload.actorId,
                 occurredAt: step.completedAt,
-                metadata: { title: step.title, source: 'basecamp_import' },
+                metadata: {
+                    title: step.title,
+                    source: 'basecamp_import',
+                    ...(step.completedAt ? { completedAt: step.completedAt } : {}),
+                },
             });
         }
     },

@@ -61,7 +61,7 @@ interface Dependencies {
             todoId: string,
         ): Promise<{ id: string | number; completed: boolean } | null>;
     };
-    logCompletion(task: BasecampWebhookTask, actorName: string): Promise<void>;
+    logCompletion(task: BasecampWebhookTask, actorName: string, completedAt: string): Promise<void>;
 }
 
 interface ParsedPayload {
@@ -195,17 +195,18 @@ export function createBasecampWebhookPost(dependencies: Dependencies) {
                 return json({ ok: true, skipped: 'plan reopen' });
             }
             const action = providerTodo.completed ? 'completed' : 'reopened';
-            const changed = task.status !== desiredStatus
+            const completedAt = task.status !== desiredStatus ? dependencies.now() : null;
+            const changed = completedAt
                 ? await dependencies.store.updateTaskStatus(
                     task,
                     desiredStatus,
                     payload.actorName,
-                    dependencies.now(),
+                    completedAt,
                 )
                 : false;
 
-            if (changed && desiredStatus === 'done') {
-                await dependencies.logCompletion(task, payload.actorName);
+            if (changed && desiredStatus === 'done' && completedAt) {
+                await dependencies.logCompletion(task, payload.actorName, completedAt);
             }
             await dependencies.store.markDeliveryProcessed(
                 payload.eventId,

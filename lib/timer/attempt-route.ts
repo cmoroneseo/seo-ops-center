@@ -97,6 +97,8 @@ export interface CompletedTask {
     title: string;
     priority: string | null;
     category: string | null;
+    /** tasks.completed_at after the finalize. Absent on older callers. */
+    completedAt?: string | null;
 }
 
 export interface CompletionInput {

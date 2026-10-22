@@ -103,7 +103,7 @@ export async function POST(request: NextRequest): Promise<Response> {
                 });
                 if (!decision.ok) throw dependencyError(decision.error, '22023');
 
-                const taskColumns = 'id, organization_id, client_id, title, priority, category';
+                const taskColumns = 'id, organization_id, client_id, title, priority, category, completed_at';
                 if (decision.unchanged) {
                     const { data: task, error: keptError } = await supabase
                         .from('tasks')
@@ -119,6 +119,7 @@ export async function POST(request: NextRequest): Promise<Response> {
                         title: task.title,
                         priority: task.priority,
                         category: task.category,
+                        completedAt: typeof task.completed_at === 'string' ? task.completed_at : null,
                     };
                 }
 
@@ -139,6 +140,7 @@ export async function POST(request: NextRequest): Promise<Response> {
                     title: task.title,
                     priority: task.priority,
                     category: task.category,
+                    completedAt: typeof task.completed_at === 'string' ? task.completed_at : null,
                 };
             },
             async emitTaskCompleted(task, completionInput) {
@@ -156,6 +158,9 @@ export async function POST(request: NextRequest): Promise<Response> {
                         status: 'done',
                         priority: task.priority,
                         category: task.category,
+                        ...(typeof task.completedAt === 'string' && task.completedAt
+                            ? { completedAt: task.completedAt }
+                            : {}),
                     },
                 });
                 if (activityError) throw activityError;

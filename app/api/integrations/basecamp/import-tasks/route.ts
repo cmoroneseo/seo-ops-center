@@ -40,7 +40,11 @@ export async function POST(req: NextRequest) {
                             actorId: payload.actorId,
                             actorName: payload.actorName,
                             occurredAt: completion.completedAt,
-                            metadata: { title: completion.title, source: 'basecamp_import' },
+                            metadata: {
+                                title: completion.title,
+                                source: 'basecamp_import',
+                                ...(completion.completedAt ? { completedAt: completion.completedAt } : {}),
+                            },
                         });
                     }
                 },

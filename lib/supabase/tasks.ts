@@ -875,6 +875,12 @@ export async function updateTask(
                     status: patch.status,
                     priority: data.priority,
                     category: data.category,
+                    // The feed row stays at "now". This is the day the person
+                    // said the work was finished, so a backdated completion
+                    // can be named without moving the row.
+                    ...(patch.status === 'done' && typeof data.completed_at === 'string' && data.completed_at
+                        ? { completedAt: data.completed_at }
+                        : {}),
                 },
             });
         }
