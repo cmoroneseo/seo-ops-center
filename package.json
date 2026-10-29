@@ -58,7 +58,7 @@
     "stripe": "^20.0.0",
     "tailwind-merge": "^3.4.0",
     "vercel": "^54.14.5",
-    "zod": "^4.1.11"
+    "zod": "^4.6.6"
   },
   "overrides": {
     "tar": "7.5.19"
