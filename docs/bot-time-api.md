@@ -2,6 +2,8 @@
 
 SEO bots log time in SEO Ops Center over HTTP. The entry is attributed to Carlos Morones (`cmorones@marketingempiregroup.com`). The same server path the task drawer uses creates the Basecamp to-do (on the client's SEO Plan list), posts the timesheet entry, and completes the to-do.
 
+A task this route creates is assigned to Carlos. The insert sets `assignee_id` and `assignee_ids` to his user id, `created_by` to the same id, and `status_history` to a `todo` entry by him. `priority` is `medium` and `tags` is empty. The create-task window writes that same row and leaves the assignee empty until someone is picked; this route fills the assignee in, because the work is his. The SEO Plan reads `assignee_ids`. `assignee_id` is the older column, and it is set to the same user so it is not left null.
+
 This is not a Supabase key. A bot key cannot read the database, delete rows, or change settings. The service role stays on the server.
 
 **Migration `migrations/113_bot_time_api.sql` is not applied.** Do not run it against the production project `sgszojorcftyaknruckh`. An owner applies it separately. Until that migration is applied, minting a key and calling this route will fail.
@@ -39,7 +41,7 @@ A missing or unknown key is **401**. A bot key sent to any other route, or a bod
 | `clientId` or `clientName` | one of them | `clientName` is an exact match inside the key's organization. |
 | `taskId` or `taskTitle` | one of them | `taskTitle` is an exact, case-sensitive match on a top-level task. |
 | `createTask` | no | `true` creates the task when that exact title does not exist. A supplied `taskId` is never invented. |
-| `category` | no | `content`, `technical`, `local`, `links`, `strategy`, or `admin`. Used when the task is created. |
+| `category` | no | Label stored on `tasks.category` when the task is created. Omit it and the task is unlabeled, the same way a new task starts in the SEO Plan and in the create-task window. `content`, `technical`, `local`, `links`, `strategy`, `admin`, and `reporting` are always accepted. A label the client already uses, such as `SEO` or `Set up SEO campaign`, is accepted only as that exact string. Anything else is rejected. The value is not copied into `tags`. |
 | `dueDate` | no | `YYYY-MM-DD`. Used when the task is created, and sent as the Basecamp due date. |
 | `date` | yes | `YYYY-MM-DD`. The day the work happened. Not in the future in `timeZone`. |
 | `minutes` or `hours` | one of them | Whole minutes from 1 to 1440, or hours greater than 0 and at most 24 with two decimal places. 45 minutes is stored as 0.75 hours. |
@@ -57,6 +59,8 @@ Basecamp follows the client, the same way the drawer does:
 - Sync on: the to-do is created on the SEO Plan list (`basecamp_todolist_id`), not the onboarding list.
 - Time tracking off (`basecamp_timesheet_enabled` is not on, or the master sync flag is off): the time entry is saved and no timesheet row is posted.
 - Counts toward SEO hours is the `counts_toward_budget` column. It is independent of the timesheet push.
+
+There is no separate group or section column. The SEO Plan shows `tasks.category` as the label. A new task from the plan add bar, and a new task from the create window with no category picked, stores nothing there. Basecamp import is what writes `SEO`, `Set up SEO campaign`, and `SEO Campaign To-Do's`: it copies the to-do list title into `category` and leaves `tags` empty. This route does not copy the list title onto a new task. Pass one of those labels only when you want the new task filed under a label that client already has.
 
 Bot rows keep `source = 'seo_pm'` (they were written here, not imported). Filter them with `bot_key_id`:
 

@@ -48,6 +48,8 @@ interface Mem {
         httpStatus: number | null;
         response: unknown;
     }>;
+    categories: string[];
+    inserts: Array<{ category?: string; actorUserId: string }>;
     revoked: boolean;
 }
 
@@ -70,6 +72,8 @@ function world(patch: Partial<MemClient> = {}): { mem: Mem; calls: Calls } {
         tasks: [],
         logs: [],
         operations: [],
+        categories: [],
+        inserts: [],
         revoked: false,
     };
     return { mem, calls: emptyCalls() };
@@ -357,6 +361,9 @@ function deps(mem: Mem, calls: Calls): BotTimeDeps {
             const row = rows[0];
             return row ? { id: row.id, organizationId: row.organizationId, name: row.name } : null;
         },
+        async clientCategories() {
+            return mem.categories;
+        },
         async findTask(organizationId, clientId, command) {
             const rows = mem.tasks.filter(item => (
                 item.organizationId === organizationId
@@ -370,6 +377,7 @@ function deps(mem: Mem, calls: Calls): BotTimeDeps {
             return mem.tasks.find(item => item.id === taskId) ?? null;
         },
         async insertTask(input) {
+            mem.inserts.push({ category: input.category, actorUserId: input.actor.userId });
             if (mem.tasks.some(item => item.botOperationId === input.botOperationId)) return 'conflict';
             const row: BotTaskRecord = {
                 id: `task-${mem.tasks.length + 1}`,
@@ -510,6 +518,7 @@ test('a bot creates the task, logs the time, and completes it through the Baseca
     assert.equal(body.task.status, 'done');
     assert.equal(mem.tasks.length, 1);
     assert.equal(mem.tasks[0]?.botOperationId, mem.operations[0]?.id);
+    assert.deepEqual(mem.inserts, [{ category: 'content', actorUserId: CARLOS }]);
     assert.equal(mem.logs.length, 1);
     assert.equal(mem.logs[0]?.userId, CARLOS);
     assert.equal(mem.logs[0]?.hours, 0.75);
@@ -652,4 +661,70 @@ test('an existing task is reused by exact title and is not created again', async
     assert.equal(body.task.created, false);
     assert.equal(mem.tasks.length, 1);
     assert.equal(calls.createTodo.length, 1);
+});
+
+test('a new task can use a label the client already has, and stays unlabeled when category is omitted', async () => {
+    const labeled = world();
+    labeled.mem.categories = ['SEO', 'Set up SEO campaign'];
+    const created = await handleBotTimeRequest(request(entry({
+        idempotencyKey: 'ecoworkz-seo-label',
+        category: 'SEO',
+        complete: false,
+        completedOn: undefined,
+    })), deps(labeled.mem, labeled.calls));
+    assert.equal(created.status, 200);
+    assert.equal(labeled.mem.tasks[0]?.category, 'SEO');
+    assert.deepEqual(labeled.mem.inserts, [{ category: 'SEO', actorUserId: CARLOS }]);
+
+    const plain = world();
+    const unlabeled = await handleBotTimeRequest(request(entry({
+        idempotencyKey: 'ecoworkz-no-label',
+        category: undefined,
+        complete: false,
+        completedOn: undefined,
+    })), deps(plain.mem, plain.calls));
+    assert.equal(unlabeled.status, 200);
+    assert.equal(plain.mem.tasks[0]?.category, null);
+    assert.deepEqual(plain.mem.inserts, [{ category: undefined, actorUserId: CARLOS }]);
+});
+
+test('a category the client has never used is rejected and does not create a task', async () => {
+    const { mem, calls } = world();
+    const response = await handleBotTimeRequest(request(entry({
+        idempotencyKey: 'ecoworkz-new-label',
+        category: 'Brand new group',
+        complete: false,
+        completedOn: undefined,
+    })), deps(mem, calls));
+    const body = await response.json() as { code: string; error: string };
+    assert.equal(response.status, 400);
+    assert.equal(body.code, 'invalid_request');
+    assert.match(body.error, /label this client already uses/);
+    assert.equal(mem.tasks.length, 0);
+    assert.equal(mem.inserts.length, 0);
+    assert.equal(calls.createTodo.length, 0);
+
+    mem.tasks.push({
+        id: 'task-existing',
+        organizationId: ORG,
+        clientId: CLIENT,
+        title: 'Write the Ecoworkz brief',
+        status: 'todo',
+        completedAt: null,
+        statusHistory: [],
+        basecampTodoId: null,
+        basecampProjectId: null,
+        category: 'SEO',
+        dueDate: null,
+        botOperationId: null,
+    });
+    const reused = await handleBotTimeRequest(request(entry({
+        idempotencyKey: 'ecoworkz-reuse-label',
+        category: 'Brand new group',
+        createTask: false,
+        complete: false,
+        completedOn: undefined,
+    })), deps(mem, calls));
+    assert.equal(reused.status, 200);
+    assert.equal(mem.inserts.length, 0);
 });
