@@ -8,8 +8,8 @@
  */
 
 import {
+    basecampCompletionRequest,
     basecampRecordingPath,
-    basecampSubtaskCompletionPath,
     basecampSubtaskCreatePath,
     basecampSubtaskPositionPath,
     basecampSubtaskSupport,
@@ -166,7 +166,8 @@ export function createPlanBasecampProvider(hint: {
         async completeStep(input) {
             const stepId = numeric(input.stepId);
             if (!stepId) return fromWrite({ ok: false, status: 404, detail: '' }, 'todo', names());
-            const result = await basecampWriteJson(basecampSubtaskCompletionPath(stepId), 'POST');
+            const completion = basecampCompletionRequest({ kind: 'step', recordingId: stepId, completed: true });
+            const result = await basecampWriteJson(completion.path, completion.method);
             return fromWrite(result, 'todo', names());
         },
         async listTodos(input) {

@@ -78,8 +78,15 @@ interface Provider {
         parentTodoId: string,
         title: string,
     ): Promise<{ id: string | number } | null>;
+    /**
+     * What the stored Basecamp id is inside this project.
+     * Absent providers keep the older to-do read.
+     */
+    recordingKind?(projectId: string, recordingId: string): Promise<'todo' | 'step' | null>;
     completeTodo(projectId: string, todoId: string): Promise<boolean>;
     reopenTodo(projectId: string, todoId: string): Promise<boolean>;
+    completeStep?(projectId: string, stepId: string): Promise<boolean>;
+    reopenStep?(projectId: string, stepId: string): Promise<boolean>;
     createComment(projectId: string, todoId: string, content: string): Promise<number | null>;
     updateTodoDueDate(projectId: string, todoId: string, dueOn: string | null): Promise<boolean>;
     updateTodoAssignees(projectId: string, todoId: string, personIds: number[]): Promise<boolean>;
@@ -101,6 +108,20 @@ function numericId(value: unknown): string | null {
     if (typeof value !== 'string' && typeof value !== 'number') return null;
     const normalized = String(value).trim();
     return /^\d+$/.test(normalized) ? normalized : null;
+}
+
+/**
+ * A stored id is a to-do or a step. Without `recordingKind`, the only check
+ * is the to-do read, which is how a step id used to be refused.
+ */
+async function linkedRecordingKind(
+    provider: Provider,
+    projectId: string,
+    recordingId: string,
+): Promise<'todo' | 'step' | null> {
+    if (provider.recordingKind) return provider.recordingKind(projectId, recordingId);
+    const todo = await provider.getTodo(projectId, recordingId);
+    return todo && String(todo.id) === recordingId ? 'todo' : null;
 }
 
 export function createBasecampPushPost(dependencies: Dependencies) {
@@ -161,6 +182,12 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                 const existingTodoId = linkedProjectId === projectId
                     ? numericId(task.basecampTodoId)
                     : null;
+                if (existingTodoId) {
+                    const kind = await linkedRecordingKind(dependencies.provider, projectId, existingTodoId);
+                    // A subtask already linked as a step must not be created again as a to-do.
+                    if (kind === 'step') return json({ success: true, todoId: existingTodoId });
+                    if (kind !== 'todo') return json({ error: 'Linked Basecamp todo is not authorized' }, 403);
+                }
                 const existingTodo = existingTodoId
                     ? await dependencies.provider.getTodo(projectId, existingTodoId)
                     : null;
@@ -253,6 +280,35 @@ export function createBasecampPushPost(dependencies: Dependencies) {
 
             const todoId = numericId(task.basecampTodoId);
             if (!todoId) return json({ error: 'Task has no authorized Basecamp todo' }, 409);
+
+            if (action === 'complete_todo' || action === 'reopen_todo') {
+                const kind = await linkedRecordingKind(dependencies.provider, projectId, todoId);
+                if (!kind) return json({ error: 'Basecamp todo is not authorized' }, 403);
+                const completing = action === 'complete_todo';
+                let success = false;
+                if (kind === 'step') {
+                    const run = completing
+                        ? dependencies.provider.completeStep
+                        : dependencies.provider.reopenStep;
+                    if (!run) return json({ error: 'Basecamp step completion is not available' }, 500);
+                    success = await run(projectId, todoId);
+                } else {
+                    success = completing
+                        ? await dependencies.provider.completeTodo(projectId, todoId)
+                        : await dependencies.provider.reopenTodo(projectId, todoId);
+                }
+                if (success) {
+                    const updateError = await store.markTaskSynced(
+                        task.id,
+                        task.organizationId,
+                        task.clientId,
+                        dependencies.now(),
+                    );
+                    if (updateError) return json({ error: updateError }, 500);
+                }
+                return json({ success });
+            }
+
             const providerTodo = await dependencies.provider.getTodo(projectId, todoId);
             if (!providerTodo || String(providerTodo.id) !== todoId) {
                 return json({ error: 'Basecamp todo is not authorized' }, 403);
@@ -261,12 +317,6 @@ export function createBasecampPushPost(dependencies: Dependencies) {
             let success = false;
             let commentId: number | null = null;
             switch (action) {
-                case 'complete_todo':
-                    success = await dependencies.provider.completeTodo(projectId, todoId);
-                    break;
-                case 'reopen_todo':
-                    success = await dependencies.provider.reopenTodo(projectId, todoId);
-                    break;
                 case 'create_comment': {
                     const content = typeof body.content === 'string' ? body.content.trim() : '';
                     if (!content) return json({ error: 'Comment content required' }, 400);

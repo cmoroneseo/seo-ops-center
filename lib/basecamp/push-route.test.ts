@@ -515,3 +515,120 @@ test('create push keeps the parent when the to-do does not accept nested subtask
     assert.deepEqual(await response.json(), { success: true, todoId: 77, subtasksSkipped: 1 });
     assert.equal(stepped, false);
 });
+
+test('completing and reopening a stored step uses the step endpoint, not the to-do endpoint', async () => {
+    const { createBasecampPushPost } = await loadRouteModule();
+    const calls: string[] = [];
+    const post = createBasecampPushPost({
+        authorizeTask: async () => authorized,
+        createStore: () => ({
+            getTask: async () => canonicalTask,
+            updateTaskLink: async () => null,
+            markTaskSynced: async () => null,
+        }),
+        createAccessSource: () => externalSource(),
+        provider: {
+            isConfigured: () => true,
+            getTodo: async () => { throw new Error('a step id must not be read as a to-do'); },
+            listTodolists: async () => [],
+            createTodo: async () => null,
+            recordingKind: async () => 'step',
+            completeTodo: async () => { throw new Error('step completion must not use the to-do endpoint'); },
+            reopenTodo: async () => { throw new Error('step reopening must not use the to-do endpoint'); },
+            completeStep: async (projectId, stepId) => {
+                calls.push(`complete:${projectId}:${stepId}`);
+                return true;
+            },
+            reopenStep: async (projectId, stepId) => {
+                calls.push(`reopen:${projectId}:${stepId}`);
+                return true;
+            },
+            createComment: async () => null,
+            updateTodoDueDate: async () => false,
+            updateTodoAssignees: async () => false,
+        },
+        now: () => '2026-08-20T00:00:00.000Z',
+    });
+
+    const completed = await post(request({ action: 'complete_todo', taskId: 'task-a', todoId: '888' }));
+    const reopened = await post(request({ action: 'reopen_todo', taskId: 'task-a', todoId: '888' }));
+
+    assert.equal(completed.status, 200);
+    assert.equal(reopened.status, 200);
+    assert.deepEqual(await completed.json(), { success: true });
+    assert.deepEqual(await reopened.json(), { success: true });
+    assert.deepEqual(calls, ['complete:202:77', 'reopen:202:77']);
+});
+
+test('completing and reopening a stored to-do still uses the to-do endpoint', async () => {
+    const { createBasecampPushPost } = await loadRouteModule();
+    const calls: string[] = [];
+    const post = createBasecampPushPost({
+        authorizeTask: async () => authorized,
+        createStore: () => ({
+            getTask: async () => canonicalTask,
+            updateTaskLink: async () => null,
+            markTaskSynced: async () => null,
+        }),
+        createAccessSource: () => externalSource(),
+        provider: {
+            isConfigured: () => true,
+            getTodo: async () => { throw new Error('completion classifies the recording before any to-do read'); },
+            listTodolists: async () => [],
+            createTodo: async () => null,
+            recordingKind: async () => 'todo',
+            completeTodo: async (projectId, todoId) => {
+                calls.push(`complete:${projectId}:${todoId}`);
+                return true;
+            },
+            reopenTodo: async (projectId, todoId) => {
+                calls.push(`reopen:${projectId}:${todoId}`);
+                return true;
+            },
+            completeStep: async () => { throw new Error('a to-do must not use the step endpoint'); },
+            reopenStep: async () => { throw new Error('a to-do must not use the step endpoint'); },
+            createComment: async () => null,
+            updateTodoDueDate: async () => false,
+            updateTodoAssignees: async () => false,
+        },
+        now: () => '2026-08-20T00:00:00.000Z',
+    });
+
+    const completed = await post(request({ action: 'complete_todo', taskId: 'task-a' }));
+    const reopened = await post(request({ action: 'reopen_todo', taskId: 'task-a' }));
+
+    assert.equal(completed.status, 200);
+    assert.equal(reopened.status, 200);
+    assert.deepEqual(calls, ['complete:202:77', 'reopen:202:77']);
+});
+
+test('create push leaves an already-linked step in place', async () => {
+    const { createBasecampPushPost } = await loadRouteModule();
+    const post = createBasecampPushPost({
+        authorizeTask: async () => authorized,
+        createStore: () => ({
+            getTask: async () => canonicalTask,
+            listSubtasks: async () => { throw new Error('a step has no child to-dos to create'); },
+            updateTaskLink: async () => { throw new Error('the step link is already stored'); },
+            markTaskSynced: async () => null,
+        }),
+        createAccessSource: () => externalSource(),
+        provider: {
+            isConfigured: () => true,
+            getTodo: async () => { throw new Error('a step id must not be read as a to-do'); },
+            listTodolists: async () => [{ id: 44 }],
+            createTodo: async () => { throw new Error('must not create a to-do for a step'); },
+            recordingKind: async () => 'step',
+            completeTodo: async () => false,
+            reopenTodo: async () => false,
+            createComment: async () => null,
+            updateTodoDueDate: async () => false,
+            updateTodoAssignees: async () => false,
+        },
+        now: () => '2026-08-20T00:00:00.000Z',
+    });
+
+    const response = await post(request({ action: 'create_todo', taskId: 'task-a' }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { success: true, todoId: '77' });
+});

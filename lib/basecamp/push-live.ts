@@ -6,6 +6,9 @@ import {
     createBasecampTodo,
     completeBasecampTodo,
     reopenBasecampTodo,
+    completeBasecampStep,
+    reopenBasecampStep,
+    getBasecampRecording,
     createBasecampComment,
     updateBasecampTodoAssignees,
     updateBasecampTodoDueDate,
@@ -16,6 +19,7 @@ import { createBasecampPushPost } from './push-route.ts';
 import { createSupabaseBasecampProjectAccessSource } from './supabase-project-access-source.ts';
 import { normalizeJsonObject } from './project-access.ts';
 import { seoPlanPushTodolistId } from './plan-lists.ts';
+import { classifyBasecampRecording, completableRecordingKind } from '../seo-plan/basecamp-nest.ts';
 
 type AuthorizeTask = Parameters<typeof createBasecampPushPost>[0]['authorizeTask'];
 
@@ -146,8 +150,15 @@ export function createLiveBasecampPushPost(authorizeTask: AuthorizeTask) {
             createStep: (projectId, parentTodoId, title) => (
                 createBasecampTodoStep(projectId, parentTodoId, title)
             ),
+            async recordingKind(projectId, recordingId) {
+                const body = await getBasecampRecording(projectId, recordingId);
+                if (body == null) return null;
+                return completableRecordingKind(classifyBasecampRecording(body));
+            },
             completeTodo: (projectId, todoId) => completeBasecampTodo(projectId, todoId),
             reopenTodo: (projectId, todoId) => reopenBasecampTodo(projectId, todoId),
+            completeStep: (_projectId, stepId) => completeBasecampStep(stepId),
+            reopenStep: (_projectId, stepId) => reopenBasecampStep(stepId),
             createComment: (projectId, todoId, content) => (
                 createBasecampComment(projectId, todoId, content)
             ),
