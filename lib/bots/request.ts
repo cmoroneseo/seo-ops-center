@@ -20,6 +20,8 @@ const ALLOWED = new Set([
     'clientName',
     'taskId',
     'taskTitle',
+    'parentTaskId',
+    'parentTitle',
     'createTask',
     'category',
     'dueDate',
@@ -59,6 +61,8 @@ export interface BotTimeCommand {
     clientName?: string;
     taskId?: string;
     taskTitle?: string;
+    parentTaskId?: string;
+    parentTitle?: string;
     createTask: boolean;
     category?: string;
     dueDate?: string;
@@ -142,9 +146,16 @@ export function parseBotTimeRequest(body: unknown, now: Date): BotRequestParse {
 
     const taskId = text(record.taskId);
     const taskTitle = text(record.taskTitle);
+    const parentTaskId = text(record.parentTaskId);
+    const parentTitle = text(record.parentTitle);
     if (taskId && !UUID.test(taskId)) return fail(400, 'invalid_request', 'taskId must be a UUID.');
     if (!taskId && !taskTitle) return fail(400, 'invalid_request', 'Send taskId or taskTitle.');
     if (taskTitle && taskTitle.length > 300) return fail(400, 'invalid_request', 'taskTitle is too long.');
+    if (parentTaskId && !UUID.test(parentTaskId)) return fail(400, 'invalid_request', 'parentTaskId must be a UUID.');
+    if (parentTitle && parentTitle.length > 300) return fail(400, 'invalid_request', 'parentTitle is too long.');
+    if ((parentTaskId || parentTitle) && !taskTitle) {
+        return fail(400, 'invalid_request', 'Send taskTitle with parentTaskId or parentTitle.');
+    }
 
     if ('createTask' in record && typeof record.createTask !== 'boolean') {
         return fail(400, 'invalid_request', 'createTask must be true or false.');
@@ -269,6 +280,8 @@ export function parseBotTimeRequest(body: unknown, now: Date): BotRequestParse {
         ...(clientName ? { clientName } : {}),
         ...(taskId ? { taskId } : {}),
         ...(taskTitle ? { taskTitle } : {}),
+        ...(parentTaskId ? { parentTaskId } : {}),
+        ...(parentTitle ? { parentTitle } : {}),
         createTask,
         ...(category ? { category } : {}),
         ...(dueDate ? { dueDate } : {}),

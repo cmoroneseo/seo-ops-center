@@ -3,6 +3,7 @@ import { createLiveBasecampPushPost } from '../basecamp/push-live.ts';
 import { createLiveBasecampTimesheetPost } from '../basecamp/timesheet-live.ts';
 import { BOT_ACTOR_EMAIL, hashBotKey } from './keys.ts';
 import { botCreatedTaskRow } from './task-create.ts';
+import { matchBotTask } from './task-lookup.ts';
 import {
     basecampStepFromResponse,
     type BasecampStep,
@@ -32,6 +33,7 @@ function taskRecord(row: Record<string, unknown>): BotTaskRecord {
         statusHistory: Array.isArray(row.status_history) ? row.status_history : [],
         basecampTodoId: row.basecamp_todo_id == null ? null : String(row.basecamp_todo_id),
         basecampProjectId: row.basecamp_project_id == null ? null : String(row.basecamp_project_id),
+        parentTaskId: typeof row.parent_task_id === 'string' ? row.parent_task_id : null,
         category: typeof row.category === 'string' ? row.category : null,
         dueDate: typeof row.due_date === 'string' ? row.due_date.slice(0, 10) : null,
         botOperationId: typeof row.bot_operation_id === 'string' ? row.bot_operation_id : null,
@@ -272,23 +274,81 @@ export function liveBotTimeDeps(): BotTimeDeps {
         },
         async findTask(organizationId, clientId, command) {
             if (!command.taskTitle) return null;
+            const taskColumns = 'id, organization_id, client_id, title, status, completed_at, status_history, basecamp_todo_id, basecamp_project_id, parent_task_id, category, due_date, bot_operation_id';
+            const scoped = () => admin()
+                .from('tasks')
+                .select('id, title, parent_task_id')
+                .eq('organization_id', organizationId)
+                .eq('client_id', clientId);
+            const refs: Array<{ id: string; title: string; parentTaskId: string | null }> = [];
+            const add = (rows: Array<{ id: string; title: string; parent_task_id: string | null }> | null) => {
+                for (const row of rows ?? []) {
+                    refs.push({
+                        id: row.id,
+                        title: row.title,
+                        parentTaskId: row.parent_task_id,
+                    });
+                }
+            };
+
+            // taskTitle alone stays on top-level tasks. A parent narrows the title to that parent's subtasks.
+            if (!command.parentTaskId && !command.parentTitle) {
+                const { data, error } = await scoped()
+                    .eq('title', command.taskTitle)
+                    .is('parent_task_id', null)
+                    .limit(2);
+                if (error) throw error;
+                add(data);
+            } else if (command.parentTaskId) {
+                const { data: parents, error } = await scoped()
+                    .eq('id', command.parentTaskId)
+                    .is('parent_task_id', null)
+                    .limit(1);
+                if (error) throw error;
+                add(parents);
+                const parent = parents?.[0];
+                if (parent) {
+                    const { data: children, error: childError } = await scoped()
+                        .eq('parent_task_id', parent.id)
+                        .eq('title', command.taskTitle)
+                        .limit(2);
+                    if (childError) throw childError;
+                    add(children);
+                }
+            } else {
+                const { data: parents, error } = await scoped()
+                    .eq('title', command.parentTitle)
+                    .is('parent_task_id', null)
+                    .limit(2);
+                if (error) throw error;
+                add(parents);
+                const parent = parents?.[0];
+                if ((parents ?? []).length === 1 && parent) {
+                    const { data: children, error: childError } = await scoped()
+                        .eq('parent_task_id', parent.id)
+                        .eq('title', command.taskTitle)
+                        .limit(2);
+                    if (childError) throw childError;
+                    add(children);
+                }
+            }
+
+            const match = matchBotTask(refs, command);
+            if (!match.ok) return match;
             const { data, error } = await admin()
                 .from('tasks')
-                .select('id, organization_id, client_id, title, status, completed_at, status_history, basecamp_todo_id, basecamp_project_id, category, due_date, bot_operation_id')
+                .select(taskColumns)
+                .eq('id', match.taskId)
                 .eq('organization_id', organizationId)
                 .eq('client_id', clientId)
-                .eq('title', command.taskTitle)
-                .is('parent_task_id', null)
-                .limit(2);
+                .maybeSingle();
             if (error) throw error;
-            if ((data ?? []).length > 1) return 'ambiguous';
-            const row = data?.[0];
-            return row ? taskRecord(row) : null;
+            return data ? taskRecord(data) : null;
         },
         async getTask(taskId) {
             const { data, error } = await admin()
                 .from('tasks')
-                .select('id, organization_id, client_id, title, status, completed_at, status_history, basecamp_todo_id, basecamp_project_id, category, due_date, bot_operation_id')
+                .select('id, organization_id, client_id, title, status, completed_at, status_history, basecamp_todo_id, basecamp_project_id, parent_task_id, category, due_date, bot_operation_id')
                 .eq('id', taskId)
                 .maybeSingle();
             if (error) throw error;
@@ -308,7 +368,7 @@ export function liveBotTimeDeps(): BotTimeDeps {
                     botOperationId: input.botOperationId,
                     now: input.now,
                 }))
-                .select('id, organization_id, client_id, title, status, completed_at, status_history, basecamp_todo_id, basecamp_project_id, category, due_date, bot_operation_id')
+                .select('id, organization_id, client_id, title, status, completed_at, status_history, basecamp_todo_id, basecamp_project_id, parent_task_id, category, due_date, bot_operation_id')
                 .single();
             if (error?.code === '23505') return 'conflict';
             if (error || !data) throw error ?? new Error('task insert failed');
@@ -324,7 +384,7 @@ export function liveBotTimeDeps(): BotTimeDeps {
                     ...(patch.status === 'done' ? { blocked_reason: null } : {}),
                 })
                 .eq('id', taskId)
-                .select('id, organization_id, client_id, title, status, completed_at, status_history, basecamp_todo_id, basecamp_project_id, category, due_date, bot_operation_id')
+                .select('id, organization_id, client_id, title, status, completed_at, status_history, basecamp_todo_id, basecamp_project_id, parent_task_id, category, due_date, bot_operation_id')
                 .single();
             if (error || !data) throw error ?? new Error('task update failed');
             return taskRecord(data);
