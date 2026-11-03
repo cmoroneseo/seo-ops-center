@@ -1,8 +1,23 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { botRequestDecision } from '@/lib/bots/scope'
 import { classifyActor, clientPortalAllowedPath, contactErrorKind, isPortalLoginPath } from '@/lib/portal/access-policy'
 
 export async function middleware(request: NextRequest) {
+    // A bot key is not a session. It may POST /api/bots/time and nothing else.
+    const botDecision = botRequestDecision({
+        pathname: request.nextUrl.pathname,
+        method: request.method,
+        authorization: request.headers.get('authorization'),
+    })
+    if (botDecision === 'forbid') {
+        return NextResponse.json(
+            { error: 'This key cannot call that route.', code: 'forbidden' },
+            { status: 403 },
+        )
+    }
+    if (botDecision === 'allow') return NextResponse.next()
+
     // The metrics handler validates the cron secret or client-scoped session itself.
     if (request.nextUrl.pathname === '/api/sync/metrics') return NextResponse.next();
 
