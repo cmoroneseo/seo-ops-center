@@ -37,8 +37,8 @@ test('a reload that learned the saved to-do id replaces the drawer task that had
         subtasksState: reloaded.subtasksState,
     });
 
-    assert.equal(next.basecampTodoId, '77');
-    assert.equal(next.basecampProjectId, '202');
+    assert.equal(next.basecampTodoId, 77);
+    assert.equal(next.basecampProjectId, 202);
     assert.equal(next.lastSyncedAt, '2026-11-03T01:00:00.000Z');
     assert.equal(next.subtasks.length, 1);
     assert.equal(next.title, 'Write the Ecoworkz brief');
@@ -52,6 +52,6 @@ test('a reload that drops the to-do id keeps the id the send response already ap
         subtasks: [],
         subtasksState: 'ready',
     });
-    assert.equal(next.basecampTodoId, '77');
-    assert.equal(next.basecampProjectId, '202');
+    assert.equal(next.basecampTodoId, 77);
+    assert.equal(next.basecampProjectId, 202);
 });

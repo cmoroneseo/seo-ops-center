@@ -168,8 +168,8 @@ test('Send to Basecamp keeps the saved to-do id instead of falling back to Not i
     assert.equal(textIncludes(container, 'Not in Basecamp'), false);
     assert.equal(textIncludes(container, 'Sending'), false);
     const last = updates.at(-1);
-    assert.equal(last?.basecampTodoId, '77');
-    assert.equal(last?.basecampProjectId, '202');
+    assert.equal(last?.basecampTodoId, 77);
+    assert.equal(last?.basecampProjectId, 202);
 
     act(() => root.unmount());
     container.remove();

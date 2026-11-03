@@ -14,6 +14,14 @@ export function basecampTodoIdFrom(value: unknown): string | undefined {
     return normalized.length > 0 ? normalized : undefined;
 }
 
+/** Task rows store Basecamp ids as numbers. The push response may send either. */
+function basecampNumericId(value: unknown): number | undefined {
+    const text = basecampTodoIdFrom(value);
+    if (!text || !/^\d+$/.test(text)) return undefined;
+    const parsed = Number(text);
+    return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
 export function taskWithBasecampLink(
     task: Task,
     link: {
@@ -24,8 +32,8 @@ export function taskWithBasecampLink(
         subtasksState?: Task['subtasksState'];
     },
 ): Task {
-    const basecampTodoId = basecampTodoIdFrom(link.basecampTodoId) ?? task.basecampTodoId;
-    const basecampProjectId = basecampTodoIdFrom(link.basecampProjectId) ?? task.basecampProjectId;
+    const basecampTodoId = basecampNumericId(link.basecampTodoId) ?? basecampNumericId(task.basecampTodoId);
+    const basecampProjectId = basecampNumericId(link.basecampProjectId) ?? basecampNumericId(task.basecampProjectId);
     const knowsSubtasks = link.subtasksState === 'ready'
         || link.subtasksState === 'unavailable'
         || link.subtasksState === 'loading';
