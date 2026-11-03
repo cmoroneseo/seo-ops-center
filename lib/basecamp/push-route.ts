@@ -36,6 +36,7 @@ interface CanonicalTask {
 interface CanonicalSubtask {
     id: string;
     title: string;
+    status?: string;
     basecampTodoId?: string | number | null;
 }
 
@@ -124,6 +125,20 @@ async function linkedRecordingKind(
     return todo && String(todo.id) === recordingId ? 'todo' : null;
 }
 
+/** Mark the recording this push just created or reused. A step is not a to-do. */
+async function completeRecording(
+    provider: Provider,
+    projectId: string,
+    recordingId: string,
+    kind: 'todo' | 'step',
+): Promise<boolean> {
+    if (kind === 'step') {
+        if (!provider.completeStep) return false;
+        return provider.completeStep(projectId, recordingId);
+    }
+    return provider.completeTodo(projectId, recordingId);
+}
+
 export function createBasecampPushPost(dependencies: Dependencies) {
     return async function postBasecampPush(req: Request): Promise<Response> {
         try {
@@ -185,7 +200,25 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                 if (existingTodoId) {
                     const kind = await linkedRecordingKind(dependencies.provider, projectId, existingTodoId);
                     // A subtask already linked as a step must not be created again as a to-do.
-                    if (kind === 'step') return json({ success: true, todoId: existingTodoId });
+                    if (kind === 'step') {
+                        if (task.status === 'done') {
+                            const completed = await completeRecording(
+                                dependencies.provider,
+                                projectId,
+                                existingTodoId,
+                                'step',
+                            );
+                            if (!completed) {
+                                return json({
+                                    success: false,
+                                    partial: true,
+                                    todoId: existingTodoId,
+                                    error: 'Basecamp completion failed',
+                                }, 502);
+                            }
+                        }
+                        return json({ success: true, todoId: existingTodoId });
+                    }
                     if (kind !== 'todo') return json({ error: 'Linked Basecamp todo is not authorized' }, 403);
                 }
                 const existingTodo = existingTodoId
@@ -240,6 +273,24 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                     // Undefined means the recording did not say. False means this
                     // to-do does not accept nested subtasks; the parent still ships.
                     if (unlinked.length > 0 && created.supportsSubtasks === false) {
+                        if (task.status === 'done') {
+                            const completed = await completeRecording(
+                                dependencies.provider,
+                                projectId,
+                                String(created.id),
+                                'todo',
+                            );
+                            if (!completed) {
+                                return json({
+                                    success: false,
+                                    partial: true,
+                                    todoId: created.id,
+                                    error: 'Basecamp completion failed',
+                                    subtasksSkipped: unlinked.length,
+                                    ...preservedCount,
+                                }, 502);
+                            }
+                        }
                         return json({
                             success: true,
                             todoId: created.id,
@@ -247,6 +298,7 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                             ...preservedCount,
                         });
                     }
+                    const createdStepIds = new Map<string, string>();
                     if (unlinked.length > 0 && dependencies.provider.createStep) {
                         for (const subtask of unlinked) {
                             const step = await dependencies.provider.createStep(
@@ -263,6 +315,7 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                                     ...preservedCount,
                                 }, 502);
                             }
+                            createdStepIds.set(subtask.id, String(step.id));
                             const stepLinkError = await store.updateTaskLink(
                                 subtask.id,
                                 task.organizationId,
@@ -272,6 +325,49 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                                 dependencies.now(),
                             );
                             if (stepLinkError) return json({ error: stepLinkError }, 500);
+                        }
+                    }
+                    for (const subtask of subtasks) {
+                        if (subtask.status !== 'done') continue;
+                        const stepId = createdStepIds.get(subtask.id) ?? numericId(subtask.basecampTodoId);
+                        if (!stepId) continue;
+                        const knownKind = createdStepIds.has(subtask.id) ? 'step' as const : undefined;
+                        const stepKind = knownKind ?? await linkedRecordingKind(dependencies.provider, projectId, stepId);
+                        if (!stepKind) {
+                            return json({
+                                success: false,
+                                partial: true,
+                                todoId: created.id,
+                                error: 'Basecamp completion failed',
+                                ...preservedCount,
+                            }, 502);
+                        }
+                        const completed = await completeRecording(dependencies.provider, projectId, stepId, stepKind);
+                        if (!completed) {
+                            return json({
+                                success: false,
+                                partial: true,
+                                todoId: created.id,
+                                error: 'Basecamp completion failed',
+                                ...preservedCount,
+                            }, 502);
+                        }
+                    }
+                    if (task.status === 'done') {
+                        const completed = await completeRecording(
+                            dependencies.provider,
+                            projectId,
+                            String(created.id),
+                            'todo',
+                        );
+                        if (!completed) {
+                            return json({
+                                success: false,
+                                partial: true,
+                                todoId: created.id,
+                                error: 'Basecamp completion failed',
+                                ...preservedCount,
+                            }, 502);
                         }
                     }
                 }

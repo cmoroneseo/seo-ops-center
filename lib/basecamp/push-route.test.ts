@@ -341,6 +341,7 @@ test('create push maps canonical SEO PM subtasks to Basecamp steps after creatin
 test('retrying a partial create reuses the linked parent and skips already-linked steps', async () => {
     const { createBasecampPushPost } = await loadRouteModule();
     const createdSteps: string[] = [];
+    let completed: [string, string] | null = null;
     const post = createBasecampPushPost({
         authorizeTask: async () => authorized,
         createStore: () => ({
@@ -363,7 +364,10 @@ test('retrying a partial create reuses the linked parent and skips already-linke
                 createdSteps.push(title);
                 return { id: 102 };
             },
-            completeTodo: async () => false,
+            completeTodo: async (projectId, todoId) => {
+                completed = [projectId, todoId];
+                return true;
+            },
             reopenTodo: async () => false,
             createComment: async () => null,
             updateTodoDueDate: async () => false,
@@ -377,6 +381,7 @@ test('retrying a partial create reuses the linked parent and skips already-linke
     assert.equal(response.status, 200);
     assert.deepEqual(createdSteps, ['Retry this step']);
     assert.equal((await response.json()).subtasksPreserved, 1);
+    assert.deepEqual(completed, ['202', '77']);
 });
 
 test('create push keeps imported Basecamp ids when nesting existing tasks', async () => {
@@ -602,8 +607,9 @@ test('completing and reopening a stored to-do still uses the to-do endpoint', as
     assert.deepEqual(calls, ['complete:202:77', 'reopen:202:77']);
 });
 
-test('create push leaves an already-linked step in place', async () => {
+test('create push leaves an already-linked step in place and completes it when the task is done', async () => {
     const { createBasecampPushPost } = await loadRouteModule();
+    const calls: string[] = [];
     const post = createBasecampPushPost({
         authorizeTask: async () => authorized,
         createStore: () => ({
@@ -619,8 +625,12 @@ test('create push leaves an already-linked step in place', async () => {
             listTodolists: async () => [{ id: 44 }],
             createTodo: async () => { throw new Error('must not create a to-do for a step'); },
             recordingKind: async () => 'step',
-            completeTodo: async () => false,
+            completeTodo: async () => { throw new Error('a done step must not be completed as a to-do'); },
             reopenTodo: async () => false,
+            completeStep: async (projectId, stepId) => {
+                calls.push(`complete:${projectId}:${stepId}`);
+                return true;
+            },
             createComment: async () => null,
             updateTodoDueDate: async () => false,
             updateTodoAssignees: async () => false,
@@ -631,4 +641,88 @@ test('create push leaves an already-linked step in place', async () => {
     const response = await post(request({ action: 'create_todo', taskId: 'task-a' }));
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { success: true, todoId: '77' });
+    assert.deepEqual(calls, ['complete:202:77']);
+});
+
+test('creating a to-do for a task that is already done also completes that to-do', async () => {
+    const { createBasecampPushPost } = await loadRouteModule();
+    const calls: string[] = [];
+    const post = createBasecampPushPost({
+        authorizeTask: async () => authorized,
+        createStore: () => ({
+            getTask: async () => ({ ...canonicalTask, basecampTodoId: null, basecampProjectId: null, status: 'done' }),
+            listSubtasks: async () => [
+                { id: 'child-1', title: 'Brief', status: 'done', basecampTodoId: null },
+                { id: 'child-2', title: 'Draft', status: 'todo', basecampTodoId: null },
+            ],
+            updateTaskLink: async (taskId, _organizationId, _clientId, _projectId, recordingId) => {
+                calls.push(`link:${taskId}:${recordingId}`);
+                return null;
+            },
+            markTaskSynced: async () => null,
+        }),
+        createAccessSource: () => externalSource(),
+        provider: {
+            isConfigured: () => true,
+            getTodo: async () => null,
+            listTodolists: async () => [{ id: 44 }],
+            createTodo: async () => ({ id: 77, appUrl: 'https://3.basecamp.test/task/77', supportsSubtasks: true }),
+            createStep: async (_projectId, _parentId, title) => ({ id: title === 'Brief' ? 200 : 201 }),
+            completeTodo: async (projectId, todoId) => {
+                calls.push(`complete-todo:${projectId}:${todoId}`);
+                return true;
+            },
+            reopenTodo: async () => false,
+            completeStep: async (projectId, stepId) => {
+                calls.push(`complete-step:${projectId}:${stepId}`);
+                return true;
+            },
+            createComment: async () => null,
+            updateTodoDueDate: async () => false,
+            updateTodoAssignees: async () => false,
+        },
+        now: () => '2026-08-20T00:00:00.000Z',
+    });
+
+    const response = await post(request({ action: 'create_todo', taskId: 'task-a' }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { success: true, todoId: 77 });
+    assert.deepEqual(calls, [
+        'link:task-a:77',
+        'link:child-1:200',
+        'link:child-2:201',
+        'complete-step:202:200',
+        'complete-todo:202:77',
+    ]);
+});
+
+test('creating a to-do for an open task does not complete it', async () => {
+    const { createBasecampPushPost } = await loadRouteModule();
+    let completed = false;
+    const post = createBasecampPushPost({
+        authorizeTask: async () => authorized,
+        createStore: () => ({
+            getTask: async () => ({ ...canonicalTask, basecampTodoId: null, basecampProjectId: null, status: 'todo' }),
+            listSubtasks: async () => [],
+            updateTaskLink: async () => null,
+            markTaskSynced: async () => null,
+        }),
+        createAccessSource: () => externalSource(),
+        provider: {
+            isConfigured: () => true,
+            getTodo: async () => null,
+            listTodolists: async () => [{ id: 44 }],
+            createTodo: async () => ({ id: 77, appUrl: 'https://3.basecamp.test/task/77' }),
+            completeTodo: async () => { completed = true; return true; },
+            reopenTodo: async () => false,
+            createComment: async () => null,
+            updateTodoDueDate: async () => false,
+            updateTodoAssignees: async () => false,
+        },
+        now: () => '2026-08-20T00:00:00.000Z',
+    });
+
+    const response = await post(request({ action: 'create_todo', taskId: 'task-a' }));
+    assert.equal(response.status, 200);
+    assert.equal(completed, false);
 });

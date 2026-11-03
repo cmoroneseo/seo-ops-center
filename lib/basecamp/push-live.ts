@@ -99,7 +99,7 @@ export function createLiveBasecampPushPost(authorizeTask: AuthorizeTask) {
                 async listSubtasks(taskId, organizationId, clientId) {
                     const { data, error } = await admin
                         .from('tasks')
-                        .select('id, title, basecamp_todo_id')
+                        .select('id, title, status, basecamp_todo_id')
                         .eq('parent_task_id', taskId)
                         .eq('organization_id', organizationId)
                         .eq('client_id', clientId)
@@ -108,6 +108,7 @@ export function createLiveBasecampPushPost(authorizeTask: AuthorizeTask) {
                     return (data ?? []).map(subtask => ({
                         id: subtask.id,
                         title: subtask.title,
+                        status: subtask.status,
                         basecampTodoId: subtask.basecamp_todo_id,
                     }));
                 },

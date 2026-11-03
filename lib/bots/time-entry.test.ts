@@ -902,3 +902,25 @@ test('an ambiguous subtask, a missing parent, and createTask do not write a row'
     assert.equal(mem.logs.length, 0);
     assert.equal(calls.createTodo.length, 0);
 });
+
+test('a task that is already done is completed in Basecamp when its to-do is created', async () => {
+    const { mem, calls } = world();
+    mem.tasks.push(storedTask({
+        id: CHILD,
+        title: 'Fix: Redirects',
+        status: 'done',
+        completedAt: '2026-11-03T01:32:58.758Z',
+    }));
+    const response = await handleBotTimeRequest(request(entry({
+        idempotencyKey: 'already-done-redirects',
+        taskId: CHILD,
+        taskTitle: 'Fix: Redirects',
+        createTask: false,
+        complete: false,
+        completedOn: undefined,
+    })), deps(mem, calls));
+    assert.equal(response.status, 200);
+    assert.equal(calls.createTodo.length, 1);
+    assert.deepEqual(calls.completeTodo, ['77']);
+    assert.deepEqual(calls.completeStep, []);
+});
