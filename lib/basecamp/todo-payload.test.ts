@@ -2,14 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     basecampAccountPath,
+    basecampCompletionRequest,
     basecampRecordingPath,
     basecampSubtaskCompletionPath,
     basecampSubtaskCreatePath,
     basecampSubtaskPositionPath,
     basecampSubtaskSupport,
+    basecampTodoCompletionPath,
     basecampTodoCreateBody,
     basecampTodoUpdateBody,
     basecampTrashPath,
+    completeBasecampStep,
+    completeBasecampTodo,
+    reopenBasecampStep,
+    reopenBasecampTodo,
 } from './api.ts';
 
 test('Basecamp create payload uses the official fields for every mapped SEO PM value', () => {
@@ -63,6 +69,33 @@ test('subtask support follows the recording fields and the create path is the re
     assert.equal(basecampSubtaskSupport({ subtasks_count: undefined, subtasks_url: '' }), false);
     assert.equal(basecampSubtaskCreatePath(77), '/recordings/77/subtasks.json');
     assert.equal(basecampSubtaskCompletionPath(200), '/subtasks/200/completion.json');
+    assert.equal(basecampTodoCompletionPath(12, 77), '/buckets/12/todos/77/completion.json');
+    assert.deepEqual(basecampCompletionRequest({ kind: 'step', recordingId: 200, completed: true }), {
+        method: 'POST',
+        path: '/subtasks/200/completion.json',
+    });
+    assert.deepEqual(basecampCompletionRequest({ kind: 'step', recordingId: '200', completed: false }), {
+        method: 'DELETE',
+        path: '/subtasks/200/completion.json',
+    });
+    assert.deepEqual(basecampCompletionRequest({
+        kind: 'todo',
+        projectId: 12,
+        recordingId: 77,
+        completed: true,
+    }), {
+        method: 'POST',
+        path: '/buckets/12/todos/77/completion.json',
+    });
+    assert.deepEqual(basecampCompletionRequest({
+        kind: 'todo',
+        projectId: '12',
+        recordingId: '77',
+        completed: false,
+    }), {
+        method: 'DELETE',
+        path: '/buckets/12/todos/77/completion.json',
+    });
     assert.equal(basecampSubtaskPositionPath(200), '/subtasks/200/position.json');
     assert.throws(() => basecampSubtaskPositionPath('not-an-id'), /stepId/);
     assert.equal(basecampRecordingPath(12, 77), '/buckets/12/recordings/77.json');
@@ -73,4 +106,36 @@ test('subtask support follows the recording fields and the create path is the re
     );
     assert.equal(basecampAccountPath('https://example.com/buckets/12/todos.json'), null);
     assert.throws(() => basecampSubtaskCreatePath('not-an-id'), /parentTodoId/);
+});
+
+test('step and to-do completion functions call the matching Basecamp method and path', async () => {
+    const previousAccount = process.env.BASECAMP_ACCOUNT_ID;
+    const previousToken = process.env.BASECAMP_ACCESS_TOKEN;
+    process.env.BASECAMP_ACCOUNT_ID = '5338018';
+    process.env.BASECAMP_ACCESS_TOKEN = 'test-token';
+    const calls: Array<{ method: string; path: string }> = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        calls.push({ method: init?.method ?? 'GET', path: url.pathname });
+        return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+    try {
+        assert.equal(await completeBasecampStep(200), true);
+        assert.equal(await reopenBasecampStep(200), true);
+        assert.equal(await completeBasecampTodo(12, 77), true);
+        assert.equal(await reopenBasecampTodo(12, 77), true);
+        assert.deepEqual(calls, [
+            { method: 'POST', path: '/5338018/subtasks/200/completion.json' },
+            { method: 'DELETE', path: '/5338018/subtasks/200/completion.json' },
+            { method: 'POST', path: '/5338018/buckets/12/todos/77/completion.json' },
+            { method: 'DELETE', path: '/5338018/buckets/12/todos/77/completion.json' },
+        ]);
+    } finally {
+        globalThis.fetch = originalFetch;
+        if (previousAccount === undefined) delete process.env.BASECAMP_ACCOUNT_ID;
+        else process.env.BASECAMP_ACCOUNT_ID = previousAccount;
+        if (previousToken === undefined) delete process.env.BASECAMP_ACCESS_TOKEN;
+        else process.env.BASECAMP_ACCESS_TOKEN = previousToken;
+    }
 });

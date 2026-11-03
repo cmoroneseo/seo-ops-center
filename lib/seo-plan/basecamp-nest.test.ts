@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
     classifyBasecampRecording,
+    completableRecordingKind,
     clearPendingTrashUpdate,
     nestFlatChild,
     pendingTrashMessage,
@@ -155,6 +156,28 @@ test('a to-do, a step, a trashed to-do, and a 404 are different recordings', () 
     }), { kind: 'todo', trashed: true, completed: true });
     assert.deepEqual(recordingFromRead(404, null), { kind: 'missing' });
     assert.deepEqual(classifyBasecampRecording({ id: 1, type: 'Comment' }), { kind: 'unknown' });
+    assert.equal(completableRecordingKind(classifyBasecampRecording({
+        id: 5,
+        type: 'Kanban::Step',
+        status: 'active',
+        parent: { id: 9, type: 'Todo' },
+        title: 'Houzz',
+    })), 'step');
+    assert.equal(completableRecordingKind(classifyBasecampRecording({
+        id: 9,
+        type: 'Todo',
+        status: 'active',
+        parent: { id: 3, type: 'Todolist' },
+    })), 'todo');
+    assert.equal(completableRecordingKind(classifyBasecampRecording({
+        id: 5,
+        type: 'Kanban::Step',
+        status: 'trashed',
+        parent: { id: 9, type: 'Todo' },
+        title: 'Houzz',
+    })), null);
+    assert.equal(completableRecordingKind({ kind: 'unknown' }), null);
+    assert.equal(completableRecordingKind({ kind: 'missing' }), null);
     assert.equal(readPendingTrashId(pendingTrashMessage('100')), '100');
     assert.equal(readPendingTrashId('Basecamp returned 422.'), null);
 });

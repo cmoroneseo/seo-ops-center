@@ -60,10 +60,13 @@ export function createLiveBasecampTimesheetPost(authorizeTimeLog: AuthorizeTimeL
                     let taskBasecampTodoId: string | number | null = null;
                     let taskBasecampProjectId: string | number | null = null;
                     let taskTitle: string | null = null;
+                    let parentTaskId: string | null = null;
+                    let parentBasecampTodoId: string | number | null = null;
+                    let parentBasecampProjectId: string | number | null = null;
                     if (log.task_id) {
                         let taskQuery = admin
                             .from('tasks')
-                            .select('basecamp_todo_id, basecamp_project_id, title')
+                            .select('basecamp_todo_id, basecamp_project_id, title, parent_task_id')
                             .eq('id', log.task_id)
                             .eq('organization_id', organizationId);
                         if (clientId) taskQuery = taskQuery.eq('client_id', clientId);
@@ -72,6 +75,19 @@ export function createLiveBasecampTimesheetPost(authorizeTimeLog: AuthorizeTimeL
                         taskBasecampTodoId = task?.basecamp_todo_id ?? null;
                         taskBasecampProjectId = task?.basecamp_project_id ?? null;
                         taskTitle = task?.title ?? null;
+                        parentTaskId = task?.parent_task_id ?? null;
+                        if (parentTaskId) {
+                            let parentQuery = admin
+                                .from('tasks')
+                                .select('basecamp_todo_id, basecamp_project_id')
+                                .eq('id', parentTaskId)
+                                .eq('organization_id', organizationId);
+                            if (clientId) parentQuery = parentQuery.eq('client_id', clientId);
+                            const { data: parent, error: parentError } = await parentQuery.maybeSingle();
+                            if (parentError) throw parentError;
+                            parentBasecampTodoId = parent?.basecamp_todo_id ?? null;
+                            parentBasecampProjectId = parent?.basecamp_project_id ?? null;
+                        }
                     }
 
                     let personId: number | null = null;
@@ -114,6 +130,9 @@ export function createLiveBasecampTimesheetPost(authorizeTimeLog: AuthorizeTimeL
                         taskBasecampTodoId,
                         taskTitle,
                         taskBasecampProjectId,
+                        parentTaskId,
+                        parentBasecampTodoId,
+                        parentBasecampProjectId,
                         personId,
                         clientCustomFields,
                     };

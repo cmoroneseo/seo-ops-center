@@ -1,5 +1,6 @@
 import { bearerToken, isBotKeyToken } from './scope.ts';
 import { parseBotTimeRequest, type BotTimeCommand } from './request.ts';
+import type { BotTaskMatch } from './task-lookup.ts';
 import { isBuiltInTaskCategory, TASK_CATEGORY_ERROR, taskCategoryAllowed } from './task-create.ts';
 import { taskStatusUpdate } from '../tasks/status.ts';
 import type { TaskStatusHistoryEntryLike } from '../tasks/status.ts';
@@ -49,6 +50,7 @@ export interface BotTaskRecord {
     statusHistory: TaskStatusHistoryEntryLike[];
     basecampTodoId: string | null;
     basecampProjectId: string | null;
+    parentTaskId?: string | null;
     category: string | null;
     dueDate: string | null;
     botOperationId: string | null;
@@ -89,7 +91,11 @@ export interface BotTimeDeps {
     findClient(organizationId: string, command: BotTimeCommand): Promise<BotClientRecord | null | 'ambiguous'>;
     /** Exact `tasks.category` values this client already has. Used only when a new task names a label outside the built-in set. */
     clientCategories(organizationId: string, clientId: string): Promise<string[]>;
-    findTask(organizationId: string, clientId: string, command: BotTimeCommand): Promise<BotTaskRecord | null | 'ambiguous'>;
+    findTask(
+        organizationId: string,
+        clientId: string,
+        command: BotTimeCommand,
+    ): Promise<BotTaskRecord | null | 'ambiguous' | Extract<BotTaskMatch, { ok: false }>>;
     getTask(taskId: string): Promise<BotTaskRecord | null>;
     insertTask(input: {
         organizationId: string;
@@ -129,6 +135,16 @@ function json(body: unknown, status: number, headers?: Record<string, string>): 
 
 function errorBody(code: string, error: string) {
     return { error, code };
+}
+
+function isTaskLookupError(value: unknown): value is Extract<BotTaskMatch, { ok: false }> {
+    return !!value
+        && typeof value === 'object'
+        && 'ok' in value
+        && value.ok === false
+        && 'status' in value
+        && 'code' in value
+        && 'error' in value;
 }
 
 export async function basecampStepFromResponse(response: Response): Promise<BasecampStep> {
@@ -207,11 +223,20 @@ async function execute(
 
     let task = operation.taskId ? await deps.getTask(operation.taskId) : null;
     if (!task) {
-        const found = command.taskId
+        let found = command.taskId
             ? await deps.getTask(command.taskId)
             : await deps.findTask(key.organizationId, client.id, command);
         if (found === 'ambiguous') {
             return { status: 409, body: errorBody('ambiguous_task', 'More than one task has that exact title.') };
+        }
+        if (isTaskLookupError(found)) {
+            const canCreate = found.reason === 'missing'
+                && command.createTask
+                && !command.taskId
+                && !command.parentTaskId
+                && !command.parentTitle;
+            if (!canCreate) return { status: found.status, body: errorBody(found.code, found.error) };
+            found = null;
         }
         if (found && (found.organizationId !== key.organizationId || found.clientId !== client.id)) {
             return { status: 404, body: errorBody('task_not_found', 'Task not found.') };
@@ -219,9 +244,24 @@ async function execute(
         if (found && command.taskTitle && found.title !== command.taskTitle) {
             return { status: 409, body: errorBody('ambiguous_task', 'taskId and taskTitle do not refer to the same task.') };
         }
+        if (found && (command.parentTaskId || command.parentTitle)) {
+            const parentId = found.parentTaskId ?? null;
+            if (!parentId) {
+                return { status: 409, body: errorBody('ambiguous_task', 'taskId is not a subtask of that parent.') };
+            }
+            if (command.parentTaskId && parentId !== command.parentTaskId) {
+                return { status: 409, body: errorBody('ambiguous_task', 'taskId and parentTaskId do not refer to the same task.') };
+            }
+            if (command.parentTitle) {
+                const parent = await deps.getTask(parentId);
+                if (!parent || parent.title !== command.parentTitle) {
+                    return { status: 409, body: errorBody('ambiguous_task', 'taskId and parentTitle do not refer to the same task.') };
+                }
+            }
+        }
         if (found) {
             task = found;
-        } else if (!command.createTask || command.taskId) {
+        } else if (command.parentTaskId || command.parentTitle || !command.createTask || command.taskId) {
             return { status: 404, body: errorBody('task_not_found', 'Task not found.') };
         } else if (!command.taskTitle) {
             return { status: 400, body: errorBody('invalid_request', 'createTask requires taskTitle.') };
@@ -245,7 +285,7 @@ async function execute(
             });
             if (inserted === 'conflict') {
                 const again = await deps.findTask(key.organizationId, client.id, command);
-                if (again === 'ambiguous' || !again) {
+                if (again === 'ambiguous' || !again || isTaskLookupError(again)) {
                     return { status: 500, body: errorBody('internal', 'Task could not be saved.') };
                 }
                 task = again;

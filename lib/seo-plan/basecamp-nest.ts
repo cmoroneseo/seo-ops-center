@@ -239,6 +239,17 @@ export function classifyBasecampRecording(body: unknown): BasecampRecording {
     return { kind: 'unknown' };
 }
 
+/**
+ * A task can store either a to-do id or a step id in `basecamp_todo_id`.
+ * Only a live to-do or a live step can be completed. Trashed and unknown
+ * recordings are left alone.
+ */
+export function completableRecordingKind(recording: BasecampRecording): 'todo' | 'step' | null {
+    if (recording.kind === 'todo' && !recording.trashed) return 'todo';
+    if (recording.kind === 'step' && !recording.trashed) return 'step';
+    return null;
+}
+
 /** Map a recording read. 404 is missing. A body that says trashed stays classified. */
 export function recordingFromRead(status: number, body: unknown): BasecampRecording {
     if (status === 404) return { kind: 'missing' };

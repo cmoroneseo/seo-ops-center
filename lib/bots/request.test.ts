@@ -91,6 +91,27 @@ test('a category is a single line, and a client label is not rejected here', () 
     assert.equal(number.ok, false);
 });
 
+test('a parent needs a task title, and a parent id must be a uuid', () => {
+    const PARENT = '66666666-6666-4666-8666-666666666666';
+    const named = parseBotTimeRequest(body({ parentTitle: 'August blogs', taskTitle: 'Brief' }), NOW);
+    assert.equal(named.ok, true);
+    if (named.ok) {
+        assert.equal(named.command.parentTitle, 'August blogs');
+        assert.equal(named.command.taskTitle, 'Brief');
+    }
+
+    const byId = parseBotTimeRequest(body({ parentTaskId: PARENT, taskTitle: 'Brief' }), NOW);
+    assert.equal(byId.ok, true);
+
+    const missingTitle = parseBotTimeRequest(body({ taskTitle: undefined, taskId: CLIENT, parentTitle: 'August blogs' }), NOW);
+    assert.equal(missingTitle.ok, false);
+    if (!missingTitle.ok) assert.match(missingTitle.error, /taskTitle/);
+
+    const badId = parseBotTimeRequest(body({ parentTaskId: 'parent-1', taskTitle: 'Brief' }), NOW);
+    assert.equal(badId.ok, false);
+    if (!badId.ok) assert.match(badId.error, /parentTaskId/);
+});
+
 test('minutes and hours that disagree are rejected', () => {
     const parsed = parseBotTimeRequest(body({ minutes: 45, hours: 2 }), NOW);
     assert.equal(parsed.ok, false);

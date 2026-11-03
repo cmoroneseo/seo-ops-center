@@ -6,6 +6,7 @@ import { resolveBasecampTimesheetRecording, createBasecampTimesheetPost } from '
 import { createTimesheetPerformer } from '../basecamp/timesheet-perform.ts';
 import { resolveCompletionInstant } from '../tasks/completion-date.ts';
 import { hashBotKey } from './keys.ts';
+import { matchBotTask } from './task-lookup.ts';
 import { handleBotTimeRequest, type BotActor, type BotTaskRecord, type BotTimeDeps, type BotTimeLogRecord } from './time-entry.ts';
 
 const ORG = '22222222-2222-4222-8222-222222222222';
@@ -82,12 +83,14 @@ function world(patch: Partial<MemClient> = {}): { mem: Mem; calls: Calls } {
 interface Calls {
     createTodo: Array<{ projectId: string; todolistId: string; content: string; dueOn?: string }>;
     completeTodo: string[];
+    completeStep: string[];
     createEntry: Array<{ recordingId: number; date: string; hours: number; description?: string }>;
     todos: Set<string>;
+    steps: Set<string>;
 }
 
 function emptyCalls(): Calls {
-    return { createTodo: [], completeTodo: [], createEntry: [], todos: new Set() };
+    return { createTodo: [], completeTodo: [], completeStep: [], createEntry: [], todos: new Set(), steps: new Set() };
 }
 
 const actor: BotActor = {
@@ -176,11 +179,23 @@ function deps(mem: Mem, calls: Calls): BotTimeDeps {
                 calls.todos.add('77');
                 return { id: 77, appUrl: 'https://3.basecamp.test/77', supportsSubtasks: true };
             },
+            async recordingKind(_projectId, recordingId) {
+                if (calls.steps.has(recordingId)) return 'step' as const;
+                if (calls.todos.has(recordingId)) return 'todo' as const;
+                return null;
+            },
             async completeTodo(_projectId, todoId) {
                 calls.completeTodo.push(todoId);
                 return true;
             },
             async reopenTodo() {
+                return false;
+            },
+            async completeStep(_projectId, stepId) {
+                calls.completeStep.push(stepId);
+                return true;
+            },
+            async reopenStep() {
                 return false;
             },
             async createComment() {
@@ -219,6 +234,9 @@ function deps(mem: Mem, calls: Calls): BotTimeDeps {
                 const log = mem.logs.find(item => item.id === timeLogId);
                 const owner = mem.clients.find(item => item.id === log?.clientId);
                 const task = mem.tasks.find(item => item.id === log?.taskId);
+                const parent = task?.parentTaskId
+                    ? mem.tasks.find(item => item.id === task.parentTaskId) ?? null
+                    : null;
                 if (!log || !owner || !task) return null;
                 return {
                     id: log.id,
@@ -239,6 +257,9 @@ function deps(mem: Mem, calls: Calls): BotTimeDeps {
                     cachedRecordingId: null,
                     taskBasecampTodoId: task.basecampTodoId,
                     taskBasecampProjectId: task.basecampProjectId,
+                    parentTaskId: task.parentTaskId ?? null,
+                    parentBasecampTodoId: parent?.basecampTodoId ?? null,
+                    parentBasecampProjectId: parent?.basecampProjectId ?? null,
                     taskTitle: task.title,
                     personId: 9,
                     basecampSyncError: null,
@@ -365,13 +386,17 @@ function deps(mem: Mem, calls: Calls): BotTimeDeps {
             return mem.categories;
         },
         async findTask(organizationId, clientId, command) {
+            if (!command.taskTitle) return null;
             const rows = mem.tasks.filter(item => (
-                item.organizationId === organizationId
-                && item.clientId === clientId
-                && item.title === command.taskTitle
+                item.organizationId === organizationId && item.clientId === clientId
             ));
-            if (rows.length > 1) return 'ambiguous';
-            return rows[0] ?? null;
+            const match = matchBotTask(rows.map(item => ({
+                id: item.id,
+                title: item.title,
+                parentTaskId: item.parentTaskId ?? null,
+            })), command);
+            if (!match.ok) return match;
+            return rows.find(item => item.id === match.taskId) ?? null;
         },
         async getTask(taskId) {
             return mem.tasks.find(item => item.id === taskId) ?? null;
@@ -727,4 +752,175 @@ test('a category the client has never used is rejected and does not create a tas
     })), deps(mem, calls));
     assert.equal(reused.status, 200);
     assert.equal(mem.inserts.length, 0);
+});
+
+const PARENT = '66666666-6666-4666-8666-666666666666';
+const PARENT_2 = '99999999-9999-4999-8999-999999999999';
+const CHILD = '77777777-7777-4777-8777-777777777777';
+const CHILD_2 = '88888888-8888-4888-8888-888888888888';
+
+function storedTask(patch: Partial<BotTaskRecord> & Pick<BotTaskRecord, 'id' | 'title'>): BotTaskRecord {
+    return {
+        organizationId: ORG,
+        clientId: CLIENT,
+        status: 'todo',
+        completedAt: null,
+        statusHistory: [],
+        basecampTodoId: null,
+        basecampProjectId: null,
+        category: null,
+        dueDate: null,
+        botOperationId: null,
+        parentTaskId: null,
+        ...patch,
+    };
+}
+
+test('taskTitle does not match a subtask, and parentTitle plus taskTitle does', async () => {
+    const { mem, calls } = world();
+    calls.todos.add('77');
+    calls.steps.add('200');
+    mem.tasks.push(
+        storedTask({
+            id: PARENT,
+            title: 'August blogs',
+            basecampTodoId: '77',
+            basecampProjectId: '202',
+        }),
+        storedTask({
+            id: CHILD,
+            title: 'Brief',
+            parentTaskId: PARENT,
+            basecampTodoId: '200',
+            basecampProjectId: '202',
+        }),
+    );
+
+    const missed = await handleBotTimeRequest(request(entry({
+        idempotencyKey: 'subtask-title-only',
+        taskTitle: 'Brief',
+        createTask: false,
+        complete: false,
+        completedOn: undefined,
+    })), deps(mem, calls));
+    const missedBody = await missed.json() as { code: string };
+    assert.equal(missed.status, 404);
+    assert.equal(missedBody.code, 'task_not_found');
+    assert.equal(calls.createTodo.length, 0);
+    assert.equal(mem.logs.length, 0);
+
+    const response = await handleBotTimeRequest(request(entry({
+        idempotencyKey: 'subtask-by-parent-title',
+        taskTitle: 'Brief',
+        parentTitle: 'August blogs',
+        createTask: false,
+    })), deps(mem, calls));
+    const body = await response.json() as { task: { id: string }; code?: string; error?: string };
+    assert.equal(response.status, 200, JSON.stringify(body));
+    assert.equal(body.task.id, CHILD);
+    assert.deepEqual(calls.createTodo, []);
+    assert.deepEqual(calls.completeTodo, []);
+    assert.deepEqual(calls.completeStep, ['200']);
+    assert.equal(calls.createEntry[0]?.recordingId, 77);
+});
+
+test('taskId on a subtask completes the step and posts time on the parent to-do', async () => {
+    const { mem, calls } = world();
+    calls.todos.add('88');
+    calls.steps.add('201');
+    mem.tasks.push(
+        storedTask({
+            id: PARENT,
+            title: 'August blogs',
+            basecampTodoId: '88',
+            basecampProjectId: '202',
+        }),
+        storedTask({
+            id: CHILD,
+            title: 'Brief',
+            parentTaskId: PARENT,
+            basecampTodoId: '201',
+            basecampProjectId: '202',
+        }),
+    );
+    const response = await handleBotTimeRequest(request(entry({
+        idempotencyKey: 'subtask-by-id',
+        taskId: CHILD,
+        taskTitle: 'Brief',
+        createTask: false,
+    })), deps(mem, calls));
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls.completeStep, ['201']);
+    assert.deepEqual(calls.completeTodo, []);
+    assert.equal(calls.createEntry[0]?.recordingId, 88);
+});
+
+test('an ambiguous subtask, a missing parent, and createTask do not write a row', async () => {
+    const { mem, calls } = world();
+    mem.tasks.push(
+        storedTask({ id: PARENT, title: 'August blogs' }),
+        storedTask({ id: PARENT_2, title: 'August blogs' }),
+        storedTask({ id: CHILD, title: 'Brief', parentTaskId: PARENT }),
+        storedTask({ id: CHILD_2, title: 'Brief', parentTaskId: PARENT }),
+    );
+
+    const ambiguous = await handleBotTimeRequest(request(entry({
+        idempotencyKey: 'subtask-ambiguous',
+        taskTitle: 'Brief',
+        parentTaskId: PARENT,
+        createTask: false,
+        complete: false,
+        completedOn: undefined,
+    })), deps(mem, calls));
+    const ambiguousBody = await ambiguous.json() as { code: string; error: string };
+    assert.equal(ambiguous.status, 409);
+    assert.equal(ambiguousBody.code, 'ambiguous_task');
+    assert.match(ambiguousBody.error, /subtask/);
+
+    const parents = await handleBotTimeRequest(request(entry({
+        idempotencyKey: 'parent-ambiguous',
+        taskTitle: 'Brief',
+        parentTitle: 'August blogs',
+        createTask: true,
+        complete: false,
+        completedOn: undefined,
+    })), deps(mem, calls));
+    const parentsBody = await parents.json() as { code: string; error: string };
+    assert.equal(parents.status, 409);
+    assert.match(parentsBody.error, /parentTaskId/);
+
+    const created = await handleBotTimeRequest(request(entry({
+        idempotencyKey: 'subtask-create',
+        taskTitle: 'SEO Review',
+        parentTaskId: PARENT,
+        createTask: true,
+        complete: false,
+        completedOn: undefined,
+    })), deps(mem, calls));
+    assert.equal(created.status, 404);
+    assert.equal(mem.tasks.length, 4);
+    assert.equal(mem.logs.length, 0);
+    assert.equal(calls.createTodo.length, 0);
+});
+
+test('a task that is already done is completed in Basecamp when its to-do is created', async () => {
+    const { mem, calls } = world();
+    mem.tasks.push(storedTask({
+        id: CHILD,
+        title: 'Fix: Redirects',
+        status: 'done',
+        completedAt: '2026-11-03T01:32:58.758Z',
+    }));
+    const response = await handleBotTimeRequest(request(entry({
+        idempotencyKey: 'already-done-redirects',
+        taskId: CHILD,
+        taskTitle: 'Fix: Redirects',
+        createTask: false,
+        complete: false,
+        completedOn: undefined,
+    })), deps(mem, calls));
+    assert.equal(response.status, 200);
+    assert.equal(calls.createTodo.length, 1);
+    assert.deepEqual(calls.completeTodo, ['77']);
+    assert.deepEqual(calls.completeStep, []);
 });

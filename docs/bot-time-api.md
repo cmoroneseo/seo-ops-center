@@ -1,6 +1,6 @@
 # Bot time API
 
-SEO bots log time in SEO Ops Center over HTTP. The entry is attributed to Carlos Morones (`cmorones@marketingempiregroup.com`). The same server path the task drawer uses creates the Basecamp to-do (on the client's SEO Plan list), posts the timesheet entry, and completes the to-do.
+SEO bots log time in SEO Ops Center over HTTP. The entry is attributed to Carlos Morones (`cmorones@marketingempiregroup.com`). The same server path the task drawer uses creates the Basecamp to-do (on the client's SEO Plan list), posts the timesheet entry, and completes the linked Basecamp recording. A to-do is completed with `POST /buckets/{project}/todos/{id}/completion.json`. A subtask stored as a step is completed with `POST /subtasks/{id}/completion.json`. Time logged on a subtask is posted on the parent to-do's timesheet.
 
 A task this route creates is assigned to Carlos. The insert sets `assignee_id` and `assignee_ids` to his user id, `created_by` to the same id, and `status_history` to a `todo` entry by him. `priority` is `medium` and `tags` is empty. The create-task window writes that same row and leaves the assignee empty until someone is picked; this route fills the assignee in, because the work is his. The SEO Plan reads `assignee_ids`. `assignee_id` is the older column, and it is set to the same user so it is not left null.
 
@@ -39,8 +39,9 @@ A missing or unknown key is **401**. A bot key sent to any other route, or a bod
 | --- | --- | --- |
 | `idempotencyKey` | yes | 8–200 characters: letters, numbers, `:`, `_`, `.`, `-`. Retries of the same body return the original result. |
 | `clientId` or `clientName` | one of them | `clientName` is an exact match inside the key's organization. |
-| `taskId` or `taskTitle` | one of them | `taskTitle` is an exact, case-sensitive match on a top-level task. |
-| `createTask` | no | `true` creates the task when that exact title does not exist. A supplied `taskId` is never invented. |
+| `taskId` or `taskTitle` | one of them | `taskTitle` alone is an exact, case-sensitive match on a top-level task (`parent_task_id` is null). It does not match a subtask. A subtask can be targeted by its `taskId`. |
+| `parentTaskId` or `parentTitle` | no | With `taskTitle`, matches a subtask of that parent inside the client. `parentTitle` is an exact, case-sensitive match on a top-level task. Send `parentTaskId` when more than one parent has that title. The two parent fields must name the same parent when both are sent. |
+| `createTask` | no | `true` creates a top-level task when that exact title does not exist. It does not create a subtask. A supplied `taskId` is never invented. With `parentTaskId` or `parentTitle`, a missing subtask is `404`. |
 | `category` | no | Label stored on `tasks.category` when the task is created. Omit it and the task is unlabeled, the same way a new task starts in the SEO Plan and in the create-task window. `content`, `technical`, `local`, `links`, `strategy`, `admin`, and `reporting` are always accepted. A label the client already uses, such as `SEO` or `Set up SEO campaign`, is accepted only as that exact string. Anything else is rejected. The value is not copied into `tags`. |
 | `dueDate` | no | `YYYY-MM-DD`. Used when the task is created, and sent as the Basecamp due date. |
 | `date` | yes | `YYYY-MM-DD`. The day the work happened. Not in the future in `timeZone`. |
@@ -155,9 +156,9 @@ A key that already received a 4xx (not found, ambiguous name, and so on) keeps t
 | 400 | `unknown_field` | The body contains a field this route does not accept. |
 | 400 | `completion_date` | `completedOn` is in the future or is not a real day. The message is `Pick today or a past day.` |
 | 404 | `client_not_found` | No client in this organization matches `clientId` or the exact `clientName`. |
-| 404 | `task_not_found` | No task matches, and `createTask` was not true. |
+| 404 | `task_not_found` | No task matches, and `createTask` was not true. Also: `taskTitle` matched only a subtask, the parent does not exist, or the parent has no subtask with that title. |
 | 409 | `ambiguous_client` | More than one client has that exact name. Send `clientId`. |
-| 409 | `ambiguous_task` | More than one task has that exact title, or `taskId` and `taskTitle` disagree. |
+| 409 | `ambiguous_task` | More than one task has that exact title, `taskId` and `taskTitle` disagree, more than one parent has that title, more than one subtask under that parent has that title, or the parent fields do not name the same task. |
 | 409 | `idempotency_conflict` | This key was already used with a different body. |
 | 409 | `idempotency_in_progress` | The same key is already running. Retry the same body shortly. |
 | 409 | `actor_not_found` | Carlos Morones is not a member of the key's organization, so the entry cannot be attributed. |

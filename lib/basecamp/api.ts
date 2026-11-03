@@ -250,10 +250,47 @@ export function basecampTodoUpdateBody(params: BasecampTodoUpdateParams): Record
 /**
  * Complete or uncomplete a step.
  * POST /subtasks/{id}/completion.json marks it done. DELETE on the same path reopens it.
+ *
+ * A to-do subtask is a `Kanban::Step`. bc3-api's subtasks section is the route
+ * for that recording, including a step under a to-do. The card-table route
+ * (`PUT /card_tables/steps/{id}/completions.json` with `completion` `on`/`off`)
+ * speaks of cards and updates the same records; new calls use this path.
  * This is not the to-do completion path: a step id is not a to-do id.
  */
 export function basecampSubtaskCompletionPath(stepId: number | string): string {
     return `/subtasks/${safeId(stepId, 'stepId')}/completion.json`;
+}
+
+/** POST or DELETE /buckets/{project}/todos/{id}/completion.json. */
+export function basecampTodoCompletionPath(projectId: number | string, todoId: number | string): string {
+    return `/buckets/${safeId(projectId, 'projectId')}/todos/${safeId(todoId, 'todoId')}/completion.json`;
+}
+
+export interface BasecampCompletionRequest {
+    method: 'POST' | 'DELETE';
+    path: string;
+}
+
+/**
+ * Completion call for the recording a task stores.
+ * `completed: true` marks it done. `false` reopens it.
+ * A step does not take a project id: its route is account-scoped.
+ */
+export function basecampCompletionRequest(
+    input:
+        | { kind: 'step'; recordingId: number | string; completed: boolean }
+        | { kind: 'todo'; projectId: number | string; recordingId: number | string; completed: boolean },
+): BasecampCompletionRequest {
+    if (input.kind === 'step') {
+        return {
+            method: input.completed ? 'POST' : 'DELETE',
+            path: basecampSubtaskCompletionPath(input.recordingId),
+        };
+    }
+    return {
+        method: input.completed ? 'POST' : 'DELETE',
+        path: basecampTodoCompletionPath(input.projectId, input.recordingId),
+    };
 }
 
 /**
@@ -622,17 +659,23 @@ export async function updateBasecampTodoAssignees(
     }
 }
 
+async function writeBasecampCompletion(request: BasecampCompletionRequest): Promise<boolean> {
+    const res = await basecampFetch(`${BASE_URL()}${request.path}`, { method: request.method });
+    return res.ok;
+}
+
 /** Mark a Basecamp todo as complete */
 export async function completeBasecampTodo(
     projectId: number | string,
     todoId: number | string,
 ): Promise<boolean> {
     try {
-        const res = await basecampFetch(
-            `${BASE_URL()}/buckets/${projectId}/todos/${todoId}/completion.json`,
-            { method: 'POST' },
-        );
-        return res.ok;
+        return await writeBasecampCompletion(basecampCompletionRequest({
+            kind: 'todo',
+            projectId,
+            recordingId: todoId,
+            completed: true,
+        }));
     } catch (err) {
         console.error('[Basecamp] completeTodo error:', err);
         return false;
@@ -645,14 +688,60 @@ export async function reopenBasecampTodo(
     todoId: number | string,
 ): Promise<boolean> {
     try {
-        const res = await basecampFetch(
-            `${BASE_URL()}/buckets/${projectId}/todos/${todoId}/completion.json`,
-            { method: 'DELETE' },
-        );
-        return res.ok;
+        return await writeBasecampCompletion(basecampCompletionRequest({
+            kind: 'todo',
+            projectId,
+            recordingId: todoId,
+            completed: false,
+        }));
     } catch (err) {
         console.error('[Basecamp] reopenTodo error:', err);
         return false;
+    }
+}
+
+/** Mark a Basecamp step (to-do subtask) as complete. */
+export async function completeBasecampStep(stepId: number | string): Promise<boolean> {
+    try {
+        return await writeBasecampCompletion(basecampCompletionRequest({
+            kind: 'step',
+            recordingId: stepId,
+            completed: true,
+        }));
+    } catch (err) {
+        console.error('[Basecamp] completeStep error:', err);
+        return false;
+    }
+}
+
+/** Reopen a Basecamp step (to-do subtask). */
+export async function reopenBasecampStep(stepId: number | string): Promise<boolean> {
+    try {
+        return await writeBasecampCompletion(basecampCompletionRequest({
+            kind: 'step',
+            recordingId: stepId,
+            completed: false,
+        }));
+    } catch (err) {
+        console.error('[Basecamp] reopenStep error:', err);
+        return false;
+    }
+}
+
+/** Read one recording in a project. 404 and transport failures are null. */
+export async function getBasecampRecording(
+    projectId: number | string,
+    recordingId: number | string,
+): Promise<unknown | null> {
+    try {
+        const res = await basecampFetch(
+            `${BASE_URL()}${basecampRecordingPath(projectId, recordingId)}`,
+        );
+        if (!res.ok) return null;
+        return await res.json();
+    } catch (err) {
+        console.error('[Basecamp] getRecording error:', err);
+        return null;
     }
 }
 
