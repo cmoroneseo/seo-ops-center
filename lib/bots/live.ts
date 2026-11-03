@@ -2,6 +2,7 @@ import { createAdminClient } from '../supabase/admin.ts';
 import { createLiveBasecampPushPost } from '../basecamp/push-live.ts';
 import { createLiveBasecampTimesheetPost } from '../basecamp/timesheet-live.ts';
 import { BOT_ACTOR_EMAIL, hashBotKey } from './keys.ts';
+import { botCreatedTaskRow } from './task-create.ts';
 import {
     basecampStepFromResponse,
     type BasecampStep,
@@ -255,6 +256,20 @@ export function liveBotTimeDeps(): BotTimeDeps {
             };
             return client;
         },
+        async clientCategories(organizationId, clientId) {
+            const { data, error } = await admin()
+                .from('tasks')
+                .select('category')
+                .eq('organization_id', organizationId)
+                .eq('client_id', clientId)
+                .not('category', 'is', null);
+            if (error) throw error;
+            const labels = new Set<string>();
+            for (const row of data ?? []) {
+                if (typeof row.category === 'string' && row.category.length > 0) labels.add(row.category);
+            }
+            return [...labels];
+        },
         async findTask(organizationId, clientId, command) {
             if (!command.taskTitle) return null;
             const { data, error } = await admin()
@@ -282,20 +297,17 @@ export function liveBotTimeDeps(): BotTimeDeps {
         async insertTask(input) {
             const { data, error } = await admin()
                 .from('tasks')
-                .insert({
-                    organization_id: input.organizationId,
-                    client_id: input.clientId,
+                .insert(botCreatedTaskRow({
+                    organizationId: input.organizationId,
+                    clientId: input.clientId,
                     title: input.title,
                     ...(input.category ? { category: input.category } : {}),
-                    ...(input.dueDate ? { due_date: input.dueDate } : {}),
-                    status: 'todo',
-                    priority: 'medium',
-                    assignee_ids: [input.actor.userId],
-                    created_by: input.actor.userId,
-                    status_history: [{ status: 'todo', at: input.now, by: input.actor.userId }],
-                    bot_key_id: input.botKeyId,
-                    bot_operation_id: input.botOperationId,
-                })
+                    ...(input.dueDate ? { dueDate: input.dueDate } : {}),
+                    actorUserId: input.actor.userId,
+                    botKeyId: input.botKeyId,
+                    botOperationId: input.botOperationId,
+                    now: input.now,
+                }))
                 .select('id, organization_id, client_id, title, status, completed_at, status_history, basecamp_todo_id, basecamp_project_id, category, due_date, bot_operation_id')
                 .single();
             if (error?.code === '23505') return 'conflict';

@@ -61,6 +61,36 @@ test('delete, settings, and a caller-supplied user id are out of scope', () => {
     }
 });
 
+test('a category is a single line, and a client label is not rejected here', () => {
+    const seo = parseBotTimeRequest(body({ category: 'SEO' }), NOW);
+    assert.equal(seo.ok, true);
+    if (seo.ok) assert.equal(seo.command.category, 'SEO');
+
+    const technical = parseBotTimeRequest(body({ category: 'technical' }), NOW);
+    assert.equal(technical.ok, true);
+
+    const listTitle = parseBotTimeRequest(body({ category: "SEO Campaign To-Do's" }), NOW);
+    assert.equal(listTitle.ok, true);
+    if (listTitle.ok) assert.equal(listTitle.command.category, "SEO Campaign To-Do's");
+
+    const omitted = parseBotTimeRequest(body(), NOW);
+    assert.equal(omitted.ok, true);
+    if (omitted.ok) assert.equal(omitted.command.category, undefined);
+
+    const blank = parseBotTimeRequest(body({ category: '   ' }), NOW);
+    assert.equal(blank.ok, false);
+
+    const broken = parseBotTimeRequest(body({ category: 'SEO\nPlan' }), NOW);
+    assert.equal(broken.ok, false);
+
+    const huge = parseBotTimeRequest(body({ category: 'S'.repeat(81) }), NOW);
+    assert.equal(huge.ok, false);
+    if (!huge.ok) assert.match(huge.error, /80 characters/);
+
+    const number = parseBotTimeRequest(body({ category: 1 }), NOW);
+    assert.equal(number.ok, false);
+});
+
 test('minutes and hours that disagree are rejected', () => {
     const parsed = parseBotTimeRequest(body({ minutes: 45, hours: 2 }), NOW);
     assert.equal(parsed.ok, false);

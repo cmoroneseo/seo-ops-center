@@ -7,11 +7,11 @@ import {
     resolveCompletionInstant,
 } from '../tasks/completion-date.ts';
 import { BOT_ACTOR_TIME_ZONE } from './keys.ts';
+import { TASK_CATEGORY_ERROR, taskCategoryShapeError } from './task-create.ts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DAY = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9:_.-]{7,199}$/;
-const CATEGORIES = new Set(['content', 'technical', 'local', 'links', 'strategy', 'admin']);
 const MAX_HOURS = 24;
 
 const ALLOWED = new Set([
@@ -153,10 +153,12 @@ export function parseBotTimeRequest(body: unknown, now: Date): BotRequestParse {
 
     let category: string | undefined;
     if ('category' in record && record.category != null && record.category !== '') {
-        category = text(record.category);
-        if (!category || !CATEGORIES.has(category)) {
-            return fail(400, 'invalid_request', 'category must be content, technical, local, links, strategy, or admin.');
+        if (typeof record.category !== 'string') {
+            return fail(400, 'invalid_request', TASK_CATEGORY_ERROR);
         }
+        category = text(record.category);
+        const shape = category ? taskCategoryShapeError(category) : 'category must be one line.';
+        if (!category || shape) return fail(400, 'invalid_request', shape ?? TASK_CATEGORY_ERROR);
     }
 
     let dueDate: string | undefined;

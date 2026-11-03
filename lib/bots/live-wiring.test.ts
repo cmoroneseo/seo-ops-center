@@ -20,6 +20,8 @@ test('the bot and the UI call the same Basecamp push and timesheet handlers', ()
     assert.match(botLive, /createLiveBasecampTimesheetPost/);
     assert.match(botLive, /basecampStepFromResponse/);
     assert.match(botLive, /BOT_ACTOR_EMAIL/);
+    assert.match(botLive, /botCreatedTaskRow/);
+    assert.match(botLive, /clientCategories/);
     assert.match(botRoute, /handleBotTimeRequest/);
     assert.match(botRoute, /liveBotTimeDeps/);
     assert.doesNotMatch(botRoute, /createAdminClient|SUPABASE_SERVICE_ROLE_KEY/);

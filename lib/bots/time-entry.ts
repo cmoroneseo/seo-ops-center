@@ -1,5 +1,6 @@
 import { bearerToken, isBotKeyToken } from './scope.ts';
 import { parseBotTimeRequest, type BotTimeCommand } from './request.ts';
+import { isBuiltInTaskCategory, TASK_CATEGORY_ERROR, taskCategoryAllowed } from './task-create.ts';
 import { taskStatusUpdate } from '../tasks/status.ts';
 import type { TaskStatusHistoryEntryLike } from '../tasks/status.ts';
 
@@ -86,6 +87,8 @@ export interface BotTimeDeps {
     }): Promise<BotOperationRecord | 'conflict'>;
     saveOperation(id: string, patch: Partial<Pick<BotOperationRecord, 'status' | 'lockedAt' | 'taskId' | 'timeLogId' | 'httpStatus' | 'response'>>): Promise<void>;
     findClient(organizationId: string, command: BotTimeCommand): Promise<BotClientRecord | null | 'ambiguous'>;
+    /** Exact `tasks.category` values this client already has. Used only when a new task names a label outside the built-in set. */
+    clientCategories(organizationId: string, clientId: string): Promise<string[]>;
     findTask(organizationId: string, clientId: string, command: BotTimeCommand): Promise<BotTaskRecord | null | 'ambiguous'>;
     getTask(taskId: string): Promise<BotTaskRecord | null>;
     insertTask(input: {
@@ -223,6 +226,12 @@ async function execute(
         } else if (!command.taskTitle) {
             return { status: 400, body: errorBody('invalid_request', 'createTask requires taskTitle.') };
         } else {
+            if (command.category && !isBuiltInTaskCategory(command.category)) {
+                const existing = await deps.clientCategories(key.organizationId, client.id);
+                if (!taskCategoryAllowed(command.category, existing)) {
+                    return { status: 400, body: errorBody('invalid_request', TASK_CATEGORY_ERROR) };
+                }
+            }
             const inserted = await deps.insertTask({
                 organizationId: key.organizationId,
                 clientId: client.id,
