@@ -413,6 +413,8 @@ export interface TimeLogEditPatch {
     category?: string;
     date: string;
     sessionNotes: SessionNote[];
+    /** Set when the owner accepts a bot timer that was stopped at the cap. */
+    status?: 'logged';
 }
 
 /**

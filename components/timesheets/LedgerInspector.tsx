@@ -98,6 +98,7 @@ export function LedgerInspector({
                     {rowEntries.map(entry => {
                         const heading = formatDayHeading(entry.date);
                         const needsReview = entry.importStatus === 'needs_context';
+                        const cappedBotTimer = entry.status === 'needs_review';
                         const splitNote = midnightSplitLabel(entry, entries);
                         return (
                             <li
@@ -135,8 +136,24 @@ export function LedgerInspector({
                                     </span>
                                 </div>
 
+                                {cappedBotTimer && (
+                                    <p className="mt-2 flex items-start gap-2 text-sm text-amber-500">
+                                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                                        <span>
+                                            Stopped at 2 hours.
+                                            {entry.clientName ? ` ${entry.clientName}.` : ''}
+                                            {' '}Review it in the client activity feed before it counts.
+                                        </span>
+                                    </p>
+                                )}
+
                                 <div className="mt-3 flex items-center justify-between gap-3">
-                                    {needsReview ? (
+                                    {cappedBotTimer ? (
+                                        <span className="flex items-center gap-2 text-sm text-amber-500">
+                                            <AlertTriangle className="h-4 w-4" aria-hidden />
+                                            Needs review
+                                        </span>
+                                    ) : needsReview ? (
                                         <span className="flex items-center gap-2 text-sm text-amber-500">
                                             <AlertTriangle className="h-4 w-4" aria-hidden />
                                             Needs mapping

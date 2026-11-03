@@ -1,7 +1,15 @@
 /** Bearer tokens minted for SEO bots. Not a Supabase key. */
 export const BOT_KEY_PREFIX = 'seo_bot_';
 
-export const BOT_TIME_PATH = '/api/bots/time';
+export const BOT_TASKS_PATH = '/api/bots/tasks';
+export const BOT_TIMER_START_PATH = '/api/bots/timer/start';
+export const BOT_TIMER_STOP_PATH = '/api/bots/timer/stop';
+
+const BOT_POST_PATHS = new Set([
+    BOT_TASKS_PATH,
+    BOT_TIMER_START_PATH,
+    BOT_TIMER_STOP_PATH,
+]);
 
 export function bearerToken(authorization: string | null | undefined): string | null {
     if (!authorization) return null;
@@ -14,7 +22,7 @@ export function isBotKeyToken(token: string | null | undefined): boolean {
 }
 
 /**
- * A bot key is allowed to POST the time entry route and nothing else.
+ * A bot key may POST task create and the timer start/stop routes, and nothing else.
  * Missing or non-bot credentials are ignored so session and cron auth keep working.
  */
 export function botRequestDecision(input: {
@@ -23,6 +31,6 @@ export function botRequestDecision(input: {
     authorization: string | null | undefined;
 }): 'allow' | 'forbid' | 'ignore' {
     if (!isBotKeyToken(bearerToken(input.authorization))) return 'ignore';
-    if (input.pathname === BOT_TIME_PATH && input.method.toUpperCase() === 'POST') return 'allow';
+    if (input.method.toUpperCase() === 'POST' && BOT_POST_PATHS.has(input.pathname)) return 'allow';
     return 'forbid';
 }

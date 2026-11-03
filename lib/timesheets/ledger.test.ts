@@ -223,6 +223,33 @@ test('voided imports are excluded from every total', () => {
     assert.equal(ledger.totals.unmappedCount, 0);
 });
 
+test('a capped bot timer is visible for review and is not client budget time', () => {
+    const ledger = buildWeeklyLedger(
+        [
+            log({
+                id: 'capped',
+                date: '2026-08-24',
+                hours: 2,
+                status: 'needs_review',
+                description: 'Stopped automatically at the 2 hour cap.',
+                taskTitle: 'Brief',
+            }),
+            log({ id: 'ok', date: '2026-08-24', hours: 1 }),
+        ],
+        '2026-08-23',
+    );
+
+    const review = ledger.clients.find(group => group.clientName === 'Bot timer review');
+    const client = ledger.clients.find(group => group.clientId === 'client-a');
+    assert.equal(review?.needsReview, true);
+    assert.equal(review?.totalMinutes, 120);
+    assert.equal(review?.rows[0].taskTitle, 'Brief');
+    assert.equal(client?.budgetMinutes, 60);
+    assert.equal(ledger.totals.budgetMinutes, 60);
+    assert.equal(ledger.totals.unmappedCount, 0);
+    assert.equal(ledger.exceptions[0]?.kind, 'bot_timer_cap');
+});
+
 test('running timers are excluded from the ledger', () => {
     const ledger = buildWeeklyLedger(
         [log({ id: 'running', date: '2026-08-24', hours: 0, status: 'in_progress' })],

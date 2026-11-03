@@ -253,31 +253,40 @@ export function TeamTimesheetView({ organizationId, weekStart }: TeamTimesheetVi
                         <ul className="mt-3 space-y-2">
                             {summary.exceptions.map(exception => {
                                 const heading = formatDayHeading(exception.date);
+                                const capped = exception.kind === 'bot_timer_cap';
+                                const className = 'w-full rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-left hover:bg-amber-500/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary';
+                                const inner = (
+                                    <>
+                                        <span className="flex items-center justify-between gap-2 text-sm text-foreground">
+                                            <span className="flex items-center gap-2">
+                                                <AlertTriangle className="h-4 w-4 text-amber-500" aria-hidden />
+                                                {capped ? 'Bot timer stopped at 2 hours' : 'Unmapped entry'}
+                                            </span>
+                                            <span className="tabular-nums">
+                                                {formatDuration(exception.minutes, { zero: '0m' })}
+                                            </span>
+                                        </span>
+                                        <span className="mt-1 block text-xs text-muted-foreground">
+                                            {heading.weekday} {heading.date}
+                                            {exception.description ? ` · ${exception.description}` : ''}
+                                        </span>
+                                    </>
+                                );
                                 return (
                                     <li key={exception.timeLogId}>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                window.dispatchEvent(
-                                                    new CustomEvent('timesheets:open-imports'),
-                                                );
-                                            }}
-                                            className="w-full rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-left hover:bg-amber-500/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-                                        >
-                                            <span className="flex items-center justify-between gap-2 text-sm text-foreground">
-                                                <span className="flex items-center gap-2">
-                                                    <AlertTriangle className="h-4 w-4 text-amber-500" aria-hidden />
-                                                    Unmapped entry
-                                                </span>
-                                                <span className="tabular-nums">
-                                                    {formatDuration(exception.minutes, { zero: '0m' })}
-                                                </span>
-                                            </span>
-                                            <span className="mt-1 block text-xs text-muted-foreground">
-                                                {heading.weekday} {heading.date}
-                                                {exception.description ? ` · ${exception.description}` : ''}
-                                            </span>
-                                        </button>
+                                        {capped ? (
+                                            <div className={className}>{inner}</div>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    window.dispatchEvent(new CustomEvent('timesheets:open-imports'));
+                                                }}
+                                                className={className}
+                                            >
+                                                {inner}
+                                            </button>
+                                        )}
                                     </li>
                                 );
                             })}
