@@ -14,6 +14,7 @@ import { taskDescriptionText, taskDescriptionChanged } from '@/lib/tasks/descrip
 import { descriptionSaveLabel } from '@/lib/tasks/description-save';
 import { useDescriptionAutosave } from '@/lib/tasks/use-description-autosave';
 import { mergeSavedTask } from '@/lib/tasks/merge-saved-task';
+import { basecampTodoIdFrom, taskWithBasecampLink } from '@/lib/tasks/basecamp-send-state';
 import { listedSubtaskProgress, progressOf } from '@/lib/tasks/subtask-progress';
 import { SubtaskProgressText } from './SubtaskProgressText';
 import { Task, TaskComment, TaskStatus, TaskPriority, TaskCategory, TimerAttempt } from '@/lib/types';
@@ -57,6 +58,16 @@ interface TaskDetailModalProps {
     hideBasecampSend?: boolean;
     /** Tests pass a recorder. The modal otherwise writes the time log itself. */
     saveTimeLog?: typeof createTimeLog;
+    /**
+     * Tests pass the readers the send button depends on. The modal otherwise
+     * uses the signed-in Supabase client.
+     */
+    taskReaders?: {
+        getTask?: typeof getTask;
+        getTaskComments?: typeof getTaskComments;
+        getTaskTimeLogs?: typeof getTaskTimeLogs;
+        getClientBasecampConfig?: typeof getClientBasecampConfig;
+    };
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
@@ -176,7 +187,7 @@ function TaskTimeLogRow({
     );
 }
 
-export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId, initialCompletion = false, embedded = false, hideBasecampSend = false, saveTimeLog = createTimeLog }: TaskDetailModalProps) {
+export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId, initialCompletion = false, embedded = false, hideBasecampSend = false, saveTimeLog = createTimeLog, taskReaders }: TaskDetailModalProps) {
     const { organization, memberships } = useOrganization();
     const { runningTimer, pausedTimers, startTask, pause, resume, beginStop } = useTimer();
     const [timerPending, setTimerPending] = useState(false);
@@ -198,6 +209,10 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     // Whether this client takes Basecamp to-dos at all, so a task that never
     // reached Basecamp can be sent without leaving this screen.
     const [basecampTodoTarget, setBasecampTodoTarget] = useState<{ projectId: string } | null>(null);
+    // The row can already hold a to-do id while the task prop still doesn't.
+    // Remember it here so the button does not flip back to "Not in Basecamp"
+    // when a parent ignores the updated task or has not re-rendered yet.
+    const [linkedTodoId, setLinkedTodoId] = useState<string | null>(null);
     const [pushingTodo, setPushingTodo] = useState(false);
     const [todoPushOutcome, setTodoPushOutcome] = useState<PushOutcome | null>(null);
     const [subtaskNestNote, setSubtaskNestNote] = useState<string | null>(null);
@@ -307,6 +322,8 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         promptedCompletion.current = false;
         setCompletionError(null);
         completionOperationId.current = null;
+        setLinkedTodoId(null);
+        setTodoPushOutcome(null);
     }, [task?.id]);
 
     useEffect(() => {
@@ -343,12 +360,15 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         const requestedId = current.id;
         setLoadingTaskTime(true);
         try {
+            const readComments = taskReaders?.getTaskComments ?? getTaskComments;
+            const readTask = taskReaders?.getTask ?? getTask;
+            const readLogs = taskReaders?.getTaskTimeLogs ?? getTaskTimeLogs;
             const [commentsData, taskData] = await Promise.all([
-                getTaskComments(requestedId),
-                getTask(requestedId),
+                readComments(requestedId),
+                readTask(requestedId),
             ]);
             if (taskRef.current?.id !== requestedId) return;
-            const logs = await getTaskTimeLogs(requestedId, taskData.subtasks.map(subtask => subtask.id));
+            const logs = await readLogs(requestedId, taskData.subtasks.map(subtask => subtask.id));
             if (taskRef.current?.id !== requestedId) return;
             setComments(commentsData);
             setLoggedHours(taskData.loggedHours);
@@ -362,9 +382,13 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             setSubtasksUnavailable(false);
             setSubtasksReady(true);
             const latest = taskRef.current;
+            const fetchedTodoId = basecampTodoIdFrom(taskData.task.basecampTodoId);
+            if (fetchedTodoId) setLinkedTodoId(fetchedTodoId);
             if (latest) {
-                onUpdateRef.current?.(mergeSavedTask(latest, {
-                    ...latest,
+                onUpdateRef.current?.(taskWithBasecampLink(latest, {
+                    basecampTodoId: taskData.task.basecampTodoId,
+                    basecampProjectId: taskData.task.basecampProjectId,
+                    lastSyncedAt: taskData.task.lastSyncedAt,
                     subtasks: taskData.task.subtasks,
                     subtasksState: 'ready',
                 }));
@@ -377,7 +401,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         } finally {
             setLoadingTaskTime(false);
         }
-    }, []);
+    }, [taskReaders]);
 
     useEffect(() => {
         if (!task?.clientId) { setBasecampAvailable(false); return; }
@@ -391,11 +415,12 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     useEffect(() => {
         if (!task?.clientId) { setBasecampTodoTarget(null); return; }
         let cancelled = false;
-        void getClientBasecampConfig(task.clientId).then(config => {
+        const readConfig = taskReaders?.getClientBasecampConfig ?? getClientBasecampConfig;
+        void readConfig(task.clientId).then(config => {
             if (!cancelled) setBasecampTodoTarget(config);
         });
         return () => { cancelled = true; };
-    }, [task?.clientId]);
+    }, [task?.clientId, taskReaders]);
 
     /**
      * Send a task to Basecamp that never made it.
@@ -414,8 +439,23 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'create_todo', taskId: task.id }),
             });
-            const body = await res.json().catch(() => null);
-            setTodoPushOutcome(pushOutcomeFor(res.status, body));
+            const body = await res.json().catch(() => null) as { todoId?: unknown; success?: boolean; partial?: boolean; subtasksSkipped?: unknown; subtasksPreserved?: unknown } | null;
+            const outcome = pushOutcomeFor(res.status, body);
+            setTodoPushOutcome(outcome);
+            const returnedId = basecampTodoIdFrom(body?.todoId);
+            // The route writes the id before this response. Apply it now, and
+            // again from the refetch below, so a parent that still holds the
+            // pre-send task cannot paint "Not in Basecamp" with no error.
+            if (returnedId && (outcome === 'pushed' || body?.success === true || body?.partial === true)) {
+                setLinkedTodoId(returnedId);
+                const current = taskRef.current;
+                if (current) {
+                    onUpdateRef.current?.(taskWithBasecampLink(current, {
+                        basecampTodoId: returnedId,
+                        basecampProjectId: basecampTodoTarget?.projectId,
+                    }));
+                }
+            }
             const skipped = body && typeof body.subtasksSkipped === 'number' ? body.subtasksSkipped : 0;
             const preserved = body && typeof body.subtasksPreserved === 'number' ? body.subtasksPreserved : 0;
             setSubtaskNestNote(skipped > 0
@@ -429,7 +469,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             setPushingTodo(false);
             await loadTaskData();
         }
-    }, [task, pushingTodo, loadTaskData]);
+    }, [task, pushingTodo, loadTaskData, basecampTodoTarget]);
 
     const rememberSyncNotice = useCallback((timeLogId: string, message: string | null) => {
         setSyncNotices(current => {
@@ -1313,7 +1353,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                           Only when this client takes Basecamp to-dos and this
                           task has none. A task that already synced says nothing.
                         */}
-                        {!hideBasecampSend && basecampTodoTarget && !task.basecampTodoId && (
+                        {!hideBasecampSend && basecampTodoTarget && !(task.basecampTodoId || linkedTodoId) && (
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
                                     <RefreshCw className="h-3 w-3" /> Basecamp
