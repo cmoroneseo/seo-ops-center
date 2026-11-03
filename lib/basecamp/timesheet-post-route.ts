@@ -344,7 +344,15 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
                     return rejectSetup('Time log has no authorized Basecamp project');
                 }
                 if (action === 'sync' && (!log.syncEnabled || !log.timesheetEnabled)) {
-                    return json({ skipped: true, reason: 'timesheet sync not enabled for this client' });
+                    const reason = 'timesheet sync not enabled for this client';
+                    if (dependencies.recordSyncError) {
+                        await dependencies.recordSyncError({
+                            timeLogId: log.id,
+                            organizationId: log.organizationId,
+                            message: reason,
+                        });
+                    }
+                    return json({ skipped: true, reason });
                 }
 
                 const link = timesheetTaskLink(log);
@@ -427,13 +435,32 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
             const linkedLog = link.subtask && link.todoId
                 ? { ...log, taskBasecampTodoId: link.todoId, taskBasecampProjectId: link.projectId }
                 : log;
-            return dependencies.performAuthorized(body, {
+            const response = await dependencies.performAuthorized(body, {
                 authorization,
                 log: linkedLog,
                 projectId: projectAccess.projectId,
                 recordingId,
                 entryId: canonicalEntryId,
             });
+            if (action === 'sync' && dependencies.recordSyncError) {
+                const payload = await response.clone().json().catch(() => null) as {
+                    skipped?: boolean;
+                    reason?: string;
+                    success?: boolean;
+                    error?: string;
+                } | null;
+                const reason = payload?.skipped === true
+                    ? payload.reason
+                    : (payload?.success === false ? payload.error : undefined);
+                if (reason && reason !== 'not synced yet') {
+                    await dependencies.recordSyncError({
+                        timeLogId: log.id,
+                        organizationId: log.organizationId,
+                        message: reason,
+                    });
+                }
+            }
+            return response;
         } catch {
             return json({ error: 'Unable to authorize Basecamp timesheet operation' }, 500);
         }

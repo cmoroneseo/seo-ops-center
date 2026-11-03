@@ -49,7 +49,7 @@ function harness(logs: ProjectTimesheetLog[], entries: AdoptableTimesheetEntry[]
             return true;
         },
         async saveLink(saved) {
-            calls.push(`save:${saved.logId}:${saved.previousEntryId}->${saved.entryId}@${saved.recordingId}`);
+            calls.push(`save:${saved.logId}:${saved.previousEntryId ?? 'null'}->${saved.entryId}@${saved.recordingId}`);
             return true;
         },
     };
@@ -108,6 +108,16 @@ test('a delete failure leaves the local row pointed at the project entry', async
     assert.deepEqual(calls, [
         'create:77:2026-11-03:0.5:Reviewed redirects',
         'delete:900',
+    ]);
+});
+
+test('hours that never reached Basecamp are created on the to-do and the project entry is not deleted', async () => {
+    const { calls, deps } = harness([log({ entryId: null, recordingId: null, hours: 0.6 })]);
+    const result = await rehomeProjectTimesheetEntries(input, deps);
+    assert.deepEqual(result, { moved: 1, failed: 0 });
+    assert.deepEqual(calls, [
+        'create:77:2026-11-03:0.6:Reviewed redirects',
+        'save:log-1:null->901@77',
     ]);
 });
 

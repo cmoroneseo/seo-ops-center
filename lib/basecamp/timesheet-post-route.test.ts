@@ -529,6 +529,30 @@ test('repeated lost responses adopt the oldest unclaimed duplicate rather than c
     assert.equal(adopted, '41');
 });
 
+test('a sync the client cannot accept is stored on the time log instead of disappearing', async () => {
+    const { createBasecampTimesheetPost } = await loadRouteModule();
+    const recorded: string[] = [];
+    const post = createBasecampTimesheetPost({
+        authorizeTimeLog: async () => clientAuthorization,
+        createStore: () => ({
+            getTimeLog: async () => ({ ...baseLog, syncEnabled: false }),
+        }),
+        createAccessSource: () => externalSource(),
+        verifyEntry,
+        resolveRecording,
+        recordSyncError: async ({ message }) => { recorded.push(message); },
+        performAuthorized: async () => { throw new Error('provider work must not run'); },
+    });
+
+    const response = await post(request({ action: 'sync', timeLogId: 'log-a' }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+        skipped: true,
+        reason: 'timesheet sync not enabled for this client',
+    });
+    assert.deepEqual(recorded, ['timesheet sync not enabled for this client']);
+});
+
 test('setup failures are stored on the time log before any provider write', async () => {
     const { createBasecampTimesheetPost, SEND_TASK_TO_BASECAMP_FIRST } = await loadRouteModule();
     const recorded: string[] = [];

@@ -152,9 +152,7 @@ export function createLiveBasecampPushPost(authorizeTask: AuthorizeTask) {
                         .eq('task_id', candidateTaskId)
                         .eq('organization_id', candidateOrganizationId)
                         .eq('status', 'logged')
-                        .is('voided_at', null)
-                        .not('basecamp_entry_id', 'is', null)
-                        .not('basecamp_recording_id', 'is', null);
+                        .is('voided_at', null);
                     if (error) throw error;
                     const userIds = [...new Set((data ?? [])
                         .map(row => row.user_id)
@@ -174,20 +172,17 @@ export function createLiveBasecampPushPost(authorizeTask: AuthorizeTask) {
                             }
                         }
                     }
-                    return (data ?? []).flatMap(row => {
-                        const entryId = row.basecamp_entry_id;
-                        const recordingId = row.basecamp_recording_id;
-                        if (entryId == null || recordingId == null) return [];
+                    return (data ?? []).map(row => {
                         const personId = typeof row.user_id === 'string' ? personByUser.get(row.user_id) ?? null : null;
-                        return [{
+                        return {
                             id: row.id,
-                            entryId: String(entryId),
-                            recordingId: String(recordingId),
+                            entryId: row.basecamp_entry_id == null ? null : String(row.basecamp_entry_id),
+                            recordingId: row.basecamp_recording_id == null ? null : String(row.basecamp_recording_id),
                             date: String(row.date),
                             hours: Number(row.hours),
                             description: typeof row.description === 'string' ? row.description : null,
                             personId,
-                        }];
+                        };
                     });
                 },
                 async projectTimesheetRecordingId(candidateProjectId) {
@@ -220,7 +215,7 @@ export function createLiveBasecampPushPost(authorizeTask: AuthorizeTask) {
                 },
                 deleteEntry: entryId => deleteBasecampTimesheetEntry(entryId),
                 async saveLink(saved) {
-                    const { data, error } = await admin
+                    let query = admin
                         .from('time_logs')
                         .update({
                             basecamp_entry_id: Number(saved.entryId),
@@ -230,9 +225,11 @@ export function createLiveBasecampPushPost(authorizeTask: AuthorizeTask) {
                             basecamp_sync_error: null,
                         })
                         .eq('id', saved.logId)
-                        .eq('organization_id', saved.organizationId)
-                        .eq('basecamp_entry_id', Number(saved.previousEntryId))
-                        .select('id');
+                        .eq('organization_id', saved.organizationId);
+                    query = saved.previousEntryId
+                        ? query.eq('basecamp_entry_id', Number(saved.previousEntryId))
+                        : query.is('basecamp_entry_id', null);
+                    const { data, error } = await query.select('id');
                     return !error && (data?.length ?? 0) > 0;
                 },
             });

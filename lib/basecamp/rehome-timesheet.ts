@@ -1,8 +1,7 @@
 /**
- * Time logged before a task has a Basecamp to-do lands on the project timesheet
- * and stays there after Send to Basecamp creates the to-do. Move those entries
- * onto the to-do: create (or adopt) the new entry, delete the project entry,
- * then point the local row at the new id.
+ * Time logged before a task has a Basecamp to-do either lands on the project
+ * timesheet or never leaves SEO Ops. When the to-do is linked, move the
+ * project entries onto it and create the hours that never synced.
  *
  * A crash between those steps is safe to retry. The new entry is adopted
  * instead of duplicated, and deleting an entry Basecamp has already removed
@@ -13,8 +12,9 @@ import { selectAdoptableTimesheetEntry, type AdoptableTimesheetEntry } from './t
 
 export interface ProjectTimesheetLog {
     id: string;
-    entryId: string;
-    recordingId: string;
+    /** Null when the hours were saved here and never reached Basecamp. */
+    entryId: string | null;
+    recordingId: string | null;
     date: string;
     hours: number;
     description: string | null;
@@ -42,7 +42,8 @@ export interface RehomeTimesheetDeps {
     saveLink(input: {
         logId: string;
         organizationId: string;
-        previousEntryId: string;
+        /** Null when this log has no Basecamp entry yet. */
+        previousEntryId: string | null;
         entryId: string;
         recordingId: string;
         projectId: string;
@@ -58,7 +59,12 @@ export async function rehomeProjectTimesheetEntries(
     if (!projectRecording || !todoId || projectRecording === todoId) return { moved: 0, failed: 0 };
 
     const logs = (await deps.listLogs(input.taskId, input.organizationId))
-        .filter(log => numeric(log.recordingId) === projectRecording && numeric(log.entryId));
+        .filter(log => {
+            const entryId = numeric(log.entryId);
+            const recordingId = numeric(log.recordingId);
+            if (!entryId) return log.hours > 0;
+            return recordingId === projectRecording;
+        });
     if (logs.length === 0) return { moved: 0, failed: 0 };
 
     const entries = await deps.listEntries(input.projectId);
@@ -72,10 +78,6 @@ export async function rehomeProjectTimesheetEntries(
     let failed = 0;
     for (const log of logs) {
         const entryId = numeric(log.entryId);
-        if (!entryId) {
-            failed += 1;
-            continue;
-        }
         const adopted = selectAdoptableTimesheetEntry(entries, {
             recordingId: todoId,
             date: log.date.slice(0, 10),
@@ -105,7 +107,7 @@ export async function rehomeProjectTimesheetEntries(
                 parent: { id: todoId, type: 'Todo' },
             });
         }
-        if (!await deps.deleteEntry(entryId)) {
+        if (entryId && !await deps.deleteEntry(entryId)) {
             failed += 1;
             continue;
         }

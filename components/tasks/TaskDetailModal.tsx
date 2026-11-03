@@ -1554,11 +1554,19 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                                 setSubmittingLog(true);
                                                 setLogFormError('');
                                                 const currentMember = memberships.find(m => m.organizationId === organization.id);
+                                                let eligible = basecampAvailable;
+                                                if (!eligible) {
+                                                    try {
+                                                        eligible = await getClientTimesheetSyncEnabled(task.clientId);
+                                                    } catch {
+                                                        eligible = true;
+                                                    }
+                                                }
                                                 const saved = manualTimeWrite({
                                                     billable: logBillable,
                                                     countsTowardBudget: logCountsTowardBudget,
                                                     sendOverride: logSendOverride,
-                                                }, { clientId: task.clientId, basecampEligible: basecampAvailable });
+                                                }, { clientId: task.clientId, basecampEligible: eligible });
                                                 const result = await saveTimeLog({
                                                     organizationId: organization.id,
                                                     clientId: task.clientId,
