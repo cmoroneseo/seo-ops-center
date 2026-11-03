@@ -578,3 +578,110 @@ test('a missing project and a mismatched task link are stored as the send error'
         'Task Basecamp link does not match client configuration',
     ]);
 });
+
+test('a subtask timesheet uses the parent to-do and does not use the step id or the project timesheet', async () => {
+    const { createBasecampTimesheetPost, timesheetTaskLink } = await loadRouteModule();
+    assert.deepEqual(timesheetTaskLink({
+        taskBasecampTodoId: '200',
+        taskBasecampProjectId: '202',
+        parentTaskId: 'parent-1',
+        parentBasecampTodoId: '88',
+        parentBasecampProjectId: '202',
+    }), { todoId: '88', projectId: '202', subtask: true });
+    assert.deepEqual(timesheetTaskLink({
+        taskBasecampTodoId: '77',
+        taskBasecampProjectId: '202',
+    }), { todoId: '77', projectId: '202', subtask: false });
+
+    let seen: { candidate: string | null; kind: string; todoId: unknown } | null = null;
+    const post = createBasecampTimesheetPost({
+        authorizeTimeLog: async () => clientAuthorization,
+        createStore: () => ({
+            getTimeLog: async () => ({
+                ...baseLog,
+                taskBasecampTodoId: '200',
+                cachedRecordingId: '66',
+                parentTaskId: 'parent-1',
+                parentBasecampTodoId: '88',
+                parentBasecampProjectId: '202',
+            }),
+        }),
+        createAccessSource: () => externalSource(),
+        verifyEntry,
+        resolveRecording: async (_projectId, candidate, kind) => {
+            seen = { candidate, kind, todoId: null };
+            return candidate;
+        },
+        performAuthorized: async (_body, context) => {
+            if (seen) seen.todoId = context.log.taskBasecampTodoId;
+            return Response.json({ success: true });
+        },
+    });
+
+    const response = await post(request({ action: 'sync', timeLogId: 'log-a', recordingId: '999' }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(seen, { candidate: '88', kind: 'task-todo', todoId: '88' });
+});
+
+test('a subtask with no parent to-do does not fall through to the project timesheet', async () => {
+    const { createBasecampTimesheetPost, NO_TIMESHEET_RECORDING } = await loadRouteModule();
+    let kind: string | null = null;
+    const post = createBasecampTimesheetPost({
+        authorizeTimeLog: async () => clientAuthorization,
+        createStore: () => ({
+            getTimeLog: async () => ({
+                ...baseLog,
+                taskBasecampTodoId: '200',
+                taskBasecampProjectId: '202',
+                cachedRecordingId: '66',
+                parentTaskId: 'parent-1',
+                parentBasecampTodoId: null,
+                parentBasecampProjectId: null,
+            }),
+        }),
+        createAccessSource: () => externalSource(),
+        verifyEntry,
+        resolveRecording: async (_projectId, candidate, candidateKind) => {
+            kind = candidateKind;
+            assert.equal(candidate, '200');
+            return null;
+        },
+        performAuthorized: async () => { throw new Error('project timesheet must not be used'); },
+    });
+
+    const response = await post(request({ action: 'sync', timeLogId: 'log-a' }));
+    assert.equal(response.status, 409);
+    assert.equal(kind, 'task-todo');
+    assert.deepEqual(await response.json(), { error: NO_TIMESHEET_RECORDING });
+});
+
+test('a subtask whose parent has no Basecamp to-do does not use the cached project timesheet', async () => {
+    const { createBasecampTimesheetPost, SEND_TASK_TO_BASECAMP_FIRST } = await loadRouteModule();
+    let resolved: { candidate: string | null; kind: string } | null = null;
+    const post = createBasecampTimesheetPost({
+        authorizeTimeLog: async () => clientAuthorization,
+        createStore: () => ({
+            getTimeLog: async () => ({
+                ...baseLog,
+                taskBasecampTodoId: null,
+                taskBasecampProjectId: null,
+                cachedRecordingId: '66',
+                parentTaskId: 'parent-1',
+                parentBasecampTodoId: null,
+                parentBasecampProjectId: null,
+            }),
+        }),
+        createAccessSource: () => externalSource(),
+        verifyEntry,
+        resolveRecording: async (_projectId, candidate, candidateKind) => {
+            resolved = { candidate, kind: candidateKind };
+            return null;
+        },
+        performAuthorized: async () => { throw new Error('project timesheet must not be used'); },
+    });
+
+    const response = await post(request({ action: 'sync', timeLogId: 'log-a' }));
+    assert.equal(response.status, 409);
+    assert.deepEqual(resolved, { candidate: null, kind: 'task-todo' });
+    assert.deepEqual(await response.json(), { error: SEND_TASK_TO_BASECAMP_FIRST });
+});

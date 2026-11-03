@@ -36,6 +36,10 @@ export interface CanonicalTimeLog {
     cachedRecordingId: string | number | null;
     taskBasecampTodoId: string | number | null;
     taskBasecampProjectId: string | number | null;
+    /** Set when this time log is on a subtask. The parent's to-do is the timesheet target. */
+    parentTaskId?: string | null;
+    parentBasecampTodoId?: string | number | null;
+    parentBasecampProjectId?: string | number | null;
     /** Lets the comment recognize a description that is only the title fallback. */
     taskTitle?: string | null;
     personId: number | null;
@@ -263,6 +267,42 @@ export function numericId(value: unknown): string | null {
     return /^\d+$/.test(normalized) ? normalized : null;
 }
 
+export interface TimesheetTaskLink {
+    todoId: string | null;
+    projectId: string | null;
+    /**
+     * Time on a subtask must not fall through to the project timesheet.
+     * A step id is not a timesheet recording. The parent to-do is.
+     */
+    subtask: boolean;
+}
+
+/**
+ * Where a time entry attaches in Basecamp.
+ * A top-level task uses its own to-do. A subtask uses the parent to-do when
+ * that parent is linked, and otherwise its own to-do only when the parent
+ * has none. Either way a subtask does not use the project-level timesheet.
+ */
+export function timesheetTaskLink(log: Pick<
+    CanonicalTimeLog,
+    'taskBasecampTodoId' | 'taskBasecampProjectId' | 'parentTaskId' | 'parentBasecampTodoId' | 'parentBasecampProjectId'
+>): TimesheetTaskLink {
+    const ownTodo = numericId(log.taskBasecampTodoId);
+    const ownProject = numericId(log.taskBasecampProjectId);
+    if (!log.parentTaskId) {
+        return { todoId: ownTodo, projectId: ownProject, subtask: false };
+    }
+    const parentTodo = numericId(log.parentBasecampTodoId);
+    const parentProject = numericId(log.parentBasecampProjectId);
+    if (parentTodo && parentProject) {
+        return { todoId: parentTodo, projectId: parentProject, subtask: true };
+    }
+    if (ownTodo && ownProject) {
+        return { todoId: ownTodo, projectId: ownProject, subtask: true };
+    }
+    return { todoId: null, projectId: parentProject ?? ownProject, subtask: true };
+}
+
 export function createBasecampTimesheetPost(dependencies: Dependencies) {
     return async function postBasecampTimesheet(req: Request): Promise<Response> {
         try {
@@ -307,8 +347,9 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
                     return json({ skipped: true, reason: 'timesheet sync not enabled for this client' });
                 }
 
-                const taskProjectId = numericId(log.taskBasecampProjectId);
-                const taskTodoId = numericId(log.taskBasecampTodoId);
+                const link = timesheetTaskLink(log);
+                const taskProjectId = link.projectId;
+                const taskTodoId = link.todoId;
                 if (taskProjectId && taskProjectId !== projectId) {
                     return rejectSetup('Task Basecamp link does not match client configuration');
                 }
@@ -316,8 +357,12 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
                     if (taskProjectId === projectId && taskTodoId) {
                         recordingId = taskTodoId;
                         recordingCandidateKind = 'task-todo';
+                    } else if (link.subtask) {
+                        recordingCandidateKind = 'task-todo';
                     }
-                    if (!recordingId) recordingId = numericId(log.cachedRecordingId);
+                    if (!recordingId && recordingCandidateKind !== 'task-todo') {
+                        recordingId = numericId(log.cachedRecordingId);
+                    }
                 }
             } else {
                 if (!authorization.organizationIsInternal) {
@@ -372,13 +417,19 @@ export function createBasecampTimesheetPost(dependencies: Dependencies) {
                     recordingCandidateKind,
                 );
                 if (!recordingId) {
-                    return rejectSetup(timesheetRecordingFailureMessage(log));
+                    return rejectSetup(timesheetRecordingFailureMessage({
+                        taskBasecampTodoId: timesheetTaskLink(log).todoId,
+                    }));
                 }
             }
 
+            const link = timesheetTaskLink(log);
+            const linkedLog = link.subtask && link.todoId
+                ? { ...log, taskBasecampTodoId: link.todoId, taskBasecampProjectId: link.projectId }
+                : log;
             return dependencies.performAuthorized(body, {
                 authorization,
-                log,
+                log: linkedLog,
                 projectId: projectAccess.projectId,
                 recordingId,
                 entryId: canonicalEntryId,
