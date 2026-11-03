@@ -17,6 +17,14 @@ function bodyOf(name: string): string {
     return source.slice(start, next === -1 ? undefined : next);
 }
 
+test('open timer reads ignore a bot timer attributed to the same user', () => {
+    const open = bodyOf('getTimerAttemptsForRange');
+    const running = open.slice(open.indexOf(".eq('status', 'in_progress')"));
+    assert.match(running, /\.is\('bot_key_id', null\)/);
+    const widget = bodyOf('getOpenTimerAttempts');
+    assert.match(widget, /\.is\('bot_key_id', null\)/);
+});
+
 test('planner range query only reads countable logged time', () => {
     const body = bodyOf('getTimerAttemptsForRange');
     const logged = body.slice(body.indexOf(".eq('status', 'logged')"), body.indexOf(".eq('status', 'in_progress')"));

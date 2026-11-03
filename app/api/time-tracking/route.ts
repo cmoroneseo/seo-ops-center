@@ -207,6 +207,7 @@ export async function POST(request: NextRequest): Promise<Response> {
                     .eq('id', String(args.p_time_log_id ?? ''))
                     .eq('user_id', authenticatedUserId)
                     .eq('status', 'in_progress')
+                    .is('bot_key_id', null)
                     .select('id')
                     .maybeSingle();
                 if (deleteError) throw deleteError;
@@ -224,6 +225,7 @@ export async function POST(request: NextRequest): Promise<Response> {
                 .select('*, clients(name), tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(*)')
                 .eq('user_id', userId)
                 .eq('status', 'in_progress')
+                .is('bot_key_id', null)
                 .order('created_at', { ascending: false });
             if (error) throw error;
             return timerStateFromRows(data ?? []);

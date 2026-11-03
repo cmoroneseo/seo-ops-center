@@ -140,13 +140,19 @@ export async function getTimeLogs(
         includeInProgress?: boolean;
         /** Review surfaces that deliberately show unapproved imports. */
         includeUnreviewedImports?: boolean;
+        /**
+         * Include bot timers stopped at the two-hour cap. They stay out of
+         * budget reads. The client activity feed is where the owner reviews them.
+         */
+        includeNeedsReview?: boolean;
     } = {},
 ): Promise<TimeLog[]> {
     const supabase = createClient();
     if (!supabase) { if (opts.throwOnError) throw new Error('Time data unavailable'); return []; }
     try {
         let q = supabase.from('time_logs').select('*, clients(name, launch_date, onboarding_date, setup_scope, status), tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(*)').eq('organization_id', organizationId);
-        if (!opts.includeInProgress) q = q.eq('status', 'logged');
+        if (opts.includeNeedsReview) q = q.in('status', ['logged', 'needs_review']);
+        else if (!opts.includeInProgress) q = q.eq('status', 'logged');
         if (!opts.includeUnreviewedImports) q = q.eq('import_status', COUNTABLE_IMPORT_STATUS);
         if (opts.clientId) q = q.eq('client_id', opts.clientId);
         if (opts.userId) q = q.eq('user_id', opts.userId);
@@ -251,7 +257,9 @@ export async function getTimerAttemptsForRange(
                 .from('time_logs')
                 .select(selection)
                 .eq('organization_id', organizationId)
-                .eq('status', 'in_progress'),
+                .eq('status', 'in_progress')
+                // A bot timer is the owner's row, but it is not his running timer.
+                .is('bot_key_id', null),
         ]);
         if (logged.error) throw logged.error;
         if (open.error) throw open.error;
@@ -487,7 +495,10 @@ export async function reconcilePlannerEventTimeLog(
 
 export async function updateTimeLog(
     id: string,
-    patch: Partial<Pick<TimeLog, 'hours' | 'description' | 'date' | 'billable' | 'category' | 'sessionNotes'>>,
+    patch: Partial<Pick<TimeLog, 'hours' | 'description' | 'date' | 'billable' | 'category' | 'sessionNotes'>> & {
+        /** Accepting a capped bot timer. No other status can be written here. */
+        status?: 'logged';
+    },
 ): Promise<{ success: boolean; error?: string }> {
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
@@ -571,6 +582,7 @@ export async function getOpenTimerAttempts(organizationId: string): Promise<Time
             .eq('organization_id', organizationId)
             .eq('user_id', user.id)
             .eq('status', 'in_progress')
+            .is('bot_key_id', null)
             .order('created_at', { ascending: false });
         if (error) throw error;
         return timerStateFromRows(data ?? []);

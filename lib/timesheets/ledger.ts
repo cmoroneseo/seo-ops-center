@@ -77,7 +77,7 @@ export interface LedgerTotals {
     unmappedCount: number;
 }
 
-export type LedgerExceptionKind = 'unmapped_import';
+export type LedgerExceptionKind = 'unmapped_import' | 'bot_timer_cap';
 
 export interface LedgerException {
     kind: LedgerExceptionKind;
@@ -104,6 +104,7 @@ export interface WeeklyLedgerOptions {
 const DAYS_IN_WEEK = 7;
 export const INTERNAL_GROUP_LABEL = 'Internal';
 export const REVIEW_GROUP_LABEL = 'Needs review';
+export const BOT_TIMER_REVIEW_LABEL = 'Bot timer review';
 
 /** Hours are numeric(5,2); minutes are the unit every total is carried in. */
 export function minutesFromHours(hours: number): number {
@@ -145,9 +146,13 @@ function emptyDays(): number[] {
     return Array.from({ length: DAYS_IN_WEEK }, () => 0);
 }
 
-/** A row that no longer reflects real, resolved, finalized work. */
+/**
+ * A row that no longer reflects real, resolved, finalized work.
+ * `needs_review` is a bot timer stopped at the two-hour cap. It is visible
+ * and it is not confirmed client time until the owner accepts it.
+ */
 function isLedgerEligible(log: LedgerLog): boolean {
-    return log.status === 'logged'
+    return (log.status === 'logged' || log.status === 'needs_review')
         && log.importStatus !== 'voided'
         && !log.voidedAt;
 }
@@ -174,6 +179,14 @@ interface GroupKey {
 }
 
 function groupKeyFor(log: LedgerLog): GroupKey {
+    if (log.status === 'needs_review') {
+        return {
+            clientId: null,
+            clientName: BOT_TIMER_REVIEW_LABEL,
+            isInternal: false,
+            needsReview: true,
+        };
+    }
     if (isUnmappedImport(log)) {
         return {
             clientId: null,
@@ -199,7 +212,7 @@ function groupKeyFor(log: LedgerLog): GroupKey {
 }
 
 function groupIdentity(key: GroupKey): string {
-    if (key.needsReview) return 'review';
+    if (key.needsReview) return `review:${key.clientName}`;
     return key.clientId ?? 'internal';
 }
 
@@ -265,15 +278,18 @@ export function buildWeeklyLedger(
         }
 
         // An unmapped import has no trustworthy task, so it rows up by entry.
-        const rowKey = key.needsReview
+        // A capped bot timer is already on a task. Keep that task so the owner
+        // can see which piece of work ran long.
+        const importReview = key.clientName === REVIEW_GROUP_LABEL;
+        const rowKey = importReview
             ? `${identity}:entry:${log.id}`
             : `${identity}:${log.taskId ?? 'untasked'}`;
         let row = group.rows.get(rowKey);
         if (!row) {
             row = {
                 key: rowKey,
-                taskId: key.needsReview ? null : (log.taskId ?? null),
-                taskTitle: key.needsReview
+                taskId: importReview ? null : (log.taskId ?? null),
+                taskTitle: importReview
                     ? (log.description || 'Imported entry')
                     : (log.taskTitle ?? 'Untasked time'),
                 sources: [],
@@ -312,10 +328,19 @@ export function buildWeeklyLedger(
             }
         }
 
-        if (key.needsReview) {
+        if (importReview) {
             totals.unmappedCount += 1;
             exceptions.push({
                 kind: 'unmapped_import',
+                timeLogId: log.id,
+                date: log.date,
+                minutes,
+                userId: log.userId,
+                description: log.description,
+            });
+        } else if (log.status === 'needs_review') {
+            exceptions.push({
+                kind: 'bot_timer_cap',
                 timeLogId: log.id,
                 date: log.date,
                 minutes,

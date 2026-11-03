@@ -98,3 +98,53 @@ test('one hash and one idempotency key cannot be stored twice', async () => {
         /bot_operations_idempotency_unique|duplicate key/,
     );
 });
+
+test('migration 114 is unapplied and allows one running timer per bot', async () => {
+    const sql = readFileSync(new URL('../../migrations/114_bot_running_timer.sql', import.meta.url), 'utf8');
+    const mirrored = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
+    for (const needle of [
+        'NOT APPLIED',
+        'sgszojorcftyaknruckh',
+        'Not applied in this change',
+        'time_logs_one_running_bot_timer',
+        'needs_review',
+    ]) {
+        assert.equal(sql.includes(needle), true, needle);
+    }
+    assert.equal(mirrored.includes(sql.trim()), true);
+    assert.equal(/^\s*(update|delete from|truncate)\s/im.test(sql.replace(/--.*$/gm, '')), false);
+
+    const db = new PGlite();
+    await db.exec(`
+        create table public.time_logs (
+          id uuid primary key default gen_random_uuid(),
+          bot_key_id uuid,
+          status text not null
+        );
+    `);
+    await db.exec(sql);
+    const botA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const botB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    await db.query(
+        `insert into public.time_logs (bot_key_id, status) values ($1, 'in_progress')`,
+        [botA],
+    );
+    await assert.rejects(
+        () => db.query(
+            `insert into public.time_logs (bot_key_id, status) values ($1, 'in_progress')`,
+            [botA],
+        ),
+        /time_logs_one_running_bot_timer|duplicate key/,
+    );
+    await db.query(
+        `insert into public.time_logs (bot_key_id, status) values ($1, 'logged')`,
+        [botA],
+    );
+    await db.query(
+        `insert into public.time_logs (bot_key_id, status) values ($1, 'in_progress')`,
+        [botB],
+    );
+    await db.query(
+        `insert into public.time_logs (bot_key_id, status) values (null, 'in_progress'), (null, 'in_progress')`,
+    );
+});

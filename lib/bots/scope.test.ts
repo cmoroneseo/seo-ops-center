@@ -6,14 +6,29 @@ import { botRequestDecision } from './scope.ts';
 
 const token = 'Bearer seo_bot_example';
 
-test('a bot key may only POST the time route', () => {
+test('a bot key may POST task create and timer start/stop only', () => {
     assert.equal(botRequestDecision({
-        pathname: '/api/bots/time',
+        pathname: '/api/bots/tasks',
+        method: 'POST',
+        authorization: token,
+    }), 'allow');
+    assert.equal(botRequestDecision({
+        pathname: '/api/bots/timer/start',
+        method: 'POST',
+        authorization: token,
+    }), 'allow');
+    assert.equal(botRequestDecision({
+        pathname: '/api/bots/timer/stop',
         method: 'POST',
         authorization: token,
     }), 'allow');
     assert.equal(botRequestDecision({
         pathname: '/api/bots/time',
+        method: 'POST',
+        authorization: token,
+    }), 'forbid');
+    assert.equal(botRequestDecision({
+        pathname: '/api/bots/timer/start',
         method: 'GET',
         authorization: token,
     }), 'forbid');
@@ -28,17 +43,12 @@ test('a bot key may only POST the time route', () => {
         authorization: token,
     }), 'forbid');
     assert.equal(botRequestDecision({
-        pathname: '/api/clients/abc',
-        method: 'DELETE',
-        authorization: token,
-    }), 'forbid');
-    assert.equal(botRequestDecision({
-        pathname: '/api/bots/time',
+        pathname: '/api/bots/tasks',
         method: 'POST',
         authorization: null,
     }), 'ignore');
     assert.equal(botRequestDecision({
-        pathname: '/api/cron/sync-gsc-history',
+        pathname: '/api/cron/cap-bot-timers',
         method: 'GET',
         authorization: 'Bearer some-other-secret',
     }), 'ignore');

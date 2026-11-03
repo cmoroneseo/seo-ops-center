@@ -171,6 +171,9 @@ export function EditTimeLogSheet({ log, onClose, onSaved }: EditTimeLogSheetProp
             });
             const data = await res.json();
             if (data.success) {
+                if (log.status === 'needs_review') {
+                    await updateTimeLog(log.id, { status: 'logged' });
+                }
                 setBcState('synced');
                 setBcError('');
             } else {
@@ -215,6 +218,7 @@ export function EditTimeLogSheet({ log, onClose, onSaved }: EditTimeLogSheetProp
                 category: category || undefined,
                 date,
                 sessionNotes: notes,
+                ...(log.status === 'needs_review' ? { status: 'logged' as const } : {}),
             },
             // updateTimeLog syncs Basecamp in place. The segment insert does not
             // push, so an edit never creates a second timesheet entry.
@@ -241,6 +245,7 @@ export function EditTimeLogSheet({ log, onClose, onSaved }: EditTimeLogSheetProp
                 date,
                 sessionNotes: notes,
                 segments: placedSegment,
+                ...(log.status === 'needs_review' ? { status: 'logged' as const } : {}),
             };
             if (result.segmentWarning) setFormError(result.segmentWarning);
             setShowSuccess(true);
@@ -336,6 +341,13 @@ export function EditTimeLogSheet({ log, onClose, onSaved }: EditTimeLogSheetProp
                                 {log.category && (
                                     <span className="text-xs text-muted-foreground">{log.category}</span>
                                 )}
+                            </div>
+                        )}
+
+                        {log.status === 'needs_review' && (
+                            <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-500">
+                                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                <span>This bot timer was stopped at 2 hours. Saving accepts the hours. Send to Basecamp when the amount is right.</span>
                             </div>
                         )}
 

@@ -4,7 +4,7 @@ import { botRequestDecision } from '@/lib/bots/scope'
 import { classifyActor, clientPortalAllowedPath, contactErrorKind, isPortalLoginPath } from '@/lib/portal/access-policy'
 
 export async function middleware(request: NextRequest) {
-    // A bot key is not a session. It may POST /api/bots/time and nothing else.
+    // A bot key is not a session. It may POST task create and timer start/stop, and nothing else.
     const botDecision = botRequestDecision({
         pathname: request.nextUrl.pathname,
         method: request.method,

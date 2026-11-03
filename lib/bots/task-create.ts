@@ -36,15 +36,25 @@ export function taskCategoryAllowed(category: string, existingLabels: readonly s
     return isBuiltInTaskCategory(category) || existingLabels.includes(category);
 }
 
+/** The only bot key allowed to create tasks. Compared case-insensitively. */
+export const SEO_MANAGER_BOT_NAME = 'seo-manager';
+
+export function isSeoManagerBot(name: string): boolean {
+    return name.trim().toLowerCase() === SEO_MANAGER_BOT_NAME;
+}
+
 export interface BotCreatedTaskInput {
     organizationId: string;
     clientId: string;
     title: string;
     category?: string;
     dueDate?: string;
+    parentTaskId?: string;
+    sortOrder?: number;
     actorUserId: string;
     botKeyId: string;
-    botOperationId: string;
+    /** Null on every row after the first created task in one call. The column is unique. */
+    botOperationId: string | null;
     now: string;
 }
 
@@ -71,6 +81,8 @@ export function botCreatedTaskRow(input: BotCreatedTaskInput): Record<string, un
             title: input.title,
             ...(input.category ? { category: input.category } : {}),
             ...(input.dueDate ? { dueDate: input.dueDate } : {}),
+            ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
+            ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
             assigneeIds: [input.actorUserId],
             createdBy: input.actorUserId,
             status: 'todo',
@@ -79,7 +91,7 @@ export function botCreatedTaskRow(input: BotCreatedTaskInput): Record<string, un
         assignee_id: input.actorUserId,
         status_history: [{ status: 'todo', at: input.now, by: input.actorUserId }],
         bot_key_id: input.botKeyId,
-        bot_operation_id: input.botOperationId,
+        ...(input.botOperationId ? { bot_operation_id: input.botOperationId } : {}),
     };
     for (const key of Object.keys(row)) {
         if (row[key] === undefined) delete row[key];

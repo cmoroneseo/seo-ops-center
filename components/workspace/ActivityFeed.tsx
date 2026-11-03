@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, type ReactNode } from 'react';
-import { Activity, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download, Pencil, RefreshCw, CheckSquare, ClipboardList, Send, Package, Building2, Target, Shield, FileCheck2, History } from 'lucide-react';
+import { Activity, AlertTriangle, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download, Pencil, RefreshCw, CheckSquare, ClipboardList, Send, Package, Building2, Target, Shield, FileCheck2, History } from 'lucide-react';
 // ChevronDown/ChevronUp kept — used in TimeLogRow and NoteRow expand toggles
 import { ClientProject, TimeLog, ClientNote, ClientAssignment, ClientActivityEvent } from '@/lib/types';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
@@ -50,7 +50,10 @@ function domainsOf(item: ActivityItem): Exclude<ActivityType, 'all'>[] {
 
 /** Hours contributed by an item, counted exactly once per underlying log. */
 function itemHours(item: ActivityItem): number {
-    return item.type === 'time_log' || item.type === 'time_and_completion' ? item.data.hours : 0;
+    if (item.type !== 'time_log' && item.type !== 'time_and_completion') return 0;
+    // A capped bot timer is visible here and stays out of the hour total until accepted.
+    if (item.data.status === 'needs_review') return 0;
+    return item.data.hours;
 }
 
 /** Fold correlated Stop-confirmation effects into one presentation item. */
@@ -175,6 +178,12 @@ function TimeLogRow({ log, onEdit, loggerName }: { log: TimeLog; onEdit: (log: T
                         <span className="text-muted-foreground text-xs ml-1.5">
                             {new Date(log.date.includes('T') ? log.date : log.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         </span>
+                        {log.status === 'needs_review' && (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-500 ml-1.5 align-middle">
+                                <AlertTriangle className="h-2.5 w-2.5" />
+                                Review — stopped at 2 hours
+                            </span>
+                        )}
                         {log.basecampEntryId && (
                             <span
                                 className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/70 ml-1.5 align-middle"
@@ -1011,7 +1020,7 @@ export function ActivityFeed({ client, refreshKey }: ActivityFeedProps) {
         if (!organization) return;
         setLoading(true);
         Promise.all([
-            getTimeLogs(organization.id, { clientId: client.id }),
+            getTimeLogs(organization.id, { clientId: client.id, includeNeedsReview: true }),
             getClientNotes(client.id),
             getClientAssignments(client.id),
             getClientActivity(client.id),

@@ -4,19 +4,23 @@ import { createLiveBasecampTimesheetPost } from '../basecamp/timesheet-live.ts';
 import { BOT_ACTOR_EMAIL, hashBotKey } from './keys.ts';
 import { botCreatedTaskRow } from './task-create.ts';
 import { matchBotTask } from './task-lookup.ts';
+import { BOT_TIMER_CAP_MS } from './timer.ts';
 import {
     basecampStepFromResponse,
     type BasecampStep,
     type BotActor,
     type BotClientRecord,
+    type BotDeps,
     type BotKeyRecord,
     type BotOperationRecord,
     type BotTaskRecord,
-    type BotTimeDeps,
-    type BotTimeLogRecord,
-} from './time-entry.ts';
+    type FinalizedBotLog,
+    type RunningBotTimer,
+} from './handle.ts';
 
 type Role = 'owner' | 'admin' | 'member' | 'viewer';
+
+const TASK_COLUMNS = 'id, organization_id, client_id, project_id, title, status, completed_at, status_history, basecamp_todo_id, basecamp_project_id, parent_task_id, category, due_date, bot_operation_id';
 
 function admin() {
     return createAdminClient();
@@ -27,6 +31,7 @@ function taskRecord(row: Record<string, unknown>): BotTaskRecord {
         id: String(row.id),
         organizationId: String(row.organization_id),
         clientId: String(row.client_id),
+        projectId: typeof row.project_id === 'string' ? row.project_id : null,
         title: String(row.title),
         status: typeof row.status === 'string' ? row.status : 'todo',
         completedAt: typeof row.completed_at === 'string' ? row.completed_at : null,
@@ -40,19 +45,44 @@ function taskRecord(row: Record<string, unknown>): BotTaskRecord {
     };
 }
 
-function logRecord(row: Record<string, unknown>): BotTimeLogRecord {
+function logRecord(row: Record<string, unknown>): FinalizedBotLog {
     const hours = Number(row.hours);
     return {
         id: String(row.id),
         taskId: String(row.task_id),
-        userId: String(row.user_id),
         date: String(row.date).slice(0, 10),
         hours,
         minutes: Math.round(hours * 60),
         description: typeof row.description === 'string' ? row.description : null,
         countsTowardBudget: row.counts_toward_budget !== false,
         billable: row.billable !== false,
+        status: row.status === 'needs_review' ? 'needs_review' : 'logged',
         basecampEntryId: row.basecamp_entry_id == null ? null : String(row.basecamp_entry_id),
+    };
+}
+
+function runningRecord(row: Record<string, unknown>): RunningBotTimer | null {
+    const startedAt = typeof row.timer_started_at === 'string' ? row.timer_started_at : null;
+    const taskId = typeof row.task_id === 'string' ? row.task_id : null;
+    const botKeyId = typeof row.bot_key_id === 'string' ? row.bot_key_id : null;
+    if (!startedAt || !taskId || !botKeyId) return null;
+    const task = row.tasks && typeof row.tasks === 'object' ? row.tasks as Record<string, unknown> : null;
+    const title = typeof task?.title === 'string'
+        ? task.title
+        : (typeof row.description === 'string' ? row.description : 'Task');
+    return {
+        id: String(row.id),
+        organizationId: String(row.organization_id),
+        clientId: String(row.client_id),
+        taskId,
+        taskTitle: title,
+        userId: String(row.user_id),
+        botKeyId,
+        startedAt,
+        description: typeof row.description === 'string' ? row.description : null,
+        countsTowardBudget: row.counts_toward_budget !== false,
+        billable: row.billable !== false,
+        projectId: typeof row.project_id === 'string' ? row.project_id : null,
     };
 }
 
@@ -70,6 +100,8 @@ function operationRecord(row: Record<string, unknown>): BotOperationRecord {
         response: row.response ?? null,
     };
 }
+
+const RUNNING_COLUMNS = 'id, organization_id, client_id, project_id, task_id, user_id, bot_key_id, timer_started_at, description, counts_toward_budget, billable, tasks(title)';
 
 async function authorizeTask(actor: BotActor, taskId: unknown) {
     if (typeof taskId !== 'string' || taskId.trim().length === 0) {
@@ -155,7 +187,7 @@ async function push(actor: BotActor, taskId: string, action: 'create_todo' | 'co
     return basecampStepFromResponse(response);
 }
 
-export function liveBotTimeDeps(): BotTimeDeps {
+export function liveBotDeps(): BotDeps {
     return {
         now: () => new Date(),
         async authenticate(token) {
@@ -166,13 +198,12 @@ export function liveBotTimeDeps(): BotTimeDeps {
                 .maybeSingle();
             if (error || !data || data.revoked_at) return null;
             await admin().from('bot_api_keys').update({ last_used_at: new Date().toISOString() }).eq('id', data.id);
-            const key: BotKeyRecord = {
+            return {
                 id: data.id,
                 organizationId: data.organization_id,
                 name: data.name,
                 revokedAt: null,
-            };
-            return key;
+            } satisfies BotKeyRecord;
         },
         async actor(organizationId) {
             const { data: user, error } = await admin()
@@ -274,7 +305,6 @@ export function liveBotTimeDeps(): BotTimeDeps {
         },
         async findTask(organizationId, clientId, command) {
             if (!command.taskTitle) return null;
-            const taskColumns = 'id, organization_id, client_id, title, status, completed_at, status_history, basecamp_todo_id, basecamp_project_id, parent_task_id, category, due_date, bot_operation_id';
             const scoped = () => admin()
                 .from('tasks')
                 .select('id, title, parent_task_id')
@@ -290,8 +320,6 @@ export function liveBotTimeDeps(): BotTimeDeps {
                     });
                 }
             };
-
-            // taskTitle alone stays on top-level tasks. A parent narrows the title to that parent's subtasks.
             if (!command.parentTaskId && !command.parentTitle) {
                 const { data, error } = await scoped()
                     .eq('title', command.taskTitle)
@@ -332,12 +360,20 @@ export function liveBotTimeDeps(): BotTimeDeps {
                     add(children);
                 }
             }
-
             const match = matchBotTask(refs, command);
-            if (!match.ok) return match;
+            if (!match.ok) {
+                const parent = refs.find(row => (
+                    row.parentTaskId == null
+                    && (command.parentTaskId ? row.id === command.parentTaskId : row.title === command.parentTitle)
+                ));
+                return {
+                    ...match,
+                    ...(parent && match.reason === 'missing' ? { parentId: parent.id } : {}),
+                };
+            }
             const { data, error } = await admin()
                 .from('tasks')
-                .select(taskColumns)
+                .select(TASK_COLUMNS)
                 .eq('id', match.taskId)
                 .eq('organization_id', organizationId)
                 .eq('client_id', clientId)
@@ -348,7 +384,7 @@ export function liveBotTimeDeps(): BotTimeDeps {
         async getTask(taskId) {
             const { data, error } = await admin()
                 .from('tasks')
-                .select('id, organization_id, client_id, title, status, completed_at, status_history, basecamp_todo_id, basecamp_project_id, parent_task_id, category, due_date, bot_operation_id')
+                .select(TASK_COLUMNS)
                 .eq('id', taskId)
                 .maybeSingle();
             if (error) throw error;
@@ -363,12 +399,14 @@ export function liveBotTimeDeps(): BotTimeDeps {
                     title: input.title,
                     ...(input.category ? { category: input.category } : {}),
                     ...(input.dueDate ? { dueDate: input.dueDate } : {}),
+                    ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
+                    ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
                     actorUserId: input.actor.userId,
                     botKeyId: input.botKeyId,
                     botOperationId: input.botOperationId,
                     now: input.now,
                 }))
-                .select('id, organization_id, client_id, title, status, completed_at, status_history, basecamp_todo_id, basecamp_project_id, parent_task_id, category, due_date, bot_operation_id')
+                .select(TASK_COLUMNS)
                 .single();
             if (error?.code === '23505') return 'conflict';
             if (error || !data) throw error ?? new Error('task insert failed');
@@ -384,53 +422,142 @@ export function liveBotTimeDeps(): BotTimeDeps {
                     ...(patch.status === 'done' ? { blocked_reason: null } : {}),
                 })
                 .eq('id', taskId)
-                .select('id, organization_id, client_id, title, status, completed_at, status_history, basecamp_todo_id, basecamp_project_id, parent_task_id, category, due_date, bot_operation_id')
+                .select(TASK_COLUMNS)
                 .single();
             if (error || !data) throw error ?? new Error('task update failed');
             return taskRecord(data);
         },
-        async findTimeLogByOperation(operationId) {
+        async findRunningTimer(botKeyId) {
             const { data, error } = await admin()
                 .from('time_logs')
-                .select('id, task_id, user_id, date, hours, description, counts_toward_budget, billable, basecamp_entry_id')
-                .eq('bot_operation_id', operationId)
+                .select(RUNNING_COLUMNS)
+                .eq('bot_key_id', botKeyId)
+                .eq('status', 'in_progress')
+                .not('timer_started_at', 'is', null)
+                .order('timer_started_at', { ascending: true })
+                .limit(1)
                 .maybeSingle();
-            if (error) throw error;
-            return data ? logRecord(data) : null;
+            if (error || !data) return null;
+            return runningRecord(data);
         },
-        async insertTimeLog(input) {
+        async listOverdueTimers(now) {
+            const cutoff = new Date(now.getTime() - BOT_TIMER_CAP_MS).toISOString();
+            const { data, error } = await admin()
+                .from('time_logs')
+                .select(RUNNING_COLUMNS)
+                .eq('status', 'in_progress')
+                .not('bot_key_id', 'is', null)
+                .not('timer_started_at', 'is', null)
+                .lt('timer_started_at', cutoff);
+            if (error) throw error;
+            return (data ?? []).map(runningRecord).filter((row): row is RunningBotTimer => row !== null);
+        },
+        async insertRunningTimer(input) {
             const { data, error } = await admin()
                 .from('time_logs')
                 .insert({
                     organization_id: input.organizationId,
                     client_id: input.clientId,
+                    project_id: input.projectId,
                     task_id: input.taskId,
                     user_id: input.actor.userId,
-                    date: input.command.date,
-                    hours: input.command.hours,
-                    description: input.command.description ?? null,
-                    billable: input.command.billable,
-                    counts_toward_budget: input.command.countsTowardBudget,
-                    status: 'logged',
+                    date: input.date,
+                    hours: 0,
+                    description: input.description,
+                    billable: input.billable,
+                    counts_toward_budget: input.countsTowardBudget,
+                    status: 'in_progress',
+                    timer_started_at: input.startedAt,
+                    elapsed_seconds: 0,
+                    category: input.category,
                     source: 'seo_pm',
-                    reference_links: input.command.referenceLink ? [input.command.referenceLink] : [],
                     bot_key_id: input.botKeyId,
                     bot_operation_id: input.botOperationId,
                 })
-                .select('id, task_id, user_id, date, hours, description, counts_toward_budget, billable, basecamp_entry_id')
+                .select(RUNNING_COLUMNS)
                 .single();
             if (error?.code === '23505') return 'conflict';
-            if (error || !data) throw error ?? new Error('time log insert failed');
-            return logRecord(data);
+            if (error || !data) throw error ?? new Error('timer insert failed');
+            const timer = runningRecord({ ...data, tasks: { title: input.taskTitle } });
+            if (!timer) throw new Error('timer insert failed');
+            return timer;
         },
-        async getTimeLog(timeLogId) {
+        async finalizeTimer(input) {
+            const first = input.slices[0];
+            if (!first) return null;
+            const status = input.capped ? 'needs_review' : 'logged';
+            const patch: Record<string, unknown> = {
+                date: first.date,
+                hours: first.hours,
+                description: input.description,
+                billable: input.billable,
+                counts_toward_budget: input.countsTowardBudget,
+                status,
+                timer_started_at: null,
+                elapsed_seconds: first.seconds,
+                operation_id: input.operationId,
+            };
+            if (input.botOperationId) patch.bot_operation_id = input.botOperationId;
+            if (input.note) {
+                patch.session_notes = [{
+                    id: input.operationId,
+                    text: input.note,
+                    createdAt: input.stoppedAt,
+                }];
+            }
             const { data, error } = await admin()
                 .from('time_logs')
-                .select('id, task_id, user_id, date, hours, description, counts_toward_budget, billable, basecamp_entry_id')
-                .eq('id', timeLogId)
+                .update(patch)
+                .eq('id', input.timer.id)
+                .eq('status', 'in_progress')
+                .select('id, task_id, date, hours, description, counts_toward_budget, billable, status, basecamp_entry_id')
                 .maybeSingle();
             if (error) throw error;
-            return data ? logRecord(data) : null;
+            if (!data) {
+                const { data: existing, error: readError } = await admin()
+                    .from('time_logs')
+                    .select('id, task_id, date, hours, description, counts_toward_budget, billable, status, basecamp_entry_id')
+                    .eq('id', input.timer.id)
+                    .maybeSingle();
+                if (readError || !existing || existing.status === 'in_progress') return null;
+                return [logRecord(existing)];
+            }
+            const { error: segmentError } = await admin().from('time_log_segments').insert({
+                time_log_id: input.timer.id,
+                organization_id: input.timer.organizationId,
+                user_id: input.timer.userId,
+                started_at: input.timer.startedAt,
+                ended_at: input.stoppedAt,
+            });
+            if (segmentError && segmentError.code !== '23505') throw segmentError;
+            const logs = [logRecord(data)];
+            for (const slice of input.slices.slice(1)) {
+                const { data: extra, error: extraError } = await admin()
+                    .from('time_logs')
+                    .insert({
+                        organization_id: input.timer.organizationId,
+                        client_id: input.timer.clientId,
+                        project_id: input.timer.projectId,
+                        task_id: input.timer.taskId,
+                        user_id: input.timer.userId,
+                        date: slice.date,
+                        hours: slice.hours,
+                        description: input.description,
+                        billable: input.billable,
+                        counts_toward_budget: input.countsTowardBudget,
+                        status,
+                        elapsed_seconds: slice.seconds,
+                        operation_id: input.operationId,
+                        category: null,
+                        source: 'seo_pm',
+                        bot_key_id: input.timer.botKeyId,
+                    })
+                    .select('id, task_id, date, hours, description, counts_toward_budget, billable, status, basecamp_entry_id')
+                    .single();
+                if (extraError || !extra) throw extraError ?? new Error('split day insert failed');
+                logs.push(logRecord(extra));
+            }
+            return logs;
         },
         pushTodo: (taskId, actor) => push(actor, taskId, 'create_todo'),
         completeTodo: (taskId, actor) => push(actor, taskId, 'complete_todo'),
