@@ -98,6 +98,16 @@ interface Dependencies {
     createStore(): PushStore;
     createAccessSource(): BasecampProjectAccessSource;
     provider: Provider;
+    /**
+     * Move this task's project-timesheet entries onto the to-do just linked.
+     * Absent in tests that only care about the to-do itself.
+     */
+    rehomeProjectTime?(input: {
+        taskId: string;
+        organizationId: string;
+        projectId: string;
+        todoId: string;
+    }): Promise<{ failed: number }>;
     now(): string;
 }
 
@@ -137,6 +147,43 @@ async function completeRecording(
         return provider.completeStep(projectId, recordingId);
     }
     return provider.completeTodo(projectId, recordingId);
+}
+
+/**
+ * Time that synced before this to-do existed is still on the project timesheet.
+ * A failure here is partial: the to-do is saved, and the next send tries again.
+ */
+async function moveProjectTime(
+    dependencies: Dependencies,
+    task: CanonicalTask,
+    projectId: string,
+    todoId: string,
+): Promise<Response | null> {
+    if (!dependencies.rehomeProjectTime) return null;
+    try {
+        const result = await dependencies.rehomeProjectTime({
+            taskId: task.id,
+            organizationId: task.organizationId,
+            projectId,
+            todoId,
+        });
+        if (result.failed > 0) {
+            return json({
+                success: false,
+                partial: true,
+                todoId,
+                error: 'Basecamp time could not be moved onto the to-do',
+            }, 502);
+        }
+        return null;
+    } catch {
+        return json({
+            success: false,
+            partial: true,
+            todoId,
+            error: 'Basecamp time could not be moved onto the to-do',
+        }, 502);
+    }
 }
 
 export function createBasecampPushPost(dependencies: Dependencies) {
@@ -256,6 +303,9 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                         );
                         if (updateError) return json({ error: updateError }, 500);
                     }
+
+                    const moved = await moveProjectTime(dependencies, task, projectId, String(created.id));
+                    if (moved) return moved;
 
                     const subtasks = await store.listSubtasks?.(
                         task.id,

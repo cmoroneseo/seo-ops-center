@@ -14,7 +14,12 @@ import {
     updateBasecampTodoDueDate,
     createBasecampTodoStep,
     basecampSubtaskSupport,
+    findProjectTimesheetRecordingId,
+    listBasecampProjectTimesheetEntries,
+    createBasecampTimesheetEntry,
+    deleteBasecampTimesheetEntry,
 } from './api.ts';
+import { rehomeProjectTimesheetEntries } from './rehome-timesheet.ts';
 import { createBasecampPushPost } from './push-route.ts';
 import { createSupabaseBasecampProjectAccessSource } from './supabase-project-access-source.ts';
 import { normalizeJsonObject } from './project-access.ts';
@@ -137,6 +142,101 @@ export function createLiveBasecampPushPost(authorizeTask: AuthorizeTask) {
             };
         },
         createAccessSource: () => createSupabaseBasecampProjectAccessSource(createAdminClient()),
+        async rehomeProjectTime({ taskId, organizationId, projectId, todoId }) {
+            const admin = createAdminClient();
+            return rehomeProjectTimesheetEntries({ taskId, organizationId, projectId, todoId }, {
+                async listLogs(candidateTaskId, candidateOrganizationId) {
+                    const { data, error } = await admin
+                        .from('time_logs')
+                        .select('id, date, hours, description, basecamp_entry_id, basecamp_recording_id, user_id')
+                        .eq('task_id', candidateTaskId)
+                        .eq('organization_id', candidateOrganizationId)
+                        .eq('status', 'logged')
+                        .is('voided_at', null)
+                        .not('basecamp_entry_id', 'is', null)
+                        .not('basecamp_recording_id', 'is', null);
+                    if (error) throw error;
+                    const userIds = [...new Set((data ?? [])
+                        .map(row => row.user_id)
+                        .filter((id): id is string => typeof id === 'string'))];
+                    const personByUser = new Map<string, number>();
+                    if (userIds.length > 0) {
+                        const { data: members, error: memberError } = await admin
+                            .from('organization_members')
+                            .select('user_id, basecamp_person_id')
+                            .eq('organization_id', candidateOrganizationId)
+                            .in('user_id', userIds);
+                        if (memberError) throw memberError;
+                        for (const member of members ?? []) {
+                            const personId = Number(member.basecamp_person_id);
+                            if (Number.isSafeInteger(personId) && personId > 0) {
+                                personByUser.set(member.user_id, personId);
+                            }
+                        }
+                    }
+                    return (data ?? []).flatMap(row => {
+                        const entryId = row.basecamp_entry_id;
+                        const recordingId = row.basecamp_recording_id;
+                        if (entryId == null || recordingId == null) return [];
+                        const personId = typeof row.user_id === 'string' ? personByUser.get(row.user_id) ?? null : null;
+                        return [{
+                            id: row.id,
+                            entryId: String(entryId),
+                            recordingId: String(recordingId),
+                            date: String(row.date),
+                            hours: Number(row.hours),
+                            description: typeof row.description === 'string' ? row.description : null,
+                            personId,
+                        }];
+                    });
+                },
+                async projectTimesheetRecordingId(candidateProjectId) {
+                    const recordingId = await findProjectTimesheetRecordingId(candidateProjectId);
+                    return recordingId == null ? null : String(recordingId);
+                },
+                async listEntries(candidateProjectId) {
+                    const entries = await listBasecampProjectTimesheetEntries(candidateProjectId);
+                    return entries.map(entry => ({
+                        id: entry.id,
+                        date: entry.date,
+                        hours: entry.hours,
+                        description: entry.description,
+                        parent: entry.parent,
+                    }));
+                },
+                async claimedEntryIds(candidateOrganizationId, entryIds) {
+                    const ids = entryIds.map(id => Number(id)).filter(id => Number.isSafeInteger(id));
+                    if (ids.length === 0) return [];
+                    const { data, error } = await admin
+                        .from('time_logs')
+                        .select('basecamp_entry_id')
+                        .eq('organization_id', candidateOrganizationId)
+                        .in('basecamp_entry_id', ids);
+                    if (error) throw error;
+                    return (data ?? []).map(row => row.basecamp_entry_id);
+                },
+                async createEntry(recordingId, fields) {
+                    return createBasecampTimesheetEntry(recordingId, fields);
+                },
+                deleteEntry: entryId => deleteBasecampTimesheetEntry(entryId),
+                async saveLink(saved) {
+                    const { data, error } = await admin
+                        .from('time_logs')
+                        .update({
+                            basecamp_entry_id: Number(saved.entryId),
+                            basecamp_recording_id: Number(saved.recordingId),
+                            basecamp_project_id: Number(saved.projectId),
+                            basecamp_synced_at: new Date().toISOString(),
+                            basecamp_sync_error: null,
+                        })
+                        .eq('id', saved.logId)
+                        .eq('organization_id', saved.organizationId)
+                        .eq('basecamp_entry_id', Number(saved.previousEntryId))
+                        .select('id');
+                    return !error && (data?.length ?? 0) > 0;
+                },
+            });
+        },
         provider: {
             isConfigured: isBasecampConfigured,
             getTodo: async (projectId, todoId) => {

@@ -726,3 +726,75 @@ test('creating a to-do for an open task does not complete it', async () => {
     assert.equal(response.status, 200);
     assert.equal(completed, false);
 });
+
+test('creating a to-do moves project-timesheet time onto that to-do after the link is saved', async () => {
+    const { createBasecampPushPost } = await loadRouteModule();
+    const calls: string[] = [];
+    const post = createBasecampPushPost({
+        authorizeTask: async () => authorized,
+        createStore: () => ({
+            getTask: async () => ({ ...canonicalTask, basecampTodoId: null, basecampProjectId: null, status: 'todo' }),
+            updateTaskLink: async (_taskId, _organizationId, _clientId, _projectId, recordingId) => {
+                calls.push(`link:${recordingId}`);
+                return null;
+            },
+            markTaskSynced: async () => null,
+        }),
+        createAccessSource: () => externalSource(),
+        rehomeProjectTime: async (moved) => {
+            calls.push(`rehome:${moved.taskId}:${moved.todoId}`);
+            return { failed: 0 };
+        },
+        provider: {
+            isConfigured: () => true,
+            getTodo: async () => null,
+            listTodolists: async () => [{ id: 44 }],
+            createTodo: async () => ({ id: 77, appUrl: 'https://3.basecamp.test/task/77' }),
+            completeTodo: async () => false,
+            reopenTodo: async () => false,
+            createComment: async () => null,
+            updateTodoDueDate: async () => false,
+            updateTodoAssignees: async () => false,
+        },
+        now: () => '2026-08-20T00:00:00.000Z',
+    });
+
+    const response = await post(request({ action: 'create_todo', taskId: 'task-a' }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls, ['link:77', 'rehome:task-a:77']);
+});
+
+test('a project-timesheet move that fails keeps the to-do and asks for another send', async () => {
+    const { createBasecampPushPost } = await loadRouteModule();
+    const post = createBasecampPushPost({
+        authorizeTask: async () => authorized,
+        createStore: () => ({
+            getTask: async () => canonicalTask,
+            updateTaskLink: async () => null,
+            markTaskSynced: async () => null,
+        }),
+        createAccessSource: () => externalSource(),
+        rehomeProjectTime: async () => ({ failed: 1 }),
+        provider: {
+            isConfigured: () => true,
+            getTodo: async (_projectId, todoId) => ({ id: todoId }),
+            listTodolists: async () => [{ id: 44 }],
+            createTodo: async () => { throw new Error('must reuse the linked to-do'); },
+            completeTodo: async () => true,
+            reopenTodo: async () => false,
+            createComment: async () => null,
+            updateTodoDueDate: async () => false,
+            updateTodoAssignees: async () => false,
+        },
+        now: () => '2026-08-20T00:00:00.000Z',
+    });
+
+    const response = await post(request({ action: 'create_todo', taskId: 'task-a' }));
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), {
+        success: false,
+        partial: true,
+        todoId: '77',
+        error: 'Basecamp time could not be moved onto the to-do',
+    });
+});
