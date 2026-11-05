@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import { isUuid } from '@/lib/reports/access';
+import { mapAhrefsKeywordMetrics } from '@/lib/sync/ahrefs-metrics';
 
 const HOST = /^(?=.{1,253}$)([a-z0-9-]{1,63}\.)+[a-z]{2,63}$/i;
 
@@ -88,13 +89,16 @@ async function fetchOrganicKeywords(domain: string, apiKey: string, fetchImpl: t
         return { error: `Ahrefs request failed (HTTP ${res.status})` as const };
     }
     const data = await res.json();
-    const keywords = (Array.isArray(data.keywords) ? data.keywords : []).map((keyword: Record<string, unknown>) => ({
-        keyword: keyword.keyword,
-        volume: keyword.volume ?? null,
-        difficulty: keyword.keyword_difficulty ?? null,
-        position: keyword.serp_position ?? null,
-        traffic: keyword.traffic ?? null,
-    }));
+    const keywords = (Array.isArray(data.keywords) ? data.keywords : []).map((keyword: Record<string, unknown>) => {
+        const metrics = mapAhrefsKeywordMetrics(keyword);
+        return {
+            keyword: keyword.keyword,
+            volume: metrics.volume,
+            difficulty: metrics.keywordDifficulty,
+            position: keyword.serp_position ?? null,
+            traffic: keyword.traffic ?? null,
+        };
+    });
     return { keywords };
 }
 

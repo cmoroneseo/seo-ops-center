@@ -34,11 +34,21 @@ test('competitor hosts are normalized and rejected when they are not hostnames',
 });
 
 test('missing keyword stats stay null and an upstream failure hides the response body', async () => {
-    const ok = handler(async () => Response.json({ keywords: [{ keyword: 'seo', keyword_difficulty: 12 }] }));
+    const ok = handler(async () => Response.json({
+        keywords: [
+            { keyword: 'seo', keyword_difficulty: 12 },
+            { keyword: 'zero', volume: 0, keyword_difficulty: null },
+            { keyword: 'blank', volume: '  ', keyword_difficulty: '' },
+        ],
+    }));
     const body = await (await ok.GET(new Request(`https://app.test/api/campaign/keyword-research?clientId=${client}&mode=domain`))).json();
     assert.equal(body.keywords[0].volume, null);
     assert.equal(body.keywords[0].traffic, null);
     assert.equal(body.keywords[0].difficulty, 12);
+    assert.equal(body.keywords[1].volume, 0);
+    assert.equal(body.keywords[1].difficulty, null);
+    assert.equal(body.keywords[2].volume, null);
+    assert.equal(body.keywords[2].difficulty, null);
     assert.equal(body.domain, 'client.example');
     const failed = handler(async () => new Response('secret upstream body', { status: 500 }));
     const response = await failed.GET(new Request(`https://app.test/api/campaign/keyword-research?clientId=${client}&mode=domain`));
