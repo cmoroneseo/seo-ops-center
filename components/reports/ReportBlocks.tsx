@@ -4,7 +4,7 @@
 // double as the print/PDF output, so colors are a fixed light palette rather
 // than theme variables.
 
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Upload, X, Loader2, GripVertical, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import {
     LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -568,13 +568,18 @@ export function MetricsOverviewBlock({ block, ctx }: { block: Block; ctx: Report
             <MetricCaption source={source} ctx={ctx} />
             {empty ? <EmptyNote text="No data for this source — sync or enter it manually on the Reports page." /> : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {defs.map(m => cur![m.key] == null ? null : (
-                        <div key={m.key} className="rounded-xl p-3.5 border" style={{ borderColor: '#e5e7eb' }}>
-                            <div className="text-[10px] uppercase tracking-wide" style={{ color: '#6b7280' }}>{m.label}</div>
-                            <div className="text-xl font-bold mt-1" style={{ color: '#111827' }}>{formatMetric(cur![m.key], m.format)}</div>
-                            <MoMDelta current={cur![m.key]} previous={prev[m.key]} lowerIsBetter={m.lowerIsBetter} scale={m.format === 'percent' ? 100 : 1} />
-                        </div>
-                    ))}
+                    {defs.map(m => {
+                        const value = cur?.[m.key];
+                        // A missing Ahrefs value stays on the card as an em dash.
+                        if (value == null && source !== 'ahrefs') return null;
+                        return (
+                            <div key={m.key} className="rounded-xl p-3.5 border" style={{ borderColor: '#e5e7eb' }}>
+                                <div className="text-[10px] uppercase tracking-wide" style={{ color: '#6b7280' }}>{m.label}</div>
+                                <div className="text-xl font-bold mt-1" style={{ color: '#111827' }}>{formatMetric(value, m.format)}</div>
+                                <MoMDelta current={value} previous={prev[m.key]} lowerIsBetter={m.lowerIsBetter} scale={m.format === 'percent' ? 100 : 1} />
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </div>
@@ -900,9 +905,9 @@ export function KeywordRankingsTableBlock({ block, ctx }: { block: Block; ctx: R
                                     <td className="py-2 pr-3 whitespace-nowrap" style={{ color: '#6b7280' }}>{row.location?.split(',')[0] ?? '—'}</td>
                                 )}
                                 <td className="py-2 pr-3 font-medium" style={{ color: '#111827' }}>{row.keyword}</td>
-                                {showVolume && <td className="py-2 pr-3">{row.volume ?? '—'}</td>}
-                                {showTraffic && <td className="py-2 pr-3">{row.traffic ?? '—'}</td>}
-                                {showKd && <td className="py-2 pr-3">{row.keywordDifficulty ?? '—'}</td>}
+                                {showVolume && <td className="py-2 pr-3">{formatMetric(row.volume, 'number')}</td>}
+                                {showTraffic && <td className="py-2 pr-3">{formatMetric(row.traffic, 'number')}</td>}
+                                {showKd && <td className="py-2 pr-3">{formatMetric(row.keywordDifficulty, 'number')}</td>}
                                 <td className="py-2 pr-3">{row.positionPrev ?? '—'}</td>
                                 <td className="py-2 pr-3">{row.position ?? '—'}</td>
                                 <td className="py-2 pr-3">
