@@ -2,7 +2,8 @@
 
 import { cn } from '@/lib/utils';
 import type { MapRecordStatus, TopicalMapRecord } from '@/lib/types';
-import { ACTION_STYLES, PILL_CLASS, SOURCE_STYLES } from './constants';
+import { ACTION_STYLES, AI_ESTIMATE_CLASS, PILL_CLASS, SOURCE_STYLES } from './constants';
+import { AI_ESTIMATE_LABEL, hasAiDifficulty, hasAiSearchEstimate, hasAiVolume } from '@/lib/topical-map/metrics';
 import { SOURCE_TITLE } from '@/lib/topical-map/spec';
 
 const STATUS_DOT: Record<MapRecordStatus, string> = {
@@ -18,10 +19,11 @@ function actionLabel(record: TopicalMapRecord): { label: string; className: stri
     return { label: record.action, className: ACTION_STYLES[record.action] };
 }
 
-function DifficultyBar({ value }: { value?: number }) {
+function DifficultyBar({ value, aiEstimate }: { value?: number; aiEstimate?: boolean }) {
     if (value === undefined) return <span className="text-xs text-muted-foreground">—</span>;
+    const label = aiEstimate ? `${AI_ESTIMATE_LABEL}. Keyword difficulty ${value}` : `Keyword difficulty ${value}`;
     return (
-        <div className="flex items-center gap-1.5" title={`Keyword difficulty ${value}`}>
+        <div className="flex items-center gap-1.5" title={label}>
             <div className="h-1.5 w-14 overflow-hidden rounded-full bg-muted">
                 <div
                     className={cn(
@@ -44,6 +46,7 @@ interface RecordRowProps {
 
 export function RecordRow({ record, isChild, onClick }: RecordRowProps) {
     const action = actionLabel(record);
+    const aiEstimate = hasAiSearchEstimate(record);
 
     return (
         <div
@@ -70,6 +73,9 @@ export function RecordRow({ record, isChild, onClick }: RecordRowProps) {
                     )}
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">{record.targetQuery.trim() || '—'}</span>
+                {aiEstimate && (
+                    <span className={cn('mt-1 inline-flex', PILL_CLASS, AI_ESTIMATE_CLASS)}>{AI_ESTIMATE_LABEL}</span>
+                )}
             </span>
             <span className="hidden shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] uppercase text-muted-foreground sm:inline-block">
                 {record.pageType.replaceAll('_', ' ')}
@@ -82,11 +88,14 @@ export function RecordRow({ record, isChild, onClick }: RecordRowProps) {
             <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase', action.className)}>
                 {action.label}
             </span>
-            <span className="hidden shrink-0 text-xs tabular-nums text-muted-foreground lg:inline-block">
+            <span
+                className="hidden shrink-0 text-xs tabular-nums text-muted-foreground lg:inline-block"
+                title={hasAiVolume(record) ? AI_ESTIMATE_LABEL : undefined}
+            >
                 {record.searchVolumeMonthly ? record.searchVolumeMonthly.toLocaleString() : '—'}
             </span>
             <span className="hidden shrink-0 lg:inline-block">
-                <DifficultyBar value={record.keywordDifficulty} />
+                <DifficultyBar value={record.keywordDifficulty} aiEstimate={hasAiDifficulty(record)} />
             </span>
         </div>
     );

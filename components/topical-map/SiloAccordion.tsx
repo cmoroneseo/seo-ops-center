@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ChevronDown, ChevronRight, ExternalLink, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SearchIntent, TopicalMapRecord, TopicalMapSilo } from '@/lib/types';
+import { AI_ESTIMATE_LABEL, hasAiSearchEstimate } from '@/lib/topical-map/metrics';
 import { computeSiloStats } from '@/lib/topical-map/stats';
 import { createManualRecord } from '@/lib/supabase/topical-map';
 import type { ManualRecordDraft } from '@/lib/topical-map/spec';
@@ -41,6 +42,7 @@ export function SiloAccordion({
     const [saving, setSaving] = useState(false);
     const [addError, setAddError] = useState('');
     const stats = computeSiloStats(records, silo.id);
+    const siloHasAiEstimate = records.some(record => record.siloId === silo.id && hasAiSearchEstimate(record));
     const canAdd = specEnabled && !readOnly && Boolean(clientId);
 
     const siloRecords = sortRecords(records.filter(r => r.siloId === silo.id));
@@ -81,6 +83,7 @@ export function SiloAccordion({
                 <span className="shrink-0 text-right text-xs text-muted-foreground">
                     <span className="block font-medium text-foreground">{stats.totalRecords} record{stats.totalRecords === 1 ? '' : 's'}</span>
                     <span className="block tabular-nums">{stats.totalDemand.toLocaleString()} demand</span>
+                    {siloHasAiEstimate && <span className="block font-medium text-amber-600">{AI_ESTIMATE_LABEL}</span>}
                 </span>
             </button>
             {silo.hubUrl && (

@@ -3,6 +3,7 @@
 import { Map, Pencil, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { TopicalMap, TopicalMapRecord, TopicalMapStatus } from '@/lib/types';
+import { AI_ESTIMATE_LABEL, hasAiSearchEstimate } from '@/lib/topical-map/metrics';
 import { computeMapStats } from '@/lib/topical-map/stats';
 
 const number = new Intl.NumberFormat('en-US');
@@ -24,11 +25,16 @@ interface TopicalMapHeaderProps {
 export function TopicalMapHeader({ map, records, onEditProfile, onRegenerate }: TopicalMapHeaderProps) {
     const stats = computeMapStats(records);
 
-    const cells: Array<{ label: string; value: string }> = [
+    const aiEstimatesExcluded = records.some(hasAiSearchEstimate);
+    const cells: Array<{ label: string; value: string; note?: string }> = [
         { label: 'Total Records', value: number.format(stats.totalRecords) },
         { label: 'Existing', value: number.format(stats.existingCount) },
         { label: 'New', value: number.format(stats.totalRecords - stats.existingCount) },
-        { label: 'Total Demand', value: number.format(stats.totalDemand) },
+        {
+            label: 'Total Demand',
+            value: number.format(stats.totalDemand),
+            note: aiEstimatesExcluded ? AI_ESTIMATE_LABEL : undefined,
+        },
         { label: 'Approved', value: number.format(stats.approvedCount) },
         { label: 'Links', value: number.format(stats.plannedLinks) },
     ];
@@ -69,6 +75,7 @@ export function TopicalMapHeader({ map, records, onEditProfile, onRegenerate }: 
                     <div key={cell.label} className="rounded-lg bg-muted/40 p-3">
                         <dt className="text-[11px] text-muted-foreground">{cell.label}</dt>
                         <dd className="mt-1 text-lg font-semibold tabular-nums">{cell.value}</dd>
+                        {cell.note && <p className="mt-1 text-[10px] font-medium leading-tight text-amber-600">{cell.note}</p>}
                     </div>
                 ))}
             </dl>

@@ -1,4 +1,5 @@
 import type { TopicalMapRecord, PageType } from '../types';
+import { measuredMonthlyDemand } from './metrics';
 
 export interface MapStats {
     totalRecords: number;
@@ -26,7 +27,7 @@ export function computeMapStats(records: TopicalMapRecord[]): MapStats {
     let declinedCount = 0;
 
     for (const r of records) {
-        totalDemand += r.searchVolumeMonthly ?? 0;
+        totalDemand += measuredMonthlyDemand(r);
         if (r.pageType === 'pillar') pillarCount++;
         if (r.sitePageId) existingCount++;
         plannedLinks += r.outgoingLinks.length;
@@ -53,7 +54,7 @@ export function computeSiloStats(records: TopicalMapRecord[], siloId: string): S
 
     for (const r of siloRecords) {
         byPageType[r.pageType] = (byPageType[r.pageType] ?? 0) + 1;
-        totalDemand += r.searchVolumeMonthly ?? 0;
+        totalDemand += measuredMonthlyDemand(r);
         if (r.status === 'approved') approvedCount++;
     }
 

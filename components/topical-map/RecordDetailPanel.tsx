@@ -22,6 +22,7 @@ import {
     type FieldRevisions,
     type SpecSaveState,
 } from '@/lib/topical-map/spec-save';
+import { AI_ESTIMATE_LABEL, hasAiSearchEstimate } from '@/lib/topical-map/metrics';
 import { PILL_CLASS, RECORD_STATUS_STYLES, SPEC_STATUS_STYLES } from './constants';
 import { SpecSection } from './SpecSection';
 import { useOverlayA11y } from './useOverlayA11y';
@@ -439,6 +440,7 @@ export function RecordDetailPanel({
                                 value={emptyCount(draft.searchVolumeMonthly)}
                                 placeholder="—"
                                 disabled={readOnly}
+                                aria-describedby={hasAiSearchEstimate(draft) ? 'record-metrics-estimate' : undefined}
                                 onChange={event => editDraft({ searchVolumeMonthly: event.target.value ? Number(event.target.value) : undefined })}
                                 onBlur={event => {
                                     const raw = event.currentTarget.value;
@@ -457,6 +459,7 @@ export function RecordDetailPanel({
                                 value={numberField(draft.keywordDifficulty)}
                                 placeholder="—"
                                 disabled={readOnly}
+                                aria-describedby={hasAiSearchEstimate(draft) ? 'record-metrics-estimate' : undefined}
                                 onChange={event => editDraft({ keywordDifficulty: event.target.value ? Number(event.target.value) : undefined })}
                                 onBlur={event => {
                                     const raw = event.currentTarget.value;
@@ -465,6 +468,11 @@ export function RecordDetailPanel({
                                 className={inputClasses}
                             />
                         </div>
+                        {hasAiSearchEstimate(draft) && (
+                            <p id="record-metrics-estimate" className="col-span-2 text-xs font-medium text-amber-600">
+                                {AI_ESTIMATE_LABEL}
+                            </p>
+                        )}
                     </div>
 
                     {draft.sitePageId && (

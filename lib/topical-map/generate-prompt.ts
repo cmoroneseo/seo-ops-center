@@ -31,17 +31,17 @@ Create a comprehensive topical map organized into silos (topic clusters). Each s
 
 6. **Parent-child hierarchy.** Use parent_title to create subtopic clusters within silos — e.g., a "Local SEO" service page is the parent of "Local SEO for Dentists" and "Local SEO for Restaurants."
 
-7. **Estimate search metrics.** Provide your best estimate for search_volume_monthly and keyword_difficulty (0-100) based on the keyword. These are rough estimates to help prioritize — don't leave them null.
+Do not estimate search volume, keyword difficulty, or traffic. Those fields are not part of this map. Omit them.
 
 ## HARD REQUIREMENTS (non-negotiable)
 
 1. Generate MINIMUM 30 records. Aim for 35-50. Do NOT exceed 50 — quality over quantity.
 2. Use 4-6 silos with 6-10 records each.
-3. EVERY record MUST have search_volume_monthly (integer > 0) and keyword_difficulty (0-100). Never null.
-4. EVERY record MUST have content_category. Never null.
-5. At least 30% of records MUST have a parent_title pointing to another record in the same silo.
-6. At least 50% of records MUST have 1-2 outgoing_links to other records (by exact title).
-7. Use all build phases: ~40% phase 1, ~35% phase 2, ~25% phase 3.
+3. EVERY record MUST have content_category. Never null.
+4. At least 30% of records MUST have a parent_title pointing to another record in the same silo.
+5. At least 50% of records MUST have 1-2 outgoing_links to other records (by exact title).
+6. Use all build phases: ~40% phase 1, ~35% phase 2, ~25% phase 3.
+7. Do NOT include search_volume_monthly, keyword_difficulty, or traffic estimates.
 
 ## JSON structure
 
@@ -65,8 +65,6 @@ Respond ONLY with valid JSON, no markdown fencing, no text outside the JSON:
           "word_count_max": 2500,
           "build_phase": 1,
           "content_category": "evergreen",
-          "search_volume_monthly": 2400,
-          "keyword_difficulty": 52,
           "parent_title": null,
           "outgoing_links": [
             {"anchor_text": "learn about local SEO", "destination_title": "Local SEO Services: Dominate Your City's Search Results"}
@@ -81,8 +79,6 @@ Respond ONLY with valid JSON, no markdown fencing, no text outside the JSON:
           "word_count_max": 1800,
           "build_phase": 1,
           "content_category": "evergreen",
-          "search_volume_monthly": 1600,
-          "keyword_difficulty": 41,
           "parent_title": "Specific, Non-Generic Page Title",
           "outgoing_links": [
             {"anchor_text": "SEO pricing", "destination_title": "SEO Pricing: What Does SEO Cost in 2026?"}
@@ -101,8 +97,7 @@ Respond ONLY with valid JSON, no markdown fencing, no text outside the JSON:
 - build_phase: 1 (launch priority) | 2 (month 2-3) | 3 (month 4+)
 - parent_title: exact title of the parent record in the same silo, or null for top-level pages
 - outgoing_links: array of internal links to other records by their exact title
-- search_volume_monthly: REQUIRED integer > 0 — your best estimate of monthly US search volume
-- keyword_difficulty: REQUIRED integer 0-100 — your best estimate of ranking difficulty`;
+- Do not output search volume, keyword difficulty, or estimated traffic`;
 }
 
 export function buildUserMessage(ctx: GenerationContext): string {
