@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { ShieldCheck } from 'lucide-react';
 
+import { TrackQueryButton } from '@/components/keyword-tracking/TrackQueryButton';
 import { Receipt } from '@/components/reporting/Receipt';
 import type { SearchReportingResponse, SurfaceFilter } from '@/lib/search-reporting/types';
 import {
@@ -24,6 +25,7 @@ const SURFACES: { id: SurfaceFilter; label: string }[] = [
 export function SearchInsightsV2({
     clientId,
     clientName,
+    organizationId,
     onConnections,
     onSiteInventory,
     evidence,
@@ -33,6 +35,7 @@ export function SearchInsightsV2({
 }: {
     clientId: string;
     clientName: string;
+    organizationId?: string;
     onConnections: () => void;
     onSiteInventory?: () => void;
     evidence?: ReactNode;
@@ -148,6 +151,9 @@ export function SearchInsightsV2({
                     onRetry={() => setReloadKey(value => value + 1)}
                     onConnections={onConnections}
                     evidence={evidence}
+                    clientId={clientId}
+                    organizationId={organizationId}
+                    example={example}
                 />
             ) : null}
         </section>
@@ -166,6 +172,9 @@ function ConnectedView({
     onRetry,
     onConnections,
     evidence,
+    clientId,
+    organizationId,
+    example,
 }: {
     view: InsightsPresentation;
     section: SectionId;
@@ -178,6 +187,9 @@ function ConnectedView({
     onRetry: () => void;
     onConnections: () => void;
     evidence?: ReactNode;
+    clientId: string;
+    organizationId?: string;
+    example: boolean;
 }) {
     const colors = useSurfaceColors();
     const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -273,7 +285,7 @@ function ConnectedView({
                 {section === 'summary' ? <Summary view={view} /> : null}
                 {section === 'queries' ? <Queries view={view} colors={colors} evidence={evidence} /> : null}
                 {section === 'cities' ? <Cities view={view} /> : null}
-                {section === 'movers' ? <Movers view={view} /> : null}
+                {section === 'movers' ? <Movers view={view} clientId={clientId} organizationId={organizationId} example={example} /> : null}
                 {section === 'pages' ? <Pages view={view} /> : null}
                 {section === 'tracker' ? <Tracker view={view} /> : null}
             </div>
@@ -396,7 +408,17 @@ function Cities({ view }: { view: InsightsPresentation }) {
     );
 }
 
-function Movers({ view }: { view: InsightsPresentation }) {
+function Movers({
+    view,
+    clientId,
+    organizationId,
+    example,
+}: {
+    view: InsightsPresentation;
+    clientId: string;
+    organizationId?: string;
+    example: boolean;
+}) {
     return (
         <PanelCard title="Movers" extra={<CardSource source={view.movers?.source ?? null} />}>
             {view.movers?.distorted ? <p className="mb-3 text-sm text-muted-foreground">Changes are hidden because the prior window is distorted.</p> : null}
@@ -404,7 +426,7 @@ function Movers({ view }: { view: InsightsPresentation }) {
                 {view.movers?.rows.map(row => (
                     <tr key={row.key} className="border-b border-border">
                         {row.cells.map((cell, index) => index === 0
-                            ? <th key={`${row.key}-label`} scope="row" className="px-3 py-2 font-medium">{cell}</th>
+                            ? <th key={`${row.key}-label`} scope="row" className="px-3 py-2 font-medium"><span className="inline-flex items-center gap-2"><span>{cell}</span>{organizationId && !example ? <TrackQueryButton organizationId={organizationId} clientId={clientId} query={cell} /> : null}</span></th>
                             : <td key={`${row.key}-${index}`} className="px-3 py-2 text-foreground" style={row.cells[1] === 'Map pack' && index === 2 ? { color: 'var(--map)' } : undefined}>{index === 1 ? <SurfaceMark name={cell} /> : cell}</td>)}
                     </tr>
                 ))}

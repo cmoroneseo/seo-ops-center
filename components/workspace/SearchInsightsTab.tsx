@@ -9,6 +9,7 @@ import { buildInvestigationSnapshot, investigationLookupKey, kindForEvidenceCate
 import { getSearchInvestigations, setSearchInvestigationDecision } from '@/lib/supabase/search-investigations';
 import type { SearchDismissalReason, SearchEvidenceCategory, SearchInvestigation } from '@/lib/types';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
+import { TrackQueryButton } from '@/components/keyword-tracking/TrackQueryButton';
 import { SearchInsightsV2 } from '@/components/search-insights/SearchInsightsV2';
 import { searchReportingEnabled } from '@/lib/search-reporting/flag';
 import { SearchInvestigationActions } from './SearchInvestigationActions';
@@ -97,6 +98,16 @@ export function InvestigationEvidenceCard({
             </div>
         </div>
     </details>;
+}
+
+function trackedQuerySummary(organizationId: string, clientId: string, query: string, details: ReactNode) {
+    return <span className="flex items-start justify-between gap-3">
+        <span className="min-w-0">
+            <span className="font-medium">{query}</span>
+            {details}
+        </span>
+        <TrackQueryButton organizationId={organizationId} clientId={clientId} query={query} />
+    </span>;
 }
 
 export function SearchInsightsTab(props: { organizationId: string; clientId: string; clientName: string; onConnections: () => void; onSiteInventory?: () => void }) {
@@ -315,7 +326,7 @@ function LegacySearchInsights({ organizationId, clientId, clientName, onConnecti
                 {queryError ? <p role="alert" className="mt-5 text-sm text-destructive">Query evidence unavailable: {queryError}</p> : loading ? <p role="status" className="mt-5 text-sm text-muted-foreground">Loading query evidence…</p> : !queryComplete ? <p className="mt-5 text-sm text-muted-foreground">Query investigations are paused because history is incomplete, capped, or changed during loading. Evidence will update as data becomes available.</p> : candidates.length === 0 ? <p className="mt-5 text-sm text-muted-foreground">No queries meet these evidence thresholds yet. This does not mean the site has no SEO opportunities.</p> : <>
                     <div className="mt-4 space-y-3">{filtered.slice(0, 50).map(item => <InvestigationEvidenceCard
                         key={JSON.stringify([item.query, item.page])}
-                        summary={<><span className="font-medium">{item.query}</span><span className="mt-2 block break-all text-xs text-muted-foreground">{item.page}</span><span className="mt-2 block text-sm text-muted-foreground">{number.format(item.impressions)} impressions · Position {item.position.toFixed(1)} · {item.clicks} clicks · {percent(item.ctr)} CTR</span></>}
+                        summary={trackedQuerySummary(organizationId, clientId, item.query, <><span className="mt-2 block break-all text-xs text-muted-foreground">{item.page}</span><span className="mt-2 block text-sm text-muted-foreground">{number.format(item.impressions)} impressions · Position {item.position.toFixed(1)} · {item.clicks} clicks · {percent(item.ctr)} CTR</span></>)}
                         {...workflowProps('near_page_one', item)}
                     >
                         <p><strong>What we observed:</strong> This query appeared for this URL on {item.observedDays} saved days in the selected period.</p>
@@ -350,7 +361,7 @@ function LegacySearchInsights({ organizationId, clientId, clientName, onConnecti
                 <p className="mt-3 text-xs text-muted-foreground">Visibility beyond position 20 is observed evidence, not proof that the URL should rank higher or that optimization will produce a gain.</p>
                 {queryError ? <p role="alert" className="mt-5 text-sm text-destructive">Query evidence unavailable: {queryError}</p> : loading ? <p role="status" className="mt-5 text-sm text-muted-foreground">Loading query evidence…</p> : !queries?.expandedEvidenceAvailable ? <p className="mt-5 text-sm text-muted-foreground">Expanded query evidence is awaiting the database rollout. Existing near-page-one evidence remains available.</p> : !queryComplete ? <p className="mt-5 text-sm text-muted-foreground">Deeper-visibility investigations are paused because query history is incomplete, capped, or changed during loading.</p> : visibility.length === 0 ? <p className="mt-5 text-sm text-muted-foreground">No queries meet these deeper-visibility thresholds in this period.</p> : <div className="mt-4 space-y-3">{filteredVisibility.slice(0, 50).map(item => <InvestigationEvidenceCard
                     key={JSON.stringify([item.query, item.page])}
-                    summary={<><span className="font-medium">{item.query}</span><span className="mt-2 block break-all text-xs text-muted-foreground">{item.page}</span><span className="mt-2 block text-sm text-muted-foreground">{number.format(item.impressions)} impressions · Position {item.position.toFixed(1)} · {item.clicks} clicks · {percent(item.ctr)} CTR</span></>}
+                    summary={trackedQuerySummary(organizationId, clientId, item.query, <><span className="mt-2 block break-all text-xs text-muted-foreground">{item.page}</span><span className="mt-2 block text-sm text-muted-foreground">{number.format(item.impressions)} impressions · Position {item.position.toFixed(1)} · {item.clicks} clicks · {percent(item.ctr)} CTR</span></>)}
                     {...workflowProps('deeper_visibility', item)}
                 >
                     <p><strong>What we observed:</strong> This query and URL pair appeared on {item.observedDays} saved days. Its impression-weighted average position across the period was {item.position.toFixed(1)}.</p>
@@ -366,7 +377,7 @@ function LegacySearchInsights({ organizationId, clientId, clientName, onConnecti
                 <p className="mt-3 text-xs text-muted-foreground">Multiple URLs do not by themselves prove cannibalization. The URLs may serve different intents or reflect normal result changes.</p>
                 {queryError ? <p role="alert" className="mt-5 text-sm text-destructive">Overlap evidence unavailable: {queryError}</p> : loading ? <p role="status" className="mt-5 text-sm text-muted-foreground">Loading overlap evidence…</p> : !queries?.expandedEvidenceAvailable ? <p className="mt-5 text-sm text-muted-foreground">Expanded overlap evidence is awaiting the database rollout. Existing near-page-one evidence remains available.</p> : !queryComplete ? <p className="mt-5 text-sm text-muted-foreground">Overlap investigations are paused because query history is incomplete, capped, or changed during loading.</p> : overlaps.length === 0 ? <p className="mt-5 text-sm text-muted-foreground">No queries meet these overlapping-URL thresholds in this period.</p> : <div className="mt-4 space-y-3">{filteredOverlaps.slice(0, 50).map(item => <InvestigationEvidenceCard
                     key={item.query}
-                    summary={<><span className="font-medium">{item.query}</span><span className="mt-2 block text-sm text-muted-foreground">{item.pages.length} URLs · {number.format(item.impressions)} combined impressions · Position {item.position.toFixed(1)}</span></>}
+                    summary={trackedQuerySummary(organizationId, clientId, item.query, <span className="mt-2 block text-sm text-muted-foreground">{item.pages.length} URLs · {number.format(item.impressions)} combined impressions · Position {item.position.toFixed(1)}</span>)}
                     {...workflowProps('overlapping_urls', item)}
                 >
                     <p><strong>What we observed:</strong> Search Console associated this query with multiple retained URLs during the selected period.</p>

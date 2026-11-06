@@ -598,8 +598,8 @@ export default function ClientDetailPage() {
                 <VaultPage clientId={client.id} clientName={client.clientName} />
             )}
 
-            {keywordTrackingEnabled() && activeTab === 'rankings' && client.organizationId === organization?.id && (
-                <RankingsTab />
+            {keywordTrackingEnabled() && activeTab === 'rankings' && organization && client.organizationId === organization.id && (
+                <RankingsTab organizationId={organization.id} clientId={client.id} />
             )}
 
             {activeTab === 'insights' && client.organizationId === organization?.id && (
