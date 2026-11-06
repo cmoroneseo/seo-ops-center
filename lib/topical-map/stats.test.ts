@@ -13,14 +13,14 @@ const makeRecord = (overrides: Partial<TopicalMapRecord>): TopicalMapRecord => (
 });
 
 describe('computeMapStats', () => {
-    it('counts total records and demand', () => {
+    it('counts records and leaves AI volume out of demand', () => {
         const records = [
-            makeRecord({ searchVolumeMonthly: 1000 }),
+            makeRecord({ searchVolumeMonthly: 1000, keywordDifficulty: 40 }),
             makeRecord({ id: 'r-2', searchVolumeMonthly: 2000, sitePageId: 'sp-1' }),
         ];
         const stats = computeMapStats(records);
         assert.equal(stats.totalRecords, 2);
-        assert.equal(stats.totalDemand, 3000);
+        assert.equal(stats.totalDemand, 0);
         assert.equal(stats.existingCount, 1);
     });
 
@@ -49,6 +49,22 @@ describe('approval counts with a spec', () => {
         assert.equal(stats.approvedCount, 1);
         assert.equal(stats.declinedCount, 1);
         assert.equal(stats.totalRecords, 2);
+    });
+});
+
+describe('AI volume is excluded from demand', () => {
+    it('does not add AI monthly volume to map or silo demand', () => {
+        const records = [
+            makeRecord({ searchVolumeMonthly: 1000, keywordDifficulty: 22 }),
+            makeRecord({ id: 'r-2', searchVolumeMonthly: 2000 }),
+            makeRecord({ id: 'r-3', siloId: 's-2', searchVolumeMonthly: 9000 }),
+            makeRecord({ id: 'r-4', siloId: 's-2' }),
+        ];
+        assert.equal(computeMapStats(records).totalDemand, 0);
+        assert.equal(computeSiloStats(records, 's-1').totalDemand, 0);
+        assert.equal(computeSiloStats(records, 's-1').totalRecords, 2);
+        assert.equal(computeSiloStats(records, 's-2').totalDemand, 0);
+        assert.equal(computeSiloStats(records, 's-2').totalRecords, 2);
     });
 });
 

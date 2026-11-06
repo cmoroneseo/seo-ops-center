@@ -11,6 +11,8 @@ export const ACTION_STYLES: Record<MapRecordAction, string> = {
 
 export const PILL_CLASS = 'rounded-full border px-2 py-0.5 text-[10px] font-medium';
 
+export const AI_ESTIMATE_CLASS = 'border-amber-500/30 bg-amber-500/10 text-amber-600';
+
 export const RECORD_STATUS_STYLES: Record<MapRecordStatus, string> = {
     pending: 'border-border bg-muted text-muted-foreground',
     approved: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600',

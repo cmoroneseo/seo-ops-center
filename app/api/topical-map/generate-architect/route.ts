@@ -3,8 +3,11 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import Anthropic from '@anthropic-ai/sdk';
+import { loadArchitectGscQueries } from '@/lib/topical-map/architect-gsc';
 import { buildSystemPrompt, buildUserMessage } from '@/lib/topical-map/generate-prompt';
+import { architectStoredMetrics } from '@/lib/topical-map/metrics';
 import { reconcileRecord } from '@/lib/topical-map/reconcile';
+import type { SearchReportingAdmin } from '@/lib/search-reporting/load';
 import type { TopicalMapProfile } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -79,13 +82,11 @@ export async function POST(req: NextRequest) {
         rivals: (profileData.rivals as string[]) ?? [],
     };
 
-    // Re-fetch GSC and pages (fast DB reads)
-    const { data: gscRows } = await admin
-        .from('gsc_search_performance')
-        .select('query, clicks, impressions, position, page')
-        .eq('client_id', clientId)
-        .order('clicks', { ascending: false })
-        .limit(50);
+    // Re-fetch GSC and pages (fast DB reads). Queries come from gsc_history_facts.
+    const gscQueries = await loadArchitectGscQueries(admin as unknown as SearchReportingAdmin, {
+        organizationId,
+        clientId,
+    });
 
     const { data: pageSnapshots } = await admin
         .from('site_page_snapshots')
@@ -119,12 +120,7 @@ export async function POST(req: NextRequest) {
     const ctx = {
         profile,
         existingPages: existingPages.map(p => ({ url: p.url, title: p.title, h1s: p.h1s, wordCount: p.wordCount })),
-        gscQueries: (gscRows ?? []).map(r => ({
-            query: String(r.query),
-            clicks: Number(r.clicks),
-            impressions: Number(r.impressions),
-            position: Number(r.position),
-        })),
+        gscQueries,
         clientDomain: String(clientCheck.domain ?? ''),
     };
 
@@ -176,7 +172,7 @@ export async function POST(req: NextRequest) {
     }).eq('id', mapId);
 
     // Stage 5: Reconciliation — insert silos and records
-    const gscEvidence = (gscRows ?? []).map(r => ({ query: String(r.query), pageUrl: String(r.page ?? '') }));
+    const gscEvidence = gscQueries.map(r => ({ query: r.query, pageUrl: r.page }));
 
     for (let siloIdx = 0; siloIdx < parsed.silos.length; siloIdx++) {
         const silo = parsed.silos[siloIdx] as Record<string, unknown>;
@@ -215,6 +211,7 @@ export async function POST(req: NextRequest) {
 
             const parentTitle = rec.parent_title ? String(rec.parent_title) : undefined;
             const parentRecordId = parentTitle ? titleToId.get(parentTitle) : undefined;
+            const metrics = architectStoredMetrics(rec);
 
             const { data: recordRow } = await admin
                 .from('topical_map_records')
@@ -231,8 +228,8 @@ export async function POST(req: NextRequest) {
                     word_count_min: Number(rec.word_count_min ?? 0),
                     word_count_max: Number(rec.word_count_max ?? 0),
                     build_phase: Number(rec.build_phase ?? 1),
-                    search_volume_monthly: rec.search_volume_monthly != null ? Number(rec.search_volume_monthly) : null,
-                    keyword_difficulty: rec.keyword_difficulty != null ? Number(rec.keyword_difficulty) : null,
+                    search_volume_monthly: metrics.search_volume_monthly,
+                    keyword_difficulty: metrics.keyword_difficulty,
                     scope_exclusions: rec.scope_exclusions ?? [],
                     outgoing_links: (rec.outgoing_links as Array<Record<string, unknown>> ?? []).map(l => ({
                         anchor_text: String(l.anchor_text ?? ''),
