@@ -56,7 +56,7 @@ export function TrackQueryButton({
             title={detail || `Track ${query}`}
             onMouseDown={event => event.stopPropagation()}
             onClick={onTrack}
-            className="shrink-0 rounded-md border border-border px-2 py-1 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-60"
+            className="shrink-0 rounded-md border border-border px-2 py-1 text-xs font-medium text-primary hover:bg-muted disabled:opacity-60"
         >
             {label}
         </button>

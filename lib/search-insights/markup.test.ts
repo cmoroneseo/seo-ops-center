@@ -105,8 +105,11 @@ test('the flag-off tab does not mount the v2 screen', () => {
             onConnections() {},
         }));
         assert.equal(html.includes('data-search-insights="v2"'), false);
-        assert.match(html, /Find work worth investigating/);
-        assert.match(html, /Loading saved search performance/);
+        assert.match(html, /data-search-dashboard/);
+        assert.match(html, /Google Search Console/);
+        assert.match(html, /Google Analytics/);
+        assert.equal(html.includes('Tracked keywords'), false);
+        assert.equal(html.includes('Bing Webmaster'), false);
     } finally {
         if (previous === undefined) delete process.env.NEXT_PUBLIC_SEARCH_REPORTING;
         else process.env.NEXT_PUBLIC_SEARCH_REPORTING = previous;
