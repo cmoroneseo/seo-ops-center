@@ -17,6 +17,7 @@ import { EngagementOverview } from '@/components/workspace/EngagementOverview';
 import { ClientDeliverablesTab } from '@/components/deliverables/ClientDeliverablesTab';
 import { MonthlyPlannerCard } from '@/components/workspace/MonthlyPlannerCard';
 import { SearchInsightsTab } from '@/components/workspace/SearchInsightsTab';
+import { RankingsTab } from '@/components/workspace/RankingsTab';
 import { SiteInventoryTab } from '@/components/workspace/SiteInventoryTab';
 import { TopicalMapTab } from '@/components/workspace/TopicalMapTab';
 import { IntegrationsTab } from '@/components/workspace/IntegrationsTab';
@@ -46,6 +47,7 @@ import { SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
 import { ResultsView } from '@/components/marketing-plan/ResultsView';
 import { searchReportingEnabled } from '@/lib/search-reporting/flag';
+import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
 import { parsePlanView, type PlanView } from '@/lib/search-reporting/ledger';
 import { BasecampImportModal } from '@/components/workspace/BasecampImportModal';
 import { AddOnboardingToPlanButton } from '@/components/marketing-plan/AddOnboardingToPlanButton';
@@ -71,7 +73,7 @@ import { managerIsAssigned, planHourLabel, planHoursNarrative } from '@/lib/seo-
 import { planChooseTaskClass } from '@/lib/seo-plan/row-timer';
 import { GLOBAL_TIMER_HINT, GLOBAL_TIMER_LABEL } from '@/lib/timer/attempt-state';
 
-type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'inventory' | 'topical-map' | 'approvals' | 'portal' | 'vault';
+type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'rankings' | 'inventory' | 'topical-map' | 'approvals' | 'portal' | 'vault';
 
 export default function ClientDetailPage() {
     const params = useParams();
@@ -114,7 +116,9 @@ export default function ClientDetailPage() {
     useEffect(() => {
         const query = new URLSearchParams(window.location.search);
         const tab = query.get('tab');
-        if (tab && ['overview', 'campaign', 'tasks', 'integrations', 'insights', 'inventory', 'topical-map', 'approvals', 'portal'].includes(tab)) setActiveTabState(tab as Tab);
+        const knownTabs = ['overview', 'campaign', 'tasks', 'integrations', 'insights', 'inventory', 'topical-map', 'approvals', 'portal'];
+        if (keywordTrackingEnabled()) knownTabs.push('rankings');
+        if (tab && knownTabs.includes(tab)) setActiveTabState(tab as Tab);
         if (tab === 'tasks') { setActiveTabState('campaign'); setPlanView('tasks'); }
         else setPlanView(parsePlanView(query.get('planView'), searchReportingEnabled()));
         if (!tab && (query.has('range') || query.has('section'))) setActiveTabState('insights');
@@ -248,7 +252,7 @@ export default function ClientDetailPage() {
                     </div>
                 </div>
                 {seoPlanV2 === true ? (
-                    <WorkspaceNav active="overview" vault={false} onSelect={() => {}} />
+                    <WorkspaceNav active="overview" vault={false} rankings={keywordTrackingEnabled()} onSelect={() => {}} />
                 ) : (
                     <div className="flex h-10 items-center gap-3 border-b border-border/50" aria-hidden="true">
                         {Array.from({ length: 6 }, (_, index) => (
@@ -408,6 +412,7 @@ export default function ClientDetailPage() {
                 <WorkspaceNav
                     active={activeTab}
                     vault={vaultEnabled === true}
+                    rankings={keywordTrackingEnabled()}
                     onSelect={tab => setActiveTab(tab as Tab, tab === 'campaign' ? { phase: null } : undefined)}
                 />
             ) : (
@@ -453,6 +458,12 @@ export default function ClientDetailPage() {
                     onClick={() => setActiveTab('insights')}
                     className={cn('shrink-0 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'insights' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
                 >Search Insights</button>
+                {keywordTrackingEnabled() && (
+                    <button
+                        onClick={() => setActiveTab('rankings')}
+                        className={cn('shrink-0 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'rankings' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
+                    >Rankings</button>
+                )}
                 <button
                     onClick={() => setActiveTab('inventory')}
                     className={cn('flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'inventory' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
@@ -585,6 +596,10 @@ export default function ClientDetailPage() {
 
             {vaultEnabled === true && activeTab === 'vault' && (
                 <VaultPage clientId={client.id} clientName={client.clientName} />
+            )}
+
+            {keywordTrackingEnabled() && activeTab === 'rankings' && client.organizationId === organization?.id && (
+                <RankingsTab />
             )}
 
             {activeTab === 'insights' && client.organizationId === organization?.id && (
