@@ -1,19 +1,26 @@
 import { createAdminClient } from '@/lib/supabase/admin';
+import { mapAhrefsKeywordMetrics } from './ahrefs-metrics';
 
 export interface RankTrackerRow {
     keyword: string;
-    /** End-of-period position, or null if not ranking in top 100. */
+    /** Position on the period-end date. Null when Ahrefs returned no rank. A missing rank is not stored as 0. */
     position: number | null;
     /** Start-of-period position, or null if not ranking then. */
     positionPrev: number | null;
     /** positionPrev - position: positive = moved up (improved), negative = moved down. */
     positionDiff: number | null;
+    /**
+     * Monthly searches for the latest month (`volume_mode` default `monthly`).
+     * Not a daily count, and not the 12-month average from `volume_mode=average`.
+     * Null when Ahrefs has no measurement.
+     */
     volume: number | null;
     url: string | null;
     /** e.g. "Corona, California, United States" — set when the project tracks multiple locations. */
     location: string | null;
     /** Only populated when requested via options.columns. */
     traffic: number | null;
+    /** Keyword Difficulty on Ahrefs' 0–100 scale. Null when unmeasured. */
     keywordDifficulty: number | null;
 }
 
@@ -111,11 +118,10 @@ export async function fetchAhrefsRankTracker(
             position,
             positionPrev,
             positionDiff,
-            volume: k.volume ?? null,
+            ...mapAhrefsKeywordMetrics(k),
             url: k.url ?? null,
             location: k.location ?? null,
             traffic: k.traffic ?? null,
-            keywordDifficulty: k.keyword_difficulty ?? null,
         };
     });
 

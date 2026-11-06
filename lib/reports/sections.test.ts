@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clientSafeMetricData, computeDelta, formatMetricCaption, METRIC_DEFS, REPORT_SECTIONS } from './sections';
+import { clientSafeMetricData, computeDelta, formatMetric, formatMetricCaption, METRIC_DEFS, REPORT_SECTIONS } from './sections';
+
+test('a missing Ahrefs metric renders as an em dash and a real zero stays zero', () => {
+    assert.equal(formatMetric(null, 'number'), '—');
+    assert.equal(formatMetric(undefined, 'number'), '—');
+    assert.equal(formatMetric('', 'number'), '—');
+    assert.equal(formatMetric(0, 'number'), '0');
+});
 
 test('a missing metric stays missing in month-over-month math', () => {
     assert.equal(computeDelta(null, 10), null);

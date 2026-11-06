@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { formatDelta } from '@/lib/reports/delta';
 
 const TONE_COLOR = {

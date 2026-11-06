@@ -1,4 +1,10 @@
 import { createAdminClient } from '@/lib/supabase/admin';
+import {
+    AHREFS_ORGANIC_ROW_CAP,
+    ahrefsOrganicRowCapEnabled,
+    mapAhrefsDomainRating,
+    organicKeywordCounts,
+} from './ahrefs-metrics';
 import { fetchError, notConfigured, ok, type FetchResult } from './fetch-result';
 import { monthBounds, ptToday } from './months';
 
@@ -7,6 +13,8 @@ export interface AhrefsDeps {
     loadTarget: (clientId: string) => Promise<string | null>;
     fetch: typeof fetch;
     now: () => Date;
+    /** Tests pin the cap. Production reads AHREFS_ORGANIC_ROW_CAP. */
+    organicRowCap?: boolean;
 }
 
 type Query = {
@@ -65,6 +73,16 @@ const defaultDeps: AhrefsDeps = {
  * Ahrefs domain rating and organic-keyword tier counts for one month.
  * Keyword counts use a period comparison so a keyword that ranked at either
  * end of the month is included. Domain rating is the snapshot on the period end.
+ *
+ * A missing domain rating stays null. It is not rounded into 0.
+ *
+ * Unit cost: every billable Ahrefs request has a 50-unit minimum. Volume and
+ * keyword difficulty add 10 units per returned row, so this sync does not
+ * select those columns. A flat "~50 units per client" figure undercounts any
+ * pull that asks for them. Organic keywords come back in pages of at most
+ * 1,000 rows (the API default). This request sends `limit=1000`, and stores
+ * that page as the keyword census, only when `AHREFS_ORGANIC_ROW_CAP` is
+ * exactly `true`. Otherwise a full page is left null.
  */
 export async function fetchAhrefs(clientId: string, metricMonth: string, deps: Partial<AhrefsDeps> = {}): Promise<FetchResult> {
     const resolved = { ...defaultDeps, ...deps };
@@ -77,6 +95,16 @@ export async function fetchAhrefs(clientId: string, metricMonth: string, deps: P
     const today = ptToday(resolved.now());
     const dateEnd = bounds.end > today ? today : bounds.end;
     const headers = { Authorization: `Bearer ${credentials.apiKey}` };
+    const capEnabled = resolved.organicRowCap ?? ahrefsOrganicRowCapEnabled();
+    const keywordParams = new URLSearchParams({
+        target,
+        country: 'us',
+        date: dateEnd,
+        date_compared: bounds.start,
+        select: 'keyword,best_position,best_position_prev',
+        output: 'json',
+    });
+    if (capEnabled) keywordParams.set('limit', String(AHREFS_ORGANIC_ROW_CAP));
 
     let drRes: Response;
     let kwRes: Response;
@@ -87,15 +115,7 @@ export async function fetchAhrefs(clientId: string, metricMonth: string, deps: P
                 { headers, signal: AbortSignal.timeout(20000) },
             ),
             resolved.fetch(
-                `https://api.ahrefs.com/v3/site-explorer/organic-keywords?${new URLSearchParams({
-                    target,
-                    country: 'us',
-                    limit: '1000',
-                    date: dateEnd,
-                    date_compared: bounds.start,
-                    select: 'keyword,best_position,best_position_prev',
-                    output: 'json',
-                })}`,
+                `https://api.ahrefs.com/v3/site-explorer/organic-keywords?${keywordParams}`,
                 { headers, signal: AbortSignal.timeout(20000) },
             ),
         ]);
@@ -109,18 +129,8 @@ export async function fetchAhrefs(clientId: string, metricMonth: string, deps: P
     }
 
     const [drData, kwData] = await Promise.all([drRes.json(), kwRes.json()]);
-    const rawRating = drData?.domain_rating?.domain_rating;
-    const rating = rawRating == null || rawRating === '' ? null : Math.round(Number(rawRating));
-    const keywords: { best_position?: number | null; best_position_prev?: number | null }[] = Array.isArray(kwData?.keywords) ? kwData.keywords : [];
-    const inTier = (keyword: { best_position?: number | null; best_position_prev?: number | null }, max: number) =>
-        (keyword.best_position != null && keyword.best_position <= max)
-        || (keyword.best_position_prev != null && keyword.best_position_prev <= max);
-
     return ok({
-        domain_rating: rating != null && Number.isFinite(rating) ? rating : null,
-        ranked_keywords: keywords.length,
-        top_10_keywords: keywords.filter(keyword => inTier(keyword, 10)).length,
-        top_20_keywords: keywords.filter(keyword => inTier(keyword, 20)).length,
-        top_50_keywords: keywords.filter(keyword => inTier(keyword, 50)).length,
+        domain_rating: mapAhrefsDomainRating(drData),
+        ...organicKeywordCounts(kwData?.keywords, capEnabled),
     });
 }
