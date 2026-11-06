@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { WorkspaceNav } from '../../components/seo-plan/WorkspaceNav.tsx';
-import { RankingsTab } from '../../components/workspace/RankingsTab.tsx';
+import { RankingsPanel, RankingsTab } from '../../components/workspace/RankingsTab.tsx';
 import { keywordTrackingEnabled } from './flag.ts';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
@@ -54,12 +54,77 @@ test('workspace nav hides rankings unless the caller passes the flag', () => {
     assert.equal(html.includes('Rankings'), false);
 });
 
-test('the rankings tab is an empty state with no keyword table', () => {
-    const html = renderToStaticMarkup(createElement(RankingsTab));
-    assert.match(html, /No tracked keywords yet/);
-    assert.match(html, /Keyword tracking for this client lands in a later update/);
+test('the rankings tab stays blank when the flag is off', () => {
+    const previous = process.env.NEXT_PUBLIC_KEYWORD_TRACKING;
+    try {
+        delete process.env.NEXT_PUBLIC_KEYWORD_TRACKING;
+        const html = renderToStaticMarkup(createElement(RankingsTab, {
+            organizationId: 'org',
+            clientId: 'client',
+        }));
+        assert.equal(html, '');
+    } finally {
+        if (previous === undefined) delete process.env.NEXT_PUBLIC_KEYWORD_TRACKING;
+        else process.env.NEXT_PUBLIC_KEYWORD_TRACKING = previous;
+    }
+});
+
+test('the rankings tab offers a paste box and lists keywords without rank metrics', () => {
+    const previous = process.env.NEXT_PUBLIC_KEYWORD_TRACKING;
+    process.env.NEXT_PUBLIC_KEYWORD_TRACKING = 'true';
+    try {
+        const html = renderToStaticMarkup(createElement(RankingsTab, {
+            organizationId: 'org',
+            clientId: 'client',
+        }));
+        assert.match(html, /Paste keywords, one per line/);
+        assert.match(html, /<textarea/);
+        assert.match(html, /Add keywords/);
+        assert.equal(html.includes('<table'), false);
+        assert.equal(html.includes('Avg position'), false);
+        assert.equal(html.includes('impressions'), false);
+    } finally {
+        if (previous === undefined) delete process.env.NEXT_PUBLIC_KEYWORD_TRACKING;
+        else process.env.NEXT_PUBLIC_KEYWORD_TRACKING = previous;
+    }
+});
+
+test('a loaded rankings list shows keywords and the auto note, not a metrics table', () => {
+    const empty = renderToStaticMarkup(createElement(RankingsPanel, {
+        keywords: [],
+        notes: [],
+        cap: 50,
+        draft: '',
+        message: '',
+        error: '',
+        loading: false,
+        busy: false,
+        onDraft() {},
+        onSubmit() {},
+    }));
+    assert.match(empty, /No tracked keywords yet/);
+    assert.match(empty, /0 of 50/);
+
+    const html = renderToStaticMarkup(createElement(RankingsPanel, {
+        keywords: [{ id: 'k1', keyword: 'seo agency', source: 'gsc_promote', createdAt: '2026-11-06T00:00:00Z' }],
+        notes: [{ id: 'n1', kind: 'keywords_changed', body: 'Tracked 1 keyword: seo agency.', createdAt: '2026-11-06T00:00:00Z' }],
+        cap: 50,
+        draft: '',
+        message: '',
+        error: '',
+        loading: false,
+        busy: false,
+        onDraft() {},
+        onSubmit() {},
+    }));
+    assert.equal(html.includes('No tracked keywords yet'), false);
+    assert.match(html, /seo agency/);
+    assert.match(html, /Search Insights/);
+    assert.match(html, /Keywords changed/);
+    assert.match(html, /Tracked 1 keyword: seo agency\./);
+    assert.match(html, /1 of 50/);
     assert.equal(html.includes('<table'), false);
-    assert.equal(html.includes('<input'), false);
+    assert.equal(html.includes('Avg position'), false);
 });
 
 test('the client workspace gates the rankings tab on the flag helper', () => {
@@ -69,5 +134,5 @@ test('the client workspace gates the rankings tab on the flag helper', () => {
     assert.match(page, /if \(keywordTrackingEnabled\(\)\) knownTabs\.push\('rankings'\)/);
     assert.doesNotMatch(page, /'approvals', 'portal', 'rankings'/);
     assert.match(page, /keywordTrackingEnabled\(\) && \(\s*<button[\s\S]*?setActiveTab\('rankings'\)[\s\S]*?>Rankings<\/button>/);
-    assert.match(page, /keywordTrackingEnabled\(\) && activeTab === 'rankings' && client\.organizationId === organization\?\.id && \(\s*<RankingsTab/);
+    assert.match(page, /keywordTrackingEnabled\(\) && activeTab === 'rankings' && organization && client\.organizationId === organization\.id && \(\s*<RankingsTab organizationId=\{organization\.id\} clientId=\{client\.id\} \/>/);
 });
