@@ -9,6 +9,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { WorkspaceNav } from '../../components/seo-plan/WorkspaceNav.tsx';
 import { RankingsPanel, RankingsTab } from '../../components/workspace/RankingsTab.tsx';
 import { keywordTrackingEnabled } from './flag.ts';
+import { rankingsDisplayRows } from './rankings.ts';
+import type { KeywordGscWindow } from './gsc-read.ts';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
@@ -89,7 +91,15 @@ test('the rankings tab offers a paste box and lists keywords without rank metric
     }
 });
 
-test('a loaded rankings list shows keywords and the auto note, not a metrics table', () => {
+function measured(position: number, clicks: number, impressions: number, bestUrl: string): KeywordGscWindow {
+    return { status: 'measured', clicks, impressions, avgPosition: position, bestUrl };
+}
+
+function unmeasured(): KeywordGscWindow {
+    return { status: 'not measurable', clicks: null, impressions: null, avgPosition: null, bestUrl: null };
+}
+
+test('a loaded rankings list shows the GSC table, bands, and change without zeroing a missing window', () => {
     const empty = renderToStaticMarkup(createElement(RankingsPanel, {
         keywords: [],
         notes: [],
@@ -104,27 +114,95 @@ test('a loaded rankings list shows keywords and the auto note, not a metrics tab
     }));
     assert.match(empty, /No tracked keywords yet/);
     assert.match(empty, /0 of 50/);
+    assert.equal(empty.includes('<table'), false);
 
+    const keywords = [
+        { id: 'quiet', keyword: 'quiet term', source: 'gsc_promote' as const, createdAt: '2026-11-06T00:00:00Z' },
+        { id: 'meg', keyword: 'digital marketing agency', source: 'paste' as const, createdAt: '2026-11-06T00:00:00Z' },
+        { id: 'missing', keyword: 'never returned', source: 'paste' as const, createdAt: '2026-11-06T00:00:00Z' },
+    ];
+    const rows = rankingsDisplayRows(keywords, [
+        {
+            id: 'meg',
+            keyword: 'digital marketing agency',
+            normalizedKey: 'digital marketing agency',
+            current: measured(25, 2, 51, 'https://www.marketingempiregroup.com/'),
+            compare: measured(33.6, 0, 399, 'https://www.marketingempiregroup.com/'),
+        },
+        {
+            id: 'quiet',
+            keyword: 'quiet term',
+            normalizedKey: 'quiet term',
+            current: measured(8, 0, 12, 'https://www.marketingempiregroup.com/seo-services'),
+            compare: unmeasured(),
+        },
+        {
+            id: 'missing',
+            keyword: 'never returned',
+            normalizedKey: 'never returned',
+            current: unmeasured(),
+            compare: unmeasured(),
+        },
+    ]);
     const html = renderToStaticMarkup(createElement(RankingsPanel, {
-        keywords: [{ id: 'k1', keyword: 'seo agency', source: 'gsc_promote', createdAt: '2026-11-06T00:00:00Z' }],
+        keywords,
         notes: [{ id: 'n1', kind: 'keywords_changed', body: 'Tracked 1 keyword: seo agency.', createdAt: '2026-11-06T00:00:00Z' }],
+        rows,
         cap: 50,
         draft: '',
         message: '',
         error: '',
+        periodLabel: 'Last 28 days · Oct 1 – Oct 28, 2026',
+        compareLabel: 'Sep 3 – Sep 30, 2026',
         loading: false,
         busy: false,
         onDraft() {},
         onSubmit() {},
     }));
     assert.equal(html.includes('No tracked keywords yet'), false);
-    assert.match(html, /seo agency/);
-    assert.match(html, /Search Insights/);
+    assert.match(html, /GSC avg position, all locations &amp; devices/);
+    assert.match(html, /Last 28 days · Oct 1 – Oct 28, 2026/);
+    assert.match(html, /vs Sep 3 – Sep 30, 2026/);
+    assert.match(html, /Not measurable keywords are not in a band/);
+    assert.match(html, /<table/);
     assert.match(html, /Keywords changed/);
-    assert.match(html, /Tracked 1 keyword: seo agency\./);
-    assert.match(html, /1 of 50/);
-    assert.equal(html.includes('<table'), false);
-    assert.equal(html.includes('Avg position'), false);
+    assert.match(html, /3 of 50/);
+
+    const quiet = html.slice(html.indexOf('data-keyword="quiet term"'), html.indexOf('data-keyword="digital marketing agency"'));
+    const meg = html.slice(html.indexOf('data-keyword="digital marketing agency"'), html.indexOf('data-keyword="never returned"'));
+    const missing = html.slice(html.indexOf('data-keyword="never returned"'));
+    assert.match(quiet, /data-change="New"/);
+    assert.match(quiet, /data-band="4–10"/);
+    assert.match(quiet, /data-metric="position">8\.0/);
+    assert.match(quiet, /data-metric="clicks">0</);
+    assert.match(quiet, /data-metric="impressions">12</);
+    assert.match(meg, /data-change="Improved"/);
+    assert.match(meg, /data-band="21–50"/);
+    assert.match(meg, /data-metric="position">25\.0/);
+    assert.match(meg, /data-metric="clicks">2</);
+    assert.match(meg, /data-metric="impressions">51</);
+    assert.equal(meg.includes('href="https://www.marketingempiregroup.com/"'), true);
+    assert.match(missing, /data-change="none"/);
+    assert.match(missing, /data-band="none"/);
+    assert.match(missing, /data-metric="position">not measurable/);
+    assert.match(missing, /data-metric="clicks">not measurable/);
+    assert.match(missing, /data-metric="impressions">not measurable/);
+    assert.match(missing, /data-metric="url">not measurable/);
+    assert.equal(missing.includes('1–3'), false);
+    assert.equal(missing.includes('>0<'), false);
+    assert.match(html, /data-distribution="1-3"[\s\S]*?>0</);
+    assert.match(html, /data-distribution="4-10"[\s\S]*?>1</);
+    assert.match(html, /data-distribution="21-50"[\s\S]*?>1</);
+});
+
+test('the rankings tab asks for GSC only after the flag check', () => {
+    const source = readFileSync(new URL('../../components/workspace/RankingsTab.tsx', import.meta.url), 'utf8');
+    const refresh = source.slice(source.indexOf('const refresh = useCallback'), source.indexOf('useEffect(() =>'));
+    assert.match(refresh, /if \(!keywordTrackingEnabled\(\)\) return;/);
+    assert.ok(refresh.indexOf('loadRankingWindows(') > refresh.indexOf('keywordTrackingEnabled()'));
+    assert.ok(refresh.indexOf('loadTrackedKeywordGsc(') > refresh.indexOf('loadRankingWindows('));
+    assert.match(source, /useEffect\(\(\) => \{\s*if \(!enabled\) return;/);
+    assert.equal(source.includes('createClient('), false);
 });
 
 test('the client workspace gates the rankings surface on the flag helper', () => {
