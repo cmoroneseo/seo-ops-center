@@ -10,8 +10,7 @@ import { getSearchInvestigations, setSearchInvestigationDecision } from '@/lib/s
 import type { SearchDismissalReason, SearchEvidenceCategory, SearchInvestigation } from '@/lib/types';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
 import { TrackQueryButton } from '@/components/keyword-tracking/TrackQueryButton';
-import { SearchInsightsV2 } from '@/components/search-insights/SearchInsightsV2';
-import { searchReportingEnabled } from '@/lib/search-reporting/flag';
+import { SearchDashboard } from '@/components/search-dashboard/SearchDashboard';
 import { SearchInvestigationActions } from './SearchInvestigationActions';
 
 type LoadedHistory = Awaited<ReturnType<typeof loadHistory>>;
@@ -111,13 +110,17 @@ function trackedQuerySummary(organizationId: string, clientId: string, query: st
 }
 
 export function SearchInsightsTab(props: { organizationId: string; clientId: string; clientName: string; onConnections: () => void; onSiteInventory?: () => void }) {
-    if (searchReportingEnabled()) {
-        return <SearchInsightsV2 {...props} evidence={<LegacySearchInsights {...props} variant="evidence" />} />;
-    }
-    return <LegacySearchInsights {...props} />;
+    return (
+        <SearchDashboard
+            organizationId={props.organizationId}
+            clientId={props.clientId}
+            clientName={props.clientName}
+            onConnections={props.onConnections}
+        />
+    );
 }
 
-function LegacySearchInsights({ organizationId, clientId, clientName, onConnections, onSiteInventory, variant = 'full' }: { organizationId: string; clientId: string; clientName: string; onConnections: () => void; onSiteInventory?: () => void; variant?: 'full' | 'evidence' }) {
+export function LegacySearchInsights({ organizationId, clientId, clientName, onConnections, onSiteInventory, variant = 'full' }: { organizationId: string; clientId: string; clientName: string; onConnections: () => void; onSiteInventory?: () => void; variant?: 'full' | 'evidence' }) {
     const [period, setPeriod] = useState<7 | 28>(28);
     const [revision, setRevision] = useState(0);
     const [property, setProperty] = useState<LoadedHistory | null>(null);
