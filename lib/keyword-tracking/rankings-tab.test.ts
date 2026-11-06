@@ -181,7 +181,7 @@ test('a loaded rankings list shows the GSC table, bands, and change without zero
     assert.match(meg, /data-metric="position">25\.0/);
     assert.match(meg, /data-metric="clicks">2</);
     assert.match(meg, /data-metric="impressions">51</);
-    assert.match(meg, /www\.marketingempiregroup\.com\//);
+    assert.equal(meg.includes('href="https://www.marketingempiregroup.com/"'), true);
     assert.match(missing, /data-change="none"/);
     assert.match(missing, /data-band="none"/);
     assert.match(missing, /data-metric="position">not measurable/);
