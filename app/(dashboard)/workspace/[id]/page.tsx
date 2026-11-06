@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState, Suspense } from 'react';
 import { useSuppressPlanToasts } from '@/components/providers/toast-gate';
 import { seoPlanTabHidesToasts } from '@/lib/toasts/plan-tab';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { MissingClient } from '@/components/workspace/MissingClient';
-import { ArrowLeft, Calendar, Clock, Shield, UserCheck, Plug, Target, ScanSearch, Map, FileCheck2, Globe, Archive } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, Shield, UserCheck } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { ClientNotesPanel } from '@/components/workspace/ClientNotesPanel';
@@ -43,11 +43,11 @@ import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
 import { getTask, getTasksByClient } from '@/lib/supabase/tasks';
 import { getLoggedHoursByClient } from '@/lib/supabase/time-logs';
 import { Task } from '@/lib/types';
-import { SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
 import { ResultsView } from '@/components/marketing-plan/ResultsView';
 import { searchReportingEnabled } from '@/lib/search-reporting/flag';
 import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
+import { notifyStaffNav, UNAVAILABLE_MODULE_NOTICE } from '@/lib/nav/staff-shell';
 import { parsePlanView, type PlanView } from '@/lib/search-reporting/ledger';
 import { BasecampImportModal } from '@/components/workspace/BasecampImportModal';
 import { AddOnboardingToPlanButton } from '@/components/marketing-plan/AddOnboardingToPlanButton';
@@ -62,7 +62,6 @@ import { StagePlanList } from '@/components/seo-plan/StagePlanList';
 import { useSeoPlanStageList } from '@/components/seo-plan/use-seo-plan-stage-list';
 import { useSeoPlanV2 } from '@/components/seo-plan/use-seo-plan-v2';
 import { seoPlanReadOnly } from '@/lib/seo-plan/read-only';
-import { WorkspaceNav } from '@/components/seo-plan/WorkspaceNav';
 import { PanelSkeleton } from '@/components/seo-plan/PanelSkeleton';
 import { PlanOverviewPanel } from '@/components/seo-plan/PlanOverviewPanel';
 import { prefetchClientWorkspace } from '@/lib/seo-plan/prefetch';
@@ -73,11 +72,12 @@ import { managerIsAssigned, planHourLabel, planHoursNarrative } from '@/lib/seo-
 import { planChooseTaskClass } from '@/lib/seo-plan/row-timer';
 import { GLOBAL_TIMER_HINT, GLOBAL_TIMER_LABEL } from '@/lib/timer/attempt-state';
 
-type Tab = 'overview' | 'campaign' | 'tasks' | 'integrations' | 'insights' | 'rankings' | 'inventory' | 'topical-map' | 'approvals' | 'portal' | 'vault';
+type Tab = 'overview' | 'campaign' | 'tasks' | 'deliverables' | 'integrations' | 'insights' | 'rankings' | 'inventory' | 'topical-map' | 'approvals' | 'portal' | 'vault';
 
 export default function ClientDetailPage() {
     const params = useParams();
     const router = useRouter();
+    const searchParams = useSearchParams();
     const id = params.id as string;
     const { organization, memberships } = useOrganization();
     const { isOwner, displayName, isLoading: memberLoading, userId } = useCurrentMember();
@@ -110,20 +110,24 @@ export default function ClientDetailPage() {
             if (value == null) url.searchParams.delete(key);
             else url.searchParams.set(key, value);
         }
+        url.searchParams.delete('navNotice');
         window.history.replaceState(null, '', url);
+        notifyStaffNav();
     };
 
+    const searchKey = searchParams.toString();
+
     useEffect(() => {
-        const query = new URLSearchParams(window.location.search);
+        const query = new URLSearchParams(searchKey);
         const tab = query.get('tab');
-        const knownTabs = ['overview', 'campaign', 'tasks', 'integrations', 'insights', 'inventory', 'topical-map', 'approvals', 'portal'];
+        const knownTabs = ['overview', 'campaign', 'tasks', 'deliverables', 'integrations', 'insights', 'inventory', 'topical-map', 'approvals', 'portal'];
         if (keywordTrackingEnabled()) knownTabs.push('rankings');
         if (tab && knownTabs.includes(tab)) setActiveTabState(tab as Tab);
         if (tab === 'tasks') { setActiveTabState('campaign'); setPlanView('tasks'); }
         else setPlanView(parsePlanView(query.get('planView'), searchReportingEnabled()));
         if (!tab && (query.has('range') || query.has('section'))) setActiveTabState('insights');
         if (query.has('integrationSuccess') || query.has('integrationError')) setActiveTabState('integrations');
-    }, [id]);
+    }, [id, searchKey]);
 
     // The vault tab exists only after the allowlist resolves true. A shared
     // ?tab=vault link stays on Overview while the flag is off.
@@ -251,15 +255,11 @@ export default function ClientDetailPage() {
                         </div>
                     </div>
                 </div>
-                {seoPlanV2 === true ? (
-                    <WorkspaceNav active="overview" vault={false} rankings={keywordTrackingEnabled()} onSelect={() => {}} />
-                ) : (
-                    <div className="flex h-10 items-center gap-3 border-b border-border/50" aria-hidden="true">
-                        {Array.from({ length: 6 }, (_, index) => (
-                            <span key={index} className="h-4 w-16 animate-pulse rounded bg-muted" />
-                        ))}
-                    </div>
-                )}
+                <div className="flex h-10 items-center gap-3 border-b border-border/50" aria-hidden="true">
+                    {Array.from({ length: 4 }, (_, index) => (
+                        <span key={index} className="h-4 w-16 animate-pulse rounded bg-muted" />
+                    ))}
+                </div>
                 <PanelSkeleton label="Loading client" />
             </div>
         );
@@ -401,98 +401,8 @@ export default function ClientDetailPage() {
                 />
             )}
 
-            {/* Tab bar */}
-            {seoPlanV2 === null ? (
-                <div className="flex h-10 items-center gap-3 border-b border-border/50" aria-hidden="true">
-                    {Array.from({ length: 6 }, (_, index) => (
-                        <span key={index} className="h-4 w-16 animate-pulse rounded bg-muted" />
-                    ))}
-                </div>
-            ) : v2On ? (
-                <WorkspaceNav
-                    active={activeTab}
-                    vault={vaultEnabled === true}
-                    rankings={keywordTrackingEnabled()}
-                    onSelect={tab => setActiveTab(tab as Tab, tab === 'campaign' ? { phase: null } : undefined)}
-                />
-            ) : (
-            <div className="flex items-center gap-1 overflow-x-auto border-b border-border/50">
-                <button
-                    onClick={() => setActiveTab('overview')}
-                    className={cn(
-                        'flex shrink-0 whitespace-nowrap items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-                        activeTab === 'overview'
-                            ? 'border-primary text-foreground'
-                            : 'border-transparent text-muted-foreground hover:text-foreground',
-                    )}
-                >
-                    Overview
-                </button>
-                {vaultEnabled === true && (
-                    <button
-                        onClick={() => setActiveTab('vault')}
-                        className={cn(
-                            'flex shrink-0 whitespace-nowrap items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-                            activeTab === 'vault'
-                                ? 'border-primary text-foreground'
-                                : 'border-transparent text-muted-foreground hover:text-foreground',
-                        )}
-                    >
-                        <Archive className="h-3.5 w-3.5" />
-                        Vault
-                    </button>
-                )}
-                <button
-                    onClick={() => setActiveTab('campaign', { phase: null })}
-                    className={cn(
-                        'flex shrink-0 whitespace-nowrap items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-                        activeTab === 'campaign'
-                            ? 'border-primary text-foreground'
-                            : 'border-transparent text-muted-foreground hover:text-foreground',
-                    )}
-                >
-                    <Target className="h-3.5 w-3.5" />
-                    {SEO_PLAN_LABEL}
-                </button>
-                <button
-                    onClick={() => setActiveTab('insights')}
-                    className={cn('shrink-0 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'insights' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
-                >Search Insights</button>
-                {keywordTrackingEnabled() && (
-                    <button
-                        onClick={() => setActiveTab('rankings')}
-                        className={cn('shrink-0 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'rankings' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
-                    >Rankings</button>
-                )}
-                <button
-                    onClick={() => setActiveTab('inventory')}
-                    className={cn('flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'inventory' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
-                ><ScanSearch className="h-3.5 w-3.5" />Site Inventory</button>
-                <button
-                    onClick={() => setActiveTab('topical-map')}
-                    className={cn('flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'topical-map' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
-                ><Map className="h-3.5 w-3.5" />Topical Map</button>
-                <button
-                    onClick={() => setActiveTab('approvals')}
-                    className={cn('flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'approvals' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
-                ><FileCheck2 className="h-3.5 w-3.5" />Approvals</button>
-                <button
-                    onClick={() => setActiveTab('portal')}
-                    className={cn('flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors', activeTab === 'portal' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
-                ><Globe className="h-3.5 w-3.5" />Portal management</button>
-                <button
-                    onClick={() => setActiveTab('integrations')}
-                    className={cn(
-                        'flex shrink-0 whitespace-nowrap items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-                        activeTab === 'integrations'
-                            ? 'border-primary text-foreground'
-                            : 'border-transparent text-muted-foreground hover:text-foreground',
-                    )}
-                >
-                    <Plug className="h-3.5 w-3.5" />
-                    Integrations
-                </button>
-            </div>
+            {activeTab === 'overview' && searchParams.get('navNotice') === 'unavailable' && (
+                <p className="text-sm text-muted-foreground">{UNAVAILABLE_MODULE_NOTICE}</p>
             )}
 
             {/* SEO Marketing Plan tab */}
@@ -508,6 +418,7 @@ export default function ClientDetailPage() {
                     if (view === 'plan') url.searchParams.delete('planView');
                     else url.searchParams.set('planView', view);
                     window.history.replaceState(null, '', url);
+                    notifyStaffNav();
                 }} className={cn('rounded-lg px-4 py-2 text-sm font-medium', planView === view ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>{label}</button>)}
             </nav>}
             {activeTab === 'campaign' && stageListOn && (
@@ -600,6 +511,15 @@ export default function ClientDetailPage() {
 
             {keywordTrackingEnabled() && activeTab === 'rankings' && organization && client.organizationId === organization.id && (
                 <RankingsTab organizationId={organization.id} clientId={client.id} />
+            )}
+
+            {activeTab === 'deliverables' && client.organizationId === organization?.id && (
+                <ClientDeliverablesTab
+                    organizationId={organization.id}
+                    clientId={client.id}
+                    clientName={client.clientName}
+                    clientDomain={client.domain ?? null}
+                />
             )}
 
             {activeTab === 'insights' && client.organizationId === organization?.id && (
