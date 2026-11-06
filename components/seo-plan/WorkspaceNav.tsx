@@ -11,6 +11,8 @@ const PRIMARY = [
     ['insights', 'Search'],
 ] as const;
 
+const RANKINGS_TAB = ['rankings', 'Rankings'] as const;
+
 const MORE = [
     ['inventory', 'Site Inventory'],
     ['topical-map', 'Topical Map'],
@@ -24,15 +26,18 @@ const MORE_IDS = new Set<string>([...MORE.map(([id]) => id), 'vault']);
 export function WorkspaceNav({
     active,
     vault,
+    rankings = false,
     onSelect,
 }: {
     active: string;
     vault: boolean;
+    rankings?: boolean;
     onSelect: (tab: string) => void;
 }) {
     const [open, setOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const moreActive = MORE_IDS.has(active);
+    const primary = rankings ? [...PRIMARY, RANKINGS_TAB] : PRIMARY;
 
     useEffect(() => {
         if (!open) return;
@@ -45,7 +50,7 @@ export function WorkspaceNav({
 
     return (
         <div className="flex items-center gap-1 overflow-x-auto border-b border-border/50" role="tablist" aria-label="Client">
-            {PRIMARY.map(([id, label]) => (
+            {primary.map(([id, label]) => (
                 <button
                     key={id}
                     type="button"
