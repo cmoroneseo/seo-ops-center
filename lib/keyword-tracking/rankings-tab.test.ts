@@ -127,12 +127,13 @@ test('a loaded rankings list shows keywords and the auto note, not a metrics tab
     assert.equal(html.includes('Avg position'), false);
 });
 
-test('the client workspace gates the rankings tab on the flag helper', () => {
+test('the client workspace gates the rankings surface on the flag helper', () => {
     const page = readFileSync(new URL('../../app/(dashboard)/workspace/[id]/page.tsx', import.meta.url), 'utf8');
+    const shell = readFileSync(new URL('../nav/staff-shell.ts', import.meta.url), 'utf8');
     assert.match(page, /import \{ keywordTrackingEnabled \} from '@\/lib\/keyword-tracking\/flag'/);
-    assert.equal(page.match(/rankings=\{keywordTrackingEnabled\(\)\}/g)?.length, 2);
     assert.match(page, /if \(keywordTrackingEnabled\(\)\) knownTabs\.push\('rankings'\)/);
     assert.doesNotMatch(page, /'approvals', 'portal', 'rankings'/);
-    assert.match(page, /keywordTrackingEnabled\(\) && \(\s*<button[\s\S]*?setActiveTab\('rankings'\)[\s\S]*?>Rankings<\/button>/);
+    assert.doesNotMatch(page, /setActiveTab\('rankings'\)/);
     assert.match(page, /keywordTrackingEnabled\(\) && activeTab === 'rankings' && organization && client\.organizationId === organization\.id && \(\s*<RankingsTab organizationId=\{organization\.id\} clientId=\{client\.id\} \/>/);
+    assert.match(shell, /if \(options\.keywordTracking\) search\.push\(link\('rankings', 'Rankings', 'rankings'\)\)/);
 });
