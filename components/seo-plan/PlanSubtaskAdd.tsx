@@ -106,10 +106,10 @@ export function PlanSubtaskAdd({
                     }
                     setPreview({ lines: pasted.lines, titles: pasted.titles });
                 }}
-                className="w-full rounded-md border border-dashed border-[#3a3a40] bg-transparent px-2 py-1 text-[12px] text-[#cfcfd4] outline-none placeholder:text-[#6d6d75] focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                className="w-full rounded-md border border-dashed border-[#d4d4d8] bg-transparent px-2 py-1 text-[12px] text-[#3f3f46] outline-none placeholder:text-[#a1a1aa] focus-visible:ring-2 focus-visible:ring-[#ec4899]"
             />
             {error && (
-                <p id={errorId} role="alert" data-plan-subtask-error className="mt-1 text-[11px] text-[#f87171]">{error}</p>
+                <p id={errorId} role="alert" data-plan-subtask-error className="mt-1 text-[11px] text-[#dc2626]">{error}</p>
             )}
             {preview && (
                 <div
@@ -117,19 +117,19 @@ export function PlanSubtaskAdd({
                     role="region"
                     aria-label="Subtask paste preview"
                     data-plan-subtask-preview
-                    className="mt-1 rounded-md border border-[#2a2a2e] bg-[#141416] p-2"
+                    className="mt-1 rounded-md border border-[#e4e4e7] bg-[#ffffff] p-2"
                 >
-                    <p data-plan-subtask-count={preview.titles.length} className="text-[12px] text-[#ececee]">
+                    <p data-plan-subtask-count={preview.titles.length} className="text-[12px] text-[#18181b]">
                         Add {preview.titles.length} {preview.titles.length === 1 ? 'subtask' : 'subtasks'}?
                     </p>
                     <ul className="mt-1 max-h-28 overflow-auto">
                         {preview.titles.map((title, index) => (
-                            <li key={`${index}:${title}`} data-plan-subtask-line={index} className="truncate py-0.5 text-[12px] text-[#cfcfd4]">
+                            <li key={`${index}:${title}`} data-plan-subtask-line={index} className="truncate py-0.5 text-[12px] text-[#3f3f46]">
                                 {title}
                             </li>
                         ))}
                     </ul>
-                    {previewError && <p className="mt-1 text-[11px] text-[#f87171]">{previewError}</p>}
+                    {previewError && <p className="mt-1 text-[11px] text-[#dc2626]">{previewError}</p>}
                     <div className="mt-1.5 flex gap-2">
                         <button
                             type="button"
@@ -144,7 +144,7 @@ export function PlanSubtaskAdd({
                             type="button"
                             data-plan-subtask-cancel
                             onClick={cancelPreview}
-                            className="rounded border border-[#2a2a2e] px-2 py-1 text-[11px] text-[#cfcfd4] hover:text-white"
+                            className="rounded border border-[#e4e4e7] px-2 py-1 text-[11px] text-[#3f3f46] hover:text-[#18181b]"
                         >
                             Cancel
                         </button>

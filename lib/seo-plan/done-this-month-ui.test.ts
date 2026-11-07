@@ -126,7 +126,7 @@ test('zeros stay muted and the empty sentence names the month', () => {
     assert.match(html, /data-plan-completed="0"[^>]*data-zero="true"/);
     assert.match(html, /data-plan-urls="0"[^>]*data-zero="true"/);
     assert.match(html, /data-plan-hours="0\.0h"[^>]*data-zero="true"/);
-    assert.match(html, /text-\[#8b8b93\]/);
+    assert.match(html, /text-\[#71717a\]/);
     assert.match(html, /Nothing completed in October yet\./);
     assert.doesNotMatch(html, /data-zero="false"|emerald|text-green|#22c55e|#16a34a/);
     assert.doesNotMatch(html, /data-plan-url=/);

@@ -48,15 +48,15 @@ import { cn } from '@/lib/utils';
 interface LoadedQueries { queries: Array<{ query: string; clicks: number }>; reason: string | null }
 
 const WASH: Record<'up' | 'down' | 'flat', string[]> = {
-    flat: ['#14161b', '#14161b', '#14161b', '#14161b', '#14161b'],
-    up: ['#14161b', '#15261e', '#12382a', '#0e4a34', '#0c5c40'],
-    down: ['#14161b', '#2a1a1e', '#3d1a20', '#521820', '#67161e'],
+    flat: ['#ffffff', '#ffffff', '#ffffff', '#ffffff', '#ffffff'],
+    up: ['#ffffff', '#f0fdf4', '#dcfce7', '#bbf7d0', '#86efac'],
+    down: ['#ffffff', '#fef2f2', '#fee2e2', '#fecaca', '#fca5a5'],
 };
 
 const TONE_TEXT = {
-    up: 'text-emerald-300',
-    down: 'text-rose-300',
-    flat: 'text-zinc-400',
+    up: 'text-emerald-700',
+    down: 'text-rose-700',
+    flat: 'text-muted-foreground',
 } as const;
 
 const BAR: Record<Tone, string> = {
@@ -162,12 +162,12 @@ function DashboardHistorySkeleton() {
             <span className="sr-only">Loading Search Console history…</span>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {Array.from({ length: 4 }, (_, index) => (
-                    <div key={index} className="h-24 animate-pulse rounded-xl border border-white/10 bg-white/5" />
+                    <div key={index} className="h-24 animate-pulse rounded-xl border border-border bg-muted" />
                 ))}
             </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {Array.from({ length: 6 }, (_, index) => (
-                    <div key={index} className="h-40 animate-pulse rounded-xl border border-white/10 bg-white/5" />
+                    <div key={index} className="h-40 animate-pulse rounded-xl border border-border bg-muted" />
                 ))}
             </div>
         </div>
@@ -301,17 +301,17 @@ export function AgencyDashboardView({
     }
 
     return (
-        <div data-dashboard="agency" className="min-h-full rounded-2xl bg-[#0c0e12] p-4 text-zinc-100 sm:p-6" aria-busy={loading}>
+        <div data-dashboard="agency" className="min-h-full text-foreground" aria-busy={loading}>
             <div className="flex flex-wrap items-end justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-                    <p className="mt-1 text-sm text-zinc-400">
+                    <p className="mt-1 text-sm text-muted-foreground">
                         {engine === 'bing' ? 'Bing Webmaster across active clients' : engine === 'all' ? 'Google and Bing across active clients' : 'Search Console across active clients'}
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     {model?.bingEnabled && (
-                        <div role="group" aria-label="Search engine" className="flex rounded-lg bg-white/5 p-0.5">
+                        <div role="group" aria-label="Search engine" className="flex rounded-lg bg-muted p-0.5">
                             {(['google', 'bing', 'all'] as const).map(option => (
                                 <button
                                     key={option}
@@ -319,21 +319,21 @@ export function AgencyDashboardView({
                                     data-engine-option={option}
                                     aria-pressed={engine === option}
                                     onClick={() => setSelectedEngine(option)}
-                                    className={cn('rounded-md px-2.5 py-1.5 text-xs font-medium', engine === option ? 'bg-white/15 text-white' : 'text-zinc-400 hover:text-zinc-200')}
+                                    className={cn('rounded-md px-2.5 py-1.5 text-xs font-medium', engine === option ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground')}
                                 >
                                     {option === 'google' ? 'Google' : option === 'bing' ? 'Bing' : 'All'}
                                 </button>
                             ))}
                         </div>
                     )}
-                    <div role="group" aria-label="Date range" className="flex rounded-lg bg-white/5 p-0.5">
+                    <div role="group" aria-label="Date range" className="flex rounded-lg bg-muted p-0.5">
                         {DASHBOARD_RANGES.map(item => (
                             <button
                                 key={item}
                                 type="button"
                                 aria-pressed={activeRange === item}
                                 onClick={() => onRange?.(item)}
-                                className={cn('rounded-md px-2.5 py-1.5 text-xs font-medium', activeRange === item ? 'bg-white/15 text-white' : 'text-zinc-400 hover:text-zinc-200')}
+                                className={cn('rounded-md px-2.5 py-1.5 text-xs font-medium', activeRange === item ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground')}
                             >
                                 {dashboardRangeLabel(item)}
                             </button>
@@ -349,7 +349,7 @@ export function AgencyDashboardView({
                     {canSyncBing && <SyncBingButton variant="toolbar" onSynced={onRefresh} />}
                     <div className="flex items-center gap-2">
                     {ga4Cards && (
-                        <div role="group" aria-label="Card metric" className="flex rounded-lg bg-white/5 p-0.5">
+                        <div role="group" aria-label="Card metric" className="flex rounded-lg bg-muted p-0.5">
                             {(['clicks', 'organic-sessions', 'key-events'] as const).map(option => (
                                 <button
                                     key={option}
@@ -359,7 +359,7 @@ export function AgencyDashboardView({
                                     onClick={() => chooseCardMetric(option)}
                                     className={cn(
                                         'rounded-md px-3 py-1.5 text-xs font-medium',
-                                        activeCardMetric === option ? 'bg-primary text-primary-foreground' : 'text-zinc-400 hover:text-zinc-200',
+                                        activeCardMetric === option ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
                                     )}
                                 >
                                     {CARD_METRIC_LABEL[option]}
@@ -375,12 +375,12 @@ export function AgencyDashboardView({
                             aria-label={activeFilters > 0 ? `Filters, ${activeFilters} active` : 'Filters'}
                             data-active-filters={activeFilters}
                             onClick={() => setFiltersOpen(open => !open)}
-                            className={cn('inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 text-sm', filtersOpen && 'bg-white/10')}
+                            className={cn('inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 text-sm', filtersOpen && 'bg-muted')}
                         >
-                            <SlidersHorizontal className="h-3.5 w-3.5 text-zinc-400" />
+                            <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
                             Filters
                             {activeFilters > 0 && (
-                                <span className="rounded-full bg-white/15 px-1.5 text-[11px] font-medium tabular-nums text-white">{activeFilters}</span>
+                                <span className="rounded-full bg-secondary px-1.5 text-[11px] font-medium tabular-nums text-foreground">{activeFilters}</span>
                             )}
                         </button>
                         <div
@@ -388,7 +388,7 @@ export function AgencyDashboardView({
                             role="dialog"
                             aria-label="Filters"
                             hidden={!filtersOpen}
-                            className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-white/10 bg-[#16181d] p-3 shadow-2xl"
+                            className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-border bg-card p-3 shadow-2xl"
                         >
                             <div className="space-y-3">
                                 <FilterField label="Color">
@@ -424,46 +424,46 @@ export function AgencyDashboardView({
                     </div>
                     <label className="relative">
                         <span className="sr-only">Search clients</span>
-                        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+                        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                         <input
                             value={query}
                             onChange={event => setQuery(event.target.value)}
                             placeholder="Search"
-                            className="h-9 w-40 rounded-lg border border-white/10 bg-white/5 pl-8 pr-2 text-sm text-zinc-100 placeholder:text-zinc-500"
+                            className="h-9 w-40 rounded-lg border border-border bg-muted pl-8 pr-2 text-sm text-foreground placeholder:text-muted-foreground"
                         />
                     </label>
-                    <div role="group" aria-label="Layout" className="flex rounded-lg bg-white/5 p-0.5">
-                        <button type="button" aria-pressed={view === 'grid'} aria-label="Grid" onClick={() => setView('grid')} className={cn('rounded-md p-1.5', view === 'grid' ? 'bg-white/15 text-white' : 'text-zinc-400')}>
+                    <div role="group" aria-label="Layout" className="flex rounded-lg bg-muted p-0.5">
+                        <button type="button" aria-pressed={view === 'grid'} aria-label="Grid" onClick={() => setView('grid')} className={cn('rounded-md p-1.5', view === 'grid' ? 'bg-secondary text-foreground' : 'text-muted-foreground')}>
                             <LayoutGrid className="h-4 w-4" />
                         </button>
-                        <button type="button" aria-pressed={view === 'list'} aria-label="List" onClick={() => setView('list')} className={cn('rounded-md p-1.5', view === 'list' ? 'bg-white/15 text-white' : 'text-zinc-400')}>
+                        <button type="button" aria-pressed={view === 'list'} aria-label="List" onClick={() => setView('list')} className={cn('rounded-md p-1.5', view === 'list' ? 'bg-secondary text-foreground' : 'text-muted-foreground')}>
                             <List className="h-4 w-4" />
                         </button>
                     </div>
-                    <button type="button" aria-label="Refresh" onClick={onRefresh} className="rounded-lg border border-white/10 p-2 text-zinc-300 hover:bg-white/5">
+                    <button type="button" aria-label="Refresh" onClick={onRefresh} className="rounded-lg border border-border p-2 text-foreground hover:bg-muted">
                         <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
                     </button>
                 </div>
             </div>
 
-            {error && <p role="alert" className="mt-4 rounded-lg border border-rose-400/30 bg-rose-950/40 px-3 py-2 text-sm text-rose-200">{error}</p>}
+            {error && <p role="alert" className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
             {loading && !model && !error && <DashboardHistorySkeleton />}
             {model && !error && model.clientsConnected === 0 && (
-                <p className="mt-8 text-sm text-zinc-400">No active clients have Google Search Console connected.</p>
+                <p className="mt-8 text-sm text-muted-foreground">No active clients have Google Search Console connected.</p>
             )}
             {model && !error && selection && model.clientsConnected > 0 && (
                 cards.length === 0 ? (
-                    <p className="mt-8 text-sm text-zinc-400">No clients match.</p>
+                    <p className="mt-8 text-sm text-muted-foreground">No clients match.</p>
                 ) : (
                 <>
                     <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                         {METRICS.map(item => {
                             const tone = changeTone(item, selection.kpis[item].change);
                             return (
-                                <section key={item} data-kpi={item} className="rounded-xl border border-white/10 bg-[#16181d] px-4 py-3">
+                                <section key={item} data-kpi={item} className="rounded-xl border border-border bg-card px-4 py-3">
                                     <div className="flex items-center gap-2">
                                         <span aria-hidden className={cn('h-2 w-2 rounded-full', KPI_DOT[item])} />
-                                        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400" title={item === 'position' ? POSITION_LABEL_TITLE : undefined}>{METRIC_LABEL[item]}</p>
+                                        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground" title={item === 'position' ? POSITION_LABEL_TITLE : undefined}>{METRIC_LABEL[item]}</p>
                                     </div>
                                     <div className="mt-2 flex items-center justify-between gap-3">
                                         <p className="text-3xl font-semibold tabular-nums tracking-tight">{formatMetric(item, selection.kpis[item].value)}</p>
@@ -476,7 +476,7 @@ export function AgencyDashboardView({
                             );
                         })}
                     </div>
-                    <p data-meta="summary" className="mt-4 text-xs leading-5 text-zinc-400">
+                    <p data-meta="summary" className="mt-4 text-xs leading-5 text-muted-foreground">
                         {selection.summary}{model.settling ? ' · includes days still settling' : ''}
                         {engine === 'all' ? ' · Dashed line is Bing' : ''}
                         {' · '}{legend}
@@ -565,7 +565,7 @@ function PortfolioCard({
             data-client={card.clientId}
             data-tone={tint.tone}
             data-strength={tint.strength}
-            className="relative h-[340px] rounded-2xl border border-white/10 [perspective:1200px]"
+            className="relative h-[340px] rounded-2xl border border-border [perspective:1200px]"
             style={{ backgroundColor: WASH[tint.tone][tint.strength] }}
             onMouseEnter={() => setHover(true)}
             onMouseLeave={() => setHover(false)}
@@ -586,13 +586,13 @@ function PortfolioCard({
                             <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
                                     <h2 className="truncate text-lg font-semibold tracking-tight">{card.name}</h2>
-                                    <p className="truncate text-xs text-zinc-400">{card.domain}{face.coverageLabel ? ` · ${face.coverageLabel}` : ''}</p>
+                                    <p className="truncate text-xs text-muted-foreground">{card.domain}{face.coverageLabel ? ` · ${face.coverageLabel}` : ''}</p>
                                 </div>
                                 <div className="shrink-0 text-right">
                                     {face.reason ? (
                                         <>
-                                            <p className="text-3xl font-semibold leading-none text-zinc-500">—</p>
-                                            <p className="mt-1 max-w-48 text-xs text-zinc-400" title={face.reasonTitle ?? undefined}>{face.reasonLabel}</p>
+                                            <p className="text-3xl font-semibold leading-none text-muted-foreground">—</p>
+                                            <p className="mt-1 max-w-48 text-xs text-muted-foreground" title={face.reasonTitle ?? undefined}>{face.reasonLabel}</p>
                                         </>
                                     ) : (
                                         <>
@@ -600,13 +600,13 @@ function PortfolioCard({
                                             <div className="mt-1.5 flex justify-end">
                                                 <ChangePill metric={metric} change={face.metrics[metric].change} note={face.changeNote} />
                                             </div>
-                                            <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-400">{METRIC_LABEL[metric]}</p>
+                                            <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">{METRIC_LABEL[metric]}</p>
                                         </>
                                     )}
                                 </div>
                             </div>
                             {share && (
-                                <p data-bing-share title={card.bing?.reasonTitle ?? undefined} className="mt-3 inline-flex w-fit rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-zinc-200">{share}</p>
+                                <p data-bing-share title={card.bing?.reasonTitle ?? undefined} className="mt-3 inline-flex w-fit rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-foreground">{share}</p>
                             )}
                             <div className="-mx-4 mt-2 flex min-h-0 flex-1 items-end">
                                 <Sparkline values={face.series[metric]} overlay={face.overlay?.[metric]} tone={heroTone} label={`${card.name} ${METRIC_LABEL[metric]} trend`} className="h-20 w-full" stretch />
@@ -622,38 +622,38 @@ function PortfolioCard({
                         tabIndex={open ? -1 : 0}
                         aria-label={`Details for ${card.name}`}
                         onClick={() => setPinned(value => !value)}
-                        className="absolute inset-0 rounded-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                        className="absolute inset-0 rounded-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
                     />
                 </div>
-                <div data-face="back" className="absolute inset-0 flex flex-col overflow-auto rounded-2xl bg-[#0e1014] p-4 [backface-visibility:hidden] [transform:rotateY(180deg)]" style={{ pointerEvents: open ? 'auto' : 'none' }}>
+                <div data-face="back" className="absolute inset-0 flex flex-col overflow-auto rounded-2xl bg-card p-4 [backface-visibility:hidden] [transform:rotateY(180deg)]" style={{ pointerEvents: open ? 'auto' : 'none' }}>
                     <div className="flex items-start justify-between gap-2">
                         <h2 className="truncate text-sm font-semibold">{card.name}</h2>
-                        <button type="button" tabIndex={open ? 0 : -1} onClick={() => setPinned(false)} className="text-xs text-zinc-400 hover:text-zinc-200">Close</button>
+                        <button type="button" tabIndex={open ? 0 : -1} onClick={() => setPinned(false)} className="text-xs text-muted-foreground hover:text-foreground">Close</button>
                     </div>
                     {engine === 'bing' ? (
                         <BingPanel card={card} />
                     ) : (
                         <>
-                            {card.syncWarning && <p className="mt-1 text-[11px] text-zinc-400">{card.syncWarning}</p>}
+                            {card.syncWarning && <p className="mt-1 text-[11px] text-muted-foreground">{card.syncWarning}</p>}
                             {face.reason ? (
-                                <p className="mt-4 text-sm text-zinc-300">— {face.reasonLabel}</p>
+                                <p className="mt-4 text-sm text-foreground">— {face.reasonLabel}</p>
                             ) : (
                                 <>
-                                    {face.changeNote && <p className="mt-2 text-[11px] text-zinc-500">{face.changeNote}</p>}
+                                    {face.changeNote && <p className="mt-2 text-[11px] text-muted-foreground">{face.changeNote}</p>}
                                     <DeltaList metrics={face.metrics} />
                                 </>
                             )}
                             <div className="mt-3">
-                                <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Top queries</p>
+                                <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Top queries</p>
                                 <QueryList card={card} loaded={loaded} loading={queryLoading} error={queryError} />
                             </div>
                             {engine === 'all' && <BingPanel card={card} />}
                         </>
                     )}
                     <div className="mt-auto flex flex-wrap gap-x-3 gap-y-1 pt-3 text-xs">
-                        <Link href={card.links.insights} tabIndex={open ? 0 : -1} className="text-emerald-300 underline-offset-2 hover:underline">Search Insights</Link>
-                        <Link href={card.links.plan} tabIndex={open ? 0 : -1} className="text-emerald-300 underline-offset-2 hover:underline">SEO Plan</Link>
-                        <a href={card.links.gsc} tabIndex={open ? 0 : -1} target="_blank" rel="noreferrer" className="text-emerald-300 underline-offset-2 hover:underline">Open in GSC</a>
+                        <Link href={card.links.insights} tabIndex={open ? 0 : -1} className="text-emerald-700 underline-offset-2 hover:underline">Search Insights</Link>
+                        <Link href={card.links.plan} tabIndex={open ? 0 : -1} className="text-emerald-700 underline-offset-2 hover:underline">SEO Plan</Link>
+                        <a href={card.links.gsc} tabIndex={open ? 0 : -1} target="_blank" rel="noreferrer" className="text-emerald-700 underline-offset-2 hover:underline">Open in GSC</a>
                     </div>
                 </div>
             </div>
@@ -691,30 +691,30 @@ function MetricCardFront({
     return (
         <>
             <h2 className="truncate text-lg font-semibold tracking-tight">{card.name}</h2>
-            <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400">{label} · {rangeLabel}</p>
+            <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{label} · {rangeLabel}</p>
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <p data-hero className={cn('text-4xl font-semibold leading-none tracking-tight', value == null ? 'text-zinc-500' : 'tabular-nums')}>
+                <p data-hero className={cn('text-4xl font-semibold leading-none tracking-tight', value == null ? 'text-muted-foreground' : 'tabular-nums')}>
                     {formatted}
                 </p>
                 {value != null && <ChangePill metric="clicks" change={change} note={note} />}
             </div>
             {!heroKey && share && (
-                <p data-bing-share title={card.bing?.reasonTitle ?? undefined} className="mt-2 inline-flex w-fit rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-zinc-200">{share}</p>
+                <p data-bing-share title={card.bing?.reasonTitle ?? undefined} className="mt-2 inline-flex w-fit rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-foreground">{share}</p>
             )}
             {!heroKey && face.reason ? (
-                <p className="mt-4 flex-1 text-xs text-zinc-400" title={face.reasonTitle ?? undefined}>{face.reasonLabel}</p>
+                <p className="mt-4 flex-1 text-xs text-muted-foreground" title={face.reasonTitle ?? undefined}>{face.reasonLabel}</p>
             ) : unmapped ? (
-                <div data-ga4="unmapped" className="relative z-10 mt-4 flex flex-1 items-center justify-center rounded-xl border border-dashed border-white/15 px-4 py-6 text-center text-xs text-zinc-400">
+                <div data-ga4="unmapped" className="relative z-10 mt-4 flex flex-1 items-center justify-center rounded-xl border border-dashed border-border px-4 py-6 text-center text-xs text-muted-foreground">
                     {GA4_NOT_CONNECTED}
                     {' · '}
-                    <Link href={ga4PropertyPickerHref(card.clientId)} className="text-zinc-300 underline-offset-2 hover:underline">
+                    <Link href={ga4PropertyPickerHref(card.clientId)} className="text-foreground underline-offset-2 hover:underline">
                         {GA4_CONNECT_LABEL}
                     </Link>
                 </div>
             ) : heroKey && ga4?.unavailable ? (
-                <p data-ga4="unavailable" className="mt-4 flex-1 text-xs text-zinc-500">{GA4_UNAVAILABLE}</p>
+                <p data-ga4="unavailable" className="mt-4 flex-1 text-xs text-muted-foreground">{GA4_UNAVAILABLE}</p>
             ) : heroKey && value == null ? (
-                <p className="mt-4 flex-1 text-xs text-zinc-500">No data in this range</p>
+                <p className="mt-4 flex-1 text-xs text-muted-foreground">No data in this range</p>
             ) : (
                 <div className="-mx-4 mt-2 flex min-h-0 flex-1 items-end">
                     <Sparkline
@@ -728,7 +728,7 @@ function MetricCardFront({
                     />
                 </div>
             )}
-            {!heroKey && face.coverageLabel && <p className="mt-1 text-xs text-zinc-500">{face.coverageLabel}</p>}
+            {!heroKey && face.coverageLabel && <p className="mt-1 text-xs text-muted-foreground">{face.coverageLabel}</p>}
             <div className="mt-3 grid grid-cols-3 gap-2">
                 {heroKey ? (
                     <>
@@ -747,8 +747,8 @@ function MetricCardFront({
 function Ga4Stat({ label, metric, value }: { label: string; metric: 'sessions' | 'engagementRate' | 'keyEvents'; value: number | null }) {
     return (
         <div data-ga4-stat={metric}>
-            <p className="text-sm font-semibold tabular-nums text-zinc-100">{formatGa4Metric(metric, value)}</p>
-            <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500">{label}</p>
+            <p className="text-sm font-semibold tabular-nums text-foreground">{formatGa4Metric(metric, value)}</p>
+            <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
         </div>
     );
 }
@@ -758,13 +758,13 @@ function BingPanel({ card }: { card: DashboardCard }) {
     if (!bing) return null;
     return (
         <div data-bing="panel" className="mt-3">
-            <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Bing</p>
-            {bing.syncWarning && <p className="mt-1 text-[11px] text-zinc-400">{bing.syncWarning}</p>}
+            <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Bing</p>
+            {bing.syncWarning && <p className="mt-1 text-[11px] text-muted-foreground">{bing.syncWarning}</p>}
             {bing.reason ? (
-                <p className="mt-1 text-xs text-zinc-300" title={bing.reasonTitle ?? undefined}>— {bing.reasonLabel}</p>
+                <p className="mt-1 text-xs text-foreground" title={bing.reasonTitle ?? undefined}>— {bing.reasonLabel}</p>
             ) : (
                 <>
-                    {bing.changeNote && <p className="mt-1 text-[11px] text-zinc-500">{bing.changeNote}</p>}
+                    {bing.changeNote && <p className="mt-1 text-[11px] text-muted-foreground">{bing.changeNote}</p>}
                     <BingRows title="Top queries" rows={bing.queries} reason={bing.queriesReason} note={bing.queriesNote} />
                     <BingRows title="Top pages" rows={bing.pages} reason={bing.pagesReason} note={bing.pagesNote} />
                 </>
@@ -776,21 +776,21 @@ function BingPanel({ card }: { card: DashboardCard }) {
 function BingRows({ title, rows, reason, note }: { title: string; rows: Array<{ label: string; clicks: number; impressions: number; position: number | null }>; reason: string | null; note: string | null }) {
     return (
         <div className="mt-2">
-            <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">{title}</p>
-            {note && <p className="mt-1 text-[11px] text-zinc-500">{note}</p>}
+            <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{title}</p>
+            {note && <p className="mt-1 text-[11px] text-muted-foreground">{note}</p>}
             {rows.length > 0 ? (
                 <ol className="mt-1 space-y-1 text-xs">
                     {rows.map((row, index) => (
                         <li key={`${row.label}:${index}`} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2">
                             <span className="truncate">{row.label}</span>
-                            <span className="tabular-nums text-zinc-300" title="Clicks">{formatMetric('clicks', row.clicks)}</span>
-                            <span className="tabular-nums text-zinc-400" title="Impressions">{formatMetric('impressions', row.impressions)}</span>
-                            <span className="tabular-nums text-zinc-400" title={row.position == null ? 'No impression position' : POSITION_LABEL_TITLE}>{formatMetric('position', row.position)}</span>
+                            <span className="tabular-nums text-foreground" title="Clicks">{formatMetric('clicks', row.clicks)}</span>
+                            <span className="tabular-nums text-muted-foreground" title="Impressions">{formatMetric('impressions', row.impressions)}</span>
+                            <span className="tabular-nums text-muted-foreground" title={row.position == null ? 'No impression position' : POSITION_LABEL_TITLE}>{formatMetric('position', row.position)}</span>
                         </li>
                     ))}
                 </ol>
             ) : (
-                <p className="mt-1 text-xs text-zinc-500">— {reason ?? 'No data in this range'}</p>
+                <p className="mt-1 text-xs text-muted-foreground">— {reason ?? 'No data in this range'}</p>
             )}
         </div>
     );
@@ -807,14 +807,14 @@ function DeltaList({ metrics }: { metrics: DashboardCard['metrics'] }) {
                 return (
                     <div key={metric}>
                         <div className="flex items-baseline justify-between gap-2 text-xs">
-                            <dt className="text-zinc-400">{METRIC_LABEL[metric]}</dt>
+                            <dt className="text-muted-foreground">{METRIC_LABEL[metric]}</dt>
                             <dd className="text-right tabular-nums">
                                 <span>{formatMetric(metric, metrics[metric].value)}</span>
                                 <span className="ml-2 inline-flex"><ChangePill metric={metric} change={change} size="sm" /></span>
-                                <span data-absolute className="ml-2 text-zinc-500">· {formatAbsolute(metric, metrics[metric].absolute)}</span>
+                                <span data-absolute className="ml-2 text-muted-foreground">· {formatAbsolute(metric, metrics[metric].absolute)}</span>
                             </dd>
                         </div>
-                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10" aria-hidden>
+                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
                             <div data-tone={tone} className={cn('h-full rounded-full', BAR[tone])} style={{ width: `${width}%` }} />
                         </div>
                     </div>
@@ -833,26 +833,26 @@ function QueryList({ card, loaded, loading, error }: { card: DashboardCard; load
                 {queries.map(query => (
                     <li key={query.query} className="flex justify-between gap-2">
                         <span className="truncate">{query.query}</span>
-                        <span className="tabular-nums text-zinc-300">{formatMetric('clicks', query.clicks)}</span>
+                        <span className="tabular-nums text-foreground">{formatMetric('clicks', query.clicks)}</span>
                     </li>
                 ))}
             </ol>
         );
     }
     if (!card.queriesKnown && !loaded && !error) {
-        return <p className="mt-1 text-xs text-zinc-500">{loading ? 'Loading queries…' : '— Open this card to load queries'}</p>;
+        return <p className="mt-1 text-xs text-muted-foreground">{loading ? 'Loading queries…' : '— Open this card to load queries'}</p>;
     }
-    return <p className="mt-1 text-xs text-zinc-500">— {reason ?? 'No queries with clicks in this range'}</p>;
+    return <p className="mt-1 text-xs text-muted-foreground">— {reason ?? 'No queries with clicks in this range'}</p>;
 }
 
 function Stat({ metric, view }: { metric: MetricKey; view: DashboardCard['metrics'][MetricKey] }) {
     return (
         <div>
-            <p className="text-sm font-semibold tabular-nums text-zinc-100">{formatMetric(metric, view.value)}</p>
+            <p className="text-sm font-semibold tabular-nums text-foreground">{formatMetric(metric, view.value)}</p>
             <div className="mt-1">
                 <ChangePill metric={metric} change={view.change} size="sm" />
             </div>
-            <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-500" title={metric === 'position' ? POSITION_LABEL_TITLE : undefined}>{SUPPORTING_LABEL[metric]}</p>
+            <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground" title={metric === 'position' ? POSITION_LABEL_TITLE : undefined}>{SUPPORTING_LABEL[metric]}</p>
         </div>
     );
 }
@@ -867,7 +867,7 @@ function ChangeText({ metric, change }: { metric: MetricKey; change: number | nu
 function ChangePill({ metric, change, note, size = 'md' }: { metric: MetricKey; change: number | null; note?: string | null; size?: 'md' | 'sm' }) {
     if (change == null || !Number.isFinite(change)) {
         return (
-            <span className={cn('text-zinc-500', size === 'sm' ? 'text-[11px]' : 'text-xs')}>
+            <span className={cn('text-muted-foreground', size === 'sm' ? 'text-[11px]' : 'text-xs')}>
                 —{note ? <span className="ml-1">{note}</span> : null}
             </span>
         );
@@ -882,9 +882,9 @@ function ChangePill({ metric, change, note, size = 'md' }: { metric: MetricKey; 
             className={cn(
                 'inline-flex items-center gap-1 rounded-full font-medium tabular-nums',
                 size === 'sm' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-xs',
-                tone === 'up' && 'bg-emerald-400/15 text-emerald-300',
-                tone === 'down' && 'bg-rose-400/15 text-rose-300',
-                tone === 'flat' && 'bg-white/10 text-zinc-300',
+                tone === 'up' && 'bg-emerald-500/10 text-emerald-700',
+                tone === 'down' && 'bg-rose-500/10 text-rose-700',
+                tone === 'flat' && 'bg-muted text-foreground',
             )}
         >
             {arrow ? <span aria-hidden>{arrow}</span> : null}
@@ -895,14 +895,14 @@ function ChangePill({ metric, change, note, size = 'md' }: { metric: MetricKey; 
 
 function PortfolioTable({ cards, engine, metric, signal, onSort, queryCache, ga4Cards = false, cardMetric = 'clicks' }: { cards: DashboardCard[]; engine: SearchEngine; metric: MetricKey; signal: MetricKey; onSort: (metric: MetricKey) => void; queryCache: Record<string, LoadedQueries>; ga4Cards?: boolean; cardMetric?: CardMetric }) {
     return (
-        <div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
+        <div className="mt-4 overflow-x-auto rounded-xl border border-border">
             <table className="w-full min-w-[640px] text-left text-sm">
-                <thead className="bg-white/5 text-xs uppercase tracking-wide text-zinc-500">
+                <thead className="bg-muted text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
                         <th className="px-3 py-2 font-medium">Client</th>
                         {METRICS.map(item => (
                             <th key={item} className="px-3 py-2 font-medium" title={item === 'position' ? POSITION_LABEL_TITLE : undefined}>
-                                <button type="button" onClick={() => onSort(item)} className={cn('hover:text-zinc-200', metric === item && 'text-zinc-100')} title={item === 'position' ? POSITION_LABEL_TITLE : undefined}>
+                                <button type="button" onClick={() => onSort(item)} className={cn('hover:text-foreground', metric === item && 'text-foreground')} title={item === 'position' ? POSITION_LABEL_TITLE : undefined}>
                                     {METRIC_LABEL[item]}
                                 </button>
                             </th>
@@ -921,25 +921,25 @@ function PortfolioTable({ cards, engine, metric, signal, onSort, queryCache, ga4
                         const share = engine === 'all' ? bingShareLabel(card) : null;
                         const unmapped = Boolean(heroKey && card.ga4 && !card.ga4.unavailable && !card.ga4.mapped);
                         return (
-                            <tr key={card.clientId} data-tone={tint.tone} className="border-t border-white/10" style={{ backgroundColor: WASH[tint.tone][Math.min(tint.strength, 2)] }}>
+                            <tr key={card.clientId} data-tone={tint.tone} className="border-t border-border" style={{ backgroundColor: WASH[tint.tone][Math.min(tint.strength, 2)] }}>
                                 <td className="px-3 py-3">
                                     <div className="font-medium">{card.name}</div>
-                                    <div className="text-xs text-zinc-400" title={engine === 'bing' ? face.reasonTitle ?? undefined : undefined}>{card.domain}{face.reasonLabel ? ` · ${face.reasonLabel}` : ''}</div>
+                                    <div className="text-xs text-muted-foreground" title={engine === 'bing' ? face.reasonTitle ?? undefined : undefined}>{card.domain}{face.reasonLabel ? ` · ${face.reasonLabel}` : ''}</div>
                                     {heroKey && (
-                                        <div data-ga4-list={unmapped ? 'unmapped' : 'value'} className="mt-1 text-xs text-zinc-300">
+                                        <div data-ga4-list={unmapped ? 'unmapped' : 'value'} className="mt-1 text-xs text-foreground">
                                             {unmapped ? (
-                                                <Link href={ga4PropertyPickerHref(card.clientId)} className="text-zinc-400 underline-offset-2 hover:underline">{GA4_CONNECT_LABEL}</Link>
+                                                <Link href={ga4PropertyPickerHref(card.clientId)} className="text-muted-foreground underline-offset-2 hover:underline">{GA4_CONNECT_LABEL}</Link>
                                             ) : (
                                                 <span className="tabular-nums">{formatGa4Metric(heroKey, ga4Hero?.value ?? null)}</span>
                                             )}
                                         </div>
                                     )}
-                                    {share && <div data-bing-share title={card.bing?.reasonTitle ?? undefined} className="mt-1 text-xs text-zinc-300">{share}</div>}
+                                    {share && <div data-bing-share title={card.bing?.reasonTitle ?? undefined} className="mt-1 text-xs text-foreground">{share}</div>}
                                     <QueryPreview card={card} engine={engine} loaded={queryCache[card.clientId]} />
                                     <div className="mt-1 flex gap-3 text-xs">
-                                        <Link href={card.links.insights} className="text-emerald-300 hover:underline">Search Insights</Link>
-                                        <Link href={card.links.plan} className="text-emerald-300 hover:underline">SEO Plan</Link>
-                                        <a href={card.links.gsc} target="_blank" rel="noreferrer" className="text-emerald-300 hover:underline">GSC</a>
+                                        <Link href={card.links.insights} className="text-emerald-700 hover:underline">Search Insights</Link>
+                                        <Link href={card.links.plan} className="text-emerald-700 hover:underline">SEO Plan</Link>
+                                        <a href={card.links.gsc} target="_blank" rel="noreferrer" className="text-emerald-700 hover:underline">GSC</a>
                                     </div>
                                 </td>
                                 {METRICS.map(item => (
@@ -963,19 +963,19 @@ function PortfolioTable({ cards, engine, metric, signal, onSort, queryCache, ga4
 
 function QueryPreview({ card, engine, loaded }: { card: DashboardCard; engine: SearchEngine; loaded?: LoadedQueries }) {
     if (engine === 'bing' && card.bing) {
-        if (card.bing.queries.length > 0) return <div className="mt-1 text-xs text-zinc-500">{card.bing.queries.map(query => query.label).join(' · ')}</div>;
+        if (card.bing.queries.length > 0) return <div className="mt-1 text-xs text-muted-foreground">{card.bing.queries.map(query => query.label).join(' · ')}</div>;
         const reason = card.bing.queriesReason ?? card.bing.reasonLabel ?? 'No queries with clicks in this range';
-        return <div className="mt-1 text-xs text-zinc-500">— {reason}</div>;
+        return <div className="mt-1 text-xs text-muted-foreground">— {reason}</div>;
     }
     const queries = loaded?.queries ?? card.queries;
-    if (queries.length > 0) return <div className="mt-1 text-xs text-zinc-500">{queries.map(query => query.query).join(' · ')}</div>;
+    if (queries.length > 0) return <div className="mt-1 text-xs text-muted-foreground">{queries.map(query => query.query).join(' · ')}</div>;
     const reason = loaded?.reason ?? card.queriesReason ?? (!card.queriesKnown && !loaded ? 'Open this card to load queries' : 'No queries with clicks in this range');
-    return <div className="mt-1 text-xs text-zinc-500">— {reason}</div>;
+    return <div className="mt-1 text-xs text-muted-foreground">— {reason}</div>;
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
     return (
-        <label className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-zinc-500">
+        <label className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
             {label}
             {children}
         </label>
@@ -984,11 +984,11 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function FilterField({ label, children }: { label: string; children: ReactNode }) {
     return (
-        <label className="block text-[11px] uppercase tracking-wide text-zinc-500">
+        <label className="block text-[11px] uppercase tracking-wide text-muted-foreground">
             {label}
             <div className="mt-1">{children}</div>
         </label>
     );
 }
 
-const selectClass = 'h-9 rounded-lg border border-white/10 bg-[#16181d] px-2 text-sm normal-case tracking-normal text-zinc-100';
+const selectClass = 'h-9 rounded-lg border border-border bg-card px-2 text-sm normal-case tracking-normal text-foreground';

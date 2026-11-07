@@ -47,6 +47,7 @@ import {
 } from '@/lib/nav/staff-shell';
 import { ClientSwitcher, type SwitcherClient } from '@/components/dashboard/ClientSwitcher';
 import { useSelectedClient } from '@/components/dashboard/use-selected-client';
+import { OrganizationSwitcher } from '@/components/organization-switcher';
 
 const ICONS: Record<string, LucideIcon> = {
     overview: LayoutDashboard,
@@ -163,21 +164,23 @@ export function Sidebar() {
     }, [menu]);
 
     return (
-        <aside className="relative z-40 hidden h-full w-[72px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex xl:w-64">
+        <aside className="staff-sidebar relative z-40 hidden h-full w-[72px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex xl:w-64">
             <div className="shrink-0 space-y-2 p-2 xl:p-3">
-                <Link
-                    href="/dashboard"
-                    title="SEO Ops"
-                    className="flex items-center gap-2.5 rounded-lg px-0 py-1 xl:px-1"
-                >
-                    <span className="mx-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground xl:mx-0">
+                <div className="flex flex-col items-center gap-1 xl:flex-row xl:items-start xl:gap-2.5 xl:px-1">
+                    <Link
+                        href="/dashboard"
+                        title="SEO Ops"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground"
+                    >
                         A
-                    </span>
-                    <span className="hidden min-w-0 xl:block">
-                        <span className="block text-sm font-semibold leading-tight">SEO Ops</span>
-                        <span className="block text-[11px] text-muted-foreground">Agency workspace</span>
-                    </span>
-                </Link>
+                    </Link>
+                    <div className="min-w-0 w-full xl:flex-1">
+                        <Link href="/dashboard" className="hidden text-sm font-semibold leading-tight xl:block">
+                            SEO Ops
+                        </Link>
+                        <OrganizationSwitcher />
+                    </div>
+                </div>
 
                 <ClientSwitcher
                     clients={switcherClients}

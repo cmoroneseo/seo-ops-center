@@ -342,13 +342,13 @@ export function PlanSidePanel({
                 setParentOpen(false);
                 setConfirmDelete(false);
             }}
-            className="sticky top-4 flex h-[calc(100vh-5rem)] w-[380px] max-w-full shrink-0 flex-col border-l border-[#2a2a2e] bg-[#111113] shadow-[-20px_0_50px_rgba(0,0,0,0.45)]"
+            className="sticky top-4 flex h-[calc(100vh-5rem)] w-[380px] max-w-full shrink-0 flex-col border-l border-[#e4e4e7] bg-[#ffffff] shadow-[-12px_0_32px_rgba(24,24,27,0.08)]"
         >
             {savePhase === 'failed' && error && (
                 <div
                     role="alert"
                     data-plan-save-toast
-                    className="fixed bottom-4 right-4 z-50 flex max-w-sm items-center gap-3 rounded-lg border border-[#7f1d1d] bg-[#1c0f12] px-3 py-2 text-[13px] text-[#fecaca] shadow-lg"
+                    className="fixed bottom-4 right-4 z-50 flex max-w-sm items-center gap-3 rounded-lg border border-[#fecaca] bg-[#fef2f2] px-3 py-2 text-[13px] text-[#991b1b] shadow-lg"
                 >
                     <span className="min-w-0">{error}</span>
                     <button
@@ -357,15 +357,15 @@ export function PlanSidePanel({
                             const save = failedSave.current;
                             if (save) void persist(task.id, save);
                         }}
-                        className="shrink-0 font-medium text-white underline-offset-2 hover:underline"
+                        className="shrink-0 font-medium text-[#18181b] underline-offset-2 hover:underline"
                     >
                         Retry
                     </button>
                 </div>
             )}
-            <div className="flex items-center gap-2 border-b border-[#2a2a2e] px-3.5 py-3 text-[11px] text-[#8b8b93]">
+            <div className="flex items-center gap-2 border-b border-[#e4e4e7] px-3.5 py-3 text-[11px] text-[#71717a]">
                 <span className="min-w-0 truncate">Task · {clientName}</span>
-                <span data-plan-save={pending > 0 ? 'saving' : savePhase === 'failed' ? 'error' : savePhase === 'saved' ? 'saved' : 'idle'} className="shrink-0 text-[11px] text-[#8b8b93]">
+                <span data-plan-save={pending > 0 ? 'saving' : savePhase === 'failed' ? 'error' : savePhase === 'saved' ? 'saved' : 'idle'} className="shrink-0 text-[11px] text-[#71717a]">
                     {pending > 0 && 'Saving…'}
                     {pending === 0 && savePhase === 'saved' && 'Saved'}
                     {pending === 0 && savePhase === 'failed' && (
@@ -378,7 +378,7 @@ export function PlanSidePanel({
                                     const save = failedSave.current;
                                     if (save) void persist(task.id, save);
                                 }}
-                                className="font-medium text-white underline-offset-2 hover:underline"
+                                className="font-medium text-[#18181b] underline-offset-2 hover:underline"
                             >
                                 Retry
                             </button>
@@ -389,7 +389,7 @@ export function PlanSidePanel({
                     type="button"
                     aria-label="Close"
                     onClick={close}
-                    className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-[#8b8b93] hover:bg-[#1d1d22] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                    className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-[#71717a] hover:bg-[#f4f4f6] hover:text-[#18181b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                 >
                     <X className="h-3.5 w-3.5" />
                 </button>
@@ -415,7 +415,7 @@ export function PlanSidePanel({
                             event.currentTarget.blur();
                         }
                     }}
-                    className="mb-2.5 w-full bg-transparent text-[15px] font-semibold leading-snug text-[#ececee] outline-none"
+                    className="mb-2.5 w-full bg-transparent text-[15px] font-semibold leading-snug text-[#18181b] outline-none"
                 />
                 <textarea
                     data-plan-field="description"
@@ -435,9 +435,9 @@ export function PlanSidePanel({
                             event.currentTarget.blur();
                         }
                     }}
-                    className="min-h-[62px] w-full resize-y rounded-lg border border-[#2a2a2e] bg-[#0c0c0e] px-2 py-2 text-[12px] leading-relaxed text-[#cfcfd4] outline-none placeholder:text-[#6d6d75] focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-60"
+                    className="min-h-[62px] w-full resize-y rounded-lg border border-[#e4e4e7] bg-[#ffffff] px-2 py-2 text-[12px] leading-relaxed text-[#3f3f46] outline-none placeholder:text-[#a1a1aa] focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-60"
                 />
-                {error && <p role="alert" data-plan-save-error className="mt-2 text-[11px] text-[#f87171]">{error}</p>}
+                {error && <p role="alert" data-plan-save-error className="mt-2 text-[11px] text-[#dc2626]">{error}</p>}
                 <div className="mt-2.5">
                     <Field label="Due">
                         <input
@@ -448,18 +448,18 @@ export function PlanSidePanel({
                             onChange={event => { void commit({ field: 'dueDate', dueDate: event.target.value || null }); }}
                             className={cn(
                                 'bg-transparent text-[12px] outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]',
-                                due.late ? 'text-[#f87171]' : 'text-[#cfcfd4]',
+                                due.late ? 'text-[#dc2626]' : 'text-[#3f3f46]',
                             )}
                         />
                         {task.dueDate && (
-                            <span className={due.late ? 'text-[#f87171]' : 'text-[#8b8b93]'} data-plan-due-copy={due.text}>
+                            <span className={due.late ? 'text-[#dc2626]' : 'text-[#71717a]'} data-plan-due-copy={due.text}>
                                 {due.text}
                             </span>
                         )}
                         {task.dueDate && (
                             <button
                                 type="button"
-                                className="text-[11px] text-[#8b8b93] hover:text-white"
+                                className="text-[11px] text-[#71717a] hover:text-[#18181b]"
                                 onClick={() => { void commit({ field: 'dueDate', dueDate: null }); }}
                             >
                                 No date
@@ -473,7 +473,7 @@ export function PlanSidePanel({
                             aria-label="Status"
                             value={task.status}
                             onChange={event => changeStatus(event.target.value as PlanPanelStatus)}
-                            className="bg-transparent text-[12px] text-[#cfcfd4] outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                            className="bg-transparent text-[12px] text-[#3f3f46] outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                         >
                             {PLAN_PANEL_STATUSES.map(status => (
                                 <option key={status} value={status}>{PLAN_PANEL_STATUS_LABEL[status]}</option>
@@ -499,10 +499,10 @@ export function PlanSidePanel({
                             onClick={() => setAssigneeOpen(open => !open)}
                             className="inline-flex items-center gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                         >
-                            {selectedPeople.length === 0 && <span className="text-[#8b8b93]">Unassigned</span>}
+                            {selectedPeople.length === 0 && <span className="text-[#71717a]">Unassigned</span>}
                             {selectedPeople.map(person => (
                                 <span key={person.id} className="inline-flex items-center gap-1">
-                                    <span className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#2a2a2e] text-[8px] font-medium text-[#ececee]">
+                                    <span className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#e4e4e7] text-[8px] font-medium text-[#18181b]">
                                         {person.initials}
                                     </span>
                                     {person.name}
@@ -510,12 +510,12 @@ export function PlanSidePanel({
                             ))}
                         </button>
                         {assigneeOpen && (
-                            <div data-plan-menu="assignee" className="mt-1 w-full rounded-md border border-[#2a2a2e] bg-[#141416] p-1">
-                                {people.length === 0 && <p className="px-2 py-1 text-[11px] text-[#8b8b93]">No teammates</p>}
+                            <div data-plan-menu="assignee" className="mt-1 w-full rounded-md border border-[#e4e4e7] bg-[#ffffff] p-1">
+                                {people.length === 0 && <p className="px-2 py-1 text-[11px] text-[#71717a]">No teammates</p>}
                                 {people.map(person => {
                                     const checked = task.assigneeIds.includes(person.id);
                                     return (
-                                        <label key={person.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-[#1d1d22]">
+                                        <label key={person.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-[#f4f4f6]">
                                             <input
                                                 type="checkbox"
                                                 checked={checked}
@@ -549,16 +549,16 @@ export function PlanSidePanel({
                             onBlur={flushEstimate}
                             className="w-16 bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-60"
                         />
-                        <span className="text-[#8b8b93]">· {formatPlanHours(task.loggedHours)} logged</span>
-                        {estimateError && <span className="text-[#f87171]">{estimateError}</span>}
+                        <span className="text-[#71717a]">· {formatPlanHours(task.loggedHours)} logged</span>
+                        {estimateError && <span className="text-[#dc2626]">{estimateError}</span>}
                     </Field>
                     <Field label="Pillar">
                         {parent.kind === 'pillar' ? (
-                            <span data-plan-pillar={parent.childCount} data-subtask-progress={`${task.childDone}/${task.childCount}`} className="text-[#8b8b93]">
+                            <span data-plan-pillar={parent.childCount} data-subtask-progress={`${task.childDone}/${task.childCount}`} className="text-[#71717a]">
                                 This is a pillar · {task.childDone}/{task.childCount}
                             </span>
                         ) : parent.kind === 'locked' ? (
-                            <span className="text-[#8b8b93]">{parent.currentTitle ?? 'None'}</span>
+                            <span className="text-[#71717a]">{parent.currentTitle ?? 'None'}</span>
                         ) : (
                             <>
                                 <span data-plan-parent={parent.currentId ?? 'none'}>{parent.currentTitle ?? 'None'}</span>
@@ -571,11 +571,11 @@ export function PlanSidePanel({
                                     Move under…
                                 </button>
                                 {parentOpen && (
-                                    <div data-plan-menu="parent" className="mt-1 max-h-40 w-full overflow-auto rounded-md border border-[#2a2a2e] bg-[#141416] p-1">
+                                    <div data-plan-menu="parent" className="mt-1 max-h-40 w-full overflow-auto rounded-md border border-[#e4e4e7] bg-[#ffffff] p-1">
                                         <button
                                             type="button"
                                             data-plan-parent-choice="none"
-                                            className="block w-full rounded px-2 py-1 text-left hover:bg-[#1d1d22]"
+                                            className="block w-full rounded px-2 py-1 text-left hover:bg-[#f4f4f6]"
                                             onClick={() => {
                                                 setParentOpen(false);
                                                 void commit({ field: 'parent', parentTaskId: null });
@@ -588,7 +588,7 @@ export function PlanSidePanel({
                                                 key={choice.id}
                                                 type="button"
                                                 data-plan-parent-choice={choice.id}
-                                                className="block w-full rounded px-2 py-1 text-left hover:bg-[#1d1d22]"
+                                                className="block w-full rounded px-2 py-1 text-left hover:bg-[#f4f4f6]"
                                                 onClick={() => {
                                                     setParentOpen(false);
                                                     void commit({ field: 'parent', parentTaskId: choice.id });
@@ -614,7 +614,7 @@ export function PlanSidePanel({
                                     const written = writePlanLabels(next, task.tags);
                                     void commit({ field: 'labels', ...written });
                                 }}
-                                className="rounded border border-[#2a2a2e] px-1.5 py-0.5 text-[10.5px] text-[#cfcfd4] hover:text-white disabled:opacity-60"
+                                className="rounded border border-[#e4e4e7] px-1.5 py-0.5 text-[10.5px] text-[#3f3f46] hover:text-[#18181b] disabled:opacity-60"
                             >
                                 {planLabelText(label)} ×
                             </button>
@@ -623,7 +623,7 @@ export function PlanSidePanel({
                             <span
                                 data-plan-blocked
                                 title={`Blocked: ${blockedReason}`}
-                                className="inline-flex max-w-full items-center gap-1 rounded border border-[#2a2a2e] px-1.5 py-0.5 text-[10.5px] text-[#cfcfd4]"
+                                className="inline-flex max-w-full items-center gap-1 rounded border border-[#e4e4e7] px-1.5 py-0.5 text-[10.5px] text-[#3f3f46]"
                             >
                                 <span className="min-w-0 break-words">Blocked: {blockedReason}</span>
                                 <button
@@ -631,7 +631,7 @@ export function PlanSidePanel({
                                     data-plan-blocked-remove
                                     aria-label="Remove blocked label"
                                     onClick={() => { void commit({ field: 'blocked', blockedReason: null }); }}
-                                    className="shrink-0 hover:text-white"
+                                    className="shrink-0 hover:text-[#18181b]"
                                 >
                                     ×
                                 </button>
@@ -647,9 +647,9 @@ export function PlanSidePanel({
                             + Label
                         </button>
                         {labelOpen && (
-                            <div data-plan-menu="labels" className="mt-1 w-full rounded-md border border-[#2a2a2e] bg-[#141416] p-1">
+                            <div data-plan-menu="labels" className="mt-1 w-full rounded-md border border-[#e4e4e7] bg-[#ffffff] p-1">
                                 {PLAN_LABELS.map(label => (
-                                    <label key={label.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-[#1d1d22]">
+                                    <label key={label.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-[#f4f4f6]">
                                         <input
                                             type="checkbox"
                                             checked={labels.includes(label.id)}
@@ -663,7 +663,7 @@ export function PlanSidePanel({
                                     </label>
                                 ))}
                                 {task.status !== 'done' && (
-                                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-[#1d1d22]">
+                                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-[#f4f4f6]">
                                         <input
                                             type="checkbox"
                                             data-plan-blocked-add
@@ -712,14 +712,14 @@ export function PlanSidePanel({
                                         setBlockedDraft(event.target.value);
                                         setBlockedError(null);
                                     }}
-                                    className="w-full rounded border border-[#2a2a2e] bg-transparent px-2 py-1 text-[12px] outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                                    className="w-full rounded border border-[#e4e4e7] bg-transparent px-2 py-1 text-[12px] outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                                 />
-                                {blockedError && <p className="text-[11px] text-[#f87171]">{blockedError}</p>}
+                                {blockedError && <p className="text-[11px] text-[#dc2626]">{blockedError}</p>}
                                 <div className="flex gap-2">
                                     <button type="submit" className="rounded bg-[#ec4899] px-2 py-1 text-[11px] font-semibold text-white">Save block</button>
                                     <button
                                         type="button"
-                                        className="rounded border border-[#2a2a2e] px-2 py-1 text-[11px]"
+                                        className="rounded border border-[#e4e4e7] px-2 py-1 text-[11px]"
                                         onClick={() => { setBlockedOpen(false); setBlockedError(null); }}
                                     >
                                         Cancel
@@ -757,7 +757,7 @@ export function PlanSidePanel({
                                 <span className="truncate">{urlHost(task.publishedUrl)}</span>
                             </a>
                         ) : (
-                            <span className="text-[#8b8b93]">Added when checked off</span>
+                            <span className="text-[#71717a]">Added when checked off</span>
                         )}
                         <input
                             data-plan-field="live-url"
@@ -788,9 +788,9 @@ export function PlanSidePanel({
                                     event.currentTarget.blur();
                                 }
                             }}
-                            className="w-full bg-transparent text-[12px] outline-none placeholder:text-[#6d6d75] focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                            className="w-full bg-transparent text-[12px] outline-none placeholder:text-[#a1a1aa] focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                         />
-                        {urlError && <span className="text-[#f87171]">{urlError}</span>}
+                        {urlError && <span className="text-[#dc2626]">{urlError}</span>}
                     </Field>
                     <Field label="Basecamp">
                         {basecamp.href ? (
@@ -799,27 +799,27 @@ export function PlanSidePanel({
                                 href={basecamp.href}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-[#cfcfd4] hover:text-white"
+                                className="inline-flex items-center gap-1 text-[#3f3f46] hover:text-[#18181b]"
                             >
                                 {basecamp.label}
                                 <ExternalLink className="h-3 w-3" />
                             </a>
                         ) : (
-                            <span data-plan-basecamp={basecamp.linked ? 'linked' : 'none'} className="text-[#8b8b93]">
+                            <span data-plan-basecamp={basecamp.linked ? 'linked' : 'none'} className="text-[#71717a]">
                                 {basecamp.label}
                             </span>
                         )}
-                        {basecamp.synced && <span className="text-[#8b8b93]">· {basecamp.synced}</span>}
+                        {basecamp.synced && <span className="text-[#71717a]">· {basecamp.synced}</span>}
                     </Field>
                 </div>
                 {planCanAddSubtasks(task) && (
                     <div className="mt-3" data-plan-subtasks={task.id}>
-                        <h3 className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-[#8b8b93]">
+                        <h3 className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-[#71717a]">
                             Subtasks
                             {task.childCount > 0 && (
                                 <span
                                     data-subtask-progress={`${task.childDone}/${task.childCount}`}
-                                    className="ml-1.5 font-normal normal-case tracking-normal text-[#cfcfd4]"
+                                    className="ml-1.5 font-normal normal-case tracking-normal text-[#3f3f46]"
                                 >
                                     {task.childDone}/{task.childCount}
                                 </span>
@@ -832,8 +832,8 @@ export function PlanSidePanel({
                                         key={child.id}
                                         data-plan-subtask={child.id}
                                         className={cn(
-                                            'truncate text-[12px] text-[#cfcfd4]',
-                                            child.status === 'done' && 'text-[#8b8b93] line-through',
+                                            'truncate text-[12px] text-[#3f3f46]',
+                                            child.status === 'done' && 'text-[#71717a] line-through',
                                         )}
                                     >
                                         {child.title}
@@ -844,18 +844,18 @@ export function PlanSidePanel({
                         {onAddSubtasks && <PlanSubtaskAdd onAdd={onAddSubtasks} />}
                     </div>
                 )}
-                <h3 className="mb-1.5 mt-4 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-[#8b8b93]">Time</h3>
+                <h3 className="mb-1.5 mt-4 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-[#71717a]">Time</h3>
                 {task.timeByMonth.length === 0 ? (
-                    <p data-plan-time="empty" className="text-[11.5px] text-[#8b8b93]">No time logged</p>
+                    <p data-plan-time="empty" className="text-[11.5px] text-[#71717a]">No time logged</p>
                 ) : task.timeByMonth.map(month => (
-                    <div key={month.month} data-plan-time={month.month} className="flex justify-between border-t border-[#2a2a2e] py-1 text-[11.5px]">
+                    <div key={month.month} data-plan-time={month.month} className="flex justify-between border-t border-[#e4e4e7] py-1 text-[11.5px]">
                         <span>{month.label}</span>
-                        <span className="text-[#8b8b93] tabular-nums">{formatPlanHours(month.hours)}</span>
+                        <span className="text-[#71717a] tabular-nums">{formatPlanHours(month.hours)}</span>
                     </div>
                 ))}
-                <p className="mt-1.5 text-[10.5px] text-[#6d6d75]">Entries are edited in Timesheets.</p>
+                <p className="mt-1.5 text-[10.5px] text-[#a1a1aa]">Entries are edited in Timesheets.</p>
             </div>
-            <div className="flex items-center gap-2 border-t border-[#2a2a2e] px-3.5 py-2.5 text-[11px] text-[#8b8b93]">
+            <div className="flex items-center gap-2 border-t border-[#e4e4e7] px-3.5 py-2.5 text-[11px] text-[#71717a]">
                 <span data-plan-created>{formatPlanCreated(task.createdAt, task.createdByLabel)}</span>
                 {confirmDelete ? (
                     <span className="ml-auto flex items-center gap-2">
@@ -863,7 +863,7 @@ export function PlanSidePanel({
                         <button
                             type="button"
                             data-plan-delete-confirm
-                            className="text-[#f87171] hover:underline"
+                            className="text-[#dc2626] hover:underline"
                             onClick={() => {
                                 void onDelete().then(message => {
                                     if (message) setError(message);
@@ -872,14 +872,14 @@ export function PlanSidePanel({
                         >
                             Delete
                         </button>
-                        <button type="button" onClick={() => setConfirmDelete(false)} className="hover:text-white">Cancel</button>
+                        <button type="button" onClick={() => setConfirmDelete(false)} className="hover:text-[#18181b]">Cancel</button>
                     </span>
                 ) : (
                     <span className="ml-auto flex items-center gap-2">
                         <button
                             type="button"
                             data-plan-duplicate
-                            className="hover:text-white"
+                            className="hover:text-[#18181b]"
                             onClick={() => {
                                 void onDuplicate().then(message => {
                                     if (message) setError(message);
@@ -891,7 +891,7 @@ export function PlanSidePanel({
                         <button
                             type="button"
                             data-plan-delete
-                            className="hover:text-white"
+                            className="hover:text-[#18181b]"
                             onClick={() => setConfirmDelete(true)}
                         >
                             Delete
@@ -905,9 +905,9 @@ export function PlanSidePanel({
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
     return (
-        <div className="grid min-h-8 grid-cols-[104px_minmax(0,1fr)] items-start gap-2 border-t border-[#2a2a2e] py-1.5 text-[12px] first:border-t-0">
-            <span className="pt-0.5 text-[#8b8b93]">{label}</span>
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[#cfcfd4]">{children}</div>
+        <div className="grid min-h-8 grid-cols-[104px_minmax(0,1fr)] items-start gap-2 border-t border-[#e4e4e7] py-1.5 text-[12px] first:border-t-0">
+            <span className="pt-0.5 text-[#71717a]">{label}</span>
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[#3f3f46]">{children}</div>
         </div>
     );
 }

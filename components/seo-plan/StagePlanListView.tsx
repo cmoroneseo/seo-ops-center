@@ -65,7 +65,7 @@ function BlockedChip({ reason }: { reason: string | null | undefined }) {
             data-plan-blocked
             tabIndex={0}
             title={`Blocked: ${text}`}
-            className="shrink-0 rounded border border-[#2a2a2e] px-1.5 py-0.5 text-[11px] text-[#8b8b93] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+            className="shrink-0 rounded border border-[#e4e4e7] px-1.5 py-0.5 text-[11px] text-[#71717a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
         >
             Blocked
         </span>
@@ -75,7 +75,7 @@ function BlockedChip({ reason }: { reason: string | null | undefined }) {
 function TitleText({ title, query, done }: { title: string; query: string; done: boolean }) {
     const parts = stageListTitleParts(title, query);
     return (
-        <span className={cn('truncate', done && 'text-[#8b8b93]')}>
+        <span className={cn('truncate', done && 'text-[#71717a]')}>
             {parts.map((part, index) => part.match
                 ? <mark key={index} className="rounded-sm bg-primary/20 px-0.5 text-inherit">{part.text}</mark>
                 : <span key={index}>{part.text}</span>)}
@@ -90,7 +90,7 @@ function ProgressRing({ done, total }: { done: number; total: number }) {
     const full = ratio >= 1 && total > 0;
     return (
         <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-plan-ring={full ? 'full' : 'partial'}>
-            <circle cx="8" cy="8" r={radius} fill="none" stroke="#2a2a2e" strokeWidth="1.5" />
+            <circle cx="8" cy="8" r={radius} fill="none" stroke="#e4e4e7" strokeWidth="1.5" />
             <circle
                 cx="8"
                 cy="8"
@@ -138,7 +138,7 @@ function CheckBox({
             }}
             className={cn(
                 'flex h-4 w-4 items-center justify-center rounded-[4px] border p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-70',
-                done ? 'border-[#ec4899] bg-[#ec4899] text-white' : 'border-[#3a3a40] bg-transparent',
+                done ? 'border-[#ec4899] bg-[#ec4899] text-white' : 'border-[#d4d4d8] bg-transparent',
             )}
         >
             {done && <Check className="h-3 w-3" strokeWidth={3} />}
@@ -152,7 +152,7 @@ function AssigneeStack({ ids, people }: { ids: string[]; people: readonly PlanAs
             <span
                 aria-hidden="true"
                 title="Assign"
-                className="inline-flex h-[22px] w-[22px] items-center justify-center rounded-full border border-dashed border-[#3a3a40] text-[10px] text-[#8b8b93]"
+                className="inline-flex h-[22px] w-[22px] items-center justify-center rounded-full border border-dashed border-[#d4d4d8] text-[10px] text-[#71717a]"
             >
                 +
             </span>
@@ -169,15 +169,15 @@ function AssigneeStack({ ids, people }: { ids: string[]; people: readonly PlanAs
                         key={id}
                         title={person?.name ?? 'Teammate'}
                         className={cn(
-                            'inline-flex h-[22px] w-[22px] items-center justify-center rounded-full bg-[#2a2a2e] text-[10px] font-medium text-[#ececee]',
-                            index > 0 && '-ml-1.5 ring-2 ring-[#141416]',
+                            'inline-flex h-[22px] w-[22px] items-center justify-center rounded-full bg-[#e4e4e7] text-[10px] font-medium text-[#18181b]',
+                            index > 0 && '-ml-1.5 ring-2 ring-[#ffffff]',
                         )}
                     >
                         {person?.initials ?? '·'}
                     </span>
                 );
             })}
-            {extra > 0 && <span className="ml-1 text-[11px] text-[#8b8b93]">+{extra}</span>}
+            {extra > 0 && <span className="ml-1 text-[11px] text-[#71717a]">+{extra}</span>}
         </span>
     );
 }
@@ -376,14 +376,14 @@ export function StagePlanListView({
     }, [month, onMonthChange]);
 
     const list = (
-        <div ref={listRef} data-seo-plan-stage-list data-plan-month={month} className="min-w-0 flex-1 space-y-3 text-[13px] text-[#ececee]">
+        <div ref={listRef} data-seo-plan-stage-list data-plan-month={month} className="min-w-0 flex-1 space-y-3 text-[13px] text-[#18181b]">
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2" data-plan-month-control>
                     <button
                         type="button"
                         aria-label="Previous month"
                         onClick={() => setMonth(currentMonth => shiftPlanMonth(currentMonth, -1))}
-                        className="flex h-8 w-8 items-center justify-center rounded-md text-[#cfcfd4] hover:bg-[#1d1d22] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                        className="flex h-8 w-8 items-center justify-center rounded-md text-[#3f3f46] hover:bg-[#f4f4f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                     >
                         ‹
                     </button>
@@ -393,7 +393,7 @@ export function StagePlanListView({
                         <button
                             type="button"
                             onClick={() => setMonth(monthKeyFromDay(day))}
-                            className="rounded-full border border-[#3a3a40] px-2 py-0.5 text-[11px] text-[#cfcfd4] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                            className="rounded-full border border-[#d4d4d8] px-2 py-0.5 text-[11px] text-[#3f3f46] hover:text-[#18181b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                         >
                             This month
                         </button>
@@ -403,7 +403,7 @@ export function StagePlanListView({
                         type="button"
                         aria-label="Next month"
                         onClick={() => setMonth(currentMonth => shiftPlanMonth(currentMonth, 1))}
-                        className="flex h-8 w-8 items-center justify-center rounded-md text-[#cfcfd4] hover:bg-[#1d1d22] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                        className="flex h-8 w-8 items-center justify-center rounded-md text-[#3f3f46] hover:bg-[#f4f4f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                     >
                         ›
                     </button>
@@ -418,7 +418,7 @@ export function StagePlanListView({
                         data-plan-search
                         onChange={event => onQueryChange(event.target.value)}
                         placeholder="Search tasks"
-                        className="w-56 max-w-full rounded-lg border border-[#2a2a2e] bg-[#141416] px-3 py-1.5 text-[13px] text-[#ececee] outline-none placeholder:text-[#6d6d75] focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                        className="w-56 max-w-full rounded-lg border border-[#e4e4e7] bg-[#ffffff] px-3 py-1.5 text-[13px] text-[#18181b] outline-none placeholder:text-[#a1a1aa] focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                     />
                 </div>
             </div>
@@ -443,7 +443,7 @@ export function StagePlanListView({
             )}
 
             {nothingMatches && (
-                <p className="text-[13px] text-[#8b8b93]">
+                <p className="text-[13px] text-[#71717a]">
                     {planSearchMissCopy(query)}{' '}
                     <button type="button" onClick={() => onQueryChange('')} className="text-[#ec4899] hover:underline">Clear search</button>
                 </p>
@@ -695,7 +695,7 @@ function PlanSections({
                         data-plan-collapsed={closed ? 'true' : 'false'}
                         data-stage-drop={searching ? undefined : section.id}
                         aria-labelledby={headingId}
-                        className="overflow-hidden rounded-[10px] border border-[#2a2a2e] bg-[#141416]"
+                        className="overflow-hidden rounded-[10px] border border-[#e4e4e7] bg-[#ffffff]"
                         onDragOver={event => {
                             if (searching || !dragIdRef.current) return;
                             event.preventDefault();
@@ -714,17 +714,17 @@ function PlanSections({
                                 onClick={() => setCollapsed(current => ({ ...current, [section.id]: !closed }))}
                                 className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                             >
-                                <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-[#8b8b93] transition-transform', !closed && 'rotate-90')} />
-                                <span className={cn('text-[13px] font-semibold', section.collapsedComplete && 'text-[#8b8b93]')}>{section.title}</span>
-                                <span className="text-[11px] font-normal text-[#8b8b93]" data-count={section.count}>
+                                <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-[#71717a] transition-transform', !closed && 'rotate-90')} />
+                                <span className={cn('text-[13px] font-semibold', section.collapsedComplete && 'text-[#71717a]')}>{section.title}</span>
+                                <span className="text-[11px] font-normal text-[#71717a]" data-count={section.count}>
                                     <Meta meta={section.meta} late={section.late} />
                                 </span>
                             </button>
-                            {lookback && <span className="shrink-0 text-[11px] text-[#8b8b93]">look-back: open work stays in This month</span>}
+                            {lookback && <span className="shrink-0 text-[11px] text-[#71717a]">look-back: open work stays in This month</span>}
                         </h3>
                         <div hidden={closed || undefined}>
                             {section.groups.length === 0 && !nothingMatches ? (
-                                <p className="border-t border-[#2a2a2e] px-3 py-3 text-[13px] text-[#8b8b93]">{section.empty}</p>
+                                <p className="border-t border-[#e4e4e7] px-3 py-3 text-[13px] text-[#71717a]">{section.empty}</p>
                             ) : section.groups.map((group, index) => {
                                 const nextTop = section.groups[index + 1]?.task.id ?? null;
                                 const hideGroup = foldDone && isPlanDone(group.task.status) && !heldDone[group.task.id];
@@ -773,7 +773,7 @@ function PlanSections({
                                 <button
                                     type="button"
                                     onClick={() => setShowDone(value => !value)}
-                                    className="border-t border-[#2a2a2e] px-3 py-2 text-left text-[12px] text-[#8b8b93] hover:text-white"
+                                    className="border-t border-[#e4e4e7] px-3 py-2 text-left text-[12px] text-[#71717a] hover:text-[#18181b]"
                                 >
                                     {showDone ? `Hide ${section.done} done` : `Show ${section.done} done`}
                                 </button>
@@ -794,7 +794,7 @@ function Meta({ meta, late }: { meta: string; late: number }) {
     return (
         <>
             {meta.slice(0, at)}
-            <span className="text-[#f87171]">{needle}</span>
+            <span className="text-[#dc2626]">{needle}</span>
             {meta.slice(at + needle.length)}
         </>
     );
@@ -968,11 +968,11 @@ function PlanRow({
                 onDragEnd={onDragEnd}
                 className={cn(
                     ROW_GRID,
-                    'group min-h-9 border-t border-[#2a2a2e] py-1',
+                    'group min-h-9 border-t border-[#e4e4e7] py-1',
                     options.role === 'subtask' && 'pl-9',
                     draggable && 'cursor-grab',
                     dragId === task.id && 'opacity-40',
-                    focusedId === task.id && 'bg-[#1d1d22]',
+                    focusedId === task.id && 'bg-[#f4f4f6]',
                     (focusedId === task.id || (timer.phase === 'running' && onRowTimer)) && 'shadow-[inset_2px_0_0_0_#ec4899]',
                 )}
             >
@@ -1029,12 +1029,12 @@ function PlanRow({
                         <TitleText title={task.title} query={query} done={done} />
                     </button>
                     {checklist && (
-                        <span data-plan-checklist className="shrink-0 rounded-full bg-[#1d1d22] px-1.5 py-0.5 text-[11px] text-[#8b8b93]">
+                        <span data-plan-checklist className="shrink-0 rounded-full bg-[#f4f4f6] px-1.5 py-0.5 text-[11px] text-[#71717a]">
                             Checklist
                         </span>
                     )}
                     {heldDone?.[task.id] && done && (
-                        <span role="status" data-subtask-confirm={task.id} className="shrink-0 text-[11px] text-[#cfcfd4]">
+                        <span role="status" data-subtask-confirm={task.id} className="shrink-0 text-[11px] text-[#3f3f46]">
                             Marked done
                             <span aria-hidden="true"> · </span>
                             <button
@@ -1044,7 +1044,7 @@ function PlanRow({
                                     event.stopPropagation();
                                     onUndoDone?.(task.id);
                                 }}
-                                className="font-medium text-white underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                                className="font-medium text-[#18181b] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                             >
                                 Undo
                             </button>
@@ -1063,7 +1063,7 @@ function PlanRow({
                     {options.pillar && (
                         <span
                             data-subtask-progress={`${options.childDone ?? 0}/${options.childCount ?? 0}`}
-                            className="shrink-0 rounded-full bg-[#1d1d22] px-1.5 py-0.5 text-[11px] text-[#cfcfd4]"
+                            className="shrink-0 rounded-full bg-[#f4f4f6] px-1.5 py-0.5 text-[11px] text-[#3f3f46]"
                         >
                             {options.childDone}/{options.childCount}
                         </span>
@@ -1072,13 +1072,13 @@ function PlanRow({
                         <button
                             type="button"
                             onClick={() => setOpenOverride(!open)}
-                            className="shrink-0 rounded-full border border-[#2a2a2e] px-1.5 py-0.5 text-[11px] text-[#8b8b93] hover:text-white"
+                            className="shrink-0 rounded-full border border-[#e4e4e7] px-1.5 py-0.5 text-[11px] text-[#71717a] hover:text-[#18181b]"
                         >
                             {options.urlCount} URLs
                         </button>
                     )}
                     {(options.hiddenChildren ?? 0) > 0 && (
-                        <span className="shrink-0 text-[11px] text-[#8b8b93]" data-other-months={options.hiddenChildren}>
+                        <span className="shrink-0 text-[11px] text-[#71717a]" data-other-months={options.hiddenChildren}>
                             +{options.hiddenChildren} other months
                         </span>
                     )}
@@ -1090,7 +1090,7 @@ function PlanRow({
                     />
                     <LiveUrlResultLine result={result} />
                     {group.parentBreadcrumb && options.role === 'task' && task.id === group.task.id && (
-                        <span className="shrink-0 text-[11px] text-[#8b8b93]">{group.parentBreadcrumb}</span>
+                        <span className="shrink-0 text-[11px] text-[#71717a]">{group.parentBreadcrumb}</span>
                     )}
                 </div>
                 <button
@@ -1101,7 +1101,7 @@ function PlanRow({
                     onClick={() => { if (!locked) onOpenTask(task.id, 'due'); }}
                     className={cn(
                         'min-w-0 truncate text-right text-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]',
-                        due.late ? 'text-[#f87171]' : due.undated ? 'text-[#6d6d75]' : 'text-[#cfcfd4]',
+                        due.late ? 'text-[#dc2626]' : due.undated ? 'text-[#a1a1aa]' : 'text-[#3f3f46]',
                     )}
                 >
                     {due.text}
@@ -1138,8 +1138,8 @@ function PlanRow({
                             'inline-flex w-full items-center justify-end gap-1 text-right text-[12px] tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-70',
                             timer.phase === 'running' && !timerPending && 'rounded-full bg-[#ec4899]/15 px-1.5 py-0.5 font-mono text-[#ec4899]',
                             timer.phase === 'paused' && !timerPending && 'text-amber-400',
-                            timer.phase === 'reviewing' && 'text-[#8b8b93]',
-                            (timer.phase === 'idle' || timerPending) && (logged > 0 ? 'text-[#cfcfd4]' : 'text-[#6d6d75]'),
+                            timer.phase === 'reviewing' && 'text-[#71717a]',
+                            (timer.phase === 'idle' || timerPending) && (logged > 0 ? 'text-[#3f3f46]' : 'text-[#a1a1aa]'),
                         )}
                     >
                         {timerPending && <span>Starting…</span>}
@@ -1156,7 +1156,7 @@ function PlanRow({
                     </button>
                 ) : (
                     <span
-                        className={cn('text-right text-[12px]', logged > 0 ? 'text-[#cfcfd4]' : 'text-[#6d6d75]')}
+                        className={cn('text-right text-[12px]', logged > 0 ? 'text-[#3f3f46]' : 'text-[#a1a1aa]')}
                         title={hours ? hours.tooltip : undefined}
                         data-plan-time={loggedLabel}
                     >
@@ -1185,7 +1185,7 @@ function PlanRow({
                         aria-controls={panelId}
                         aria-label={`${open ? 'Hide' : 'Show'} ${group.childCount === 1 ? '1 subtask' : `${group.childCount} subtasks`} of ${group.task.title}`}
                         onClick={() => setOpenOverride(!open)}
-                        className="text-[#8b8b93] hover:text-white"
+                        className="text-[#71717a] hover:text-[#18181b]"
                     >
                         <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-90')} />
                     </button>
@@ -1228,7 +1228,7 @@ function PlanRow({
                                             onDragStart(child.id);
                                         }}
                                         onDragEnd={onDragEnd}
-                                        className="inline-flex cursor-grab text-[#6d6d75]"
+                                        className="inline-flex cursor-grab text-[#a1a1aa]"
                                     >
                                         <GripVertical className="h-3.5 w-3.5" />
                                     </span>

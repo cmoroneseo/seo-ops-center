@@ -676,7 +676,7 @@ export function StagePlanList({
 
     if (error) {
         return (
-            <p className="text-sm text-[#8b8b93]">
+            <p className="text-sm text-[#71717a]">
                 Couldn&apos;t load this plan.{' '}
                 <button type="button" onClick={reload} className="text-[#ec4899] hover:underline">Try again</button>
             </p>
@@ -717,7 +717,7 @@ export function StagePlanList({
                 }}
             />
             {timerNotice && <p role="status" data-plan-timer-notice className="mb-2 text-sm text-muted-foreground">{timerNotice}</p>}
-            {timerError && <p role="alert" className="mb-2 text-sm text-[#f87171]">{timerError}</p>}
+            {timerError && <p role="alert" className="mb-2 text-sm text-[#dc2626]">{timerError}</p>}
             <StagePlanListView
                 tasks={visibleTasks}
                 query={query}

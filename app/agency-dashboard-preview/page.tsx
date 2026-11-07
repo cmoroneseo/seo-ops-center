@@ -15,7 +15,7 @@ export default async function AgencyDashboardPreviewPage({
     const ga4Cards = ga4CardsEnabled();
     const model = ga4Cards ? attachGa4Dashboard(exampleDashboard(), previewGa4()) : exampleDashboard();
     return (
-        <main className="min-h-screen bg-[#0c0e12] p-4 sm:p-6">
+        <main className="staff-canvas min-h-screen bg-background p-4 text-foreground sm:p-6">
             <AgencyDashboardView
                 model={model}
                 initialView={query.view === 'list' ? 'list' : 'grid'}

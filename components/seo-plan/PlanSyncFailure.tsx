@@ -12,7 +12,7 @@ import {
 
 export function PlanSyncBanner({ href }: { href: string }) {
     return (
-        <p data-plan-basecamp-banner className="px-1 text-[13px] leading-5 text-[#cfcfd4]">
+        <p data-plan-basecamp-banner className="px-1 text-[13px] leading-5 text-[#3f3f46]">
             {PLAN_BASECAMP_CLIENT_BANNER}{' '}
             <a href={href} className="text-[#ec4899] hover:underline">Fix in Integrations →</a>
         </p>
@@ -110,15 +110,15 @@ export function PlanSyncDot({
             aria-labelledby={titleId}
             data-plan-sync-popover={taskId}
             style={box ? { position: 'fixed', top: box.top, left: box.left } : undefined}
-            className="z-50 w-80 rounded-xl border border-[#2a2a2e] bg-[#1a1a1e] p-3 text-left shadow-lg"
+            className="z-50 w-80 rounded-xl border border-[#e4e4e7] bg-[#ffffff] p-3 text-left shadow-lg"
         >
-            <p id={titleId} className="flex items-center gap-2 text-[13px] font-semibold text-white">
-                <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-[#f87171]" aria-hidden="true" />
+            <p id={titleId} className="flex items-center gap-2 text-[13px] font-semibold text-[#18181b]">
+                <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-[#dc2626]" aria-hidden="true" />
                 {PLAN_BASECAMP_FAILURE_TITLE}
             </p>
-            <p className="mt-1.5 text-[13px] leading-5 text-[#cfcfd4]">{PLAN_BASECAMP_FAILURE_BODY}</p>
+            <p className="mt-1.5 text-[13px] leading-5 text-[#3f3f46]">{PLAN_BASECAMP_FAILURE_BODY}</p>
             {message && (
-                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg border border-[#2a2a2e] bg-[#141416] p-2 font-mono text-[11px] leading-4 text-[#cfcfd4]">
+                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg border border-[#e4e4e7] bg-[#ffffff] p-2 font-mono text-[11px] leading-4 text-[#3f3f46]">
                     {message}
                 </pre>
             )}
@@ -133,12 +133,12 @@ export function PlanSyncDot({
                 </button>
                 <a
                     href={integrationsHref}
-                    className="rounded-lg border border-[#3a3a40] px-3 py-1.5 text-[12px] text-[#cfcfd4] hover:text-white"
+                    className="rounded-lg border border-[#d4d4d8] px-3 py-1.5 text-[12px] text-[#3f3f46] hover:text-[#18181b]"
                 >
                     Open Integrations
                 </a>
                 {attempt && (
-                    <span className="text-[11px] leading-4 text-[#8b8b93]">{formatPlanSyncAttempt(attempt, Intl.DateTimeFormat().resolvedOptions().timeZone)}</span>
+                    <span className="text-[11px] leading-4 text-[#71717a]">{formatPlanSyncAttempt(attempt, Intl.DateTimeFormat().resolvedOptions().timeZone)}</span>
                 )}
             </div>
         </div>
@@ -159,7 +159,7 @@ export function PlanSyncDot({
                 }}
                 className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
             >
-                <span className="h-[7px] w-[7px] rounded-full bg-[#f87171]" />
+                <span className="h-[7px] w-[7px] rounded-full bg-[#dc2626]" />
             </button>
             {inline && popover}
             {open && box && typeof document !== 'undefined' && createPortal(popover, document.body)}

@@ -51,7 +51,7 @@ export function SyncBingButton({ variant, onSynced }: { variant: 'settings' | 't
             className={cn(
                 'inline-flex items-center gap-1.5 text-sm font-medium disabled:opacity-50',
                 variant === 'toolbar'
-                    ? 'h-9 rounded-lg border border-white/10 bg-white/5 px-2.5 text-zinc-200'
+                    ? 'h-9 rounded-lg border border-border bg-card px-2.5 text-foreground'
                     : 'h-9 rounded-md bg-primary px-3 text-primary-foreground hover:bg-primary/90',
             )}
         >
@@ -64,7 +64,7 @@ export function SyncBingButton({ variant, onSynced }: { variant: 'settings' | 't
         return (
             <div className="flex items-center gap-2">
                 {button}
-                {message && <p role="status" className="max-w-[16rem] text-xs text-zinc-400">{message}</p>}
+                {message && <p role="status" className="max-w-[16rem] text-xs text-muted-foreground">{message}</p>}
             </div>
         );
     }

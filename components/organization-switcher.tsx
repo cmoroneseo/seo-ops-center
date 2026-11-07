@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Check, ChevronsUpDown, PlusCircle } from 'lucide-react'
+import { Check, ChevronDown, PlusCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -80,18 +80,26 @@ export function OrganizationSwitcher({ className }: { className?: string }) {
         <Dialog open={showNewOrgDialog} onOpenChange={setShowNewOrgDialog}>
             <Popover open={open} onOpenChange={setOpen}>
                 <PopoverTrigger asChild>
-                    <Button
-                        variant="outline"
-                        role="combobox"
+                    <button
+                        type="button"
+                        aria-haspopup="listbox"
                         aria-expanded={open}
-                        aria-label="Select a team"
-                        className={cn("w-[200px] justify-between", className)}
+                        aria-label="Select organization"
+                        className={cn(
+                            "flex min-w-0 items-center gap-1 rounded-md text-left text-[11px] font-normal leading-tight text-muted-foreground transition-colors hover:text-sidebar-foreground",
+                            "mx-auto h-6 w-6 justify-center",
+                            "xl:mx-0 xl:h-auto xl:w-full xl:justify-start xl:py-0.5",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                            className,
+                        )}
                     >
-                        {organization?.name || "Select Organization"}
-                        <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
+                        <span className="hidden min-w-0 flex-1 truncate xl:inline">
+                            {organization?.name || "Select organization"}
+                        </span>
+                        <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
+                    </button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[200px] p-0">
+                <PopoverContent className="staff-sidebar w-64 border-sidebar-border p-0 text-sidebar-foreground" align="start">
                     <Command>
                         <CommandList>
                             <CommandInput placeholder="Search organization..." />

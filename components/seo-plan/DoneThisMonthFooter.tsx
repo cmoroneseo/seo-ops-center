@@ -46,12 +46,12 @@ export function DoneThisMonthFooter({
         <footer
             data-plan-footer
             aria-label="Done this month"
-            className="rounded-[10px] border border-[#2a2a2e] bg-[#141416] px-4 py-3"
+            className="rounded-[10px] border border-[#e4e4e7] bg-[#ffffff] px-4 py-3"
         >
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                 <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                    <h2 className="text-[13px] font-semibold text-[#ececee]">Done this month</h2>
-                    <p className="text-[11.5px] text-[#8b8b93]">
+                    <h2 className="text-[13px] font-semibold text-[#18181b]">Done this month</h2>
+                    <p className="text-[11.5px] text-[#71717a]">
                         {report.monthTitle} · tasks completed and time logged in {report.monthShort}
                     </p>
                 </div>
@@ -94,14 +94,14 @@ export function DoneThisMonthFooter({
                         </span>
                     ))}
                     {report.missingUrlCount > 0 && (
-                        <span className="text-[12px] text-[#8b8b93]" data-plan-missing-urls={report.missingUrlCount}>
+                        <span className="text-[12px] text-[#71717a]" data-plan-missing-urls={report.missingUrlCount}>
                             +{report.missingUrlCount} without a URL
                         </span>
                     )}
                 </div>
             )}
             {report.emptyCopy && (
-                <p className="mt-3 text-[13px] text-[#8b8b93]">{report.emptyCopy}</p>
+                <p className="mt-3 text-[13px] text-[#71717a]">{report.emptyCopy}</p>
             )}
         </footer>
     );
@@ -128,12 +128,12 @@ function Stat({
                 title={title}
                 className={cn(
                     'text-[22px] font-semibold leading-none tabular-nums',
-                    zero ? 'text-[#8b8b93]' : 'text-[#ececee]',
+                    zero ? 'text-[#71717a]' : 'text-[#18181b]',
                 )}
             >
                 {value}
             </div>
-            <div className="mt-1 text-[11px] text-[#8b8b93]">{label}</div>
+            <div className="mt-1 text-[11px] text-[#71717a]">{label}</div>
         </div>
     );
 }
