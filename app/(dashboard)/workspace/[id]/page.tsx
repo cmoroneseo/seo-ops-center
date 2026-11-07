@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, Suspense } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, Suspense } from 'react';
 import { useSuppressPlanToasts } from '@/components/providers/toast-gate';
 import { seoPlanTabHidesToasts } from '@/lib/toasts/plan-tab';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -47,6 +47,9 @@ import { MarketingPlanTab } from '@/components/marketing-plan/MarketingPlanTab';
 import { ResultsView } from '@/components/marketing-plan/ResultsView';
 import { searchReportingEnabled } from '@/lib/search-reporting/flag';
 import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
+import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
+import { CAMPAIGN_WORKSPACE_TAB, parseCampaignView, type CampaignView } from '@/lib/campaign-workspace/view';
+import { CampaignWorkspace } from '@/components/campaign-workspace/CampaignWorkspace';
 import { notifyStaffNav, UNAVAILABLE_MODULE_NOTICE } from '@/lib/nav/staff-shell';
 import { parsePlanView, type PlanView } from '@/lib/search-reporting/ledger';
 import { BasecampImportModal } from '@/components/workspace/BasecampImportModal';
@@ -72,7 +75,7 @@ import { managerIsAssigned, planHourLabel, planHoursNarrative } from '@/lib/seo-
 import { planChooseTaskClass } from '@/lib/seo-plan/row-timer';
 import { GLOBAL_TIMER_HINT, GLOBAL_TIMER_LABEL } from '@/lib/timer/attempt-state';
 
-type Tab = 'overview' | 'campaign' | 'tasks' | 'deliverables' | 'integrations' | 'insights' | 'rankings' | 'inventory' | 'topical-map' | 'approvals' | 'portal' | 'vault';
+type Tab = 'overview' | 'campaign' | 'tasks' | 'deliverables' | 'integrations' | 'insights' | 'rankings' | 'inventory' | 'topical-map' | 'approvals' | 'portal' | 'vault' | 'campaign-workspace';
 
 export default function ClientDetailPage() {
     const params = useParams();
@@ -93,6 +96,7 @@ export default function ClientDetailPage() {
     const [showEditPanel, setShowEditPanel] = useState(false);
     const [activityRefreshKey, setActivityRefreshKey] = useState(0);
     const [activeTab, setActiveTabState] = useState<Tab>('overview');
+    const [campaignView, setCampaignViewState] = useState<CampaignView>('overview');
     const [planView, setPlanView] = useState<PlanView>('plan');
     useSuppressPlanToasts(seoPlanTabHidesToasts({ activeTab, planView, stageListOn }));
     const [importOpen, setImportOpen] = useState(false);
@@ -111,18 +115,46 @@ export default function ClientDetailPage() {
             else url.searchParams.set(key, value);
         }
         url.searchParams.delete('navNotice');
+        if (next !== 'campaign-workspace') url.searchParams.delete('campaignView');
+        window.history.replaceState(null, '', url);
+        notifyStaffNav();
+    };
+
+    const openCampaignView = (next: CampaignView) => {
+        setActiveTabState('campaign-workspace');
+        setCampaignViewState(next);
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', CAMPAIGN_WORKSPACE_TAB);
+        if (next === 'overview') url.searchParams.delete('campaignView');
+        else url.searchParams.set('campaignView', next);
+        url.searchParams.delete('navNotice');
         window.history.replaceState(null, '', url);
         notifyStaffNav();
     };
 
     const searchKey = searchParams.toString();
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         const query = new URLSearchParams(searchKey);
         const tab = query.get('tab');
         const knownTabs = ['overview', 'campaign', 'tasks', 'deliverables', 'integrations', 'insights', 'inventory', 'topical-map', 'approvals', 'portal'];
         if (keywordTrackingEnabled()) knownTabs.push('rankings');
+        if (campaignWorkspaceEnabled()) knownTabs.push(CAMPAIGN_WORKSPACE_TAB);
         if (tab && knownTabs.includes(tab)) setActiveTabState(tab as Tab);
+        if (tab === CAMPAIGN_WORKSPACE_TAB && campaignWorkspaceEnabled()) {
+            setCampaignViewState(parseCampaignView(query.get('campaignView')));
+        }
+        if (tab === CAMPAIGN_WORKSPACE_TAB && !campaignWorkspaceEnabled()) {
+            setActiveTabState('overview');
+            const url = new URL(window.location.href);
+            if (url.searchParams.get('tab') === CAMPAIGN_WORKSPACE_TAB) {
+                url.searchParams.set('tab', 'overview');
+                url.searchParams.set('navNotice', 'unavailable');
+                url.searchParams.delete('campaignView');
+                window.history.replaceState(null, '', url);
+                notifyStaffNav();
+            }
+        }
         if (tab === 'tasks') { setActiveTabState('campaign'); setPlanView('tasks'); }
         else setPlanView(parsePlanView(query.get('planView'), searchReportingEnabled()));
         if (!tab && (query.has('range') || query.has('section'))) setActiveTabState('insights');
@@ -267,6 +299,16 @@ export default function ClientDetailPage() {
 
     if (client === null) {
         return <MissingClient organizationName={organization?.name} />;
+    }
+
+    if (activeTab === 'campaign-workspace' && campaignWorkspaceEnabled()) {
+        return (
+            <CampaignWorkspace
+                clientName={client.clientName}
+                view={campaignView}
+                onView={openCampaignView}
+            />
+        );
     }
 
     const atRisk = isClientAtRisk(client);
