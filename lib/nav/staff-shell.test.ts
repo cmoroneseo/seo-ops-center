@@ -14,10 +14,10 @@ import {
     switchClientHref,
 } from './staff-shell.ts';
 
-const flags = { keywordTracking: true, vault: true };
+const flags = { keywordTracking: true, vault: true, campaignWorkspace: false };
 
 test('client sections follow the approved groups and omit concept rows', () => {
-    const on = clientSections('summit', { keywordTracking: true, vault: false });
+    const on = clientSections('summit', { keywordTracking: true, vault: false, campaignWorkspace: false });
     assert.deepEqual(on.map(section => section.label), ['Client workspace', 'Search intelligence', 'More']);
     assert.deepEqual(on[0].links.map(link => link.label), [
         'Overview', 'SEO Plan', 'Tasks', 'Deliverables', 'Time', 'Reports',
@@ -27,7 +27,7 @@ test('client sections follow the approved groups and omit concept rows', () => {
     assert.equal(on[1].links[1].href, '/workspace/summit?tab=rankings');
     assert.ok(on[1].links.findIndex(link => link.label === 'Search') < on[1].links.findIndex(link => link.label === 'Rankings'));
 
-    const off = clientSections('summit', { keywordTracking: false, vault: false });
+    const off = clientSections('summit', { keywordTracking: false, vault: false, campaignWorkspace: false });
     assert.equal(off[1].links.some(link => link.label === 'Rankings'), false);
     assert.equal(off[2].overflow?.some(link => link.id === 'vault'), false);
     assert.equal(clientSections('summit', flags)[2].overflow?.some(link => link.id === 'vault'), true);
@@ -67,6 +67,7 @@ test('switching clients keeps the module, and a closed rankings flag opens Overv
         targetClientId: 'maya',
         keywordTracking: true,
         vaultEnabled: false,
+        campaignWorkspace: false,
     }), '/workspace/maya?tab=rankings');
 
     assert.equal(switchClientHref({
@@ -75,6 +76,7 @@ test('switching clients keeps the module, and a closed rankings flag opens Overv
         targetClientId: 'maya',
         keywordTracking: false,
         vaultEnabled: false,
+        campaignWorkspace: false,
     }), '/workspace/maya?tab=overview&navNotice=unavailable');
 
     assert.equal(switchClientHref({
@@ -83,6 +85,7 @@ test('switching clients keeps the module, and a closed rankings flag opens Overv
         targetClientId: 'maya',
         keywordTracking: false,
         vaultEnabled: false,
+        campaignWorkspace: false,
     }), '/workspace/maya?tab=campaign&planView=tasks');
 
     assert.equal(switchClientHref({
@@ -91,6 +94,7 @@ test('switching clients keeps the module, and a closed rankings flag opens Overv
         targetClientId: 'maya',
         keywordTracking: true,
         vaultEnabled: true,
+        campaignWorkspace: false,
     }), '/tasks?client=maya');
 
     assert.equal(switchClientHref({
@@ -99,6 +103,7 @@ test('switching clients keeps the module, and a closed rankings flag opens Overv
         targetClientId: 'maya',
         keywordTracking: false,
         vaultEnabled: false,
+        campaignWorkspace: false,
     }), '/workspace/maya?tab=overview');
 
     assert.equal(switchClientHref({
@@ -107,6 +112,7 @@ test('switching clients keeps the module, and a closed rankings flag opens Overv
         targetClientId: 'maya',
         keywordTracking: true,
         vaultEnabled: false,
+        campaignWorkspace: false,
     }), '/workspace/maya?tab=overview&navNotice=unavailable');
 });
 
@@ -117,12 +123,54 @@ test('active rows follow the workspace tab, and the client list is not every wor
     assert.equal(isClientLinkActive('/workspace/summit', 'tab=rankings', rankings, flags), true);
     assert.equal(isClientLinkActive('/workspace/summit', 'tab=rankings', overview, flags), false);
     assert.equal(isClientLinkActive('/workspace/summit', '', overview, flags), true);
-    assert.equal(isClientLinkActive('/workspace/summit', 'tab=rankings', overview, { keywordTracking: false, vault: true }), true);
+    assert.equal(isClientLinkActive('/workspace/summit', 'tab=rankings', overview, { keywordTracking: false, vault: true, campaignWorkspace: false }), true);
     assert.equal(isAgencyLinkActive('/workspace', '/workspace'), true);
     assert.equal(isAgencyLinkActive('/workspace/summit', '/workspace'), false);
     assert.equal(isAgencyLinkActive('/reports/close', '/reports/close?month=2026-09'), true);
     assert.equal(isAgencyLinkActive('/tasks/1', '/tasks'), true);
     assert.equal(isAgencyLinkActive('/dashboard', '/dashboard'), true);
+});
+
+test('campaign sits after Overview only while its flag is on, and a closed flag opens Overview', () => {
+    const on = clientSections('summit', { keywordTracking: false, vault: false, campaignWorkspace: true });
+    assert.deepEqual(on[0].links.map(link => link.label), [
+        'Overview', 'Campaign', 'SEO Plan', 'Tasks', 'Deliverables', 'Time', 'Reports',
+    ]);
+    assert.equal(on[0].links[1].href, '/workspace/summit?tab=campaign-workspace');
+    assert.equal(on[0].links[1].tab, 'campaign-workspace');
+    assert.ok(on[0].links.findIndex(link => link.label === 'Overview') < on[0].links.findIndex(link => link.label === 'Campaign'));
+    assert.ok(on[0].links.findIndex(link => link.label === 'Campaign') < on[0].links.findIndex(link => link.label === 'SEO Plan'));
+
+    const off = clientSections('summit', { keywordTracking: true, vault: true, campaignWorkspace: false });
+    assert.equal(off[0].links.some(link => link.label === 'Campaign' || link.tab === 'campaign-workspace'), false);
+
+    const flagsOn = { keywordTracking: true, vault: true, campaignWorkspace: true };
+    const campaign = on[0].links[1];
+    const plan = on[0].links[2];
+    const overview = on[0].links[0];
+    assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign-workspace&campaignView=roadmap', campaign, flagsOn), true);
+    assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign-workspace', plan, flagsOn), false);
+    assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign', campaign, flagsOn), false);
+    assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign-workspace', overview, { ...flagsOn, campaignWorkspace: false }), true);
+    assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign', plan, flagsOn), true);
+
+    assert.equal(switchClientHref({
+        fromPathname: '/workspace/summit',
+        fromSearch: 'tab=campaign-workspace&campaignView=results',
+        targetClientId: 'maya',
+        keywordTracking: false,
+        vaultEnabled: false,
+        campaignWorkspace: true,
+    }), '/workspace/maya?tab=campaign-workspace&campaignView=results');
+
+    assert.equal(switchClientHref({
+        fromPathname: '/workspace/summit',
+        fromSearch: 'tab=campaign-workspace&campaignView=roadmap',
+        targetClientId: 'maya',
+        keywordTracking: true,
+        vaultEnabled: true,
+        campaignWorkspace: false,
+    }), '/workspace/maya?tab=overview&navNotice=unavailable');
 });
 
 test('status stays a real chip and long names keep a short mark', () => {

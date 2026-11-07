@@ -14,6 +14,7 @@ import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useClients } from '@/lib/hooks/use-clients';
 import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
+import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
 import { useAgencyDashboardEnabled } from '@/components/agency-dashboard/use-enabled';
 import { useVaultEnabled } from '@/components/vault/use-vault-enabled';
 import {
@@ -48,6 +49,7 @@ export function MobileNav() {
     const agencyDashboard = useAgencyDashboardEnabled();
     const vaultEnabled = useVaultEnabled(organization?.id) === true;
     const keywordTracking = keywordTrackingEnabled();
+    const campaignWorkspace = campaignWorkspaceEnabled();
     const [menuOpen, setMenuOpen] = useState(false);
     const [selectorOpen, setSelectorOpen] = useState(false);
     const [searchOpen, setSearchOpen] = useState(false);
@@ -56,7 +58,7 @@ export function MobileNav() {
         .map((membership) => membership.organization)
         .filter((org): org is NonNullable<typeof org> => org !== null && org !== undefined);
     const showOrgSwitcher = switchableOrgs.length > 1;
-    const flags = { keywordTracking, vault: vaultEnabled };
+    const flags = { keywordTracking, vault: vaultEnabled, campaignWorkspace };
     const selectedClient = clients.find(client => client.id === selected.clientId) ?? null;
     const sections = selected.clientId
         ? clientSections(selected.clientId, flags)
@@ -70,6 +72,7 @@ export function MobileNav() {
             targetClientId: clientId,
             keywordTracking,
             vaultEnabled,
+            campaignWorkspace,
         });
     }
 

@@ -3,7 +3,8 @@ import { reportsNavHref } from '@/lib/reports/close-nav';
 /**
  * Variant B staff shell. Clients are the only switchable record.
  * Agency routes are the ones that already ship. Rankings is included
- * only when keyword tracking is exactly on. Concept rows are omitted.
+ * only when keyword tracking is exactly on. Campaign is included only
+ * when the campaign workspace flag is exactly on. Concept rows are omitted.
  */
 
 export const AGENCY_HOME_HREF = '/dashboard';
@@ -34,11 +35,12 @@ export interface AgencyLink {
     dividerAfter?: boolean;
 }
 
-const KEEP_PARAMS = ['planView', 'phase', 'range', 'section', 'approvalBatch'] as const;
+const KEEP_PARAMS = ['planView', 'phase', 'range', 'section', 'approvalBatch', 'campaignView'] as const;
 
 type WorkspaceModule =
     | 'overview'
     | 'plan'
+    | 'campaign-workspace'
     | 'tasks'
     | 'deliverables'
     | 'search'
@@ -74,6 +76,8 @@ function moduleOf(tab: string | null): WorkspaceModule | null {
         case 'campaign':
         case 'plan':
             return 'plan';
+        case 'campaign-workspace':
+            return 'campaign-workspace';
         case 'tasks':
             return 'tasks';
         case 'deliverables':
@@ -112,7 +116,7 @@ export function clientInitials(name: string): string {
 
 export function clientSections(
     clientId: string,
-    options: { keywordTracking: boolean; vault: boolean },
+    options: { keywordTracking: boolean; vault: boolean; campaignWorkspace: boolean },
 ): StaffSection[] {
     const link = (id: string, label: string, section: WorkspaceModule): StaffLink => ({
         id,
@@ -132,18 +136,23 @@ export function clientSections(
     ];
     if (options.vault) overflow.push(link('vault', 'Vault', 'vault'));
 
+    const workspace: StaffLink[] = [link('overview', 'Overview', 'overview')];
+    if (options.campaignWorkspace) {
+        workspace.push(link('campaign-workspace', 'Campaign', 'campaign-workspace'));
+    }
+    workspace.push(
+        link('plan', 'SEO Plan', 'plan'),
+        link('tasks', 'Tasks', 'tasks'),
+        link('deliverables', 'Deliverables', 'deliverables'),
+        { id: 'time', label: 'Time', href: '/timesheets' },
+        { id: 'reports', label: 'Reports', href: reportsNavHref() },
+    );
+
     return [
         {
             id: 'workspace',
             label: 'Client workspace',
-            links: [
-                link('overview', 'Overview', 'overview'),
-                link('plan', 'SEO Plan', 'plan'),
-                link('tasks', 'Tasks', 'tasks'),
-                link('deliverables', 'Deliverables', 'deliverables'),
-                { id: 'time', label: 'Time', href: '/timesheets' },
-                { id: 'reports', label: 'Reports', href: reportsNavHref() },
-            ],
+            links: workspace,
         },
         { id: 'search', label: 'Search intelligence', links: search },
         {
@@ -201,7 +210,7 @@ export function isClientLinkActive(
     pathname: string,
     search: string,
     link: Pick<StaffLink, 'href' | 'tab'>,
-    options: { keywordTracking: boolean; vault: boolean },
+    options: { keywordTracking: boolean; vault: boolean; campaignWorkspace: boolean },
 ): boolean {
     if (!link.tab) return false;
     if (!/^\/workspace\/([^/]+)/.test(pathname)) return false;
@@ -210,9 +219,11 @@ export function isClientLinkActive(
         if (!tab || tab === 'overview') return true;
         if (tab === 'rankings' && !options.keywordTracking) return true;
         if (tab === 'vault' && !options.vault) return true;
+        if (tab === 'campaign-workspace' && !options.campaignWorkspace) return true;
         return false;
     }
     if (link.tab === 'campaign') return tab === 'campaign' || tab === 'plan';
+    if (link.tab === 'campaign-workspace') return options.campaignWorkspace && tab === 'campaign-workspace';
     return tab === link.tab;
 }
 
@@ -222,6 +233,7 @@ export interface SwitchClientInput {
     targetClientId: string;
     keywordTracking: boolean;
     vaultEnabled: boolean;
+    campaignWorkspace: boolean;
 }
 
 /** Preserve the open module when that destination exists for the next client. */
@@ -241,6 +253,7 @@ export function switchClientHref(input: SwitchClientInput): string {
         current == null
         || (current === 'rankings' && !input.keywordTracking)
         || (current === 'vault' && !input.vaultEnabled)
+        || (current === 'campaign-workspace' && !input.campaignWorkspace)
     ) {
         return `/workspace/${id}?tab=overview&navNotice=unavailable`;
     }

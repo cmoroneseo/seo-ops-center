@@ -12,6 +12,7 @@ import {
     ClipboardList,
     Clock,
     FileCheck2,
+    Flag,
     Globe,
     GraduationCap,
     Home,
@@ -30,6 +31,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useClients } from '@/lib/hooks/use-clients';
 import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
+import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
 import { useAgencyDashboardEnabled } from '@/components/agency-dashboard/use-enabled';
 import { useVaultEnabled } from '@/components/vault/use-vault-enabled';
 import { useOrganization } from '@/components/providers/organization-provider';
@@ -48,6 +50,7 @@ import { useSelectedClient } from '@/components/dashboard/use-selected-client';
 
 const ICONS: Record<string, LucideIcon> = {
     overview: LayoutDashboard,
+    'campaign-workspace': Flag,
     plan: Target,
     tasks: CheckSquare,
     deliverables: PackageCheck,
@@ -106,6 +109,7 @@ export function Sidebar() {
     const agencyDashboard = useAgencyDashboardEnabled();
     const vaultEnabled = useVaultEnabled(organization?.id) === true;
     const keywordTracking = keywordTrackingEnabled();
+    const campaignWorkspace = campaignWorkspaceEnabled();
     const [menu, setMenu] = useState<'clients' | 'agency' | 'more' | null>(null);
     const agencyRef = useRef<HTMLDivElement>(null);
     const moreRef = useRef<HTMLDivElement>(null);
@@ -117,10 +121,10 @@ export function Sidebar() {
         logoUrl: client.logoUrl,
     }));
     const sections = selected.clientId
-        ? clientSections(selected.clientId, { keywordTracking, vault: vaultEnabled })
+        ? clientSections(selected.clientId, { keywordTracking, vault: vaultEnabled, campaignWorkspace })
         : [];
     const agency = agencyLinks({ agencyDashboard });
-    const flags = { keywordTracking, vault: vaultEnabled };
+    const flags = { keywordTracking, vault: vaultEnabled, campaignWorkspace };
     const agencyActive = agency.some(link => isAgencyLinkActive(selected.pathname, link.href));
 
     function hrefFor(clientId: string) {
@@ -130,6 +134,7 @@ export function Sidebar() {
             targetClientId: clientId,
             keywordTracking,
             vaultEnabled,
+            campaignWorkspace,
         });
     }
 
