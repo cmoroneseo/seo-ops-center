@@ -16,8 +16,9 @@ import { useClients } from '@/lib/hooks/use-clients';
 import { REPORT_SECTIONS, monthLabel, ReportSourceKey } from '@/lib/reports/sections';
 import {
     Block, ReportSectionsField, resolveBlocks, makeBlock, blockLabel, splitReportPages,
-    WIDGET_LIBRARY, FORMATTING_ITEMS, BLOCK_TYPES_WITH_SETTINGS,
+    widgetLibrary, FORMATTING_ITEMS, BLOCK_TYPES_WITH_SETTINGS,
 } from '@/lib/reports/blocks';
+import type { TrackedKeywordReportSnapshot } from '@/lib/keyword-tracking/report-snapshot';
 import { REPORT_PRINT_CSS } from '@/lib/reports/print-style';
 import { reportsBuilderHref } from '@/lib/reports/close-nav';
 import { searchReportingEnabled } from '@/lib/search-reporting/flag';
@@ -50,6 +51,8 @@ interface Props {
     };
     history: HistoryMap;
     organizationId: string;
+    /** Frozen tracked-keyword block for a published report. Drafts ignore it. */
+    trackingSnapshot?: TrackedKeywordReportSnapshot | null;
     /** Called after the client or report period is reassigned, so the parent
      *  page can refetch metrics/history scoped to the new client+month. */
     onDataChanged?: () => void;
@@ -63,7 +66,7 @@ const monthOptions = Array.from({ length: 12 }, (_, i) => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 });
 
-export function ReportBuilder({ client, initialReport, metrics, history, organizationId, onDataChanged }: Props) {
+export function ReportBuilder({ client, initialReport, metrics, history, organizationId, trackingSnapshot: initialTrackingSnapshot = null, onDataChanged }: Props) {
     const router = useRouter();
     const [blocks, setBlocks] = useState<Block[]>(() => resolveBlocks(initialReport.sections));
     const [title, setTitle] = useState(initialReport.title);
@@ -76,6 +79,7 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
     const [hideEmpty, setHideEmpty] = useState(true);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [status, setStatus] = useState<'draft' | 'published'>(initialReport.status);
+    const [trackingSnapshot, setTrackingSnapshot] = useState<TrackedKeywordReportSnapshot | null>(initialTrackingSnapshot);
     const [publishing, setPublishing] = useState(false);
     const [printing, setPrinting] = useState(false);
     const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -200,7 +204,10 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
         }
         const body = await res.json().catch(() => null);
         const saved = body?.report?.status;
-        setStatus(saved === 'published' || saved === 'draft' ? saved : next);
+        const nextStatus = saved === 'published' || saved === 'draft' ? saved : next;
+        setStatus(nextStatus);
+        if (nextStatus === 'published') setTrackingSnapshot(body?.trackingSnapshot ?? null);
+        if (nextStatus === 'draft') setTrackingSnapshot(null);
         setSaveState('saved');
         setTimeout(() => setSaveState(current => current === 'saved' ? 'idle' : current), 1500);
         setPublishing(false);
@@ -262,13 +269,16 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
         clientFacing: printing,
         onEditText: editBlockProps,
         onEditField: editField,
+        reportStatus: status,
+        organizationId,
+        trackingSnapshot: status === 'published' ? trackingSnapshot : null,
     };
 
     const hasData = (source: ReportSourceKey) =>
         !!metrics.current[source] && Object.keys(metrics.current[source]!).length > 0;
 
     const q = query.trim().toLowerCase();
-    const filteredLibrary = WIDGET_LIBRARY
+    const filteredLibrary = widgetLibrary()
         .map(g => ({ ...g, items: g.items.filter(it => !q || it.name.toLowerCase().includes(q) || it.description.toLowerCase().includes(q)) }))
         .filter(g => g.items.length > 0);
 

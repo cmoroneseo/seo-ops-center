@@ -1,6 +1,5 @@
 /**
- * Opt-in for the client Rankings tab. The tracked-keywords report block
- * will use the same switch later.
+ * Opt-in for the client Rankings tab and the tracked-keywords report block.
  *
  * Unset or any value other than `true` hides the tab.
  * This is a different switch from `NEXT_PUBLIC_SEARCH_REPORTING`.

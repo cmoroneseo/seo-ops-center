@@ -4,6 +4,7 @@
 
 import { ReportSourceKey, SectionConfig, defaultSectionConfig } from './sections';
 import { SEO_PLAN_LABEL } from '../marketing-plan-template';
+import { keywordTrackingEnabled } from '../keyword-tracking/flag';
 
 export type BlockType =
     // Formatting blocks
@@ -15,6 +16,7 @@ export type BlockType =
     | 'distribution'       // keywords by top-position buckets (Ahrefs)
     | 'organic_table'      // monthly organic history table (GSC + GA4)
     | 'keyword_rankings_table' // tracked-keyword start vs end of period (Ahrefs Rank Tracker)
+    | 'tracked_keywords_gsc'   // GSC tracked keywords, frozen at publish
     | 'marketing_plan';        // SEO Plan checklist progress (props.planView: 'step' | 'month')
 
 export interface Block {
@@ -154,6 +156,14 @@ const AHREFS_LIBRARY_GROUP: LibraryGroup = {
         ],
 };
 
+const TRACKED_KEYWORDS_LIBRARY_ITEM: LibraryItem = {
+    key: 'tracked_keywords_gsc',
+    name: 'Tracked keywords (GSC)',
+    description: 'Clicks, impressions, and average position for the tracked set',
+    type: 'tracked_keywords_gsc',
+    props: {},
+};
+
 export const WIDGET_LIBRARY: LibraryGroup[] = [
     {
         name: 'Google Search Console',
@@ -221,6 +231,14 @@ export const WIDGET_LIBRARY: LibraryGroup[] = [
     AHREFS_LIBRARY_GROUP,
 ];
 
+/** Rankings and this block share one switch. Off means the block is not offered. */
+export function widgetLibrary(): LibraryGroup[] {
+    if (!keywordTrackingEnabled()) return WIDGET_LIBRARY;
+    return WIDGET_LIBRARY.map(group => group.source === 'gsc'
+        ? { ...group, items: [...group.items, TRACKED_KEYWORDS_LIBRARY_ITEM] }
+        : group);
+}
+
 export interface FormattingItem {
     key: string;
     name: string;
@@ -261,6 +279,7 @@ export function blockLabel(block: Block): string {
         case 'organic_table': return 'Organic traffic table';
         case 'grid_comparison': return 'Keyword Visibility Heatmaps';
         case 'keyword_rankings_table': return 'All keywords rankings';
+        case 'tracked_keywords_gsc': return 'Tracked keywords (GSC)';
         case 'marketing_plan': return SEO_PLAN_LABEL;
         default: return 'Block';
     }

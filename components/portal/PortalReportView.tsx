@@ -7,6 +7,7 @@ import { blocksForClientRender, splitReportPages, type ReportSectionsField } fro
 import { REPORT_PRINT_CSS } from '@/lib/reports/print-style';
 import { monthLabel } from '@/lib/reports/sections';
 import type { ClientProject, MarketingPlan } from '@/lib/types';
+import type { TrackedKeywordReportSnapshot } from '@/lib/keyword-tracking/report-snapshot';
 
 export function PortalReportView({
     reportId,
@@ -20,6 +21,7 @@ export function PortalReportView({
     metrics,
     history,
     planSnapshot,
+    trackingSnapshot = null,
 }: {
     reportId: string;
     title: string;
@@ -32,6 +34,7 @@ export function PortalReportView({
     metrics: ReportContext['metrics'];
     history: ReportContext['history'];
     planSnapshot: { plan: MarketingPlan } | null;
+    trackingSnapshot?: TrackedKeywordReportSnapshot | null;
 }) {
     const blocks = useMemo(() => blocksForClientRender(sections), [sections]);
     const pages = useMemo(() => splitReportPages(blocks), [blocks]);
@@ -54,6 +57,8 @@ export function PortalReportView({
         hideEmpty: true,
         clientFacing: true,
         planSnapshot,
+        reportStatus: 'published',
+        trackingSnapshot,
     };
 
     return (

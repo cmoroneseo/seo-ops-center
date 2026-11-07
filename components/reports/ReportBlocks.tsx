@@ -18,6 +18,8 @@ import {
 import { Block } from '@/lib/reports/blocks';
 import { rankTrackerViewResult, type RankTrackerViewResult } from '@/lib/reports/rank-tracker-view';
 import { MarketingPlanReportBlock } from './MarketingPlanReportBlock';
+import { TrackedKeywordsReportBlock } from './TrackedKeywordsReportBlock';
+import type { TrackedKeywordReportSnapshot } from '@/lib/keyword-tracking/report-snapshot';
 import { MoMDelta } from './MoMDelta';
 import { createClient } from '@/lib/supabase/client';
 
@@ -47,6 +49,10 @@ export interface ReportContext {
      * a redacted plan, or null when the plan is not shared.
      */
     planSnapshot?: { plan: MarketingPlan; taskDueDates?: Record<string, string | null> } | null;
+    /** Published reports render the tracked-keyword block from this frozen payload. */
+    reportStatus?: 'draft' | 'published';
+    organizationId?: string;
+    trackingSnapshot?: TrackedKeywordReportSnapshot | null;
 }
 
 const METRIC_LABELS: Record<string, string> = Object.fromEntries(
@@ -946,6 +952,7 @@ export function RenderBlock({ block, ctx }: { block: Block; ctx: ReportContext }
         case 'organic_table': return <OrganicTableBlock ctx={ctx} />;
         case 'keyword_rankings_table':
             return staffOnlyHidden(ctx) ? null : <div className="report-staff-only"><KeywordRankingsTableBlock block={block} ctx={ctx} /></div>;
+        case 'tracked_keywords_gsc': return <TrackedKeywordsReportBlock block={block} ctx={ctx} />;
         case 'marketing_plan': return <MarketingPlanReportBlock block={block} ctx={ctx} />;
         case 'page_break': return null; // handled by the canvas (page split)
         default: return null;

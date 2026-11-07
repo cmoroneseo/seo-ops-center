@@ -106,3 +106,87 @@ test('a viewer cannot delete, and a store error does not echo database text', as
     assert.equal(body.error, 'Unable to save report');
     assert.doesNotMatch(JSON.stringify(body), /duplicate|reports_pkey/);
 });
+
+const trackedSections = {
+    version: 2 as const,
+    blocks: [{ id: 'tracked', type: 'tracked_keywords_gsc', props: {} }],
+};
+
+test('publishing snapshots tracked keywords only while the flag is on, and a failed snapshot does not publish', async () => {
+    const previous = process.env.NEXT_PUBLIC_KEYWORD_TRACKING;
+    const tracked = { ...report, status: 'draft' as const, sections: trackedSections };
+    try {
+        delete process.env.NEXT_PUBLIC_KEYWORD_TRACKING;
+        let reads = 0;
+        const off = handlers('member', {
+            getReport: async () => tracked,
+            captureTrackingSnapshot: async () => { reads += 1; return { ok: true, skipped: 'flag', snapshot: null }; },
+        });
+        assert.equal((await off.api.patch(reportId, json({ status: 'published' }))).status, 200);
+        assert.equal(reads, 0);
+        assert.equal(off.calls.updated.length, 1);
+
+        process.env.NEXT_PUBLIC_KEYWORD_TRACKING = 'true';
+        const failed = handlers('member', {
+            getReport: async () => tracked,
+            captureTrackingSnapshot: async () => ({ ok: false, error: 'Could not snapshot tracked keywords.' }),
+        });
+        assert.equal((await failed.api.patch(reportId, json({ status: 'published' }))).status, 500);
+        assert.equal(failed.calls.updated.length, 0);
+
+        const snapshot = { schemaVersion: 1, state: 'empty', keywords: [] };
+        const published = handlers('member', {
+            getReport: async () => tracked,
+            captureTrackingSnapshot: async () => ({ ok: true, skipped: null, snapshot }),
+        });
+        const response = await published.api.patch(reportId, json({ status: 'published' }));
+        assert.equal(response.status, 200);
+        assert.equal(published.calls.updated.length, 1);
+        assert.deepEqual((await response.json()).trackingSnapshot, snapshot);
+
+        const already = handlers('member', {
+            getReport: async () => ({ ...tracked, status: 'published' as const }),
+            captureTrackingSnapshot: async () => { reads += 1; return { ok: true, skipped: null, snapshot }; },
+        });
+        assert.equal((await already.api.patch(reportId, json({ title: 'October' }))).status, 200);
+        assert.equal(reads, 0);
+    } finally {
+        if (previous === undefined) delete process.env.NEXT_PUBLIC_KEYWORD_TRACKING;
+        else process.env.NEXT_PUBLIC_KEYWORD_TRACKING = previous;
+    }
+});
+
+test('a published report reads the stored snapshot, and a draft or a flag-off report does not', async () => {
+    const previous = process.env.NEXT_PUBLIC_KEYWORD_TRACKING;
+    const snapshot = { schemaVersion: 1, clicks: 37 };
+    try {
+        process.env.NEXT_PUBLIC_KEYWORD_TRACKING = 'true';
+        let reads = 0;
+        const draft = handlers('member', {
+            getReport: async () => ({ ...report, status: 'draft' as const, sections: trackedSections }),
+            readTrackingSnapshot: async () => { reads += 1; return snapshot; },
+        });
+        assert.equal((await draft.api.get(reportId)).status, 200);
+        assert.equal(reads, 0);
+
+        const published = handlers('member', {
+            getReport: async () => ({ ...report, status: 'published' as const, sections: trackedSections }),
+            readTrackingSnapshot: async () => { reads += 1; return snapshot; },
+        });
+        const body = await (await published.api.get(reportId)).json();
+        assert.equal(reads, 1);
+        assert.deepEqual(body.trackingSnapshot, snapshot);
+
+        delete process.env.NEXT_PUBLIC_KEYWORD_TRACKING;
+        const hidden = handlers('member', {
+            getReport: async () => ({ ...report, status: 'published' as const, sections: trackedSections }),
+            readTrackingSnapshot: async () => { reads += 1; return snapshot; },
+        });
+        const off = await (await hidden.api.get(reportId)).json();
+        assert.equal(reads, 1);
+        assert.equal(off.trackingSnapshot, null);
+    } finally {
+        if (previous === undefined) delete process.env.NEXT_PUBLIC_KEYWORD_TRACKING;
+        else process.env.NEXT_PUBLIC_KEYWORD_TRACKING = previous;
+    }
+});
