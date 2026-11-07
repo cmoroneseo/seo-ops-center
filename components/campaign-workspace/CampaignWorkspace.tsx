@@ -2,7 +2,16 @@
 
 import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
+import { RoadmapPanel } from '@/components/campaign-workspace/RoadmapPanel';
+import { InitiativeMark, initiativeToneClass } from '@/components/campaign-workspace/initiative-status';
 import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
+import {
+    completedDeliveries,
+    nextMilestone,
+    orderedInitiatives,
+    statePresentation,
+    type CampaignInitiative,
+} from '@/lib/campaign-workspace/initiatives';
 import { loadCampaignMeasurement } from '@/lib/campaign-workspace/load';
 import {
     campaignIdentity,
@@ -12,6 +21,8 @@ import {
     type CampaignSitewide,
 } from '@/lib/campaign-workspace/sources';
 import { type CampaignView } from '@/lib/campaign-workspace/view';
+import { ptToday } from '@/lib/sync/months';
+import { listCampaignInitiatives } from '@/lib/supabase/campaign-initiatives';
 import { cn } from '@/lib/utils';
 
 /**
@@ -28,6 +39,11 @@ const VIEWS: { id: CampaignView; label: string }[] = [
     { id: 'results', label: 'Results' },
 ];
 
+type InitiativePanelState =
+    | { kind: 'ready'; initiatives: readonly CampaignInitiative[] }
+    | { kind: 'loading' }
+    | { kind: 'unavailable' };
+
 const SUBTITLE: Record<CampaignView, string> = {
     overview: 'Scope, goals, owners, and the next measurement window for this engagement.',
     roadmap: 'Initiatives connect purpose, delivery, and evidence.',
@@ -42,6 +58,8 @@ export function CampaignWorkspace({
     clientId,
     identity,
     snapshot,
+    initiatives,
+    today: todayProp,
 }: {
     clientName: string;
     view: CampaignView;
@@ -51,8 +69,17 @@ export function CampaignWorkspace({
     identity?: CampaignIdentity;
     /** Set in tests. When present, the view does not read live sources. */
     snapshot?: CampaignMeasurement;
+    /** Set in tests. When present, the view does not read initiatives. */
+    initiatives?: readonly CampaignInitiative[];
+    /** ISO day used for milestones, bars, and evidence freshness. */
+    today?: string;
 }) {
     const [loaded, setLoaded] = useState<CampaignMeasurement | null>(null);
+    const [remoteInitiatives, setRemoteInitiatives] = useState<CampaignInitiative[] | null>(null);
+    const [initiativeNote, setInitiativeNote] = useState<string | null>(null);
+    const [selectedInitiativeId, setSelectedInitiativeId] = useState<string | null>(null);
+    const [reloadToken, setReloadToken] = useState(0);
+    const today = todayProp ?? ptToday(new Date());
     useEffect(() => {
         if (snapshot || !organizationId || !clientId) return;
         const controller = new AbortController();
@@ -75,10 +102,44 @@ export function CampaignWorkspace({
         };
     }, [snapshot, organizationId, clientId]);
 
+    useEffect(() => {
+        if (initiatives !== undefined || !clientId) return;
+        let active = true;
+        setRemoteInitiatives(null);
+        setInitiativeNote(null);
+        listCampaignInitiatives(clientId).then(result => {
+            if (!active) return;
+            setRemoteInitiatives(result.initiatives);
+            setInitiativeNote(result.unavailable ? 'Initiatives are not available.' : null);
+        }).catch(() => {
+            if (!active) return;
+            setRemoteInitiatives([]);
+            setInitiativeNote('Initiatives are not available.');
+        });
+        return () => {
+            active = false;
+        };
+    }, [initiatives, clientId, reloadToken]);
+
     if (!campaignWorkspaceEnabled()) return null;
     const name = clientName.trim() || 'This client';
     const measurement = snapshot ?? loaded ?? EMPTY_CAMPAIGN_MEASUREMENT;
     const profile = identity ?? campaignIdentity({});
+    const work: InitiativePanelState = initiatives !== undefined
+        ? { kind: 'ready', initiatives }
+        : !clientId
+            ? { kind: 'ready', initiatives: [] }
+            : remoteInitiatives === null
+                ? { kind: 'loading' }
+                : initiativeNote
+                    ? { kind: 'unavailable' }
+                    : { kind: 'ready', initiatives: remoteInitiatives };
+    const workMessage = work.kind === 'loading'
+        ? 'Loading initiatives…'
+        : work.kind === 'unavailable'
+            ? 'Initiatives are not available.'
+            : null;
+    const readyInitiatives = work.kind === 'ready' ? work.initiatives : [];
 
     return (
         <div className={campaignWorkspaceFrameClass}>
@@ -155,9 +216,37 @@ export function CampaignWorkspace({
                 aria-labelledby={`campaign-tab-${view}`}
                 className="mt-5"
             >
-                {view === 'overview' && <Overview identity={profile} measurement={measurement} />}
-                {view === 'roadmap' && <Roadmap />}
-                {view === 'results' && <Results measurement={measurement} />}
+                {view === 'overview' && (
+                    <Overview
+                        identity={profile}
+                        measurement={measurement}
+                        initiatives={readyInitiatives}
+                        message={workMessage}
+                        today={today}
+                        onOpenInitiative={(id) => {
+                            setSelectedInitiativeId(id);
+                            onView('roadmap');
+                        }}
+                    />
+                )}
+                {view === 'roadmap' && (
+                    <RoadmapPanel
+                        initiatives={readyInitiatives}
+                        today={today}
+                        message={workMessage}
+                        clientId={clientId}
+                        organizationId={organizationId}
+                        selectedId={selectedInitiativeId}
+                        onSelect={setSelectedInitiativeId}
+                        onSaved={(id) => {
+                            setSelectedInitiativeId(id);
+                            setReloadToken(token => token + 1);
+                        }}
+                    />
+                )}
+                {view === 'results' && (
+                    <Results measurement={measurement} initiatives={readyInitiatives} message={workMessage} today={today} />
+                )}
             </div>
         </div>
     );
@@ -313,8 +402,24 @@ function SitewideChart({ gsc }: { gsc: CampaignSitewide }) {
     );
 }
 
-function Overview({ identity, measurement }: { identity: CampaignIdentity; measurement: CampaignMeasurement }) {
+function Overview({
+    identity,
+    measurement,
+    initiatives,
+    message,
+    today,
+    onOpenInitiative,
+}: {
+    identity: CampaignIdentity;
+    measurement: CampaignMeasurement;
+    initiatives: readonly CampaignInitiative[];
+    message: string | null;
+    today: string;
+    onOpenInitiative: (id: string) => void;
+}) {
     const approval = measurement.awaitingApproval;
+    const milestone = message ? null : nextMilestone(initiatives, today);
+    const listed = message ? [] : orderedInitiatives(initiatives);
     return (
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
             <div className="space-y-4">
@@ -352,12 +457,42 @@ function Overview({ identity, measurement }: { identity: CampaignIdentity; measu
             </div>
 
             <div className="space-y-4">
-                <Card title="Next milestone" aside="Not set">
-                    <p className="text-[13px] text-[#18181b]">Not set yet</p>
-                    <dl className="mt-3">
-                        <Placeholder label="Owner" value="Not set yet" />
-                        <Placeholder label="Checklist" value="No items yet" />
-                    </dl>
+                <Card title="Next milestone" aside={milestone ? milestone.shortDate : message ? undefined : 'Not set'}>
+                    <div data-region="milestone" data-milestone={milestone?.initiativeId ?? 'none'}>
+                        {message ? <p className="text-[13px] text-[#52525b]">{message}</p> : milestone ? (
+                            <>
+                                <p className="text-[13px] font-medium text-[#18181b]">{milestone.title}</p>
+                                <p className="mt-1 text-[12px] text-[#71717a]">{milestone.dateLabel}</p>
+                                <dl className="mt-3">
+                                    <Placeholder label="Owner" value={milestone.ownerLabel} />
+                                </dl>
+                                {milestone.items.length === 0 ? (
+                                    <p className="mt-3 text-[13px] text-[#52525b]">No items yet</p>
+                                ) : (
+                                    <ul className="mt-3 space-y-1">
+                                        {milestone.items.map(item => (
+                                            <li key={item.id} className="text-[13px] leading-5 text-[#18181b]">{item.stateLabel} · {item.title}</li>
+                                        ))}
+                                    </ul>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => onOpenInitiative(milestone.initiativeId)}
+                                    className="mt-3 min-h-11 text-[13px] font-medium text-[#18181b] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18181b]"
+                                >
+                                    View on roadmap
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <p className="text-[13px] text-[#18181b]">Not set yet</p>
+                                <dl className="mt-3">
+                                    <Placeholder label="Owner" value="Not set yet" />
+                                    <Placeholder label="Checklist" value="No items yet" />
+                                </dl>
+                            </>
+                        )}
+                    </div>
                 </Card>
 
                 <Card title="Action needed">
@@ -366,67 +501,41 @@ function Overview({ identity, measurement }: { identity: CampaignIdentity; measu
 
                 <section className="rounded-xl border border-[#e4e4e7] bg-white p-4" data-region="initiatives">
                     <h2 className="text-[15px] font-semibold leading-5">Key initiatives</h2>
-                    <p className="mt-3 text-[13px] leading-5 text-[#52525b]">No initiatives yet.</p>
+                    {message ? <p className="mt-3 text-[13px] leading-5 text-[#52525b]">{message}</p> : listed.length === 0 ? (
+                        <p className="mt-3 text-[13px] leading-5 text-[#52525b]">No initiatives yet.</p>
+                    ) : (
+                        <ul className="mt-3 space-y-3">
+                            {listed.map(item => {
+                                const presentation = statePresentation(item, today);
+                                return (
+                                    <li key={item.id} data-initiative={item.id} className="flex gap-2.5">
+                                        <InitiativeMark tone={presentation.tone} />
+                                        <div className="min-w-0">
+                                            <p data-tone={presentation.tone} className={cn('text-[12px] font-medium', initiativeToneClass(presentation.tone))}>{presentation.label}</p>
+                                            <p className="text-[13px] leading-5 text-[#18181b]">{item.title}</p>
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
                 </section>
             </div>
         </div>
     );
 }
 
-function Roadmap() {
-    return (
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
-            <div>
-                <div className="mb-3 flex flex-wrap items-center gap-3">
-                    <div role="radiogroup" aria-label="Roadmap layout" className="inline-flex rounded-lg bg-[#ececef] p-1">
-                        <button
-                            type="button"
-                            role="radio"
-                            aria-checked="false"
-                            disabled
-                            title="Board is not available yet"
-                            className="min-h-11 cursor-not-allowed rounded-md px-3 text-[13px] text-[#a1a1aa]"
-                        >
-                            Board
-                        </button>
-                        <button
-                            type="button"
-                            role="radio"
-                            aria-checked="true"
-                            className="min-h-11 rounded-md bg-white px-3 text-[13px] font-medium text-primary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18181b]"
-                        >
-                            Timeline
-                        </button>
-                    </div>
-                    <p className="text-[12px] text-[#71717a]">Board is not available yet.</p>
-                </div>
-
-                <div className="rounded-xl border border-[#e4e4e7] bg-white" data-region="timeline">
-                    <div className="border-b border-[#e4e4e7] px-4 py-3 text-[12px] font-medium text-[#71717a]">
-                        Initiative / why it matters
-                    </div>
-                    <p className="px-4 py-16 text-center text-[13px] leading-5 text-[#52525b]">
-                        No initiatives yet. Dates are not set, so there is no bar.
-                    </p>
-                </div>
-            </div>
-
-            <Card title="Initiative detail">
-                <p className="text-[13px] text-[#52525b]">No initiative selected.</p>
-                <dl className="mt-2">
-                    <Placeholder label="Purpose" value="Not set yet" />
-                    <Placeholder label="Delivery checklist" value="No deliverables yet" />
-                    <Placeholder label="Measurement" value="Not yet measurable" />
-                </dl>
-                <p className="mt-3 text-[12px] leading-5 text-[#71717a]">
-                    Published work is delivery, not a measured result.
-                </p>
-            </Card>
-        </div>
-    );
-}
-
-function Results({ measurement }: { measurement: CampaignMeasurement }) {
+function Results({
+    measurement,
+    initiatives,
+    message,
+    today,
+}: {
+    measurement: CampaignMeasurement;
+    initiatives: readonly CampaignInitiative[];
+    message: string | null;
+    today: string;
+}) {
     const gbp = measurement.gbp;
     const gbpMissing = gbp.value == null;
     return (
@@ -469,7 +578,7 @@ function Results({ measurement }: { measurement: CampaignMeasurement }) {
                 <p className="mt-1 text-[12px] text-[#71717a]">Delivery and proof, not outcomes.</p>
                 <div className="mt-3 grid gap-4 md:grid-cols-2">
                     <Card title="Completed delivery">
-                        <p className="text-[13px] leading-5 text-[#52525b]">No completed delivery is recorded on this view.</p>
+                        {message ? <p className="text-[13px] leading-5 text-[#52525b]">{message}</p> : <CompletedDeliveryList initiatives={initiatives} today={today} />}
                         <p className="mt-2 text-[12px] leading-5 text-[#71717a]">
                             Published is not indexed, and indexed is not performing.
                         </p>
@@ -480,5 +589,42 @@ function Results({ measurement }: { measurement: CampaignMeasurement }) {
                 </div>
             </section>
         </div>
+    );
+}
+
+function CompletedDeliveryList({
+    initiatives,
+    today,
+}: {
+    initiatives: readonly CampaignInitiative[];
+    today: string;
+}) {
+    const deliveries = completedDeliveries(initiatives, today);
+    if (deliveries.length === 0) {
+        return <p className="text-[13px] leading-5 text-[#52525b]">No completed delivery is recorded on this view.</p>;
+    }
+    return (
+        <ul className="space-y-4">
+            {deliveries.map(item => (
+                <li key={item.id} data-delivery={item.id} data-verification={item.verification} className="border-b border-[#e4e4e7] pb-3 last:border-b-0 last:pb-0">
+                    <p className="text-[13px] font-medium leading-5 text-[#18181b]">{item.title}</p>
+                    {item.url ? (
+                        <a href={item.url} target="_blank" rel="noreferrer noopener" className="mt-1 block truncate text-[12px] text-[#52525b] underline-offset-2 hover:underline">
+                            {item.url}
+                        </a>
+                    ) : null}
+                    {item.dateLabel ? (
+                        <p className="mt-1 text-[12px] text-[#71717a]">
+                            {item.dateKind === 'published' ? 'Published' : 'Verified'} {item.dateLabel}
+                        </p>
+                    ) : null}
+                    {item.verification === 'stale' ? (
+                        <p data-tone="stale" className="mt-1 text-[12px] font-medium text-[#3f3f46]">Evidence stale — re-verify</p>
+                    ) : (
+                        <p data-tone="fresh" className="mt-1 text-[12px] font-medium text-[#15803d]">Completed & Verified</p>
+                    )}
+                </li>
+            ))}
+        </ul>
     );
 }
