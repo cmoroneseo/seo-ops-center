@@ -1,8 +1,16 @@
 'use client';
 
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
+import { loadCampaignMeasurement } from '@/lib/campaign-workspace/load';
+import {
+    campaignIdentity,
+    EMPTY_CAMPAIGN_MEASUREMENT,
+    type CampaignIdentity,
+    type CampaignMeasurement,
+    type CampaignSitewide,
+} from '@/lib/campaign-workspace/sources';
 import { type CampaignView } from '@/lib/campaign-workspace/view';
 import { cn } from '@/lib/utils';
 
@@ -30,13 +38,47 @@ export function CampaignWorkspace({
     clientName,
     view,
     onView,
+    organizationId,
+    clientId,
+    identity,
+    snapshot,
 }: {
     clientName: string;
     view: CampaignView;
     onView: (view: CampaignView) => void;
+    organizationId?: string;
+    clientId?: string;
+    identity?: CampaignIdentity;
+    /** Set in tests. When present, the view does not read live sources. */
+    snapshot?: CampaignMeasurement;
 }) {
+    const [loaded, setLoaded] = useState<CampaignMeasurement | null>(null);
+    useEffect(() => {
+        if (snapshot || !organizationId || !clientId) return;
+        const controller = new AbortController();
+        let active = true;
+        setLoaded(null);
+        loadCampaignMeasurement({
+            organizationId,
+            clientId,
+            signal: controller.signal,
+        }).then(result => {
+            if (active) setLoaded(result);
+        }).catch(error => {
+            if (!active || controller.signal.aborted) return;
+            if (error instanceof DOMException && error.name === 'AbortError') return;
+            if (active) setLoaded(EMPTY_CAMPAIGN_MEASUREMENT);
+        });
+        return () => {
+            active = false;
+            controller.abort();
+        };
+    }, [snapshot, organizationId, clientId]);
+
     if (!campaignWorkspaceEnabled()) return null;
     const name = clientName.trim() || 'This client';
+    const measurement = snapshot ?? loaded ?? EMPTY_CAMPAIGN_MEASUREMENT;
+    const profile = identity ?? campaignIdentity({});
 
     return (
         <div className={campaignWorkspaceFrameClass}>
@@ -57,7 +99,9 @@ export function CampaignWorkspace({
             <header className="mt-4">
                 <h1 className="text-[22px] font-bold leading-tight tracking-tight">Campaign</h1>
                 <p className="mt-1 max-w-2xl text-[13px] leading-5 text-[#52525b]">{SUBTITLE[view]}</p>
-                <p className="mt-1 text-[12px] text-[#71717a]">Start date not set · Last update not set</p>
+                <p className="mt-1 text-[12px] text-[#71717a]">
+                    {profile.startLabel ? `Start date ${profile.startLabel}` : 'Start date not set'} · Last update not set
+                </p>
             </header>
 
             <div
@@ -111,9 +155,9 @@ export function CampaignWorkspace({
                 aria-labelledby={`campaign-tab-${view}`}
                 className="mt-5"
             >
-                {view === 'overview' && <Overview />}
+                {view === 'overview' && <Overview identity={profile} measurement={measurement} />}
                 {view === 'roadmap' && <Roadmap />}
-                {view === 'results' && <Results />}
+                {view === 'results' && <Results measurement={measurement} />}
             </div>
         </div>
     );
@@ -143,15 +187,26 @@ function Card({
 
 function Kpi({
     label,
+    value,
     detail,
+    metric,
+    clicks,
 }: {
     label: string;
+    value: string;
     detail: string;
+    metric?: string;
+    clicks?: number | null;
 }) {
+    const missing = value === '—';
     return (
-        <section className="rounded-xl border border-[#e4e4e7] bg-white px-4 py-3.5">
+        <section
+            className="rounded-xl border border-[#e4e4e7] bg-white px-4 py-3.5"
+            {...(metric ? { 'data-metric': metric } : {})}
+            {...(clicks == null ? {} : { 'data-clicks': String(clicks) })}
+        >
             <h2 className="text-[13px] font-medium text-[#52525b]">{label}</h2>
-            <p className="mt-2 text-[28px] font-semibold leading-none tracking-tight text-[#18181b]" aria-hidden="true">—</p>
+            <p className="mt-2 text-[28px] font-semibold leading-none tracking-tight text-[#18181b]" {...(missing ? { 'aria-hidden': true } : {})}>{value}</p>
             <p className="mt-2 text-[12px] text-[#71717a]">{detail}</p>
         </section>
     );
@@ -177,29 +232,118 @@ function Placeholder({ label, value }: { label: string; value: string }) {
     );
 }
 
-function Overview() {
+function clickDetail(gsc: CampaignSitewide): string {
+    if (gsc.status !== 'measurable') return 'Not yet measurable';
+    if (gsc.deltaLabel && gsc.currentLabel) return `${gsc.deltaLabel} · ${gsc.currentLabel}`;
+    if (gsc.currentLabel) return `Last 28 days · ${gsc.currentLabel}`;
+    return 'Not yet measurable';
+}
+
+function plotCaption(gsc: CampaignSitewide): string {
+    if (gsc.reason === 'incomplete') return 'The stored 28-day window is incomplete. A missing observation is not zero.';
+    return 'No baseline and no current window. A missing observation is not zero.';
+}
+
+function SitewideCard({ gsc, variant }: { gsc: CampaignSitewide; variant: 'overview' | 'results' }) {
+    const showSeries = gsc.status === 'measurable' && gsc.points.length > 0;
+    const title = variant === 'overview' ? 'Sitewide organic clicks' : 'National Search Console · sitewide clicks';
+    const caveat = variant === 'overview'
+        ? 'Sitewide clicks, once measured, include brand and do not by themselves prove a priority-page goal.'
+        : 'Sitewide clicks include brand. They do not prove a priority-page goal. National Search Console and local Business Profile actions are not summed.';
+    const source = gsc.status === 'measurable'
+        ? `Source Google Search Console · sitewide property total · ${gsc.currentLabel} · as of ${gsc.asOf}. Daily totals for that window, not a rolling series. ${caveat}`
+        : gsc.reason === 'incomplete'
+            ? `The stored 28-day window is incomplete. ${caveat}`
+            : gsc.reason === 'missing'
+                ? `No final day is stored for this window. ${caveat}`
+                : variant === 'overview'
+                    ? `Source is not connected for this view. ${caveat}`
+                    : caveat;
+    return (
+        <Card title={title} aside={showSeries && gsc.currentLabel ? gsc.currentLabel : 'Not yet measurable'}>
+            {showSeries ? <SitewideChart gsc={gsc} /> : <EmptyPlot caption={plotCaption(gsc)} />}
+            {gsc.baselineCaption ? <p className="mt-3 text-[12px] leading-5 text-[#52525b]">{gsc.baselineCaption}</p> : null}
+            <p className="mt-3 text-[11px] leading-4 text-[#71717a]">{source}</p>
+        </Card>
+    );
+}
+
+function SitewideChart({ gsc }: { gsc: CampaignSitewide }) {
+    const width = 640;
+    const height = 200;
+    const pad = { left: 12, right: 12, top: 16, bottom: 12 };
+    const peak = Math.max(...gsc.points.map(point => point.clicks), gsc.baselineDaily ?? 0, 1);
+    const innerW = width - pad.left - pad.right;
+    const innerH = height - pad.top - pad.bottom;
+    const xAt = (index: number) => pad.left + (gsc.points.length === 1 ? innerW / 2 : (index / (gsc.points.length - 1)) * innerW);
+    const yAt = (value: number) => pad.top + (1 - value / (peak * 1.08)) * innerH;
+    const coords = gsc.points.map((point, index) => ({ x: xAt(index), y: yAt(point.clicks) }));
+    const line = coords.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
+    const floor = yAt(0);
+    const first = coords[0];
+    const last = coords[coords.length - 1];
+    const area = first && last
+        ? `${line} L${last.x.toFixed(1)},${floor.toFixed(1)} L${first.x.toFixed(1)},${floor.toFixed(1)} Z`
+        : '';
+    const baselineY = gsc.baselineDaily == null ? null : yAt(gsc.baselineDaily);
+    const label = gsc.currentLabel
+        ? `Daily sitewide clicks for ${gsc.currentLabel}. Total ${gsc.clicksLabel}.`
+        : 'Daily sitewide clicks.';
+    return (
+        <div className="rounded-lg bg-[#fdf2f8] px-2 py-3" data-region="gsc-series">
+            <p className="sr-only">{label}</p>
+            <svg role="img" aria-label={label} viewBox={`0 0 ${width} ${height}`} className="h-[200px] w-full">
+                <title>{label}</title>
+                {area ? <path d={area.trim()} fill="#fbcfe8" /> : null}
+                {baselineY != null ? (
+                    <line
+                        data-baseline="true"
+                        x1={pad.left}
+                        x2={width - pad.right}
+                        y1={baselineY}
+                        y2={baselineY}
+                        stroke="#b45309"
+                        strokeWidth="1.5"
+                        strokeDasharray="5 4"
+                    />
+                ) : null}
+                {line ? <path d={line.trim()} fill="none" stroke="#ec4899" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" /> : null}
+            </svg>
+        </div>
+    );
+}
+
+function Overview({ identity, measurement }: { identity: CampaignIdentity; measurement: CampaignMeasurement }) {
+    const approval = measurement.awaitingApproval;
     return (
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
             <div className="space-y-4">
                 <div className="grid gap-3 md:grid-cols-3">
-                    <Kpi label="Organic clicks" detail="Not yet measurable" />
-                    <Kpi label="Action needed" detail="Not set yet" />
-                    <Kpi label="Awaiting approval" detail="Not set yet" />
+                    <Kpi
+                        label="Organic clicks"
+                        metric="organic-clicks"
+                        value={measurement.gsc.clicksLabel}
+                        clicks={measurement.gsc.clicks}
+                        detail={clickDetail(measurement.gsc)}
+                    />
+                    <Kpi label="Action needed" value="—" detail="Not set yet" />
+                    <Kpi
+                        label="Awaiting approval"
+                        metric="awaiting-approval"
+                        value={approval == null ? '—' : String(approval)}
+                        clicks={approval}
+                        detail={approval == null ? 'Not set yet' : approval === 0 ? 'None waiting' : 'Content awaiting a decision'}
+                    />
                 </div>
 
-                <Card title="Sitewide organic clicks" aside="Not yet measurable">
-                    <EmptyPlot caption="No baseline and no current window. A missing observation is not zero." />
-                    <p className="mt-3 text-[11px] leading-4 text-[#71717a]">
-                        Source is not connected for this view. Sitewide clicks, once measured, include brand and do not by themselves prove a priority-page goal.
-                    </p>
-                </Card>
+                <SitewideCard gsc={measurement.gsc} variant="overview" />
 
                 <Card title="Goals & planning scope">
                     <dl>
-                        <Placeholder label="Scope" value="Not set yet" />
+                        <Placeholder label="Scope" value={identity.scope ?? 'Not set yet'} />
                         <Placeholder label="Goals" value="Not set yet" />
                         <Placeholder label="Planning aim" value="Not set yet" />
-                        <Placeholder label="Owners" value="Not set yet" />
+                        <Placeholder label="Owners" value={identity.owner ?? 'Not set yet'} />
                     </dl>
                     <p className="mt-3 text-[12px] leading-5 text-[#71717a]">
                         Delivery expectations are not set yet.
@@ -282,24 +426,26 @@ function Roadmap() {
     );
 }
 
-function Results() {
+function Results({ measurement }: { measurement: CampaignMeasurement }) {
+    const gbp = measurement.gbp;
+    const gbpMissing = gbp.value == null;
     return (
         <div className="space-y-4">
             <section data-region="measured" aria-labelledby="measured-results">
                 <h2 id="measured-results" className="text-[15px] font-semibold">Measured results</h2>
                 <div className="mt-3 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
-                    <Card title="National Search Console · sitewide clicks" aside="Not yet measurable">
-                        <EmptyPlot caption="No baseline and no current window. A missing observation is not zero." />
-                        <p className="mt-3 text-[11px] leading-4 text-[#71717a]">
-                            Sitewide clicks include brand. They do not prove a priority-page goal. National Search Console and local Business Profile actions are not summed.
-                        </p>
-                    </Card>
+                    <SitewideCard gsc={measurement.gsc} variant="results" />
                     <Card title="Local Business Profile">
-                        <p className="text-[28px] font-semibold leading-none tracking-tight" aria-hidden="true">—</p>
-                        <p className="mt-2 text-[13px] text-[#52525b]">Not yet measurable</p>
-                        <p className="mt-3 text-[12px] leading-5 text-[#71717a]">
-                            Separate from national Search Console. Not summed with sitewide clicks.
-                        </p>
+                        <div data-metric="local-profile" data-state={gbp.status} {...(gbp.value == null ? {} : { 'data-clicks': String(gbp.value) })}>
+                            <p className="text-[28px] font-semibold leading-none tracking-tight" {...(gbpMissing ? { 'aria-hidden': true } : {})}>{gbpMissing ? '—' : gbp.valueLabel}</p>
+                            <p className="mt-2 text-[13px] text-[#52525b]">{gbp.label ?? 'Not yet measurable'}</p>
+                            <p className="mt-3 text-[12px] leading-5 text-[#71717a]">
+                                {gbp.windowLabel ? `${gbp.windowLabel}. ` : ''}
+                                {gbp.priorValue != null && gbp.priorLabel ? `Prior month ${gbp.priorLabel} was ${gbp.priorValue}. ` : ''}
+                                {gbp.status === 'measurable' ? 'Google Business Profile. ' : ''}
+                                Separate from national Search Console. Not summed with sitewide clicks.
+                            </p>
+                        </div>
                     </Card>
                 </div>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">

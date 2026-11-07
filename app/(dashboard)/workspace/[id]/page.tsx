@@ -48,6 +48,7 @@ import { ResultsView } from '@/components/marketing-plan/ResultsView';
 import { searchReportingEnabled } from '@/lib/search-reporting/flag';
 import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
 import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
+import { identityFromClient } from '@/lib/campaign-workspace/sources';
 import { CAMPAIGN_WORKSPACE_TAB, parseCampaignView, type CampaignView } from '@/lib/campaign-workspace/view';
 import { CampaignWorkspace } from '@/components/campaign-workspace/CampaignWorkspace';
 import { notifyStaffNav, UNAVAILABLE_MODULE_NOTICE } from '@/lib/nav/staff-shell';
@@ -305,6 +306,9 @@ export default function ClientDetailPage() {
         return (
             <CampaignWorkspace
                 clientName={client.clientName}
+                organizationId={organization?.id}
+                clientId={client.id}
+                identity={identityFromClient(client)}
                 view={campaignView}
                 onView={openCampaignView}
             />
