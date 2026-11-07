@@ -28,8 +28,9 @@ test('old share snapshots drop rank tables and map grids at render time', () => 
             block('cover', 'cover'),
             block('ranks', 'keyword_rankings_table'),
             block('grid', 'grid_comparison'),
+            block('tracked', 'tracked_keywords_gsc'),
             block('summary', 'text'),
         ],
     });
-    assert.deepEqual(rendered.map(item => item.type), ['cover', 'text']);
+    assert.deepEqual(rendered.map(item => item.type), ['cover', 'tracked_keywords_gsc', 'text']);
 });

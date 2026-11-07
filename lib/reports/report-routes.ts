@@ -3,6 +3,12 @@ import { generateAutoSummary } from './autoSummary';
 import type { ReportRow } from './reportStore';
 import { monthLabel, previousMonth, type ReportSourceKey } from './sections';
 import type { MetricRow } from '@/lib/sync/upsertMetric';
+import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
+import {
+    reportHasTrackedKeywordsBlock,
+    type CaptureTrackingResult,
+    type TrackedKeywordReportSnapshot,
+} from '@/lib/keyword-tracking/report-snapshot';
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -30,6 +36,8 @@ export interface ReportRouteDeps extends ReportAccessDeps {
     hasFrozenVersion?: (id: string, organizationId: string) => Promise<boolean>;
     getClientMetrics: (clientId: string, opts: { organizationId: string; month?: string }) => Promise<MetricRow[]>;
     generateAutoSummary: typeof generateAutoSummary;
+    captureTrackingSnapshot?: (report: ReportRow) => Promise<CaptureTrackingResult>;
+    readTrackingSnapshot?: (report: ReportRow) => Promise<TrackedKeywordReportSnapshot | null>;
 }
 
 function json(body: unknown, status = 200) {
@@ -163,8 +171,18 @@ export function createReportHandlers(deps: ReportRouteDeps) {
             for (const source of Object.keys(history)) {
                 history[source] = history[source].sort((a, b) => a.month.localeCompare(b.month)).slice(-12);
             }
+            let trackingSnapshot: TrackedKeywordReportSnapshot | null = null;
+            if (
+                report.status === 'published'
+                && keywordTrackingEnabled()
+                && reportHasTrackedKeywordsBlock(report.sections)
+                && deps.readTrackingSnapshot
+            ) {
+                trackingSnapshot = await deps.readTrackingSnapshot(report);
+            }
             return json({
                 report,
+                trackingSnapshot,
                 metrics: {
                     current: toMap(currentRows),
                     previous: toMap(previousRows),
@@ -240,9 +258,16 @@ export function createReportHandlers(deps: ReportRouteDeps) {
             }
 
             if (Object.keys(patch).length === 0) return json({ error: 'No changes' }, 400);
+            let trackingSnapshot: TrackedKeywordReportSnapshot | null = null;
+            const publishing = patch.status === 'published' && access.report.status !== 'published';
+            if (publishing && keywordTrackingEnabled() && deps.captureTrackingSnapshot) {
+                const captured = await deps.captureTrackingSnapshot({ ...access.report, ...patch, status: 'published' });
+                if (!captured.ok) return json({ error: 'Could not snapshot tracked keywords.' }, 500);
+                trackingSnapshot = captured.snapshot;
+            }
             const updated = await deps.updateReport(access.report.id, access.report.organization_id, patch);
             if (updated.error || !updated.report) return json({ error: 'Unable to save report' }, 500);
-            return json({ report: updated.report });
+            return json({ report: updated.report, trackingSnapshot });
         },
 
         async remove(id: string) {

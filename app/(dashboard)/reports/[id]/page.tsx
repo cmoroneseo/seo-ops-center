@@ -7,12 +7,13 @@ import { getClients } from '@/lib/supabase/clients';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { ClientProject } from '@/lib/types';
 import { ReportBuilder } from '@/components/reports/ReportBuilder';
+import { parseTrackedKeywordReportSnapshot } from '@/lib/keyword-tracking/report-snapshot';
 
 export default function ReportBuilderPage() {
     const params = useParams();
     const id = params.id as string;
     const { organization } = useOrganization();
-    const [data, setData] = useState<{ report: any; metrics: any; history: any } | null | undefined>(undefined);
+    const [data, setData] = useState<{ report: any; metrics: any; history: any; trackingSnapshot?: unknown } | null | undefined>(undefined);
     const [client, setClient] = useState<ClientProject | null>(null);
     const [clientResolved, setClientResolved] = useState(false);
 
@@ -64,6 +65,7 @@ export default function ReportBuilderPage() {
                 metrics={data.metrics}
                 history={data.history ?? {}}
                 organizationId={organization?.id ?? ''}
+                trackingSnapshot={parseTrackedKeywordReportSnapshot(data.trackingSnapshot)}
                 onDataChanged={fetchReport}
             />
         </div>

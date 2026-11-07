@@ -13,7 +13,10 @@ import { ClientReport } from '@/components/client-report/ClientReport';
 import { loadClientReportModel } from '@/lib/reports/client-report-load';
 import { searchReportingEnabled } from '@/lib/search-reporting/flag';
 import type { PortalClientScope } from '@/lib/portal/session';
-
+import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
+import { readStoredTrackingSnapshot, reportHasTrackedKeywordsBlock } from '@/lib/keyword-tracking/report-snapshot';
+import { createAdminClient } from '@/lib/supabase/admin';
+import type { SearchReportingAdmin } from '@/lib/search-reporting/load';
 export async function PortalHomeContent({ contact }: { contact: PortalClientScope }) {
     const home = await loadPortalHome(contact);
     return (
@@ -100,6 +103,14 @@ export async function PortalReportContent({ contact, id }: { contact: PortalClie
     }
     const report = await loadPortalReport(contact, id);
     if (!report) notFound();
+    const trackingSnapshot = keywordTrackingEnabled() && reportHasTrackedKeywordsBlock(report.sections)
+        ? await readStoredTrackingSnapshot({
+            reportId: report.id,
+            organizationId: contact.organizationId,
+            clientId: contact.clientId,
+            client: createAdminClient() as unknown as SearchReportingAdmin,
+        })
+        : null;
 
     return (
         <PortalReportView
@@ -114,6 +125,7 @@ export async function PortalReportContent({ contact, id }: { contact: PortalClie
             metrics={report.metrics}
             history={report.history}
             planSnapshot={report.planSnapshot}
+            trackingSnapshot={trackingSnapshot}
         />
     );
 }
