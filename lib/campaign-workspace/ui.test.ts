@@ -11,6 +11,7 @@ import { parseCampaignView } from './view.ts';
 import { clientSections } from '../nav/staff-shell.ts';
 import { dateOffset } from '@/lib/gsc/history.ts';
 import type { HistoryDay, HistoryRow } from '@/lib/gsc/insights.ts';
+import type { CampaignInitiative } from './initiatives.ts';
 import { campaignIdentity, campaignLocalProfile, campaignSitewide, type CampaignMeasurement } from './sources.ts';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
@@ -18,7 +19,12 @@ import { campaignIdentity, campaignLocalProfile, campaignSitewide, type Campaign
 function render(
     view: 'overview' | 'roadmap' | 'results',
     enabled: boolean,
-    extras: { snapshot?: CampaignMeasurement; identity?: ReturnType<typeof campaignIdentity> } = {},
+    extras: {
+        snapshot?: CampaignMeasurement;
+        identity?: ReturnType<typeof campaignIdentity>;
+        initiatives?: CampaignInitiative[];
+        today?: string;
+    } = {},
 ) {
     const previous = process.env.NEXT_PUBLIC_CAMPAIGN_WORKSPACE;
     process.env.NEXT_PUBLIC_CAMPAIGN_WORKSPACE = enabled ? 'true' : 'false';
@@ -29,6 +35,8 @@ function render(
             onView() {},
             snapshot: extras.snapshot,
             identity: extras.identity,
+            initiatives: extras.initiatives,
+            today: extras.today,
         }));
     } finally {
         if (previous === undefined) delete process.env.NEXT_PUBLIC_CAMPAIGN_WORKSPACE;
@@ -190,6 +198,196 @@ test('stored Search Console and Business Profile render separately from empty wo
         assert.equal(html.includes('Summit Dental'), false);
         assert.equal(html.includes('campaign_plans'), false);
         assert.equal(html.includes('Sheet connected'), false);
+    }
+});
+
+function harborInitiatives(): CampaignInitiative[] {
+    return [
+        {
+            id: 'harbor-emergency',
+            organizationId: 'org-harbor',
+            clientId: 'client-harbor',
+            title: 'Emergency service page',
+            purpose: 'Cover the after-hours visit',
+            ownerName: 'Alex Kim',
+            priority: 1,
+            state: 'in_progress',
+            startsOn: '2026-09-01',
+            endsOn: '2026-11-20',
+            pageUrl: 'https://harbor.example/services/emergency',
+            successMetricLabel: 'Service page clicks',
+            evidenceUrl: null,
+            verifiedOn: null,
+            items: [{
+                id: 'harbor-draft',
+                title: 'After-hours draft',
+                contentState: 'draft',
+                draftUrl: 'https://harbor.example/drafts/after-hours',
+                liveUrl: null,
+                publishedOn: null,
+                position: 0,
+            }],
+        },
+        {
+            id: 'harbor-crawl',
+            organizationId: 'org-harbor',
+            clientId: 'client-harbor',
+            title: 'Crawl access',
+            purpose: 'Blocked URLs waste crawl',
+            ownerName: 'Alex Kim',
+            priority: 1,
+            state: 'blocked',
+            startsOn: null,
+            endsOn: null,
+            pageUrl: null,
+            successMetricLabel: null,
+            evidenceUrl: null,
+            verifiedOn: null,
+            items: [],
+        },
+        {
+            id: 'harbor-profile',
+            organizationId: 'org-harbor',
+            clientId: 'client-harbor',
+            title: 'Profile categories',
+            purpose: 'Help patients recognize the practice',
+            ownerName: 'Alex Kim',
+            priority: 2,
+            state: 'completed_verified',
+            startsOn: '2026-10-03',
+            endsOn: '2026-10-04',
+            pageUrl: null,
+            successMetricLabel: null,
+            evidenceUrl: 'https://harbor.example/proof/profile',
+            verifiedOn: '2026-10-04',
+            items: [{
+                id: 'harbor-categories',
+                title: 'Category update',
+                contentState: 'published',
+                draftUrl: null,
+                liveUrl: 'https://harbor.example/blog/categories',
+                publishedOn: '2026-10-04',
+                position: 0,
+            }],
+        },
+        {
+            id: 'harbor-citations',
+            organizationId: 'org-harbor',
+            clientId: 'client-harbor',
+            title: 'Citation consistency',
+            purpose: 'Keep the practice name consistent',
+            ownerName: 'Alex Kim',
+            priority: 2,
+            state: 'completed_verified',
+            startsOn: '2026-08-01',
+            endsOn: '2026-08-01',
+            pageUrl: null,
+            successMetricLabel: null,
+            evidenceUrl: 'https://harbor.example/proof/citations',
+            verifiedOn: '2026-08-01',
+            items: [],
+        },
+        {
+            id: 'harbor-unproven',
+            organizationId: 'org-harbor',
+            clientId: 'client-harbor',
+            title: 'Unproven cleanup',
+            purpose: null,
+            ownerName: null,
+            priority: 2,
+            state: 'completed_verified',
+            startsOn: null,
+            endsOn: null,
+            pageUrl: null,
+            successMetricLabel: null,
+            evidenceUrl: null,
+            verifiedOn: null,
+            items: [],
+        },
+    ];
+}
+
+function sliceInitiative(html: string, id: string): string {
+    const token = `data-initiative="${id}"`;
+    const start = html.indexOf(token);
+    assert.ok(start >= 0, id);
+    const next = html.indexOf('data-initiative="', start + token.length);
+    return html.slice(start, next === -1 ? undefined : next);
+}
+
+test('stored initiatives fill the roadmap without mixing delivery into measurement', () => {
+    const initiatives = harborInitiatives();
+    const extras = { snapshot: measuredSnapshot(), initiatives, today: '2026-11-07' };
+    const overview = render('overview', true, extras);
+    const roadmap = render('roadmap', true, extras);
+    const results = render('results', true, extras);
+
+    assert.match(overview, /data-metric="organic-clicks"[^>]*data-clicks="140"/);
+    assert.match(overview, /data-clicks="2"/);
+    assert.equal(overview.includes('data-clicks="3"'), false);
+    assert.match(overview, /data-milestone="harbor-emergency"/);
+    assert.match(overview, /Nov 20, 2026/);
+    assert.match(overview, /Draft · After-hours draft/);
+    assert.match(overview, /No client action is waiting/);
+    assert.match(overview, /Not set yet/);
+    assert.match(overview, /Emergency service page/);
+    assert.match(overview, /Crawl access/);
+    const staleOverview = sliceInitiative(overview, 'harbor-citations');
+    assert.match(staleOverview, /Evidence stale — re-verify/);
+    assert.equal(staleOverview.includes('15803d'), false);
+    const incompleteOverview = sliceInitiative(overview, 'harbor-unproven');
+    assert.match(incompleteOverview, /Verification incomplete/);
+    assert.equal(incompleteOverview.includes('15803d'), false);
+    assert.equal(incompleteOverview.includes('Completed &amp; Verified'), false);
+
+    const crawl = sliceInitiative(roadmap, 'harbor-crawl');
+    assert.match(crawl, /Dates not set/);
+    assert.equal(crawl.includes('data-bar'), false);
+    const emergency = sliceInitiative(roadmap, 'harbor-emergency');
+    assert.match(emergency, /data-bar="span"/);
+    const citations = sliceInitiative(roadmap, 'harbor-citations');
+    assert.match(citations, /data-bar="point"/);
+    assert.match(citations, /Evidence stale — re-verify/);
+    assert.equal(citations.includes('15803d'), false);
+    assert.match(roadmap, /data-measurement="not-yet"/);
+    assert.match(roadmap, /Service page clicks/);
+    assert.match(roadmap, /Not yet measurable/);
+    assert.equal(roadmap.includes('data-region="gsc-series"'), false);
+    assert.equal(roadmap.includes('data-clicks'), false);
+    assert.match(roadmap, /aria-checked="false"[^>]*disabled/);
+    assert.match(roadmap, /aria-checked="true"[^>]*>Timeline</);
+
+    const measured = results.slice(results.indexOf('data-region="measured"'), results.indexOf('data-region="completed"'));
+    const completed = results.slice(results.indexOf('data-region="completed"'));
+    assert.match(measured, /data-clicks="8"/);
+    assert.match(measured, /Not yet measurable/);
+    assert.match(measured, /not a rank of zero/);
+    assert.equal(measured.includes('harbor.example'), false);
+    assert.equal(measured.includes('Profile categories'), false);
+    assert.equal(measured.includes('data-clicks="148"'), false);
+    assert.equal(measured.includes('>148<'), false);
+    assert.match(completed, /Profile categories/);
+    assert.match(completed, /https:\/\/harbor\.example\/blog\/categories/);
+    assert.match(completed, /Citation consistency/);
+    assert.match(completed, /Evidence stale — re-verify/);
+    assert.equal(completed.includes('Unproven cleanup'), false);
+    assert.equal(completed.includes('data-clicks'), false);
+    assert.equal(completed.includes('>140<'), false);
+    assert.equal(completed.includes('>8<'), false);
+    const staleDelivery = completed.slice(completed.indexOf('data-verification="stale"'), completed.indexOf('data-verification="fresh"'));
+    assert.equal(staleDelivery.includes('15803d'), false);
+    const freshDelivery = completed.slice(completed.indexOf('data-verification="fresh"'));
+    assert.match(freshDelivery, /15803d/);
+    assert.match(freshDelivery, /Completed &amp; Verified/);
+
+    for (const html of [overview, roadmap, results]) {
+        assert.equal(html.includes('241'), false);
+        assert.equal(html.includes('186'), false);
+        assert.equal(html.includes('Summit Dental'), false);
+        assert.equal(html.includes('campaign_plans'), false);
+        assert.equal(html.includes('progressbar'), false);
+        assert.equal(html.includes('completion'), false);
+        assert.equal(html.includes('On track'), false);
     }
 });
 
