@@ -12,7 +12,8 @@ import { clientSections } from '../nav/staff-shell.ts';
 import { dateOffset } from '@/lib/gsc/history.ts';
 import type { HistoryDay, HistoryRow } from '@/lib/gsc/insights.ts';
 import type { CampaignInitiative } from './initiatives.ts';
-import { campaignIdentity, campaignLocalProfile, campaignSitewide, type CampaignMeasurement } from './sources.ts';
+import { campaignPageResults } from './pages.ts';
+import { campaignIdentity, campaignLocalProfile, campaignSitewide, type CampaignMeasurement, type CampaignPageSeries } from './sources.ts';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
@@ -63,7 +64,41 @@ function measuredSnapshot(): CampaignMeasurement {
             { metricMonth: '2026-08', data: { calls: 3 } },
         ], new Date('2026-10-29T20:00:00Z')),
         awaitingApproval: 2,
+        pages: { status: 'missing', days: [], rows: [] },
     };
+}
+
+function pageSeries(clicks: number, mutate?: (day: HistoryDay, index: number) => void): CampaignPageSeries {
+    const end = '2026-10-28';
+    const start = dateOffset(end, -55);
+    const days: HistoryDay[] = [];
+    const rows: HistoryRow[] = [];
+    for (let index = 0; index < 56; index += 1) {
+        const date = dateOffset(start, index);
+        const id = `page-${date}`;
+        const day: HistoryDay = { id, date, importedAt: `${date}T18:00:00Z`, pageLimited: false, queryLimited: false, isIncomplete: false };
+        mutate?.(day, index);
+        days.push(day);
+        rows.push({
+            id: index + 1,
+            dayId: id,
+            page: 'https://harbor.example/services/emergency',
+            query: '',
+            clicks,
+            impressions: 4,
+            position: 3,
+        });
+        rows.push({
+            id: 1000 + index,
+            dayId: id,
+            page: 'https://harbor.example/services/emergency?utm_medium=gbp',
+            query: '',
+            clicks: 9,
+            impressions: 4,
+            position: 2,
+        });
+    }
+    return { status: 'ready', days, rows };
 }
 
 function selectedTab(html: string): string {
@@ -359,10 +394,17 @@ test('stored initiatives fill the roadmap without mixing delivery into measureme
 
     const measured = results.slice(results.indexOf('data-region="measured"'), results.indexOf('data-region="completed"'));
     const completed = results.slice(results.indexOf('data-region="completed"'));
+    const sitewide = measured.slice(measured.indexOf('data-region="sitewide"'), measured.indexOf('data-metric="local-profile"'));
+    const pageUrl = measured.slice(measured.indexOf('data-region="page-url"'), measured.indexOf('Secondary signal'));
     assert.match(measured, /data-clicks="8"/);
     assert.match(measured, /Not yet measurable/);
     assert.match(measured, /not a rank of zero/);
-    assert.equal(measured.includes('harbor.example'), false);
+    assert.match(pageUrl, /data-page-urls="1"/);
+    assert.match(pageUrl, /data-state="not_measurable"/);
+    assert.match(pageUrl, /https:\/\/harbor\.example\/services\/emergency/);
+    assert.equal(pageUrl.includes('data-clicks'), false);
+    assert.equal(sitewide.includes('harbor.example'), false);
+    assert.equal(sitewide.includes('services/emergency'), false);
     assert.equal(measured.includes('Profile categories'), false);
     assert.equal(measured.includes('data-clicks="148"'), false);
     assert.equal(measured.includes('>148<'), false);
@@ -389,6 +431,48 @@ test('stored initiatives fill the roadmap without mixing delivery into measureme
         assert.equal(html.includes('completion'), false);
         assert.equal(html.includes('On track'), false);
     }
+});
+
+test('a stored page URL shows its own Search Console clicks and leaves sitewide and profile unchanged', () => {
+    const snapshot = measuredSnapshot();
+    snapshot.pages = pageSeries(2);
+    const initiatives = harborInitiatives();
+    const page = campaignPageResults({ series: snapshot.pages, initiatives, today: '2026-10-29' })[0];
+    assert.equal(page.clicks, 56);
+    assert.equal(snapshot.gsc.clicks, 140);
+    assert.equal(snapshot.gbp.value, 8);
+    const results = render('results', true, { snapshot, initiatives, today: '2026-11-07' });
+    const measured = results.slice(results.indexOf('data-region="measured"'), results.indexOf('data-region="completed"'));
+    const sitewide = measured.slice(measured.indexOf('data-region="sitewide"'), measured.indexOf('data-metric="local-profile"'));
+    const local = measured.slice(measured.indexOf('data-metric="local-profile"'), measured.indexOf('data-region="page-url"'));
+    const pageUrl = measured.slice(measured.indexOf('data-region="page-url"'), measured.indexOf('Secondary signal'));
+    assert.match(sitewide, /140/);
+    assert.match(local, /data-clicks="8"/);
+    assert.match(pageUrl, /data-page-result="harbor-emergency"/);
+    assert.match(pageUrl, /data-clicks="56"/);
+    assert.match(pageUrl, /data-surface="organic"/);
+    assert.match(pageUrl, /None set/);
+    assert.match(pageUrl, /do not prove this page/);
+    assert.equal(pageUrl.includes('data-clicks="9"'), false);
+    assert.equal(pageUrl.includes('data-clicks="65"'), false);
+    assert.equal(sitewide.includes('data-clicks="56"'), false);
+    assert.equal(sitewide.includes('harbor.example'), false);
+    assert.equal(local.includes('data-clicks="56"'), false);
+    assert.equal(local.includes('data-clicks="64"'), false);
+    assert.equal(measured.includes('data-clicks="196"'), false);
+    assert.equal(measured.includes('data-clicks="148"'), false);
+    assert.match(measured, /not a rank of zero/);
+    assert.match(results, /data-region="completed"/);
+    assert.match(results, /Profile categories/);
+
+    snapshot.pages = pageSeries(2, (day, index) => { if (index === 40) day.isIncomplete = true; });
+    const gapped = render('results', true, { snapshot, initiatives, today: '2026-11-07' });
+    const gappedPage = gapped.slice(gapped.indexOf('data-region="page-url"'), gapped.indexOf('Secondary signal'));
+    assert.match(gappedPage, /data-state="not_measurable"/);
+    assert.match(gappedPage, /data-reason="incomplete"/);
+    assert.equal(gappedPage.includes('data-clicks'), false);
+    assert.match(gapped, /data-clicks="140"|140/);
+    assert.match(gapped, /data-clicks="8"/);
 });
 
 test('the client page mounts Campaign only behind the flag helper', () => {

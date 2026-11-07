@@ -153,7 +153,7 @@ export function rankingCandidates(rows: HistoryRow[], brand: string): Candidate[
     }).sort((a, b) => b.impressions - a.impressions || a.query.localeCompare(b.query) || a.page.localeCompare(b.page));
 }
 
-export async function loadHistory(clientId: string, range: {start: string; end: string}, grain: 'property' | 'query_page', signal: AbortSignal, request: typeof fetch = fetch) {
+export async function loadHistory(clientId: string, range: {start: string; end: string}, grain: 'property' | 'page' | 'query_page', signal: AbortSignal, request: typeof fetch = fetch) {
     let result: HistoryResponse | undefined;
     let offset = 0;
     const seen = new Set<number>();

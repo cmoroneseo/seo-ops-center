@@ -13,6 +13,7 @@ import {
     type CampaignInitiative,
 } from '@/lib/campaign-workspace/initiatives';
 import { loadCampaignMeasurement } from '@/lib/campaign-workspace/load';
+import { campaignPageResults, type CampaignPageResult } from '@/lib/campaign-workspace/pages';
 import {
     campaignIdentity,
     EMPTY_CAMPAIGN_MEASUREMENT,
@@ -257,14 +258,16 @@ function Card({
     aside,
     children,
     className,
+    region,
 }: {
     title: string;
     aside?: ReactNode;
     children: ReactNode;
     className?: string;
+    region?: string;
 }) {
     return (
-        <section className={cn('rounded-xl border border-[#e4e4e7] bg-white p-4', className)}>
+        <section data-region={region} className={cn('rounded-xl border border-[#e4e4e7] bg-white p-4', className)}>
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                 <h2 className="min-w-0 text-[15px] font-semibold leading-5">{title}</h2>
                 {aside && <p className="text-right text-[12px] text-[#71717a]">{aside}</p>}
@@ -349,7 +352,7 @@ function SitewideCard({ gsc, variant }: { gsc: CampaignSitewide; variant: 'overv
                     ? `Source is not connected for this view. ${caveat}`
                     : caveat;
     return (
-        <Card title={title} aside={showSeries && gsc.currentLabel ? gsc.currentLabel : 'Not yet measurable'}>
+        <Card region="sitewide" title={title} aside={showSeries && gsc.currentLabel ? gsc.currentLabel : 'Not yet measurable'}>
             {showSeries ? <SitewideChart gsc={gsc} /> : <EmptyPlot caption={plotCaption(gsc)} />}
             {gsc.baselineCaption ? <p className="mt-3 text-[12px] leading-5 text-[#52525b]">{gsc.baselineCaption}</p> : null}
             <p className="mt-3 text-[11px] leading-4 text-[#71717a]">{source}</p>
@@ -525,6 +528,75 @@ function Overview({
     );
 }
 
+function pageGapCopy(result: CampaignPageResult): string | null {
+    if (result.status === 'measurable') return null;
+    if (result.reason === 'incomplete') return 'The stored 28-day window is incomplete. A missing observation is not zero.';
+    if (result.reason === 'unavailable') return 'Search Console page clicks are not available for this view.';
+    return 'No page series is stored for this window. A missing observation is not zero.';
+}
+
+function PageUrlCard({ results, urlsKnown }: { results: readonly CampaignPageResult[]; urlsKnown: boolean }) {
+    const measured = results.find(result => result.status === 'measurable');
+    const aside = measured?.currentLabel ?? 'Not yet measurable';
+    return (
+        <Card region="page-url" title="Page or URL result" aside={aside}>
+            <div data-page-urls={results.length}>
+                {results.length === 0 ? (
+                    <>
+                        {urlsKnown ? <p className="mb-2 text-[13px] leading-5 text-[#52525b]">No page URL is stored on an initiative.</p> : null}
+                        <dl>
+                            <Placeholder label="Comparison" value="Not yet measurable" />
+                            <Placeholder label="Target" value="None set" />
+                        </dl>
+                    </>
+                ) : (
+                    <ul className="space-y-4">
+                        {results.map(result => {
+                            const missing = result.clicks == null;
+                            const gap = pageGapCopy(result);
+                            return (
+                                <li
+                                    key={result.initiativeIds[0] ?? result.url}
+                                    data-page-result={result.initiativeIds[0]}
+                                    data-state={result.status}
+                                    data-reason={result.reason}
+                                    data-surface={result.surface}
+                                    {...(result.clicks == null ? {} : { 'data-clicks': String(result.clicks) })}
+                                    className="border-b border-[#e4e4e7] pb-4 last:border-b-0 last:pb-0"
+                                >
+                                    <h3 className="text-[13px] font-medium leading-5 text-[#18181b]">{result.titles.join(' · ')}</h3>
+                                    {/^https?:\/\//i.test(result.url) ? (
+                                        <a href={result.url} target="_blank" rel="noreferrer noopener" className="mt-1 block truncate text-[12px] text-[#52525b] underline-offset-2 hover:underline">
+                                            {result.url}
+                                        </a>
+                                    ) : (
+                                        <p className="mt-1 truncate text-[12px] text-[#52525b]">{result.url}</p>
+                                    )}
+                                    <p className="mt-2 text-[28px] font-semibold leading-none tracking-tight" {...(missing ? { 'aria-hidden': true } : {})}>
+                                        {missing ? '—' : result.clicksLabel}
+                                    </p>
+                                    <dl className="mt-2">
+                                        <Placeholder label="Comparison" value={result.comparisonLabel} />
+                                        <Placeholder label="Target" value="None set" />
+                                    </dl>
+                                    {result.baselineCaption ? <p className="mt-2 text-[12px] leading-5 text-[#52525b]">{result.baselineCaption}</p> : null}
+                                    {gap ? <p className="mt-2 text-[12px] leading-5 text-[#71717a]">{gap}</p> : null}
+                                    {result.surface === 'gbp_link' ? (
+                                        <p className="mt-2 text-[12px] leading-5 text-[#71717a]">Search Console clicks on this Business Profile link. Not call-button taps.</p>
+                                    ) : null}
+                                </li>
+                            );
+                        })}
+                    </ul>
+                )}
+                <p className="mt-3 text-[11px] leading-4 text-[#71717a]">
+                    Google Search Console page clicks for a stored initiative URL. Sitewide clicks include brand and do not prove this page. Published is not indexed, and indexed is not performing. Not added to sitewide clicks or Business Profile.
+                </p>
+            </div>
+        </Card>
+    );
+}
+
 function Results({
     measurement,
     initiatives,
@@ -538,6 +610,7 @@ function Results({
 }) {
     const gbp = measurement.gbp;
     const gbpMissing = gbp.value == null;
+    const pageResults = campaignPageResults({ series: measurement.pages, initiatives, today });
     return (
         <div className="space-y-4">
             <section data-region="measured" aria-labelledby="measured-results">
@@ -558,12 +631,7 @@ function Results({
                     </Card>
                 </div>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
-                    <Card title="Page or URL result" aside="Not yet measurable">
-                        <dl>
-                            <Placeholder label="Comparison" value="Not yet measurable" />
-                            <Placeholder label="Target" value="None set" />
-                        </dl>
-                    </Card>
+                    <PageUrlCard results={pageResults} urlsKnown={message == null} />
                     <Card title="Secondary signal · rankings" aside="Not yet measurable">
                         <p className="text-[13px] leading-5 text-[#52525b]">Not yet measurable</p>
                         <p className="mt-2 text-[12px] leading-5 text-[#71717a]">
