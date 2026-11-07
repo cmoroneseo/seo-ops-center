@@ -88,13 +88,13 @@ test('the current month keeps onboarding together and lists late work in This mo
     }
     assert.match(onboarding, /data-plan-due="Oct 31"/);
     assert.match(onboarding, /data-late="true"[\s\S]*data-plan-due="Sep 15 46d late"/);
-    assert.match(onboarding, /text-\[#f87171\]/);
+    assert.match(onboarding, /text-\[#dc2626\]/);
 
     const month = section(html, 'this_month');
     assert.match(month, /data-task-id="sitemap"/);
     assert.match(month, /data-late="true"/);
     assert.match(month, /data-plan-due="Oct 4 27d late"/);
-    assert.match(month, /text-\[#f87171\]/);
+    assert.match(month, /text-\[#dc2626\]/);
     assert.doesNotMatch(month, /Create roadmap|November audit|Done this month|Set cookies/);
 
     const backlog = section(html, 'backlog');

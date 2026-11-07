@@ -5,7 +5,6 @@ import { Search } from 'lucide-react';
 import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { UserMenu } from '@/components/dashboard/UserMenu';
-import { OrganizationSwitcher } from '@/components/organization-switcher';
 
 export function TopNav() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -28,24 +27,19 @@ export function TopNav() {
   }, []);
 
   return (
-    <header className="hidden lg:flex h-14 shrink-0 items-center gap-4 border-b border-border bg-card px-4">
-      {/* Which tenant am I looking at? Load-bearing once a sandbox org exists. */}
-      <div className="flex flex-1 items-center">
-        <OrganizationSwitcher className="w-[190px]" />
-      </div>
-
+    <header className="hidden lg:flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4">
       <button
         onClick={() => setIsSearchOpen(true)}
-        className="flex w-full max-w-md items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors"
+        className="flex w-full max-w-sm items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors"
       >
         <Search className="h-4 w-4" />
         <span className="flex-1 text-left">Search</span>
-        <kbd className="rounded border border-border bg-card px-1.5 py-0.5 text-[10px] font-medium">
+        <kbd className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium">
           ⌘K
         </kbd>
       </button>
 
-      <div className="flex flex-1 items-center justify-end gap-1">
+      <div className="ml-auto flex items-center gap-1">
         <NotificationBell />
         <UserMenu />
       </div>

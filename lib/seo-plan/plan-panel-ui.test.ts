@@ -547,7 +547,7 @@ test('Blocked asks for a one-line reason, the chip shows it, and Done clears it'
         const rowChip = document.querySelector('[data-plan-row] [data-plan-blocked]');
         assert.equal(rowChip?.textContent, 'Blocked');
         assert.equal(rowChip?.getAttribute('title'), 'Blocked: Waiting on client logins');
-        assert.equal(rowChip?.className.includes('text-[#f87171]'), false);
+        assert.equal(rowChip?.className.includes('text-[#dc2626]'), false);
 
         const remove = document.querySelector('[data-plan-blocked-remove]');
         assert.ok(remove instanceof dom.window.HTMLButtonElement);

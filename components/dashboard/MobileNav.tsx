@@ -166,6 +166,11 @@ export function MobileNav() {
 
             <Drawer open={menuOpen} onClose={() => setMenuOpen(false)} side="left" title="Menu">
                 <div className="flex-1 overflow-y-auto p-2">
+                    {organization && !showOrgSwitcher && (
+                        <p className="mb-2 border-b border-border px-3 pb-2 text-[11px] text-muted-foreground">
+                            {organization.name}
+                        </p>
+                    )}
                     {showOrgSwitcher && (
                         <div className="mb-2 border-b border-border pb-2">
                             <span className="block px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">

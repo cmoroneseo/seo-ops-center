@@ -50,7 +50,7 @@ export function DashboardShell({
     return (
         <TimerProvider>
             <ToastGateProvider>
-            <div className="flex h-screen overflow-hidden bg-background">
+            <div className="staff-canvas flex h-screen overflow-hidden bg-background text-foreground">
                 {!isSetupPage && <Sidebar />}
                 {!isSetupPage && <MobileNav />}
                 <div className="flex flex-1 min-w-0 flex-col">
@@ -80,11 +80,15 @@ export function DashboardShell({
                 {/* OnboardingChecklist hidden until tasks are updated for public launch */}
                 {/* {!isSetupPage && <OnboardingChecklist />} */}
             </div>
-            {!isSetupPage && <FloatingTimer clients={clients} />}
-            {!isSetupPage && <TimerNotifications />}
-            {!isSetupPage && <FeedbackWidget />}
-            {!isSetupPage && <NotepadPanel />}
-            {!isSetupPage && <RemindersPanel />}
+            {!isSetupPage && (
+                <div className="staff-canvas contents">
+                    <FloatingTimer clients={clients} />
+                    <TimerNotifications />
+                    <FeedbackWidget />
+                    <NotepadPanel />
+                    <RemindersPanel />
+                </div>
+            )}
             </ToastGateProvider>
         </TimerProvider>
     );
@@ -92,11 +96,11 @@ export function DashboardShell({
 
 function DashboardLoadingSkeleton() {
     return (
-        <div className="flex h-screen bg-background" role="status" aria-busy="true">
+        <div className="staff-canvas flex h-screen bg-background" role="status" aria-busy="true">
             <span className="sr-only">Loading</span>
-            <div className="hidden w-[72px] border-r border-border bg-card lg:block xl:w-64" />
+            <div className="staff-sidebar hidden w-[72px] border-r border-sidebar-border bg-sidebar lg:block xl:w-64" />
             <div className="flex min-w-0 flex-1 flex-col">
-                <div className="h-16 border-b border-border" />
+                <div className="h-12 border-b border-border" />
                 <div className="flex min-h-0 flex-1">
                     <div className="flex-1 space-y-6 p-8">
                         <div className="h-10 w-56 animate-pulse rounded bg-muted" />

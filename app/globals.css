@@ -4,7 +4,9 @@
 @source "../lib/agreements/summary-row.ts";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+/* Staff pages opt into the light canvas. Dark utilities stay on for the
+   marketing site and for anything outside that canvas. */
+@custom-variant dark (&:is(.dark *):not(:is(.staff-canvas, .staff-canvas *)));
 
 @theme {
   --color-border: var(--border);
@@ -219,6 +221,54 @@
 
   --reporting-map: oklch(0.72 0.13 235);
   --reporting-info: oklch(0.74 0.03 260);
+}
+
+/*
+ * Campaign hybrid chrome. The sidebar stays the dark Variant B rail.
+ * Staff interiors use the same neutrals as campaignWorkspaceFrameClass
+ * (#f4f4f6 canvas, white cards, zinc text and borders) so Overview, plans,
+ * tasks, and the other pages sit on that light surface. Brand tokens
+ * (--primary and the chart set) are left to the organization theme.
+ */
+.staff-canvas {
+  color-scheme: light;
+  --background: #f4f4f6;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #ececee;
+  --muted-foreground: #71717a;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+  --destructive: oklch(0.6 0.22 25);
+  --destructive-foreground: #fafafa;
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+.staff-sidebar {
+  color-scheme: dark;
+  --sidebar: oklch(0.08 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.2 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --background: oklch(0.08 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.12 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.12 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.2 0 0);
+  --muted-foreground: oklch(0.65 0 0);
+  --border: oklch(1 0 0 / 15%);
+  --input: oklch(1 0 0 / 20%);
+  background-color: var(--sidebar);
+  color: var(--sidebar-foreground);
 }
 /* --- Notepad (Tiptap) editor --- */
 .notepad-editor .ProseMirror {

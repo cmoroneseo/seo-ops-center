@@ -241,7 +241,7 @@ test('each plan shortcut acts once, and brackets step a single month', async () 
         await act(async () => { key(window, 'j'); });
         assert.equal(focusedRow(), 'kickoff');
         const row = document.querySelector('[data-plan-focused="true"]');
-        assert.match(row?.className ?? '', /bg-\[#1d1d22\]/);
+        assert.match(row?.className ?? '', /bg-\[#f4f4f6\]/);
         assert.match(row?.className ?? '', /inset_2px_0_0_0_#ec4899/);
         await act(async () => { key(window, 'j'); });
         assert.equal(focusedRow(), 'pillar');
