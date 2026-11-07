@@ -190,6 +190,7 @@ test('a loaded rankings list shows the GSC table, bands, and change without zero
     assert.match(missing, /data-metric="url">not measurable/);
     assert.equal(missing.includes('1–3'), false);
     assert.equal(missing.includes('>0<'), false);
+    assert.equal(html.includes('>Distribution<'), false);
     assert.match(html, /data-distribution="1-3"[\s\S]*?>0</);
     assert.match(html, /data-distribution="4-10"[\s\S]*?>1</);
     assert.match(html, /data-distribution="21-50"[\s\S]*?>1</);

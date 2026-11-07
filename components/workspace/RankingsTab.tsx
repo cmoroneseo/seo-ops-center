@@ -1,13 +1,22 @@
 'use client';
 
-import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useState, type FormEvent, type KeyboardEvent } from 'react';
 
+import {
+    CANNIBAL_DEFINITION,
+    formatCannibalHealth,
+    unmeasuredCannibalization,
+    type CannibalizationReport,
+} from '@/lib/keyword-tracking/cannibalization';
 import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
 import { loadTrackedKeywordGsc, type TrackedKeywordGscRow } from '@/lib/keyword-tracking/gsc-read';
 import { splitKeywordPaste } from '@/lib/keyword-tracking/plan';
 import {
+    formatMeasuredCount,
+    formatMeasuredPosition,
     loadRankingWindows,
     rankingDistribution,
+    rankingUrlLabel,
     rankingsDisplayRows,
     RANKING_POSITION_LABEL,
     type RankingsDisplayRow,
@@ -33,6 +42,13 @@ const NOTE_LABEL: Record<RankingsNote['kind'], string> = {
     manual: 'Note',
 };
 
+type RankingsSection = 'keywords' | 'cannibalization';
+
+const SECTIONS: { id: RankingsSection; label: string }[] = [
+    { id: 'keywords', label: 'Keywords' },
+    { id: 'cannibalization', label: 'Cannibalization' },
+];
+
 const CHANGE_TONE: Record<NonNullable<RankingsDisplayRow['change']>, string> = {
     New: 'text-foreground',
     Lost: 'text-muted-foreground',
@@ -52,6 +68,7 @@ export function RankingsTab({
     const [keywords, setKeywords] = useState<RankingsKeyword[]>([]);
     const [notes, setNotes] = useState<RankingsNote[]>([]);
     const [rows, setRows] = useState<RankingsDisplayRow[]>([]);
+    const [cannibalization, setCannibalization] = useState<CannibalizationReport | null>(null);
     const [cap, setCap] = useState(50);
     const [draft, setDraft] = useState('');
     const [message, setMessage] = useState('');
@@ -74,6 +91,7 @@ export function RankingsTab({
         setError(snapshot.error ?? '');
         if (snapshot.keywords.length === 0 || snapshot.error) {
             setRows([]);
+            setCannibalization(null);
             setPeriodLabel('');
             setCompareLabel('');
             setLoading(false);
@@ -87,6 +105,7 @@ export function RankingsTab({
         if (!period.ok) {
             setError(period.error);
             setRows(rankingsDisplayRows(snapshot.keywords, []));
+            setCannibalization(unmeasuredCannibalization(snapshot.keywords.length));
             setLoading(false);
             return;
         }
@@ -108,12 +127,15 @@ export function RankingsTab({
             if (!gsc.ok) {
                 setError(gsc.error);
                 setRows(rankingsDisplayRows(snapshot.keywords, []));
+                setCannibalization(unmeasuredCannibalization(snapshot.keywords.length));
                 setLoading(false);
                 return;
             }
             gscRows = gsc.rows;
+            setCannibalization(gsc.cannibalization);
         } else {
             setGscNote('Search Console is not connected for this client.');
+            setCannibalization(unmeasuredCannibalization(snapshot.keywords.length));
         }
         setRows(rankingsDisplayRows(snapshot.keywords, gscRows));
         setLoading(false);
@@ -154,6 +176,7 @@ export function RankingsTab({
             keywords={keywords}
             notes={notes}
             rows={rows}
+            cannibalization={cannibalization}
             cap={cap}
             draft={draft}
             message={message}
@@ -173,6 +196,8 @@ export function RankingsPanel({
     keywords,
     notes,
     rows = [],
+    cannibalization = null,
+    initialSection = 'keywords',
     cap,
     draft,
     message,
@@ -188,6 +213,8 @@ export function RankingsPanel({
     keywords: RankingsKeyword[];
     notes: RankingsNote[];
     rows?: RankingsDisplayRow[];
+    cannibalization?: CannibalizationReport | null;
+    initialSection?: RankingsSection;
     cap: number;
     draft: string;
     message: string;
@@ -201,8 +228,17 @@ export function RankingsPanel({
     onSubmit: (event: FormEvent) => void;
 }) {
     const fieldId = useId();
+    const [section, setSection] = useState<RankingsSection>(initialSection);
     const tableRows = rows.length > 0 || keywords.length === 0 ? rows : rankingsDisplayRows(keywords, []);
     const distribution = rankingDistribution(tableRows.map(row => row.position));
+    const report = cannibalization ?? unmeasuredCannibalization(keywords.length);
+    function onSectionKey(event: KeyboardEvent<HTMLDivElement>) {
+        if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+        event.preventDefault();
+        const next: RankingsSection = section === 'keywords' ? 'cannibalization' : 'keywords';
+        setSection(next);
+        document.getElementById(`rankings-section-${next}`)?.focus();
+    }
     return (
         <section aria-label="Rankings" data-keyword-tracking="rankings" className="space-y-4">
             <form onSubmit={onSubmit} className="rounded-xl border border-border bg-card p-5">
@@ -245,13 +281,36 @@ export function RankingsPanel({
                         <div className="flex flex-wrap items-baseline justify-between gap-2">
                             <h3 className="text-sm font-medium text-foreground">Rankings</h3>
                             <p className="text-xs text-muted-foreground">
-                                <span>{RANKING_POSITION_LABEL}</span>
-                                {periodLabel ? <span> · {periodLabel}</span> : null}
-                                {compareLabel ? <span> vs {compareLabel}</span> : null}
+                                {section === 'keywords' ? <span>{RANKING_POSITION_LABEL}</span> : null}
+                                {periodLabel ? <span>{section === 'keywords' ? ' · ' : ''}{periodLabel}</span> : null}
+                                {section === 'keywords' && compareLabel ? <span> vs {compareLabel}</span> : null}
                             </p>
                         </div>
-                        <p className="mt-1 text-xs text-muted-foreground">Lower is better. Not measurable keywords are not in a band.</p>
                         {gscNote ? <p role="status" className="mt-2 text-sm text-muted-foreground">{gscNote}</p> : null}
+                        <div role="tablist" aria-label="Rankings views" className="mt-4 flex gap-1 border-b border-border" onKeyDown={onSectionKey}>
+                            {SECTIONS.map(item => (
+                                <button
+                                    key={item.id}
+                                    id={`rankings-section-${item.id}`}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={section === item.id}
+                                    aria-controls={`rankings-panel-${item.id}`}
+                                    tabIndex={section === item.id ? 0 : -1}
+                                    className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${section === item.id ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'}`}
+                                    onClick={() => setSection(item.id)}
+                                >
+                                    {item.label}
+                                </button>
+                            ))}
+                        </div>
+                        {section === 'cannibalization' ? (
+                            <div id="rankings-panel-cannibalization" role="tabpanel" aria-labelledby="rankings-section-cannibalization" className="mt-4">
+                                <CannibalizationView report={report} />
+                            </div>
+                        ) : (
+                        <div id="rankings-panel-keywords" role="tabpanel" aria-labelledby="rankings-section-keywords">
+                        <p className="mt-3 text-xs text-muted-foreground">Lower is better. Not measurable keywords are not in a band.</p>
                         <ul aria-label="Position distribution" className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
                             {distribution.map(band => (
                                 <li key={band.id} data-distribution={band.id}>
@@ -297,6 +356,8 @@ export function RankingsPanel({
                                 </tbody>
                             </table>
                         </div>
+                        </div>
+                        )}
                     </>
                 )}
             </div>
@@ -315,5 +376,55 @@ export function RankingsPanel({
                 </div>
             ) : null}
         </section>
+    );
+}
+
+export function CannibalizationView({ report }: { report: CannibalizationReport }) {
+    const health = formatCannibalHealth(report.health);
+    const showAffected = report.health != null && report.affected != null && report.affected > 0;
+    return (
+        <div data-cannibalization="panel">
+            <p className="text-sm text-foreground">
+                <span className="text-muted-foreground">Health </span>
+                <span className="font-semibold tabular-nums" data-metric="health">{health}</span>
+            </p>
+            {showAffected ? (
+                <p className="mt-1 text-xs text-muted-foreground" data-metric="affected">
+                    {report.affected} of {report.tracked} tracked keywords affected
+                </p>
+            ) : null}
+            {report.health != null && report.keywords.length === 0 ? (
+                <p className="mt-3 text-sm text-muted-foreground">No cannibalization signal.</p>
+            ) : null}
+            <p className="mt-1 text-xs text-muted-foreground">{CANNIBAL_DEFINITION}</p>
+            {report.keywords.length > 0 ? (
+                <div className="mt-4 overflow-x-auto">
+                    <table className="w-full min-w-[52rem] border-collapse text-left text-sm" aria-label="Cannibalization">
+                        <thead>
+                            <tr className="border-b border-border text-xs text-muted-foreground">
+                                <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Keyword</th>
+                                <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">URL</th>
+                                <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Impressions</th>
+                                <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Clicks</th>
+                                <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">{RANKING_POSITION_LABEL}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {report.keywords.flatMap(keyword => keyword.urls.map(url => (
+                                <tr key={`${keyword.id}:${url.url}`} className="border-b border-border" data-keyword={keyword.keyword} data-url={url.url}>
+                                    <th scope="row" className="px-3 py-2 font-medium text-foreground">{keyword.keyword}</th>
+                                    <td className="whitespace-nowrap px-3 py-2 text-foreground" data-metric="url">
+                                        <a href={url.url} className="underline-offset-2 hover:underline" title={url.url}>{rankingUrlLabel(url.url)}</a>
+                                    </td>
+                                    <td className="px-3 py-2 tabular-nums text-foreground" data-metric="impressions">{formatMeasuredCount(url.impressions)}</td>
+                                    <td className="px-3 py-2 tabular-nums text-foreground" data-metric="clicks">{formatMeasuredCount(url.clicks)}</td>
+                                    <td className="px-3 py-2 tabular-nums text-foreground" data-metric="position">{formatMeasuredPosition(url.avgPosition)}</td>
+                                </tr>
+                            )))}
+                        </tbody>
+                    </table>
+                </div>
+            ) : null}
+        </div>
     );
 }

@@ -10,6 +10,10 @@
  * A window with no impressions is "not measurable". That covers a keyword
  * Search Console never returned and a keyword whose rows sum to zero
  * impressions. Neither case is reported as 0.
+ *
+ * Cannibalization is computed from this same query_page read, for the
+ * current window only. A row with a missing metric is kept as null for
+ * that calculation and is not coerced to 0.
  */
 
 import { chunkList, HEAVY_DAY_CHUNK } from '../search-reporting/fact-read';
@@ -18,6 +22,11 @@ import { sumMetrics } from '../search-reporting/metrics';
 import { normalizeTrackerQuery } from '../search-reporting/tracker';
 import { createClient } from '../supabase/client';
 import { normalizeUrl } from '../url/normalize-url';
+import {
+    keywordCannibalization,
+    type CannibalFact,
+    type CannibalizationReport,
+} from './cannibalization';
 import { keywordTrackingEnabled } from './flag';
 
 /** Copy for a window that cannot be measured. Never a stand-in for zero. */
@@ -82,6 +91,8 @@ export type KeywordGscLoadResult =
          */
         connected: boolean | null;
         rows: TrackedKeywordGscRow[];
+        /** Current window only. Unmeasured when the property was not read. */
+        cannibalization: CannibalizationReport;
     };
 
 export interface TrackedKeywordRef {
@@ -238,8 +249,18 @@ function queryKeys(keywords: readonly TrackedKeywordRef[]): string[] {
     return [...keys];
 }
 
-function emptyResult(rows: TrackedKeywordGscRow[]): KeywordGscLoadResult {
-    return { enabled: true, ok: true, connected: null, rows };
+function emptyResult(
+    rows: TrackedKeywordGscRow[],
+    keywords: readonly TrackedKeywordRef[],
+    current: GscReadWindow,
+): KeywordGscLoadResult {
+    return {
+        enabled: true,
+        ok: true,
+        connected: null,
+        rows,
+        cannibalization: keywordCannibalization({ keywords, facts: [], current, measured: false }),
+    };
 }
 
 export async function loadTrackedKeywordGsc(input: {
@@ -262,7 +283,7 @@ export async function loadTrackedKeywordGsc(input: {
         compare: input.compare,
     });
     const queries = queryKeys(input.keywords);
-    if (queries.length === 0) return emptyResult(blank);
+    if (queries.length === 0) return emptyResult(blank, input.keywords, input.current);
 
     const admin = input.client === undefined
         ? createClient() as unknown as SearchReportingAdmin | undefined
@@ -278,7 +299,20 @@ export async function loadTrackedKeywordGsc(input: {
             .maybeSingle();
         if (integration.error) throw new Error('Unable to read Search Console history');
         const property = siteUrlOf(integration.data);
-        if (!property) return { enabled: true, ok: true, connected: false, rows: blank };
+        if (!property) {
+            return {
+                enabled: true,
+                ok: true,
+                connected: false,
+                rows: blank,
+                cannibalization: keywordCannibalization({
+                    keywords: input.keywords,
+                    facts: [],
+                    current: input.current,
+                    measured: false,
+                }),
+            };
+        }
 
         const spanStart = input.current.start < input.compare.start ? input.current.start : input.compare.start;
         const spanEnd = input.current.end > input.compare.end ? input.current.end : input.compare.end;
@@ -300,6 +334,7 @@ export async function loadTrackedKeywordGsc(input: {
             dayDates.set(id, date);
         }
         const facts: GscQueryPageFact[] = [];
+        const cannibalFacts: CannibalFact[] = [];
         if (dayDates.size > 0) {
             const dayIds = [...dayDates.keys()];
             for (const chunk of chunkList(dayIds, HEAVY_DAY_CHUNK)) {
@@ -312,20 +347,19 @@ export async function loadTrackedKeywordGsc(input: {
                     .order('id', { ascending: true }));
                 for (const row of rows) {
                     const date = typeof row.day_id === 'string' ? dayDates.get(row.day_id) : undefined;
+                    if (!date || (row.grain != null && row.grain !== 'query_page')) continue;
+                    const query = typeof row.query === 'string' ? row.query : '';
+                    const page = typeof row.page === 'string' ? row.page : '';
+                    if (!query || !page) continue;
                     const clicks = countOf(row.clicks);
                     const impressions = countOf(row.impressions);
                     const position = countOf(row.position);
-                    if (!date || clicks == null || impressions == null || position == null) continue;
-                    if (row.grain != null && row.grain !== 'query_page') continue;
-                    facts.push({
-                        date,
-                        query: typeof row.query === 'string' ? row.query : '',
-                        page: typeof row.page === 'string' ? row.page : '',
-                        clicks,
-                        impressions,
-                        position,
-                        grain: 'query_page',
-                    });
+                    if (clicks != null && impressions != null && position != null) {
+                        facts.push({ date, query, page, clicks, impressions, position, grain: 'query_page' });
+                    }
+                    if (inWindow(date, input.current)) {
+                        cannibalFacts.push({ date, query, page, clicks, impressions, position, grain: 'query_page' });
+                    }
                 }
             }
         }
@@ -338,6 +372,12 @@ export async function loadTrackedKeywordGsc(input: {
                 facts,
                 current: input.current,
                 compare: input.compare,
+            }),
+            cannibalization: keywordCannibalization({
+                keywords: input.keywords,
+                facts: cannibalFacts,
+                current: input.current,
+                measured: true,
             }),
         };
     } catch {

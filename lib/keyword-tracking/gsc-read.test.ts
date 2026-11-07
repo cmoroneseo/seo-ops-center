@@ -312,7 +312,13 @@ test('the loader reads query_page facts only when keyword tracking is on', async
             compare: COMPARE,
             client: empty.admin,
         });
-        assert.deepEqual(noKeywords, { enabled: true, ok: true, connected: null, rows: [] });
+        assert.deepEqual(noKeywords, {
+            enabled: true,
+            ok: true,
+            connected: null,
+            rows: [],
+            cannibalization: { tracked: 0, affected: null, health: null, keywords: [] },
+        });
         assert.equal(empty.calls.length, 0);
 
         const unavailable = await loadTrackedKeywordGsc({
@@ -336,6 +342,9 @@ test('the loader reads query_page facts only when keyword tracking is on', async
         if (missingProperty.enabled && missingProperty.ok) {
             assert.equal(missingProperty.rows[0]?.current.status, 'not measurable');
             assert.equal(missingProperty.rows[0]?.current.clicks, null);
+            assert.equal(missingProperty.cannibalization.health, null);
+            assert.equal(missingProperty.cannibalization.affected, null);
+            assert.equal(missingProperty.cannibalization.tracked, 1);
         }
         assert.deepEqual(disconnected.calls.map(call => call.table), ['client_integrations']);
 
@@ -390,6 +399,10 @@ test('the loader reads query_page facts only when keyword tracking is on', async
         }
         assert.equal(loaded.rows[0]?.compare.status, 'not measurable');
         assert.equal(loaded.rows[0]?.compare.clicks, null);
+        assert.equal(loaded.cannibalization.tracked, 1);
+        assert.equal(loaded.cannibalization.affected, 0);
+        assert.equal(loaded.cannibalization.health, 1);
+        assert.deepEqual(loaded.cannibalization.keywords, []);
 
         const factCalls = live.calls.filter(call => call.table === 'gsc_history_facts');
         assert.equal(factCalls.length, 2);
