@@ -2,8 +2,10 @@
  * Browser read for Campaign Overview and Results.
  *
  * Search Console uses the same history loader and paired window as the Search
- * dashboard. Business Profile reads monthly `metrics` rows through the user
- * client (org RLS). Content approvals reuse the existing batch/doc queries.
+ * dashboard. Property grain feeds sitewide clicks. Page grain is a second
+ * read of that loader and stays on `pages`, so a page total cannot join the
+ * property total. Business Profile reads monthly `metrics` rows through the
+ * user client (org RLS). Content approvals reuse the existing batch/doc queries.
  * This module does not read or write the strategy-builder plan.
  */
 
@@ -12,6 +14,7 @@ import { ptToday } from '@/lib/sync/months';
 import { historyChunks, sourceConnections } from '@/lib/search-dashboard/model';
 import { createClient } from '@/lib/supabase/client';
 import { listBatchesForClient, listDocsForBatch } from '@/lib/supabase/content-approvals';
+import { assemblePageSeries } from './pages';
 import {
     campaignLocalProfile,
     campaignSitewide,
@@ -41,10 +44,11 @@ async function loadChunk(
     load: typeof loadHistory,
     clientId: string,
     span: { start: string; end: string },
+    grain: 'property' | 'page',
     signal: AbortSignal,
 ): Promise<{ days: HistoryDay[]; rows: HistoryRow[]; error: string; truncated: boolean }> {
     try {
-        const history = await load(clientId, span, 'property', signal);
+        const history = await load(clientId, span, grain, signal);
         return { days: history.days, rows: history.rows, error: '', truncated: history.truncated };
     } catch (reason) {
         if (aborted(reason, signal)) throw reason;
@@ -113,9 +117,11 @@ export async function loadCampaignMeasurement(input: {
     const now = input.now ?? new Date();
     const today = ptToday(now);
     const chunks = historyChunks(today);
-    const [recent, older, connections, gbpRows, awaitingApproval] = await Promise.all([
-        loadChunk(deps.loadHistory, input.clientId, chunks[0], input.signal),
-        loadChunk(deps.loadHistory, input.clientId, chunks[1], input.signal),
+    const [recent, older, pageRecent, pageOlder, connections, gbpRows, awaitingApproval] = await Promise.all([
+        loadChunk(deps.loadHistory, input.clientId, chunks[0], 'property', input.signal),
+        loadChunk(deps.loadHistory, input.clientId, chunks[1], 'property', input.signal),
+        loadChunk(deps.loadHistory, input.clientId, chunks[0], 'page', input.signal),
+        loadChunk(deps.loadHistory, input.clientId, chunks[1], 'page', input.signal),
         deps.fetchIntegrations(input.organizationId, input.clientId, input.signal).catch(error => {
             if (aborted(error, input.signal)) throw error;
             return { gsc: false, failed: true };
@@ -143,9 +149,24 @@ export async function loadCampaignMeasurement(input: {
             ? emptySitewide('unavailable')
             : campaignSitewide({ connected, days, rows, today });
 
+    const pageErrors = [pageRecent.error, pageOlder.error].filter(Boolean);
+    const pageDisconnected = pageErrors.length > 0 && pageErrors.every(disconnectedMessage);
+    const pageFailed = pageErrors.length === 2 && !pageDisconnected;
+    const pageDays = [...pageOlder.days, ...pageRecent.days];
+    const pageRows = [...pageOlder.rows, ...pageRecent.rows];
+    const pageConnected = !pageDisconnected && (connections.gsc || pageDays.length > 0) && !pageFailed;
+    const pages = assemblePageSeries({
+        connected: pageConnected,
+        failed: pageFailed,
+        truncated: pageRecent.truncated || pageOlder.truncated,
+        days: pageDays,
+        rows: pageRows,
+    });
+
     return {
         gsc,
         gbp: gbpRows == null ? emptyLocalProfile() : campaignLocalProfile(gbpRows, now),
         awaitingApproval,
+        pages,
     };
 }

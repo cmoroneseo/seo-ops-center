@@ -6,6 +6,7 @@
  * the property-grain series. A missing or incomplete window stays unmeasured.
  * Monthly Business Profile rows stay on their own month and are never added in.
  * The strategy-builder plan is not an input.
+ * Page clicks are a separate series (`pages.ts`) and are never added here.
  */
 
 import type { ClientProject } from '@/lib/types';
@@ -57,11 +58,26 @@ export interface CampaignIdentity {
     scope: string | null;
 }
 
+export type PageSeriesStatus = 'ready' | 'missing' | 'unavailable' | 'incomplete';
+
+/**
+ * Page-grain Search Console for initiative URLs.
+ * Kept off the property series so page clicks cannot join the sitewide total.
+ * `ready` means the page grain was read and was not truncated. Other statuses
+ * carry no rows, so a gap cannot be summed as zero.
+ */
+export interface CampaignPageSeries {
+    status: PageSeriesStatus;
+    days: HistoryDay[];
+    rows: HistoryRow[];
+}
+
 export interface CampaignMeasurement {
     gsc: CampaignSitewide;
     gbp: CampaignLocalProfile;
     /** Null when the approval read did not succeed. Zero is a real empty count. */
     awaitingApproval: number | null;
+    pages: CampaignPageSeries;
 }
 
 export interface CampaignIdentityInput {
@@ -115,10 +131,17 @@ export function emptyLocalProfile(): CampaignLocalProfile {
     };
 }
 
+export const EMPTY_PAGE_SERIES: CampaignPageSeries = {
+    status: 'unavailable',
+    days: [],
+    rows: [],
+};
+
 export const EMPTY_CAMPAIGN_MEASUREMENT: CampaignMeasurement = {
     gsc: emptySitewide('unavailable'),
     gbp: emptyLocalProfile(),
     awaitingApproval: null,
+    pages: EMPTY_PAGE_SERIES,
 };
 
 function finiteNonNegative(value: unknown): number | null {
