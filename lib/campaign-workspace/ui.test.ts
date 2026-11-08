@@ -13,7 +13,8 @@ import { dateOffset } from '@/lib/gsc/history.ts';
 import type { HistoryDay, HistoryRow } from '@/lib/gsc/insights.ts';
 import type { CampaignInitiative } from './initiatives.ts';
 import { campaignPageResults } from './pages.ts';
-import { campaignIdentity, campaignLocalProfile, campaignSitewide, type CampaignMeasurement, type CampaignPageSeries } from './sources.ts';
+import { campaignIdentity, campaignLocalProfile, campaignSitewide, emptyLocalProfile, emptySitewide, type CampaignMeasurement, type CampaignPageSeries } from './sources.ts';
+import { engagementFromClient, type ScopeEvidence } from './briefing.ts';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
@@ -26,6 +27,8 @@ function render(
         initiatives?: CampaignInitiative[];
         today?: string;
         monthlyBoard?: React.ReactNode;
+        engagement?: ReturnType<typeof engagementFromClient>;
+        scope?: ScopeEvidence;
     } = {},
 ) {
     const previous = process.env.NEXT_PUBLIC_CAMPAIGN_WORKSPACE;
@@ -38,6 +41,8 @@ function render(
             snapshot: extras.snapshot,
             identity: extras.identity,
             initiatives: extras.initiatives,
+            engagement: extras.engagement,
+            scope: extras.scope,
             today: extras.today,
             monthlyBoard: extras.monthlyBoard,
         }));
@@ -177,16 +182,18 @@ test('flag-on empty states keep measurement, delivery, and dates unset', () => {
     assert.equal(selectedTab(overview), 'Overview');
     assert.equal(selectedTab(roadmap), 'Roadmap');
     assert.equal(selectedTab(results), 'Results');
-    assert.match(overview, /Harbor Dental/);
-    assert.match(overview, /Organic clicks/);
+    assert.match(overview, /SEO Roadmap/);
+    assert.match(overview, /Search Console/);
     assert.match(overview, /Not yet measurable/);
-    assert.match(overview, /Not set yet/);
+    assert.match(overview, /Not set/);
     assert.match(overview, /No initiatives yet/);
-    assert.match(overview, /No client action is waiting/);
+    assert.match(overview, /Content scope is not measured/);
     assert.match(overview, /Next milestone/);
+    assert.match(overview, /Not set yet/);
     assert.equal(overview.includes('<path'), false);
     assert.equal(overview.includes('<polyline'), false);
     assert.equal(overview.includes('data-bar'), false);
+    assert.equal(overview.includes('data-region="gsc-series"'), false);
 
     assert.match(roadmap, /No initiatives yet/);
     assert.match(roadmap, /there is no bar/);
@@ -229,16 +236,17 @@ test('stored Search Console and Business Profile render separately from empty wo
     const roadmap = render('roadmap', true, { snapshot, identity });
 
     assert.match(overview, /data-metric="organic-clicks"[^>]*data-clicks="140"/);
-    assert.match(overview, /data-clicks="2"/);
-    assert.match(overview, /data-region="gsc-series"/);
-    assert.match(overview, /data-baseline="true"/);
-    assert.match(overview, /not a rolling series/);
+    assert.match(overview, /data-metric="local-profile"[^>]*data-clicks="8"/);
+    assert.equal(overview.includes('data-region="gsc-series"'), false);
     assert.match(overview, /Alex Kim/);
     assert.match(overview, /Mar 2, 2026/);
-    assert.match(overview, /2x\/month/);
+    assert.equal(overview.includes('2x/month'), false);
     assert.match(overview, /No initiatives yet/);
-    assert.match(overview, /No client action is waiting/);
     assert.match(overview, /Not set yet/);
+    assert.match(overview, /Content scope is not measured/);
+    assert.match(results, /data-region="gsc-series"/);
+    assert.match(results, /data-baseline="true"/);
+    assert.match(results, /not a rolling series/);
     assert.match(results, /data-metric="local-profile"[^>]*data-clicks="8"/);
     assert.match(results, /Call-button taps/);
     assert.match(results, /are not summed/);
@@ -383,6 +391,14 @@ function harborInitiatives(): CampaignInitiative[] {
     ];
 }
 
+function sliceQuestion(html: string, question: string): string {
+    const token = `data-question="${question}"`;
+    const start = html.indexOf(token);
+    assert.ok(start >= 0, question);
+    const next = html.indexOf('data-question="', start + token.length);
+    return html.slice(start, next === -1 ? undefined : next);
+}
+
 function sliceInitiative(html: string, id: string): string {
     const token = `data-initiative="${id}"`;
     const start = html.indexOf(token);
@@ -399,22 +415,24 @@ test('stored initiatives fill the roadmap without mixing delivery into measureme
     const results = render('results', true, extras);
 
     assert.match(overview, /data-metric="organic-clicks"[^>]*data-clicks="140"/);
-    assert.match(overview, /data-clicks="2"/);
+    assert.match(overview, /data-metric="local-profile"[^>]*data-clicks="8"/);
     assert.equal(overview.includes('data-clicks="3"'), false);
     assert.match(overview, /data-milestone="harbor-emergency"/);
     assert.match(overview, /Nov 20, 2026/);
     assert.match(overview, /Draft · After-hours draft/);
-    assert.match(overview, /No client action is waiting/);
-    assert.match(overview, /Not set yet/);
     assert.match(overview, /Emergency service page/);
     assert.match(overview, /Crawl access/);
-    const staleOverview = sliceInitiative(overview, 'harbor-citations');
+    const verified = sliceQuestion(overview, 'verified');
+    const progress = sliceQuestion(overview, 'in-progress');
+    const staleOverview = sliceInitiative(verified, 'harbor-citations');
     assert.match(staleOverview, /Evidence stale — re-verify/);
     assert.equal(staleOverview.includes('15803d'), false);
-    const incompleteOverview = sliceInitiative(overview, 'harbor-unproven');
+    const incompleteOverview = sliceInitiative(progress, 'harbor-unproven');
     assert.match(incompleteOverview, /Verification incomplete/);
     assert.equal(incompleteOverview.includes('15803d'), false);
     assert.equal(incompleteOverview.includes('Completed &amp; Verified'), false);
+    assert.equal(verified.includes('Unproven cleanup'), false);
+    assert.equal(progress.includes('Profile categories'), false);
 
     const crawl = sliceInitiative(roadmap, 'harbor-crawl');
     assert.match(crawl, /Dates not set/);
@@ -609,7 +627,8 @@ test('Work mounts the monthly board and leaves the other Campaign views alone', 
         monthlyBoard: React.createElement('div', { 'data-campaign-monthly-board': 'live' }, 'Monthly execution'),
     });
     assert.equal(overview.includes('data-campaign-monthly-board'), false);
-    assert.match(overview, /Organic clicks/);
+    assert.match(overview, /SEO Roadmap/);
+    assert.equal(overview.includes('Monthly execution'), false);
 });
 
 test('the client page mounts Campaign only behind the flag helper', () => {
@@ -619,6 +638,7 @@ test('the client page mounts Campaign only behind the flag helper', () => {
     assert.match(page, /activeTab === 'campaign-workspace' && campaignWorkspaceEnabled\(\)/);
     assert.match(page, /<CampaignWorkspace/);
     assert.match(page, /identityFromClient\(client\)/);
+    assert.match(page, /engagementFromClient\(client\)/);
     assert.match(page, /clientId=\{client.id\}/);
     assert.match(page, /tab === CAMPAIGN_WORKSPACE_TAB && !campaignWorkspaceEnabled\(\)/);
     assert.match(page, /seoPlanWorkSearch\(searchKey, campaignWorkspaceEnabled\(\)\)/);
@@ -628,4 +648,140 @@ test('the client page mounts Campaign only behind the flag helper', () => {
     assert.match(page, /activeTab === 'campaign' && stageListOn && monthlyBoard/);
     assert.doesNotMatch(page, /NEXT_PUBLIC_CAMPAIGN_WORKSPACE\s*=\s*'true'/);
     assert.doesNotMatch(page, /campaign_plans|campaign-plans/);
+});
+
+test('overview answers the five client-services questions without mixing delivery and results', () => {
+    const snapshot = measuredSnapshot();
+    snapshot.pages = pageSeries(2);
+    const initiatives = harborInitiatives();
+    const overview = render('overview', true, {
+        snapshot,
+        initiatives,
+        today: '2026-11-07',
+        identity: campaignIdentity({ launchDateOverride: '2026-03-02', accountManager: 'Alex Kim' }),
+        engagement: engagementFromClient({
+            engagementModel: 'Retainer',
+            retainerConfig: { monthlyHours: 10, recurringDeliverables: [], ...{ hoursUsed: 99 } },
+        }),
+        scope: {
+            month: '2026-11',
+            loggedHours: 4.5,
+            cells: [{
+                clientId: 'client-harbor',
+                type: 'Content',
+                promised: 2,
+                promisedConfigured: true,
+                generated: 2,
+                delivered: 1,
+                inProgress: 1,
+                overdue: 0,
+            }],
+        },
+    });
+    const results = render('results', true, { snapshot, initiatives, today: '2026-11-07' });
+
+    const roadmap = sliceQuestion(overview, 'roadmap');
+    assert.match(roadmap, /SEO Roadmap/);
+    assert.match(roadmap, /Emergency service page/);
+    assert.match(roadmap, /Cover the after-hours visit/);
+    assert.match(roadmap, /Alex Kim/);
+    assert.match(roadmap, /https:\/\/harbor\.example\/services\/emergency/);
+    assert.match(roadmap, /data-roadmap-row="harbor-emergency"/);
+    assert.equal(roadmap.includes('After-hours draft'), false);
+    assert.equal(roadmap.includes('todo'), false);
+    assert.equal(roadmap.includes('data-initiative'), false);
+
+    const verified = sliceQuestion(overview, 'verified');
+    assert.match(verified, /Completed &amp; Verified/);
+    assert.match(verified, /Profile categories/);
+    assert.match(verified, /Citation consistency/);
+    assert.match(verified, /Evidence stale — re-verify/);
+    assert.equal(verified.includes('Unproven cleanup'), false);
+    assert.equal(verified.includes('Emergency service page'), false);
+    assert.equal(verified.includes('data-clicks'), false);
+
+    const progress = sliceQuestion(overview, 'in-progress');
+    assert.match(progress, /In progress/);
+    assert.match(progress, /data-milestone="harbor-emergency"/);
+    assert.match(progress, /Emergency service page/);
+    assert.match(progress, /Crawl access/);
+    assert.match(progress, /Unproven cleanup/);
+    assert.match(progress, /Verification incomplete/);
+    assert.match(progress, /Draft · After-hours draft/);
+    assert.equal(progress.includes('Profile categories'), false);
+    assert.equal(progress.includes('Citation consistency'), false);
+
+    const scope = sliceQuestion(overview, 'scope');
+    assert.match(scope, /Scope this period/);
+    assert.match(scope, /data-hours-promised="10"/);
+    assert.match(scope, /data-hours-used="4.5"/);
+    assert.match(scope, /data-content="Content"/);
+    assert.match(scope, /data-promised="2"/);
+    assert.match(scope, /data-delivered="1"/);
+    assert.match(scope, /not an SEO result/);
+    assert.equal(scope.includes('99'), false);
+    assert.equal(scope.includes('hoursUsed'), false);
+    assert.equal(scope.includes('progressbar'), false);
+    assert.equal(scope.includes('On track'), false);
+
+    const performance = sliceQuestion(overview, 'performance');
+    assert.match(performance, /Campaign performance/);
+    assert.match(performance, /data-clicks="140"/);
+    assert.match(performance, /data-clicks="8"/);
+    assert.match(performance, /data-clicks="56"/);
+    assert.match(performance, /Not added to Business Profile/);
+    assert.match(performance, /Not added to Search Console/);
+    assert.equal(performance.includes('Profile categories'), false);
+    assert.equal(performance.includes('4.5'), false);
+    assert.equal(performance.includes('data-region="gsc-series"'), false);
+    assert.equal(performance.includes('data-clicks="196"'), false);
+    assert.equal(performance.includes('data-clicks="148"'), false);
+    assert.match(results, /data-region="gsc-series"/);
+    assert.equal(overview.includes('Verified work'), false);
+    assert.equal(overview.includes('progressbar'), false);
+    assert.equal(overview.includes('On track'), false);
+});
+
+test('an empty initiative list stays an empty roadmap', () => {
+    const overview = render('overview', true, { initiatives: [], today: '2026-11-07' });
+    const roadmap = sliceQuestion(overview, 'roadmap');
+    assert.match(roadmap, /No initiatives yet/);
+    assert.equal(roadmap.includes('data-roadmap-row'), false);
+    assert.equal(overview.includes('Publish the page'), false);
+    assert.equal(overview.includes('Write the brief'), false);
+});
+
+test('unconfigured scope stays unknown and incomplete measurement stays unmeasured', () => {
+    const snapshot = measuredSnapshot();
+    snapshot.gsc = emptySitewide('incomplete');
+    snapshot.gbp = emptyLocalProfile();
+    snapshot.pages = pageSeries(2, (day, index) => { if (index === 40) day.isIncomplete = true; });
+    const overview = render('overview', true, {
+        snapshot,
+        initiatives: harborInitiatives(),
+        today: '2026-11-07',
+        engagement: engagementFromClient({
+            engagementModel: 'Retainer',
+            retainerConfig: { monthlyHours: 0, recurringDeliverables: [] },
+        }),
+        scope: { month: '2026-11', loggedHours: null, cells: [] },
+    });
+    const scope = sliceQuestion(overview, 'scope');
+    assert.match(scope, /data-hours-promised="unset"/);
+    assert.match(scope, /data-hours-used="unset"/);
+    assert.match(scope, /Not set/);
+    assert.match(scope, /Not measured/);
+    assert.match(scope, /Content scope is not set/);
+    assert.equal(scope.includes('0 h'), false);
+    const performance = sliceQuestion(overview, 'performance');
+    assert.match(performance, /data-reason="incomplete"/);
+    assert.match(performance, /Not yet measurable/);
+    assert.match(performance, /A missing observation is not zero/);
+    assert.match(performance, /data-page-result="harbor-emergency"/);
+    assert.match(performance, /data-state="not_measurable"/);
+    assert.equal(performance.includes('data-clicks'), false);
+    assert.equal(performance.includes('>0<'), false);
+    const verified = sliceQuestion(overview, 'verified');
+    assert.equal(verified.includes('data-clicks'), false);
+    assert.equal(verified.includes('not_measurable'), false);
 });

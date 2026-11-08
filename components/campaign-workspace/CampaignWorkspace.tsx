@@ -1,15 +1,18 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { OverviewBriefing } from '@/components/campaign-workspace/OverviewBriefing';
 import { RoadmapPanel } from '@/components/campaign-workspace/RoadmapPanel';
-import { InitiativeMark, initiativeToneClass } from '@/components/campaign-workspace/initiative-status';
+import {
+    EMPTY_ENGAGEMENT,
+    scopeBrief,
+    type EngagementFacts,
+} from '@/lib/campaign-workspace/briefing';
 import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
+import { loadScopeEvidence, type ScopeEvidence } from '@/lib/campaign-workspace/scope-load';
 import {
     completedDeliveries,
-    nextMilestone,
-    orderedInitiatives,
-    statePresentation,
     type CampaignInitiative,
 } from '@/lib/campaign-workspace/initiatives';
 import { loadCampaignMeasurement } from '@/lib/campaign-workspace/load';
@@ -47,11 +50,15 @@ type InitiativePanelState =
     | { kind: 'unavailable' };
 
 const SUBTITLE: Record<CampaignView, string> = {
-    overview: 'Scope, goals, owners, and the next measurement window for this engagement.',
+    overview: 'Roadmap, verified work, scope for this period, and measured results.',
     roadmap: 'Initiatives connect purpose, delivery, and evidence.',
     work: "This month's execution, not the client-facing roadmap.",
     results: 'Measured outcomes stay separate from completed delivery.',
 };
+
+type ScopeState =
+    | { kind: 'loading' }
+    | { kind: 'ready'; evidence: ScopeEvidence };
 
 export function CampaignWorkspace({
     clientName,
@@ -62,6 +69,8 @@ export function CampaignWorkspace({
     identity,
     snapshot,
     initiatives,
+    engagement,
+    scope,
     today: todayProp,
     monthlyBoard,
 }: {
@@ -75,6 +84,13 @@ export function CampaignWorkspace({
     snapshot?: CampaignMeasurement;
     /** Set in tests. When present, the view does not read initiatives. */
     initiatives?: readonly CampaignInitiative[];
+    /** Contract facts for the scope strip. Logged hours are loaded separately. */
+    engagement?: EngagementFacts;
+    /**
+     * Set in tests. When present, the view does not read hours or fulfillment.
+     * Logged hours here are the budget total. Stored config hours are not a field.
+     */
+    scope?: ScopeEvidence;
     /** ISO day used for milestones, bars, and evidence freshness. */
     today?: string;
     /**
@@ -88,7 +104,11 @@ export function CampaignWorkspace({
     const [initiativeNote, setInitiativeNote] = useState<string | null>(null);
     const [selectedInitiativeId, setSelectedInitiativeId] = useState<string | null>(null);
     const [reloadToken, setReloadToken] = useState(0);
+    const [remoteScope, setRemoteScope] = useState<ScopeState | null>(null);
     const today = todayProp ?? ptToday(new Date());
+    const engagementKey = JSON.stringify(engagement ?? null);
+    const engagementRef = useRef(engagement);
+    engagementRef.current = engagement;
     useEffect(() => {
         if (snapshot || !organizationId || !clientId) return;
         const controller = new AbortController();
@@ -130,6 +150,30 @@ export function CampaignWorkspace({
         };
     }, [initiatives, clientId, reloadToken]);
 
+    useEffect(() => {
+        if (scope !== undefined || !organizationId || !clientId) return;
+        let active = true;
+        setRemoteScope({ kind: 'loading' });
+        const facts = engagementRef.current ?? EMPTY_ENGAGEMENT;
+        loadScopeEvidence({
+            organizationId,
+            clientId,
+            engagement: facts,
+            month: today.slice(0, 7),
+        }).then(evidence => {
+            if (active) setRemoteScope({ kind: 'ready', evidence });
+        }).catch(() => {
+            if (!active) return;
+            setRemoteScope({
+                kind: 'ready',
+                evidence: { month: today.slice(0, 7), loggedHours: null, cells: null },
+            });
+        });
+        return () => {
+            active = false;
+        };
+    }, [scope, organizationId, clientId, engagementKey, today]);
+
     if (!campaignWorkspaceEnabled()) return null;
     const name = clientName.trim() || 'This client';
     const measurement = snapshot ?? loaded ?? EMPTY_CAMPAIGN_MEASUREMENT;
@@ -149,6 +193,28 @@ export function CampaignWorkspace({
             ? 'Initiatives are not available.'
             : null;
     const readyInitiatives = work.kind === 'ready' ? work.initiatives : [];
+    const facts = engagement ?? EMPTY_ENGAGEMENT;
+    const willLoadScope = scope === undefined && Boolean(organizationId && clientId);
+    const evidence = scope !== undefined
+        ? scope
+        : remoteScope?.kind === 'ready'
+            ? remoteScope.evidence
+            : null;
+    const scopeModel = evidence
+        ? scopeBrief({
+            engagement: facts,
+            month: evidence.month,
+            loggedHours: evidence.loggedHours,
+            cells: evidence.cells,
+        })
+        : willLoadScope || remoteScope?.kind === 'loading'
+            ? null
+            : scopeBrief({
+                engagement: facts,
+                month: today.slice(0, 7),
+                loggedHours: null,
+                cells: null,
+            });
 
     return (
         <div className={campaignWorkspaceFrameClass}>
@@ -170,7 +236,10 @@ export function CampaignWorkspace({
                 <h1 className="text-[22px] font-bold leading-tight tracking-tight">Campaign</h1>
                 <p className="mt-1 max-w-2xl text-[13px] leading-5 text-[#52525b]">{SUBTITLE[view]}</p>
                 <p className="mt-1 text-[12px] text-[#71717a]">
-                    {profile.startLabel ? `Start date ${profile.startLabel}` : 'Start date not set'} · Last update not set
+                    {profile.startLabel ? `Start date ${profile.startLabel}` : 'Start date not set'}
+                    {' · '}
+                    {profile.owner ?? 'Owner not set'}
+                    {' · Last update not set'}
                 </p>
             </header>
 
@@ -226,12 +295,14 @@ export function CampaignWorkspace({
                 className="mt-5"
             >
                 {view === 'overview' && (
-                    <Overview
-                        identity={profile}
+                    <OverviewBriefing
                         measurement={measurement}
                         initiatives={readyInitiatives}
                         message={workMessage}
                         today={today}
+                        engagement={facts}
+                        scope={scopeModel}
+                        onView={onView}
                         onOpenInitiative={(id) => {
                             setSelectedInitiativeId(id);
                             onView('roadmap');
@@ -286,33 +357,6 @@ function Card({
     );
 }
 
-function Kpi({
-    label,
-    value,
-    detail,
-    metric,
-    clicks,
-}: {
-    label: string;
-    value: string;
-    detail: string;
-    metric?: string;
-    clicks?: number | null;
-}) {
-    const missing = value === '—';
-    return (
-        <section
-            className="rounded-xl border border-[#e4e4e7] bg-white px-4 py-3.5"
-            {...(metric ? { 'data-metric': metric } : {})}
-            {...(clicks == null ? {} : { 'data-clicks': String(clicks) })}
-        >
-            <h2 className="text-[13px] font-medium text-[#52525b]">{label}</h2>
-            <p className="mt-2 text-[28px] font-semibold leading-none tracking-tight text-[#18181b]" {...(missing ? { 'aria-hidden': true } : {})}>{value}</p>
-            <p className="mt-2 text-[12px] text-[#71717a]">{detail}</p>
-        </section>
-    );
-}
-
 function EmptyPlot({ caption }: { caption: string }) {
     return (
         <div className="flex min-h-[200px] items-center justify-center rounded-lg bg-[#fdf2f8] px-6 py-8 text-center">
@@ -333,33 +377,22 @@ function Placeholder({ label, value }: { label: string; value: string }) {
     );
 }
 
-function clickDetail(gsc: CampaignSitewide): string {
-    if (gsc.status !== 'measurable') return 'Not yet measurable';
-    if (gsc.deltaLabel && gsc.currentLabel) return `${gsc.deltaLabel} · ${gsc.currentLabel}`;
-    if (gsc.currentLabel) return `Last 28 days · ${gsc.currentLabel}`;
-    return 'Not yet measurable';
-}
-
 function plotCaption(gsc: CampaignSitewide): string {
     if (gsc.reason === 'incomplete') return 'The stored 28-day window is incomplete. A missing observation is not zero.';
     return 'No baseline and no current window. A missing observation is not zero.';
 }
 
-function SitewideCard({ gsc, variant }: { gsc: CampaignSitewide; variant: 'overview' | 'results' }) {
+function SitewideCard({ gsc }: { gsc: CampaignSitewide }) {
     const showSeries = gsc.status === 'measurable' && gsc.points.length > 0;
-    const title = variant === 'overview' ? 'Sitewide organic clicks' : 'National Search Console · sitewide clicks';
-    const caveat = variant === 'overview'
-        ? 'Sitewide clicks, once measured, include brand and do not by themselves prove a priority-page goal.'
-        : 'Sitewide clicks include brand. They do not prove a priority-page goal. National Search Console and local Business Profile actions are not summed.';
+    const title = 'National Search Console · sitewide clicks';
+    const caveat = 'Sitewide clicks include brand. They do not prove a priority-page goal. National Search Console and local Business Profile actions are not summed.';
     const source = gsc.status === 'measurable'
         ? `Source Google Search Console · sitewide property total · ${gsc.currentLabel} · as of ${gsc.asOf}. Daily totals for that window, not a rolling series. ${caveat}`
         : gsc.reason === 'incomplete'
             ? `The stored 28-day window is incomplete. ${caveat}`
             : gsc.reason === 'missing'
                 ? `No final day is stored for this window. ${caveat}`
-                : variant === 'overview'
-                    ? `Source is not connected for this view. ${caveat}`
-                    : caveat;
+                : caveat;
     return (
         <Card region="sitewide" title={title} aside={showSeries && gsc.currentLabel ? gsc.currentLabel : 'Not yet measurable'}>
             {showSeries ? <SitewideChart gsc={gsc} /> : <EmptyPlot caption={plotCaption(gsc)} />}
@@ -410,129 +443,6 @@ function SitewideChart({ gsc }: { gsc: CampaignSitewide }) {
                 ) : null}
                 {line ? <path d={line.trim()} fill="none" stroke="#ec4899" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" /> : null}
             </svg>
-        </div>
-    );
-}
-
-function Overview({
-    identity,
-    measurement,
-    initiatives,
-    message,
-    today,
-    onOpenInitiative,
-}: {
-    identity: CampaignIdentity;
-    measurement: CampaignMeasurement;
-    initiatives: readonly CampaignInitiative[];
-    message: string | null;
-    today: string;
-    onOpenInitiative: (id: string) => void;
-}) {
-    const approval = measurement.awaitingApproval;
-    const milestone = message ? null : nextMilestone(initiatives, today);
-    const listed = message ? [] : orderedInitiatives(initiatives);
-    return (
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
-            <div className="space-y-4">
-                <div className="grid gap-3 md:grid-cols-3">
-                    <Kpi
-                        label="Organic clicks"
-                        metric="organic-clicks"
-                        value={measurement.gsc.clicksLabel}
-                        clicks={measurement.gsc.clicks}
-                        detail={clickDetail(measurement.gsc)}
-                    />
-                    <Kpi label="Action needed" value="—" detail="Not set yet" />
-                    <Kpi
-                        label="Awaiting approval"
-                        metric="awaiting-approval"
-                        value={approval == null ? '—' : String(approval)}
-                        clicks={approval}
-                        detail={approval == null ? 'Not set yet' : approval === 0 ? 'None waiting' : 'Content awaiting a decision'}
-                    />
-                </div>
-
-                <SitewideCard gsc={measurement.gsc} variant="overview" />
-
-                <Card title="Goals & planning scope">
-                    <dl>
-                        <Placeholder label="Scope" value={identity.scope ?? 'Not set yet'} />
-                        <Placeholder label="Goals" value="Not set yet" />
-                        <Placeholder label="Planning aim" value="Not set yet" />
-                        <Placeholder label="Owners" value={identity.owner ?? 'Not set yet'} />
-                    </dl>
-                    <p className="mt-3 text-[12px] leading-5 text-[#71717a]">
-                        Delivery expectations are not set yet.
-                    </p>
-                </Card>
-            </div>
-
-            <div className="space-y-4">
-                <Card title="Next milestone" aside={milestone ? milestone.shortDate : message ? undefined : 'Not set'}>
-                    <div data-region="milestone" data-milestone={milestone?.initiativeId ?? 'none'}>
-                        {message ? <p className="text-[13px] text-[#52525b]">{message}</p> : milestone ? (
-                            <>
-                                <p className="text-[13px] font-medium text-[#18181b]">{milestone.title}</p>
-                                <p className="mt-1 text-[12px] text-[#71717a]">{milestone.dateLabel}</p>
-                                <dl className="mt-3">
-                                    <Placeholder label="Owner" value={milestone.ownerLabel} />
-                                </dl>
-                                {milestone.items.length === 0 ? (
-                                    <p className="mt-3 text-[13px] text-[#52525b]">No items yet</p>
-                                ) : (
-                                    <ul className="mt-3 space-y-1">
-                                        {milestone.items.map(item => (
-                                            <li key={item.id} className="text-[13px] leading-5 text-[#18181b]">{item.stateLabel} · {item.title}</li>
-                                        ))}
-                                    </ul>
-                                )}
-                                <button
-                                    type="button"
-                                    onClick={() => onOpenInitiative(milestone.initiativeId)}
-                                    className="mt-3 min-h-11 text-[13px] font-medium text-[#18181b] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18181b]"
-                                >
-                                    View on roadmap
-                                </button>
-                            </>
-                        ) : (
-                            <>
-                                <p className="text-[13px] text-[#18181b]">Not set yet</p>
-                                <dl className="mt-3">
-                                    <Placeholder label="Owner" value="Not set yet" />
-                                    <Placeholder label="Checklist" value="No items yet" />
-                                </dl>
-                            </>
-                        )}
-                    </div>
-                </Card>
-
-                <Card title="Action needed">
-                    <p className="text-[13px] leading-5 text-[#52525b]">No client action is waiting.</p>
-                </Card>
-
-                <section className="rounded-xl border border-[#e4e4e7] bg-white p-4" data-region="initiatives">
-                    <h2 className="text-[15px] font-semibold leading-5">Key initiatives</h2>
-                    {message ? <p className="mt-3 text-[13px] leading-5 text-[#52525b]">{message}</p> : listed.length === 0 ? (
-                        <p className="mt-3 text-[13px] leading-5 text-[#52525b]">No initiatives yet.</p>
-                    ) : (
-                        <ul className="mt-3 space-y-3">
-                            {listed.map(item => {
-                                const presentation = statePresentation(item, today);
-                                return (
-                                    <li key={item.id} data-initiative={item.id} className="flex gap-2.5">
-                                        <InitiativeMark tone={presentation.tone} />
-                                        <div className="min-w-0">
-                                            <p data-tone={presentation.tone} className={cn('text-[12px] font-medium', initiativeToneClass(presentation.tone))}>{presentation.label}</p>
-                                            <p className="text-[13px] leading-5 text-[#18181b]">{item.title}</p>
-                                        </div>
-                                    </li>
-                                );
-                            })}
-                        </ul>
-                    )}
-                </section>
-            </div>
         </div>
     );
 }
@@ -625,7 +535,7 @@ function Results({
             <section data-region="measured" aria-labelledby="measured-results">
                 <h2 id="measured-results" className="text-[15px] font-semibold">Measured results</h2>
                 <div className="mt-3 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
-                    <SitewideCard gsc={measurement.gsc} variant="results" />
+                    <SitewideCard gsc={measurement.gsc} />
                     <Card title="Local Business Profile">
                         <div data-metric="local-profile" data-state={gbp.status} {...(gbp.value == null ? {} : { 'data-clicks': String(gbp.value) })}>
                             <p className="text-[28px] font-semibold leading-none tracking-tight" {...(gbpMissing ? { 'aria-hidden': true } : {})}>{gbpMissing ? '—' : gbp.valueLabel}</p>

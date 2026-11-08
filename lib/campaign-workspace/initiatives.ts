@@ -462,7 +462,7 @@ export function readInitiativeStory(row: {
     };
 }
 
-function datesLabel(initiative: CampaignInitiative): string {
+export function initiativeDatesLabel(initiative: Pick<CampaignInitiative, 'startsOn' | 'endsOn'>): string {
     if (initiative.startsOn && initiative.endsOn) {
         if (initiative.startsOn === initiative.endsOn) return formatInitiativeDay(initiative.startsOn);
         return `${formatInitiativeShort(initiative.startsOn)} – ${formatInitiativeDay(initiative.endsOn)}`;
@@ -470,6 +470,10 @@ function datesLabel(initiative: CampaignInitiative): string {
     if (initiative.startsOn) return `Starts ${formatInitiativeDay(initiative.startsOn)}`;
     if (initiative.endsOn) return `Ends ${formatInitiativeDay(initiative.endsOn)}`;
     return 'Dates not set';
+}
+
+function datesLabel(initiative: CampaignInitiative): string {
+    return initiativeDatesLabel(initiative);
 }
 
 function presentTimelineRow(row: CampaignInitiative, today: string, bar: TimelineBar | null): TimelineRow {
