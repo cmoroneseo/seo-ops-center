@@ -191,6 +191,7 @@ test('flag-on empty states keep measurement, delivery, and dates unset', () => {
     assert.match(roadmap, /No initiatives yet/);
     assert.match(roadmap, /there is no bar/);
     assert.equal(roadmap.includes('Phase not set'), false);
+    assert.equal(roadmap.includes('No phase'), false);
     assert.match(roadmap, /aria-checked="false"[^>]*disabled/);
     assert.match(roadmap, /aria-checked="true"[^>]*>Timeline</);
     assert.match(roadmap, /Board is not available yet/);
@@ -431,6 +432,8 @@ test('stored initiatives fill the roadmap without mixing delivery into measureme
     assert.equal(roadmap.includes('data-clicks'), false);
     assert.match(roadmap, /aria-checked="false"[^>]*disabled/);
     assert.match(roadmap, /aria-checked="true"[^>]*>Timeline</);
+    assert.equal(roadmap.includes('data-phase-group'), false);
+    assert.equal(roadmap.includes('No phase'), false);
 
     const measured = results.slice(results.indexOf('data-region="measured"'), results.indexOf('data-region="completed"'));
     const completed = results.slice(results.indexOf('data-region="completed"'));
@@ -475,63 +478,74 @@ test('stored initiatives fill the roadmap without mixing delivery into measureme
 
 test('roadmap phase, category, and target month stay off Overview and Results and are not a percent', () => {
     const initiatives = harborInitiatives();
-    initiatives[0] = { ...initiatives[0], phase: 'Phase 2: Growth', category: 'On-Page', targetMonth: 'Month 5' };
-    initiatives[1] = { ...initiatives[1], phase: 'Phase 1: Foundation', category: 'Technical', targetMonth: 'Month 1' };
-    initiatives[2] = { ...initiatives[2], phase: 'Phase 3: Scale', category: 'Analytics & Reporting', targetMonth: 'Month 12' };
+    initiatives[0] = { ...initiatives[0], phase: 'growth', category: 'on_page', targetMonth: 5 };
+    initiatives[1] = { ...initiatives[1], phase: 'foundation', category: 'technical', targetMonth: 1 };
+    initiatives[2] = { ...initiatives[2], phase: 'scale', category: 'analytics_reporting', targetMonth: 12 };
     const extras = { snapshot: measuredSnapshot(), initiatives, today: '2026-11-07' };
     const overview = render('overview', true, extras);
     const roadmap = render('roadmap', true, extras);
     const results = render('results', true, extras);
 
-    const foundation = roadmap.indexOf('Phase 1: Foundation');
-    const growth = roadmap.indexOf('Phase 2: Growth');
-    const scale = roadmap.indexOf('Phase 3: Scale');
-    const unset = roadmap.indexOf('Phase not set');
+    const foundation = roadmap.indexOf('Phase 1 · Foundation — 1 initiative');
+    const growth = roadmap.indexOf('Phase 2 · Growth — 1 initiative');
+    const scale = roadmap.indexOf('Phase 3 · Scale — 1 initiative');
+    const unset = roadmap.indexOf('No phase');
     assert.ok(foundation >= 0 && foundation < growth && growth < scale && scale < unset);
 
     const crawl = sliceInitiative(roadmap, 'harbor-crawl');
-    assert.match(crawl, /data-phase="Phase 1: Foundation"/);
-    assert.match(crawl, /data-category="Technical"/);
+    assert.match(crawl, /data-phase="foundation"/);
+    assert.match(crawl, /data-category="technical"/);
     assert.match(crawl, />Technical</);
-    assert.match(crawl, /data-target-month="Month 1"/);
-    assert.match(crawl, />Month 1</);
+    assert.match(crawl, /data-target-month="1"/);
+    assert.match(crawl, /title="Month 1 of engagement \(planned\)"/);
+    assert.match(crawl, />M1</);
+    assert.equal(crawl.includes('data-bar'), false);
+
+    const emergency = sliceInitiative(roadmap, 'harbor-emergency');
+    assert.equal(emergency.match(/data-bar=/g)?.length, 1);
+    assert.match(emergency, />M5</);
 
     const profile = sliceInitiative(roadmap, 'harbor-profile');
     assert.match(profile, /Analytics &amp; Reporting/);
-    assert.match(profile, />Month 12</);
+    assert.match(profile, />M12</);
+    assert.match(profile, /title="Month 12 of engagement \(planned\)"/);
 
     const citations = sliceInitiative(roadmap, 'harbor-citations');
     assert.match(citations, /data-phase=""/);
     assert.match(citations, /data-category=""/);
     assert.match(citations, /data-target-month=""/);
-    assert.match(citations, />Not set</);
+    assert.match(citations, /data-empty="true"/);
 
     assert.match(roadmap, /aria-checked="false"[^>]*disabled/);
     assert.match(roadmap, /aria-checked="true"[^>]*>Timeline</);
     assert.match(roadmap, /Evidence stale — re-verify/);
     assert.match(roadmap, /Published work is delivery, not a measured result/);
+    assert.equal(roadmap.includes('Phase Progress'), false);
+    assert.equal(roadmap.includes('Overall Progress'), false);
+    assert.equal(roadmap.includes('Roadmap Complete'), false);
 
-    assert.equal(overview.includes('Phase 1: Foundation'), false);
-    assert.equal(overview.includes('Phase not set'), false);
-    assert.equal(overview.includes('>Month 1<'), false);
+    assert.equal(overview.includes('Phase 1 · Foundation'), false);
+    assert.equal(overview.includes('No phase'), false);
+    assert.equal(overview.includes('>M1<'), false);
     assert.equal(overview.includes('On-Page'), false);
-    assert.equal(results.includes('Phase 3: Scale'), false);
+    assert.equal(results.includes('Phase 3 · Scale'), false);
     assert.equal(results.includes('Analytics &amp; Reporting'), false);
-    assert.equal(results.includes('>Month 12<'), false);
+    assert.equal(results.includes('>M12<'), false);
     assert.match(results, /Profile categories/);
     assert.match(results, /not a rank of zero/);
 
     const text = roadmap.replace(/<[^>]+>/g, ' ');
     assert.equal(text.includes('%'), false);
-    assert.equal(text.includes('Phase Progress'), false);
-    assert.equal(text.includes('Overall Progress'), false);
     assert.equal(/\d+ of \d+/.test(text), false);
+    assert.equal(text.includes('Roadmap Complete'), false);
 
     const panel = readFileSync(new URL('../../components/campaign-workspace/RoadmapPanel.tsx', import.meta.url), 'utf8');
     assert.match(panel, />Phase</);
     assert.match(panel, />Category</);
+    assert.match(panel, />Target</);
     assert.match(panel, />Target month</);
-    assert.match(panel, /Target month is counted from the start of the engagement/);
+    assert.match(panel, /Planned engagement month\. Doesn't set dates — schedule uses Starts\/Ends\./);
+    assert.match(panel, /<option value="">\{UNSET_MARK\}<\/option>/);
     assert.equal(panel.includes('NEXT_PUBLIC_'), false);
 });
 

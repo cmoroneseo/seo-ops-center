@@ -6,7 +6,8 @@
  * Completed & Verified without an evidence URL and a verification date is not
  * a verified win. Evidence older than EVIDENCE_FRESH_DAYS is stale.
  * Phase, category, and target month are the client-facing roadmap story.
- * Empty is not set. They are not a progress percent and not a traffic result.
+ * Empty, missing, and unknown values are not set. Target month does not
+ * move the schedule. They are not a progress percent and not a traffic result.
  * Nothing here is a traffic result, and nothing reads the strategy plan.
  */
 
@@ -23,43 +24,42 @@ export const INITIATIVE_STATES = [
 
 export const CONTENT_STATES = ['draft', 'review', 'approved', 'published'] as const;
 
-/** Closed set from the client-facing Roadmap. Empty means not set. */
-export const INITIATIVE_PHASES = [
-    'Phase 1: Foundation',
-    'Phase 2: Growth',
-    'Phase 3: Scale',
-] as const;
+/** Stored slugs. Display copy lives in PHASE_LABEL. Empty means not set. */
+export const INITIATIVE_PHASES = ['foundation', 'growth', 'scale'] as const;
+
+export const PHASE_LABEL: Record<(typeof INITIATIVE_PHASES)[number], string> = {
+    foundation: 'Phase 1 · Foundation',
+    growth: 'Phase 2 · Growth',
+    scale: 'Phase 3 · Scale',
+};
 
 /**
- * Closed set from the template Lists tab, column "Roadmap Category".
- * Empty means not set.
+ * Stored slugs from the template Lists tab, Roadmap Category D2:D7.
+ * Display copy lives in CATEGORY_LABEL. Empty means not set.
  */
 export const INITIATIVE_CATEGORIES = [
-    'Technical',
-    'On-Page',
-    'Content',
-    'Local SEO',
-    'Link Building',
-    'Analytics & Reporting',
+    'technical',
+    'on_page',
+    'content',
+    'local_seo',
+    'link_building',
+    'analytics_reporting',
 ] as const;
 
-/** Engagement-relative labels. Empty means not set. Not a calendar date. */
-export const INITIATIVE_TARGET_MONTHS = [
-    'Month 1',
-    'Month 2',
-    'Month 3',
-    'Month 4',
-    'Month 5',
-    'Month 6',
-    'Month 7',
-    'Month 8',
-    'Month 9',
-    'Month 10',
-    'Month 11',
-    'Month 12',
-] as const;
+export const CATEGORY_LABEL: Record<(typeof INITIATIVE_CATEGORIES)[number], string> = {
+    technical: 'Technical',
+    on_page: 'On-Page',
+    content: 'Content',
+    local_seo: 'Local SEO',
+    link_building: 'Link Building',
+    analytics_reporting: 'Analytics & Reporting',
+};
 
-export const PHASE_UNSET_LABEL = 'Phase not set';
+/** Engagement-relative integers. Empty means not set. Not a calendar month. */
+export const INITIATIVE_TARGET_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
+
+export const PHASE_UNSET_LABEL = 'No phase';
+export const UNSET_MARK = '—';
 
 export type InitiativeState = (typeof INITIATIVE_STATES)[number];
 export type ContentState = (typeof CONTENT_STATES)[number];
@@ -436,7 +436,18 @@ export function readInitiativeCategory(value: unknown): InitiativeCategory | nul
 
 /** Missing, blank, or unknown reads as not set. Never as zero or a calendar month. */
 export function readInitiativeTargetMonth(value: unknown): InitiativeTargetMonth | null {
-    return closedMember(value, INITIATIVE_TARGET_MONTHS);
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 12) {
+        return value as InitiativeTargetMonth;
+    }
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!/^([1-9]|1[0-2])$/.test(trimmed)) return null;
+    return Number(trimmed) as InitiativeTargetMonth;
+}
+
+export function phaseGroupLabel(phase: InitiativePhase, count: number): string {
+    const noun = count === 1 ? 'initiative' : 'initiatives';
+    return `${PHASE_LABEL[phase]} — ${count} ${noun}`;
 }
 
 export function readInitiativeStory(row: {
@@ -478,8 +489,13 @@ function presentTimelineRow(row: CampaignInitiative, today: string, bar: Timelin
     };
 }
 
-/** Phase order from the template. A phase with no rows is omitted. Unset is last. */
-export function roadmapPhaseGroups(rows: readonly TimelineRow[]): RoadmapPhaseGroup[] {
+/**
+ * Phase order is foundation, growth, scale. Unset rows are last, labeled
+ * "No phase". When every row is unset, returns null so the table stays flat.
+ * The count is the number of rows in the group.
+ */
+export function roadmapPhaseGroups(rows: readonly TimelineRow[]): RoadmapPhaseGroup[] | null {
+    if (!rows.some(row => row.phase)) return null;
     const buckets = new Map<InitiativePhase | null, TimelineRow[]>();
     for (const row of rows) {
         const phase = row.phase;
@@ -490,7 +506,7 @@ export function roadmapPhaseGroups(rows: readonly TimelineRow[]): RoadmapPhaseGr
     const groups: RoadmapPhaseGroup[] = [];
     for (const phase of INITIATIVE_PHASES) {
         const grouped = buckets.get(phase);
-        if (grouped && grouped.length > 0) groups.push({ phase, label: phase, rows: grouped });
+        if (grouped && grouped.length > 0) groups.push({ phase, label: phaseGroupLabel(phase, grouped.length), rows: grouped });
     }
     const unset = buckets.get(null);
     if (unset && unset.length > 0) groups.push({ phase: null, label: PHASE_UNSET_LABEL, rows: unset });
@@ -636,6 +652,13 @@ function optionalChoice<T extends string>(value: string | null | undefined, allo
     return match;
 }
 
+function optionalTargetMonth(value: string | null | undefined): InitiativeTargetMonth | null | DraftFail {
+    if (typeof value !== 'string' || !value.trim()) return null;
+    const month = readInitiativeTargetMonth(value);
+    if (!month) return fail('Target month is not a roadmap value.');
+    return month;
+}
+
 function optionalUrl(value: string, label: string): string | null | DraftFail {
     const trimmed = value.trim();
     if (!trimmed) return null;
@@ -662,7 +685,7 @@ export function normalizeInitiativeDraft(draft: InitiativeDraft): DraftOk | Draf
     if (isFail(phase)) return phase;
     const category = optionalChoice(draft.category, INITIATIVE_CATEGORIES, 'Category');
     if (isFail(category)) return category;
-    const targetMonth = optionalChoice(draft.targetMonth, INITIATIVE_TARGET_MONTHS, 'Target month');
+    const targetMonth = optionalTargetMonth(draft.targetMonth);
     if (isFail(targetMonth)) return targetMonth;
     const priority = Number(draft.priority);
     if (priority !== 1 && priority !== 2 && priority !== 3 && priority !== 4) return fail('Priority is not set.');

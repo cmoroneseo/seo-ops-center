@@ -12,7 +12,9 @@ import {
     measurementStrip,
     nextMilestone,
     normalizeInitiativeDraft,
+    PHASE_LABEL,
     PHASE_UNSET_LABEL,
+    phaseGroupLabel,
     readInitiativeStory,
     roadmapPhaseGroups,
     statePresentation,
@@ -300,56 +302,80 @@ test('phase, category, and target month normalize, write, and read as not set wh
     assert.equal(JSON.stringify(written).includes('0'), false);
 
     const saved = normalizeInitiativeDraft(draft({
-        phase: ' Phase 1: Foundation ',
-        category: 'Analytics & Reporting',
-        targetMonth: 'Month 12',
+        phase: ' foundation ',
+        category: 'analytics_reporting',
+        targetMonth: '12',
     }));
     assert.equal(saved.ok, true);
     if (!saved.ok) return;
     const row = initiativeRow(scoped, saved.value);
-    assert.equal(row.phase, 'Phase 1: Foundation');
-    assert.equal(row.category, 'Analytics & Reporting');
-    assert.equal(row.target_month, 'Month 12');
+    assert.equal(row.phase, 'foundation');
+    assert.equal(row.category, 'analytics_reporting');
+    assert.equal(row.target_month, 12);
     assert.deepEqual(readInitiativeStory(row), {
-        phase: 'Phase 1: Foundation',
-        category: 'Analytics & Reporting',
-        targetMonth: 'Month 12',
+        phase: 'foundation',
+        category: 'analytics_reporting',
+        targetMonth: 12,
+    });
+    assert.deepEqual(readInitiativeStory({ phase: 'growth', category: 'on_page', target_month: '2' }), {
+        phase: 'growth',
+        category: 'on_page',
+        targetMonth: 2,
     });
 
-    for (const value of [null, undefined, '', '   ', 0, '0', '0%', '17%', 'Phase 4', 'Month 13', '2026-11']) {
+    for (const value of [null, undefined, '', '   ', 0, '0', '0%', '17%', 'Phase 1 · Foundation', 'Technical', 'Month 12', 'Month 13', '2026-11', 13]) {
         const story = readInitiativeStory({ phase: value, category: value, target_month: value });
         assert.equal(story.phase, null);
         assert.equal(story.category, null);
         assert.equal(story.targetMonth, null);
     }
     assert.equal(readInitiativeStory({}).phase, null);
+    assert.equal(readInitiativeStory({ target_month: 1 }).targetMonth, 1);
 
-    assert.equal(normalizeInitiativeDraft(draft({ phase: 'Phase 4: Dominate' })).ok, false);
-    assert.equal(normalizeInitiativeDraft(draft({ category: 'SEO' })).ok, false);
-    assert.equal(normalizeInitiativeDraft(draft({ targetMonth: 'Month 0' })).ok, false);
-    assert.equal(normalizeInitiativeDraft(draft({ targetMonth: '0%' })).ok, false);
-    assert.equal(normalizeInitiativeDraft(draft({ phase: '0' })).ok, false);
+    assert.equal(normalizeInitiativeDraft(draft({ phase: 'Phase 1 · Foundation' })).ok, false);
+    assert.equal(normalizeInitiativeDraft(draft({ category: 'Technical' })).ok, false);
+    assert.equal(normalizeInitiativeDraft(draft({ targetMonth: 'Month 12' })).ok, false);
+    assert.equal(normalizeInitiativeDraft(draft({ targetMonth: '0' })).ok, false);
+    assert.equal(normalizeInitiativeDraft(draft({ targetMonth: '13' })).ok, false);
+    assert.equal(normalizeInitiativeDraft(draft({ targetMonth: '2026-11' })).ok, false);
+    const earlyGrowth = normalizeInitiativeDraft(draft({ phase: 'growth', targetMonth: '2', startsOn: '2026-11-01', endsOn: '2026-12-01' }));
+    assert.equal(earlyGrowth.ok, true);
+    if (!earlyGrowth.ok) return;
+    assert.equal(earlyGrowth.value.phase, 'growth');
+    assert.equal(earlyGrowth.value.targetMonth, 2);
+    assert.equal(earlyGrowth.value.startsOn, '2026-11-01');
+    assert.equal(earlyGrowth.value.endsOn, '2026-12-01');
 });
 
 test('roadmap groups by phase and does not present completion as a percent', () => {
+    const flat = roadmapPhaseGroups(timelineModel([
+        initiative({ id: 'plain', title: 'Plain', state: 'planned', targetMonth: 3 }),
+    ], TODAY).rows);
+    assert.equal(flat, null);
+
     const model = timelineModel([
-        initiative({ id: 'scale', title: 'Scale item', state: 'planned', phase: 'Phase 3: Scale', category: 'Link Building', targetMonth: 'Month 7', priority: 1 }),
+        initiative({ id: 'scale', title: 'Scale item', state: 'completed_verified', phase: 'scale', category: 'link_building', targetMonth: 7, priority: 1, evidenceUrl: 'https://harbor.example/proof/scale', verifiedOn: '2026-10-01' }),
         initiative({ id: 'unset-b', title: 'Unset later', state: 'planned', priority: 2 }),
-        initiative({ id: 'foundation-b', title: 'Foundation later', state: 'planned', phase: 'Phase 1: Foundation', category: 'Technical', targetMonth: 'Month 2', priority: 4 }),
+        initiative({ id: 'foundation-b', title: 'Foundation later', state: 'planned', phase: 'foundation', category: 'technical', targetMonth: 2, priority: 4 }),
         initiative({ id: 'unset-a', title: 'Unset first', state: 'planned', priority: 1 }),
-        initiative({ id: 'foundation-a', title: 'Foundation first', state: 'planned', phase: 'Phase 1: Foundation', category: 'On-Page', targetMonth: 'Month 1', priority: 1 }),
+        initiative({ id: 'foundation-a', title: 'Foundation first', state: 'planned', phase: 'foundation', category: 'on_page', targetMonth: 1, priority: 1 }),
     ], TODAY);
     const groups = roadmapPhaseGroups(model.rows);
+    assert.ok(groups);
+    if (!groups) return;
     assert.deepEqual(groups.map(group => group.label), [
-        'Phase 1: Foundation',
-        'Phase 3: Scale',
+        phaseGroupLabel('foundation', 2),
+        `${PHASE_LABEL.scale} — 1 initiative`,
         PHASE_UNSET_LABEL,
     ]);
-    assert.equal(groups.some(group => group.label === 'Phase 2: Growth'), false);
+    assert.equal(groups.some(group => group.phase === 'growth'), false);
+    assert.equal(groups[0]?.label, 'Phase 1 · Foundation — 2 initiatives');
+    assert.equal(groups[0]?.label.includes('complete'), false);
+    assert.equal(groups[1]?.label.includes('%'), false);
     assert.deepEqual(groups[0]?.rows.map(row => row.id), ['foundation-a', 'foundation-b']);
     assert.deepEqual(groups[2]?.rows.map(row => row.id), ['unset-a', 'unset-b']);
-    assert.equal(groups[0]?.rows[0]?.category, 'On-Page');
-    assert.equal(groups[0]?.rows[0]?.targetMonth, 'Month 1');
+    assert.equal(groups[0]?.rows[0]?.category, 'on_page');
+    assert.equal(groups[0]?.rows[0]?.targetMonth, 1);
     assert.equal(groups[2]?.rows[0]?.phase, null);
     assert.equal(groups[2]?.rows[0]?.category, null);
     assert.equal(groups[2]?.rows[0]?.targetMonth, null);
@@ -358,6 +384,20 @@ test('roadmap groups by phase and does not present completion as a percent', () 
     assert.equal(rendered.includes('Phase Progress'), false);
     assert.equal(rendered.includes('Overall Progress'), false);
     assert.equal(/\d+ of \d+/.test(rendered), false);
+
+    const dated = initiative({
+        id: 'dated',
+        title: 'Dated',
+        state: 'planned',
+        startsOn: '2026-09-01',
+        endsOn: '2026-11-20',
+        phase: 'growth',
+        targetMonth: 2,
+    });
+    const withMonth = timelineModel([dated], TODAY).rows[0]?.bar;
+    const withoutMonth = timelineModel([{ ...dated, phase: null, targetMonth: null }], TODAY).rows[0]?.bar;
+    assert.deepEqual(withMonth, withoutMonth);
+    assert.equal(timelineModel([initiative({ id: 'month-only', title: 'Month only', state: 'planned', targetMonth: 3 })], TODAY).rows[0]?.bar, null);
 
     const source = [
         readFileSync(new URL('./initiatives.ts', import.meta.url), 'utf8'),
