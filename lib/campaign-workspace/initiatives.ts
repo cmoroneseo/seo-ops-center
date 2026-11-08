@@ -5,6 +5,8 @@
  * Dates, evidence, and checklist rows are stored. A missing date is not a bar.
  * Completed & Verified without an evidence URL and a verification date is not
  * a verified win. Evidence older than EVIDENCE_FRESH_DAYS is stale.
+ * Phase, category, and target month are the client-facing roadmap story.
+ * Empty is not set. They are not a progress percent and not a traffic result.
  * Nothing here is a traffic result, and nothing reads the strategy plan.
  */
 
@@ -21,8 +23,49 @@ export const INITIATIVE_STATES = [
 
 export const CONTENT_STATES = ['draft', 'review', 'approved', 'published'] as const;
 
+/** Closed set from the client-facing Roadmap. Empty means not set. */
+export const INITIATIVE_PHASES = [
+    'Phase 1: Foundation',
+    'Phase 2: Growth',
+    'Phase 3: Scale',
+] as const;
+
+/**
+ * Closed set from the template Lists tab, column "Roadmap Category".
+ * Empty means not set.
+ */
+export const INITIATIVE_CATEGORIES = [
+    'Technical',
+    'On-Page',
+    'Content',
+    'Local SEO',
+    'Link Building',
+    'Analytics & Reporting',
+] as const;
+
+/** Engagement-relative labels. Empty means not set. Not a calendar date. */
+export const INITIATIVE_TARGET_MONTHS = [
+    'Month 1',
+    'Month 2',
+    'Month 3',
+    'Month 4',
+    'Month 5',
+    'Month 6',
+    'Month 7',
+    'Month 8',
+    'Month 9',
+    'Month 10',
+    'Month 11',
+    'Month 12',
+] as const;
+
+export const PHASE_UNSET_LABEL = 'Phase not set';
+
 export type InitiativeState = (typeof INITIATIVE_STATES)[number];
 export type ContentState = (typeof CONTENT_STATES)[number];
+export type InitiativePhase = (typeof INITIATIVE_PHASES)[number];
+export type InitiativeCategory = (typeof INITIATIVE_CATEGORIES)[number];
+export type InitiativeTargetMonth = (typeof INITIATIVE_TARGET_MONTHS)[number];
 export type InitiativePriority = 1 | 2 | 3 | 4;
 export type InitiativeTone = 'neutral' | 'in-progress' | 'approval' | 'blocked' | 'fresh' | 'stale' | 'incomplete';
 
@@ -43,6 +86,9 @@ export interface CampaignInitiative {
     title: string;
     purpose: string | null;
     ownerName: string | null;
+    phase: InitiativePhase | null;
+    category: InitiativeCategory | null;
+    targetMonth: InitiativeTargetMonth | null;
     priority: InitiativePriority;
     state: InitiativeState;
     startsOn: string | null;
@@ -67,6 +113,9 @@ export interface InitiativeDraft {
     title: string;
     purpose: string;
     ownerName: string;
+    phase: string;
+    category: string;
+    targetMonth: string;
     priority: string;
     state: string;
     startsOn: string;
@@ -92,6 +141,9 @@ export interface InitiativeWrite {
     title: string;
     purpose: string | null;
     ownerName: string | null;
+    phase: InitiativePhase | null;
+    category: InitiativeCategory | null;
+    targetMonth: InitiativeTargetMonth | null;
     priority: InitiativePriority;
     state: InitiativeState;
     startsOn: string | null;
@@ -123,11 +175,20 @@ export interface TimelineRow {
     id: string;
     title: string;
     purpose: string | null;
+    phase: InitiativePhase | null;
+    category: InitiativeCategory | null;
+    targetMonth: InitiativeTargetMonth | null;
     priorityLabel: string;
     stateLabel: string;
     tone: InitiativeTone;
     datesLabel: string;
     bar: TimelineBar | null;
+}
+
+export interface RoadmapPhaseGroup {
+    phase: InitiativePhase | null;
+    label: string;
+    rows: TimelineRow[];
 }
 
 export interface TimelineModel {
@@ -356,6 +417,40 @@ function fraction(day: string, start: string, end: string): number {
     return Math.min(1, Math.max(0, value));
 }
 
+function closedMember<T extends string>(value: unknown, allowed: readonly T[]): T | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    return (allowed as readonly string[]).includes(trimmed) ? trimmed as T : null;
+}
+
+/** Missing, blank, or unknown reads as not set. Never as zero. */
+export function readInitiativePhase(value: unknown): InitiativePhase | null {
+    return closedMember(value, INITIATIVE_PHASES);
+}
+
+/** Missing, blank, or unknown reads as not set. Never as zero. */
+export function readInitiativeCategory(value: unknown): InitiativeCategory | null {
+    return closedMember(value, INITIATIVE_CATEGORIES);
+}
+
+/** Missing, blank, or unknown reads as not set. Never as zero or a calendar month. */
+export function readInitiativeTargetMonth(value: unknown): InitiativeTargetMonth | null {
+    return closedMember(value, INITIATIVE_TARGET_MONTHS);
+}
+
+export function readInitiativeStory(row: {
+    phase?: unknown;
+    category?: unknown;
+    target_month?: unknown;
+}): { phase: InitiativePhase | null; category: InitiativeCategory | null; targetMonth: InitiativeTargetMonth | null } {
+    return {
+        phase: readInitiativePhase(row.phase),
+        category: readInitiativeCategory(row.category),
+        targetMonth: readInitiativeTargetMonth(row.target_month),
+    };
+}
+
 function datesLabel(initiative: CampaignInitiative): string {
     if (initiative.startsOn && initiative.endsOn) {
         if (initiative.startsOn === initiative.endsOn) return formatInitiativeDay(initiative.startsOn);
@@ -364,6 +459,42 @@ function datesLabel(initiative: CampaignInitiative): string {
     if (initiative.startsOn) return `Starts ${formatInitiativeDay(initiative.startsOn)}`;
     if (initiative.endsOn) return `Ends ${formatInitiativeDay(initiative.endsOn)}`;
     return 'Dates not set';
+}
+
+function presentTimelineRow(row: CampaignInitiative, today: string, bar: TimelineBar | null): TimelineRow {
+    const presentation = statePresentation(row, today);
+    return {
+        id: row.id,
+        title: row.title,
+        purpose: row.purpose,
+        phase: row.phase,
+        category: row.category,
+        targetMonth: row.targetMonth,
+        priorityLabel: `P${row.priority}`,
+        stateLabel: presentation.label,
+        tone: presentation.tone,
+        datesLabel: datesLabel(row),
+        bar,
+    };
+}
+
+/** Phase order from the template. A phase with no rows is omitted. Unset is last. */
+export function roadmapPhaseGroups(rows: readonly TimelineRow[]): RoadmapPhaseGroup[] {
+    const buckets = new Map<InitiativePhase | null, TimelineRow[]>();
+    for (const row of rows) {
+        const phase = row.phase;
+        const list = buckets.get(phase);
+        if (list) list.push(row);
+        else buckets.set(phase, [row]);
+    }
+    const groups: RoadmapPhaseGroup[] = [];
+    for (const phase of INITIATIVE_PHASES) {
+        const grouped = buckets.get(phase);
+        if (grouped && grouped.length > 0) groups.push({ phase, label: phase, rows: grouped });
+    }
+    const unset = buckets.get(null);
+    if (unset && unset.length > 0) groups.push({ phase: null, label: PHASE_UNSET_LABEL, rows: unset });
+    return groups;
 }
 
 function barFor(initiative: CampaignInitiative, scaleStart: string, scaleEnd: string): TimelineBar | null {
@@ -390,19 +521,7 @@ export function timelineModel(initiatives: readonly CampaignInitiative[], today:
         months: [],
         todayFraction: null,
         todayLabel: null,
-        rows: rows.map(row => {
-            const presentation = statePresentation(row, today);
-            return {
-                id: row.id,
-                title: row.title,
-                purpose: row.purpose,
-                priorityLabel: `P${row.priority}`,
-                stateLabel: presentation.label,
-                tone: presentation.tone,
-                datesLabel: datesLabel(row),
-                bar: null as TimelineBar | null,
-            };
-        }),
+        rows: rows.map(row => presentTimelineRow(row, today, null)),
     };
     if (dated.length === 0) return undatedModel;
     const earliest = dated.reduce((min, day) => day < min ? day : min);
@@ -425,19 +544,7 @@ export function timelineModel(initiatives: readonly CampaignInitiative[], today:
         }),
         todayFraction,
         todayLabel: todayFraction == null ? null : `Today · ${formatInitiativeShort(today)}`,
-        rows: rows.map(row => {
-            const presentation = statePresentation(row, today);
-            return {
-                id: row.id,
-                title: row.title,
-                purpose: row.purpose,
-                priorityLabel: `P${row.priority}`,
-                stateLabel: presentation.label,
-                tone: presentation.tone,
-                datesLabel: datesLabel(row),
-                bar: barFor(row, scaleStart, scaleEnd),
-            };
-        }),
+        rows: rows.map(row => presentTimelineRow(row, today, barFor(row, scaleStart, scaleEnd))),
     };
 }
 
@@ -521,6 +628,14 @@ function optionalDate(value: string, label: string): string | null | DraftFail {
     return trimmed;
 }
 
+function optionalChoice<T extends string>(value: string | null | undefined, allowed: readonly T[], label: string): T | null | DraftFail {
+    const match = closedMember(value, allowed);
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (!trimmed) return null;
+    if (!match) return fail(`${label} is not a roadmap value.`);
+    return match;
+}
+
 function optionalUrl(value: string, label: string): string | null | DraftFail {
     const trimmed = value.trim();
     if (!trimmed) return null;
@@ -543,6 +658,12 @@ export function normalizeInitiativeDraft(draft: InitiativeDraft): DraftOk | Draf
     if (isFail(purpose)) return purpose;
     const ownerName = optionalText(draft.ownerName, 'Owner', 120);
     if (isFail(ownerName)) return ownerName;
+    const phase = optionalChoice(draft.phase, INITIATIVE_PHASES, 'Phase');
+    if (isFail(phase)) return phase;
+    const category = optionalChoice(draft.category, INITIATIVE_CATEGORIES, 'Category');
+    if (isFail(category)) return category;
+    const targetMonth = optionalChoice(draft.targetMonth, INITIATIVE_TARGET_MONTHS, 'Target month');
+    if (isFail(targetMonth)) return targetMonth;
     const priority = Number(draft.priority);
     if (priority !== 1 && priority !== 2 && priority !== 3 && priority !== 4) return fail('Priority is not set.');
     if (!INITIATIVE_STATES.includes(draft.state as InitiativeState)) return fail('State is not set.');
@@ -601,6 +722,9 @@ export function normalizeInitiativeDraft(draft: InitiativeDraft): DraftOk | Draf
             title,
             purpose,
             ownerName,
+            phase,
+            category,
+            targetMonth,
             priority,
             state,
             startsOn,
@@ -624,6 +748,9 @@ export function initiativeRow(
         title: write.title,
         purpose: write.purpose,
         owner_name: write.ownerName,
+        phase: write.phase,
+        category: write.category,
+        target_month: write.targetMonth,
         priority: write.priority,
         state: write.state,
         starts_on: write.startsOn,

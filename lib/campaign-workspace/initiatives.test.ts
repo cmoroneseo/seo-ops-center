@@ -12,6 +12,9 @@ import {
     measurementStrip,
     nextMilestone,
     normalizeInitiativeDraft,
+    PHASE_UNSET_LABEL,
+    readInitiativeStory,
+    roadmapPhaseGroups,
     statePresentation,
     timelineModel,
     verificationTone,
@@ -27,6 +30,9 @@ function initiative(partial: Partial<CampaignInitiative> & Pick<CampaignInitiati
         clientId: 'client-harbor',
         purpose: null,
         ownerName: 'Alex Kim',
+        phase: null,
+        category: null,
+        targetMonth: null,
         priority: 2,
         startsOn: null,
         endsOn: null,
@@ -112,6 +118,9 @@ function draft(partial: Partial<InitiativeDraft> = {}): InitiativeDraft {
         title: 'Coverage page rewrite',
         purpose: 'Explain what the visit includes',
         ownerName: 'Alex Kim',
+        phase: '',
+        category: '',
+        targetMonth: '',
         priority: '2',
         state: 'planned',
         startsOn: '',
@@ -271,6 +280,96 @@ test('writes reject a forged organization, missing evidence, and a published row
     if (!ready.ok) return;
     assert.equal(ready.value.items[0]?.id, null);
     assert.equal(ready.value.evidenceUrl, 'https://harbor.example/proof/profile');
+});
+
+test('phase, category, and target month normalize, write, and read as not set when empty', () => {
+    const empty = normalizeInitiativeDraft(draft({ phase: '  ', category: '', targetMonth: '   ' }));
+    assert.equal(empty.ok, true);
+    if (!empty.ok) return;
+    assert.equal(empty.value.phase, null);
+    assert.equal(empty.value.category, null);
+    assert.equal(empty.value.targetMonth, null);
+    const scoped = initiativeWriteScope({ client: { id: 'client-harbor', organizationId: 'org-real' } });
+    assert.equal(scoped.ok, true);
+    if (!scoped.ok) return;
+    const written = initiativeRow(scoped, empty.value);
+    assert.equal(written.phase, null);
+    assert.equal(written.category, null);
+    assert.equal(written.target_month, null);
+    assert.equal(JSON.stringify(written).includes('%'), false);
+    assert.equal(JSON.stringify(written).includes('0'), false);
+
+    const saved = normalizeInitiativeDraft(draft({
+        phase: ' Phase 1: Foundation ',
+        category: 'Analytics & Reporting',
+        targetMonth: 'Month 12',
+    }));
+    assert.equal(saved.ok, true);
+    if (!saved.ok) return;
+    const row = initiativeRow(scoped, saved.value);
+    assert.equal(row.phase, 'Phase 1: Foundation');
+    assert.equal(row.category, 'Analytics & Reporting');
+    assert.equal(row.target_month, 'Month 12');
+    assert.deepEqual(readInitiativeStory(row), {
+        phase: 'Phase 1: Foundation',
+        category: 'Analytics & Reporting',
+        targetMonth: 'Month 12',
+    });
+
+    for (const value of [null, undefined, '', '   ', 0, '0', '0%', '17%', 'Phase 4', 'Month 13', '2026-11']) {
+        const story = readInitiativeStory({ phase: value, category: value, target_month: value });
+        assert.equal(story.phase, null);
+        assert.equal(story.category, null);
+        assert.equal(story.targetMonth, null);
+    }
+    assert.equal(readInitiativeStory({}).phase, null);
+
+    assert.equal(normalizeInitiativeDraft(draft({ phase: 'Phase 4: Dominate' })).ok, false);
+    assert.equal(normalizeInitiativeDraft(draft({ category: 'SEO' })).ok, false);
+    assert.equal(normalizeInitiativeDraft(draft({ targetMonth: 'Month 0' })).ok, false);
+    assert.equal(normalizeInitiativeDraft(draft({ targetMonth: '0%' })).ok, false);
+    assert.equal(normalizeInitiativeDraft(draft({ phase: '0' })).ok, false);
+});
+
+test('roadmap groups by phase and does not present completion as a percent', () => {
+    const model = timelineModel([
+        initiative({ id: 'scale', title: 'Scale item', state: 'planned', phase: 'Phase 3: Scale', category: 'Link Building', targetMonth: 'Month 7', priority: 1 }),
+        initiative({ id: 'unset-b', title: 'Unset later', state: 'planned', priority: 2 }),
+        initiative({ id: 'foundation-b', title: 'Foundation later', state: 'planned', phase: 'Phase 1: Foundation', category: 'Technical', targetMonth: 'Month 2', priority: 4 }),
+        initiative({ id: 'unset-a', title: 'Unset first', state: 'planned', priority: 1 }),
+        initiative({ id: 'foundation-a', title: 'Foundation first', state: 'planned', phase: 'Phase 1: Foundation', category: 'On-Page', targetMonth: 'Month 1', priority: 1 }),
+    ], TODAY);
+    const groups = roadmapPhaseGroups(model.rows);
+    assert.deepEqual(groups.map(group => group.label), [
+        'Phase 1: Foundation',
+        'Phase 3: Scale',
+        PHASE_UNSET_LABEL,
+    ]);
+    assert.equal(groups.some(group => group.label === 'Phase 2: Growth'), false);
+    assert.deepEqual(groups[0]?.rows.map(row => row.id), ['foundation-a', 'foundation-b']);
+    assert.deepEqual(groups[2]?.rows.map(row => row.id), ['unset-a', 'unset-b']);
+    assert.equal(groups[0]?.rows[0]?.category, 'On-Page');
+    assert.equal(groups[0]?.rows[0]?.targetMonth, 'Month 1');
+    assert.equal(groups[2]?.rows[0]?.phase, null);
+    assert.equal(groups[2]?.rows[0]?.category, null);
+    assert.equal(groups[2]?.rows[0]?.targetMonth, null);
+    const rendered = JSON.stringify(groups);
+    assert.equal(rendered.includes('%'), false);
+    assert.equal(rendered.includes('Phase Progress'), false);
+    assert.equal(rendered.includes('Overall Progress'), false);
+    assert.equal(/\d+ of \d+/.test(rendered), false);
+
+    const source = [
+        readFileSync(new URL('./initiatives.ts', import.meta.url), 'utf8'),
+        readFileSync(new URL('../../components/campaign-workspace/RoadmapPanel.tsx', import.meta.url), 'utf8'),
+        readFileSync(new URL('../supabase/campaign-initiatives.ts', import.meta.url), 'utf8'),
+    ].join('\n');
+    assert.match(source, /readInitiativeStory/);
+    assert.equal(source.includes('Phase Progress'), false);
+    assert.equal(source.includes('Overall Progress'), false);
+    assert.equal(source.includes('Technical SEO audit completed'), false);
+    assert.equal(source.includes('Google Business Profile optimized'), false);
+    assert.equal(source.includes('Pillar and cluster content expansion'), false);
 });
 
 test('initiative code does not read strategy plans, keyword lists, tasks, or deliverables', () => {

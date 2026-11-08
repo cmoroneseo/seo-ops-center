@@ -4,8 +4,12 @@ import { useState, type FormEvent } from 'react';
 import {
     CONTENT_LABEL,
     CONTENT_STATES,
+    INITIATIVE_CATEGORIES,
+    INITIATIVE_PHASES,
+    INITIATIVE_TARGET_MONTHS,
     formatInitiativeDay,
     measurementStrip,
+    roadmapPhaseGroups,
     safeHttpUrl,
     statePresentation,
     timelineModel,
@@ -42,6 +46,9 @@ interface FormState {
     title: string;
     purpose: string;
     ownerName: string;
+    phase: string;
+    category: string;
+    targetMonth: string;
     priority: '1' | '2' | '3' | '4';
     state: InitiativeState;
     startsOn: string;
@@ -63,6 +70,9 @@ function blankForm(): FormState {
         title: '',
         purpose: '',
         ownerName: '',
+        phase: '',
+        category: '',
+        targetMonth: '',
         priority: '2',
         state: 'planned',
         startsOn: '',
@@ -81,6 +91,9 @@ function formFromInitiative(initiative: CampaignInitiative): FormState {
         title: initiative.title,
         purpose: initiative.purpose ?? '',
         ownerName: initiative.ownerName ?? '',
+        phase: initiative.phase ?? '',
+        category: initiative.category ?? '',
+        targetMonth: initiative.targetMonth ?? '',
         priority: String(initiative.priority) as FormState['priority'],
         state: initiative.state,
         startsOn: initiative.startsOn ?? '',
@@ -108,6 +121,9 @@ function toDraft(form: FormState): InitiativeDraft {
         title: form.title,
         purpose: form.purpose,
         ownerName: form.ownerName,
+        phase: form.phase,
+        category: form.category,
+        targetMonth: form.targetMonth,
         priority: form.priority,
         state: form.state,
         startsOn: form.startsOn,
@@ -151,6 +167,7 @@ export function RoadmapPanel({
 }) {
     const [form, setForm] = useState<FormState | null>(null);
     const model = timelineModel(initiatives, today);
+    const groups = roadmapPhaseGroups(model.rows);
     const selected = initiatives.find(item => item.id === selectedId) ?? initiatives[0] ?? null;
 
     return (
@@ -202,66 +219,80 @@ export function RoadmapPanel({
                         </div>
                     ) : (
                         <table className="w-full min-w-[760px] border-collapse text-left">
-                            <caption className="sr-only">Initiative timeline. A row without dates has no bar.</caption>
+                            <caption className="sr-only">Initiative timeline grouped by phase. A row without dates has no bar. A missing phase, category, or target month is not set.</caption>
                             <thead>
                                 <tr className="border-b border-[#e4e4e7] text-[12px] font-medium text-[#71717a]">
                                     <th scope="col" className="px-4 py-3 font-medium">Initiative / why it matters</th>
+                                    <th scope="col" className="px-3 py-3 font-medium">Category</th>
+                                    <th scope="col" className="whitespace-nowrap px-3 py-3 font-medium">Target month</th>
                                     <th scope="col" className="w-12 px-2 py-3 font-medium">Priority</th>
                                     <th scope="col" className="min-w-[28rem] px-4 py-3 font-medium">
                                         <ScheduleHeader model={model} />
                                     </th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                {model.rows.map(row => {
-                                    const active = selected?.id === row.id;
-                                    return (
-                                        <tr
-                                            key={row.id}
-                                            data-initiative={row.id}
-                                            data-dates={row.bar ? 'set' : 'unset'}
-                                            data-tone={row.tone}
-                                            aria-selected={active}
-                                            className={cn('border-b border-[#e4e4e7] last:border-b-0', active ? 'bg-[#fdf2f8]' : 'bg-white')}
-                                        >
-                                            <td className="px-4 py-3 align-top">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => onSelect(row.id)}
-                                                    className="min-h-[59px] w-full rounded-sm text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18181b]"
-                                                >
-                                                    <span className="block text-[13px] font-medium leading-5 text-[#18181b]">{row.title}</span>
-                                                    {row.purpose ? <span className="mt-0.5 block text-[13px] leading-5 text-[#52525b]">{row.purpose}</span> : null}
-                                                    <span className={cn('mt-1 inline-flex items-center gap-2 text-[12px] font-medium leading-4', initiativeToneClass(row.tone))}>
-                                                        <InitiativeMark tone={row.tone} />
-                                                        {row.stateLabel}
-                                                    </span>
-                                                </button>
-                                            </td>
-                                            <td className="px-2 py-3 align-top text-[12px] text-[#71717a]">{row.priorityLabel}</td>
-                                            <td className="relative px-4 py-3 align-middle">
-                                                {model.todayFraction != null ? (
-                                                    <span
-                                                        data-today="true"
-                                                        className="pointer-events-none absolute inset-y-0 border-l border-dashed border-[#a1a1aa]"
-                                                        style={{ left: `calc(1rem + (100% - 2rem) * ${model.todayFraction})` }}
-                                                    />
-                                                ) : null}
-                                                <p className="text-[12px] leading-5 text-[#71717a]">{row.datesLabel}</p>
-                                                {row.bar ? (
-                                                    <span
-                                                        data-bar={row.bar.kind}
-                                                        className={cn('mt-2 block h-2 rounded-full', initiativeBarClass(row.tone))}
-                                                        style={row.bar.kind === 'point'
-                                                            ? { width: '10px', marginLeft: `calc(${row.bar.start * 100}% - 5px)` }
-                                                            : { width: `max(8px, ${(row.bar.end - row.bar.start) * 100}%)`, marginLeft: `${row.bar.start * 100}%` }}
-                                                    />
-                                                ) : null}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
+                            {groups.map(group => (
+                                <tbody key={group.label} data-phase-group={group.phase ?? 'unset'}>
+                                    <tr>
+                                        <th colSpan={5} scope="rowgroup" className="bg-[#f4f4f6] px-4 py-2 text-left text-[12px] font-semibold text-[#18181b]">
+                                            {group.label}
+                                        </th>
+                                    </tr>
+                                    {group.rows.map(row => {
+                                        const active = selected?.id === row.id;
+                                        return (
+                                            <tr
+                                                key={row.id}
+                                                data-initiative={row.id}
+                                                data-phase={row.phase ?? ''}
+                                                data-category={row.category ?? ''}
+                                                data-target-month={row.targetMonth ?? ''}
+                                                data-dates={row.bar ? 'set' : 'unset'}
+                                                data-tone={row.tone}
+                                                aria-selected={active}
+                                                className={cn('border-b border-[#e4e4e7] last:border-b-0', active ? 'bg-[#fdf2f8]' : 'bg-white')}
+                                            >
+                                                <td className="px-4 py-3 align-top">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => onSelect(row.id)}
+                                                        className="min-h-[59px] w-full rounded-sm text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18181b]"
+                                                    >
+                                                        <span className="block text-[13px] font-medium leading-5 text-[#18181b]">{row.title}</span>
+                                                        {row.purpose ? <span className="mt-0.5 block text-[13px] leading-5 text-[#52525b]">{row.purpose}</span> : null}
+                                                        <span className={cn('mt-1 inline-flex items-center gap-2 text-[12px] font-medium leading-4', initiativeToneClass(row.tone))}>
+                                                            <InitiativeMark tone={row.tone} />
+                                                            {row.stateLabel}
+                                                        </span>
+                                                    </button>
+                                                </td>
+                                                <td className="px-3 py-3 align-top text-[12px] leading-5 text-[#52525b]">{row.category ?? 'Not set'}</td>
+                                                <td className="whitespace-nowrap px-3 py-3 align-top text-[12px] leading-5 text-[#52525b]">{row.targetMonth ?? 'Not set'}</td>
+                                                <td className="px-2 py-3 align-top text-[12px] text-[#71717a]">{row.priorityLabel}</td>
+                                                <td className="relative px-4 py-3 align-middle">
+                                                    {model.todayFraction != null ? (
+                                                        <span
+                                                            data-today="true"
+                                                            className="pointer-events-none absolute inset-y-0 border-l border-dashed border-[#a1a1aa]"
+                                                            style={{ left: `calc(1rem + (100% - 2rem) * ${model.todayFraction})` }}
+                                                        />
+                                                    ) : null}
+                                                    <p className="text-[12px] leading-5 text-[#71717a]">{row.datesLabel}</p>
+                                                    {row.bar ? (
+                                                        <span
+                                                            data-bar={row.bar.kind}
+                                                            className={cn('mt-2 block h-2 rounded-full', initiativeBarClass(row.tone))}
+                                                            style={row.bar.kind === 'point'
+                                                                ? { width: '10px', marginLeft: `calc(${row.bar.start * 100}% - 5px)` }
+                                                                : { width: `max(8px, ${(row.bar.end - row.bar.start) * 100}%)`, marginLeft: `${row.bar.start * 100}%` }}
+                                                        />
+                                                    ) : null}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            ))}
                         </table>
                     )}
                 </div>
@@ -328,6 +359,9 @@ function Detail({
                 <p className="mt-3 text-[13px] text-[#52525b]">{message ?? 'No initiative selected.'}</p>
                 <dl className="mt-2">
                     <Row label="Purpose" value="Not set yet" />
+                    <Row label="Phase" value="Not set yet" />
+                    <Row label="Category" value="Not set yet" />
+                    <Row label="Target month" value="Not set yet" />
                     <Row label="Delivery checklist" value="No deliverables yet" />
                     <Row label="Measurement" value="Not yet measurable" />
                 </dl>
@@ -360,6 +394,9 @@ function Detail({
             <h3 className="mt-4 text-[10px] font-medium uppercase tracking-wide text-[#71717a]">Purpose</h3>
             <p className="mt-1 text-[13px] leading-5 text-[#18181b]">{initiative.purpose ?? 'Not set yet'}</p>
             <dl className="mt-3">
+                <Row label="Phase" value={initiative.phase ?? 'Not set yet'} />
+                <Row label="Category" value={initiative.category ?? 'Not set yet'} />
+                <Row label="Target month" value={initiative.targetMonth ?? 'Not set yet'} />
                 <Row label="Owner" value={initiative.ownerName ?? 'Not set yet'} />
                 <Row label="Priority" value={`P${initiative.priority}`} />
                 <Row label="Page" value={pageUrl ?? 'Not set yet'} />
@@ -479,6 +516,30 @@ function InitiativeForm({
                     <span className={labelClass}>Owner</span>
                     <input value={form.ownerName} onChange={event => patch({ ownerName: event.target.value })} className={fieldClass} maxLength={120} />
                 </label>
+                <label className="block">
+                    <span className={labelClass}>Phase</span>
+                    <select value={form.phase} onChange={event => patch({ phase: event.target.value })} className={fieldClass}>
+                        <option value="">Not set</option>
+                        {INITIATIVE_PHASES.map(phase => <option key={phase} value={phase}>{phase}</option>)}
+                    </select>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                    <label className="block">
+                        <span className={labelClass}>Category</span>
+                        <select value={form.category} onChange={event => patch({ category: event.target.value })} className={fieldClass}>
+                            <option value="">Not set</option>
+                            {INITIATIVE_CATEGORIES.map(category => <option key={category} value={category}>{category}</option>)}
+                        </select>
+                    </label>
+                    <label className="block">
+                        <span className={labelClass}>Target month</span>
+                        <select value={form.targetMonth} onChange={event => patch({ targetMonth: event.target.value })} className={fieldClass}>
+                            <option value="">Not set</option>
+                            {INITIATIVE_TARGET_MONTHS.map(month => <option key={month} value={month}>{month}</option>)}
+                        </select>
+                    </label>
+                </div>
+                <p className="text-[12px] leading-4 text-[#71717a]">Target month is counted from the start of the engagement. It does not replace the start or end date.</p>
                 <div className="grid grid-cols-2 gap-2">
                     <label className="block">
                         <span className={labelClass}>Priority</span>
