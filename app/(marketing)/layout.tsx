@@ -1,4 +1,4 @@
-import { SiteHeader } from "@/components/landing/site-header";
+import { LegacySiteHeader } from "@/components/marketing/legacy-site-header";
 import Link from "next/link";
 
 export default function MarketingLayout({
@@ -8,7 +8,7 @@ export default function MarketingLayout({
 }) {
     return (
         <div className="min-h-screen bg-black selection:bg-primary/30">
-            <SiteHeader />
+            <LegacySiteHeader />
             <main>{children}</main>
             <footer className="py-8 border-t border-white/5 bg-black/50 backdrop-blur-xl">
                 <div className="container mx-auto px-4 flex flex-col md:flex-row items-center justify-between text-sm text-white/40">
