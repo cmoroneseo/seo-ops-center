@@ -28,11 +28,11 @@ export function Features() {
                     </div>
                     <ProductShot
                         desktopSrc="/marketing/summit-overview.png"
-                        desktopWidth={824}
-                        desktopHeight={589}
+                        desktopWidth={1648}
+                        desktopHeight={1178}
                         mobileSrc="/marketing/summit-overview-mobile.png"
-                        mobileWidth={378}
-                        mobileHeight={394}
+                        mobileWidth={756}
+                        mobileHeight={788}
                         alt="Demo workspace, fictional client data. Summit Dental search performance overview."
                         caption={demoCaption}
                     />
@@ -63,8 +63,9 @@ export function Features() {
                             <Image
                                 src="/marketing/summit-roadmap-results.png"
                                 alt="Demo workspace, fictional client data. Summit Dental campaign roadmap with the results card. Roadmap and Results tabs."
-                                width={1236}
-                                height={886}
+                                width={2472}
+                                height={1772}
+                                quality={90}
                                 sizes="(min-width: 768px) 1200px, 100vw"
                                 className="hidden h-auto w-full md:block"
                             />
@@ -74,8 +75,9 @@ export function Features() {
                             <Image
                                 src="/marketing/summit-roadmap-mobile.png"
                                 alt="Demo workspace, fictional client data. Summit Dental campaign roadmap."
-                                width={378}
-                                height={258}
+                                width={756}
+                                height={516}
+                                quality={90}
                                 sizes="100vw"
                                 className="h-auto w-full"
                             />
@@ -83,8 +85,9 @@ export function Features() {
                             <Image
                                 src="/marketing/summit-results-mobile.png"
                                 alt="Demo workspace, fictional client data. Summit Dental results, including the baseline, Measuring, and Not yet measurable."
-                                width={374}
-                                height={314}
+                                width={748}
+                                height={628}
+                                quality={90}
                                 sizes="100vw"
                                 className="h-auto w-full"
                             />
@@ -107,11 +110,11 @@ export function Features() {
                     <div className="order-2 md:order-1">
                         <ProductShot
                             desktopSrc="/marketing/summit-tasks.png"
-                            desktopWidth={826}
-                            desktopHeight={568}
+                            desktopWidth={1652}
+                            desktopHeight={1136}
                             mobileSrc="/marketing/summit-tasks-mobile.png"
-                            mobileWidth={378}
-                            mobileHeight={350}
+                            mobileWidth={756}
+                            mobileHeight={700}
                             alt="Demo workspace, fictional client data. Summit Dental tasks."
                             caption={demoCaption}
                         />
