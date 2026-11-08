@@ -2,17 +2,27 @@
 
 import { useState, type FormEvent } from 'react';
 import {
+    CATEGORY_LABEL,
     CONTENT_LABEL,
     CONTENT_STATES,
+    INITIATIVE_CATEGORIES,
+    INITIATIVE_PHASES,
+    INITIATIVE_TARGET_MONTHS,
+    PHASE_LABEL,
+    UNSET_MARK,
     formatInitiativeDay,
     measurementStrip,
+    roadmapPhaseGroups,
     safeHttpUrl,
     statePresentation,
     timelineModel,
     type CampaignInitiative,
     type ContentState,
+    type InitiativeCategory,
     type InitiativeDraft,
     type InitiativeState,
+    type InitiativeTargetMonth,
+    type TimelineRow,
 } from '@/lib/campaign-workspace/initiatives';
 import { saveCampaignInitiative } from '@/lib/supabase/campaign-initiatives';
 import { cn } from '@/lib/utils';
@@ -42,6 +52,9 @@ interface FormState {
     title: string;
     purpose: string;
     ownerName: string;
+    phase: string;
+    category: string;
+    targetMonth: string;
     priority: '1' | '2' | '3' | '4';
     state: InitiativeState;
     startsOn: string;
@@ -63,6 +76,9 @@ function blankForm(): FormState {
         title: '',
         purpose: '',
         ownerName: '',
+        phase: '',
+        category: '',
+        targetMonth: '',
         priority: '2',
         state: 'planned',
         startsOn: '',
@@ -81,6 +97,9 @@ function formFromInitiative(initiative: CampaignInitiative): FormState {
         title: initiative.title,
         purpose: initiative.purpose ?? '',
         ownerName: initiative.ownerName ?? '',
+        phase: initiative.phase ?? '',
+        category: initiative.category ?? '',
+        targetMonth: initiative.targetMonth == null ? '' : String(initiative.targetMonth),
         priority: String(initiative.priority) as FormState['priority'],
         state: initiative.state,
         startsOn: initiative.startsOn ?? '',
@@ -108,6 +127,9 @@ function toDraft(form: FormState): InitiativeDraft {
         title: form.title,
         purpose: form.purpose,
         ownerName: form.ownerName,
+        phase: form.phase,
+        category: form.category,
+        targetMonth: form.targetMonth,
         priority: form.priority,
         state: form.state,
         startsOn: form.startsOn,
@@ -151,6 +173,7 @@ export function RoadmapPanel({
 }) {
     const [form, setForm] = useState<FormState | null>(null);
     const model = timelineModel(initiatives, today);
+    const groups = roadmapPhaseGroups(model.rows);
     const selected = initiatives.find(item => item.id === selectedId) ?? initiatives[0] ?? null;
 
     return (
@@ -202,66 +225,48 @@ export function RoadmapPanel({
                         </div>
                     ) : (
                         <table className="w-full min-w-[760px] border-collapse text-left">
-                            <caption className="sr-only">Initiative timeline. A row without dates has no bar.</caption>
+                            <caption className="sr-only">Initiative timeline. A row without dates has no bar. Category and target month do not move the schedule.</caption>
                             <thead>
                                 <tr className="border-b border-[#e4e4e7] text-[12px] font-medium text-[#71717a]">
                                     <th scope="col" className="px-4 py-3 font-medium">Initiative / why it matters</th>
+                                    <th scope="col" className="px-3 py-3 font-medium">Category</th>
+                                    <th scope="col" className="w-14 px-2 py-3 font-medium">Target</th>
                                     <th scope="col" className="w-12 px-2 py-3 font-medium">Priority</th>
                                     <th scope="col" className="min-w-[28rem] px-4 py-3 font-medium">
                                         <ScheduleHeader model={model} />
                                     </th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                {model.rows.map(row => {
-                                    const active = selected?.id === row.id;
-                                    return (
-                                        <tr
+                            {groups ? groups.map(group => (
+                                <tbody key={group.phase ?? 'unset'} data-phase-group={group.phase ?? 'unset'}>
+                                    <tr>
+                                        <th colSpan={5} scope="rowgroup" className="bg-[#f4f4f6] px-4 py-2 text-left text-[12px] font-semibold text-[#18181b]">
+                                            {group.label}
+                                        </th>
+                                    </tr>
+                                    {group.rows.map(row => (
+                                        <InitiativeTimelineRow
                                             key={row.id}
-                                            data-initiative={row.id}
-                                            data-dates={row.bar ? 'set' : 'unset'}
-                                            data-tone={row.tone}
-                                            aria-selected={active}
-                                            className={cn('border-b border-[#e4e4e7] last:border-b-0', active ? 'bg-[#fdf2f8]' : 'bg-white')}
-                                        >
-                                            <td className="px-4 py-3 align-top">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => onSelect(row.id)}
-                                                    className="min-h-[59px] w-full rounded-sm text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18181b]"
-                                                >
-                                                    <span className="block text-[13px] font-medium leading-5 text-[#18181b]">{row.title}</span>
-                                                    {row.purpose ? <span className="mt-0.5 block text-[13px] leading-5 text-[#52525b]">{row.purpose}</span> : null}
-                                                    <span className={cn('mt-1 inline-flex items-center gap-2 text-[12px] font-medium leading-4', initiativeToneClass(row.tone))}>
-                                                        <InitiativeMark tone={row.tone} />
-                                                        {row.stateLabel}
-                                                    </span>
-                                                </button>
-                                            </td>
-                                            <td className="px-2 py-3 align-top text-[12px] text-[#71717a]">{row.priorityLabel}</td>
-                                            <td className="relative px-4 py-3 align-middle">
-                                                {model.todayFraction != null ? (
-                                                    <span
-                                                        data-today="true"
-                                                        className="pointer-events-none absolute inset-y-0 border-l border-dashed border-[#a1a1aa]"
-                                                        style={{ left: `calc(1rem + (100% - 2rem) * ${model.todayFraction})` }}
-                                                    />
-                                                ) : null}
-                                                <p className="text-[12px] leading-5 text-[#71717a]">{row.datesLabel}</p>
-                                                {row.bar ? (
-                                                    <span
-                                                        data-bar={row.bar.kind}
-                                                        className={cn('mt-2 block h-2 rounded-full', initiativeBarClass(row.tone))}
-                                                        style={row.bar.kind === 'point'
-                                                            ? { width: '10px', marginLeft: `calc(${row.bar.start * 100}% - 5px)` }
-                                                            : { width: `max(8px, ${(row.bar.end - row.bar.start) * 100}%)`, marginLeft: `${row.bar.start * 100}%` }}
-                                                    />
-                                                ) : null}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
+                                            row={row}
+                                            active={selected?.id === row.id}
+                                            todayFraction={model.todayFraction}
+                                            onSelect={onSelect}
+                                        />
+                                    ))}
+                                </tbody>
+                            )) : (
+                                <tbody>
+                                    {model.rows.map(row => (
+                                        <InitiativeTimelineRow
+                                            key={row.id}
+                                            row={row}
+                                            active={selected?.id === row.id}
+                                            todayFraction={model.todayFraction}
+                                            onSelect={onSelect}
+                                        />
+                                    ))}
+                                </tbody>
+                            )}
                         </table>
                     )}
                 </div>
@@ -287,6 +292,94 @@ export function RoadmapPanel({
             )}
         </div>
     );
+}
+
+function InitiativeTimelineRow({
+    row,
+    active,
+    todayFraction,
+    onSelect,
+}: {
+    row: TimelineRow;
+    active: boolean;
+    todayFraction: number | null;
+    onSelect: (id: string) => void;
+}) {
+    return (
+        <tr
+            data-initiative={row.id}
+            data-phase={row.phase ?? ''}
+            data-category={row.category ?? ''}
+            data-target-month={row.targetMonth ?? ''}
+            data-dates={row.bar ? 'set' : 'unset'}
+            data-tone={row.tone}
+            aria-selected={active}
+            className={cn('border-b border-[#e4e4e7] last:border-b-0', active ? 'bg-[#fdf2f8]' : 'bg-white')}
+        >
+            <td className="px-4 py-3 align-top">
+                <button
+                    type="button"
+                    onClick={() => onSelect(row.id)}
+                    className="min-h-[59px] w-full rounded-sm text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18181b]"
+                >
+                    <span className="block text-[13px] font-medium leading-5 text-[#18181b]">{row.title}</span>
+                    {row.purpose ? <span className="mt-0.5 block text-[13px] leading-5 text-[#52525b]">{row.purpose}</span> : null}
+                    <span className={cn('mt-1 inline-flex items-center gap-2 text-[12px] font-medium leading-4', initiativeToneClass(row.tone))}>
+                        <InitiativeMark tone={row.tone} />
+                        {row.stateLabel}
+                    </span>
+                </button>
+            </td>
+            <td className="px-3 py-3 align-middle">
+                <CategoryTag category={row.category} />
+            </td>
+            <td className="w-14 px-2 py-3 text-center align-middle">
+                <TargetMark month={row.targetMonth} />
+            </td>
+            <td className="px-2 py-3 align-middle text-[12px] text-[#71717a]">{row.priorityLabel}</td>
+            <td className="relative px-4 py-3 align-middle">
+                {todayFraction != null ? (
+                    <span
+                        data-today="true"
+                        className="pointer-events-none absolute inset-y-0 border-l border-dashed border-[#a1a1aa]"
+                        style={{ left: `calc(1rem + (100% - 2rem) * ${todayFraction})` }}
+                    />
+                ) : null}
+                <p className="text-[12px] leading-5 text-[#71717a]">{row.datesLabel}</p>
+                {row.bar ? (
+                    <span
+                        data-bar={row.bar.kind}
+                        className={cn('mt-2 block h-2 rounded-full', initiativeBarClass(row.tone))}
+                        style={row.bar.kind === 'point'
+                            ? { width: '10px', marginLeft: `calc(${row.bar.start * 100}% - 5px)` }
+                            : { width: `max(8px, ${(row.bar.end - row.bar.start) * 100}%)`, marginLeft: `${row.bar.start * 100}%` }}
+                    />
+                ) : null}
+            </td>
+        </tr>
+    );
+}
+
+function CategoryTag({ category }: { category: InitiativeCategory | null }) {
+    if (!category) return <UnsetMark />;
+    return (
+        <span className="inline-block max-w-[9.5rem] truncate whitespace-nowrap rounded bg-[#f4f4f6] px-1.5 py-0.5 text-[12px] leading-4 text-[#3f3f46]">
+            {CATEGORY_LABEL[category]}
+        </span>
+    );
+}
+
+function TargetMark({ month }: { month: InitiativeTargetMonth | null }) {
+    if (!month) return <UnsetMark />;
+    return (
+        <span title={`Month ${month} of engagement (planned)`} className="text-[12px] font-medium tabular-nums text-[#18181b]">
+            M{month}
+        </span>
+    );
+}
+
+function UnsetMark() {
+    return <span data-empty="true" className="text-[13px] leading-5 text-[#a1a1aa]">{UNSET_MARK}</span>;
 }
 
 function ScheduleHeader({ model }: { model: ReturnType<typeof timelineModel> }) {
@@ -328,6 +421,9 @@ function Detail({
                 <p className="mt-3 text-[13px] text-[#52525b]">{message ?? 'No initiative selected.'}</p>
                 <dl className="mt-2">
                     <Row label="Purpose" value="Not set yet" />
+                    <Row label="Phase" value={UNSET_MARK} quiet />
+                    <Row label="Category" value={UNSET_MARK} quiet />
+                    <Row label="Target month" value={UNSET_MARK} quiet />
                     <Row label="Delivery checklist" value="No deliverables yet" />
                     <Row label="Measurement" value="Not yet measurable" />
                 </dl>
@@ -360,6 +456,9 @@ function Detail({
             <h3 className="mt-4 text-[10px] font-medium uppercase tracking-wide text-[#71717a]">Purpose</h3>
             <p className="mt-1 text-[13px] leading-5 text-[#18181b]">{initiative.purpose ?? 'Not set yet'}</p>
             <dl className="mt-3">
+                <Row label="Phase" value={initiative.phase ? PHASE_LABEL[initiative.phase] : UNSET_MARK} quiet={!initiative.phase} />
+                <Row label="Category" value={initiative.category ? CATEGORY_LABEL[initiative.category] : UNSET_MARK} quiet={!initiative.category} />
+                <Row label="Target month" value={initiative.targetMonth ? `Month ${initiative.targetMonth}` : UNSET_MARK} quiet={!initiative.targetMonth} />
                 <Row label="Owner" value={initiative.ownerName ?? 'Not set yet'} />
                 <Row label="Priority" value={`P${initiative.priority}`} />
                 <Row label="Page" value={pageUrl ?? 'Not set yet'} />
@@ -408,11 +507,11 @@ function Detail({
     );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, quiet }: { label: string; value: string; quiet?: boolean }) {
     return (
         <div className="flex items-baseline justify-between gap-4 border-b border-[#e4e4e7] py-2.5 last:border-b-0">
             <dt className="text-[13px] text-[#52525b]">{label}</dt>
-            <dd className="max-w-[12rem] truncate text-right text-[13px] text-[#18181b]">{value}</dd>
+            <dd className={cn('max-w-[13rem] truncate text-right text-[13px]', quiet ? 'text-[#a1a1aa]' : 'text-[#18181b]')}>{value}</dd>
         </div>
     );
 }
@@ -475,11 +574,11 @@ function InitiativeForm({
                     <span className={labelClass}>Purpose</span>
                     <textarea value={form.purpose} onChange={event => patch({ purpose: event.target.value })} className={cn(fieldClass, 'h-20 py-2')} maxLength={600} />
                 </label>
-                <label className="block">
-                    <span className={labelClass}>Owner</span>
-                    <input value={form.ownerName} onChange={event => patch({ ownerName: event.target.value })} className={fieldClass} maxLength={120} />
-                </label>
                 <div className="grid grid-cols-2 gap-2">
+                    <label className="block">
+                        <span className={labelClass}>Owner</span>
+                        <input value={form.ownerName} onChange={event => patch({ ownerName: event.target.value })} className={fieldClass} maxLength={120} />
+                    </label>
                     <label className="block">
                         <span className={labelClass}>Priority</span>
                         <select value={form.priority} onChange={event => patch({ priority: event.target.value as FormState['priority'] })} className={fieldClass}>
@@ -490,12 +589,34 @@ function InitiativeForm({
                         </select>
                     </label>
                     <label className="block">
-                        <span className={labelClass}>State</span>
-                        <select value={form.state} onChange={event => patch({ state: event.target.value as InitiativeState })} className={fieldClass}>
-                            {STATE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        <span className={labelClass}>Phase</span>
+                        <select value={form.phase} onChange={event => patch({ phase: event.target.value })} className={fieldClass}>
+                            <option value="">{UNSET_MARK}</option>
+                            {INITIATIVE_PHASES.map(phase => <option key={phase} value={phase}>{PHASE_LABEL[phase]}</option>)}
                         </select>
                     </label>
+                    <label className="block">
+                        <span className={labelClass}>Category</span>
+                        <select value={form.category} onChange={event => patch({ category: event.target.value })} className={fieldClass}>
+                            <option value="">{UNSET_MARK}</option>
+                            {INITIATIVE_CATEGORIES.map(category => <option key={category} value={category}>{CATEGORY_LABEL[category]}</option>)}
+                        </select>
+                    </label>
+                    <label className="col-span-2 block">
+                        <span className={labelClass}>Target month</span>
+                        <select value={form.targetMonth} onChange={event => patch({ targetMonth: event.target.value })} className={fieldClass}>
+                            <option value="">{UNSET_MARK}</option>
+                            {INITIATIVE_TARGET_MONTHS.map(month => <option key={month} value={String(month)}>{`Month ${month}`}</option>)}
+                        </select>
+                        <span className="mt-1 block text-[12px] leading-4 text-[#71717a]">Planned engagement month. Doesn't set dates — schedule uses Starts/Ends.</span>
+                    </label>
                 </div>
+                <label className="block">
+                    <span className={labelClass}>State</span>
+                    <select value={form.state} onChange={event => patch({ state: event.target.value as InitiativeState })} className={fieldClass}>
+                        {STATE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                </label>
                 <div className="grid grid-cols-2 gap-2">
                     <label className="block">
                         <span className={labelClass}>Start date</span>

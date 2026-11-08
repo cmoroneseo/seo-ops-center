@@ -13,6 +13,7 @@ import {
     initiativeRow,
     initiativeWriteScope,
     normalizeInitiativeDraft,
+    readInitiativeStory,
     safeHttpUrl,
     type CampaignInitiative,
     type ContentState,
@@ -85,6 +86,7 @@ function mapInitiative(row: Record<string, unknown>, items: InitiativeItem[]): C
     if (!id || !organizationId || !clientId || !title || !state || !STATES.has(state as InitiativeState)) {
         throw new Error('Unexpected initiative row.');
     }
+    const story = readInitiativeStory(row);
     return {
         id,
         organizationId,
@@ -92,6 +94,9 @@ function mapInitiative(row: Record<string, unknown>, items: InitiativeItem[]): C
         title,
         purpose: text(row.purpose),
         ownerName: text(row.owner_name),
+        phase: story.phase,
+        category: story.category,
+        targetMonth: story.targetMonth,
         priority: priority(row.priority),
         state: state as InitiativeState,
         startsOn: day(row.starts_on),
