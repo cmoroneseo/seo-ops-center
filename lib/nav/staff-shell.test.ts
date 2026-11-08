@@ -134,25 +134,41 @@ test('active rows follow the workspace tab, and the client list is not every wor
 test('campaign sits after Overview only while its flag is on, and a closed flag opens Overview', () => {
     const on = clientSections('summit', { keywordTracking: false, vault: false, campaignWorkspace: true });
     assert.deepEqual(on[0].links.map(link => link.label), [
-        'Overview', 'Campaign', 'SEO Plan', 'Tasks', 'Deliverables', 'Time', 'Reports',
+        'Overview', 'Campaign', 'Tasks', 'Deliverables', 'Time', 'Reports',
     ]);
+    assert.equal(on[0].links.some(link => link.label === 'SEO Plan' || link.tab === 'campaign'), false);
     assert.equal(on[0].links[1].href, '/workspace/summit?tab=campaign-workspace');
     assert.equal(on[0].links[1].tab, 'campaign-workspace');
     assert.ok(on[0].links.findIndex(link => link.label === 'Overview') < on[0].links.findIndex(link => link.label === 'Campaign'));
-    assert.ok(on[0].links.findIndex(link => link.label === 'Campaign') < on[0].links.findIndex(link => link.label === 'SEO Plan'));
+    assert.ok(on[0].links.findIndex(link => link.label === 'Campaign') < on[0].links.findIndex(link => link.label === 'Tasks'));
 
     const off = clientSections('summit', { keywordTracking: true, vault: true, campaignWorkspace: false });
     assert.equal(off[0].links.some(link => link.label === 'Campaign' || link.tab === 'campaign-workspace'), false);
+    assert.deepEqual(off[0].links.map(link => link.label).slice(0, 3), ['Overview', 'SEO Plan', 'Tasks']);
 
     const flagsOn = { keywordTracking: true, vault: true, campaignWorkspace: true };
+    const flagsOff = { ...flagsOn, campaignWorkspace: false };
     const campaign = on[0].links[1];
-    const plan = on[0].links[2];
+    const tasks = on[0].links[2];
     const overview = on[0].links[0];
+    const plan = off[0].links[1];
     assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign-workspace&campaignView=roadmap', campaign, flagsOn), true);
-    assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign-workspace', plan, flagsOn), false);
-    assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign', campaign, flagsOn), false);
-    assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign-workspace', overview, { ...flagsOn, campaignWorkspace: false }), true);
-    assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign', plan, flagsOn), true);
+    assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign-workspace&campaignView=work', campaign, flagsOn), true);
+    assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign-workspace', tasks, flagsOn), false);
+    assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign', campaign, flagsOn), true);
+    assert.equal(isClientLinkActive('/workspace/summit', 'tab=plan&overviewMonth=2026-11', campaign, flagsOn), true);
+    assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign-workspace', overview, flagsOff), true);
+    assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign', plan, flagsOff), true);
+    assert.equal(isClientLinkActive('/workspace/summit', 'tab=campaign', campaign, flagsOff), false);
+
+    assert.equal(switchClientHref({
+        fromPathname: '/workspace/summit',
+        fromSearch: 'tab=campaign&planView=tasks&overviewMonth=2026-11&overviewTask=abc',
+        targetClientId: 'maya',
+        keywordTracking: false,
+        vaultEnabled: false,
+        campaignWorkspace: true,
+    }), '/workspace/maya?tab=campaign-workspace&campaignView=work&overviewMonth=2026-11&overviewTask=abc');
 
     assert.equal(switchClientHref({
         fromPathname: '/workspace/summit',

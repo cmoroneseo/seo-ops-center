@@ -43,10 +43,14 @@ function Toasts({ plan }: { plan: boolean }) {
     );
 }
 
-test('the plan tab is the only workspace view that hides toasts', () => {
+test('the monthly execution board hides toasts', () => {
     assert.equal(seoPlanTabHidesToasts({ activeTab: 'campaign', planView: 'plan', stageListOn: true }), true);
     assert.equal(seoPlanTabHidesToasts({ activeTab: 'campaign', planView: 'plan', stageListOn: false }), true);
     assert.equal(seoPlanTabHidesToasts({ activeTab: 'campaign', planView: 'tasks', stageListOn: true }), true);
+    assert.equal(seoPlanTabHidesToasts({ activeTab: 'campaign-workspace', planView: 'plan', stageListOn: true, campaignView: 'work' }), true);
+    assert.equal(seoPlanTabHidesToasts({ activeTab: 'campaign-workspace', planView: 'plan', stageListOn: true, campaignView: 'overview' }), false);
+    assert.equal(seoPlanTabHidesToasts({ activeTab: 'campaign-workspace', planView: 'plan', stageListOn: true, campaignView: 'roadmap' }), false);
+    assert.equal(seoPlanTabHidesToasts({ activeTab: 'campaign-workspace', planView: 'plan', stageListOn: true, campaignView: 'results' }), false);
     assert.equal(seoPlanTabHidesToasts({ activeTab: 'overview', planView: 'plan', stageListOn: true }), false);
     assert.equal(seoPlanTabHidesToasts({ activeTab: 'insights', planView: 'plan', stageListOn: true }), false);
     assert.equal(seoPlanTabHidesToasts({ activeTab: 'campaign', planView: 'tasks', stageListOn: false }), false);

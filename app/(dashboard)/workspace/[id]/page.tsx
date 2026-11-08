@@ -49,7 +49,7 @@ import { searchReportingEnabled } from '@/lib/search-reporting/flag';
 import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
 import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
 import { identityFromClient } from '@/lib/campaign-workspace/sources';
-import { CAMPAIGN_WORKSPACE_TAB, parseCampaignView, type CampaignView } from '@/lib/campaign-workspace/view';
+import { CAMPAIGN_WORKSPACE_TAB, isSeoPlanWorkspaceTab, parseCampaignView, seoPlanWorkSearch, type CampaignView } from '@/lib/campaign-workspace/view';
 import { CampaignWorkspace } from '@/components/campaign-workspace/CampaignWorkspace';
 import { notifyStaffNav, UNAVAILABLE_MODULE_NOTICE } from '@/lib/nav/staff-shell';
 import { parsePlanView, type PlanView } from '@/lib/search-reporting/ledger';
@@ -99,9 +99,25 @@ export default function ClientDetailPage() {
     const [activeTab, setActiveTabState] = useState<Tab>('overview');
     const [campaignView, setCampaignViewState] = useState<CampaignView>('overview');
     const [planView, setPlanView] = useState<PlanView>('plan');
-    useSuppressPlanToasts(seoPlanTabHidesToasts({ activeTab, planView, stageListOn }));
+    useSuppressPlanToasts(seoPlanTabHidesToasts({ activeTab, planView, stageListOn, campaignView }));
     const [importOpen, setImportOpen] = useState(false);
     const setActiveTab = (tab: Tab, extras?: Record<string, string | null>) => {
+        if (campaignWorkspaceEnabled() && tab === 'campaign') {
+            setActiveTabState('campaign-workspace');
+            setCampaignViewState('work');
+            const url = new URL(window.location.href);
+            url.searchParams.set('tab', CAMPAIGN_WORKSPACE_TAB);
+            url.searchParams.set('campaignView', 'work');
+            url.searchParams.delete('planView');
+            url.searchParams.delete('navNotice');
+            for (const [key, value] of Object.entries(extras ?? {})) {
+                if (value == null) url.searchParams.delete(key);
+                else url.searchParams.set(key, value);
+            }
+            window.history.replaceState(null, '', url);
+            notifyStaffNav();
+            return;
+        }
         const v2 = v2Ref.current;
         const next: Tab = !v2 && tab === 'tasks' ? 'campaign' : tab;
         setActiveTabState(next);
@@ -138,6 +154,18 @@ export default function ClientDetailPage() {
     useLayoutEffect(() => {
         const query = new URLSearchParams(searchKey);
         const tab = query.get('tab');
+        const nextSearch = seoPlanWorkSearch(searchKey, campaignWorkspaceEnabled());
+        if (nextSearch) {
+            setActiveTabState('campaign-workspace');
+            setCampaignViewState('work');
+            const url = new URL(window.location.href);
+            if (isSeoPlanWorkspaceTab(url.searchParams.get('tab'))) {
+                url.search = `?${nextSearch}`;
+                window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+                notifyStaffNav();
+            }
+            return;
+        }
         const knownTabs = ['overview', 'campaign', 'tasks', 'deliverables', 'integrations', 'insights', 'inventory', 'topical-map', 'approvals', 'portal'];
         if (keywordTrackingEnabled()) knownTabs.push('rankings');
         if (campaignWorkspaceEnabled()) knownTabs.push(CAMPAIGN_WORKSPACE_TAB);
@@ -186,6 +214,7 @@ export default function ClientDetailPage() {
         if (seoPlanV2 !== true) return;
         const query = new URLSearchParams(window.location.search);
         const tab = query.get('tab');
+        if (campaignWorkspaceEnabled() && isSeoPlanWorkspaceTab(tab)) return;
         const view = query.get('planView');
         if (tab === 'tasks' || view === 'tasks') setActiveTabState('tasks');
         else if (tab === 'plan') setActiveTabState('campaign');
@@ -302,6 +331,33 @@ export default function ClientDetailPage() {
         return <MissingClient organizationName={organization?.name} />;
     }
 
+    const monthlyBoard = stageListOn ? (
+        <StagePlanList
+            clientId={client.id}
+            clientName={client.clientName}
+            onOpenResults={month => setActiveTab('insights', { range: month })}
+        />
+    ) : (
+        <MarketingPlanTab
+            key={v2On ? 'plan-v2' : 'plan-classic'}
+            organizationId={organization?.id ?? ''}
+            clientId={client.id}
+            clientName={client.clientName}
+            monthlyBudget={client.setupScope?.mode === 'custom' ? null : client.seoHours || client.retainerConfig?.monthlyHours || 0}
+            scopeMode={client.setupScope?.mode === 'custom' ? 'custom' : 'monthly'}
+            presentation={v2On ? 'v2' : 'classic'}
+            checklistScope={{ gbp: client.setupScope?.gbp === true, listings: client.setupScope?.listings === true }}
+            readOnly={v2On && seoPlanReadOnly(client.status)}
+            hoursNarrative={planHoursNarrative({
+                seoHours: client.seoHours,
+                scopeMode: client.setupScope?.mode,
+                status: client.status,
+                launchDate: client.launchDateOverride ?? client.launchDate,
+                month: monthKey(),
+            })}
+        />
+    );
+
     if (activeTab === 'campaign-workspace' && campaignWorkspaceEnabled()) {
         return (
             <CampaignWorkspace
@@ -311,6 +367,11 @@ export default function ClientDetailPage() {
                 identity={identityFromClient(client)}
                 view={campaignView}
                 onView={openCampaignView}
+                monthlyBoard={stageListOn ? monthlyBoard : (
+                    // The stage list paints its own light surface. The older checklist
+                    // still uses theme tokens, so it keeps a token surface on this canvas.
+                    <div className="rounded-xl bg-background p-4 text-foreground">{monthlyBoard}</div>
+                )}
             />
         );
     }
@@ -467,33 +528,8 @@ export default function ClientDetailPage() {
                     notifyStaffNav();
                 }} className={cn('rounded-lg px-4 py-2 text-sm font-medium', planView === view ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>{label}</button>)}
             </nav>}
-            {activeTab === 'campaign' && stageListOn && (
-                <StagePlanList
-                    clientId={client.id}
-                    clientName={client.clientName}
-                    onOpenResults={month => setActiveTab('insights', { range: month })}
-                />
-            )}
-            {(v2On ? activeTab === 'campaign' : activeTab === 'campaign' && planView === 'plan') && !stageListOn && (
-                <MarketingPlanTab
-                    key={v2On ? 'plan-v2' : 'plan-classic'}
-                    organizationId={organization?.id ?? ''}
-                    clientId={client.id}
-                    clientName={client.clientName}
-                    monthlyBudget={client.setupScope?.mode === 'custom' ? null : client.seoHours || client.retainerConfig?.monthlyHours || 0}
-                    scopeMode={client.setupScope?.mode === 'custom' ? 'custom' : 'monthly'}
-                    presentation={v2On ? 'v2' : 'classic'}
-                    checklistScope={{ gbp: client.setupScope?.gbp === true, listings: client.setupScope?.listings === true }}
-                    readOnly={v2On && seoPlanReadOnly(client.status)}
-                    hoursNarrative={planHoursNarrative({
-                        seoHours: client.seoHours,
-                        scopeMode: client.setupScope?.mode,
-                        status: client.status,
-                        launchDate: client.launchDateOverride ?? client.launchDate,
-                        month: monthKey(),
-                    })}
-                />
-            )}
+            {activeTab === 'campaign' && stageListOn && monthlyBoard}
+            {(v2On ? activeTab === 'campaign' : activeTab === 'campaign' && planView === 'plan') && !stageListOn && monthlyBoard}
 
             {!v2On && !stageListOn && activeTab === 'campaign' && planView === 'results' && (
                 <ResultsView
