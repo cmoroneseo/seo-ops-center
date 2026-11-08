@@ -8,9 +8,9 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "SEO Project Management Software | SEO Ops Command Center",
-  description: "The ultimate SEO project management software for agencies. Prove ROI, track deliverables, and manage clients in one real-time command center.",
-  keywords: ["SEO project management software", "agency SEO tool", "SEO ROI tracking", "SEO agency management", "real-time SEO dashboard"],
+  title: "SEO Ops Center | Search data and campaign delivery",
+  description: "See how a client is performing, what the campaign is doing next, and what was actually delivered — without a second spreadsheet or a status-chase email.",
+  keywords: ["SEO agency workspace", "search performance", "campaign delivery", "Google Search Console", "Google Analytics"],
 };
 
 export const viewport: Viewport = {

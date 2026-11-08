@@ -2,20 +2,15 @@ export function SchemaMarkup() {
     const schema = {
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
-        "name": "SEO Ops Command Center",
+        "name": "SEO Ops Center",
         "operatingSystem": "Web",
         "applicationCategory": "BusinessApplication",
-        "offers": {
-            "@type": "Offer",
-            "price": "0",
-            "priceCurrency": "USD"
-        },
-        "description": "The ultimate SEO project management software for agencies. Prove ROI, track deliverables, and manage clients in one real-time command center.",
-        "aggregateRating": {
-            "@type": "AggregateRating",
-            "ratingValue": "4.9",
-            "ratingCount": "120"
-        }
+        "description": "See how a client is performing, what the campaign is doing next, and what was actually delivered — without a second spreadsheet or a status-chase email.",
+        "offers": [
+            { "@type": "Offer", "name": "Starter", "price": "49", "priceCurrency": "USD" },
+            { "@type": "Offer", "name": "Pro", "price": "199", "priceCurrency": "USD" },
+            { "@type": "Offer", "name": "Agency", "price": "499", "priceCurrency": "USD" },
+        ],
     };
 
     return (

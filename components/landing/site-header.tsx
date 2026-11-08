@@ -1,112 +1,83 @@
 "use client";
 
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { ArrowRight, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { useState } from "react";
+import { Wordmark } from "@/components/landing/wordmark";
 
-import { ModeToggle } from "@/components/ui/mode-toggle";
+const nav = [
+    { href: "/#performance", label: "Product" },
+    { href: "/#pricing", label: "Pricing" },
+];
+
+const linkClass = "rounded-md text-sm font-medium text-[#18181b] hover:text-[#ec4899] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#ec4899]";
 
 export function SiteHeader() {
-    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [open, setOpen] = useState(false);
 
     return (
-        <header className="fixed top-0 z-50 w-full border-b border-border bg-background/50 backdrop-blur-xl">
-            <div className="container mx-auto flex h-16 items-center justify-between px-4">
-                <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary to-accent" />
-                    <span className="text-xl font-bold tracking-tight text-foreground">
-                        SEO Ops Center
-                    </span>
-                </div>
+        <header className="sticky top-0 z-40 border-b border-[#e4e4e7] bg-white">
+            <div className="mx-auto flex h-16 w-full max-w-[1200px] items-center justify-between px-5 lg:px-0">
+                <Wordmark />
 
-                {/* Desktop Nav */}
-                <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-muted-foreground">
-                    <Link href="/#features" className="hover:text-foreground transition-colors">
-                        Features
-                    </Link>
-                    <Link href="/tools/roi-calculator" className="hover:text-foreground transition-colors">
-                        ROI Calculator
-                    </Link>
-                    <Link href="/vs/general-pm-comparison" className="hover:text-foreground transition-colors">
-                        Vs. Competitors
-                    </Link>
-                    <Link href="/#pricing" className="hover:text-foreground transition-colors">
-                        Pricing
-                    </Link>
+                <nav className="hidden items-center gap-8 md:flex" aria-label="Primary">
+                    {nav.map((item) => (
+                        <Link key={item.href} href={item.href} className={linkClass}>
+                            {item.label}
+                        </Link>
+                    ))}
                 </nav>
 
-                <div className="flex items-center gap-2 sm:gap-4">
-                    <div className="hidden sm:block">
-                        <ModeToggle />
-                    </div>
-                    <Link href="/login" className="hidden sm:block text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                        Sign In
+                <div className="hidden items-center gap-5 md:flex">
+                    <Link href="/login" className={`${linkClass} inline-flex min-h-11 items-center`}>
+                        Log in
                     </Link>
-                    <Button asChild className="hidden sm:inline-flex bg-primary hover:bg-primary/90 text-primary-foreground border-0 shadow-lg shadow-primary/20">
-                        <Link href="/signup">
-                            Get Started <ArrowRight className="ml-2 h-4 w-4" />
-                        </Link>
-                    </Button>
-
-                    <div className="sm:hidden">
-                        <ModeToggle />
-                    </div>
-
-                    {/* Mobile Menu Toggle */}
-                    <button
-                        className="md:hidden text-foreground p-2"
-                        onClick={() => setIsMenuOpen(!isMenuOpen)}
+                    <Link
+                        href="/signup"
+                        className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#ec4899] px-4 text-sm font-semibold text-white hover:bg-[#db2777] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#ec4899]"
                     >
-                        {isMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+                        Start free trial
+                    </Link>
+                </div>
+
+                <div className="flex items-center gap-2 md:hidden">
+                    <Link href="/login" className={`${linkClass} inline-flex min-h-11 items-center px-2`}>
+                        Log in
+                    </Link>
+                    <button
+                        type="button"
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-md text-[#18181b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ec4899]"
+                        aria-expanded={open}
+                        aria-controls="landing-menu"
+                        onClick={() => setOpen((value) => !value)}
+                    >
+                        <span className="sr-only">{open ? "Close menu" : "Open menu"}</span>
+                        {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
                     </button>
                 </div>
             </div>
 
-            {/* Mobile Menu Overlay */}
-            {isMenuOpen && (
-                <div className="md:hidden absolute top-16 left-0 w-full bg-background border-b border-border p-4 space-y-4 flex flex-col items-center animate-in slide-in-from-top duration-200 z-50">
-                    <Link
-                        href="/#features"
-                        className="text-lg font-medium text-muted-foreground hover:text-foreground transition-colors"
-                        onClick={() => setIsMenuOpen(false)}
-                    >
-                        Features
-                    </Link>
-                    <Link
-                        href="/tools/roi-calculator"
-                        className="text-lg font-medium text-muted-foreground hover:text-foreground transition-colors"
-                        onClick={() => setIsMenuOpen(false)}
-                    >
-                        ROI Calculator
-                    </Link>
-                    <Link
-                        href="/vs/general-pm-comparison"
-                        className="text-lg font-medium text-muted-foreground hover:text-foreground transition-colors"
-                        onClick={() => setIsMenuOpen(false)}
-                    >
-                        Vs. Competitors
-                    </Link>
-                    <Link
-                        href="/#pricing"
-                        className="text-lg font-medium text-muted-foreground hover:text-foreground transition-colors"
-                        onClick={() => setIsMenuOpen(false)}
-                    >
-                        Pricing
-                    </Link>
-                    <hr className="w-full border-border" />
-                    <Link
-                        href="/login"
-                        className="text-lg font-medium text-muted-foreground hover:text-foreground transition-colors"
-                        onClick={() => setIsMenuOpen(false)}
-                    >
-                        Sign In
-                    </Link>
-                    <Button asChild className="w-full bg-primary hover:bg-primary/90 text-primary-foreground border-0">
-                        <Link href="/signup" onClick={() => setIsMenuOpen(false)}>
-                            Get Started <ArrowRight className="ml-2 h-4 w-4" />
+            {open && (
+                <div id="landing-menu" className="border-t border-[#e4e4e7] bg-white px-5 py-4 md:hidden">
+                    <nav className="flex flex-col gap-1" aria-label="Mobile">
+                        {nav.map((item) => (
+                            <Link
+                                key={item.href}
+                                href={item.href}
+                                className="inline-flex min-h-11 items-center rounded-md text-base font-medium text-[#18181b]"
+                                onClick={() => setOpen(false)}
+                            >
+                                {item.label}
+                            </Link>
+                        ))}
+                        <Link
+                            href="/signup"
+                            className="mt-2 inline-flex min-h-11 items-center justify-center rounded-full bg-[#ec4899] px-4 text-sm font-semibold text-white"
+                            onClick={() => setOpen(false)}
+                        >
+                            Start free trial
                         </Link>
-                    </Button>
+                    </nav>
                 </div>
             )}
         </header>
