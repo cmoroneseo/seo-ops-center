@@ -3,6 +3,11 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Isolate local previews from other running Next.js sessions.
   distDir: process.env.NEXT_BUILD_DIR || ".next",
+  images: {
+    // Next 15 warns, and Next 16 rejects, any quality that is not listed here.
+    // 75 stays the default for the rest of the app. Landing product shots opt into 90.
+    qualities: [75, 90],
+  },
   async headers() {
     return [
       {

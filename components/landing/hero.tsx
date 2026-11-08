@@ -40,11 +40,11 @@ export function Hero() {
                 <div className="mt-12 md:mt-16">
                     <ProductShot
                         desktopSrc="/marketing/summit-campaign-overview.png"
-                        desktopWidth={1202}
-                        desktopHeight={797}
+                        desktopWidth={2404}
+                        desktopHeight={1594}
                         mobileSrc="/marketing/summit-campaign-overview-mobile.png"
-                        mobileWidth={378}
-                        mobileHeight={324}
+                        mobileWidth={756}
+                        mobileHeight={648}
                         alt="Demo workspace, fictional client data. Summit Dental campaign overview."
                         caption={demoCaption}
                         priority

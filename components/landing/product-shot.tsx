@@ -30,6 +30,7 @@ export function ProductShot({
                 alt={alt}
                 width={mobileWidth}
                 height={mobileHeight}
+                quality={90}
                 priority={priority}
                 sizes="100vw"
                 className={`${frameClass} md:hidden`}
@@ -39,6 +40,7 @@ export function ProductShot({
                 alt={alt}
                 width={desktopWidth}
                 height={desktopHeight}
+                quality={90}
                 priority={priority}
                 sizes="(min-width: 768px) 1200px, 100vw"
                 className={`${frameClass} hidden md:block`}
