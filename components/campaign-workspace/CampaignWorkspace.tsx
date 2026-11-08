@@ -37,6 +37,7 @@ export const campaignWorkspaceFrameClass =
 const VIEWS: { id: CampaignView; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'roadmap', label: 'Roadmap' },
+    { id: 'work', label: 'Work' },
     { id: 'results', label: 'Results' },
 ];
 
@@ -48,6 +49,7 @@ type InitiativePanelState =
 const SUBTITLE: Record<CampaignView, string> = {
     overview: 'Scope, goals, owners, and the next measurement window for this engagement.',
     roadmap: 'Initiatives connect purpose, delivery, and evidence.',
+    work: "This month's execution, not the client-facing roadmap.",
     results: 'Measured outcomes stay separate from completed delivery.',
 };
 
@@ -61,6 +63,7 @@ export function CampaignWorkspace({
     snapshot,
     initiatives,
     today: todayProp,
+    monthlyBoard,
 }: {
     clientName: string;
     view: CampaignView;
@@ -74,6 +77,11 @@ export function CampaignWorkspace({
     initiatives?: readonly CampaignInitiative[];
     /** ISO day used for milestones, bars, and evidence freshness. */
     today?: string;
+    /**
+     * The live monthly SEO Plan board. Mounted only on Work.
+     * Roadmap stays initiatives; this board is execution.
+     */
+    monthlyBoard?: ReactNode;
 }) {
     const [loaded, setLoaded] = useState<CampaignMeasurement | null>(null);
     const [remoteInitiatives, setRemoteInitiatives] = useState<CampaignInitiative[] | null>(null);
@@ -245,6 +253,7 @@ export function CampaignWorkspace({
                         }}
                     />
                 )}
+                {view === 'work' && monthlyBoard}
                 {view === 'results' && (
                     <Results measurement={measurement} initiatives={readyInitiatives} message={workMessage} today={today} />
                 )}

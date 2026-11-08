@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { CampaignWorkspace } from '../../components/campaign-workspace/CampaignWorkspace.tsx';
-import { parseCampaignView } from './view.ts';
+import { parseCampaignView, seoPlanWorkSearch } from './view.ts';
 import { clientSections } from '../nav/staff-shell.ts';
 import { dateOffset } from '@/lib/gsc/history.ts';
 import type { HistoryDay, HistoryRow } from '@/lib/gsc/insights.ts';
@@ -18,13 +18,14 @@ import { campaignIdentity, campaignLocalProfile, campaignSitewide, type Campaign
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
 function render(
-    view: 'overview' | 'roadmap' | 'results',
+    view: 'overview' | 'roadmap' | 'work' | 'results',
     enabled: boolean,
     extras: {
         snapshot?: CampaignMeasurement;
         identity?: ReturnType<typeof campaignIdentity>;
         initiatives?: CampaignInitiative[];
         today?: string;
+        monthlyBoard?: React.ReactNode;
     } = {},
 ) {
     const previous = process.env.NEXT_PUBLIC_CAMPAIGN_WORKSPACE;
@@ -38,6 +39,7 @@ function render(
             identity: extras.identity,
             initiatives: extras.initiatives,
             today: extras.today,
+            monthlyBoard: extras.monthlyBoard,
         }));
     } finally {
         if (previous === undefined) delete process.env.NEXT_PUBLIC_CAMPAIGN_WORKSPACE;
@@ -106,6 +108,10 @@ function selectedTab(html: string): string {
     return match?.[1] ?? '';
 }
 
+function tabLabels(html: string): string[] {
+    return [...html.matchAll(/role="tab"[^>]*>([^<]+)</g)].map(match => match[1]);
+}
+
 const BANNED = [
     '241',
     '186',
@@ -122,7 +128,24 @@ test('an unknown campaign view stays on Overview', () => {
     assert.equal(parseCampaignView(null), 'overview');
     assert.equal(parseCampaignView('board'), 'overview');
     assert.equal(parseCampaignView('roadmap'), 'roadmap');
+    assert.equal(parseCampaignView('work'), 'work');
     assert.equal(parseCampaignView('results'), 'results');
+});
+
+test('an SEO Plan URL opens Campaign Work only while Campaign is on', () => {
+    assert.equal(seoPlanWorkSearch('tab=campaign', false), null);
+    assert.equal(seoPlanWorkSearch('tab=plan&planView=results', false), null);
+    assert.equal(
+        seoPlanWorkSearch('tab=campaign&planView=tasks&overviewMonth=2026-11&overviewTask=abc', true),
+        'tab=campaign-workspace&campaignView=work&overviewMonth=2026-11&overviewTask=abc',
+    );
+    assert.equal(
+        seoPlanWorkSearch('?tab=plan&phase=build&overviewMonth=2026-11', true),
+        'tab=campaign-workspace&campaignView=work&overviewMonth=2026-11&phase=build',
+    );
+    assert.equal(seoPlanWorkSearch('tab=tasks', true), null);
+    assert.equal(seoPlanWorkSearch('tab=campaign-workspace&campaignView=roadmap', true), null);
+    assert.equal(seoPlanWorkSearch('tab=overview', true), null);
 });
 
 test('the campaign shell stays hidden when the flag is off', () => {
@@ -150,6 +173,7 @@ test('flag-on empty states keep measurement, delivery, and dates unset', () => {
     const roadmap = render('roadmap', true);
     const results = render('results', true);
 
+    assert.deepEqual(tabLabels(overview), ['Overview', 'Roadmap', 'Work', 'Results']);
     assert.equal(selectedTab(overview), 'Overview');
     assert.equal(selectedTab(roadmap), 'Roadmap');
     assert.equal(selectedTab(results), 'Results');
@@ -475,6 +499,27 @@ test('a stored page URL shows its own Search Console clicks and leaves sitewide 
     assert.match(gapped, /data-clicks="8"/);
 });
 
+test('Work mounts the monthly board and leaves the other Campaign views alone', () => {
+    const work = render('work', true, {
+        monthlyBoard: React.createElement('div', { 'data-campaign-monthly-board': 'live' }, 'Monthly execution'),
+    });
+    assert.equal(selectedTab(work), 'Work');
+    assert.deepEqual(tabLabels(work), ['Overview', 'Roadmap', 'Work', 'Results']);
+    assert.match(work, /not the client-facing roadmap/);
+    assert.match(work, /data-campaign-monthly-board="live"/);
+    assert.equal(work.includes('Back to Workspace'), false);
+    assert.equal(work.includes('Organic clicks'), false);
+    assert.equal(work.includes('No initiatives yet'), false);
+    assert.equal(work.includes('National Search Console'), false);
+    assert.equal(work.includes('Add initiative'), false);
+
+    const overview = render('overview', true, {
+        monthlyBoard: React.createElement('div', { 'data-campaign-monthly-board': 'live' }, 'Monthly execution'),
+    });
+    assert.equal(overview.includes('data-campaign-monthly-board'), false);
+    assert.match(overview, /Organic clicks/);
+});
+
 test('the client page mounts Campaign only behind the flag helper', () => {
     const page = readFileSync(new URL('../../app/(dashboard)/workspace/[id]/page.tsx', import.meta.url), 'utf8');
     assert.match(page, /import \{ campaignWorkspaceEnabled \} from '@\/lib\/campaign-workspace\/flag'/);
@@ -484,6 +529,11 @@ test('the client page mounts Campaign only behind the flag helper', () => {
     assert.match(page, /identityFromClient\(client\)/);
     assert.match(page, /clientId=\{client.id\}/);
     assert.match(page, /tab === CAMPAIGN_WORKSPACE_TAB && !campaignWorkspaceEnabled\(\)/);
+    assert.match(page, /seoPlanWorkSearch\(searchKey, campaignWorkspaceEnabled\(\)\)/);
+    assert.match(page, /setCampaignViewState\('work'\)/);
+    assert.match(page, /monthlyBoard=\{stageListOn \? monthlyBoard/);
+    assert.match(page, /<StagePlanList/);
+    assert.match(page, /activeTab === 'campaign' && stageListOn && monthlyBoard/);
     assert.doesNotMatch(page, /NEXT_PUBLIC_CAMPAIGN_WORKSPACE\s*=\s*'true'/);
     assert.doesNotMatch(page, /campaign_plans|campaign-plans/);
 });

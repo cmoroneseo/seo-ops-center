@@ -1,10 +1,13 @@
+import { CAMPAIGN_WORKSPACE_TAB, isSeoPlanWorkspaceTab, seoPlanWorkSearch } from '@/lib/campaign-workspace/view';
 import { reportsNavHref } from '@/lib/reports/close-nav';
 
 /**
  * Variant B staff shell. Clients are the only switchable record.
  * Agency routes are the ones that already ship. Rankings is included
  * only when keyword tracking is exactly on. Campaign is included only
- * when the campaign workspace flag is exactly on. Concept rows are omitted.
+ * when the campaign workspace flag is exactly on, and that same switch
+ * hides SEO Plan. The monthly board then lives on Campaign's Work tab.
+ * Concept rows are omitted.
  */
 
 export const AGENCY_HOME_HREF = '/dashboard';
@@ -139,9 +142,10 @@ export function clientSections(
     const workspace: StaffLink[] = [link('overview', 'Overview', 'overview')];
     if (options.campaignWorkspace) {
         workspace.push(link('campaign-workspace', 'Campaign', 'campaign-workspace'));
+    } else {
+        workspace.push(link('plan', 'SEO Plan', 'plan'));
     }
     workspace.push(
-        link('plan', 'SEO Plan', 'plan'),
         link('tasks', 'Tasks', 'tasks'),
         link('deliverables', 'Deliverables', 'deliverables'),
         { id: 'time', label: 'Time', href: '/timesheets' },
@@ -223,7 +227,9 @@ export function isClientLinkActive(
         return false;
     }
     if (link.tab === 'campaign') return tab === 'campaign' || tab === 'plan';
-    if (link.tab === 'campaign-workspace') return options.campaignWorkspace && tab === 'campaign-workspace';
+    if (link.tab === 'campaign-workspace') {
+        return options.campaignWorkspace && (tab === 'campaign-workspace' || isSeoPlanWorkspaceTab(tab));
+    }
     return tab === link.tab;
 }
 
@@ -256,6 +262,15 @@ export function switchClientHref(input: SwitchClientInput): string {
         || (current === 'campaign-workspace' && !input.campaignWorkspace)
     ) {
         return `/workspace/${id}?tab=overview&navNotice=unavailable`;
+    }
+
+    if (input.campaignWorkspace && current === 'plan') {
+        const next = seoPlanWorkSearch(input.fromSearch, true);
+        if (next) {
+            const kept = new URLSearchParams(next);
+            kept.delete('tab');
+            return workspaceHref(input.targetClientId, CAMPAIGN_WORKSPACE_TAB, kept);
+        }
     }
 
     const extra = new URLSearchParams();
