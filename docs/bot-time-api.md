@@ -8,7 +8,7 @@ A task this API creates is assigned to Carlos. The insert sets `assignee_id` and
 
 This is not a Supabase key. A bot key cannot read the database, delete rows, or change settings. The service role stays on the server.
 
-**Migration `migrations/114_bot_running_timer.sql` is not applied.** Do not run it against the production project `sgszojorcftyaknruckh`. An owner applies it separately. It adds one unique index so a bot cannot have two running timers. The routes work before that index; the index closes a race between two starts. Migration 113 (bot keys, `bot_key_id`) is already in production.
+**Migration `114_bot_running_timer` is applied in production** (`migrations/114_bot_running_timer.sql`). It adds one unique index so a bot cannot have two running timers. The index closes a race between two starts. Migration 113 (bot keys, `bot_key_id`) is already in production.
 
 ## Auth
 

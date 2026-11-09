@@ -6,6 +6,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createTimeLog, getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
 import { basecampSyncNotice } from '@/lib/basecamp/sync-notice';
 import { createClient } from '@/lib/supabase/client';
+import { formatLocalDate } from '@/lib/planner/local-date';
 import { localTimeZone, workedWindowForEdit } from '@/lib/timer/manual-segment';
 import { basecampSendHint, manualTimeDefaults, manualTimeWrite } from '@/lib/timer/manual-entry';
 import { ReviewToggle } from '@/components/timer/ReviewToggle';
@@ -15,15 +16,33 @@ interface TimeLogModalProps {
     onClose: () => void;
     clients: ClientProject[];
     initialClientId?: string;
+    /** yyyy-MM-dd. The timesheet passes the day on screen. Otherwise today. */
+    initialDate?: string;
     organizationId?: string;
+    /** Fired after the time log row is saved, including when Basecamp did not accept it. */
+    onSaved?: (entry: { date: string }) => void;
     /** Tests pass a recorder. The modal otherwise writes the time log itself. */
     saveTimeLog?: typeof createTimeLog;
+    /** Tests mock eligibility. The modal otherwise reads the client's Basecamp flags. */
+    resolveTimesheetSync?: typeof getClientTimesheetSyncEnabled;
 }
 
-export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organizationId, saveTimeLog = createTimeLog }: TimeLogModalProps) {
+export function TimeLogModal({
+    isOpen,
+    onClose,
+    clients,
+    initialClientId,
+    initialDate,
+    organizationId,
+    onSaved,
+    saveTimeLog = createTimeLog,
+    resolveTimesheetSync = getClientTimesheetSyncEnabled,
+}: TimeLogModalProps) {
     const [selectedClientId, setSelectedClientId] = useState(initialClientId || '');
     const [selectedTaskId, setSelectedTaskId] = useState('');
-    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [date, setDate] = useState(() => initialDate || formatLocalDate(new Date()));
+    const initialDateRef = useRef(initialDate);
+    initialDateRef.current = initialDate;
     const [startTime, setStartTime] = useState('');
     const [finishTime, setFinishTime] = useState('');
     const [hours, setHours] = useState('');
@@ -49,6 +68,7 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
             setFormError('');
             setShowSuccess(false);
             setSendOverride(undefined);
+            setDate(initialDateRef.current || formatLocalDate(new Date()));
             const defaults = manualTimeDefaults();
             setBillable(defaults.billable);
             setCountsTowardBudget(defaults.countsTowardBudget);
@@ -67,7 +87,7 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
         let active = true;
         setBcAvailable(false);
         setCheckingBasecamp(true);
-        const pending = getClientTimesheetSyncEnabled(selectedClientId);
+        const pending = resolveTimesheetSync(selectedClientId);
         basecampCheck.current = pending;
         pending.then(enabled => {
             if (!active) return;
@@ -75,7 +95,7 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
             setCheckingBasecamp(false);
         });
         return () => { active = false; };
-    }, [selectedClientId]);
+    }, [resolveTimesheetSync, selectedClientId]);
 
     const entry = manualTimeWrite({
         billable,
@@ -145,6 +165,7 @@ export function TimeLogModal({ isOpen, onClose, clients, initialClientId, organi
             setFormError(result.error || 'Could not save this entry.');
             return;
         }
+        onSaved?.({ date });
         const syncNotice = basecampSyncNotice(result.basecampSync);
         if (result.segmentWarning) setFormError(result.segmentWarning);
         else if (syncNotice) setFormError(syncNotice);
