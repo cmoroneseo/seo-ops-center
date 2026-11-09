@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { ClientTable } from '../components/workspace/ClientTable.tsx';
+import { TimeLogModal } from '../components/workspace/TimeLogModal.tsx';
 import { TimesheetsShell } from '../components/timesheets/TimesheetsShell.tsx';
 import { OrganizationContext } from '../components/providers/organization-provider.tsx';
 import { TimerContext } from '../components/providers/timer-provider.tsx';
@@ -12,7 +13,7 @@ import { formatWeekRange } from './timesheets/format.ts';
 import { weekStartFor } from './timesheets/ledger.ts';
 import { manualLogDate } from './timesheets/manual-log.ts';
 import { formatLocalDate, parseLocalDate } from './planner/local-date.ts';
-import type { ClientProject, Organization } from './types.ts';
+import type { ClientProject, Organization, Task } from './types.ts';
 
 // CI provides public Supabase credentials. These screens look up the session
 // and a client's Basecamp flags, and a live client keeps the process open.
@@ -304,6 +305,186 @@ test('manual hours on another visible week prefill that week, not today', async 
     const date = container.querySelector<HTMLInputElement>('#time-log-date');
     assert.equal(date?.value, nextWeek);
     assert.notEqual(date?.value, today);
+
+    act(() => root.unmount());
+    container.remove();
+});
+
+function logTask(patch: Partial<Task> & Pick<Task, 'id' | 'title' | 'status'>): Task {
+    return {
+        organizationId: 'org-1',
+        clientId: patch.clientId ?? 'client-1',
+        assignees: [],
+        priority: 'medium',
+        tags: [],
+        subtasks: [],
+        ...patch,
+    };
+}
+
+function taskOptionLabels(container: ParentNode): string[] {
+    const select = container.querySelector<HTMLSelectElement>('#time-log-task');
+    assert.ok(select);
+    return [...select.options].map(option => option.text);
+}
+
+test('selecting a client lists that client\'s open tasks and logs the chosen task', async () => {
+    const requested: string[] = [];
+    const saved: Array<{ taskId?: string; clientId?: string }> = [];
+    let release: (tasks: Task[]) => void = () => undefined;
+    const pending = new Promise<Task[]>(resolve => {
+        release = resolve;
+    });
+    const row = client('Northwind');
+    row.tasks = [logTask({ id: 'provided', title: 'Provided only', status: 'todo' })];
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+        root.render(createElement(TimeLogModal, {
+            isOpen: true,
+            onClose: () => undefined,
+            clients: [row],
+            organizationId: 'org-1',
+            initialClientId: 'client-1',
+            loadClientTasks: clientId => {
+                requested.push(clientId);
+                return pending;
+            },
+            saveTimeLog: async (log) => {
+                saved.push({ taskId: log.taskId, clientId: log.clientId });
+                return { success: false, error: 'stopped' };
+            },
+        }));
+    });
+
+    assert.deepEqual(requested, ['client-1']);
+    assert.match(container.textContent ?? '', /Loading tasks…/);
+
+    await act(async () => {
+        release([
+            logTask({ id: 'task-open', title: 'Fix title tags', status: 'todo' }),
+            logTask({ id: 'task-doing', title: 'Write the brief', status: 'in_progress' }),
+            logTask({ id: 'task-done', title: 'Submit sitemap', status: 'done' }),
+        ]);
+        await pending;
+    });
+
+    assert.equal(container.textContent?.includes('Loading tasks…'), false);
+    assert.deepEqual(taskOptionLabels(container), [
+        'General / No specific task',
+        'Fix title tags',
+        'Write the brief',
+    ]);
+
+    const hours = container.querySelector<HTMLInputElement>('#time-log-hours');
+    const description = container.querySelector<HTMLTextAreaElement>('textarea');
+    const taskSelect = container.querySelector<HTMLSelectElement>('#time-log-task');
+    assert.ok(hours && description && taskSelect);
+    await act(async () => {
+        setValue(taskSelect, 'task-open');
+        setValue(hours, '1.25');
+        setValue(description, 'Title tags');
+    });
+    await act(async () => {
+        buttonByText(container, 'Log Time').click();
+    });
+    assert.deepEqual(saved, [{ taskId: 'task-open', clientId: 'client-1' }]);
+
+    act(() => root.unmount());
+    container.remove();
+});
+
+test('done tasks stay hidden and an empty load keeps open tasks supplied with the client', async () => {
+    const row = client('Northwind');
+    row.tasks = [
+        logTask({ id: 'provided', title: 'Provided open task', status: 'in_progress' }),
+        logTask({ id: 'provided-done', title: 'Provided done task', status: 'done' }),
+    ];
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+        root.render(createElement(TimeLogModal, {
+            isOpen: true,
+            onClose: () => undefined,
+            clients: [row],
+            initialClientId: 'client-1',
+            loadClientTasks: async () => [
+                logTask({ id: 'remote-done', title: 'Remote done task', status: 'done' }),
+            ],
+            saveTimeLog: async () => ({ success: false, error: 'stopped' }),
+        }));
+    });
+    await act(async () => {
+        await Promise.resolve();
+    });
+
+    assert.deepEqual(taskOptionLabels(container), [
+        'General / No specific task',
+        'Provided open task',
+    ]);
+
+    act(() => root.unmount());
+    container.remove();
+});
+
+test('a late task response does not replace the client selected now', async () => {
+    let releaseNorth: (tasks: Task[]) => void = () => undefined;
+    const pendingNorth = new Promise<Task[]>(resolve => {
+        releaseNorth = resolve;
+    });
+    const requested: string[] = [];
+    const north = client('Northwind');
+    north.id = 'client-a';
+    const harbor = client('Harbor');
+    harbor.id = 'client-b';
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+        root.render(createElement(TimeLogModal, {
+            isOpen: true,
+            onClose: () => undefined,
+            clients: [north, harbor],
+            initialClientId: 'client-a',
+            loadClientTasks: clientId => {
+                requested.push(clientId);
+                if (clientId === 'client-a') return pendingNorth;
+                return Promise.resolve([
+                    logTask({ id: 'task-b', clientId, title: 'Harbor audit', status: 'todo' }),
+                ]);
+            },
+            saveTimeLog: async () => ({ success: false, error: 'stopped' }),
+        }));
+    });
+
+    const clientSelect = container.querySelector<HTMLSelectElement>('select');
+    assert.ok(clientSelect);
+    await act(async () => {
+        setValue(clientSelect, 'client-b');
+    });
+    await act(async () => {
+        await Promise.resolve();
+    });
+    assert.deepEqual(requested, ['client-a', 'client-b']);
+    assert.deepEqual(taskOptionLabels(container), [
+        'General / No specific task',
+        'Harbor audit',
+    ]);
+
+    await act(async () => {
+        releaseNorth([
+            logTask({ id: 'task-a', clientId: 'client-a', title: 'Northwind titles', status: 'todo' }),
+        ]);
+        await pendingNorth;
+    });
+    assert.deepEqual(taskOptionLabels(container), [
+        'General / No specific task',
+        'Harbor audit',
+    ]);
 
     act(() => root.unmount());
     container.remove();
