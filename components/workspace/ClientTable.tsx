@@ -85,7 +85,7 @@ export function ClientTable({ clients }: ClientTableProps) {
                             return (
                                 <React.Fragment key={client.id}>
                                     <tr className={cn(
-                                        "transition-colors hover:bg-muted/20",
+                                        "group transition-colors hover:bg-muted/20",
                                         atRisk && "bg-red-500/5 hover:bg-red-500/10",
                                         isExpanded && "bg-muted/30"
                                     )}>
@@ -113,11 +113,13 @@ export function ClientTable({ clients }: ClientTableProps) {
                                             <div className="flex items-center gap-2">
                                                 <span>{client.launchDate ? new Date(client.launchDate + 'T00:00:00').toLocaleDateString() : '—'}</span>
                                                 <button
+                                                    type="button"
                                                     onClick={(e) => handleLogTime(client.id, e)}
-                                                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-primary/10 rounded text-primary transition-all"
+                                                    aria-label={`Log time for ${client.clientName}`}
                                                     title="Log Time"
+                                                    className="rounded p-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary focus-visible:bg-primary/10 focus-visible:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary group-hover:text-primary group-focus-within:text-primary"
                                                 >
-                                                    <Clock className="h-3 w-3" />
+                                                    <Clock className="h-4 w-4" />
                                                 </button>
                                             </div>
                                         </td>

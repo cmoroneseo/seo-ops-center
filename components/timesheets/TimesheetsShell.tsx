@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, AlertTriangle, Plus } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, AlertTriangle, Clock, Plus, Timer } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useTimer } from '@/components/providers/timer-provider';
@@ -10,13 +10,18 @@ import { openTimerRows } from '@/lib/timer/attempt-state';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { formatDuration, formatWeekRange, percentOf } from '@/lib/timesheets/format';
 import { weekStartFor, type WeeklyLedger, type LedgerLog } from '@/lib/timesheets/ledger';
+import { manualLogDate } from '@/lib/timesheets/manual-log';
 import { formatLocalDate, parseLocalDate } from '@/lib/planner/local-date';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
+import { getClients } from '@/lib/supabase/clients';
+import { createTimeLog, getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
+import type { ClientProject } from '@/lib/types';
 import { WeeklyLedgerGrid } from './WeeklyLedgerGrid';
 import { LedgerInspector } from './LedgerInspector';
 import { TeamTimesheetView } from './TeamTimesheetView';
 import { ClientReviewView } from './ClientReviewView';
 import { ImportReviewView } from './ImportReviewView';
+import { TimeLogModal } from '@/components/workspace/TimeLogModal';
 
 type Tab = 'mine' | 'imports' | 'team' | 'review';
 
@@ -48,7 +53,18 @@ interface TeamMember {
     basecampPersonId?: string;
 }
 
-export function TimesheetsShell({ initialTab }: { initialTab?: Tab }) {
+export function TimesheetsShell({
+    initialTab,
+    manualLogClients,
+    saveTimeLog,
+    resolveTimesheetSync,
+}: {
+    initialTab?: Tab;
+    /** Tests pass clients. The page loads them when manual hours open. */
+    manualLogClients?: ClientProject[];
+    saveTimeLog?: typeof createTimeLog;
+    resolveTimesheetSync?: typeof getClientTimesheetSyncEnabled;
+}) {
     const { organization } = useOrganization();
     const { runningTimer, pausedTimers, getElapsedSeconds, resume } = useTimer();
     const { userId, isLoading: memberLoading } = useCurrentMember();
@@ -62,6 +78,10 @@ export function TimesheetsShell({ initialTab }: { initialTab?: Tab }) {
     const [data, setData] = useState<LedgerResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [addMenuOpen, setAddMenuOpen] = useState(false);
+    const [manualOpen, setManualOpen] = useState(false);
+    const [manualClients, setManualClients] = useState<ClientProject[]>(manualLogClients ?? []);
+    const addMenuRef = useRef<HTMLDivElement>(null);
 
     const organizationId = organization?.id ?? '';
     const targetUserId = viewUserId ?? userId;
@@ -118,6 +138,46 @@ export function TimesheetsShell({ initialTab }: { initialTab?: Tab }) {
         window.addEventListener('timesheets:open-imports', open);
         return () => window.removeEventListener('timesheets:open-imports', open);
     }, []);
+
+    useEffect(() => {
+        if (!addMenuOpen) return;
+        const onPointer = (event: MouseEvent) => {
+            if (!addMenuRef.current?.contains(event.target as Node)) setAddMenuOpen(false);
+        };
+        const onKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') setAddMenuOpen(false);
+        };
+        document.addEventListener('mousedown', onPointer);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('mousedown', onPointer);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [addMenuOpen]);
+
+    const logDate = manualLogDate(weekStart, today);
+
+    function startTimer() {
+        setAddMenuOpen(false);
+        window.dispatchEvent(new CustomEvent('timer:open-quick-start'));
+    }
+
+    async function openManualLog() {
+        setAddMenuOpen(false);
+        if (!manualLogClients && organizationId) {
+            setManualClients(await getClients(organizationId));
+        }
+        setManualOpen(true);
+    }
+
+    function handleManualSaved(entry: { date: string }) {
+        const nextWeek = weekStartFor(entry.date);
+        if (nextWeek !== weekStart) {
+            setWeekStart(nextWeek);
+            return;
+        }
+        void load();
+    }
 
     const ledger = data?.ledger ?? null;
     const selected = useMemo(() => {
@@ -252,17 +312,49 @@ export function TimesheetsShell({ initialTab }: { initialTab?: Tab }) {
                             </div>
                         )}
 
-                        <button
-                            type="button"
-                            onClick={() => window.dispatchEvent(new CustomEvent('timer:open-quick-start'))}
-                            className={cn(
-                                'flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
-                                !(isManager && members.length > 1) && 'ml-auto',
-                            )}
+                        <div
+                            ref={addMenuRef}
+                            className={cn('relative', !(isManager && members.length > 1) && 'ml-auto')}
                         >
-                            <Plus className="h-4 w-4" aria-hidden />
-                            Add time
-                        </button>
+                            <button
+                                type="button"
+                                aria-haspopup="menu"
+                                aria-expanded={addMenuOpen}
+                                aria-controls="timesheet-add-time-menu"
+                                onClick={() => setAddMenuOpen(open => !open)}
+                                className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                            >
+                                <Plus className="h-4 w-4" aria-hidden />
+                                Add time
+                            </button>
+                            {addMenuOpen && (
+                                <div
+                                    id="timesheet-add-time-menu"
+                                    role="menu"
+                                    aria-label="Add time"
+                                    className="absolute right-0 z-30 mt-1 w-56 rounded-xl border border-border bg-card p-1.5 shadow-xl"
+                                >
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={startTimer}
+                                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                                    >
+                                        <Timer className="h-4 w-4 text-muted-foreground" aria-hidden />
+                                        Start timer
+                                    </button>
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={() => { void openManualLog(); }}
+                                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                                    >
+                                        <Clock className="h-4 w-4 text-muted-foreground" aria-hidden />
+                                        Log hours manually
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     {error && (
@@ -312,6 +404,16 @@ export function TimesheetsShell({ initialTab }: { initialTab?: Tab }) {
                     </div>
                 </div>
             )}
+            <TimeLogModal
+                isOpen={manualOpen}
+                onClose={() => setManualOpen(false)}
+                onSaved={handleManualSaved}
+                clients={manualClients}
+                organizationId={organizationId || undefined}
+                initialDate={logDate}
+                saveTimeLog={saveTimeLog}
+                resolveTimesheetSync={resolveTimesheetSync}
+            />
         </div>
     );
 }
