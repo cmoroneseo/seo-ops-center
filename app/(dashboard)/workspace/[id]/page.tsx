@@ -49,6 +49,7 @@ import { searchReportingEnabled } from '@/lib/search-reporting/flag';
 import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
 import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
 import { identityFromClient } from '@/lib/campaign-workspace/sources';
+import { engagementFromClient } from '@/lib/campaign-workspace/briefing';
 import { CAMPAIGN_WORKSPACE_TAB, isSeoPlanWorkspaceTab, parseCampaignView, seoPlanWorkSearch, type CampaignView } from '@/lib/campaign-workspace/view';
 import { CampaignWorkspace } from '@/components/campaign-workspace/CampaignWorkspace';
 import { notifyStaffNav, UNAVAILABLE_MODULE_NOTICE } from '@/lib/nav/staff-shell';
@@ -365,6 +366,7 @@ export default function ClientDetailPage() {
                 organizationId={organization?.id}
                 clientId={client.id}
                 identity={identityFromClient(client)}
+                engagement={engagementFromClient(client)}
                 view={campaignView}
                 onView={openCampaignView}
                 monthlyBoard={stageListOn ? monthlyBoard : (
