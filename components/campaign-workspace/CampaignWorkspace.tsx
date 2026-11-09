@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ContentPlanSection } from '@/components/campaign-workspace/ContentPlanTable';
 import { OverviewBriefing } from '@/components/campaign-workspace/OverviewBriefing';
 import { RoadmapPanel } from '@/components/campaign-workspace/RoadmapPanel';
 import {
@@ -24,6 +25,7 @@ import {
     type CampaignMeasurement,
     type CampaignSitewide,
 } from '@/lib/campaign-workspace/sources';
+import { type ContentPlanRow } from '@/lib/campaign-workspace/content-plan';
 import { type CampaignView } from '@/lib/campaign-workspace/view';
 import { ptToday } from '@/lib/sync/months';
 import { listCampaignInitiatives } from '@/lib/supabase/campaign-initiatives';
@@ -73,6 +75,8 @@ export function CampaignWorkspace({
     scope,
     today: todayProp,
     monthlyBoard,
+    contentPlanMonth,
+    contentPlan,
 }: {
     clientName: string;
     view: CampaignView;
@@ -94,10 +98,14 @@ export function CampaignWorkspace({
     /** ISO day used for milestones, bars, and evidence freshness. */
     today?: string;
     /**
-     * The live monthly SEO Plan board. Mounted only on Work.
+     * The live monthly SEO Plan board. Mounted only on Work, under the content plan.
      * Roadmap stays initiatives; this board is execution.
      */
     monthlyBoard?: ReactNode;
+    /** Set in tests. When present, Work does not read the content plan URL month. */
+    contentPlanMonth?: string;
+    /** Set in tests. When present, Work does not read stored content plan rows. */
+    contentPlan?: readonly ContentPlanRow[];
 }) {
     const [loaded, setLoaded] = useState<CampaignMeasurement | null>(null);
     const [remoteInitiatives, setRemoteInitiatives] = useState<CampaignInitiative[] | null>(null);
@@ -324,7 +332,18 @@ export function CampaignWorkspace({
                         }}
                     />
                 )}
-                {view === 'work' && monthlyBoard}
+                {view === 'work' && (
+                    <div className="space-y-8">
+                        <ContentPlanSection
+                            clientId={clientId}
+                            organizationId={organizationId}
+                            today={today}
+                            month={contentPlanMonth}
+                            rows={contentPlan}
+                        />
+                        {monthlyBoard}
+                    </div>
+                )}
                 {view === 'results' && (
                     <Results measurement={measurement} initiatives={readyInitiatives} message={workMessage} today={today} />
                 )}

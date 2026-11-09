@@ -29,6 +29,8 @@ function render(
         monthlyBoard?: React.ReactNode;
         engagement?: ReturnType<typeof engagementFromClient>;
         scope?: ScopeEvidence;
+        contentPlanMonth?: string;
+        contentPlan?: readonly import('./content-plan.ts').ContentPlanRow[];
     } = {},
 ) {
     const previous = process.env.NEXT_PUBLIC_CAMPAIGN_WORKSPACE;
@@ -45,6 +47,8 @@ function render(
             scope: extras.scope,
             today: extras.today,
             monthlyBoard: extras.monthlyBoard,
+            contentPlanMonth: extras.contentPlanMonth,
+            contentPlan: extras.contentPlan,
         }));
     } finally {
         if (previous === undefined) delete process.env.NEXT_PUBLIC_CAMPAIGN_WORKSPACE;
@@ -616,7 +620,15 @@ test('Work mounts the monthly board and leaves the other Campaign views alone', 
     assert.equal(selectedTab(work), 'Work');
     assert.deepEqual(tabLabels(work), ['Overview', 'Roadmap', 'Work', 'Results']);
     assert.match(work, /not the client-facing roadmap/);
+    assert.match(work, /data-region="content-plan"/);
+    assert.match(work, /data-content-honesty="published"/);
+    assert.match(work, /It is not indexed and it is not performing/);
+    assert.ok(work.indexOf('data-region="content-plan"') < work.indexOf('data-campaign-monthly-board'));
     assert.match(work, /data-campaign-monthly-board="live"/);
+    assert.equal(work.includes('Completed &amp; Verified'), false);
+    assert.equal(work.includes('On track'), false);
+    assert.equal(work.includes('progressbar'), false);
+    assert.equal(work.includes('EXAMPLE: How Much Does a Kitchen Remodel'), false);
     assert.equal(work.includes('Back to Workspace'), false);
     assert.equal(work.includes('Organic clicks'), false);
     assert.equal(work.includes('No initiatives yet'), false);
@@ -627,6 +639,7 @@ test('Work mounts the monthly board and leaves the other Campaign views alone', 
         monthlyBoard: React.createElement('div', { 'data-campaign-monthly-board': 'live' }, 'Monthly execution'),
     });
     assert.equal(overview.includes('data-campaign-monthly-board'), false);
+    assert.equal(overview.includes('data-region="content-plan"'), false);
     assert.match(overview, /SEO Roadmap/);
     assert.equal(overview.includes('Monthly execution'), false);
 });

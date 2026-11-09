@@ -31,7 +31,7 @@ import { NestUnderPillarPanel } from './NestUnderPillarPanel';
 import { itemsEligibleForPillarNest, nestCandidateFromPlanItem } from '@/lib/tasks/pillars';
 import { ExecutionWorkspace, ExecutionTaskPatch, ScheduleFields } from './ExecutionWorkspace';
 import { monthKey } from '@/lib/marketing-plan-execution';
-import { hrefWithOverviewMonth, readOverviewMonth } from '@/lib/seo-plan/plan-month-url';
+import { hrefWithOverviewMonth, notifyOverviewMonth, readOverviewMonth } from '@/lib/seo-plan/plan-month-url';
 import type { HoursNarrative } from '@/lib/seo-plan/overview';
 import {getSeoHoursForMonth} from '@/lib/supabase/change-log';
 import { getTask, updateTask } from '@/lib/supabase/tasks';
@@ -135,6 +135,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
         const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
         const next = hrefWithOverviewMonth(current, month);
         if (next !== current) window.history.replaceState(window.history.state, '', next);
+        notifyOverviewMonth(month);
     }, [month]);
     useEffect(() => {
         let cancelled = false;

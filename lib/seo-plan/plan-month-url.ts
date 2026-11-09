@@ -12,3 +12,12 @@ export function hrefWithOverviewMonth(href: string, month: string): string {
     url.searchParams.set('overviewMonth', month);
     return `${url.pathname}${url.search}${url.hash}`;
 }
+
+/** The monthly board tells same-page listeners that the work month was committed. */
+export const OVERVIEW_MONTH_EVENT = 'seo-plan:overview-month';
+
+export function notifyOverviewMonth(month: string): void {
+    if (typeof window === 'undefined') return;
+    const Notify = window.CustomEvent;
+    window.dispatchEvent(new Notify(OVERVIEW_MONTH_EVENT, { detail: month }));
+}

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { Check, ChevronRight, GripVertical, Play } from 'lucide-react';
 import { isPendingStageTaskId } from '@/lib/seo-plan/stage-add';
-import { hrefWithOverviewMonth, readOverviewMonth } from '@/lib/seo-plan/plan-month-url';
+import { hrefWithOverviewMonth, notifyOverviewMonth, readOverviewMonth } from '@/lib/seo-plan/plan-month-url';
 import { isChecklistTaskId } from '@/lib/seo-plan/plan-work';
 import { effectOfPlanDrop } from '@/lib/seo-plan/plan-drag';
 import {
@@ -369,6 +369,7 @@ export function StagePlanListView({
         const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
         const next = hrefWithOverviewMonth(current, month);
         if (next !== current) window.history.replaceState(window.history.state, '', next);
+        notifyOverviewMonth(month);
     }, [month]);
 
     useEffect(() => {
