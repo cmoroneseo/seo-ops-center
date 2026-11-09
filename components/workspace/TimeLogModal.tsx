@@ -1,8 +1,9 @@
 'use client';
 
-import { ClientProject } from '@/lib/types';
-import { X, Clock, Calendar, FileText, CheckCircle2 } from 'lucide-react';
+import { ClientProject, type Task } from '@/lib/types';
+import { X, Clock, Calendar, CheckCircle2 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
+import { getTasksByClient } from '@/lib/supabase/tasks';
 import { createTimeLog, getClientTimesheetSyncEnabled } from '@/lib/supabase/time-logs';
 import { basecampSyncNotice } from '@/lib/basecamp/sync-notice';
 import { createClient } from '@/lib/supabase/client';
@@ -25,6 +26,12 @@ interface TimeLogModalProps {
     saveTimeLog?: typeof createTimeLog;
     /** Tests mock eligibility. The modal otherwise reads the client's Basecamp flags. */
     resolveTimesheetSync?: typeof getClientTimesheetSyncEnabled;
+    /** Tests pass a loader. The modal otherwise reads this client's tasks. */
+    loadClientTasks?: (clientId: string) => Promise<Task[]>;
+}
+
+function openTimeLogTasks(tasks: readonly Task[] | undefined): Task[] {
+    return (tasks ?? []).filter(task => task.status !== 'done');
 }
 
 export function TimeLogModal({
@@ -37,6 +44,7 @@ export function TimeLogModal({
     onSaved,
     saveTimeLog = createTimeLog,
     resolveTimesheetSync = getClientTimesheetSyncEnabled,
+    loadClientTasks = getTasksByClient,
 }: TimeLogModalProps) {
     const [selectedClientId, setSelectedClientId] = useState(initialClientId || '');
     const [selectedTaskId, setSelectedTaskId] = useState('');
@@ -56,6 +64,12 @@ export function TimeLogModal({
     const [billable, setBillable] = useState(true);
     const [countsTowardBudget, setCountsTowardBudget] = useState(true);
     const basecampCheck = useRef<Promise<boolean>>(Promise.resolve(false));
+    const [taskOptions, setTaskOptions] = useState<Task[]>([]);
+    const [tasksLoading, setTasksLoading] = useState(false);
+    const clientsRef = useRef(clients);
+    clientsRef.current = clients;
+    const loadClientTasksRef = useRef(loadClientTasks);
+    loadClientTasksRef.current = loadClientTasks;
 
     useEffect(() => {
         if (isOpen) {
@@ -97,6 +111,40 @@ export function TimeLogModal({
         return () => { active = false; };
     }, [resolveTimesheetSync, selectedClientId]);
 
+    // getClients stores tasks: []. Load the selected client's open tasks here,
+    // and drop a response that arrives after the client has already changed.
+    useEffect(() => {
+        setSelectedTaskId('');
+        if (!isOpen || !selectedClientId) {
+            setTaskOptions([]);
+            setTasksLoading(false);
+            return;
+        }
+        let cancelled = false;
+        setTasksLoading(true);
+        const provided = openTimeLogTasks(
+            clientsRef.current.find(client => client.id === selectedClientId)?.tasks,
+        );
+        setTaskOptions(provided);
+        const showTasks = (tasks: Task[]) => {
+            setTaskOptions(tasks);
+            setSelectedTaskId(current => tasks.some(task => task.id === current) ? current : '');
+            setTasksLoading(false);
+        };
+        void Promise.resolve()
+            .then(() => loadClientTasksRef.current(selectedClientId))
+            .then(loaded => {
+                if (cancelled) return;
+                const open = openTimeLogTasks(loaded);
+                showTasks(open.length > 0 ? open : provided);
+            })
+            .catch(() => {
+                if (cancelled) return;
+                showTasks(provided);
+            });
+        return () => { cancelled = true; };
+    }, [isOpen, selectedClientId]);
+
     const entry = manualTimeWrite({
         billable,
         countsTowardBudget,
@@ -111,9 +159,6 @@ export function TimeLogModal({
     });
     const hoursLocked = Boolean(placement.window);
     const hoursValue = placement.window ? String(placement.window.hours) : hours;
-
-    const selectedClient = clients.find(c => c.id === selectedClientId);
-    const clientTasks = selectedClient?.tasks || [];
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -212,6 +257,7 @@ export function TimeLogModal({
                                 value={selectedClientId}
                                 onChange={(e) => {
                                     setSelectedClientId(e.target.value);
+                                    setSelectedTaskId('');
                                     setSendOverride(undefined);
                                 }}
                                 className="w-full p-2 rounded-md bg-background border border-border focus:ring-2 focus:ring-primary/50 outline-none transition-all"
@@ -225,14 +271,18 @@ export function TimeLogModal({
 
                         {selectedClientId && (
                             <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
-                                <label className="text-sm font-medium text-muted-foreground">Task (Optional)</label>
+                                <label htmlFor="time-log-task" className="text-sm font-medium text-muted-foreground">Task (Optional)</label>
+                                {tasksLoading && (
+                                    <p className="text-xs text-muted-foreground">Loading tasks…</p>
+                                )}
                                 <select
+                                    id="time-log-task"
                                     value={selectedTaskId}
                                     onChange={(e) => setSelectedTaskId(e.target.value)}
                                     className="w-full p-2 rounded-md bg-background border border-border focus:ring-2 focus:ring-primary/50 outline-none transition-all"
                                 >
                                     <option value="">General / No specific task</option>
-                                    {clientTasks.map(task => (
+                                    {taskOptions.map(task => (
                                         <option key={task.id} value={task.id}>{task.title}</option>
                                     ))}
                                 </select>
