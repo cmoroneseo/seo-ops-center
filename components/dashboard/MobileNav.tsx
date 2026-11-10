@@ -15,6 +15,7 @@ import { useOrganization } from '@/components/providers/organization-provider';
 import { useClients } from '@/lib/hooks/use-clients';
 import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
 import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
+import { pipelineNavEnabled } from '@/lib/nav/pipeline-flag';
 import { useAgencyDashboardEnabled } from '@/components/agency-dashboard/use-enabled';
 import { useVaultEnabled } from '@/components/vault/use-vault-enabled';
 import {
@@ -50,6 +51,7 @@ export function MobileNav() {
     const vaultEnabled = useVaultEnabled(organization?.id) === true;
     const keywordTracking = keywordTrackingEnabled();
     const campaignWorkspace = campaignWorkspaceEnabled();
+    const pipelineNav = pipelineNavEnabled();
     const [menuOpen, setMenuOpen] = useState(false);
     const [selectorOpen, setSelectorOpen] = useState(false);
     const [searchOpen, setSearchOpen] = useState(false);
@@ -58,7 +60,7 @@ export function MobileNav() {
         .map((membership) => membership.organization)
         .filter((org): org is NonNullable<typeof org> => org !== null && org !== undefined);
     const showOrgSwitcher = switchableOrgs.length > 1;
-    const flags = { keywordTracking, vault: vaultEnabled, campaignWorkspace };
+    const flags = { keywordTracking, vault: vaultEnabled, campaignWorkspace, pipelineNav };
     const selectedClient = clients.find(client => client.id === selected.clientId) ?? null;
     const sections = selected.clientId
         ? clientSections(selected.clientId, flags)
@@ -209,7 +211,8 @@ export function MobileNav() {
                             </span>
                             {section.links.map(link => {
                                 const active = isClientLinkActive(pathname, selected.search, link, flags);
-                                return (
+                                const children = link.children ?? [];
+                                const item = (
                                     <Link
                                         key={link.id}
                                         href={link.href}
@@ -222,6 +225,29 @@ export function MobileNav() {
                                     >
                                         {link.label}
                                     </Link>
+                                );
+                                if (children.length === 0) return item;
+                                return (
+                                    <div key={link.id}>
+                                        {item}
+                                        {children.map(child => {
+                                            const childActive = isClientLinkActive(pathname, selected.search, child, flags);
+                                            return (
+                                                <Link
+                                                    key={child.id}
+                                                    href={child.href}
+                                                    onClick={() => setMenuOpen(false)}
+                                                    aria-current={childActive ? 'page' : undefined}
+                                                    className={cn(
+                                                        'flex items-center gap-3 rounded-xl px-6 py-3 text-sm font-medium transition-colors',
+                                                        childActive ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
+                                                    )}
+                                                >
+                                                    {child.label}
+                                                </Link>
+                                            );
+                                        })}
+                                    </div>
                                 );
                             })}
                             {section.overflow?.map(link => {

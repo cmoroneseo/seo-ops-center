@@ -32,6 +32,7 @@ import { cn } from '@/lib/utils';
 import { useClients } from '@/lib/hooks/use-clients';
 import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
 import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
+import { pipelineNavEnabled } from '@/lib/nav/pipeline-flag';
 import { useAgencyDashboardEnabled } from '@/components/agency-dashboard/use-enabled';
 import { useVaultEnabled } from '@/components/vault/use-vault-enabled';
 import { useOrganization } from '@/components/providers/organization-provider';
@@ -58,6 +59,7 @@ const ICONS: Record<string, LucideIcon> = {
     time: Clock,
     reports: ClipboardList,
     search: Search,
+    opportunities: Search,
     rankings: ChartNoAxesCombined,
     'topical-map': Map,
     inventory: ScanSearch,
@@ -88,13 +90,13 @@ function navClass(active: boolean) {
     );
 }
 
-function NavLink({ link, active }: { link: StaffLink; active: boolean }) {
+function NavLink({ link, active, nested = false }: { link: StaffLink; active: boolean; nested?: boolean }) {
     return (
         <Link
             href={link.href}
             title={link.label}
             aria-current={active ? 'page' : undefined}
-            className={navClass(active)}
+            className={cn(navClass(active), nested && 'xl:pl-7')}
         >
             {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-primary" aria-hidden />}
             <RowIcon id={link.id} />
@@ -111,6 +113,7 @@ export function Sidebar() {
     const vaultEnabled = useVaultEnabled(organization?.id) === true;
     const keywordTracking = keywordTrackingEnabled();
     const campaignWorkspace = campaignWorkspaceEnabled();
+    const pipelineNav = pipelineNavEnabled();
     const [menu, setMenu] = useState<'clients' | 'agency' | 'more' | null>(null);
     const agencyRef = useRef<HTMLDivElement>(null);
     const moreRef = useRef<HTMLDivElement>(null);
@@ -122,7 +125,7 @@ export function Sidebar() {
         logoUrl: client.logoUrl,
     }));
     const sections = selected.clientId
-        ? clientSections(selected.clientId, { keywordTracking, vault: vaultEnabled, campaignWorkspace })
+        ? clientSections(selected.clientId, { keywordTracking, vault: vaultEnabled, campaignWorkspace, pipelineNav })
         : [];
     const agency = agencyLinks({ agencyDashboard });
     const flags = { keywordTracking, vault: vaultEnabled, campaignWorkspace };
@@ -243,13 +246,26 @@ export function Sidebar() {
                             <div className="hidden px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground xl:block">
                                 {section.label}
                             </div>
-                            {section.links.map(link => (
-                                <NavLink
-                                    key={link.id}
-                                    link={link}
-                                    active={isClientLinkActive(selected.pathname, selected.search, link, flags)}
-                                />
-                            ))}
+                            {section.links.map(link => {
+                                const active = isClientLinkActive(selected.pathname, selected.search, link, flags);
+                                const children = link.children ?? [];
+                                if (children.length === 0) {
+                                    return <NavLink key={link.id} link={link} active={active} />;
+                                }
+                                return (
+                                    <div key={link.id} className="space-y-0.5" role="group" aria-label={link.label}>
+                                        <NavLink link={link} active={active} />
+                                        {children.map(child => (
+                                            <NavLink
+                                                key={child.id}
+                                                link={child}
+                                                nested
+                                                active={isClientLinkActive(selected.pathname, selected.search, child, flags)}
+                                            />
+                                        ))}
+                                    </div>
+                                );
+                            })}
                             {section.overflow && section.overflow.length > 0 && (
                                 <div ref={moreRef}>
                                     <button
