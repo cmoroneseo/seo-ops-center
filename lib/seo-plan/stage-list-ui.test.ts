@@ -60,6 +60,26 @@ function render(query = '', extraTasks: StageListTask[] = []) {
     }));
 }
 
+test('a client with no tasks shows one empty plan and the add box', () => {
+    const html = renderToStaticMarkup(createElement(StagePlanListView, {
+        tasks: [],
+        query: '',
+        onQueryChange: () => undefined,
+        onOpenTask: () => undefined,
+        onAddTasks: async () => undefined,
+        onReorder: async () => undefined,
+        clientName: 'Mayas Construction',
+        today: '2026-10-19',
+        initialMonth: '2026-10',
+    }));
+    assert.match(html, /data-plan-empty/);
+    assert.match(html, /This plan is empty/);
+    assert.match(html, /search engine optimization/);
+    assert.match(html, /Add task box above/);
+    assert.match(html, /data-plan-add/);
+    assert.doesNotMatch(html, /data-plan-section/);
+});
+
 test('the list renders Onboarding, This month, and Backlog, including empty ones', () => {
     const html = render();
     const sections = ['onboarding', 'this_month', 'backlog'];

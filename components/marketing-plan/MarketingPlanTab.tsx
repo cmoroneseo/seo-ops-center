@@ -5,7 +5,7 @@ import { ClipboardList, FileDown, ListChecks, Plus, Printer, Search, Sparkles } 
 import { cn } from '@/lib/utils';
 import { MarketingPlan, MarketingPlanItem, Task } from '@/lib/types';
 import {
-    createMarketingPlanFromTemplate, addCustomItem, addCatalogItem, promoteItemToTask, updateMarketingPlanGoal, promoteItemsToTasks, promoteItemsAsPillar, nestTasksUnderPillar, addExistingTaskToPlan,
+    createEmptyMarketingPlan, applyMarketingPlanSeed, addCustomItem, addCatalogItem, promoteItemToTask, updateMarketingPlanGoal, promoteItemsToTasks, promoteItemsAsPillar, nestTasksUnderPillar, addExistingTaskToPlan,
 } from '@/lib/supabase/marketing-plans';
 import { loadMarketingPlan } from '@/lib/seo-plan/prefetch';
 import { createClient } from '@/lib/supabase/client';
@@ -37,7 +37,18 @@ import {getSeoHoursForMonth} from '@/lib/supabase/change-log';
 import { getTask, updateTask } from '@/lib/supabase/tasks';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
 import {SEO_PLAN_READ_ONLY_NOTE} from '@/lib/seo-plan/read-only';
-import { ONBOARDING_IMPORT_HINT } from '@/lib/seo-plan/onboarding-import';
+import {
+    APPLY_LIBRARY_HELP,
+    APPLY_LIBRARY_LABEL,
+    APPLY_ONBOARDING_HELP,
+    APPLY_ONBOARDING_LABEL,
+    CREATE_PLAN_LABEL,
+    EMPTY_CHECKLIST_ADD,
+    EMPTY_PLAN_BODY,
+    EMPTY_PLAN_TITLE,
+    NO_PLAN_TITLE,
+    noPlanBody,
+} from '@/lib/seo-plan/empty-plan';
 import { addImportedOnboardingToPlan } from '@/lib/seo-plan/add-onboarding-to-plan';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 
@@ -75,6 +86,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
     const [plan, setPlan] = useState<MarketingPlan | null>(null);
     const [loading, setLoading] = useState(true);
     const [creating, setCreating] = useState(false);
+    const [applyingSeed, setApplyingSeed] = useState(false);
     const [groupMode, setGroupMode] = useState<GroupMode>('step');
     const [query, setQuery] = useState('');
     const [activeStepKey, setActiveStepKey] = useState<string | null>(null);
@@ -198,16 +210,29 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
 
     const handleCreate = async () => {
         setCreating(true);
-        const res = await createMarketingPlanFromTemplate(presentation === 'v2'
-            ? { organizationId, clientId, clientName, seed: 'onboarding', scope: checklistScope }
-            : { organizationId, clientId, clientName });
+        const res = await createEmptyMarketingPlan({ organizationId, clientId, clientName });
         if (res.success) {
-            logActivity({ clientId, eventType: 'campaign.created', metadata: { source: 'marketing_plan_template' } });
+            logActivity({ clientId, eventType: 'campaign.created', metadata: { source: 'empty_plan' } });
         } else {
-            alert(res.error ?? 'Failed to create plan');
+            alert(res.error ?? 'Could not create the plan');
         }
         setCreating(false);
         await loadPlan(true);
+    };
+
+    const handleApplySeed = async () => {
+        if (!plan || applyingSeed) return;
+        setApplyingSeed(true);
+        const res = await applyMarketingPlanSeed({
+            marketingPlanId: plan.id,
+            organizationId,
+            clientId,
+            seed: presentation === 'v2' ? 'onboarding' : 'library',
+            scope: checklistScope,
+        });
+        if (!res.success) alert(res.error ?? 'Could not add those tasks');
+        setApplyingSeed(false);
+        await refresh();
     };
 
     const openTaskDraft = (label: string, source: MarketingPlanItem[]) => {
@@ -314,11 +339,9 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                 <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
                     <ClipboardList className="h-8 w-8 text-primary" />
                 </div>
-                <h3 className="text-lg font-semibold">{presentation === 'v2' ? 'Start the onboarding checklist' : 'Build a focused SEO plan'}</h3>
+                <h3 className="text-lg font-semibold">{NO_PLAN_TITLE}</h3>
                 <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                    {presentation === 'v2'
-                        ? `Create the onboarding checklist for ${clientName}. Other work stays in the library until you add it. ${ONBOARDING_IMPORT_HINT}`
-                        : `Start with an SEO work library for ${clientName}, then choose a few priorities for your first month. Assign owners and dates as you schedule work. ${ONBOARDING_IMPORT_HINT}`}
+                    {noPlanBody(clientName)}
                 </p>
                 <button
                     onClick={handleCreate}
@@ -326,7 +349,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                     className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
                     <Plus className="h-4 w-4" />
-                    {creating ? 'Creating…' : `Create ${SEO_PLAN_LABEL}`}
+                    {creating ? 'Creating…' : CREATE_PLAN_LABEL}
                 </button>
             </div>
         );
@@ -482,9 +505,27 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                         />
                     )}
 
-                    {visibleItems.length === 0 && <div className="py-8 text-center"><p className="text-sm text-muted-foreground">No matching plan items.</p><button className="mt-3 text-sm text-primary underline" onClick={() => setQuery('')}>Clear search</button></div>}
-                    {/* Groups */}
-                    {planLayout === 'list' ? groups.filter(group => !query || group.items.length > 0).map(group => {
+                    {items.length === 0 && !query ? (
+                        <div data-plan-empty className="rounded-xl border border-border bg-card px-5 py-8 text-center">
+                            <h4 className="text-base font-semibold">{EMPTY_PLAN_TITLE}</h4>
+                            <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">{EMPTY_PLAN_BODY}</p>
+                            {!readOnly && <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">{EMPTY_CHECKLIST_ADD}</p>}
+                            {!readOnly && (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={() => void handleApplySeed()}
+                                        disabled={applyingSeed}
+                                        className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
+                                    >
+                                        {applyingSeed ? 'Adding…' : presentation === 'v2' ? APPLY_ONBOARDING_LABEL : APPLY_LIBRARY_LABEL}
+                                    </button>
+                                    <p className="mx-auto mt-2 max-w-md text-xs text-muted-foreground">{presentation === 'v2' ? APPLY_ONBOARDING_HELP : APPLY_LIBRARY_HELP}</p>
+                                </>
+                            )}
+                        </div>
+                    ) : visibleItems.length === 0 && <div className="py-8 text-center"><p className="text-sm text-muted-foreground">No matching plan items.</p><button className="mt-3 text-sm text-primary underline" onClick={() => setQuery('')}>Clear search</button></div>}
+                    {!(items.length === 0 && !query) && (planLayout === 'list' ? groups.filter(group => !query || group.items.length > 0).map(group => {
                         const done = group.items.filter(i => isInRoadmap(i) && i.status === 'done').length;
                         const countable = group.items.filter(isInRoadmap).length;
                         const eligible = itemsEligibleForTaskGeneration(group.items);
@@ -536,7 +577,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
                                 return <section key={key} className="min-w-0 rounded-xl border border-border bg-muted/30 p-4"><div className="mb-3 flex items-center justify-between"><h4 className="font-semibold">{label}</h4><span className="text-xs text-muted-foreground">{phaseItemsLabel(phaseItems.length, phaseOpen)}</span></div>{phaseItems.length ? phaseItems.map(item => <div key={item.id} className="mb-3 rounded-lg border border-border bg-card px-3"><ItemRow item={item} members={members} currentUser={currentUser} onChanged={refresh} onOpenTask={task => openTask(task)} /></div>) : <p className="py-6 text-sm text-muted-foreground">No selected work in this phase.</p>}</section>;
                             })}
                         </div>
-                    </div>}
+                    </div>)}
                 </div>
             </div>
         </div>

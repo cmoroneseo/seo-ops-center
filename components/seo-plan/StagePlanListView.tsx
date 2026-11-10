@@ -34,6 +34,7 @@ import { aggregateUrlResults, type UrlResultReadout } from '@/lib/search-reporti
 import { planRowTimeText, planRowTimerLabel, planTimerTask, type PlanRowTimerView } from '@/lib/seo-plan/row-timer';
 import { DoneThisMonthFooter } from './DoneThisMonthFooter';
 import { PlanAddLine, type PlanAddSubmission } from './PlanAddLine';
+import { EMPTY_PLAN_ADD_TASKS, EMPTY_PLAN_BODY, EMPTY_PLAN_TITLE } from '@/lib/seo-plan/empty-plan';
 import { PlanSyncBanner, PlanSyncDot } from './PlanSyncFailure';
 import type { PlanBasecampBanner, PlanBasecampSyncState } from '@/lib/seo-plan/basecamp-push';
 import { PlanShortcutSheet } from './PlanShortcutSheet';
@@ -449,7 +450,14 @@ export function StagePlanListView({
                 </p>
             )}
 
-            <PlanSections
+            {tasks.length === 0 && !searching ? (
+                <div data-plan-empty className="rounded-[10px] border border-[#e4e4e7] bg-[#ffffff] px-4 py-6">
+                    <h3 className="text-[13px] font-semibold text-[#18181b]">{EMPTY_PLAN_TITLE}</h3>
+                    <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-[#3f3f46]">{EMPTY_PLAN_BODY}</p>
+                    <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-[#3f3f46]">{EMPTY_PLAN_ADD_TASKS}</p>
+                </div>
+            ) : (
+                <PlanSections
                 key={query}
                 tasks={tasks}
                 sections={sections}
@@ -478,6 +486,7 @@ export function StagePlanListView({
                 resultsByTaskId={resultsByTaskId}
                 doneHoldMs={doneHoldMs}
             />
+            )}
             <DoneThisMonthFooter
                 tasks={tasks}
                 logs={monthLogs}

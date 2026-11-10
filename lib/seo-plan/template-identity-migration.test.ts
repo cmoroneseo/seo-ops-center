@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
-import { MARKETING_PLAN_STEPS, setupPlanItems, type ClientSetupInput } from '../client-setup.ts';
+import { MARKETING_PLAN_STEPS, newClientPlanItems, type ClientSetupInput } from '../client-setup.ts';
+import { onboardingSeedItems } from './onboarding.ts';
 
 const migration064 = readFileSync(new URL('../../migrations/064_client_split_setup.sql', import.meta.url), 'utf8');
 const migration065 = readFileSync(new URL('../../migrations/065_client_setup_permissions.sql', import.meta.url), 'utf8');
@@ -19,10 +20,12 @@ const input: ClientSetupInput = {
     onboardingDate: '2020-01-01',
     launchDate: '',
     seoHours: 5,
-    template: 'foundation',
-    customItems: ['Fix critical redirects'],
     scope: { version: 1, mode: 'monthly', hoursMode: 'committed', contentPieces: 1, gbp: true, gbpUsesSeoHours: false, listings: true, onboardingBudget: 'separate' },
 };
+const explicitChecklist = [
+    ...onboardingSeedItems({ gbp: true, listings: true }),
+    { title: 'Fix critical redirects', stepKey: 'setup', description: '', priority: 'medium', included: true, phase: 'onboarding', custom: true, source: 'custom' as const },
+];
 
 test('template identity stores the checklist once and does not rewrite existing rows', async () => {
     assert.doesNotMatch(migration, /update\s+public\.marketing_plan_items\s+set\s+template_key/i);
@@ -46,7 +49,8 @@ test('template identity stores the checklist once and does not rewrite existing 
         await db.exec(migration);
         await db.exec('set role authenticated');
         const query = 'select create_client_with_setup($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) as id';
-        const checklist = setupPlanItems(input, { v2: true });
+        assert.deepEqual(newClientPlanItems(), []);
+        const checklist = explicitChecklist;
         const args = [client, org, input.name, null, user, input.onboardingDate, null, 5, input.scope, MARKETING_PLAN_STEPS, checklist];
         await db.query(query, args);
         const rows = await db.query<{ title: string; template_key: string | null; source: string }>(

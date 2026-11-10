@@ -1,5 +1,4 @@
-import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS } from './marketing-plan-template';
-import { onboardingSeedItems, type PlanItemSource } from './seo-plan/onboarding';
+import { MARKETING_PLAN_STEPS } from './marketing-plan-template';
 
 export interface ClientSetupScope {
     version: 1;
@@ -22,8 +21,6 @@ export interface ClientSetupInput {
     launchDate: string;
     seoHours: number;
     scope: ClientSetupScope;
-    template: 'foundation' | 'blank';
-    customItems: string[];
 }
 export function localDate(date = new Date()): string {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -42,56 +39,12 @@ export function validateClientSetup(input: ClientSetupInput, today = localDate()
     if (input.scope.mode === 'monthly' && !input.seoHours && !input.scope.contentPieces && !input.scope.gbp && !input.scope.listings) return 'Choose at least one service.';
     return null;
 }
-export interface SetupPlanItem {
-    stepKey: string;
-    title: string;
-    description: string;
-    priority: string;
-    included: boolean;
-    phase: string;
-    custom: boolean;
-    templateKey?: string;
-    source?: PlanItemSource;
-}
-
 /**
- * Unflagged setup still seeds the library as backlog rows plus the three
- * included onboarding titles. Flagged setup seeds only the onboarding
- * checklist. The 56-item library stays in code.
+ * Checklist rows saved with a new client.
+ * Always empty. Tasks are typed on the plan, or added from a saved list on purpose.
  */
-export function setupPlanItems(input: ClientSetupInput, options?: { v2?: boolean }): SetupPlanItem[] {
-    if (options?.v2) {
-        const checklist = onboardingSeedItems({ gbp: input.scope.gbp, listings: input.scope.listings });
-        const custom = input.customItems.filter(title => title.trim()).map(title => ({
-            title: title.trim(),
-            stepKey: 'setup',
-            description: '',
-            priority: 'medium',
-            included: true,
-            phase: 'onboarding',
-            custom: true,
-            source: 'custom' as const,
-        }));
-        return [...checklist, ...custom];
-    }
-    const foundation = input.template === 'foundation'
-        ? MARKETING_PLAN_TEMPLATE_ITEMS.map(item => ({
-            stepKey: item.stepKey,
-            title: item.title,
-            description: item.description,
-            priority: item.priority,
-            included: false,
-            phase: 'backlog',
-            custom: false,
-        }))
-        : [];
-    const selected = [
-        { title: 'Prepare SEO strategy and roadmap', stepKey: 'setup' },
-        ...(input.scope.gbp ? [{ title: 'Complete initial GBP optimization', stepKey: 'local' }] : []),
-        ...(input.scope.listings ? [{ title: 'Activate directory listings and verify business information', stepKey: 'local' }] : []),
-        ...input.customItems.filter(title => title.trim()).map(title => ({ title: title.trim(), stepKey: 'setup' })),
-    ].map(item => ({ ...item, description: '', priority: 'medium', included: true, phase: 'onboarding', custom: true }));
-    return [...foundation, ...selected];
+export function newClientPlanItems(): readonly [] {
+    return [];
 }
 export { MARKETING_PLAN_STEPS };
 

@@ -4,7 +4,8 @@ import {
     MarketingPlanItemPriority,
 } from '../types';
 import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS, SEO_PLAN_LABEL } from '../marketing-plan-template';
-import { catalogAddBlocked, onboardingSeedItems, type PlanItemSource } from '../seo-plan/onboarding';
+import { catalogAddBlocked, type PlanItemSource } from '../seo-plan/onboarding';
+import { planSeedInserts, type PlanSeedChoice } from '../seo-plan/plan-seed';
 import { createTask, deleteTask, rowToTask, updateTask } from './tasks';
 import { itemsEligibleForTaskGeneration } from '../marketing-plan-logic';
 import { planNestUnderPillar, planPillarFromItems, type PillarNestCandidate } from '../tasks/pillars';
@@ -78,13 +79,11 @@ export async function getMarketingPlan(clientId: string): Promise<MarketingPlan 
     return { ...plan, items: (itemRows ?? []).map((row: any) => resolvePlanItem({ ...rowToItem(row), linkedTask: row.linked_task ? rowToTask(row.linked_task) : undefined })) };
 }
 
-export async function createMarketingPlanFromTemplate(input: {
+/** Creates an empty plan. Checklist rows are added later with applyMarketingPlanSeed. */
+export async function createEmptyMarketingPlan(input: {
     organizationId: string;
     clientId: string;
     clientName: string;
-    /** Flagged orgs seed the onboarding checklist. The library stays in code. */
-    seed?: 'library' | 'onboarding';
-    scope?: { gbp?: boolean; listings?: boolean };
 }): Promise<{ success: boolean; data?: MarketingPlan; error?: string }> {
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'No client' };
@@ -100,41 +99,27 @@ export async function createMarketingPlanFromTemplate(input: {
         .select()
         .single();
     if (error) return { success: false, error: error.message };
-    const plan = rowToPlan(data);
+    return { success: true, data: rowToPlan(data) };
+}
 
-    const rows = input.seed === 'onboarding'
-        ? onboardingSeedItems({ gbp: input.scope?.gbp === true, listings: input.scope?.listings === true }).map((item, i) => ({
-            marketing_plan_id: plan.id,
-            organization_id: input.organizationId,
-            client_id: input.clientId,
-            step_key: item.stepKey,
-            title: item.title,
-            description: item.description,
-            priority: item.priority,
-            sort_order: i,
-            is_custom: false,
-            roadmap_included: true,
-            roadmap_phase: 'onboarding',
-            template_key: item.templateKey,
-            source: 'onboarding',
-        }))
-        : MARKETING_PLAN_TEMPLATE_ITEMS.map((t, i) => ({
-            marketing_plan_id: plan.id,
-            organization_id: input.organizationId,
-            client_id: input.clientId,
-            step_key: t.stepKey,
-            title: t.title,
-            description: t.description,
-            priority: t.priority,
-            sort_order: i,
-        }));
-    const { error: itemsError } = await supabase.from('marketing_plan_items').insert(rows);
-    if (itemsError) {
-        await supabase.from('marketing_plans').delete().eq('id', plan.id);
-        return { success: false, error: itemsError.message };
+/** Inserts a saved list into a plan that already exists. Never called on create. */
+export async function applyMarketingPlanSeed(input: {
+    marketingPlanId: string;
+    organizationId: string;
+    clientId: string;
+    seed: PlanSeedChoice;
+    scope?: { gbp?: boolean; listings?: boolean };
+}): Promise<{ success: boolean; error?: string }> {
+    const supabase = createClient();
+    if (!supabase) return { success: false, error: 'No client' };
+    const rows = planSeedInserts(input);
+    if (rows.length === 0) return { success: false, error: 'Nothing to add.' };
+    const { error } = await supabase.from('marketing_plan_items').insert(rows);
+    if (error) {
+        if (error.code === '23505') return { success: false, error: 'Those tasks are already on this plan.' };
+        return { success: false, error: error.message };
     }
-
-    return { success: true, data: plan };
+    return { success: true };
 }
 
 // ---------------------------------------------------------------------------
