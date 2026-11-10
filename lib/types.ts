@@ -1252,7 +1252,7 @@ export interface TopicalMapRecord {
     source?: RecordSource;
     status: MapRecordStatus;
     /**
-     * Content lifecycle. Null when unset, and null when migration 123 is not applied.
+     * Content lifecycle. Null when unset, and null when migration 124 is not applied.
      * Plan approval stays on `status`.
      */
     productionStatus?: ProductionStatus | null;

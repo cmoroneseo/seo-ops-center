@@ -3,7 +3,7 @@
  *
  * Plan approval stays on `status` (pending, approved, declined).
  * These fields are the production list: where the page is, which month, and the links.
- * A missing column reads as not set, so the map still loads before migration 123.
+ * A missing column reads as not set, so the map still loads before migration 124.
  * A work month does not fill a due date or a publish date, and neither date fills the other.
  * Published means the page is published. It does not mean indexed or performing.
  * Already on the site is shown only when the page was matched and the action is keep.

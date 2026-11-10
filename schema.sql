@@ -16000,7 +16000,7 @@ grant select on public.report_public_links to authenticated;
 grant all on public.report_public_links to service_role;
 
 -- =============================================================================
--- 123_topical_map_record_production.sql
+-- 124_topical_map_record_production.sql
 -- Production lifecycle on topical map records.
 -- Nullable, no default, no backfill. Plan approval and row level security stay.
 -- =============================================================================

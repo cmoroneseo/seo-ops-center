@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 
-const migration = readFileSync(new URL('../../migrations/123_topical_map_record_production.sql', import.meta.url), 'utf8');
+const migration = readFileSync(new URL('../../migrations/124_topical_map_record_production.sql', import.meta.url), 'utf8');
 const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
 
 const COLUMNS = [
@@ -20,7 +20,7 @@ function executable(sql: string): string {
     return sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--.*$/gm, '');
 }
 
-test('migration 123 adds nullable columns with no default, backfill, or policy change', () => {
+test('migration 124 adds nullable columns with no default, backfill, or policy change', () => {
     const sql = executable(migration);
     for (const column of COLUMNS) {
         assert.match(sql, new RegExp(`add column if not exists ${column} `));
@@ -34,7 +34,7 @@ test('migration 123 adds nullable columns with no default, backfill, or policy c
     assert.doesNotMatch(sql, /\bgrant\b/i);
     assert.doesNotMatch(sql, /\brevoke\b/i);
 
-    const mirror = schema.slice(schema.indexOf('-- 123_topical_map_record_production.sql'));
+    const mirror = schema.slice(schema.indexOf('-- 124_topical_map_record_production.sql'));
     assert.ok(mirror.length > 0);
     const mirrored = executable(mirror);
     for (const column of COLUMNS) {
