@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { dateOffset } from '@/lib/gsc/history.ts';
+import { inclusiveDays } from '@/lib/search-reporting/range.ts';
 import { BING_WEBMASTER_MEG_ORG_ID, BING_WEBMASTER_SANDBOX_ORG_ID, bingWebmasterEnabled } from '@/lib/bing/flags.ts';
 import {
     SOURCE_LABEL,
@@ -13,9 +15,11 @@ import {
     gscDualAxis,
     gscKpis,
     gaKpis,
+    historyChunks,
     pairedWindows,
     readGa4DailyPayload,
     visibleSources,
+    windowChip,
     type BingTrafficDay,
 } from './model.ts';
 
@@ -51,6 +55,35 @@ test('the 28-day window ends on the last final day', () => {
     assert.equal(window?.current.start, '2026-10-07');
     assert.equal(window?.prior.end, '2026-10-06');
     assert.equal(window?.comparable, true);
+    assert.equal(windowChip(window), 'Last 28 days · Oct 7–Nov 3 vs Sep 9–Oct 6');
+    const today = '2026-11-06';
+    assert.deepEqual(historyChunks(today), historyChunks(today, 28));
+    assert.deepEqual(historyChunks(today, 7), [
+        { start: dateOffset(today, -30), end: today },
+        { start: dateOffset(today, -61), end: dateOffset(today, -31) },
+    ]);
+});
+
+test('7-day and 90-day windows keep the same final day and do not invent a shorter history read', () => {
+    const days = [];
+    for (let index = 0; index < 200; index += 1) {
+        const date = new Date(Date.UTC(2026, 4, 1 + index)).toISOString().slice(0, 10);
+        days.push(day(date, date > '2026-11-03'));
+    }
+    const week = pairedWindows(days, '2026-11-06', 7);
+    const quarter = pairedWindows(days, '2026-11-06', 90);
+    assert.equal(week?.current.end, '2026-11-03');
+    assert.equal(week?.current.start, '2026-10-28');
+    assert.equal(inclusiveDays(week!.current.start, week!.current.end), 7);
+    assert.equal(inclusiveDays(week!.prior.start, week!.prior.end), 7);
+    assert.equal(quarter?.current.end, '2026-11-03');
+    assert.equal(inclusiveDays(quarter!.current.start, quarter!.current.end), 90);
+    assert.equal(quarter?.current.start, '2026-08-06');
+    assert.equal(windowChip(null, 7), 'Last 7 days');
+    assert.match(windowChip(quarter, 90), /^Last 90 days · /);
+    const chunks = historyChunks('2026-11-06', 90);
+    assert.equal(inclusiveDays(chunks[chunks.length - 1].start, chunks[0].end), 181);
+    assert.equal(historyChunks('2026-11-06').length, 2);
 });
 
 test('GSC draws clicks and impressions on two axes when both toggles are on', () => {

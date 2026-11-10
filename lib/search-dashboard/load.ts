@@ -201,33 +201,35 @@ export async function loadSearchDashboard(input: {
     clientId: string;
     signal: AbortSignal;
     now?: Date;
+    /** Rolling window. Omitted and any value other than 7 or 90 stays on the 28-day read. */
+    windowDays?: number;
 }): Promise<DashboardData> {
     const today = ptToday(input.now ?? new Date());
-    const chunks = historyChunks(today);
-    const lookback = { start: chunks[1].start, end: chunks[0].end };
-    const [connections, recent, older, gaResult, bing] = await Promise.all([
+    const windowDays = input.windowDays === 7 || input.windowDays === 90 ? input.windowDays : 28;
+    const chunks = historyChunks(today, windowDays);
+    const lookback = { start: chunks[chunks.length - 1].start, end: chunks[0].end };
+    const [connections, historyParts, gaResult, bing] = await Promise.all([
         loadIntegrationFlags(input.organizationId, input.clientId, input.signal),
-        loadChunk(input.clientId, chunks[0], input.signal),
-        loadChunk(input.clientId, chunks[1], input.signal),
+        Promise.all(chunks.map(span => loadChunk(input.clientId, span, input.signal))),
         loadGa4Rows(input.organizationId, input.clientId, lookback.start, lookback.end),
         loadBing(input.organizationId, input.clientId, lookback.start, lookback.end, input.signal),
     ]);
     throwIfAborted(input.signal);
 
-    const historyErrors = [recent.error, older.error].filter(Boolean);
-    const disconnected = historyErrors.length > 0 && historyErrors.every(disconnectedMessage);
-    const historyFailed = historyErrors.length === 2 && !disconnected;
-    const days = [...older.days, ...recent.days];
-    const propertyRows = [...older.rows, ...recent.rows];
+    const historyErrors = historyParts.map(part => part.error).filter(Boolean);
+    const disconnected = historyErrors.length > 0 && historyErrors.length === chunks.length && historyErrors.every(disconnectedMessage);
+    const historyFailed = historyErrors.length === chunks.length && !disconnected;
+    const days = historyParts.flatMap(part => part.days);
+    const propertyRows = historyParts.flatMap(part => part.rows);
     const gscConnected = !disconnected && (connections.gsc || days.length > 0) && !historyFailed;
     const gaConnected = connections.failed ? gaResult.rows.length > 0 : connections.ga;
     const gaRows = gaConnected || connections.failed ? gaResult.rows : [];
     const gscFlags = days.map(day => ({ date: day.date, isIncomplete: Boolean(day.isIncomplete) }));
     const gaFlags = gaRows.filter(row => row.isFinal).map(row => ({ date: row.date, isIncomplete: false }));
     const bingFlags = bing.traffic.map(day => ({ date: day.date, isIncomplete: false }));
-    const window = (gscConnected ? pairedWindows(gscFlags, today) : null)
-        ?? (gaConnected ? pairedWindows(gaFlags, today) : null)
-        ?? (bing.enabled ? pairedWindows(bingFlags, today) : null);
+    const window = (gscConnected ? pairedWindows(gscFlags, today, windowDays) : null)
+        ?? (gaConnected ? pairedWindows(gaFlags, today, windowDays) : null)
+        ?? (bing.enabled ? pairedWindows(bingFlags, today, windowDays) : null);
 
     let gscPoints: ChartPoint[] = [];
     let gscCurrent = periodMetrics([]);
@@ -281,7 +283,7 @@ export async function loadSearchDashboard(input: {
         gscConnected,
         gaConnected,
         window,
-        windowLabel: windowChip(window),
+        windowLabel: windowChip(window, windowDays),
         gscError: historyFailed ? historyErrors[0] ?? 'Unable to load Search Console.' : '',
         gscPoints,
         gscCurrent,
