@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeJsonObject } from '../basecamp/project-access';
 import { readBasecampPlanLists } from '../basecamp/plan-lists';
 import { planBasecampBanner, type PlanBasecampBanner } from './basecamp-push';
+import { planBoardFromSteps, type PlanBoard } from './plan-phases';
 import { stageListTaskFromRow, type StageListTask } from './stage-list';
 
 /** Columns the stage list reads. Recurrence is reduced to a boolean before it leaves the server. */
@@ -45,6 +46,25 @@ export async function loadClientStageTasks(
         const task = stageListTaskFromRow(row);
         return task ? [task] : [];
     });
+}
+
+/**
+ * Phase board when this client's plan was created with the phase marker.
+ * No plan, or an older plan, stays on the month board. Does not rewrite tasks.
+ */
+export async function loadClientPlanBoard(
+    db: SupabaseClient,
+    organizationId: string,
+    clientId: string,
+): Promise<PlanBoard> {
+    const plan = await db
+        .from('marketing_plans')
+        .select('steps')
+        .eq('organization_id', organizationId)
+        .eq('client_id', clientId)
+        .maybeSingle();
+    if (plan.error) throw new Error('Unable to load plan');
+    return planBoardFromSteps(plan.data?.steps);
 }
 
 const BANNER_COLUMNS = 'custom_fields, basecamp_plan_sync_state, basecamp_plan_sync_error';

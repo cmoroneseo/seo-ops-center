@@ -1,5 +1,5 @@
 import type { SessionOrganization } from '../reports/session-org';
-import { isTaskStage } from '../tasks/stage';
+import { isBoardStage } from './plan-phases';
 import {
     applyStageReorder,
     STAGE_REORDER_NOT_FOUND,
@@ -84,7 +84,7 @@ function readMove(body: unknown): { ok: true; value: StageReorderMove } | { ok: 
     if (!body || typeof body !== 'object' || Array.isArray(body)) return { ok: false };
     const record = body as Record<string, unknown>;
     if (typeof record.taskId !== 'string' || !ID.test(record.taskId.trim())) return { ok: false };
-    if (!isTaskStage(record.stage)) return { ok: false };
+    if (!isBoardStage(record.stage)) return { ok: false };
     if (typeof record.index !== 'number' || !Number.isInteger(record.index) || record.index < 0 || record.index > 10000) {
         return { ok: false };
     }

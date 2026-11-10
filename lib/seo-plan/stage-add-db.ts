@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import type { TaskStage } from '../types';
+import type { BoardStage } from './plan-phases';
 import { STAGE_LIST_TASK_COLUMNS } from './stage-list-load';
 import { stageListTaskFromRow, type StageListTask } from './stage-list';
 
@@ -64,7 +64,7 @@ export async function maxStageAddPosition(
     db: SupabaseClient,
     organizationId: string,
     clientId: string,
-    stage: TaskStage,
+    stage: BoardStage,
     parentTaskId: string | null,
 ): Promise<number | null> {
     let query = db

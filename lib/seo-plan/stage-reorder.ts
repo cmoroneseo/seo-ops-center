@@ -1,7 +1,8 @@
 import { isPendingStageTaskId } from './stage-add';
 import { groupTasksByStage, type StageListTask } from './stage-list';
 import { isTaskStage } from '../tasks/stage';
-import { TASK_STAGES, type TaskStage } from '../types';
+import { TASK_STAGES } from '../types';
+import { isBoardStage, isPlanPhase, PLAN_PHASES, type BoardStage } from './plan-phases';
 
 /**
  * Where a dragged task should land.
@@ -10,7 +11,7 @@ import { TASK_STAGES, type TaskStage } from '../types';
  */
 export interface StageReorderMove {
     taskId: string;
-    stage: TaskStage;
+    stage: BoardStage;
     parentTaskId: string | null;
     index: number;
     /**
@@ -25,7 +26,7 @@ export interface StageReorderMove {
 /** One row the atomic rewrite must persist. Positions are 1-based inside the sibling group. */
 export interface StageReorderWrite {
     id: string;
-    stage: TaskStage;
+    stage: BoardStage;
     position: number;
     parentTaskId: string | null;
 }
@@ -45,10 +46,10 @@ export type StageMoveDirection = 'up' | 'down' | 'previous-stage' | 'next-stage'
 
 export type StageDropHint =
     | { type: 'nest'; taskId: string }
-    | { type: 'insert'; stage: TaskStage; parentTaskId: string | null; beforeTaskId: string | null };
+    | { type: 'insert'; stage: BoardStage; parentTaskId: string | null; beforeTaskId: string | null };
 
 interface Placement {
-    stage: TaskStage;
+    stage: BoardStage;
     parentTaskId: string | null;
     index: number;
     siblings: StageListTask[];
@@ -59,10 +60,11 @@ interface Model {
     pillars: Set<string>;
     place(id: string): Placement | null;
     children(parentId: string): StageListTask[];
-    tops(stage: TaskStage): StageListTask[];
+    tops(stage: BoardStage): StageListTask[];
 }
 
-function stageOf(task: StageListTask): TaskStage {
+function stageOf(task: StageListTask): BoardStage {
+    if (isPlanPhase(task.stage)) return task.stage;
     return isTaskStage(task.stage) ? task.stage : 'backlog';
 }
 
@@ -97,13 +99,14 @@ function readModel(tasks: readonly StageListTask[]): Model {
     const byId = new Map(list.map(task => [task.id, task]));
     const sections = groupTasksByStage(list, '');
     const childrenByParent = new Map<string, StageListTask[]>();
-    const topsByStage = new Map<TaskStage, StageListTask[]>(TASK_STAGES.map(stage => [stage, []]));
+    const boardStages: BoardStage[] = [...TASK_STAGES, ...PLAN_PHASES];
+    const topsByStage = new Map<BoardStage, StageListTask[]>(boardStages.map(stage => [stage, []]));
     const parentOf = new Map<string, string>();
     const pillars = new Set<string>();
 
     for (const section of sections) {
         for (const group of section.groups) {
-            topsByStage.get(section.stage)!.push(group.task);
+            topsByStage.get(stageOf(group.task))?.push(group.task);
             if (group.childCount > 0) pillars.add(group.task.id);
             childrenByParent.set(group.task.id, group.children);
             for (const child of group.children) parentOf.set(child.id, group.task.id);
@@ -121,7 +124,7 @@ function readModel(tasks: readonly StageListTask[]): Model {
         children(parentId: string) {
             return childrenByParent.get(parentId) ?? [];
         },
-        tops(stage: TaskStage) {
+        tops(stage: BoardStage) {
             return topsByStage.get(stage) ?? [];
         },
         place(id: string) {
@@ -157,7 +160,7 @@ function clampIndex(index: number, length: number): number {
     return slot;
 }
 
-function changed(task: StageListTask, next: { stage: TaskStage; position: number; parentTaskId: string | null }): boolean {
+function changed(task: StageListTask, next: { stage: BoardStage; position: number; parentTaskId: string | null }): boolean {
     return stageOf(task) !== next.stage
         || finitePosition(task.position) !== next.position
         || (task.parentTaskId ?? null) !== next.parentTaskId;
@@ -176,7 +179,7 @@ export function applyStageReorder(tasks: readonly StageListTask[], move: StageRe
     if (!dragged || !source) return { ok: false, error: STAGE_REORDER_NOT_FOUND };
 
     let destParentId: string | null = null;
-    let destStage: TaskStage;
+    let destStage: BoardStage;
     if (move.parentTaskId) {
         const parent = model.byId.get(move.parentTaskId);
         const parentPlace = model.place(move.parentTaskId);
@@ -188,7 +191,7 @@ export function applyStageReorder(tasks: readonly StageListTask[], move: StageRe
         destParentId = parent.id;
         destStage = parentPlace.stage;
     } else {
-        if (!isTaskStage(move.stage)) return { ok: false, error: STAGE_REORDER_STAGE };
+        if (!isBoardStage(move.stage)) return { ok: false, error: STAGE_REORDER_STAGE };
         destStage = move.stage;
     }
 
@@ -198,7 +201,7 @@ export function applyStageReorder(tasks: readonly StageListTask[], move: StageRe
     const nextDest = [...destSiblings];
     nextDest.splice(clampIndex(move.index, destSiblings.length), 0, dragged);
 
-    const updates = new Map<string, { stage: TaskStage; position: number; parentTaskId: string | null }>();
+    const updates = new Map<string, { stage: BoardStage; position: number; parentTaskId: string | null }>();
     nextDest.forEach((task, index) => {
         const isDragged = task.id === dragged.id;
         updates.set(task.id, {
@@ -294,7 +297,7 @@ export function describeStageDrop(input: {
     tasks: readonly StageListTask[];
     dragId: string;
     overTaskId: string | null;
-    overStage: TaskStage | null;
+    overStage: BoardStage | null;
     overParentId: string | null;
     pointerFraction: number | null;
 }): { move: StageReorderMove; hint: StageDropHint } | null {
@@ -366,7 +369,7 @@ export function describeStageDrop(input: {
             index: children.length,
         };
         hint = { type: 'insert', stage: parent.stage, parentTaskId: input.overParentId, beforeTaskId: null };
-    } else if (input.overStage && isTaskStage(input.overStage)) {
+    } else if (input.overStage && isBoardStage(input.overStage)) {
         const siblings = model.tops(input.overStage);
         move = {
             taskId: input.dragId,
@@ -423,8 +426,10 @@ export function stageMoveBy(
     }
 
     if (place.parentTaskId) return null;
-    const at = TASK_STAGES.indexOf(place.stage);
-    const dest = TASK_STAGES[at + (direction === 'next-stage' ? 1 : -1)];
+    const step = direction === 'next-stage' ? 1 : -1;
+    const dest = isPlanPhase(place.stage)
+        ? PLAN_PHASES[PLAN_PHASES.indexOf(place.stage) + step]
+        : TASK_STAGES[TASK_STAGES.indexOf(place.stage) + step];
     if (!dest) return null;
     return {
         taskId,

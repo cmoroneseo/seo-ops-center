@@ -7,6 +7,7 @@ import { liveSubtasks } from '../tasks/subtask-progress';
 import { isTaskStage } from '../tasks/stage';
 import { parseLiveUrlInput } from '../tasks/live-url';
 import type { Task, TaskStage } from '../types';
+import { isBoardStage, isPlanPhase, type BoardStage } from './plan-phases';
 
 /**
  * Side panel for one SEO Plan task.
@@ -258,9 +259,14 @@ export function planParentField(tasks: readonly StageListTask[], taskId: string)
     };
 }
 
+function boardStageOf(task: StageListTask): BoardStage {
+    if (isPlanPhase(task.stage)) return task.stage;
+    return isTaskStage(task.stage) ? task.stage : 'backlog';
+}
+
 function siblingIndex(
     tasks: readonly StageListTask[],
-    stage: TaskStage,
+    stage: BoardStage,
     parentTaskId: string | null,
     taskId: string,
 ): number {
@@ -272,8 +278,14 @@ function siblingIndex(
         }
         return 0;
     }
-    const section = groups.find(item => item.stage === stage);
-    return (section?.groups ?? []).filter(group => group.task.id !== taskId).length;
+    let count = 0;
+    for (const section of groups) {
+        for (const group of section.groups) {
+            if (group.task.id === taskId) continue;
+            if (boardStageOf(group.task) === stage) count += 1;
+        }
+    }
+    return count;
 }
 
 export function planParentMove(
@@ -291,9 +303,9 @@ export function planParentMove(
         return { ok: false, error: 'Tasks can only nest one level deep.' };
     }
     const parent = parentTaskId ? tasks.find(item => item.id === parentTaskId) : undefined;
-    const stage: TaskStage = parent
-        ? (isTaskStage(parent.stage) ? parent.stage : 'backlog')
-        : (task.stage === 'onboarding' ? 'onboarding' : 'backlog');
+    const stage: BoardStage = parent
+        ? (isBoardStage(parent.stage) ? parent.stage : 'backlog')
+        : boardStageOf(task);
     const move: StageReorderMove = {
         taskId,
         stage,

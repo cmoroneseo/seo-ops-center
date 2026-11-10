@@ -3,7 +3,8 @@ import {
     MarketingPlan, MarketingPlanItem, MarketingPlanItemComment,
     MarketingPlanItemPriority,
 } from '../types';
-import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS, SEO_PLAN_LABEL } from '../marketing-plan-template';
+import { MARKETING_PLAN_TEMPLATE_ITEMS, SEO_PLAN_LABEL } from '../marketing-plan-template';
+import { phasePlanSteps } from '../seo-plan/plan-phases';
 import { catalogAddBlocked, type PlanItemSource } from '../seo-plan/onboarding';
 import { planSeedInserts, type PlanSeedChoice } from '../seo-plan/plan-seed';
 import { createTask, deleteTask, rowToTask, updateTask } from './tasks';
@@ -94,7 +95,7 @@ export async function createEmptyMarketingPlan(input: {
             organization_id: input.organizationId,
             client_id: input.clientId,
             title: `${input.clientName} — ${SEO_PLAN_LABEL}`,
-            steps: MARKETING_PLAN_STEPS,
+            steps: phasePlanSteps(),
         })
         .select()
         .single();

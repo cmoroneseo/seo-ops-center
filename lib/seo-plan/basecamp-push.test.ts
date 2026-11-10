@@ -19,13 +19,20 @@ test('a backlog task with no due date does not qualify, and a due date or onboar
     assert.equal(planTaskQualifiesForBasecampPush({ stage: 'backlog', dueDate: '' }), false);
     assert.equal(planTaskQualifiesForBasecampPush({ stage: 'backlog', dueDate: '2026-10-31' }), true);
     assert.equal(planTaskQualifiesForBasecampPush({ stage: 'onboarding', dueDate: null }), true);
+    assert.equal(planTaskQualifiesForBasecampPush({ stage: 'foundation', dueDate: null }), true);
+    assert.equal(planTaskQualifiesForBasecampPush({ stage: 'growth', dueDate: null }), true);
+    assert.equal(planTaskQualifiesForBasecampPush({ stage: 'scale', dueDate: null }), true);
     assert.equal(planTaskQualifiesForBasecampPush({ stage: null, dueDate: null }), false);
     assert.equal(PLAN_BASECAMP_PUSH_DEBOUNCE_MS, 2000);
 });
 
-test('only onboarding and backlog rows are plan tasks', () => {
+test('onboarding, backlog, and the phase stages are plan tasks', () => {
     assert.equal(isSeoPlanTask('onboarding'), true);
     assert.equal(isSeoPlanTask('backlog'), true);
+    assert.equal(isSeoPlanTask('foundation'), true);
+    assert.equal(isSeoPlanTask('growth'), true);
+    assert.equal(isSeoPlanTask('scale'), true);
+    assert.equal(isSeoPlanTask('month_1'), false);
     assert.equal(isSeoPlanTask(null), false);
     assert.equal(isSeoPlanTask(undefined), false);
     assert.equal(planTaskIgnoresBasecampReopen('backlog', 'ok'), true);
@@ -42,8 +49,9 @@ test('nightly retry keeps failed qualifying tasks and drops the rest', () => {
         { id: 'healthy', state: 'ok', stage: 'onboarding', dueDate: '2026-10-31', hasProject: true },
         { id: 'unbound', state: 'failed', stage: 'onboarding', dueDate: '2026-10-31', hasProject: false },
         { id: 'waiting', state: null, stage: 'onboarding', dueDate: '2026-10-31', hasProject: true },
+        { id: 'phase', state: 'failed', stage: 'growth', dueDate: null, hasProject: true },
     ]);
-    assert.deepEqual(ids, ['dated', 'setup']);
+    assert.deepEqual(ids, ['dated', 'setup', 'phase']);
 });
 
 test('auth and a missing project are client-wide, and a missing to-do list is not', () => {

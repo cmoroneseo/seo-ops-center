@@ -1,7 +1,6 @@
 import type { SessionOrganization } from '../reports/session-org';
-import { isTaskStage } from '../tasks/stage';
 import { taskCreateRow } from '../tasks/create-row';
-import type { TaskStage } from '../types';
+import { isBoardStage, type BoardStage } from './plan-phases';
 import { nextStagePositions } from './stage-add';
 import { stageAddTitlesError, STAGE_ADD_MAX_TITLE_LENGTH } from './stage-add-lines';
 import { subtaskLineDrafts, subtaskLinesError } from '../tasks/live-url';
@@ -32,7 +31,7 @@ export interface StageAddDependencies {
     maxPosition: (
         organizationId: string,
         clientId: string,
-        stage: TaskStage,
+        stage: BoardStage,
         parentTaskId: string | null,
     ) => Promise<number | null>;
     insertTasks: (rows: Record<string, unknown>[]) => Promise<StageListTask[]>;
@@ -62,7 +61,7 @@ interface StageAddItem {
 }
 
 interface StageAddInput {
-    stage: TaskStage;
+    stage: BoardStage;
     titles: string[];
     publishedUrls: Array<string | null>;
     parentTaskId: string | null;
@@ -110,7 +109,7 @@ function readPlanItems(value: unknown): { ok: true; items: StageAddItem[] } | { 
 function readStageAddBody(body: unknown): { ok: true; value: StageAddInput } | { ok: false; error: string } {
     if (!body || typeof body !== 'object' || Array.isArray(body)) return { ok: false, error: 'Enter a title.' };
     const record = body as Record<string, unknown>;
-    if (!isTaskStage(record.stage)) return { ok: false, error: 'Choose a stage.' };
+    if (!isBoardStage(record.stage)) return { ok: false, error: 'Choose a stage.' };
     if (Array.isArray(record.items)) {
         const due = readDueDate(record.dueDate);
         if (!due.ok) return due;
@@ -211,7 +210,7 @@ function planRow(input: {
     organizationId: string;
     clientId: string;
     title: string;
-    stage: TaskStage;
+    stage: BoardStage;
     position: number;
     parentTaskId?: string;
     dueDate: string | null;
@@ -254,7 +253,7 @@ async function undoPlanTasks(dependencies: StageAddDependencies, ids: string[]):
  */
 async function insertPlanItems(input: {
     clientId: string;
-    stage: TaskStage;
+    stage: BoardStage;
     dueDate: string | null;
     items: StageAddItem[];
     organizationId: string;
@@ -365,7 +364,7 @@ async function pushParentSubtasks(
 async function pushQualifiedTasks(
     tasks: readonly StageListTask[],
     dependencies: StageAddDependencies,
-    stage: TaskStage,
+    stage: BoardStage,
     dueDate: string | null,
 ): Promise<void> {
     if (!planTaskQualifiesForBasecampPush({ stage, dueDate })) return;
@@ -388,7 +387,7 @@ async function finishCreatedTasks(
         dependencies: StageAddDependencies;
     },
     parentTitle: (parentTaskId: string) => string | undefined,
-    stage: TaskStage,
+    stage: BoardStage,
     dueDate: string | null,
 ): Promise<void> {
     await pushQualifiedTasks(tasks, input.dependencies, stage, dueDate);
@@ -456,7 +455,7 @@ export async function createStageTasks(
             const parent = await dependencies.loadParent(session.organizationId, clientId, parsed.value.parentTaskId);
             if (!parent) return { status: 404, body: { error: 'Not found' } };
             if (parent.parentTaskId) return { status: 400, body: { error: 'That task cannot have subtasks' } };
-            if (!isTaskStage(parent.stage)) return { status: 500, body: { error: 'Could not add tasks' } };
+            if (!isBoardStage(parent.stage)) return { status: 500, body: { error: 'Could not add tasks' } };
             stage = parent.stage;
             parentTitle = parent.title;
         }
