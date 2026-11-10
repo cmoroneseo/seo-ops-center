@@ -94,5 +94,5 @@ test('a completed pillar row does not drag', () => {
 
     assert.match(html, /data-planner-draggable="false"/);
     assert.doesNotMatch(html, /cursor-grab/);
-    assert.match(html, />Completed</);
+    assert.match(html, />Done</);
 });
