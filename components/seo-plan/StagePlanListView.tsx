@@ -7,6 +7,15 @@ import { hrefWithOverviewMonth, readOverviewMonth } from '@/lib/seo-plan/plan-mo
 import { isChecklistTaskId } from '@/lib/seo-plan/plan-work';
 import { effectOfPlanDrop } from '@/lib/seo-plan/plan-drag';
 import {
+    groupTasksByPhase,
+    PHASE_ADD_PLACEHOLDER,
+    PHASE_BOARD_EMPTY,
+    phaseAddLabel,
+    type BoardStage,
+    type PlanBoard,
+    type PlanPhase,
+} from '@/lib/seo-plan/plan-phases';
+import {
     formatPlanDue,
     formatPlanHours,
     groupTasksByPlanMonth,
@@ -25,7 +34,6 @@ import { type PlanPanelField } from '@/lib/seo-plan/plan-panel';
 import { stageListTitleParts, type StageListTask } from '@/lib/seo-plan/stage-list';
 import { calendarDay, STAGE_LIST_TIME_ZONE } from '@/lib/seo-plan/this-month';
 import type { StageReorderMove } from '@/lib/seo-plan/stage-reorder';
-import type { TaskStage } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { LiveUrlResultLine } from '@/components/search-reporting/LiveUrlResultLine';
 import { CompletionDatePrompt } from '@/components/tasks/CompletionDatePrompt';
@@ -34,6 +42,7 @@ import { aggregateUrlResults, type UrlResultReadout } from '@/lib/search-reporti
 import { planRowTimeText, planRowTimerLabel, planTimerTask, type PlanRowTimerView } from '@/lib/seo-plan/row-timer';
 import { DoneThisMonthFooter } from './DoneThisMonthFooter';
 import { PlanAddLine, type PlanAddSubmission } from './PlanAddLine';
+import { StageAddBar } from './StageAddBar';
 import { EMPTY_PLAN_ADD_TASKS, EMPTY_PLAN_BODY, EMPTY_PLAN_TITLE } from '@/lib/seo-plan/empty-plan';
 import { PlanSyncBanner, PlanSyncDot } from './PlanSyncFailure';
 import type { PlanBasecampBanner, PlanBasecampSyncState } from '@/lib/seo-plan/basecamp-push';
@@ -41,7 +50,7 @@ import { PlanShortcutSheet } from './PlanShortcutSheet';
 import { usePlanKeymap } from './use-plan-keymap';
 
 export interface StageAddRequest {
-    stage: TaskStage;
+    stage: BoardStage;
     titles: string[];
     parentTaskId?: string;
     /** Set by the plan add line. Null is Backlog or Onboarding. */
@@ -190,7 +199,7 @@ function pointerFraction(event: DragEvent<HTMLElement>): number {
 }
 
 interface DropHint {
-    section: PlanSectionId;
+    section: PlanSectionId | PlanPhase;
     beforeTaskId: string | null;
     parentTaskId: string | null;
 }
@@ -201,7 +210,9 @@ function hintKey(hint: DropHint | null): string {
 }
 
 /**
- * One plan list: Onboarding, This month, Backlog.
+ * One plan list.
+ * A phase plan uses Foundation, Growth, and Scale.
+ * An older plan keeps Onboarding, This month, and Backlog.
  * Rows stay in manual position order and can be dragged.
  * Dropping a row into another section changes the field that places it there.
  */
@@ -238,6 +249,7 @@ export function StagePlanListView({
     integrationsHref = '/settings',
     onRetrySync,
     doneHoldMs = 4000,
+    board = 'months',
 }: {
     tasks: readonly StageListTask[];
     query: string;
@@ -293,6 +305,11 @@ export function StagePlanListView({
     onRetrySync?: (taskId: string) => Promise<PlanBasecampSyncState | null>;
     /** How long a just-completed onboarding row stays visible, with Undo, before Show done hides it. */
     doneHoldMs?: number;
+    /**
+     * `phases` shows Foundation, Growth, and Scale.
+     * `months` keeps the existing month board. Defaults to months.
+     */
+    board?: PlanBoard;
 }) {
     const searchId = useId();
     const searchRef = useRef<HTMLInputElement>(null);
@@ -301,7 +318,10 @@ export function StagePlanListView({
     const day = today ?? calendarDay(new Date());
     const [month, setMonth] = useState(() => (initialMonth && isPlanMonth(initialMonth) ? initialMonth : monthKeyFromDay(day)));
     const urlMonth = useRef<string | null | undefined>(undefined);
-    const sections = groupTasksByPlanMonth(tasks, { month, today: day, query });
+    const phaseBoard = board === 'phases';
+    const sections = phaseBoard
+        ? groupTasksByPhase(tasks, query, day)
+        : groupTasksByPlanMonth(tasks, { month, today: day, query });
     const searching = query.trim().length > 0;
     const nothingMatches = searching && sections.every(section => section.groups.length === 0);
     const current = month === monthKeyFromDay(day);
@@ -377,8 +397,9 @@ export function StagePlanListView({
     }, [month, onMonthChange]);
 
     const list = (
-        <div ref={listRef} data-seo-plan-stage-list data-plan-month={month} className="min-w-0 flex-1 space-y-3 text-[13px] text-[#18181b]">
+        <div ref={listRef} data-seo-plan-stage-list data-plan-board={board} data-plan-month={phaseBoard ? undefined : month} className="min-w-0 flex-1 space-y-3 text-[13px] text-[#18181b]">
             <div className="flex flex-wrap items-center justify-between gap-3">
+                {phaseBoard ? <span className="text-sm font-medium">Work plan</span> : (
                 <div className="flex items-center gap-2" data-plan-month-control>
                     <button
                         type="button"
@@ -409,6 +430,7 @@ export function StagePlanListView({
                         ›
                     </button>
                 </div>
+                )}
                 <div className="flex items-center gap-3">
                     <label htmlFor={searchId} className="sr-only">Search tasks</label>
                     <input
@@ -424,6 +446,7 @@ export function StagePlanListView({
                 </div>
             </div>
 
+            {phaseBoard ? null : (
             <PlanAddLine
                 month={month}
                 onAdd={submission => onAddTasks({
@@ -433,6 +456,7 @@ export function StagePlanListView({
                     items: submission.items,
                 })}
             />
+            )}
 
             {clientFailure && <PlanSyncBanner href={integrationsHref} />}
 
@@ -450,7 +474,11 @@ export function StagePlanListView({
                 </p>
             )}
 
-            {tasks.length === 0 && !searching ? (
+            {phaseBoard && tasks.length === 0 && !searching && (
+                <p data-plan-phase-empty className="text-[13px] leading-relaxed text-[#3f3f46]">{PHASE_BOARD_EMPTY}</p>
+            )}
+
+            {!phaseBoard && tasks.length === 0 && !searching ? (
                 <div data-plan-empty className="rounded-[10px] border border-[#e4e4e7] bg-[#ffffff] px-4 py-6">
                     <h3 className="text-[13px] font-semibold text-[#18181b]">{EMPTY_PLAN_TITLE}</h3>
                     <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-[#3f3f46]">{EMPTY_PLAN_BODY}</p>
@@ -485,6 +513,9 @@ export function StagePlanListView({
                 holdSeed={holdSeed}
                 resultsByTaskId={resultsByTaskId}
                 doneHoldMs={doneHoldMs}
+                onAddInSection={phaseBoard
+                    ? (stage, titles) => onAddTasks({ stage: stage as PlanPhase, titles })
+                    : undefined}
             />
             )}
             <DoneThisMonthFooter
@@ -548,9 +579,10 @@ function PlanSections({
     holdSeed,
     resultsByTaskId,
     doneHoldMs,
+    onAddInSection,
 }: {
     tasks: readonly StageListTask[];
-    sections: PlanSectionModel[];
+    sections: Array<Omit<PlanSectionModel, 'id'> & { id: string; description?: string }>;
     query: string;
     searching: boolean;
     nothingMatches: boolean;
@@ -577,6 +609,7 @@ function PlanSections({
     holdSeed?: { taskId: string; token: number } | null;
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
     doneHoldMs: number;
+    onAddInSection?: (stage: string, titles: string[]) => Promise<void>;
 }) {
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
     const [showDone, setShowDone] = useState(false);
@@ -655,11 +688,11 @@ function PlanSections({
         rememberDrag(null);
         showHint(null);
     };
-    const isCollapsed = (section: PlanSectionModel) => (
+    const isCollapsed = (section: { id: string; defaultCollapsed: boolean }) => (
         section.id in collapsed ? collapsed[section.id] : section.defaultCollapsed
     );
 
-    const commit = (section: PlanSectionId, beforeTaskId: string | null, parentTaskId: string | null) => {
+    const commit = (section: PlanSectionId | PlanPhase, beforeTaskId: string | null, parentTaskId: string | null) => {
         const activeId = dragIdRef.current;
         if (!activeId || searching) {
             clearDrag();
@@ -683,7 +716,7 @@ function PlanSections({
         void onReorder(requested).catch(() => setMoveError('Could not move that task.'));
     };
 
-    const dropLine = (section: PlanSectionId, beforeTaskId: string | null, parentTaskId: string | null) => {
+    const dropLine = (section: PlanSectionId | PlanPhase, beforeTaskId: string | null, parentTaskId: string | null) => {
         if (!hint || hint.section !== section || hint.beforeTaskId !== beforeTaskId || hint.parentTaskId !== parentTaskId) return null;
         return <div data-stage-drop-line className="mx-3 h-0.5 bg-[#ec4899]" />;
     };
@@ -708,12 +741,12 @@ function PlanSections({
                         onDragOver={event => {
                             if (searching || !dragIdRef.current) return;
                             event.preventDefault();
-                            showHint({ section: section.id, beforeTaskId: null, parentTaskId: null });
+                            showHint({ section: section.id as PlanSectionId | PlanPhase, beforeTaskId: null, parentTaskId: null });
                         }}
                         onDrop={event => {
                             if (searching || !dragIdRef.current) return;
                             event.preventDefault();
-                            commit(section.id, null, null);
+                            commit(section.id as PlanSectionId | PlanPhase, null, null);
                         }}
                     >
                         <h3 id={headingId} className="flex min-h-9 items-center gap-2 px-3 py-1.5">
@@ -724,7 +757,12 @@ function PlanSections({
                                 className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                             >
                                 <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-[#71717a] transition-transform', !closed && 'rotate-90')} />
-                                <span className={cn('text-[13px] font-semibold', section.collapsedComplete && 'text-[#71717a]')}>{section.title}</span>
+                                <span className="min-w-0">
+                                    <span className={cn('block text-[13px] font-semibold', section.collapsedComplete && 'text-[#71717a]')}>{section.title}</span>
+                                    {section.description && (
+                                        <span data-phase-description={section.id} className="mt-0.5 block text-[12px] font-normal leading-5 text-[#52525b]">{section.description}</span>
+                                    )}
+                                </span>
                                 <span className="text-[11px] font-normal text-[#71717a]" data-count={section.count}>
                                     <Meta meta={section.meta} late={section.late} />
                                 </span>
@@ -739,10 +777,10 @@ function PlanSections({
                                 const hideGroup = foldDone && isPlanDone(group.task.status) && !heldDone[group.task.id];
                                 return (
                                     <div key={group.task.id} hidden={hideGroup || undefined}>
-                                        {dropLine(section.id, group.task.id, null)}
+                                        {dropLine(section.id as PlanSectionId | PlanPhase, group.task.id, null)}
                                         <PlanRow
                                             group={group}
-                                            section={section.id}
+                                            section={section.id as PlanSectionId | PlanPhase}
                                             query={query}
                                             searching={searching}
                                             today={today}
@@ -771,13 +809,23 @@ function PlanSections({
                                             onDragStart={rememberDrag}
                                             onDragEnd={clearDrag}
                                             onHint={showHint}
-                                            onDropRow={(beforeTaskId, parentTaskId) => commit(section.id, beforeTaskId, parentTaskId)}
+                                            onDropRow={(beforeTaskId, parentTaskId) => commit(section.id as PlanSectionId | PlanPhase, beforeTaskId, parentTaskId)}
                                             nextTopId={nextTop}
                                         />
                                     </div>
                                 );
                             })}
-                            {dropLine(section.id, null, null)}
+                            {dropLine(section.id as PlanSectionId | PlanPhase, null, null)}
+                            {onAddInSection && (
+                                <div className="border-t border-[#e4e4e7] px-3 py-2">
+                                    <StageAddBar
+                                        label={phaseAddLabel(section.id as PlanPhase)}
+                                        placeholder={PHASE_ADD_PLACEHOLDER}
+                                        stage={section.id}
+                                        onAdd={titles => onAddInSection(section.id, titles)}
+                                    />
+                                </div>
+                            )}
                             {section.id === 'onboarding' && section.done > 0 && section.open > 0 && !searching && (
                                 <button
                                     type="button"
@@ -844,7 +892,7 @@ function PlanRow({
     nextTopId,
 }: {
     group: PlanGroup;
-    section: PlanSectionId;
+    section: PlanSectionId | PlanPhase;
     query: string;
     searching: boolean;
     today: string;

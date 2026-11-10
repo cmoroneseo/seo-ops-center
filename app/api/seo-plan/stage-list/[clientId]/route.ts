@@ -14,7 +14,7 @@ import { createStageTasks } from '@/lib/seo-plan/stage-add-route';
 import { rewriteStageTasks, setStageTaskDueDate } from '@/lib/seo-plan/stage-reorder-db';
 import { reorderStageTasks } from '@/lib/seo-plan/stage-reorder-route';
 import { syncStoredParentStepOrder, syncStoredPlanTask } from '@/lib/seo-plan/basecamp-push-server';
-import { loadClientStageTasks, loadPlanBasecampBanner } from '@/lib/seo-plan/stage-list-load';
+import { loadClientPlanBoard, loadClientStageTasks, loadPlanBasecampBanner } from '@/lib/seo-plan/stage-list-load';
 import { readClientStageList } from '@/lib/seo-plan/stage-list-route';
 import { logClientActivity } from '@/lib/supabase/client-activity';
 
@@ -45,6 +45,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ cli
         session: resolveSessionOrganization,
         enabled: organizationId => seoPlanStageListEnabled(process.env, organizationId),
         load: (organizationId, id) => loadClientStageTasks(db, organizationId, id),
+        loadBoard: (organizationId, id) => loadClientPlanBoard(db, organizationId, id),
         basecampAccountId: process.env.BASECAMP_ACCOUNT_ID ?? null,
     });
     if (result.status !== 200) return NextResponse.json(result.body, { status: result.status, headers: NO_STORE });

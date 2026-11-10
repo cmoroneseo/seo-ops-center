@@ -65,6 +65,7 @@ import {
 import { PanelSkeleton } from './PanelSkeleton';
 import { PlanSidePanel } from './PlanSidePanel';
 import { StagePlanListView, type PlanAssignee, type StageAddRequest } from './StagePlanListView';
+import type { PlanBoard } from '@/lib/seo-plan/plan-phases';
 
 /**
  * Loads the session-scoped stage list, creates tasks from the add bar, and
@@ -101,6 +102,7 @@ export function StagePlanList({
         setFooterMonth(month);
     }, []);
     const [error, setError] = useState(false);
+    const [board, setBoard] = useState<PlanBoard>('months');
     const [planItems, setPlanItems] = useState<PlanChecklistItem[]>([]);
     const ledgerRef = useRef(emptyPanelSaveLedger());
     const [reloadKey, setReloadKey] = useState(0);
@@ -154,6 +156,7 @@ export function StagePlanList({
         if (seenClient.current !== clientId) {
             seenClient.current = clientId;
             setList(null);
+            setBoard('months');
             setQuery('');
             setPanel(null);
             setDetail(null);
@@ -163,12 +166,13 @@ export function StagePlanList({
         fetch(`/api/seo-plan/stage-list/${encodeURIComponent(clientId)}`, { cache: 'no-store' })
             .then(async response => {
                 if (!response.ok) throw new Error('unavailable');
-                return response.json() as Promise<{ tasks?: unknown; basecampAccountId?: unknown; basecamp?: unknown }>;
+                return response.json() as Promise<{ tasks?: unknown; board?: unknown; basecampAccountId?: unknown; basecamp?: unknown }>;
             })
             .then(body => {
                 if (cancelled) return;
                 const account = typeof body?.basecampAccountId === 'string' ? body.basecampAccountId.trim() : '';
                 setAccountId(account || null);
+                setBoard(body?.board === 'phases' ? 'phases' : 'months');
                 setBasecamp(parsePlanBasecampBanner(body?.basecamp));
                 const fresh = parseStageListTasks(body?.tasks);
                 updateList(loaded => mergeRefreshedTasks(loaded, fresh, dirtyPanelTaskIds(ledgerRef.current)));
@@ -719,6 +723,7 @@ export function StagePlanList({
             {timerNotice && <p role="status" data-plan-timer-notice className="mb-2 text-sm text-muted-foreground">{timerNotice}</p>}
             {timerError && <p role="alert" className="mb-2 text-sm text-[#dc2626]">{timerError}</p>}
             <StagePlanListView
+                board={board}
                 tasks={visibleTasks}
                 query={query}
                 onQueryChange={setQuery}
