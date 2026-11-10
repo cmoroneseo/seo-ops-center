@@ -47,7 +47,7 @@ test('a new phase plan shows three empty stages and an add box on each', () => {
         assert.match(html, new RegExp(PHASE_STAGE_COPY[phase].description.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     }
     assert.equal(html.match(/data-add="(?:foundation|growth|scale)"/g)?.length, 3);
-    assert.doesNotMatch(html, /data-plan-month-control|data-plan-add="true"|data-plan-section="onboarding"|data-plan-section="this_month"/);
+    assert.doesNotMatch(html, /data-plan-month-control|data-plan-add="true"|data-plan-section="onboarding"|data-plan-section="this_month"|data-plan-footer|Done this month/);
     assert.doesNotMatch(html, /Month 1|Month 2|Month 3/);
 });
 

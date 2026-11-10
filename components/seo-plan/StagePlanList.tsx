@@ -102,7 +102,7 @@ export function StagePlanList({
         setFooterMonth(month);
     }, []);
     const [error, setError] = useState(false);
-    const [board, setBoard] = useState<PlanBoard>('months');
+    const [board, setBoard] = useState<PlanBoard | null>(null);
     const [planItems, setPlanItems] = useState<PlanChecklistItem[]>([]);
     const ledgerRef = useRef(emptyPanelSaveLedger());
     const [reloadKey, setReloadKey] = useState(0);
@@ -156,7 +156,7 @@ export function StagePlanList({
         if (seenClient.current !== clientId) {
             seenClient.current = clientId;
             setList(null);
-            setBoard('months');
+            setBoard(null);
             setQuery('');
             setPanel(null);
             setDetail(null);
@@ -686,7 +686,7 @@ export function StagePlanList({
             </p>
         );
     }
-    if (!tasks) return <PanelSkeleton label="Loading SEO plan" />;
+    if (!tasks || board == null) return <PanelSkeleton label="Loading SEO plan" />;
 
     const visibleTasks = shownTasks ?? tasks;
     const open = panel && tasks.some(task => task.id === panel.id) ? panel : null;

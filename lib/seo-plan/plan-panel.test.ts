@@ -254,6 +254,22 @@ test('the parent picker is one level, and a pillar cannot move under another tas
     assert.equal(planParentMove(tasks, 'kitchen', null).move, null);
 });
 
+test('un-nesting a Growth subtask keeps growth', () => {
+    const pages = task({ id: 'pages', title: 'Service pages', stage: 'growth', position: 1 });
+    const copy = task({ id: 'copy', title: 'Write the service page', stage: 'growth', position: 1, parentTaskId: 'pages' });
+    const unnest = planParentMove([pages, copy], 'copy', null);
+    assert.equal(unnest.ok, true);
+    if (!unnest.ok || !unnest.move) return;
+    assert.equal(unnest.move.parentTaskId, null);
+    assert.equal(unnest.move.stage, 'growth');
+    const applied = applyStageReorder([pages, copy], unnest.move);
+    assert.equal(applied.ok, true);
+    if (!applied.ok) return;
+    assert.equal(applied.tasks.find(item => item.id === 'copy')?.stage, 'growth');
+    assert.equal(applied.tasks.find(item => item.id === 'copy')?.parentTaskId, null);
+    assert.equal(applied.tasks.find(item => item.id === 'pages')?.stage, 'growth');
+});
+
 test('adding a subtask updates the live count from the same rows', () => {
     const parent = task({ id: 'citations', title: 'Citations cleanup' });
     const before = planPanelTask({ task: parent, tasks: [parent] });

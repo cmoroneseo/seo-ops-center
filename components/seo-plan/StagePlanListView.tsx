@@ -374,7 +374,7 @@ export function StagePlanListView({
         onClosePanel,
         onToggleCheck: onToggleCheck ? checkFromKeyboard : undefined,
         onRowTimer,
-        onShiftMonth: shiftMonth,
+        onShiftMonth: phaseBoard ? () => undefined : shiftMonth,
     });
 
     useEffect(() => {
@@ -384,17 +384,19 @@ export function StagePlanListView({
     }, []);
 
     useEffect(() => {
+        if (phaseBoard) return;
         if (urlMonth.current === undefined) return;
         if (typeof urlMonth.current === 'string' && month !== urlMonth.current) return;
         urlMonth.current = null;
         const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
         const next = hrefWithOverviewMonth(current, month);
         if (next !== current) window.history.replaceState(window.history.state, '', next);
-    }, [month]);
+    }, [month, phaseBoard]);
 
     useEffect(() => {
+        if (phaseBoard) return;
         onMonthChange?.(month);
-    }, [month, onMonthChange]);
+    }, [month, onMonthChange, phaseBoard]);
 
     const list = (
         <div ref={listRef} data-seo-plan-stage-list data-plan-board={board} data-plan-month={phaseBoard ? undefined : month} className="min-w-0 flex-1 space-y-3 text-[13px] text-[#18181b]">
@@ -518,6 +520,7 @@ export function StagePlanListView({
                     : undefined}
             />
             )}
+            {phaseBoard ? null : (
             <DoneThisMonthFooter
                 tasks={tasks}
                 logs={monthLogs}
@@ -527,6 +530,7 @@ export function StagePlanListView({
                 clientId={clientId}
                 onOpenResults={onOpenResults}
             />
+            )}
         </div>
     );
     const body = (

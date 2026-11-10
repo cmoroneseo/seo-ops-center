@@ -90,3 +90,53 @@ test('migration 123 is mirrored, allows phases, and does not rewrite rows', asyn
         await db.close();
     }
 });
+
+test('migration 123 also starts from the post-107 check and does not rewrite those rows', async () => {
+    const db = new PGlite();
+    try {
+        await db.exec(`
+            create role anon;
+            create role authenticated;
+            create schema auth;
+            create function auth.uid() returns uuid language sql stable as $$
+                select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+            $$;
+            create table public.organization_members(organization_id uuid, user_id uuid, role text);
+            create table public.tasks (
+                id uuid primary key,
+                organization_id uuid,
+                client_id uuid,
+                parent_task_id uuid,
+                title text not null default 'task',
+                status text not null default 'todo',
+                stage text not null,
+                position double precision not null,
+                created_at timestamptz not null default '2026-01-01',
+                category text,
+                basecamp_todo_id bigint,
+                recurrence jsonb,
+                constraint tasks_stage_check check (stage in ('onboarding', 'backlog'))
+            );
+            insert into public.organization_members values ('${org}', '${member}', 'member');
+            insert into public.tasks (id, organization_id, client_id, title, stage, position) values
+                ('${onboarding}', '${org}', '${client}', 'Kickoff', 'onboarding', 1),
+                ('${backlog}', '${org}', '${client}', 'Later', 'backlog', 4);
+        `);
+        await db.exec(migration);
+        assert.deepEqual(await rows(db), [
+            { id: onboarding, stage: 'onboarding', position: 1 },
+            { id: backlog, stage: 'backlog', position: 4 },
+        ]);
+        await db.query(`insert into public.tasks (id, organization_id, client_id, title, stage, position)
+            values ('10000000-0000-0000-0000-000000000098', '${org}', '${client}', 'Show up', 'scale', 1)`);
+        await assert.rejects(
+            db.query(`insert into public.tasks (id, organization_id, client_id, title, stage, position)
+                values ('10000000-0000-0000-0000-000000000097', '${org}', '${client}', 'Nope', 'month_9', 1)`),
+            /tasks_stage_check/,
+        );
+        assert.equal((await rows(db)).find(row => row.id === onboarding)?.stage, 'onboarding');
+        assert.equal((await rows(db)).find(row => row.id === backlog)?.stage, 'backlog');
+    } finally {
+        await db.close();
+    }
+});

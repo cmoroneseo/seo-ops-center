@@ -1,10 +1,12 @@
+import { isPlanPhase } from './plan-phases';
+
 /**
  * When an SEO Plan task is allowed to push to Basecamp.
  *
- * A backlog task with no due date never pushes. A due date qualifies it,
- * and so does leaving Backlog (stage becomes onboarding, or a drag into
- * This month writes a due date). Clients with no Basecamp project are a
- * no-op decided by the caller; this predicate is only about the task.
+ * A backlog task with no due date never pushes. A due date qualifies it.
+ * Onboarding and the phase stages (Foundation, Growth, Scale) qualify
+ * without a due date. Clients with no Basecamp project are a no-op decided
+ * by the caller; this predicate is only about the task.
  */
 
 export const PLAN_BASECAMP_PUSH_DEBOUNCE_MS = 2000;
@@ -32,19 +34,18 @@ export interface PlanTaskPushInput {
     dueDate: string | null;
 }
 
-/** Onboarding, or any task that has a due date. Undated backlog stays local. */
+/** Onboarding, a phase stage, or any task that has a due date. Undated backlog stays local. */
 export function planTaskQualifiesForBasecampPush(task: PlanTaskPushInput): boolean {
     if (typeof task.dueDate === 'string' && task.dueDate.trim().length > 0) return true;
-    return task.stage === 'onboarding';
+    return task.stage === 'onboarding' || isPlanPhase(task.stage);
 }
 
 /**
- * Stage is only onboarding or backlog, and migration 103 stores one of those
- * on every task. Stage by itself does not mean "this row belongs to the plan
- * push."
+ * A row on the work plan. Onboarding, Backlog, and the three phase stages.
+ * Stage by itself does not mean "this row belongs to the plan push."
  */
 export function isSeoPlanTask(stage: string | null | undefined): boolean {
-    return stage === 'onboarding' || stage === 'backlog';
+    return stage === 'onboarding' || stage === 'backlog' || isPlanPhase(stage);
 }
 
 /**
