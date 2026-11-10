@@ -12,6 +12,8 @@ import {
     type GlanceRow,
     type Piece,
 } from '@/lib/reports/render-model';
+import type { ClientRoadmap } from '@/lib/reports/roadmap';
+import { RoadmapReportView } from '@/components/reports/RoadmapReportView';
 
 function Pieces({ pieces }: { pieces: Piece[] }) {
     return (
@@ -167,7 +169,26 @@ function BlockView({ block }: { block: ClientBlock }) {
     }
 }
 
-export function ClientReport({ model, audience }: { model: ClientReportModel; audience: 'client' | 'staff' }) {
+function RoadmapPage({ roadmap }: { roadmap: ClientRoadmap }) {
+    return (
+        <section className="client-report-page rounded-xl bg-white px-6 py-8" data-page="roadmap">
+            <RoadmapReportView roadmap={roadmap} />
+        </section>
+    );
+}
+
+export function ClientReport({
+    model,
+    audience,
+    roadmap = null,
+    roadmapBeforeDetail = false,
+}: {
+    model: ClientReportModel;
+    audience: 'client' | 'staff';
+    roadmap?: ClientRoadmap | null;
+    /** Place the roadmap before the detail page when later report sections follow the block. */
+    roadmapBeforeDetail?: boolean;
+}) {
     const visible = forAudience(model, audience);
     return (
         <article className="client-report mx-auto max-w-[920px] px-4 py-6 text-[#1c1917]" style={{ background: '#f6f5f7' }}>
@@ -213,9 +234,11 @@ export function ClientReport({ model, audience }: { model: ClientReportModel; au
                     <p className="text-xs font-semibold tracking-[0.16em]" style={{ color: 'var(--chart-1)' }}>{visible.monthName.toUpperCase()} {visible.year}</p>
                     {visible.summary.map(block => <BlockView key={block.kind} block={block} />)}
                 </section>
+                {roadmap && roadmapBeforeDetail ? <RoadmapPage roadmap={roadmap} /> : null}
                 <section className="client-report-page space-y-6" data-page="detail">
                     {visible.detail.map(block => <BlockView key={`${block.kind}-${block.kind === 'whats_next' ? block.audience : ''}`} block={block} />)}
                 </section>
+                {roadmap && !roadmapBeforeDetail ? <RoadmapPage roadmap={roadmap} /> : null}
             </div>
         </article>
     );

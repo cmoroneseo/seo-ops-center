@@ -106,6 +106,10 @@ export interface SnapshotInput {
     gscDays: GscDayInput[];
     gscFinal: boolean;
     ledgerRows: FrozenLedgerRow[];
+    /**
+     * Ignored. Roadmap progress is read live and is not part of the freeze.
+     * Kept so older callers can still pass the field.
+     */
     planSnapshot?: Record<string, unknown> | null;
 }
 
@@ -288,7 +292,7 @@ export function assembleReportSnapshot(input: SnapshotInput): ReportVersionSnaps
             updatedAt: Object.fromEntries(currentRows.map(row => [row.source, row.updatedAt])),
         },
         history,
-        planSnapshot: input.planSnapshot ?? null,
+        planSnapshot: null,
     };
     return {
         schemaVersion: 1,

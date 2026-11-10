@@ -22,6 +22,19 @@ test('a leading page break does not print a blank first page', () => {
     assert.deepEqual(pages.map(page => page.map(item => item.type)), [['cover'], ['text']]);
 });
 
+test('an old marketing plan block becomes the roadmap and drops stored task rows', () => {
+    const rendered = blocksForClientRender({
+        blocks: [
+            { id: 'plan', type: 'marketing_plan', props: { planView: 'step', tasks: [{ title: 'Secret task' }], settingsOpen: true } },
+            block('note', 'text'),
+        ],
+    });
+    assert.equal(rendered[0]?.type, 'roadmap');
+    assert.deepEqual(rendered[0]?.props, {});
+    assert.equal(JSON.stringify(rendered).includes('Secret task'), false);
+    assert.equal(rendered[1]?.type, 'text');
+});
+
 test('old share snapshots drop rank tables and map grids at render time', () => {
     const rendered = blocksForClientRender({
         blocks: [

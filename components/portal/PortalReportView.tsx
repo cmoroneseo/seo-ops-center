@@ -6,7 +6,8 @@ import { RenderBlock, type ReportContext } from '@/components/reports/ReportBloc
 import { blocksForClientRender, splitReportPages, type ReportSectionsField } from '@/lib/reports/blocks';
 import { REPORT_PRINT_CSS } from '@/lib/reports/print-style';
 import { monthLabel } from '@/lib/reports/sections';
-import type { ClientProject, MarketingPlan } from '@/lib/types';
+import type { ClientProject } from '@/lib/types';
+import type { ClientRoadmap } from '@/lib/reports/roadmap';
 import type { TrackedKeywordReportSnapshot } from '@/lib/keyword-tracking/report-snapshot';
 
 export function PortalReportView({
@@ -20,7 +21,7 @@ export function PortalReportView({
     logoUrl,
     metrics,
     history,
-    planSnapshot,
+    roadmap = null,
     trackingSnapshot = null,
 }: {
     reportId: string;
@@ -33,7 +34,7 @@ export function PortalReportView({
     logoUrl?: string;
     metrics: ReportContext['metrics'];
     history: ReportContext['history'];
-    planSnapshot: { plan: MarketingPlan } | null;
+    roadmap?: ClientRoadmap | null;
     trackingSnapshot?: TrackedKeywordReportSnapshot | null;
 }) {
     const blocks = useMemo(() => blocksForClientRender(sections), [sections]);
@@ -56,7 +57,8 @@ export function PortalReportView({
         history,
         hideEmpty: true,
         clientFacing: true,
-        planSnapshot,
+        roadmap,
+        roadmapFromServer: true,
         reportStatus: 'published',
         trackingSnapshot,
     };

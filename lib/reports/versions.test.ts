@@ -86,6 +86,29 @@ test('the portal payload drops rank tables and shows the account-manager note', 
     assert.equal(snapshot.ledgerRows[0]?.title, 'Chino page');
 });
 
+test('approval does not freeze roadmap tasks, and other blocks stay in the snapshot', () => {
+    const snapshot = assembleReportSnapshot(input({
+        planSnapshot: { plan: { items: [{ title: 'Frozen checklist item', email: 'abel@marketingempiregroup.com' }] } },
+        sections: {
+            version: 2,
+            blocks: [
+                { id: 'plan', type: 'marketing_plan', props: { planView: 'step', tasks: [{ title: 'Secret task', email: 'abel@marketingempiregroup.com' }] } },
+                { id: 'note', type: 'text', props: { text: '65 clicks.' } },
+            ],
+        },
+    }));
+    const json = JSON.stringify(snapshot);
+    assert.equal(snapshot.portal.planSnapshot, null);
+    assert.equal(json.includes('Frozen checklist item'), false);
+    assert.equal(json.includes('Secret task'), false);
+    assert.equal(json.includes('abel@'), false);
+    assert.equal(json.includes('65 clicks'), true);
+    assert.equal(snapshot.metrics.find(row => row.source === 'gsc')?.data.organic_clicks, 65);
+    const blocks = (snapshot.portal.sections as { blocks: { id: string; type: string; props: Record<string, unknown> }[] }).blocks;
+    assert.equal(blocks.find(block => block.id === 'plan')?.type, 'roadmap');
+    assert.deepEqual(blocks.find(block => block.id === 'plan')?.props, {});
+});
+
 test('an approved snapshot wins over a later live capture', () => {
     assert.deepEqual(chooseReportSnapshot({ clicks: 65 }, { clicks: 99 }), { clicks: 65 });
     assert.deepEqual(chooseReportSnapshot(null, { clicks: 99 }), { clicks: 99 });

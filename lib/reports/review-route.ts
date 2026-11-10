@@ -77,7 +77,6 @@ export interface ReviewRouteDeps {
     access: (id: unknown, mode: 'read' | 'write') => Promise<ReportAccess>;
     loadContext: (report: ReportRow) => Promise<{ ok: true; context: ReviewContext } | { ok: false; status: number; error: string }>;
     loadLedger: (organizationId: string, clientId: string, now: Date) => Promise<FrozenLedgerRow[]>;
-    loadPlan: (organizationId: string, clientId: string) => Promise<Record<string, unknown> | null>;
     persist: (input: PersistInput) => Promise<{ ok: true; versionId: string | null } | { ok: false; status: number; error: string }>;
     readSnapshot: (reportId: string, organizationId: string, versionNo: number) => Promise<ReportVersionSnapshot | null>;
     now: () => Date;
@@ -227,12 +226,8 @@ export function createReviewHandlers(deps: ReviewRouteDeps) {
             let hash: string | null = null;
             if (planned.capture) {
                 let ledger: FrozenLedgerRow[] = [];
-                let planSnapshot: Record<string, unknown> | null = null;
                 try {
-                    [ledger, planSnapshot] = await Promise.all([
-                        deps.loadLedger(report.organization_id, report.client_id, now),
-                        deps.loadPlan(report.organization_id, report.client_id),
-                    ]);
+                    ledger = await deps.loadLedger(report.organization_id, report.client_id, now);
                 } catch {
                     return json({ error: 'Could not freeze the report.' }, 500);
                 }
@@ -253,7 +248,6 @@ export function createReviewHandlers(deps: ReviewRouteDeps) {
                     gscDays: context.gscDays,
                     gscFinal: context.gsc.final,
                     ledgerRows: ledger,
-                    planSnapshot,
                 });
                 hash = contentHash(snapshot);
             }
