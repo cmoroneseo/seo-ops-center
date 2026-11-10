@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
+import { receiptTagLabel } from '@/lib/copy/labels';
 import {
     RECEIPT_HOVER_OPEN_MS,
     buildReceiptContent,
@@ -127,7 +128,7 @@ export function Receipt({
                 <span>{content.value}</span>
                 {content.tag ? (
                     <span data-receipt-tag={content.tag} className={TAG_CLASS[content.tag]}>
-                        {content.tag}
+                        {receiptTagLabel(content.tag)}
                     </span>
                 ) : null}
             </button>

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Circle, Download, ExternalLink, Link2, Link2Off, Plus, X } from 'lucide-react';
+import { taskStatusLabel } from '@/lib/copy/labels';
 import { cn } from '@/lib/utils';
 import { safeHref } from '@/lib/links/safe-href';
 import {
@@ -564,7 +565,7 @@ function TaskLinkControl({
                                             className="flex w-full items-center justify-between gap-2 rounded-lg border border-border px-2 py-1.5 text-left text-xs text-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                                         >
                                             <span className="truncate" title={task.title}>{task.title}</span>
-                                            <span className="shrink-0 text-muted-foreground">{task.status}</span>
+                                            <span className="shrink-0 text-muted-foreground">{taskStatusLabel(task.status)}</span>
                                         </button>
                                     </li>
                                 ))}

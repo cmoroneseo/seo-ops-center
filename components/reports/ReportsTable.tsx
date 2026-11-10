@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, Trash2, FileText } from 'lucide-react';
+import { reportStatusLabel } from '@/lib/copy/labels';
 import { cn } from '@/lib/utils';
 
 interface ReportRow {
@@ -77,7 +78,7 @@ export function ReportsTable({ reports, clientNames, onDelete }: Props) {
                                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{reportMonthLabel(r.report_month)}</td>
                                     <td className="px-4 py-3">
                                         <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', r.status === 'published' ? 'bg-green-500/15 text-green-500' : 'bg-muted text-muted-foreground')}>
-                                            {r.status}
+                                            {reportStatusLabel(r.status)}
                                         </span>
                                     </td>
                                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{dateLabel(r.updated_at)}</td>

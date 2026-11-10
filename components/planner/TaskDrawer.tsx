@@ -2,6 +2,7 @@
 
 import { useId, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
+import { taskStatusLabel } from '@/lib/copy/labels';
 import { cn } from '@/lib/utils';
 import type { PlannerSearchGroup } from '@/lib/planner/task-sessions';
 import { Task } from '@/lib/types';
@@ -19,13 +20,6 @@ interface TaskDrawerProps {
     taskDropTarget?: 'backlog';
     dropTargetActive?: boolean;
     showStatus?: boolean;
-}
-
-function taskStatusLabel(status: string): string {
-    if (status === 'in_progress') return 'In progress';
-    if (status === 'done') return 'Completed';
-    if (status === 'todo') return 'To do';
-    return status.replaceAll('_', ' ');
 }
 
 function subtaskCountLabel(count: number): string {

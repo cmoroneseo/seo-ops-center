@@ -22,7 +22,7 @@ test('states-matrix copy stays on the reviewed sentences', () => {
     assert.equal(STATES_COPY.snapshotTag, 'snapshot');
     assert.equal(STATES_COPY.refTag, 'ref');
     assert.equal(staleAsOf('Oct 8, 2026'), 'as of Oct 8, 2026');
-    assert.equal(snapshotLocked('Oct 2, 2026'), 'Snapshot locked Oct 2, 2026');
+    assert.equal(snapshotLocked('Oct 2, 2026'), 'Saved Oct 2, 2026');
     assert.equal(
         notConnectedPresentation("Search Console isn't connected."),
         "— Search Console isn't connected.",

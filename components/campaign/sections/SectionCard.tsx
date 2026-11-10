@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
+import { CAMPAIGN_PLAN_STATUS_LABELS } from '@/lib/copy/labels';
 import { cn } from '@/lib/utils';
 import {
     CampaignPlanStatus, CampaignGoalCategory, KpiGroup, KpiSource,
@@ -121,11 +122,11 @@ export const EXPECTATION_TYPES: { value: ExpectationType; label: string }[] = [
 ];
 
 export const STATUS_LABELS: Record<CampaignPlanStatus, { label: string; color: string }> = {
-    draft: { label: 'Draft', color: 'bg-gray-500/10 text-gray-500 border-gray-500/20' },
-    internal_review: { label: 'In Review', color: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20' },
-    approved: { label: 'Approved', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20' },
-    active: { label: 'Active', color: 'bg-green-500/10 text-green-500 border-green-500/20' },
-    archived: { label: 'Archived', color: 'bg-gray-500/10 text-gray-400 border-gray-500/20' },
+    draft: { label: CAMPAIGN_PLAN_STATUS_LABELS.draft, color: 'bg-gray-500/10 text-gray-500 border-gray-500/20' },
+    internal_review: { label: CAMPAIGN_PLAN_STATUS_LABELS.internal_review, color: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20' },
+    approved: { label: CAMPAIGN_PLAN_STATUS_LABELS.approved, color: 'bg-blue-500/10 text-blue-500 border-blue-500/20' },
+    active: { label: CAMPAIGN_PLAN_STATUS_LABELS.active, color: 'bg-green-500/10 text-green-500 border-green-500/20' },
+    archived: { label: CAMPAIGN_PLAN_STATUS_LABELS.archived, color: 'bg-gray-500/10 text-gray-400 border-gray-500/20' },
 };
 
 export const GOAL_STATUSES: { value: string; label: string }[] = [

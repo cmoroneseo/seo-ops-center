@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
+import { reportStatusLabel } from '@/lib/copy/labels';
 import { monthLabel } from '@/lib/reports/sections';
 import Link from 'next/link';
 import { reportTitleMonthMismatch } from '@/lib/portal/readiness';
@@ -216,7 +217,7 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
                         const shared = data?.sharedReportIds.includes(report.id);
                         return (
                             <li key={report.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                                <span>{report.title} · {monthLabel(report.report_month)} · {report.status}{reportTitleMonthMismatch(report.title, report.report_month) && <span className="mt-1 block text-destructive">Title and reporting month disagree. Correct this in Reports before sharing. <Link href={`/reports/${report.id}`} className="underline">Open report</Link></span>}</span>
+                                <span>{report.title} · {monthLabel(report.report_month)} · {reportStatusLabel(report.status)}{reportTitleMonthMismatch(report.title, report.report_month) && <span className="mt-1 block text-destructive">Title and reporting month disagree. Correct this in Reports before sharing. <Link href={`/reports/${report.id}`} className="underline">Open report</Link></span>}</span>
                                 {report.status === 'published' ? (
                                     <button
                                         type="button"

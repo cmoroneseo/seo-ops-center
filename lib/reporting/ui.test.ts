@@ -128,10 +128,10 @@ test('a client receipt drops property, method, and the staff link', () => {
 test('frozen receipts read the snapshot and only non-default tags render', () => {
     const frozen = buildReceiptContent(receiptInput({ frozenAt: 'Oct 2, 2026', tag: 'prelim' }));
     assert.equal(frozen.tag, 'snapshot');
-    assert.equal(frozen.rows.find((row) => row.label === 'Freshness')?.value, 'Snapshot locked Oct 2, 2026');
+    assert.equal(frozen.rows.find((row) => row.label === 'Freshness')?.value, 'Saved Oct 2, 2026');
     const html = renderReceipt({ tag: 'prelim' });
     assert.match(html, /data-receipt-tag="prelim"/);
-    assert.match(html, />prelim</);
+    assert.match(html, />Early</);
     const plain = renderReceipt();
     assert.equal(plain.includes('data-receipt-tag'), false);
 });

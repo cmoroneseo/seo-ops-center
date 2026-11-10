@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Target, Check, X, Trash2, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { campaignGoalStatusLabel } from '@/lib/copy/labels';
 import { CampaignGoal } from '@/lib/types';
 import { upsertCampaignGoal, deleteCampaignGoal } from '@/lib/supabase/campaign-plans';
 import { SectionCard, InlineInput, InlineSelect, GOAL_CATEGORIES, GOAL_STATUSES, SectionProps } from './SectionCard';
@@ -91,7 +92,7 @@ export function GoalsSection({ plan, organizationId, clientId, expanded, onToggl
                                 g.status === 'at_risk' ? 'bg-red-500/10 text-red-500 border-red-500/20' :
                                 'bg-gray-500/10 text-gray-400 border-gray-500/20'
                             )}>
-                                {g.status}
+                                {campaignGoalStatusLabel(g.status)}
                             </span>
                         </div>
                         {g.description && <p className="text-xs text-muted-foreground">{g.description}</p>}
