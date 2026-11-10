@@ -1,5 +1,6 @@
 import { createClient } from './client';
-import { MARKETING_PLAN_STEPS, newClientPlanItems, validateClientSetup, type ClientSetupInput } from '../client-setup';
+import { newClientPlanItems, validateClientSetup, type ClientSetupInput } from '../client-setup';
+import { phasePlanSteps } from '../seo-plan/plan-phases';
 
 export async function createClientWithSetup(input: ClientSetupInput): Promise<{ id?: string; error?: string }> {
     const validation = validateClientSetup(input);
@@ -16,7 +17,7 @@ export async function createClientWithSetup(input: ClientSetupInput): Promise<{ 
         p_launch_date: input.launchDate || null,
         p_seo_hours: input.seoHours,
         p_scope: input.scope,
-        p_steps: MARKETING_PLAN_STEPS,
+        p_steps: phasePlanSteps(),
         p_items: newClientPlanItems(),
     });
     return error ? { error: error.message } : { id: data as string };
