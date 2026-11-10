@@ -170,7 +170,7 @@ test('approve still writes the same task brief and decline only sets declined', 
 
     assert.deepEqual(approveUpdate('task-1'), { status: 'approved', taskId: 'task-1' });
     assert.deepEqual(Object.keys(approveUpdate('task-1')).sort(), ['status', 'taskId']);
-    assert.deepEqual(declineUpdate(), { status: 'declined' });
+    assert.deepEqual(declineUpdate(), { status: 'declined', productionStatus: 'declined' });
 });
 
 test('tab order wraps inside a dialog', () => {

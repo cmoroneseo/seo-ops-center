@@ -12,7 +12,6 @@ import type {
 } from '../types';
 import { createTask } from './tasks';
 import {
-    approveUpdate,
     approvalTaskDescription,
     cleanOptionalText,
     declineUpdate,
@@ -24,6 +23,18 @@ import {
     type ManualRecordDraft,
     type SpecFieldPatch,
 } from '../topical-map/spec';
+import { approveRecordPatch, productionFromRow, productionUpdates } from '../topical-map/production';
+
+export const MISSING_PRODUCTION_COLUMN = 'Content status cannot be saved until the database update is applied.';
+
+/** A missing production column is reported in plain language. Other errors pass through. */
+export function recordUpdateError(
+    error: { code?: string; message?: string },
+    wroteProduction: boolean,
+): string {
+    if (wroteProduction && (error.code === '42703' || error.code === 'PGRST204')) return MISSING_PRODUCTION_COLUMN;
+    return error.message || 'Failed to save change';
+}
 
 // ─── Row Mappers ────────────────────────────────────────────────────────────
 
@@ -83,6 +94,7 @@ export function rowToRecord(row: Record<string, unknown>): TopicalMapRecord {
         specStatus: isSpecStatus(row.spec_status) ? row.spec_status : undefined,
         source: isRecordSource(row.source) ? row.source : undefined,
         status: (row.status as MapRecordStatus) ?? 'pending',
+        ...productionFromRow(row),
         sitePageId: row.site_page_id ? String(row.site_page_id) : undefined,
         matchedUrl: row.matched_url ? String(row.matched_url) : undefined,
         taskId: row.task_id ? String(row.task_id) : undefined,
@@ -217,10 +229,26 @@ export async function updateRecord(
     if (patch.specStatus !== undefined) row.spec_status = patch.specStatus;
     if (patch.reviewerNotes !== undefined) row.reviewer_notes = patch.reviewerNotes;
     if (patch.status !== undefined) row.status = patch.status;
+    const production = productionUpdates(patch);
+    if (!production.ok) return { success: false, error: production.error };
+    Object.assign(row, production.row);
     row.updated_at = new Date().toISOString();
 
     const { error } = await supabase.from('topical_map_records').update(row).eq('id', recordId);
-    if (error) return { success: false, error: error.message };
+    if (error) {
+        const wroteProduction = Object.keys(production.row).length > 0;
+        const missingColumn = wroteProduction && (error.code === '42703' || error.code === 'PGRST204');
+        if (missingColumn) {
+            const rest = { ...row };
+            for (const key of Object.keys(production.row)) delete rest[key];
+            const productionOnly = Object.keys(rest).every(key => key === 'updated_at');
+            if (!productionOnly) {
+                const retry = await supabase.from('topical_map_records').update(rest).eq('id', recordId);
+                if (!retry.error) return { success: true };
+            }
+        }
+        return { success: false, error: recordUpdateError(error, wroteProduction) };
+    }
     return { success: true };
 }
 
@@ -247,7 +275,7 @@ export async function approveRecord(
         return { success: false, error: taskResult.error ?? 'Failed to create task' };
     }
 
-    const updateResult = await updateRecord(record.id, approveUpdate(taskResult.data.id));
+    const updateResult = await updateRecord(record.id, approveRecordPatch(taskResult.data.id, record.productionStatus));
 
     if (!updateResult.success) {
         return { success: false, error: updateResult.error };

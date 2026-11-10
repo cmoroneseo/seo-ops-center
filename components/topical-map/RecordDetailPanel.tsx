@@ -4,10 +4,23 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Check, ExternalLink, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
-    MapRecordAction, PageType, TopicalMapRecord, TopicalMapSilo,
+    MapRecordAction, MapRecordStatus, PageType, ProductionStatus, TopicalMapRecord, TopicalMapSilo,
 } from '@/lib/types';
 import { approveRecord, declineRecord, updateRecord, updateRecordSpec } from '@/lib/supabase/topical-map';
 import { PAGE_TYPES, type SpecFieldPatch } from '@/lib/topical-map/spec';
+import {
+    approveRecordPatch,
+    canMarkAlreadyLive,
+    cleanProductionPatch,
+    displayedProductionStatus,
+    draftAfterProductionSave,
+    productionChoicePatch,
+    PRODUCTION_STATUS_LABEL,
+    PRODUCTION_STATUSES,
+    PUBLISHED_NOTE,
+    readHttpUrl,
+    type MapProduction,
+} from '@/lib/topical-map/production';
 import {
     advanceBaseline,
     bumpRevisions,
@@ -23,7 +36,7 @@ import {
     type SpecSaveState,
 } from '@/lib/topical-map/spec-save';
 import { AI_ESTIMATE_LABEL, hasAiSearchEstimate } from '@/lib/topical-map/metrics';
-import { PILL_CLASS, RECORD_STATUS_STYLES, SPEC_STATUS_STYLES } from './constants';
+import { ACTION_LABEL, PAGE_TYPE_LABEL, PILL_CLASS, PRODUCTION_STATUS_STYLES, SPEC_STATUS_STYLES } from './constants';
 import { SpecSection } from './SpecSection';
 import { useOverlayA11y } from './useOverlayA11y';
 
@@ -179,6 +192,11 @@ export function RecordDetailPanel({
 
     if (!open || !record || !draft) return null;
 
+    const productionStatus = displayedProductionStatus(draft);
+    const productionChoices = PRODUCTION_STATUSES.filter(status => status !== 'already_live' || canMarkAlreadyLive(draft));
+    const draftHref = readHttpUrl(draft.draftUrl);
+    const liveHref = readHttpUrl(draft.liveUrl);
+
     const patch = async (nextPatch: Partial<TopicalMapRecord>) => {
         const base = draftRef.current;
         if (!base) return;
@@ -187,6 +205,30 @@ export function RecordDetailPanel({
         const res = await updateRecord(base.id, nextPatch);
         if (res.success) onUpdatedRef.current(draftRef.current ?? next);
         else setError(res.error ?? 'Failed to save change');
+    };
+
+    const saveProduction = (partial: Partial<MapProduction> & { status?: MapRecordStatus }) => {
+        const cleaned = cleanProductionPatch(partial);
+        if (!cleaned.ok) {
+            setError(cleaned.error);
+            return;
+        }
+        const base = draftRef.current;
+        if (!base) return;
+        const nextPatch = {
+            ...cleaned.value,
+            ...(partial.status !== undefined ? { status: partial.status } : {}),
+        };
+        const optimistic = { ...base, ...nextPatch };
+        replaceDraft(optimistic);
+        setError('');
+        void updateRecord(base.id, nextPatch).then(res => {
+            if (!draftRef.current || draftRef.current.id !== base.id) return;
+            const settled = draftAfterProductionSave(base, optimistic, res.success);
+            replaceDraft(settled);
+            if (res.success) onUpdatedRef.current(settled);
+            else setError(res.error ?? 'Failed to save change');
+        });
     };
 
     const saveSpec = async (specPatch: SpecFieldPatch) => {
@@ -205,7 +247,13 @@ export function RecordDetailPanel({
         const res = await approveRecord(current, organizationId, clientId, userId);
         setIsApproving(false);
         if (res.success) {
-            onUpdatedRef.current({ ...current, status: 'approved', taskId: res.taskId });
+            const written = approveRecordPatch(res.taskId ?? '', current.productionStatus);
+            onUpdatedRef.current({
+                ...current,
+                status: 'approved',
+                taskId: res.taskId,
+                ...(written.productionStatus ? { productionStatus: written.productionStatus } : {}),
+            });
             onClose();
         } else {
             setError(res.error ?? 'Failed to approve record');
@@ -223,7 +271,7 @@ export function RecordDetailPanel({
         const res = await declineRecord(record.id);
         setIsDeclining(false);
         if (res.success) {
-            onUpdatedRef.current({ ...(draftRef.current ?? draft), status: 'declined' });
+            onUpdatedRef.current({ ...(draftRef.current ?? draft), status: 'declined', productionStatus: 'declined' });
             onClose();
         } else {
             setError(res.error ?? 'Failed to decline record');
@@ -255,22 +303,20 @@ export function RecordDetailPanel({
                             onBlur={event => event.currentTarget.value !== record.title && patch({ title: event.currentTarget.value })}
                             className="w-full truncate bg-transparent text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-ring rounded"
                         />
-                        {specEnabled ? (
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <span className={cn(PILL_CLASS, 'uppercase', RECORD_STATUS_STYLES[draft.status])}>{draft.status}</span>
-                                {draft.specStatus ? (
-                                    <span className={cn(PILL_CLASS, SPEC_STATUS_STYLES[draft.specStatus])}>
-                                        {draft.specStatus === 'draft' ? 'Draft' : 'Ready'}
-                                    </span>
-                                ) : (
-                                    <span className="text-xs text-muted-foreground">Spec —</span>
-                                )}
-                            </div>
-                        ) : (
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                                Status: <span className="font-medium text-foreground">{draft.status}</span>
-                            </p>
-                        )}
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <span
+                                data-production-status={productionStatus}
+                                title={productionStatus === 'published' ? PUBLISHED_NOTE : undefined}
+                                className={cn(PILL_CLASS, PRODUCTION_STATUS_STYLES[productionStatus])}
+                            >
+                                {PRODUCTION_STATUS_LABEL[productionStatus]}
+                            </span>
+                            {specEnabled && draft.specStatus && (
+                                <span className={cn(PILL_CLASS, SPEC_STATUS_STYLES[draft.specStatus])}>
+                                    {draft.specStatus === 'draft' ? 'Draft' : 'Ready'}
+                                </span>
+                            )}
+                        </div>
                     </div>
                     <button type="button" onClick={() => { void requestClose(); }} aria-label="Close record" className="shrink-0 rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                         <X className="h-4 w-4" />
@@ -284,7 +330,7 @@ export function RecordDetailPanel({
 
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label htmlFor="record-silo" className={labelClass}>Silo</label>
+                            <label htmlFor="record-silo" className={labelClass}>Topic group</label>
                             <select
                                 id="record-silo"
                                 value={draft.siloId}
@@ -298,7 +344,7 @@ export function RecordDetailPanel({
                             </select>
                         </div>
                         <div>
-                            <label htmlFor="record-page-type" className={labelClass}>Page Type</label>
+                            <label htmlFor="record-page-type" className={labelClass}>Type of page</label>
                             <select
                                 id="record-page-type"
                                 value={draft.pageType}
@@ -307,9 +353,107 @@ export function RecordDetailPanel({
                                 className={inputClasses}
                             >
                                 {PAGE_TYPES.map(pageType => (
-                                    <option key={pageType} value={pageType}>{pageType.replaceAll('_', ' ')}</option>
+                                    <option key={pageType} value={pageType}>{PAGE_TYPE_LABEL[pageType]}</option>
                                 ))}
                             </select>
+                        </div>
+                    </div>
+
+                    <div className="space-y-3 rounded-lg border border-border p-3">
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label htmlFor="record-production-status" className={labelClass}>Status</label>
+                                <select
+                                    id="record-production-status"
+                                    value={productionChoices.includes(productionStatus) ? productionStatus : productionChoices[0]}
+                                    disabled={readOnly}
+                                    onChange={event => saveProduction(productionChoicePatch(event.target.value as ProductionStatus))}
+                                    className={inputClasses}
+                                >
+                                    {productionChoices.map(status => (
+                                        <option key={status} value={status}>{PRODUCTION_STATUS_LABEL[status]}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label htmlFor="record-work-month" className={labelClass}>Planned for</label>
+                                <input
+                                    id="record-work-month"
+                                    type="month"
+                                    value={draft.workMonth ?? ''}
+                                    disabled={readOnly}
+                                    onChange={event => saveProduction({ workMonth: event.target.value || null })}
+                                    className={inputClasses}
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="record-due-date" className={labelClass}>Due date</label>
+                                <input
+                                    id="record-due-date"
+                                    type="date"
+                                    value={draft.dueDate ?? ''}
+                                    disabled={readOnly}
+                                    onChange={event => saveProduction({ dueDate: event.target.value || null })}
+                                    className={inputClasses}
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <label htmlFor="record-published-on" className={labelClass}>Date published</label>
+                            <input
+                                id="record-published-on"
+                                type="date"
+                                value={draft.publishedOn ?? ''}
+                                disabled={readOnly}
+                                onChange={event => saveProduction({ publishedOn: event.target.value || null })}
+                                className={inputClasses}
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="record-draft-url" className={labelClass}>Draft link</label>
+                            <input
+                                id="record-draft-url"
+                                type="url"
+                                value={draft.draftUrl ?? ''}
+                                placeholder="—"
+                                disabled={readOnly}
+                                onChange={event => editDraft({ draftUrl: event.target.value })}
+                                onBlur={event => {
+                                    const value = event.currentTarget.value.trim();
+                                    if (value === (record.draftUrl ?? '')) return;
+                                    saveProduction({ draftUrl: value || null });
+                                }}
+                                className={inputClasses}
+                            />
+                            {draftHref && (
+                                <a href={draftHref} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                                    Open draft <ExternalLink className="h-3 w-3" />
+                                </a>
+                            )}
+                        </div>
+                        <div>
+                            <label htmlFor="record-live-url" className={labelClass}>Live link</label>
+                            <input
+                                id="record-live-url"
+                                type="url"
+                                value={draft.liveUrl ?? ''}
+                                placeholder="—"
+                                disabled={readOnly}
+                                onChange={event => editDraft({ liveUrl: event.target.value })}
+                                onBlur={event => {
+                                    const value = event.currentTarget.value.trim();
+                                    if (value === (record.liveUrl ?? '')) return;
+                                    saveProduction({ liveUrl: value || null });
+                                }}
+                                className={inputClasses}
+                            />
+                            {liveHref && (
+                                <a href={liveHref} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                                    Open live page <ExternalLink className="h-3 w-3" />
+                                </a>
+                            )}
                         </div>
                     </div>
 
@@ -324,7 +468,7 @@ export function RecordDetailPanel({
                                 className={inputClasses}
                             >
                                 {ACTIONS.map(action => (
-                                    <option key={action} value={action}>{action}</option>
+                                    <option key={action} value={action}>{ACTION_LABEL[action]}</option>
                                 ))}
                             </select>
                         </div>
@@ -344,7 +488,7 @@ export function RecordDetailPanel({
 
                     {!specEnabled && (
                         <div>
-                            <label htmlFor="record-query" className={labelClass}>Target Query</label>
+                            <label htmlFor="record-query" className={labelClass}>Main search phrase</label>
                             <input
                                 id="record-query"
                                 value={draft.targetQuery}
@@ -358,34 +502,33 @@ export function RecordDetailPanel({
                     )}
 
                     {!specEnabled && (
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label htmlFor="record-words-min" className={labelClass}>Word Count Min</label>
+                        <fieldset>
+                            <legend className={labelClass}>Length (words)</legend>
+                            <div className="grid grid-cols-2 gap-3">
                                 <input
                                     id="record-words-min"
+                                    aria-label="From"
                                     type="number"
                                     value={emptyCount(draft.wordCountMin)}
-                                    placeholder="—"
+                                    placeholder="From"
                                     disabled={readOnly}
                                     onChange={event => editDraft({ wordCountMin: Number(event.target.value) })}
                                     onBlur={event => patch({ wordCountMin: Number(event.currentTarget.value) || 0 })}
                                     className={inputClasses}
                                 />
-                            </div>
-                            <div>
-                                <label htmlFor="record-words-max" className={labelClass}>Word Count Max</label>
                                 <input
                                     id="record-words-max"
+                                    aria-label="To"
                                     type="number"
                                     value={emptyCount(draft.wordCountMax)}
-                                    placeholder="—"
+                                    placeholder="To"
                                     disabled={readOnly}
                                     onChange={event => editDraft({ wordCountMax: Number(event.target.value) })}
                                     onBlur={event => patch({ wordCountMax: Number(event.currentTarget.value) || 0 })}
                                     className={inputClasses}
                                 />
                             </div>
-                        </div>
+                        </fieldset>
                     )}
 
                     {specEnabled && (
@@ -433,7 +576,7 @@ export function RecordDetailPanel({
 
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label htmlFor="record-volume" className={labelClass}>Search Volume</label>
+                            <label htmlFor="record-volume" className={labelClass}>Monthly searches</label>
                             <input
                                 id="record-volume"
                                 type="number"
@@ -450,7 +593,7 @@ export function RecordDetailPanel({
                             />
                         </div>
                         <div>
-                            <label htmlFor="record-difficulty" className={labelClass}>Keyword Difficulty</label>
+                            <label htmlFor="record-difficulty" className={labelClass}>How hard to rank</label>
                             <input
                                 id="record-difficulty"
                                 type="number"
@@ -477,7 +620,7 @@ export function RecordDetailPanel({
 
                     {draft.sitePageId && (
                         <div className="rounded-lg border border-border bg-muted/30 p-3">
-                            <p className={labelClass}>Matched Page</p>
+                            <p className={labelClass}>Existing page on the site</p>
                             <div className="mt-1.5 flex items-center gap-2">
                                 <span className="min-w-0 flex-1 truncate font-mono text-xs">{draft.matchedUrl}</span>
                                 {draft.matchedUrl && (
@@ -486,7 +629,7 @@ export function RecordDetailPanel({
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="shrink-0 text-muted-foreground hover:text-primary"
-                                        aria-label="Open matched page"
+                                        aria-label="Open the existing page"
                                     >
                                         <ExternalLink className="h-3.5 w-3.5" />
                                     </a>

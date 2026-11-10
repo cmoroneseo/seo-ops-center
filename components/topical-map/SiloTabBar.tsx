@@ -1,12 +1,14 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import type { MapRecordAction, MapRecordStatus, PageType, TopicalMapRecord, TopicalMapSilo } from '@/lib/types';
+import { ACTION_LABEL, PAGE_TYPE_LABEL } from './constants';
+import { PRODUCTION_STATUS_LABEL, PRODUCTION_STATUSES } from '@/lib/topical-map/production';
+import type { MapRecordAction, PageType, ProductionStatus, TopicalMapRecord, TopicalMapSilo } from '@/lib/types';
 
 export interface SiloFilters {
     action: MapRecordAction | 'all';
     pageType: PageType | 'all';
-    status: MapRecordStatus | 'all';
+    status: ProductionStatus | 'all';
 }
 
 const PAGE_TYPES: PageType[] = [
@@ -66,10 +68,10 @@ export function SiloTabBar({ silos, records, activeSiloId, onSelectSilo, filters
                     className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
                 >
                     <option value="all">All actions</option>
-                    <option value="create">Create</option>
-                    <option value="replace">Replace</option>
-                    <option value="improve">Improve</option>
-                    <option value="keep">Keep</option>
+                    <option value="create">{ACTION_LABEL.create}</option>
+                    <option value="replace">{ACTION_LABEL.replace}</option>
+                    <option value="improve">{ACTION_LABEL.improve}</option>
+                    <option value="keep">{ACTION_LABEL.keep}</option>
                 </select>
                 <select
                     aria-label="Filter by page type"
@@ -77,9 +79,9 @@ export function SiloTabBar({ silos, records, activeSiloId, onSelectSilo, filters
                     onChange={e => onFiltersChange({ ...filters, pageType: e.target.value as SiloFilters['pageType'] })}
                     className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
                 >
-                    <option value="all">All page types</option>
+                    <option value="all">All types of page</option>
                     {PAGE_TYPES.map(pt => (
-                        <option key={pt} value={pt}>{pt.replaceAll('_', ' ')}</option>
+                        <option key={pt} value={pt}>{PAGE_TYPE_LABEL[pt]}</option>
                     ))}
                 </select>
                 <select
@@ -89,9 +91,9 @@ export function SiloTabBar({ silos, records, activeSiloId, onSelectSilo, filters
                     className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
                 >
                     <option value="all">All statuses</option>
-                    <option value="pending">Pending</option>
-                    <option value="approved">Approved</option>
-                    <option value="declined">Declined</option>
+                    {PRODUCTION_STATUSES.map(status => (
+                        <option key={status} value={status}>{PRODUCTION_STATUS_LABEL[status]}</option>
+                    ))}
                 </select>
             </div>
         </div>

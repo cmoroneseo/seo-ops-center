@@ -15998,3 +15998,66 @@ create policy report_public_links_org on public.report_public_links
 revoke all on public.report_public_links from public, anon, authenticated;
 grant select on public.report_public_links to authenticated;
 grant all on public.report_public_links to service_role;
+
+-- =============================================================================
+-- 124_topical_map_record_production.sql
+-- Production lifecycle on topical map records.
+-- Nullable, no default, no backfill. Plan approval and row level security stay.
+-- =============================================================================
+
+alter table public.topical_map_records add column if not exists production_status text;
+alter table public.topical_map_records add column if not exists work_month text;
+alter table public.topical_map_records add column if not exists due_date date;
+alter table public.topical_map_records add column if not exists published_on date;
+alter table public.topical_map_records add column if not exists draft_url text;
+alter table public.topical_map_records add column if not exists live_url text;
+
+alter table public.topical_map_records drop constraint if exists topical_map_records_production_status_check;
+alter table public.topical_map_records
+    add constraint topical_map_records_production_status_check
+    check (production_status is null or production_status in (
+        'not_written',
+        'awaiting_approval',
+        'approved',
+        'writing',
+        'client_review',
+        'ready',
+        'published',
+        'already_live',
+        'declined',
+        'failed'
+    ));
+
+alter table public.topical_map_records drop constraint if exists topical_map_records_work_month_check;
+alter table public.topical_map_records
+    add constraint topical_map_records_work_month_check
+    check (work_month is null or work_month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$');
+
+alter table public.topical_map_records drop constraint if exists topical_map_records_draft_url_check;
+alter table public.topical_map_records
+    add constraint topical_map_records_draft_url_check
+    check (
+        draft_url is null
+        or (char_length(draft_url) between 1 and 500 and draft_url ~ '^https?://')
+    );
+
+alter table public.topical_map_records drop constraint if exists topical_map_records_live_url_check;
+alter table public.topical_map_records
+    add constraint topical_map_records_live_url_check
+    check (
+        live_url is null
+        or (char_length(live_url) between 1 and 500 and live_url ~ '^https?://')
+    );
+
+comment on column public.topical_map_records.production_status is
+    'Content lifecycle slug. Null means not set. Separate from plan approval. No default. published is not indexed and not performing.';
+comment on column public.topical_map_records.work_month is
+    'Calendar month the page is planned for, YYYY-MM. Null means not set. Not an engagement month. Does not fill due_date or published_on.';
+comment on column public.topical_map_records.due_date is
+    'Calendar due date. Null means not set. Not derived from work_month or published_on.';
+comment on column public.topical_map_records.published_on is
+    'Calendar date the page was published. Null means not set. Not derived from work_month or due_date. Not indexed and not performing.';
+comment on column public.topical_map_records.draft_url is
+    'Optional http(s) draft link. Null means not set.';
+comment on column public.topical_map_records.live_url is
+    'Optional http(s) live link. Null means not set. Not required when the status is published.';

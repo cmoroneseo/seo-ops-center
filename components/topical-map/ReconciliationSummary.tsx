@@ -3,7 +3,7 @@
 import { ExternalLink, LinkIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { TopicalMapRecord } from '@/lib/types';
-import { ACTION_STYLES } from './constants';
+import { ACTION_LABEL, ACTION_STYLES } from './constants';
 
 interface ReconciliationSummaryProps {
     records: TopicalMapRecord[];
@@ -33,8 +33,8 @@ export function ReconciliationSummary({ records }: ReconciliationSummaryProps) {
                         )}
                         {claimed.map(record => (
                             <div key={record.id} className="flex items-center gap-2 rounded-lg border border-border p-2 text-xs">
-                                <span className={cn('shrink-0 rounded-full border px-2 py-0.5 font-medium uppercase', ACTION_STYLES[record.action])}>
-                                    {record.action}
+                                <span className={cn('shrink-0 rounded-full border px-2 py-0.5 font-medium', ACTION_STYLES[record.action])}>
+                                    {ACTION_LABEL[record.action]}
                                 </span>
                                 <span className="min-w-0 flex-1">
                                     <span className="block truncate font-medium text-foreground">{record.title}</span>
