@@ -10,6 +10,9 @@ export type PlanSectionId = 'onboarding' | 'this_month' | 'backlog';
 
 export const PLAN_SECTION_ORDER: readonly PlanSectionId[] = ['onboarding', 'this_month', 'backlog'];
 
+/** Shown on a past month. Open work is not copied into that month. */
+export const PLAN_LOOKBACK_NOTE = 'Unfinished work stays in This month.';
+
 export interface PlanGroup {
     task: StageListTask;
     /** Children rendered in this section. Month rules can hide the rest. */

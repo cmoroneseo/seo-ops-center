@@ -24,6 +24,7 @@ import {
     monthKeyFromDay,
     planHourRollup,
     planSearchMissCopy,
+    PLAN_LOOKBACK_NOTE,
     shiftPlanMonth,
     type PlanGroup,
     type PlanSectionId,
@@ -44,7 +45,7 @@ import { DoneThisMonthFooter } from './DoneThisMonthFooter';
 import { PlanAddLine, type PlanAddSubmission } from './PlanAddLine';
 import { StageAddBar } from './StageAddBar';
 import { EMPTY_PLAN_ADD_TASKS, EMPTY_PLAN_BODY, EMPTY_PLAN_TITLE } from '@/lib/seo-plan/empty-plan';
-import { PLAYBOOK_COPY, type PlaybookExisting, type PlaybookOrgTask } from '@/lib/seo-plan/playbook';
+import { PLAYBOOK_COPY, playbookStageButtonLabel, type PlaybookExisting, type PlaybookOrgTask, type PlaybookScope } from '@/lib/seo-plan/playbook';
 import { PlanSyncBanner, PlanSyncDot } from './PlanSyncFailure';
 import type { PlanBasecampBanner, PlanBasecampSyncState } from '@/lib/seo-plan/basecamp-push';
 import { PlanShortcutSheet } from './PlanShortcutSheet';
@@ -258,6 +259,7 @@ export function StagePlanListView({
     orgTasks = NO_ORG_TASKS,
     orgTasksReady = true,
     planRows = NO_PLAN_ROWS,
+    checklistScope = {},
 }: {
     tasks: readonly StageListTask[];
     query: string;
@@ -323,6 +325,8 @@ export function StagePlanListView({
     orgTasksReady?: boolean;
     /** Checklist rows already on this client's plan, including ones with no date. */
     planRows?: readonly PlaybookExisting[];
+    /** Google Business Profile and directory listings follow the client's saved scope. */
+    checklistScope?: PlaybookScope;
 }) {
     const searchId = useId();
     const searchRef = useRef<HTMLInputElement>(null);
@@ -580,6 +584,7 @@ export function StagePlanListView({
                     planRows={planRows}
                     orgTasks={orgTasks}
                     orgTasksReady={orgTasksReady}
+                    checklistScope={checklistScope}
                     onClose={() => setPlaybook(null)}
                     onAdd={onAddTasks}
                 />
@@ -819,12 +824,13 @@ function PlanSections({
                             <button
                                 type="button"
                                 data-playbook-open={section.id}
+                                aria-label={playbookStageButtonLabel(section.title)}
                                 onClick={() => onOpenPlaybook(section.id)}
                                 className="shrink-0 text-[12px] font-medium text-[#ec4899] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                             >
                                 {PLAYBOOK_COPY.button}
                             </button>
-                            {lookback && <span className="shrink-0 text-[11px] text-[#71717a]">look-back: open work stays in This month</span>}
+                            {lookback && <span className="shrink-0 text-[11px] text-[#71717a]">{PLAN_LOOKBACK_NOTE}</span>}
                         </div>
                         <div hidden={closed || undefined}>
                             {section.groups.length === 0 && !nothingMatches ? (

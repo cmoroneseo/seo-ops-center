@@ -363,6 +363,10 @@ export default function ClientDetailPage() {
         <StagePlanList
             clientId={client.id}
             clientName={client.clientName}
+            checklistScope={{
+                gbp: client.setupScope?.gbp === true,
+                listings: client.setupScope?.listings === true,
+            }}
             onOpenResults={month => setActiveTab('insights', { range: month })}
         />
     ) : (

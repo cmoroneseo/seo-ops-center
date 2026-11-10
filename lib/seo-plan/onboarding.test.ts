@@ -36,6 +36,8 @@ test('catalog rows that repeat checklist work share a key and cannot be added tw
     assert.equal(catalogAddBlocked(plan, { templateKey: 'access.analytics', title: 'Connect Google Analytics 4' }), true);
     assert.equal(catalogAddBlocked(plan, { templateKey: 'access.analytics', title: 'Connect Google Search Console' }), true);
     assert.equal(catalogAddBlocked([{ title: 'Prepare SEO strategy and roadmap' }], { templateKey: 'strategy.roadmap', title: 'Create the SEO roadmap and recommendations' }), true);
+    assert.equal(catalogAddBlocked([{ title: 'prepare seo strategy and roadmap' }], { templateKey: 'strategy.roadmap', title: 'Create the search roadmap and recommendations' }), true);
+    assert.equal(catalogAddBlocked([{ title: 'CONNECT GOOGLE ANALYTICS 4' }], { templateKey: 'access.analytics', title: 'Connect Google Search Console' }), true);
     assert.equal(catalogAddBlocked([], { templateKey: 'tracking.rank', title: 'Add client to Ahrefs tracking' }), false);
 });
 

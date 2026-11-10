@@ -3,7 +3,8 @@ import test from 'node:test';
 
 import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS } from '../marketing-plan-template.ts';
 import type { SessionOrganization } from '../reports/session-org.ts';
-import { ONBOARDING_CHECKLIST } from './onboarding.ts';
+import { onboardingChecklist } from './onboarding.ts';
+import { DRAWER_WORDING } from './playbook-plain.ts';
 import {
     PLAYBOOK_COPY,
     PLAYBOOK_GROUP_TITLES,
@@ -11,6 +12,7 @@ import {
     playbookAddLabel,
     playbookAddTitles,
     playbookCatalog,
+    checklistPlanRow,
     playbookChoice,
     playbookChoiceId,
     playbookChoices,
@@ -37,9 +39,14 @@ test('the catalog reuses the saved list, the starting checklist, and saved organ
     const library = items.filter(row => row.id.startsWith('library:'));
     const checklist = items.filter(row => row.id.startsWith('onboarding:'));
     assert.equal(library.length, MARKETING_PLAN_TEMPLATE_ITEMS.length);
-    assert.equal(checklist.length, ONBOARDING_CHECKLIST.length);
-    assert.deepEqual(library.map(row => row.title), MARKETING_PLAN_TEMPLATE_ITEMS.map(row => row.title));
-    assert.deepEqual(checklist.map(row => row.title), ONBOARDING_CHECKLIST.map(row => row.title));
+    assert.equal(checklist.length, onboardingChecklist({}).length);
+    assert.equal(checklist.some(row => row.templateKey === 'local.gbp' || row.templateKey === 'local.listings'), false);
+    library.forEach((row, index) => {
+        assert.equal(row.templateKey, MARKETING_PLAN_TEMPLATE_ITEMS[index]?.templateKey);
+    });
+    const wide = playbookItems(playbookCatalog([], { gbp: true, listings: true }));
+    assert.equal(wide.some(row => row.id === 'onboarding:local.gbp'), true);
+    assert.equal(wide.some(row => row.id === 'onboarding:local.listings'), true);
     assert.equal(items.some(row => row.title === 'Send the monthly report' && row.id === 'saved:tpl-1'), true);
     assert.equal(items.some(row => row.title === 'Blank id' || row.title === 'Duplicate id'), false);
     assert.equal(catalog[0]?.title, PLAYBOOK_COPY.checklist);
@@ -52,9 +59,9 @@ test('the catalog reuses the saved list, the starting checklist, and saved organ
 
 test('search keeps a group only when every word is in a saved task', () => {
     const catalog = playbookCatalog([]);
-    const sitemap = playbookMatching(catalog, '  XML   sitemap ');
+    const sitemap = playbookMatching(catalog, '  page   list ');
     const titles = playbookItems(sitemap).map(row => row.title);
-    assert.equal(titles.includes('Review robots.txt and XML sitemap'), true);
+    assert.equal(titles.includes('Review the crawl rules and the page list'), true);
     assert.equal(titles.some(title => title.toLocaleLowerCase().includes('kickoff')), false);
     assert.equal(playbookItems(playbookMatching(catalog, 'no-such-task-xyz')).length, 0);
     assert.equal(playbookItems(playbookMatching(catalog, '   ')).length, playbookItems(catalog).length);
@@ -69,8 +76,8 @@ test('a task already on the plan is marked and left out, including a shared chec
     const catalog = playbookCatalog([{ id: 'tpl-1', title: 'Send the monthly report' }]);
     const items = playbookItems(catalog);
     const kickoff = items.find(row => row.title === 'Hold kickoff call and set expectations');
-    const analytics = items.find(row => row.title === 'Connect Google Analytics 4');
-    const searchConsole = items.find(row => row.title === 'Connect Google Search Console');
+    const analytics = items.find(row => row.templateKey === 'access.analytics' && row.title === 'Connect Google Analytics');
+    const searchConsole = items.find(row => row.templateKey === 'access.analytics' && row.title === 'Connect Google Search Console');
     const combined = items.find(row => row.id === 'onboarding:access.analytics');
     const report = items.find(row => row.id === 'saved:tpl-1');
     assert.ok(kickoff && analytics && searchConsole && combined && report);
@@ -87,6 +94,55 @@ test('a task already on the plan is marked and left out, including a shared chec
 
     assert.equal(playbookOnPlan(report, [{ title: 'send the monthly report' }]), true);
     assert.equal(playbookOnPlan(report, [{ title: 'Send the weekly report' }]), false);
+    assert.equal(playbookOnPlan(kickoff, [{ title: kickoff.title, status: 'ignored' }]), false);
+    assert.equal(playbookOnPlan(kickoff, [{ title: kickoff.title, excluded: true }]), false);
+    assert.equal(playbookOnPlan(combined, [{ title: 'connect google analytics 4' }]), true);
+});
+
+test('a renamed saved task is already on the plan when the old title is there', () => {
+    const crawl = playbookItems(playbookCatalog([])).find(row => row.title === 'Review the crawl rules and the page list');
+    assert.ok(crawl);
+    assert.equal(crawl.templateKey, undefined);
+    assert.equal(crawl.sourceTitle, 'Review robots.txt and XML sitemap');
+    assert.equal(playbookOnPlan(crawl, [{ title: 'Review robots.txt and XML sitemap' }]), true);
+    assert.equal(playbookOnPlan(crawl, [{ title: '  REVIEW ROBOTS.TXT AND XML SITEMAP  ' }]), true);
+    assert.equal(playbookOnPlan(crawl, [{ title: 'review the crawl rules and the page list' }]), true);
+    assert.equal(playbookOnPlan(crawl, [{ title: 'Write the service page' }]), false);
+    assert.deepEqual(playbookAddTitles([crawl], [{ title: 'Review robots.txt and XML sitemap' }]), []);
+
+    const speed = playbookItems(playbookCatalog([])).find(row => row.sourceTitle === 'Audit Core Web Vitals');
+    const keywords = playbookItems(playbookCatalog([])).find(row => row.sourceTitle === 'Build the keyword universe in Ahrefs');
+    const questions = playbookItems(playbookCatalog([])).find(row => row.sourceTitle === 'Add FAQ sections to key pages');
+    const details = playbookItems(playbookCatalog([])).find(row => row.sourceTitle === 'Audit NAP consistency');
+    assert.ok(speed && keywords && questions && details);
+    assert.equal(speed.templateKey, undefined);
+    assert.equal(playbookOnPlan(speed, [{ title: 'Audit Core Web Vitals' }]), true);
+    assert.equal(playbookOnPlan(keywords, [{ title: 'build the keyword universe in ahrefs' }]), true);
+    assert.equal(playbookOnPlan(questions, [{ title: 'Add FAQ sections to key pages' }]), true);
+    assert.equal(playbookOnPlan(details, [{ title: 'Audit NAP consistency' }]), true);
+});
+
+test('a checklist row left off the roadmap is not already on the plan', () => {
+    const crawl = playbookItems(playbookCatalog([])).find(row => row.sourceTitle === 'Review robots.txt and XML sitemap');
+    assert.ok(crawl);
+    const leftOff = checklistPlanRow({
+        title: 'Review robots.txt and XML sitemap',
+        status: 'todo',
+        roadmapIncluded: false,
+    });
+    assert.equal(leftOff?.roadmapIncluded, false);
+    assert.equal(playbookOnPlan(crawl, leftOff ? [leftOff] : []), false);
+    const onRoadmap = checklistPlanRow({
+        title: 'Review the crawl rules and the page list',
+        roadmapIncluded: true,
+    });
+    assert.equal(playbookOnPlan(crawl, onRoadmap ? [onRoadmap] : []), true);
+    const ignored = checklistPlanRow({
+        title: 'Review robots.txt and XML sitemap',
+        status: 'ignored',
+        roadmapIncluded: true,
+    });
+    assert.equal(playbookOnPlan(crawl, ignored ? [ignored] : []), false);
 });
 
 test('picking the whole saved list keeps distinct titles and drops a repeated one', () => {
@@ -96,9 +152,9 @@ test('picking the whole saved list keeps distinct titles and drops a repeated on
     const titles = playbookAddTitles(analytics, []);
     assert.deepEqual(titles, analytics.map(row => row.title));
 
-    const sameTitle = items.filter(row => row.title === 'Confirm website and CMS access');
+    const sameTitle = items.filter(row => row.title === 'Confirm access to the website editor');
     assert.equal(sameTitle.length, 2);
-    assert.deepEqual(playbookAddTitles(sameTitle, []), ['Confirm website and CMS access']);
+    assert.deepEqual(playbookAddTitles(sameTitle, []), ['Confirm access to the website editor']);
     assert.equal(playbookRowState(sameTitle[1], [], [sameTitle[0]]), 'same');
     assert.equal(playbookRowState(sameTitle[0], [], [sameTitle[0]]), 'chosen');
 });
@@ -152,6 +208,16 @@ test('a long selection is split into batches the existing add path accepts', () 
     assert.equal(playbookAddLabel(3), 'Add 3 tasks');
 });
 
+test('drawer catalog wording spells out jargon and keeps template keys', () => {
+    const shown = playbookItems(playbookCatalog([], { gbp: true, listings: true }))
+        .filter(row => row.id.startsWith('library:') || row.id.startsWith('onboarding:'))
+        .map(row => `${row.title}\n${row.description}`)
+        .join('\n');
+    assert.doesNotMatch(shown, /\b(CMS|GA4|GSC|SEO|GBP|NAP|XML|Ahrefs|HTTPS|URL|URLs|FAQ|CTA|CTAs|DR|INP|LCP|CLS|H1|H2|H3|WebP|SERP)\b|robots\.txt|4xx|5xx|\b301/);
+    assert.equal(MARKETING_PLAN_TEMPLATE_ITEMS.some(row => row.title === 'Confirm website and CMS access'), true);
+    assert.equal(shown.includes('Confirm access to the website editor'), true);
+});
+
 test('playbook copy is plain language', () => {
     const written = [
         ...Object.values(PLAYBOOK_COPY),
@@ -159,6 +225,7 @@ test('playbook copy is plain language', () => {
         playbookAddLabel(1),
         playbookAddLabel(4),
         playbookMonthDetail('2026-11', '2026-10-19'),
+        ...Object.values(DRAWER_WORDING).flatMap(row => [row.title, row.description]),
         ...playbookChoices('phases', '2026-10', '2026-10-19').flatMap(choice => [choice.label, choice.detail]),
         ...playbookChoices('months', '2026-10', '2026-10-19').flatMap(choice => [choice.label, choice.detail]),
     ].join('\n');

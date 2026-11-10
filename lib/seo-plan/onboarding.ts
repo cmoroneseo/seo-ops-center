@@ -145,15 +145,25 @@ export function titlesForTemplateKey(templateKey: string): string[] {
     return [...titles];
 }
 
-/** True when this catalog row would be a second copy of work already on the plan. */
+function sameCatalogTitle(left: string, right: string): boolean {
+    return left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase();
+}
+
+/**
+ * True when this catalog row would be a second copy of work already on the plan.
+ * The shared key and the sibling titles match in any letter case.
+ */
 export function catalogAddBlocked(
     existing: Array<{ templateKey?: string | null; title: string }>,
     candidate: { templateKey?: string | null; title: string },
 ): boolean {
     const title = candidate.title.trim();
-    if (existing.some(item => item.title.trim() === title)) return true;
-    const key = candidate.templateKey?.trim();
+    if (title && existing.some(item => sameCatalogTitle(item.title, title))) return true;
+    const key = candidate.templateKey?.trim().toLocaleLowerCase();
     if (!key) return false;
-    const covered = new Set(titlesForTemplateKey(key));
-    return existing.some(item => item.templateKey?.trim() === key || covered.has(item.title.trim()));
+    const covered = new Set(titlesForTemplateKey(key).map(item => item.trim().toLocaleLowerCase()));
+    return existing.some(item => {
+        const existingKey = item.templateKey?.trim().toLocaleLowerCase();
+        return existingKey === key || covered.has(item.title.trim().toLocaleLowerCase());
+    });
 }

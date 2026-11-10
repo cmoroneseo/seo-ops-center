@@ -109,7 +109,8 @@ test('a past month is a look-back and does not copy open work', () => {
     const html = render('2026-10-31', '2026-09');
     assert.match(html, /data-plan-month="2026-09"/);
     assert.match(html, /September 2026/);
-    assert.match(html, /look-back: open work stays in This month/);
+    assert.match(html, /Unfinished work stays in This month/);
+    assert.doesNotMatch(html, /look-back/);
     assert.match(html, /Nothing was due or completed in September\./);
     assert.doesNotMatch(section(html, 'this_month'), /Fix sitemap|November audit|Create roadmap/);
     assert.match(section(html, 'onboarding'), /Set cookies/);

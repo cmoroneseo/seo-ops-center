@@ -1,5 +1,6 @@
 import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS } from '../marketing-plan-template';
-import { catalogAddBlocked, ONBOARDING_CHECKLIST } from './onboarding';
+import { catalogAddBlocked, onboardingChecklist } from './onboarding';
+import { drawerWording } from './playbook-plain';
 import { endOfMonthDay } from './plan-add';
 import { PHASE_STAGE_COPY, PLAN_PHASES, type BoardStage, type PlanBoard } from './plan-phases';
 import { monthKeyFromDay, planMonthTitle } from './plan-sections';
@@ -8,7 +9,8 @@ import { STAGE_ADD_MAX_TITLE_LENGTH, STAGE_ADD_MAX_TITLES } from './stage-add-li
 /**
  * Saved tasks a person can add to a work plan.
  * The rows come from the checklist, the saved work list, and tasks the
- * organization already saved. This module does not invent titles.
+ * organization already saved. Template keys stay the stored keys.
+ * The drawer shows plain wording for those saved tasks.
  * A row whose work is already on the plan is marked and left out of the add.
  */
 
@@ -29,6 +31,7 @@ export const PLAYBOOK_COPY = {
     emptyHint: 'You can also choose saved tasks with Add from a playbook.',
     loading: 'Loading your saved tasks…',
     error: 'Could not add those tasks. Try again.',
+    partial: 'Some tasks were added. The rest could not be added. Try again.',
     checklist: 'Starting checklist',
     library: 'Saved work list',
     saved: 'Your saved tasks',
@@ -48,6 +51,10 @@ export const PLAYBOOK_GROUP_TITLES: Record<string, string> = {
     local: 'Showing up nearby',
 };
 
+export function playbookStageButtonLabel(stageTitle: string): string {
+    return `${PLAYBOOK_COPY.button} to ${stageTitle}`;
+}
+
 export function playbookAddLabel(count: number): string {
     if (count === 1) return 'Add 1 task';
     return `Add ${count} tasks`;
@@ -66,9 +73,15 @@ export interface PlaybookOrgTask {
 
 export interface PlaybookItem {
     id: string;
+    /** Wording shown in the drawer, and the title written when the task is added. */
     title: string;
     description: string;
     templateKey?: string;
+    /**
+     * Catalog title before drawer wording.
+     * Tasks added before the wording change still use this title.
+     */
+    sourceTitle?: string;
 }
 
 export interface PlaybookGroup {
@@ -83,9 +96,23 @@ export interface PlaybookSection {
     groups: PlaybookGroup[];
 }
 
+export interface PlaybookScope {
+    gbp?: boolean;
+    listings?: boolean;
+}
+
 export interface PlaybookExisting {
     title: string;
     templateKey?: string | null;
+    /** Ignored checklist rows are not treated as work still on the plan. */
+    status?: string | null;
+    /** Excluded tasks are not treated as work still on the plan. */
+    excluded?: boolean;
+    /**
+     * Checklist rows left off the roadmap are not on the plan.
+     * Absent means the row was not a roadmap choice.
+     */
+    roadmapIncluded?: boolean;
 }
 
 export type PlaybookRowState = 'plan' | 'same' | 'open' | 'chosen';
@@ -110,22 +137,31 @@ export function playbookGroupTitle(stepKey: string, fallback: string): string {
 }
 
 function libraryItem(stepKey: string, index: number, title: string, description: string, templateKey?: string): PlaybookItem {
+    const shown = drawerWording(title, description);
     return {
         id: `library:${stepKey}:${index}`,
-        title,
-        description,
+        title: shown.title,
+        description: shown.description,
+        sourceTitle: title,
         ...(templateKey ? { templateKey } : {}),
     };
 }
 
 /** The three sources, in the order a person scans them. */
-export function playbookCatalog(orgTasks: readonly PlaybookOrgTask[]): PlaybookSection[] {
-    const checklist: PlaybookItem[] = ONBOARDING_CHECKLIST.map(item => ({
-        id: `onboarding:${item.templateKey}`,
-        title: item.title,
-        description: item.description,
-        templateKey: item.templateKey,
-    }));
+export function playbookCatalog(
+    orgTasks: readonly PlaybookOrgTask[],
+    scope: PlaybookScope = {},
+): PlaybookSection[] {
+    const checklist: PlaybookItem[] = onboardingChecklist(scope).map(item => {
+        const shown = drawerWording(item.title, item.description);
+        return {
+            id: `onboarding:${item.templateKey}`,
+            title: shown.title,
+            description: shown.description,
+            sourceTitle: item.title,
+            templateKey: item.templateKey,
+        };
+    });
     const libraryGroups: PlaybookGroup[] = MARKETING_PLAN_STEPS.map(step => ({
         id: step.key,
         title: playbookGroupTitle(step.key, step.name),
@@ -197,19 +233,62 @@ export function playbookSameTitle(left: string, right: string): boolean {
     return left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase();
 }
 
+/** Ignored, excluded, and off-roadmap checklist rows are not still on the plan. */
+export function playbookLiveRows(existing: readonly PlaybookExisting[]): PlaybookExisting[] {
+    return existing.filter(row => (
+        row.status !== 'ignored'
+        && row.excluded !== true
+        && row.roadmapIncluded !== false
+        && row.title.trim().length > 0
+    ));
+}
+
+/** Shown wording plus the stored catalog title, when the drawer renamed it. */
+export function playbookTitleAliases(item: Pick<PlaybookItem, 'title' | 'sourceTitle'>): string[] {
+    const aliases = [item.title, item.sourceTitle ?? ''];
+    const unique: string[] = [];
+    for (const alias of aliases) {
+        const title = alias.trim();
+        if (!title || unique.some(chosen => playbookSameTitle(chosen, title))) continue;
+        unique.push(title);
+    }
+    return unique;
+}
+
+/**
+ * A checklist row the plan already stores.
+ * A row left off the roadmap is excluded, same as an ignored or excluded row.
+ */
+export function checklistPlanRow(item: {
+    title: string;
+    status?: string | null;
+    templateKey?: string | null;
+    roadmapIncluded?: boolean;
+}): PlaybookExisting | null {
+    const title = item.title.trim();
+    if (!title) return null;
+    return {
+        title,
+        status: item.status,
+        ...(item.templateKey ? { templateKey: item.templateKey } : {}),
+        ...(item.roadmapIncluded === false ? { roadmapIncluded: false } : {}),
+    };
+}
+
 /**
  * True when this saved task is already represented on the plan.
- * The same title matches in any letter case. A shared checklist key also
- * matches, which is the rule the one-at-a-time library already uses.
+ * The shown wording and the stored catalog title both count, in any letter case.
+ * A shared checklist key also matches.
  */
-export function playbookOnPlan(item: Pick<PlaybookItem, 'title' | 'templateKey'>, existing: readonly PlaybookExisting[]): boolean {
-    const title = item.title.trim();
-    if (!title) return false;
-    if (existing.some(row => playbookSameTitle(row.title, title))) return true;
-    return catalogAddBlocked(
-        existing.map(row => ({ title: row.title, templateKey: row.templateKey })),
-        { title, templateKey: item.templateKey },
-    );
+export function playbookOnPlan(item: Pick<PlaybookItem, 'title' | 'templateKey' | 'sourceTitle'>, existing: readonly PlaybookExisting[]): boolean {
+    const aliases = playbookTitleAliases(item);
+    if (aliases.length === 0) return false;
+    const live = playbookLiveRows(existing);
+    if (live.some(row => aliases.some(alias => playbookSameTitle(row.title, alias)))) return true;
+    return aliases.some(alias => catalogAddBlocked(
+        live.map(row => ({ title: row.title, templateKey: row.templateKey })),
+        { title: alias, templateKey: item.templateKey },
+    ));
 }
 
 export function playbookRowState(

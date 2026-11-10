@@ -51,6 +51,7 @@ test('a new phase plan shows three empty stages and an add box on each', () => {
     assert.match(html, /data-playbook-open="plan"/);
     for (const phase of ['foundation', 'growth', 'scale'] as const) {
         assert.match(html, new RegExp(`data-playbook-open="${phase}"`));
+        assert.match(html, new RegExp(`aria-label="Add from a playbook to ${PHASE_STAGE_COPY[phase].title}"`));
     }
     assert.match(html, /You can also choose saved tasks with Add from a playbook/);
     assert.doesNotMatch(html, /data-plan-month-control|data-plan-add="true"|data-plan-section="onboarding"|data-plan-section="this_month"|data-plan-footer|Done this month/);
