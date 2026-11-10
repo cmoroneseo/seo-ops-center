@@ -33,7 +33,11 @@ test('migration 124 adds nullable columns with no default, backfill, or policy c
     assert.doesNotMatch(sql, /\bgrant\b/i);
     assert.doesNotMatch(sql, /\brevoke\b/i);
 
-    const mirror = schema.slice(schema.indexOf('-- 124_topical_map_record_production.sql'));
+    const marker = '-- 124_topical_map_record_production.sql';
+    const start = schema.indexOf(marker);
+    const rest = schema.slice(start + marker.length);
+    const next = rest.search(/\n-- (?:Migration )?\d{3}[_:]/);
+    const mirror = schema.slice(start, next === -1 ? undefined : start + marker.length + next);
     assert.ok(mirror.length > 0);
     const mirrored = executable(mirror);
     for (const column of COLUMNS) {
