@@ -44,7 +44,6 @@ function handlers(role: 'member' | 'owner' | 'viewer' = 'member', context: Revie
             detail: 'Inconclusive.',
             footnote: null,
         }],
-        loadPlan: async () => null,
         persist: async (input) => {
             saved.push(input);
             return { ok: true, versionId: input.plan.capture ? 'version-1' : input.plan.currentVersionId };
@@ -198,7 +197,6 @@ test('scheduling without a recipient is refused and a cross-org report is not fo
         access: async () => ({ ok: false, status: 404, error: 'Not found' }),
         loadContext: async () => { throw new Error('loaded'); },
         loadLedger: async () => [],
-        loadPlan: async () => null,
         persist: async () => { throw new Error('saved'); },
         readSnapshot: async () => null,
         now: () => new Date(),

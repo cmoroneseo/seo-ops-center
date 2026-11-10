@@ -3,8 +3,8 @@
 // upgraded to blocks on read via blocksFromLegacy().
 
 import { ReportSourceKey, SectionConfig, defaultSectionConfig } from './sections';
-import { SEO_PLAN_LABEL } from '../marketing-plan-template';
 import { keywordTrackingEnabled } from '../keyword-tracking/flag';
+import { clientRoadmapProps, ROADMAP_COPY } from './roadmap';
 
 export type BlockType =
     // Formatting blocks
@@ -17,7 +17,8 @@ export type BlockType =
     | 'organic_table'      // monthly organic history table (GSC + GA4)
     | 'keyword_rankings_table' // tracked-keyword start vs end of period (Ahrefs Rank Tracker)
     | 'tracked_keywords_gsc'   // GSC tracked keywords, frozen at publish
-    | 'marketing_plan'         // SEO Plan checklist progress (props.planView: 'step' | 'month')
+    | 'roadmap'                // Live work-plan progress. Never snapshotted.
+    | 'marketing_plan'         // Older name for the roadmap block. Upgraded on read.
     | 'gtm_events';            // GA4 events plus Tag Manager tags, frozen in props.snapshot
 
 export interface Block {
@@ -62,8 +63,20 @@ export function blocksFromLegacy(sections: SectionConfig[] | null): Block[] {
 
 /** Resolve whatever is stored in reports.sections into a v2 block list. */
 export function resolveBlocks(sections: ReportSectionsField): Block[] {
-    if (isBlocksDoc(sections)) return sections.blocks;
+    return rawBlocks(sections).map(block => normalizeReportBlock(block, 'editor'));
+}
+
+function rawBlocks(sections: ReportSectionsField | { blocks?: Block[] } | null | undefined): Block[] {
+    if (sections && typeof sections === 'object' && !Array.isArray(sections) && Array.isArray(sections.blocks)) {
+        return sections.blocks;
+    }
     return blocksFromLegacy(Array.isArray(sections) ? sections : null);
+}
+
+/** The old checklist block is the roadmap. Task rows are not part of the block. */
+export function normalizeReportBlock(block: Block, mode: 'editor' | 'client' = 'client'): Block {
+    if (block.type !== 'roadmap' && (block.type as string) !== 'marketing_plan') return block;
+    return { id: block.id, type: 'roadmap', props: clientRoadmapProps(block.props, mode) };
 }
 
 /** Single-keyword ranks and map-grid screenshots stay off client reports and PDFs. */
@@ -78,10 +91,7 @@ export function omitClientHiddenBlocks(blocks: Block[]): Block[] {
  * Accepts a v2 document, a legacy section list, or a raw `{ blocks }` snapshot.
  */
 export function blocksForClientRender(sections: ReportSectionsField | { blocks?: Block[] } | null | undefined): Block[] {
-    if (sections && typeof sections === 'object' && !Array.isArray(sections) && Array.isArray(sections.blocks)) {
-        return omitClientHiddenBlocks(sections.blocks);
-    }
-    return omitClientHiddenBlocks(resolveBlocks(sections as ReportSectionsField));
+    return omitClientHiddenBlocks(rawBlocks(sections)).map(block => normalizeReportBlock(block, 'client'));
 }
 
 /**
@@ -232,12 +242,12 @@ export const WIDGET_LIBRARY: LibraryGroup[] = [
         ],
     },
     {
-        name: SEO_PLAN_LABEL,
+        name: ROADMAP_COPY.title,
         items: [
             {
-                key: 'marketing_plan', name: SEO_PLAN_LABEL,
-                description: 'Checklist progress by step or by engagement month',
-                type: 'marketing_plan', props: { planView: 'step' },
+                key: 'roadmap', name: ROADMAP_COPY.title,
+                description: ROADMAP_COPY.libraryDescription,
+                type: 'roadmap', props: {},
             },
         ],
     },
@@ -293,7 +303,8 @@ export function blockLabel(block: Block): string {
         case 'grid_comparison': return 'Keyword Visibility Heatmaps';
         case 'keyword_rankings_table': return 'All keywords rankings';
         case 'tracked_keywords_gsc': return 'Tracked keywords';
-        case 'marketing_plan': return SEO_PLAN_LABEL;
+        case 'roadmap':
+        case 'marketing_plan': return ROADMAP_COPY.title;
         case 'gtm_events': return 'Event report';
         default: return 'Block';
     }
@@ -304,4 +315,4 @@ export function blockLabel(block: Block): string {
  * hover toolbar shows a pencil icon for these, toggling block.props.settingsOpen.
  * Add a block type here once its widget reads that flag to show its panel.
  */
-export const BLOCK_TYPES_WITH_SETTINGS = new Set<BlockType>(['keyword_rankings_table', 'cover', 'gtm_events']);
+export const BLOCK_TYPES_WITH_SETTINGS = new Set<BlockType>(['keyword_rankings_table', 'cover', 'gtm_events', 'roadmap']);
