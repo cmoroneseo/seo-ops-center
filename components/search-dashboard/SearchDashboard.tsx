@@ -96,7 +96,7 @@ export function SearchDashboard({
                 setSource(next);
                 setSection('queries');
             }}
-            windowLabel={data?.windowLabel ?? 'Last 28 days'}
+            windowLabel={data?.windowLabel ?? `Last ${windowDays === 7 || windowDays === 90 ? windowDays : 28} days`}
             loading={loading}
             showTrack={keywordTrackingEnabled()}
             gscConnected={data?.gscConnected === true}

@@ -16,9 +16,7 @@ import { AlertTriangle } from 'lucide-react';
 import { EngagementOverview } from '@/components/workspace/EngagementOverview';
 import { ClientDeliverablesTab } from '@/components/deliverables/ClientDeliverablesTab';
 import { MonthlyPlannerCard } from '@/components/workspace/MonthlyPlannerCard';
-import { SearchInsightsTab } from '@/components/workspace/SearchInsightsTab';
-import { RankingsTab } from '@/components/workspace/RankingsTab';
-import { SiteInventoryTab } from '@/components/workspace/SiteInventoryTab';
+import { OpportunitiesTab } from '@/components/opportunities/OpportunitiesTab';
 import { TopicalMapTab } from '@/components/workspace/TopicalMapTab';
 import { IntegrationsTab } from '@/components/workspace/IntegrationsTab';
 import { ClientSetupScopeCard } from '@/components/workspace/ClientSetupScopeCard';
@@ -71,7 +69,14 @@ import { PanelSkeleton } from '@/components/seo-plan/PanelSkeleton';
 import { PlanOverviewPanel } from '@/components/seo-plan/PlanOverviewPanel';
 import { prefetchClientWorkspace } from '@/lib/seo-plan/prefetch';
 import { TaskToolbar } from '@/components/seo-plan/TaskToolbar';
-import { SearchReporting } from '@/components/seo-plan/SearchReporting';
+import {
+    parseOpportunityRange,
+    readOpportunityRoute,
+    withOpportunityRange,
+    withOpportunityView,
+    type OpportunityRange,
+    type OpportunityView,
+} from '@/lib/opportunities/view';
 import { monthKey } from '@/lib/marketing-plan-execution';
 import { managerIsAssigned, planHourLabel, planHoursNarrative } from '@/lib/seo-plan/overview';
 import { planChooseTaskClass } from '@/lib/seo-plan/row-timer';
@@ -98,6 +103,8 @@ export default function ClientDetailPage() {
     const [showEditPanel, setShowEditPanel] = useState(false);
     const [activityRefreshKey, setActivityRefreshKey] = useState(0);
     const [activeTab, setActiveTabState] = useState<Tab>('overview');
+    const [opportunityView, setOpportunityView] = useState<OpportunityView>('performance');
+    const [opportunityRange, setOpportunityRange] = useState<OpportunityRange>(28);
     const [campaignView, setCampaignViewState] = useState<CampaignView>('overview');
     const [planView, setPlanView] = useState<PlanView>('plan');
     useSuppressPlanToasts(seoPlanTabHidesToasts({ activeTab, planView, stageListOn, campaignView }));
@@ -170,7 +177,20 @@ export default function ClientDetailPage() {
         const knownTabs = ['overview', 'campaign', 'tasks', 'deliverables', 'integrations', 'insights', 'inventory', 'topical-map', 'approvals', 'portal'];
         if (keywordTrackingEnabled()) knownTabs.push('rankings');
         if (campaignWorkspaceEnabled()) knownTabs.push(CAMPAIGN_WORKSPACE_TAB);
-        if (tab && knownTabs.includes(tab)) setActiveTabState(tab as Tab);
+        const opportunity = readOpportunityRoute(searchKey, { keywordTracking: keywordTrackingEnabled() });
+        if (opportunity.rewrite) {
+            const url = new URL(window.location.href);
+            if (url.search !== opportunity.rewrite) {
+                url.search = opportunity.rewrite;
+                window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+                notifyStaffNav();
+            }
+        }
+        if (opportunity.tab) {
+            setActiveTabState(opportunity.tab);
+            setOpportunityView(opportunity.view);
+            setOpportunityRange(parseOpportunityRange(query.get('range')));
+        } else if (tab && knownTabs.includes(tab)) setActiveTabState(tab as Tab);
         if (tab === CAMPAIGN_WORKSPACE_TAB && campaignWorkspaceEnabled()) {
             setCampaignViewState(parseCampaignView(query.get('campaignView')));
         }
@@ -187,7 +207,11 @@ export default function ClientDetailPage() {
         }
         if (tab === 'tasks') { setActiveTabState('campaign'); setPlanView('tasks'); }
         else setPlanView(parsePlanView(query.get('planView'), searchReportingEnabled()));
-        if (!tab && (query.has('range') || query.has('section'))) setActiveTabState('insights');
+        if (!tab && (query.has('range') || query.has('section'))) {
+            setActiveTabState('insights');
+            setOpportunityView('performance');
+            setOpportunityRange(parseOpportunityRange(query.get('range')));
+        }
         if (query.has('integrationSuccess') || query.has('integrationError')) setActiveTabState('integrations');
     }, [id, searchKey]);
 
@@ -219,7 +243,10 @@ export default function ClientDetailPage() {
         const view = query.get('planView');
         if (tab === 'tasks' || view === 'tasks') setActiveTabState('tasks');
         else if (tab === 'plan') setActiveTabState('campaign');
-        else if ((tab === 'campaign' || tab === 'plan') && view === 'results') setActiveTabState('insights');
+        else if ((tab === 'campaign' || tab === 'plan') && view === 'results') {
+            setActiveTabState('insights');
+            setOpportunityView('performance');
+        }
     }, [seoPlanV2, id]);
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
     const [loggedHours, setLoggedHours] = useState<number | undefined>(undefined);
@@ -593,10 +620,6 @@ export default function ClientDetailPage() {
                 <VaultPage clientId={client.id} clientName={client.clientName} />
             )}
 
-            {keywordTrackingEnabled() && activeTab === 'rankings' && organization && client.organizationId === organization.id && (
-                <RankingsTab organizationId={organization.id} clientId={client.id} />
-            )}
-
             {activeTab === 'deliverables' && client.organizationId === organization?.id && (
                 <ClientDeliverablesTab
                     organizationId={organization.id}
@@ -606,23 +629,36 @@ export default function ClientDetailPage() {
                 />
             )}
 
-            {activeTab === 'insights' && client.organizationId === organization?.id && (
-                <>
-                <SearchInsightsTab key={`${organization.id}:${client.id}`} organizationId={organization.id} clientId={client.id} clientName={client.clientName} onConnections={() => setActiveTab('integrations')} onSiteInventory={() => setActiveTab('inventory')} />
-                {v2On && (
-                    <SearchReporting
-                        organizationId={organization.id}
-                        clientId={client.id}
-                        clientName={client.clientName}
-                        clientDomain={client.domain ?? null}
-                        sharePageFreshness
-                    />
-                )}
-                </>
-            )}
-
-            {activeTab === 'inventory' && client.organizationId === organization?.id && (
-                <SiteInventoryTab key={`${organization.id}:${client.id}`} clientId={client.id} clientName={client.clientName} />
+            {(activeTab === 'insights' || activeTab === 'inventory' || activeTab === 'rankings') && client.organizationId === organization?.id && (
+                <OpportunitiesTab
+                    key={`${organization.id}:${client.id}`}
+                    organizationId={organization.id}
+                    clientId={client.id}
+                    clientName={client.clientName}
+                    view={opportunityView}
+                    range={opportunityRange}
+                    showFreshness={v2On && searchReportingEnabled()}
+                    onView={(next) => {
+                        const search = withOpportunityView(window.location.search, next, { keywordTracking: keywordTrackingEnabled() });
+                        const route = readOpportunityRoute(search, { keywordTracking: keywordTrackingEnabled() });
+                        if (route.tab) {
+                            setActiveTabState(route.tab);
+                            setOpportunityView(route.view);
+                        }
+                        const url = new URL(window.location.href);
+                        url.search = search;
+                        window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+                        notifyStaffNav();
+                    }}
+                    onRange={(days) => {
+                        setOpportunityRange(days);
+                        const url = new URL(window.location.href);
+                        url.search = withOpportunityRange(window.location.search, days);
+                        window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+                        notifyStaffNav();
+                    }}
+                    onConnections={() => setActiveTab('integrations')}
+                />
             )}
 
             {activeTab === 'topical-map' && client.organizationId === organization?.id && (

@@ -208,11 +208,14 @@ test('the rankings tab asks for GSC only after the flag check', () => {
 
 test('the client workspace gates the rankings surface on the flag helper', () => {
     const page = readFileSync(new URL('../../app/(dashboard)/workspace/[id]/page.tsx', import.meta.url), 'utf8');
+    const tab = readFileSync(new URL('../../components/opportunities/OpportunitiesTab.tsx', import.meta.url), 'utf8');
     const shell = readFileSync(new URL('../nav/staff-shell.ts', import.meta.url), 'utf8');
     assert.match(page, /import \{ keywordTrackingEnabled \} from '@\/lib\/keyword-tracking\/flag'/);
     assert.match(page, /if \(keywordTrackingEnabled\(\)\) knownTabs\.push\('rankings'\)/);
+    assert.match(page, /readOpportunityRoute\(searchKey, \{ keywordTracking: keywordTrackingEnabled\(\) \}\)/);
     assert.doesNotMatch(page, /'approvals', 'portal', 'rankings'/);
     assert.doesNotMatch(page, /setActiveTab\('rankings'\)/);
-    assert.match(page, /keywordTrackingEnabled\(\) && activeTab === 'rankings' && organization && client\.organizationId === organization\.id && \(\s*<RankingsTab organizationId=\{organization\.id\} clientId=\{client\.id\} \/>/);
+    assert.match(tab, /const tracking = keywordTrackingEnabled\(\)/);
+    assert.match(tab, /selected === 'rankings' && tracking \? \(\s*<RankingsTab organizationId=\{organizationId\} clientId=\{clientId\} \/>/);
     assert.match(shell, /if \(options\.keywordTracking\) search\.push\(link\('rankings', 'Rankings', 'rankings'\)\)/);
 });
