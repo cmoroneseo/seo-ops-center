@@ -156,7 +156,7 @@ function BlockView({ block }: { block: ClientBlock }) {
         case 'domain_rating':
             return (
                 <section data-client-block="domain_rating" className="text-xs leading-5 text-[#a8a29e]">
-                    <h2 className="text-xs font-semibold tracking-[0.14em]">DOMAIN RATING</h2>
+                    <h2 className="text-xs font-semibold tracking-[0.14em]">SITE STRENGTH</h2>
                     <p className="mt-1">{block.sentence}</p>
                 </section>
             );

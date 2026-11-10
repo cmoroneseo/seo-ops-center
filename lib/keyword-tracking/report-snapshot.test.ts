@@ -243,7 +243,7 @@ test('the report block is not offered unless keyword tracking is on', () => {
         assert.equal(widgetLibrary().some(group => group.items.some(item => item.type === 'tracked_keywords_gsc')), false);
         process.env.NEXT_PUBLIC_KEYWORD_TRACKING = 'true';
         const item = widgetLibrary().flatMap(group => group.items).find(entry => entry.type === 'tracked_keywords_gsc');
-        assert.equal(item?.name, 'Tracked keywords (GSC)');
+        assert.equal(item?.name, 'Tracked keywords');
         assert.equal(JSON.stringify(widgetLibrary()).includes('NEXT_PUBLIC_KEYWORD_TRACKING'), false);
         assert.match(source, /loadTrackedKeywordGsc/);
         assert.match(source, /loadRankingWindows/);

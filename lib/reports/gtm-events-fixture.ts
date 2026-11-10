@@ -34,7 +34,7 @@ export function kentinaOctoberFixture(): GtmEventsSnapshot {
             lede: 'Kentina Hospitality · October 1–31, 2026 · compared with September 1–30, 2026',
             totalEvents: 'All events recorded on the site.',
             tagEvents: 'Events recorded by the tags on this site. 5 of 7 tags recorded events.',
-            sessions: 'Sessions give context for the event counts.',
+            sessions: 'Visits give context for the event counts.',
             events: 'Every event recorded in October, sorted by count and compared with September. Only events with an October count are listed.',
             outbound: 'Which properties and links were clicked in October, compared with September.',
             links: 'The same clicks, listed by the words on the link. Only links with an October count are listed.',

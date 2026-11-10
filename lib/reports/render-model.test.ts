@@ -82,7 +82,7 @@ test('partial months are disabled with the review tooltip, and internal chores n
     assert.equal(august.tooltip, partialMonthTooltip('August'));
     assert.equal(renderedStrings(model).some(text => /16 months|extend search history/i.test(text)), false);
     assert.equal(model.detail.some(block => block.kind === 'whats_next'), false);
-    assert.equal(renderedStrings(scottColeReport('staff')).some(text => /AM writes this/.test(text)), true);
+    assert.equal(renderedStrings(scottColeReport('staff')).some(text => /Account manager writes this/.test(text)), true);
 });
 
 test('every rendered string of the fixture passes the client copy lint', () => {

@@ -15,7 +15,7 @@ test('the Scott Cole client document is two Letter pages and contains no AM-only
     assert.equal(html.includes('26px'), true);
     assert.equal((html.match(/data-page="/g) ?? []).length, 2);
     assert.equal(html.includes('No September work is recorded'), false);
-    assert.equal(html.includes('AM writes this'), false);
+    assert.equal(html.includes('Account manager writes this'), false);
     assert.equal(html.includes('Extend Search history'), false);
     assert.equal(html.includes('37,906'), true);
     assert.equal(html.includes('65'), true);
@@ -27,10 +27,10 @@ test('the Scott Cole client document is two Letter pages and contains no AM-only
 test('stripping is server-side: the AM sentences exist before the strip and are gone after', () => {
     const staff = renderClientReportHtml(scottColeReport('staff'), { audience: 'staff' });
     assert.equal(staff.includes('No September work is recorded'), true);
-    assert.equal(staff.includes('AM writes this'), true);
+    assert.equal(staff.includes('Account manager writes this'), true);
     const client = stripAmOnly(staff);
     assert.equal(client.includes('No September work is recorded'), false);
-    assert.equal(client.includes('AM writes this'), false);
+    assert.equal(client.includes('Account manager writes this'), false);
     assert.equal(client.includes('37,906'), true);
 });
 

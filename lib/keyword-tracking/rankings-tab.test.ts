@@ -160,7 +160,8 @@ test('a loaded rankings list shows the GSC table, bands, and change without zero
         onSubmit() {},
     }));
     assert.equal(html.includes('No tracked keywords yet'), false);
-    assert.match(html, /GSC avg position, all locations &amp; devices/);
+    assert.match(html, /Average Google position, all locations and devices/);
+    assert.equal(html.includes('GSC avg position'), false);
     assert.match(html, /Last 28 days · Oct 1 – Oct 28, 2026/);
     assert.match(html, /vs Sep 3 – Sep 30, 2026/);
     assert.match(html, /Not measurable keywords are not in a band/);

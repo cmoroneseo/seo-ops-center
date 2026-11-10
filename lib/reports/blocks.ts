@@ -131,7 +131,7 @@ const AHREFS_LIBRARY_GROUP: LibraryGroup = {
         items: [
             {
                 key: 'key_ranking_metrics', name: 'Key ranking metrics',
-                description: 'DR, ranked keywords & top positions',
+                description: 'Site strength, ranked keywords, and top positions',
                 type: 'metrics_overview', props: { source: 'ahrefs' },
             },
             {
@@ -159,7 +159,7 @@ const AHREFS_LIBRARY_GROUP: LibraryGroup = {
 
 const TRACKED_KEYWORDS_LIBRARY_ITEM: LibraryItem = {
     key: 'tracked_keywords_gsc',
-    name: 'Tracked keywords (GSC)',
+    name: 'Tracked keywords',
     description: 'Clicks, impressions, and average position for the tracked set',
     type: 'tracked_keywords_gsc',
     props: {},
@@ -172,7 +172,7 @@ export const WIDGET_LIBRARY: LibraryGroup[] = [
         items: [
             {
                 key: 'gsc_overview', name: 'Organic search overview',
-                description: 'Clicks, times shown, CTR & position',
+                description: 'Clicks, times shown, click-through rate, and position',
                 type: 'metrics_overview', props: { source: 'gsc' },
             },
             {
@@ -203,7 +203,7 @@ export const WIDGET_LIBRARY: LibraryGroup[] = [
             },
             {
                 key: 'organic_table', name: 'Organic traffic table',
-                description: 'Monthly organic history (GSC + GA4)',
+                description: 'Monthly search and website history',
                 type: 'organic_table', props: {},
             },
         ],
@@ -213,8 +213,8 @@ export const WIDGET_LIBRARY: LibraryGroup[] = [
         items: [
             {
                 key: 'gtm_events',
-                name: 'GTM Event Report',
-                description: 'Recorded events, outbound links, and a daily trend',
+                name: 'Event report',
+                description: 'Recorded events from Google Tag Manager, outbound links, and a daily count',
                 type: 'gtm_events',
                 props: {},
             },
@@ -292,9 +292,9 @@ export function blockLabel(block: Block): string {
         case 'organic_table': return 'Organic traffic table';
         case 'grid_comparison': return 'Keyword Visibility Heatmaps';
         case 'keyword_rankings_table': return 'All keywords rankings';
-        case 'tracked_keywords_gsc': return 'Tracked keywords (GSC)';
+        case 'tracked_keywords_gsc': return 'Tracked keywords';
         case 'marketing_plan': return SEO_PLAN_LABEL;
-        case 'gtm_events': return 'GTM Event Report';
+        case 'gtm_events': return 'Event report';
         default: return 'Block';
     }
 }

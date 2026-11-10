@@ -471,7 +471,7 @@ export function clientReportFromSnapshot(snapshot: unknown, context?: { reports?
         detail.push({
             kind: 'whats_next',
             audience: 'am',
-            intro: "AM writes this. Placeholder copy; the facts are real, the plan isn't on file.",
+            intro: "Account manager writes this. The facts are real; the plan is not on file yet.",
             items: nextAm.map(item => ({ label: item.label, sentence: item.sentence })),
         });
     }
@@ -480,7 +480,7 @@ export function clientReportFromSnapshot(snapshot: unknown, context?: { reports?
     if (extraAsks.length > 0) detail.push({ kind: 'what_we_need', items: extraAsks.map(sentence => ({ sentence })) });
 
     const property = extension.property ? ` (${extension.property})` : '';
-    const finalLine = final ? 'Every day is final.' : 'Some days are still preliminary.';
+    const finalLine = final ? 'Every day is final.' : 'Google may still update some of these days.';
     detail.push({
         kind: 'about_these_numbers',
         lines: [
@@ -491,8 +491,8 @@ export function clientReportFromSnapshot(snapshot: unknown, context?: { reports?
     detail.push({
         kind: 'domain_rating',
         sentence: domainRating == null
-            ? 'Domain Rating isn\'t in this report.'
-            : `Domain Rating ${formatClientCount(domainRating)}. This is an Ahrefs reference, not a Google count.`,
+            ? 'Site strength (Domain Rating) isn\'t in this report.'
+            : `Site strength (Domain Rating) ${formatClientCount(domainRating)}. This is an Ahrefs reference, not a Google count.`,
     });
 
     const clientName = extension.clientName ?? text(row.title) ?? 'Your business';

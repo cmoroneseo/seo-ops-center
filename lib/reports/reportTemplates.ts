@@ -71,7 +71,7 @@ export const STOCK_TEMPLATES: StockTemplate[] = [
     },
     {
         key: 'gtm_events',
-        name: 'GTM Event Report',
+        name: 'Event report',
         description: 'Recorded events for one month compared with the previous month, including outbound, booking, and ticket links.',
         outline: ['Event totals', 'Event list', 'Outbound links', 'Booking links', 'Ticket links', 'Daily trend'],
         build: () => [makeBlock('gtm_events', {})],

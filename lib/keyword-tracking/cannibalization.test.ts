@@ -278,7 +278,7 @@ test('the cannibalization view shows health, competing URLs, and the empty rule'
         onDraft() {},
         onSubmit() {},
     }));
-    assert.match(html, /aria-selected="true"[^>]*>Cannibalization</);
+    assert.match(html, /aria-selected="true"[^>]*>Competing pages</);
     assert.match(html, /Last 28 days · Oct 6 – Nov 2, 2026/);
     assert.equal(html.includes('vs Sep 8'), false);
     assert.equal(html.includes('>Distribution<'), false);
@@ -288,7 +288,7 @@ test('the cannibalization view shows health, competing URLs, and the empty rule'
     assert.equal(/semrush|google ads/i.test(html), false);
     const health = html.match(/data-metric="health">([^<]+)/)?.[1];
     assert.equal(health, '50%');
-    assert.match(html, /2 of 4 tracked keywords affected/);
+    assert.match(html, /2 of 4 tracked keywords show on more than one page/);
     assert.match(html, /data-url="https:\/\/www\.marketingempiregroup\.com\/murrieta-ca"/);
     assert.match(html, /data-metric="impressions">45</);
     assert.match(html, /data-metric="impressions">13</);
@@ -312,8 +312,8 @@ test('the cannibalization view shows health, competing URLs, and the empty rule'
             measured: true,
         }),
     }));
-    assert.match(empty, /No cannibalization signal/);
-    assert.match(empty, /2 or more normalized URLs each have impressions/);
+    assert.match(empty, /No pages are competing for the same search/);
+    assert.match(empty, /two or more different pages were each shown in Google/);
     assert.equal(empty.match(/data-metric="health">([^<]+)/)?.[1], '100%');
 
     const unmeasured = renderToStaticMarkup(createElement(CannibalizationView, {
@@ -322,7 +322,7 @@ test('the cannibalization view shows health, competing URLs, and the empty rule'
     assert.equal(unmeasured.match(/data-metric="health">([^<]+)/)?.[1], 'not measurable');
     assert.equal(unmeasured.includes('0%'), false);
     assert.equal(unmeasured.includes('100%'), false);
-    assert.equal(unmeasured.includes('No cannibalization signal'), false);
+    assert.equal(unmeasured.includes('No pages are competing for the same search'), false);
 });
 
 test('keyword tracking off makes no Supabase calls', async () => {

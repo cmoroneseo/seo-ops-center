@@ -24,19 +24,19 @@ const SOURCE_LABELS: Record<string, string> = {
 // Field definitions per source: key, label, type, placeholder
 const FIELDS: Record<string, { key: string; label: string; type: 'number' | 'decimal'; placeholder: string }[]> = {
     ga4: [
-        { key: 'sessions', label: 'Total Sessions', type: 'number', placeholder: '4821' },
-        { key: 'new_users', label: 'New Users', type: 'number', placeholder: '2103' },
-        { key: 'bounce_rate', label: 'Bounce Rate (0–1)', type: 'decimal', placeholder: '0.42' },
-        { key: 'organic_sessions', label: 'Organic Sessions', type: 'number', placeholder: '1890' },
+        { key: 'sessions', label: 'Visits', type: 'number', placeholder: '4821' },
+        { key: 'new_users', label: 'New visitors', type: 'number', placeholder: '2103' },
+        { key: 'bounce_rate', label: 'Left after one page (0 to 1)', type: 'decimal', placeholder: '0.42' },
+        { key: 'organic_sessions', label: 'Visits from search', type: 'number', placeholder: '1890' },
     ],
     gsc: [
         { key: 'organic_clicks', label: 'Clicks to your website from Google', type: 'number', placeholder: '1240' },
         { key: 'impressions', label: 'Times shown', type: 'number', placeholder: '18500' },
-        { key: 'avg_position', label: 'Avg Position', type: 'decimal', placeholder: '14.2' },
-        { key: 'ctr', label: 'CTR (0–1)', type: 'decimal', placeholder: '0.067' },
+        { key: 'avg_position', label: 'Average position', type: 'decimal', placeholder: '14.2' },
+        { key: 'ctr', label: 'Click-through rate (0 to 1)', type: 'decimal', placeholder: '0.067' },
     ],
     gbp: [
-        { key: 'impressions', label: 'GBP Impressions', type: 'number', placeholder: '3200' },
+        { key: 'impressions', label: 'Times your profile was shown', type: 'number', placeholder: '3200' },
         { key: 'calls', label: 'Call-button taps', type: 'number', placeholder: '48' },
         { key: 'direction_requests', label: 'Direction Requests', type: 'number', placeholder: '31' },
         { key: 'website_clicks', label: 'Website Clicks', type: 'number', placeholder: '112' },

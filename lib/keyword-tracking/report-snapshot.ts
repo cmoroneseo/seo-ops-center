@@ -32,9 +32,9 @@ import {
 import { unmeasuredCannibalization, type CannibalizationReport } from './cannibalization';
 
 export const TRACKED_KEYWORDS_BLOCK = 'tracked_keywords_gsc' as const;
-export const TRACKED_KEYWORDS_REPORT_LABEL = 'Tracked keywords (GSC)';
+export const TRACKED_KEYWORDS_REPORT_LABEL = 'Tracked keywords';
 export const TRACKING_SNAPSHOT_SCHEMA = 1;
-export const TRACKING_SNAPSHOT_UNAVAILABLE = 'This snapshot is not available.';
+export const TRACKING_SNAPSHOT_UNAVAILABLE = 'These keyword numbers are not available yet.';
 export const TRACKING_SNAPSHOT_EMPTY = 'No tracked keywords yet.';
 export const TRACKING_SNAPSHOT_DISCONNECTED = 'Search Console is not connected for this client.';
 

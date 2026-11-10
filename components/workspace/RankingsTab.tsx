@@ -33,7 +33,7 @@ import {
     rankingDistribution,
     rankingUrlLabel,
     rankingsDisplayRows,
-    RANKING_POSITION_LABEL,
+    RANKING_POSITION_DISPLAY,
     type RankingsDisplayRow,
 } from '@/lib/keyword-tracking/rankings';
 import {
@@ -61,7 +61,7 @@ type RankingsSection = 'keywords' | 'cannibalization';
 
 const SECTIONS: { id: RankingsSection; label: string }[] = [
     { id: 'keywords', label: 'Keywords' },
-    { id: 'cannibalization', label: 'Cannibalization' },
+    { id: 'cannibalization', label: 'Competing pages' },
 ];
 
 const CHANGE_TONE: Record<NonNullable<RankingsDisplayRow['change']>, string> = {
@@ -429,7 +429,7 @@ export function RankingsPanel({
                         <div className="flex flex-wrap items-baseline justify-between gap-2">
                             <h3 className="text-sm font-medium text-foreground">Rankings</h3>
                             <p className="text-xs text-muted-foreground">
-                                {section === 'keywords' ? <span>{RANKING_POSITION_LABEL}</span> : null}
+                                {section === 'keywords' ? <span>{RANKING_POSITION_DISPLAY}</span> : null}
                                 {periodLabel ? <span>{section === 'keywords' ? ' · ' : ''}{periodLabel}</span> : null}
                                 {section === 'keywords' && compareLabel ? <span> vs {compareLabel}</span> : null}
                             </p>
@@ -473,7 +473,7 @@ export function RankingsPanel({
                                         <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Keyword</th>
                                         <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Change</th>
                                         <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Band</th>
-                                        <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">{RANKING_POSITION_LABEL}</th>
+                                        <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">{RANKING_POSITION_DISPLAY}</th>
                                         <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Clicks</th>
                                         <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Impressions</th>
                                         <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Best URL</th>
@@ -735,28 +735,28 @@ export function CannibalizationView({ report }: { report: CannibalizationReport 
     return (
         <div data-cannibalization="panel">
             <p className="text-sm text-foreground">
-                <span className="text-muted-foreground">Health </span>
+                <span className="text-muted-foreground">One main page </span>
                 <span className="font-semibold tabular-nums" data-metric="health">{health}</span>
             </p>
             {showAffected ? (
                 <p className="mt-1 text-xs text-muted-foreground" data-metric="affected">
-                    {report.affected} of {report.tracked} tracked keywords affected
+                    {report.affected} of {report.tracked} tracked keywords show on more than one page
                 </p>
             ) : null}
             {report.health != null && report.keywords.length === 0 ? (
-                <p className="mt-3 text-sm text-muted-foreground">No cannibalization signal.</p>
+                <p className="mt-3 text-sm text-muted-foreground">No pages are competing for the same search.</p>
             ) : null}
             <p className="mt-1 text-xs text-muted-foreground">{CANNIBAL_DEFINITION}</p>
             {report.keywords.length > 0 ? (
                 <div className="mt-4 overflow-x-auto">
-                    <table className="w-full min-w-[52rem] border-collapse text-left text-sm" aria-label="Cannibalization">
+                    <table className="w-full min-w-[52rem] border-collapse text-left text-sm" aria-label="Competing pages">
                         <thead>
                             <tr className="border-b border-border text-xs text-muted-foreground">
                                 <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Keyword</th>
-                                <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">URL</th>
-                                <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Impressions</th>
+                                <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Page</th>
+                                <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Times shown</th>
                                 <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Clicks</th>
-                                <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">{RANKING_POSITION_LABEL}</th>
+                                <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">{RANKING_POSITION_DISPLAY}</th>
                             </tr>
                         </thead>
                         <tbody>
