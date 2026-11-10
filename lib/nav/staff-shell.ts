@@ -8,6 +8,9 @@ import { reportsNavHref } from '@/lib/reports/close-nav';
  * when the campaign workspace flag is exactly on, and that same switch
  * hides SEO Plan. The monthly board then lives on Campaign's Work tab.
  * Concept rows are omitted.
+ *
+ * `pipelineNav` regroups those same destinations into Client / Pipeline /
+ * Delivery / More. Omitted, or anything but true, keeps the list below.
  */
 
 export const AGENCY_HOME_HREF = '/dashboard';
@@ -21,10 +24,12 @@ export interface StaffLink {
     href: string;
     /** Workspace `tab` query this link owns. Absent for org routes. */
     tab?: string;
+    /** Existing destinations listed under this row. Same routes, not new screens. */
+    children?: StaffLink[];
 }
 
 export interface StaffSection {
-    id: 'workspace' | 'search' | 'more';
+    id: 'workspace' | 'search' | 'more' | 'client' | 'pipeline' | 'delivery';
     label: string;
     links: StaffLink[];
     /** Real destinations behind the More row. Not a second product area. */
@@ -119,8 +124,10 @@ export function clientInitials(name: string): string {
 
 export function clientSections(
     clientId: string,
-    options: { keywordTracking: boolean; vault: boolean; campaignWorkspace: boolean },
+    options: { keywordTracking: boolean; vault: boolean; campaignWorkspace: boolean; pipelineNav?: boolean },
 ): StaffSection[] {
+    if (options.pipelineNav === true) return pipelineClientSections(clientId, options);
+
     const link = (id: string, label: string, section: WorkspaceModule): StaffLink => ({
         id,
         label,
@@ -165,6 +172,61 @@ export function clientSections(
             links: [link('topical-map', 'Topical Map', 'topical-map')],
             overflow,
         },
+    ];
+}
+
+/**
+ * Same workspace routes, grouped as Client / Pipeline / Delivery / More.
+ * Content is omitted until a workspace content tab exists. Approvals stays
+ * on `?tab=approvals` and is not listed until that content surface can hold it.
+ */
+function pipelineClientSections(
+    clientId: string,
+    options: { keywordTracking: boolean; vault: boolean; campaignWorkspace: boolean },
+): StaffSection[] {
+    const link = (id: string, label: string, section: WorkspaceModule): StaffLink => ({
+        id,
+        label,
+        href: workspaceHref(clientId, tabOf(section)),
+        tab: tabOf(section),
+    });
+
+    const opportunities = link('opportunities', 'Opportunities', 'search');
+    const nested: StaffLink[] = [link('inventory', 'Site Inventory', 'inventory')];
+    if (options.keywordTracking) nested.push(link('rankings', 'Rankings', 'rankings'));
+    opportunities.children = nested;
+
+    const delivery: StaffLink[] = [];
+    if (options.campaignWorkspace) {
+        delivery.push(link('campaign-workspace', 'Campaign', 'campaign-workspace'));
+    } else {
+        delivery.push(link('plan', 'SEO Plan', 'plan'));
+    }
+    delivery.push(
+        link('tasks', 'Tasks', 'tasks'),
+        { id: 'reports', label: 'Reports', href: reportsNavHref() },
+    );
+
+    const more: StaffLink[] = [
+        link('integrations', 'Integrations', 'integrations'),
+        link('portal', 'Portal', 'portal'),
+        link('deliverables', 'Deliverables', 'deliverables'),
+    ];
+    if (options.vault) more.push(link('vault', 'Vault', 'vault'));
+    more.push({ id: 'time', label: 'Time', href: '/timesheets' });
+
+    return [
+        { id: 'client', label: 'Client', links: [link('overview', 'Overview', 'overview')] },
+        {
+            id: 'pipeline',
+            label: 'Pipeline',
+            links: [
+                link('topical-map', 'Topical Map', 'topical-map'),
+                opportunities,
+            ],
+        },
+        { id: 'delivery', label: 'Delivery', links: delivery },
+        { id: 'more', label: 'More', links: more },
     ];
 }
 
