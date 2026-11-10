@@ -475,8 +475,8 @@ export function RankingsPanel({
                                         <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Band</th>
                                         <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">{RANKING_POSITION_DISPLAY}</th>
                                         <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Clicks</th>
-                                        <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Impressions</th>
-                                        <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Best URL</th>
+                                        <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Times shown</th>
+                                        <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Best page</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -735,7 +735,7 @@ export function CannibalizationView({ report }: { report: CannibalizationReport 
     return (
         <div data-cannibalization="panel">
             <p className="text-sm text-foreground">
-                <span className="text-muted-foreground">One main page </span>
+                <span className="text-muted-foreground">Keywords with one main page: </span>
                 <span className="font-semibold tabular-nums" data-metric="health">{health}</span>
             </p>
             {showAffected ? (

@@ -104,10 +104,9 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
             <section className="space-y-5" aria-label="Topic map">
                 <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
                     <Map className="mx-auto h-8 w-8 text-primary" />
-                    <h3 className="mt-3 font-semibold">No topical map yet</h3>
+                    <h3 className="mt-3 font-semibold">No topic map yet</h3>
                     <p className="mx-auto mt-2 max-w-xl text-sm text-muted-foreground">
-                        Generate an AI-drafted topical map for {clientName} — a silo-based content architecture built from
-                        the brand profile, search demand, and existing pages.
+                        Generate a topic map for {clientName} from the brand profile, search demand, and pages already on the site.
                     </p>
                     <button
                         onClick={() => setWizardOpen(true)}

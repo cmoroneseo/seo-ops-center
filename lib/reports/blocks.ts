@@ -140,9 +140,9 @@ const AHREFS_LIBRARY_GROUP: LibraryGroup = {
                 type: 'trend', props: { source: 'ahrefs', metrics: ['top_10_keywords', 'top_20_keywords', 'top_50_keywords'], title: 'Keywords in Top Positions' },
             },
             {
-                key: 'domain_rating_trend', name: 'Domain Rating trend',
-                description: 'Authority growth over time',
-                type: 'trend', props: { source: 'ahrefs', metrics: ['domain_rating'], title: 'Domain Rating' },
+                key: 'domain_rating_trend', name: 'Site strength trend (Domain Rating)',
+                description: 'How this score changes over time',
+                type: 'trend', props: { source: 'ahrefs', metrics: ['domain_rating'], title: 'Site strength (Domain Rating)' },
             },
             {
                 key: 'top_positions_distribution', name: 'Distribution by top positions',

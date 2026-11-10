@@ -3,7 +3,17 @@
  * Database values, routes, and enum members stay unchanged.
  */
 
-import type { ApprovalDocStatus, CampaignGoalStatus, CampaignPlanStatus, Task } from '../types.ts';
+import type { ReceiptTag } from '../reporting/states-copy.ts';
+import type { PortalDeliverable } from '../portal/progress.ts';
+import type {
+    ApprovalDocStatus,
+    CampaignGoalStatus,
+    CampaignPlanStatus,
+    DeliverableType,
+    Task,
+} from '../types.ts';
+
+export type ReportStatus = 'draft' | 'published';
 
 export const TASK_STATUS_LABELS: Record<Task['status'], string> = {
     todo: 'To Do',
@@ -11,10 +21,10 @@ export const TASK_STATUS_LABELS: Record<Task['status'], string> = {
     done: 'Done',
 };
 
-export const REPORT_STATUS_LABELS = {
+export const REPORT_STATUS_LABELS: Record<ReportStatus, string> = {
     draft: 'Draft',
     published: 'Published',
-} as const;
+};
 
 export const CAMPAIGN_PLAN_STATUS_LABELS: Record<CampaignPlanStatus, string> = {
     draft: 'Draft',
@@ -39,22 +49,22 @@ export const APPROVAL_DOC_STATUS_LABELS: Record<ApprovalDocStatus, string> = {
 };
 
 /** Work a client sees on the portal. Stored values stay snake_case. */
-export const PORTAL_WORK_STATUS_LABELS = {
+export const PORTAL_WORK_STATUS_LABELS: Record<PortalDeliverable['status'], string> = {
     in_progress: 'In progress',
-    in_review: 'In review',
+    in_review: 'Internal review',
     approved: 'Approved, waiting to go live',
     published: 'Published',
     delivered: 'Delivered',
-} as const;
+};
 
 /** Short mark beside a saved number. The stored tag stays prelim | snapshot | ref. */
-export const RECEIPT_TAG_LABELS = {
+export const RECEIPT_TAG_LABELS: Record<ReceiptTag, string> = {
     prelim: 'Early',
     snapshot: 'Saved',
     ref: 'Reference',
-} as const;
+};
 
-export const DELIVERABLE_TYPE_LABELS: Record<string, string> = {
+export const DELIVERABLE_TYPE_LABELS: Record<DeliverableType, string> = {
     Content: 'Content',
     Backlink: 'Links',
     GBP: 'Business Profile',
@@ -66,7 +76,7 @@ export function taskStatusLabel(status: string): string {
 }
 
 export function reportStatusLabel(status: string): string {
-    return REPORT_STATUS_LABELS[status as keyof typeof REPORT_STATUS_LABELS] ?? status;
+    return REPORT_STATUS_LABELS[status as ReportStatus] ?? status;
 }
 
 export function campaignGoalStatusLabel(status: string): string {
@@ -74,13 +84,13 @@ export function campaignGoalStatusLabel(status: string): string {
 }
 
 export function portalWorkStatusLabel(status: string): string {
-    return PORTAL_WORK_STATUS_LABELS[status as keyof typeof PORTAL_WORK_STATUS_LABELS] ?? status;
+    return PORTAL_WORK_STATUS_LABELS[status as PortalDeliverable['status']] ?? status;
 }
 
 export function receiptTagLabel(tag: string): string {
-    return RECEIPT_TAG_LABELS[tag as keyof typeof RECEIPT_TAG_LABELS] ?? tag;
+    return RECEIPT_TAG_LABELS[tag as ReceiptTag] ?? tag;
 }
 
 export function deliverableTypeLabel(type: string): string {
-    return DELIVERABLE_TYPE_LABELS[type] ?? type;
+    return DELIVERABLE_TYPE_LABELS[type as DeliverableType] ?? type;
 }

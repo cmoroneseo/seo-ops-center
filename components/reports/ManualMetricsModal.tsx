@@ -26,8 +26,8 @@ const FIELDS: Record<string, { key: string; label: string; type: 'number' | 'dec
     ga4: [
         { key: 'sessions', label: 'Visits', type: 'number', placeholder: '4821' },
         { key: 'new_users', label: 'New visitors', type: 'number', placeholder: '2103' },
-        { key: 'bounce_rate', label: 'Left after one page (0 to 1)', type: 'decimal', placeholder: '0.42' },
-        { key: 'organic_sessions', label: 'Visits from search', type: 'number', placeholder: '1890' },
+        { key: 'bounce_rate', label: 'Visits with no engagement (0 to 1)', type: 'decimal', placeholder: '0.42' },
+        { key: 'organic_sessions', label: 'Website visits from search (Google Analytics)', type: 'number', placeholder: '1890' },
     ],
     gsc: [
         { key: 'organic_clicks', label: 'Clicks to your website from Google', type: 'number', placeholder: '1240' },
@@ -39,12 +39,12 @@ const FIELDS: Record<string, { key: string; label: string; type: 'number' | 'dec
         { key: 'impressions', label: 'Times your profile was shown', type: 'number', placeholder: '3200' },
         { key: 'calls', label: 'Call-button taps', type: 'number', placeholder: '48' },
         { key: 'direction_requests', label: 'Direction Requests', type: 'number', placeholder: '31' },
-        { key: 'website_clicks', label: 'Website Clicks', type: 'number', placeholder: '112' },
+        { key: 'website_clicks', label: 'Website clicks', type: 'number', placeholder: '112' },
         { key: 'review_count', label: '# of Reviews', type: 'number', placeholder: '87' },
         { key: 'avg_rating', label: 'Avg Rating (1–5)', type: 'decimal', placeholder: '4.6' },
     ],
     ahrefs: [
-        { key: 'domain_rating', label: 'Domain Rating', type: 'number', placeholder: '34' },
+        { key: 'domain_rating', label: 'Site strength (Domain Rating)', type: 'number', placeholder: '34' },
         { key: 'ranked_keywords', label: 'Ranked Keywords', type: 'number', placeholder: '412' },
         { key: 'top_10_keywords', label: 'Top 10 Keywords', type: 'number', placeholder: '28' },
         { key: 'top_20_keywords', label: 'Top 20 Keywords', type: 'number', placeholder: '67' },

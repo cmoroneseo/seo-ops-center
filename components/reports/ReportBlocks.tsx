@@ -699,7 +699,7 @@ export function OrganicTableBlock({ ctx }: { ctx: ReportContext }) {
                 <table className="w-full text-sm" style={{ color: '#374151' }}>
                     <thead>
                         <tr className="border-b" style={{ borderColor: '#e5e7eb' }}>
-                            {['Month', 'Visits from search', 'Clicks', 'Times shown', 'Click-through rate', 'Average position'].map(h => (
+                            {['Month', 'Website visits from search (Google Analytics)', 'Clicks', 'Times shown', 'Click-through rate', 'Average position'].map(h => (
                                 <th key={h} className="text-left py-2 pr-3 text-[11px] uppercase tracking-wide font-medium" style={{ color: '#6b7280' }}>{h}</th>
                             ))}
                         </tr>

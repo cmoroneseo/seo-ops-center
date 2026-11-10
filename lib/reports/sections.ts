@@ -37,14 +37,14 @@ export const METRIC_DEFS: Record<ReportSourceKey, MetricDef[]> = {
     ga4: [
         { key: 'sessions', label: 'Visits', format: 'number' },
         { key: 'new_users', label: 'New visitors', format: 'number' },
-        { key: 'organic_sessions', label: 'Visits from search', format: 'number' },
-        { key: 'bounce_rate', label: 'Left after one page', format: 'percent', lowerIsBetter: true },
+        { key: 'organic_sessions', label: 'Website visits from search (Google Analytics)', format: 'number' },
+        { key: 'bounce_rate', label: 'Visits with no engagement', format: 'percent', lowerIsBetter: true },
     ],
     gbp: [
         { key: 'impressions', label: 'Times your profile was shown', format: 'number' },
         { key: 'calls', label: 'Call-button taps', format: 'number' },
         { key: 'direction_requests', label: 'Directions', format: 'number' },
-        { key: 'website_clicks', label: 'Website Clicks', format: 'number' },
+        { key: 'website_clicks', label: 'Website clicks', format: 'number' },
         { key: 'review_count', label: 'Reviews', format: 'number' },
         { key: 'avg_rating', label: 'Avg Rating', format: 'decimal' },
     ],

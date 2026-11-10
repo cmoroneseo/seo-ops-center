@@ -2,10 +2,10 @@
 
 import React from 'react';
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
-import { CAMPAIGN_PLAN_STATUS_LABELS } from '@/lib/copy/labels';
+import { CAMPAIGN_GOAL_STATUS_LABELS, CAMPAIGN_PLAN_STATUS_LABELS } from '@/lib/copy/labels';
 import { cn } from '@/lib/utils';
 import {
-    CampaignPlanStatus, CampaignGoalCategory, KpiGroup, KpiSource,
+    CampaignPlanStatus, CampaignGoalCategory, CampaignGoalStatus, KpiGroup, KpiSource,
     KpiConfidence, WorkstreamCategory, WorkstreamStatus, PhaseStatus,
     ExpectationType,
 } from '@/lib/types';
@@ -129,11 +129,11 @@ export const STATUS_LABELS: Record<CampaignPlanStatus, { label: string; color: s
     archived: { label: CAMPAIGN_PLAN_STATUS_LABELS.archived, color: 'bg-gray-500/10 text-gray-400 border-gray-500/20' },
 };
 
-export const GOAL_STATUSES: { value: string; label: string }[] = [
-    { value: 'active', label: 'Active' },
-    { value: 'achieved', label: 'Achieved' },
-    { value: 'at_risk', label: 'At Risk' },
-    { value: 'dropped', label: 'Dropped' },
+export const GOAL_STATUSES: { value: CampaignGoalStatus; label: string }[] = [
+    { value: 'active', label: CAMPAIGN_GOAL_STATUS_LABELS.active },
+    { value: 'achieved', label: CAMPAIGN_GOAL_STATUS_LABELS.achieved },
+    { value: 'at_risk', label: CAMPAIGN_GOAL_STATUS_LABELS.at_risk },
+    { value: 'dropped', label: CAMPAIGN_GOAL_STATUS_LABELS.dropped },
 ];
 
 export const WS_STATUS_COLORS: Record<WorkstreamStatus, string> = {

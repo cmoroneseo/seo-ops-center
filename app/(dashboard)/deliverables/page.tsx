@@ -205,7 +205,7 @@ export default function DeliverablesPage() {
                 <KPICard title="Delivered" value={data ? String(delivered) : '—'} change={promised != null && promised > 0 ? `of ${promised}` : ''} trend={promised != null && delivered >= promised && promised > 0 ? 'up' : 'neutral'} icon={PackageCheck} />
                 <KPICard title="In progress" value={data ? String(inProduction) : '—'} change="" trend="neutral" icon={Factory} />
                 <KPICard title="Overdue" value={data ? String(overdueCount) : '—'} change="" trend={overdueCount > 0 ? 'down' : 'neutral'} icon={AlertTriangle} />
-                <KPICard title="Finished" value={fulfillmentPct === null ? '—' : `${fulfillmentPct}%`} change={`${daysLeft} days left`} trend={fulfillmentPct !== null && fulfillmentPct >= 100 ? 'up' : 'neutral'} icon={Percent} />
+                <KPICard title="Share of promised work delivered" value={fulfillmentPct === null ? '—' : `${fulfillmentPct}%`} change={`${daysLeft} days left`} trend={fulfillmentPct !== null && fulfillmentPct >= 100 ? 'up' : 'neutral'} icon={Percent} />
             </div>
 
             {/* Matrix + rail */}

@@ -119,7 +119,7 @@ export function TrackedKeywordsReportBody({
                         <div className="mt-5" data-cannibalization="panel">
                             <h3 className="text-sm font-semibold" style={{ color: INK }}>Competing pages</h3>
                             <p className="mt-2 text-sm" style={{ color: INK }}>
-                                <span style={{ color: MUTED }}>One main page </span>
+                                <span style={{ color: MUTED }}>Keywords with one main page: </span>
                                 <span className="font-semibold tabular-nums" data-metric="health">{formatCannibalHealth(snapshot.cannibalization.health)}</span>
                             </p>
                             {snapshot.cannibalization.health != null && snapshot.cannibalization.affected != null && snapshot.cannibalization.affected > 0 ? (
