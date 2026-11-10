@@ -151,7 +151,13 @@ export function ReportBuilder({ client, initialReport, metrics, history, organiz
         const name = window.prompt('Template name:', `${title.replace(client?.clientName ?? '', '').trim() || 'My template'}`);
         if (!name) return;
         // Strip client-bound text content; keep structure + bound fields
-        const templateBlocks = blocks.map(b => ({ type: b.type, props: { ...b.props } }));
+        const templateBlocks = blocks.map(b => {
+            if (b.type !== 'gtm_events') return { type: b.type, props: { ...b.props } };
+            const { snapshot, staffNote, ...rest } = b.props;
+            void snapshot;
+            void staffNote;
+            return { type: b.type, props: rest };
+        });
         const res = await fetch('/api/report-templates', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

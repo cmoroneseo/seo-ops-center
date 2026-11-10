@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Ga4PropertiesError, readGa4Properties } from '@/lib/google/ga4-properties';
+import { GtmContainersError, readGtmContainers } from '@/lib/google/gtm-containers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
+import { getGoogleAccessToken, GoogleAuthError } from '@/lib/sync/token';
 
 async function refreshAccessToken(refreshToken: string): Promise<string | null> {
     const res = await fetch('https://oauth2.googleapis.com/token', {
@@ -43,20 +45,21 @@ async function getAccessToken(admin: any, clientId: string, service: string) {
 }
 
 /**
- * GET /api/integrations/google/properties?clientId=...&group=ga4-gsc|gbp
+ * GET /api/integrations/google/properties?clientId=...&group=ga4-gsc|gbp|gtm
  *
  * ga4-gsc: legacy group name; returns { ga4Properties } (GSC uses /google/gsc)
  * gbp:     returns { gbpLocations }
+ * gtm:     returns { gtmContainers }
  */
 export async function GET(req: NextRequest) {
     const clientId = req.nextUrl.searchParams.get('clientId');
-    const group = req.nextUrl.searchParams.get('group') as 'ga4-gsc' | 'gbp' | null;
+    const group = req.nextUrl.searchParams.get('group') as 'ga4-gsc' | 'gbp' | 'gtm' | null;
 
     if (!clientId || !group) {
         return NextResponse.json({ error: 'Missing clientId or group' }, { status: 400 });
     }
 
-    if (!['ga4-gsc', 'gbp'].includes(group)) {
+    if (!['ga4-gsc', 'gbp', 'gtm'].includes(group)) {
         return NextResponse.json({ error: 'Invalid group' }, { status: 400 });
     }
 
@@ -67,6 +70,24 @@ export async function GET(req: NextRequest) {
 
     const admin = createAdminClient();
     if (!admin) return NextResponse.json({ error: 'DB unavailable' }, { status: 500 });
+
+    if (group === 'gtm') {
+        try {
+            const auth = await getGoogleAccessToken(authorization.clientId, 'gtm');
+            if (!auth) return NextResponse.json({ error: 'No Tag Manager token found -- connect first' }, { status: 404 });
+            const gtmContainers = await readGtmContainers(auth.token);
+            return NextResponse.json({ gtmContainers });
+        } catch (error) {
+            if (error instanceof GtmContainersError) {
+                return NextResponse.json({ error: error.message }, { status: error.status });
+            }
+            if (error instanceof GoogleAuthError) {
+                return NextResponse.json({ error: 'Unable to list Tag Manager containers. Check Google access or reconnect.' }, { status: 401 });
+            }
+            console.error('Tag Manager container list failed', { status: 0 });
+            return NextResponse.json({ error: 'Unable to list Tag Manager containers. Check Google access or reconnect.' }, { status: 502 });
+        }
+    }
 
     if (group === 'gbp') {
         const accessToken = await getAccessToken(admin, authorization.clientId, 'gbp');

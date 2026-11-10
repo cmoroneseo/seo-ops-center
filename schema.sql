@@ -15911,3 +15911,90 @@ comment on column public.campaign_initiatives.category is
   'Roadmap category slug from the client-facing template Lists tab. Null means not set.';
 comment on column public.campaign_initiatives.target_month is
   'Engagement-relative month, 1 through 12. Null means not set. Does not replace starts_on or ends_on.';
+
+-- =============================================================================
+-- 120_gtm_integration.sql
+-- Google Tag Manager service on client_integrations.
+-- =============================================================================
+
+alter table public.client_integrations drop constraint if exists client_integrations_service_check;
+alter table public.client_integrations
+  add constraint client_integrations_service_check
+  check (service in ('ga4', 'gsc', 'gbp', 'ahrefs', 'bing', 'gtm'));
+
+-- =============================================================================
+-- 121_gtm_event_report_settings.sql
+-- Consent-click exclusions for the GTM Event Report.
+-- =============================================================================
+
+create table if not exists public.client_gtm_report_settings (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+  excluded_link_texts text[] not null default '{}',
+  fallback_event_names text[] not null default '{}',
+  outbound_event_name text not null default 'property_outbound_click',
+  booking_event_name text not null default 'booking_click',
+  ticket_event_name text not null default 'buy_tickets_click',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (client_id),
+  check (cardinality(excluded_link_texts) <= 30),
+  check (cardinality(fallback_event_names) <= 40),
+  check (outbound_event_name ~ '^[A-Za-z][A-Za-z0-9_]{0,40}$'),
+  check (booking_event_name ~ '^[A-Za-z][A-Za-z0-9_]{0,40}$'),
+  check (ticket_event_name ~ '^[A-Za-z][A-Za-z0-9_]{0,40}$')
+);
+
+create index if not exists client_gtm_report_settings_org_idx
+  on public.client_gtm_report_settings (organization_id, client_id);
+
+alter table public.client_gtm_report_settings enable row level security;
+
+drop policy if exists client_gtm_report_settings_org on public.client_gtm_report_settings;
+create policy client_gtm_report_settings_org on public.client_gtm_report_settings
+  for all to authenticated
+  using (organization_id in (select public.get_user_org_ids()))
+  with check (organization_id in (select public.get_user_org_ids()));
+
+revoke all on public.client_gtm_report_settings from public, anon;
+grant select, insert, update on public.client_gtm_report_settings to authenticated;
+grant all on public.client_gtm_report_settings to service_role;
+
+-- =============================================================================
+-- 122_report_public_links.sql
+-- No-login links to a frozen GTM Event Report.
+-- =============================================================================
+
+create table if not exists public.report_public_links (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+  report_id uuid not null references public.reports(id) on delete cascade,
+  version_id uuid references public.report_versions(id) on delete set null,
+  token_hash text not null check (length(token_hash) = 64),
+  snapshot jsonb not null,
+  expires_at timestamptz,
+  revoked_at timestamptz,
+  created_by uuid references public.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  constraint report_public_links_token_unique unique (token_hash),
+  constraint report_public_links_snapshot_object check (
+    jsonb_typeof(snapshot) = 'object'
+    and pg_column_size(snapshot) <= 524288
+  )
+);
+
+create index if not exists report_public_links_report_idx
+  on public.report_public_links (organization_id, report_id, created_at desc);
+
+alter table public.report_public_links enable row level security;
+
+drop policy if exists report_public_links_org on public.report_public_links;
+create policy report_public_links_org on public.report_public_links
+  for select to authenticated
+  using (organization_id in (select public.get_user_org_ids()));
+
+revoke all on public.report_public_links from public, anon, authenticated;
+grant select on public.report_public_links to authenticated;
+grant all on public.report_public_links to service_role;

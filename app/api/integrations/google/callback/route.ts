@@ -4,7 +4,7 @@ import { readGoogleAccountEmail, syncStatusAfterGoogleReconnect } from '@/lib/go
 import { parseGrantedScopes } from '@/lib/ga4/connection-health';
 import { reconnectCredentials } from '@/lib/google/gsc-properties';
 import { upsertIntegration } from '@/lib/supabase/integrations';
-import { verifyGoogleOAuthState } from '@/lib/security/oauth-state';
+import { verifySignedGoogleState } from '@/lib/security/oauth-state';
 import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
 
 function getRequestOrigin(req: NextRequest) {
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
         return redirectWithIntegrationError(origin, 'missing_params');
     }
 
-    const state = verifyGoogleOAuthState(stateParam);
+    const state = verifySignedGoogleState(stateParam);
     if (!state) {
         return redirectWithIntegrationError(origin, 'invalid_state');
     }
@@ -90,7 +90,11 @@ export async function GET(req: NextRequest) {
         ...(googleEmail ? { google_email: googleEmail } : {}),
         ...(grantedScopes.length > 0 ? { granted_scopes: grantedScopes } : {}),
     };
-    const services = state.group === 'ga4-gsc' ? ['ga4', 'gsc'] as const : state.group === 'ga4' ? ['ga4'] as const : state.group === 'gsc' ? ['gsc'] as const : ['gbp'] as const;
+    const services = state.group === 'ga4-gsc' ? ['ga4', 'gsc'] as const
+        : state.group === 'ga4' ? ['ga4'] as const
+        : state.group === 'gsc' ? ['gsc'] as const
+        : state.group === 'gtm' ? ['gtm'] as const
+        : ['gbp'] as const;
 
     const admin = createAdminClient();
     for (const service of services) {

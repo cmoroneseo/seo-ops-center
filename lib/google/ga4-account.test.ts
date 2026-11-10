@@ -85,7 +85,7 @@ test('connect asks for openid email and an account chooser', () => {
     assert.ok(googleOAuthScopes('gsc').includes('openid'));
     assert.ok(googleOAuthScopes('ga4-gsc').includes('email'));
     assert.ok(googleOAuthScopes('gbp').includes('openid'));
-    assert.deepEqual([...GOOGLE_OAUTH_GROUPS].sort(), ['ga4', 'ga4-gsc', 'gbp', 'gsc']);
+    assert.deepEqual([...GOOGLE_OAUTH_GROUPS].sort(), ['ga4', 'ga4-gsc', 'gbp', 'gsc', 'gtm']);
     assert.equal(isGoogleOAuthGroup('ga4'), true);
     assert.equal(isGoogleOAuthGroup('nope'), false);
     assert.equal(isGoogleOAuthGroup(null), false);

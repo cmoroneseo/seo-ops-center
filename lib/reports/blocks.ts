@@ -17,7 +17,8 @@ export type BlockType =
     | 'organic_table'      // monthly organic history table (GSC + GA4)
     | 'keyword_rankings_table' // tracked-keyword start vs end of period (Ahrefs Rank Tracker)
     | 'tracked_keywords_gsc'   // GSC tracked keywords, frozen at publish
-    | 'marketing_plan';        // SEO Plan checklist progress (props.planView: 'step' | 'month')
+    | 'marketing_plan'         // SEO Plan checklist progress (props.planView: 'step' | 'month')
+    | 'gtm_events';            // GA4 events plus Tag Manager tags, frozen in props.snapshot
 
 export interface Block {
     id: string;
@@ -208,6 +209,18 @@ export const WIDGET_LIBRARY: LibraryGroup[] = [
         ],
     },
     {
+        name: 'Tag Manager events',
+        items: [
+            {
+                key: 'gtm_events',
+                name: 'GTM Event Report',
+                description: 'Recorded events, outbound links, and a daily trend',
+                type: 'gtm_events',
+                props: {},
+            },
+        ],
+    },
+    {
         name: 'Local Presence',
         source: 'gbp',
         items: [
@@ -281,6 +294,7 @@ export function blockLabel(block: Block): string {
         case 'keyword_rankings_table': return 'All keywords rankings';
         case 'tracked_keywords_gsc': return 'Tracked keywords (GSC)';
         case 'marketing_plan': return SEO_PLAN_LABEL;
+        case 'gtm_events': return 'GTM Event Report';
         default: return 'Block';
     }
 }
@@ -290,4 +304,4 @@ export function blockLabel(block: Block): string {
  * hover toolbar shows a pencil icon for these, toggling block.props.settingsOpen.
  * Add a block type here once its widget reads that flag to show its panel.
  */
-export const BLOCK_TYPES_WITH_SETTINGS = new Set<BlockType>(['keyword_rankings_table', 'cover']);
+export const BLOCK_TYPES_WITH_SETTINGS = new Set<BlockType>(['keyword_rankings_table', 'cover', 'gtm_events']);

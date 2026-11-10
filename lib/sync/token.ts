@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 
-export type GoogleService = 'ga4' | 'gsc' | 'gbp';
+export type GoogleService = 'ga4' | 'gsc' | 'gbp' | 'gtm';
 
 export class GoogleAuthError extends Error {
     readonly kind: 'reauth_required' | 'transient';
