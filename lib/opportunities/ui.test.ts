@@ -63,7 +63,7 @@ test('backlog, site health, and flagged rankings each mount only that surface', 
     process.env.NEXT_PUBLIC_KEYWORD_TRACKING = 'true';
     try {
         const backlog = render('backlog');
-        assert.match(backlog, /aria-label="Search investigations"/);
+        assert.match(backlog, /aria-label="Opportunity backlog"/);
         assert.equal(backlog.includes('data-search-dashboard'), false);
         assert.equal(backlog.includes('aria-label="Date range"'), false);
         assert.match(backlog, /aria-selected="true"[^>]*>Backlog/);

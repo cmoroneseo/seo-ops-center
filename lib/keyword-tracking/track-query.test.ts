@@ -38,13 +38,10 @@ test('Track is absent unless keyword tracking is on', () => {
     }
 });
 
-test('Search Insights query rows promote into tracked keywords, and page rows do not', () => {
-    const tab = readFileSync(new URL('../../components/workspace/SearchInsightsTab.tsx', import.meta.url), 'utf8');
+test('opportunity query rows promote into tracked keywords, and page rows do not', () => {
+    const backlog = readFileSync(new URL('../../components/opportunities/OpportunityBacklog.tsx', import.meta.url), 'utf8');
     const v2 = readFileSync(new URL('../../components/search-insights/SearchInsightsV2.tsx', import.meta.url), 'utf8');
-    assert.equal(tab.match(/trackedQuerySummary\(/g)?.length, 4);
-    assert.equal(tab.match(/<TrackQueryButton/g)?.length, 1);
-    const pageBlock = tab.slice(tab.indexOf('Page-level visibility'), tab.indexOf('Queries with deeper visibility'));
-    assert.equal(pageBlock.includes('trackedQuerySummary'), false);
+    assert.match(backlog, /row\.item\.query \? <TrackQueryButton/);
     assert.match(v2, /<TrackQueryButton/);
     assert.match(v2, /section === 'movers'/);
 });
