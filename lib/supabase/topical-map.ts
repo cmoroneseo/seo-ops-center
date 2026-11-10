@@ -12,7 +12,6 @@ import type {
 } from '../types';
 import { createTask } from './tasks';
 import {
-    approveUpdate,
     approvalTaskDescription,
     cleanOptionalText,
     declineUpdate,
@@ -24,7 +23,18 @@ import {
     type ManualRecordDraft,
     type SpecFieldPatch,
 } from '../topical-map/spec';
-import { productionFromRow, productionUpdates } from '../topical-map/production';
+import { approveRecordPatch, productionFromRow, productionUpdates } from '../topical-map/production';
+
+export const MISSING_PRODUCTION_COLUMN = 'Content status cannot be saved until the database update is applied.';
+
+/** A missing production column is reported in plain language. Other errors pass through. */
+export function recordUpdateError(
+    error: { code?: string; message?: string },
+    wroteProduction: boolean,
+): string {
+    if (wroteProduction && (error.code === '42703' || error.code === 'PGRST204')) return MISSING_PRODUCTION_COLUMN;
+    return error.message || 'Failed to save change';
+}
 
 // ─── Row Mappers ────────────────────────────────────────────────────────────
 
@@ -226,13 +236,18 @@ export async function updateRecord(
 
     const { error } = await supabase.from('topical_map_records').update(row).eq('id', recordId);
     if (error) {
-        const missingColumn = (error.code === '42703' || error.code === 'PGRST204') && Object.keys(production.row).length > 0;
-        return {
-            success: false,
-            error: missingColumn
-                ? 'Content status cannot be saved until the database update is applied.'
-                : error.message,
-        };
+        const wroteProduction = Object.keys(production.row).length > 0;
+        const missingColumn = wroteProduction && (error.code === '42703' || error.code === 'PGRST204');
+        if (missingColumn) {
+            const rest = { ...row };
+            for (const key of Object.keys(production.row)) delete rest[key];
+            const productionOnly = Object.keys(rest).every(key => key === 'updated_at');
+            if (!productionOnly) {
+                const retry = await supabase.from('topical_map_records').update(rest).eq('id', recordId);
+                if (!retry.error) return { success: true };
+            }
+        }
+        return { success: false, error: recordUpdateError(error, wroteProduction) };
     }
     return { success: true };
 }
@@ -260,7 +275,7 @@ export async function approveRecord(
         return { success: false, error: taskResult.error ?? 'Failed to create task' };
     }
 
-    const updateResult = await updateRecord(record.id, approveUpdate(taskResult.data.id));
+    const updateResult = await updateRecord(record.id, approveRecordPatch(taskResult.data.id, record.productionStatus));
 
     if (!updateResult.success) {
         return { success: false, error: updateResult.error };

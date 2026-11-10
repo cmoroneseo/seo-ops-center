@@ -481,8 +481,8 @@ export function approveUpdate(taskId: string): { status: 'approved'; taskId: str
     return { status: 'approved', taskId };
 }
 
-export function declineUpdate(): { status: 'declined' } {
-    return { status: 'declined' };
+export function declineUpdate(): { status: 'declined'; productionStatus: 'declined' } {
+    return { status: 'declined', productionStatus: 'declined' };
 }
 
 export function cycleTab(currentIndex: number, count: number, shift: boolean): number {

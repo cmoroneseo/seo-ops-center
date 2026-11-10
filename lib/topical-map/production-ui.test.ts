@@ -5,8 +5,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { RecordDetailPanel } from '../../components/topical-map/RecordDetailPanel.tsx';
 import { RecordRow } from '../../components/topical-map/RecordRow.tsx';
+import { SiloTabBar } from '../../components/topical-map/SiloTabBar.tsx';
+import { ACTION_LABEL } from '../../components/topical-map/constants.ts';
 import type { TopicalMapRecord, TopicalMapSilo } from '../types.ts';
-import { PRODUCTION_STATUS_LABEL, PRODUCTION_STATUSES, PUBLISHED_NOTE } from './production.ts';
+import { displayedProductionStatus, PRODUCTION_STATUS_LABEL, PRODUCTION_STATUSES, PUBLISHED_NOTE } from './production.ts';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
@@ -91,13 +93,16 @@ test('the record drawer edits status, month, dates, and links in plain English',
     assert.match(html, /id="record-published-on"/);
     assert.match(html, /id="record-draft-url"/);
     assert.match(html, /id="record-live-url"/);
-    assert.match(html, /id="record-content-type"/);
+    assert.equal(html.includes('id="record-content-type"'), false);
     assert.match(text, /Not written yet/);
-    assert.match(text, /Not chosen yet/);
     assert.match(text, /Type of page/);
+    assert.match(text, /Planned for/);
+    assert.match(text, /Topic group/);
     assert.match(text, /Due date/);
     assert.match(text, /Draft link/);
     assert.match(text, /Live link/);
+    assert.equal(text.includes('Not chosen yet'), false);
+    assert.equal(text.includes('Spec —'), false);
     assert.equal(text.includes('Already on the site'), false);
     for (const status of PRODUCTION_STATUSES) {
         if (status === 'already_live') continue;
@@ -114,4 +119,28 @@ test('the record drawer edits status, month, dates, and links in plain English',
     assert.match(kept, /Open draft/);
     assert.match(kept, /href="https:\/\/docs\.example\/draft"/);
     assert.equal(visible(kept).includes('already_live'), false);
+
+    const filters = renderToStaticMarkup(createElement(SiloTabBar, {
+        silos: [silo],
+        records: [record(), record({ id: 'r-2', productionStatus: 'writing' })],
+        activeSiloId: 'all',
+        onSelectSilo: () => undefined,
+        filters: { action: 'all', pageType: 'all', status: 'all' },
+        onFiltersChange: () => undefined,
+    }));
+    const filterText = visible(filters);
+    for (const status of PRODUCTION_STATUSES) {
+        assert.match(filterText, new RegExp(PRODUCTION_STATUS_LABEL[status]));
+        if (status.includes('_')) assert.equal(filterText.includes(status), false, status);
+    }
+    assert.match(filterText, new RegExp(ACTION_LABEL.create));
+    assert.match(filterText, new RegExp(ACTION_LABEL.replace));
+    assert.match(filterText, new RegExp(ACTION_LABEL.improve));
+    assert.match(filterText, new RegExp(ACTION_LABEL.keep));
+    assert.equal(filterText.includes('Create'), false);
+    const writing = record({ id: 'r-2', status: 'pending', productionStatus: 'writing' });
+    const waiting = record({ id: 'r-3', status: 'approved' });
+    assert.equal(displayedProductionStatus(writing), 'writing');
+    assert.equal(displayedProductionStatus(waiting), 'approved');
+    assert.notEqual(displayedProductionStatus(writing), writing.status);
 });

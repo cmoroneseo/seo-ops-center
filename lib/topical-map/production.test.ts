@@ -5,21 +5,22 @@ import type { TopicalMapRecord } from '../types.ts';
 import { rowToRecord } from '../supabase/topical-map.ts';
 import { manualInsertRow } from './spec.ts';
 import {
-    CONTENT_TYPE_LABEL,
-    CONTENT_TYPES,
+    approveRecordPatch,
     displayedProductionStatus,
+    draftAfterProductionSave,
     emptyProduction,
+    productionChoicePatch,
     productionFromRow,
     productionToRow,
     productionUpdates,
     PRODUCTION_STATUS_LABEL,
     PRODUCTION_STATUSES,
-    readContentType,
     readHttpUrl,
     readProductionStatus,
     readWorkMonth,
     workMonthLabel,
 } from './production.ts';
+import { MISSING_PRODUCTION_COLUMN, recordUpdateError } from '../supabase/topical-map.ts';
 
 function baseRow(extra: Record<string, unknown> = {}): Record<string, unknown> {
     return {
@@ -47,10 +48,6 @@ test('every production status and page kind has plain-English copy', () => {
     assert.equal(PRODUCTION_STATUS_LABEL.ready, 'Ready to publish');
     assert.equal(PRODUCTION_STATUS_LABEL.published, 'Published');
     assert.equal(PRODUCTION_STATUS_LABEL.already_live, 'Already on the site');
-    for (const type of CONTENT_TYPES) {
-        assert.equal(CONTENT_TYPE_LABEL[type].includes('_'), false, type);
-        assert.notEqual(CONTENT_TYPE_LABEL[type], type);
-    }
 });
 
 test('a row without the new columns reads as unset and does not throw', () => {
@@ -63,7 +60,6 @@ test('a row without the new columns reads as unset and does not throw', () => {
     assert.equal(mapped.publishedOn, null);
     assert.equal(mapped.draftUrl, null);
     assert.equal(mapped.liveUrl, null);
-    assert.equal(mapped.contentType, null);
     assert.equal(mapped.status, 'pending');
     assert.equal(displayedProductionStatus(mapped), 'not_written');
 });
@@ -76,7 +72,6 @@ test('mapper round-trip keeps the stored columns and does not invent dates from 
         publishedOn: null,
         draftUrl: 'https://docs.example/draft',
         liveUrl: null,
-        contentType: 'blog_post',
     });
     assert.equal(stored.work_month, '2026-11');
     assert.equal(stored.due_date, '2026-11-02');
@@ -89,7 +84,6 @@ test('mapper round-trip keeps the stored columns and does not invent dates from 
         publishedOn: null,
         draftUrl: 'https://docs.example/draft',
         liveUrl: null,
-        contentType: 'blog_post',
     });
     const mapped = rowToRecord(baseRow({ ...stored, status: 'approved', action: 'create' }));
     assert.equal(mapped.productionStatus, 'writing');
@@ -103,7 +97,7 @@ test('mapper round-trip keeps the stored columns and does not invent dates from 
     assert.equal(written.row.due_date, '2026-11-02');
     assert.equal(written.row.published_on, null);
     assert.equal(written.row.draft_url, 'https://docs.example/draft');
-    assert.equal(written.row.content_type, 'blog_post');
+    assert.equal('content_type' in written.row, false);
 
     const monthOnly = productionFromRow({ work_month: '2026-11', target_month: 3, plan_month: '2026-01' });
     assert.equal(monthOnly.workMonth, '2026-11');
@@ -140,8 +134,6 @@ test('unknown labels and unsafe links read as unset and are rejected on write', 
     assert.equal(readProductionStatus('Published'), null);
     assert.equal(readProductionStatus('idea'), null);
     assert.equal(readProductionStatus(null), null);
-    assert.equal(readContentType('Blog Post'), null);
-    assert.equal(readContentType('blog_post'), 'blog_post');
     assert.equal(readHttpUrl('javascript:alert(1)'), null);
     assert.equal(readHttpUrl('/services'), null);
     assert.equal(readHttpUrl(''), null);
@@ -165,7 +157,6 @@ test('unknown labels and unsafe links read as unset and are rejected on write', 
         publishedOn: '2026-11-02',
         draftUrl: '',
         liveUrl: 'https://example.com/live',
-        contentType: null,
     });
     assert.equal(cleared.ok, true);
     if (!cleared.ok) return;
@@ -186,4 +177,33 @@ test('unknown labels and unsafe links read as unset and are rejected on write', 
     assert.equal('production_status' in inserted, false);
     assert.equal('work_month' in inserted, false);
     assert.equal('draft_url' in inserted, false);
+    assert.equal('content_type' in inserted, false);
+});
+
+test('approve, decline, and the status list stay on one visible status', () => {
+    for (const current of [null, undefined, 'not_written' as const, 'awaiting_approval' as const]) {
+        const approved = approveRecordPatch('task-1', current);
+        assert.equal(approved.status, 'approved');
+        assert.equal(approved.taskId, 'task-1');
+        assert.equal(approved.productionStatus, 'approved');
+    }
+    const writing = approveRecordPatch('task-1', 'writing');
+    assert.equal(writing.productionStatus, undefined);
+    assert.equal(writing.status, 'approved');
+
+    assert.deepEqual(productionChoicePatch('declined'), { productionStatus: 'declined', status: 'declined' });
+    assert.deepEqual(productionChoicePatch('not_written'), { productionStatus: 'not_written', status: 'pending' });
+    assert.deepEqual(productionChoicePatch('awaiting_approval'), { productionStatus: 'awaiting_approval', status: 'pending' });
+    for (const status of ['approved', 'writing', 'client_review', 'ready', 'published', 'already_live', 'failed'] as const) {
+        assert.deepEqual(productionChoicePatch(status), { productionStatus: status, status: 'approved' });
+    }
+});
+
+test('a failed production save puts the drawer back, and a missing column is plain language', () => {
+    assert.equal(draftAfterProductionSave('Not written yet', 'Being written', true), 'Being written');
+    assert.equal(draftAfterProductionSave('Not written yet', 'Being written', false), 'Not written yet');
+    assert.equal(recordUpdateError({ code: '42703', message: 'column production_status does not exist' }, true), MISSING_PRODUCTION_COLUMN);
+    assert.equal(recordUpdateError({ code: 'PGRST204', message: 'schema cache' }, true), MISSING_PRODUCTION_COLUMN);
+    assert.equal(recordUpdateError({ code: '42703', message: 'column missing' }, false), 'column missing');
+    assert.equal(recordUpdateError({ code: '23514', message: 'check failed' }, true), 'check failed');
 });

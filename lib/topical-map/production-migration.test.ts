@@ -13,7 +13,6 @@ const COLUMNS = [
     'published_on',
     'draft_url',
     'live_url',
-    'content_type',
 ] as const;
 
 function executable(sql: string): string {
@@ -62,7 +61,7 @@ async function database() {
 test('existing rows stay null and the checks reject a bad production value', async () => {
     const db = await database();
     const existing = await db.query<Record<(typeof COLUMNS)[number], string | null>>(`
-        select production_status, work_month, due_date, published_on, draft_url, live_url, content_type
+        select production_status, work_month, due_date, published_on, draft_url, live_url
         from public.topical_map_records
     `);
     assert.equal(existing.rows.length, 1);
@@ -89,8 +88,7 @@ test('existing rows stay null and the checks reject a bad production value', asy
             due_date = '2026-11-02',
             published_on = null,
             draft_url = 'https://docs.example/draft',
-            live_url = null,
-            content_type = 'blog_post'
+            live_url = null
     `);
     const saved = await db.query<{ work_month: string; due_date: string | null; published_on: string | null }>(
         'select work_month, due_date::text, published_on::text from public.topical_map_records',
@@ -107,7 +105,8 @@ test('existing rows stay null and the checks reject a bad production value', asy
     await assert.rejects(() => db.exec(`update public.topical_map_records set draft_url = 'javascript:alert(1)'`));
     await assert.rejects(() => db.exec(`update public.topical_map_records set live_url = '/services'`));
     await assert.rejects(() => db.exec(`update public.topical_map_records set draft_url = '${'https://example.com/'.padEnd(501, 'a')}'`));
-    await assert.rejects(() => db.exec(`update public.topical_map_records set content_type = 'Blog Post'`));
+    assert.equal(migration.includes('content_type'), false);
+    assert.equal(schema.includes('topical_map_records_content_type_check'), false);
 });
 
 test('the migration can be applied twice', async () => {

@@ -71,7 +71,7 @@ export function RecordRow({ record, isChild, onClick }: RecordRowProps) {
                         {PRODUCTION_STATUS_LABEL[productionStatus]}
                     </span>
                     {record.source === 'manual' && (
-                        <span title={SOURCE_TITLE.manual} className={cn(PILL_CLASS, SOURCE_STYLES.manual)}>manual</span>
+                        <span title={SOURCE_TITLE.manual} className={cn(PILL_CLASS, SOURCE_STYLES.manual)}>Added by hand</span>
                     )}
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">{record.targetQuery.trim() || '—'}</span>

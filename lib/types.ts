@@ -1175,16 +1175,6 @@ export type ProductionStatus =
     | 'already_live'
     | 'declined'
     | 'failed';
-/** Kind of page on the content list. Separate from the map page type. */
-export type MapContentType =
-    | 'blog_post'
-    | 'service_page'
-    | 'location_page'
-    | 'landing_page'
-    | 'pillar_page'
-    | 'product_page'
-    | 'faq_page'
-    | 'case_study';
 export type RecordSource = 'generated' | 'manual' | 'crawl' | 'gsc';
 export type SpecStatus = 'draft' | 'ready';
 export type SearchIntent = 'transactional' | 'commercial' | 'informational' | 'navigational';
@@ -1266,8 +1256,6 @@ export interface TopicalMapRecord {
     draftUrl?: string | null;
     /** http(s) live link. Null when unset. */
     liveUrl?: string | null;
-    /** Kind of page. Null when not chosen. */
-    contentType?: MapContentType | null;
     sitePageId?: string;
     matchedUrl?: string;
     taskId?: string;

@@ -15,6 +15,13 @@ const STATUS_STYLES: Record<TopicalMapStatus, string> = {
     archived: 'border-border bg-muted/50 text-muted-foreground',
 };
 
+const MAP_STATUS_LABEL: Record<TopicalMapStatus, string> = {
+    draft: 'Draft',
+    review: 'In review',
+    active: 'Active',
+    archived: 'Archived',
+};
+
 interface TopicalMapHeaderProps {
     map: TopicalMap;
     records: TopicalMapRecord[];
@@ -46,8 +53,8 @@ export function TopicalMapHeader({ map, records, onEditProfile, onRegenerate }: 
                     <div className="flex flex-wrap items-center gap-2 text-primary">
                         <Map className="h-5 w-5 shrink-0" />
                         <h2 className="truncate text-lg font-semibold text-foreground">{map.title}</h2>
-                        <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide', STATUS_STYLES[map.status])}>
-                            {map.status}
+                        <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium', STATUS_STYLES[map.status])}>
+                            {MAP_STATUS_LABEL[map.status]}
                         </span>
                     </div>
                     {map.architectureSummary && (

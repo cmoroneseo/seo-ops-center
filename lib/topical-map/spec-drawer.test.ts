@@ -88,7 +88,7 @@ test('the spec drawer shows the spec, an em dash for empty fields, and approve a
 
 test('approve and decline stay available when the spec flag is off', () => {
     const html = panel(false);
-    assert.match(html, /Target Query/);
+    assert.match(html, /Main search phrase/);
     assert.match(html, />Approve</);
     assert.match(html, />Decline</);
     assert.equal(html.includes('Unique angle'), false);
@@ -106,12 +106,12 @@ test('a manual record shows a manual badge and each silo can add one', () => {
         record: record({ source: 'manual', targetQuery: 'marketing roi formula' }),
         onClick: () => undefined,
     }));
-    assert.match(row, />manual</);
+    assert.match(row, />Added by hand</);
     const generated = renderToStaticMarkup(createElement(RecordRow, {
         record: record({ source: 'generated' }),
         onClick: () => undefined,
     }));
-    assert.equal(generated.includes('>manual<'), false);
+    assert.equal(generated.includes('>Added by hand<'), false);
 
     const open = renderToStaticMarkup(createElement(SiloAccordion, {
         silo, records: [], specEnabled: true, clientId: 'c-1', onSelectRecord: () => undefined,

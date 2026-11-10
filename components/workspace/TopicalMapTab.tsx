@@ -9,6 +9,7 @@ import { MapGenerationWizard } from '@/components/topical-map/MapGenerationWizar
 import { MapProgressCard } from '@/components/topical-map/MapProgressCard';
 import { TopicalMapHeader } from '@/components/topical-map/TopicalMapHeader';
 import { SiloTabBar, type SiloFilters } from '@/components/topical-map/SiloTabBar';
+import { displayedProductionStatus } from '@/lib/topical-map/production';
 import { SiloAccordion } from '@/components/topical-map/SiloAccordion';
 import { RecordDetailPanel } from '@/components/topical-map/RecordDetailPanel';
 import { ReconciliationSummary } from '@/components/topical-map/ReconciliationSummary';
@@ -219,12 +220,12 @@ function TopicalMapReady({
             if (activeSiloId !== 'all' && r.siloId !== activeSiloId) return false;
             if (filters.action !== 'all' && r.action !== filters.action) return false;
             if (filters.pageType !== 'all' && r.pageType !== filters.pageType) return false;
-            if (filters.status !== 'all' && r.status !== filters.status) return false;
+            if (filters.status !== 'all' && displayedProductionStatus(r) !== filters.status) return false;
             return true;
         });
 
         // A child record can pass the filter while its parent doesn't — e.g. filtering
-        // by status=approved keeps an approved child under a still-pending parent. The
+        // by "Being written" keeps that child under a parent that is not written yet. The
         // accordion only renders children under a surviving top-level parent, so an
         // orphaned child would silently vanish. Add the missing parent back (unfiltered)
         // so it still provides context; it is not itself subject to the active filters.

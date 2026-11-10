@@ -9,7 +9,7 @@
  * Already on the site is shown only when the page was matched and the action is keep.
  */
 
-import type { MapContentType, MapRecordAction, MapRecordStatus, ProductionStatus, TopicalMapRecord } from '../types';
+import type { MapRecordAction, MapRecordStatus, ProductionStatus, TopicalMapRecord } from '../types';
 
 export const PRODUCTION_STATUSES: readonly ProductionStatus[] = [
     'not_written',
@@ -41,27 +41,16 @@ export const PRODUCTION_STATUS_LABEL: Record<ProductionStatus, string> = {
 export const PUBLISHED_NOTE =
     'Published means the page is published. It does not mean it is indexed or performing.';
 
-export const CONTENT_TYPES: readonly MapContentType[] = [
-    'blog_post',
-    'service_page',
-    'location_page',
-    'landing_page',
-    'pillar_page',
-    'product_page',
-    'faq_page',
-    'case_study',
-];
-
-export const CONTENT_TYPE_LABEL: Record<MapContentType, string> = {
-    blog_post: 'Blog post',
-    service_page: 'Service page',
-    location_page: 'Location page',
-    landing_page: 'Landing page',
-    pillar_page: 'Pillar page',
-    product_page: 'Product page',
-    faq_page: 'FAQ page',
-    case_study: 'Case study',
-};
+/** Statuses that mean the page is accepted and moving. Choosing one approves the plan. */
+const IN_PROGRESS_STATUSES: ReadonlySet<ProductionStatus> = new Set([
+    'approved',
+    'writing',
+    'client_review',
+    'ready',
+    'published',
+    'already_live',
+    'failed',
+]);
 
 const MONTHS = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -78,7 +67,6 @@ export interface MapProduction {
     publishedOn: string | null;
     draftUrl: string | null;
     liveUrl: string | null;
-    contentType: MapContentType | null;
 }
 
 export function emptyProduction(): MapProduction {
@@ -89,7 +77,6 @@ export function emptyProduction(): MapProduction {
         publishedOn: null,
         draftUrl: null,
         liveUrl: null,
-        contentType: null,
     };
 }
 
@@ -100,11 +87,6 @@ function trimmed(value: unknown): string {
 export function readProductionStatus(value: unknown): ProductionStatus | null {
     const slug = trimmed(value);
     return (PRODUCTION_STATUSES as readonly string[]).includes(slug) ? slug as ProductionStatus : null;
-}
-
-export function readContentType(value: unknown): MapContentType | null {
-    const slug = trimmed(value);
-    return (CONTENT_TYPES as readonly string[]).includes(slug) ? slug as MapContentType : null;
 }
 
 /** A calendar month, YYYY-MM. A display name or an engagement month is not one. */
@@ -185,7 +167,6 @@ export function productionFromRow(row: Record<string, unknown>): MapProduction {
         publishedOn: dates.publishedOn,
         draftUrl: readHttpUrl(row.draft_url),
         liveUrl: readHttpUrl(row.live_url),
-        contentType: readContentType(row.content_type),
     };
 }
 
@@ -197,8 +178,39 @@ export function productionToRow(fields: MapProduction): Record<string, string | 
         published_on: fields.publishedOn,
         draft_url: fields.draftUrl,
         live_url: fields.liveUrl,
-        content_type: fields.contentType,
     };
+}
+
+/** Approve fills production only while the page has not started or is still waiting. */
+export function approveRecordPatch(
+    taskId: string,
+    productionStatus: ProductionStatus | null | undefined,
+): { status: 'approved'; taskId: string; productionStatus?: 'approved' } {
+    const patch: { status: 'approved'; taskId: string; productionStatus?: 'approved' } = {
+        status: 'approved',
+        taskId,
+    };
+    if (productionStatus == null || productionStatus === 'not_written' || productionStatus === 'awaiting_approval') {
+        patch.productionStatus = 'approved';
+    }
+    return patch;
+}
+
+/**
+ * One choice updates the visible status and the plan together.
+ * Not going ahead declines the plan. An in-progress status approves it.
+ * Not written yet and Waiting for approval put the plan back to pending.
+ */
+export function productionChoicePatch(next: ProductionStatus): { productionStatus: ProductionStatus; status: MapRecordStatus } {
+    if (next === 'declined') return { productionStatus: next, status: 'declined' };
+    if (next === 'not_written' || next === 'awaiting_approval') return { productionStatus: next, status: 'pending' };
+    if (IN_PROGRESS_STATUSES.has(next)) return { productionStatus: next, status: 'approved' };
+    return { productionStatus: next, status: 'pending' };
+}
+
+/** Keep the optimistic drawer value only when the save landed. */
+export function draftAfterProductionSave<T>(previous: T, next: T, ok: boolean): T {
+    return ok ? next : previous;
 }
 
 type CleanFail = { ok: false; error: string };
@@ -258,11 +270,6 @@ export function cleanProductionPatch(patch: Partial<MapProduction>): CleanOk | C
         if (typeof href !== 'string' && href !== null) return href;
         value.liveUrl = href;
     }
-    if (patch.contentType !== undefined) {
-        if (patch.contentType === null) value.contentType = null;
-        else if (readContentType(patch.contentType)) value.contentType = patch.contentType;
-        else return fail('Choose a type of page from the list.');
-    }
     return { ok: true, value };
 }
 
@@ -287,6 +294,5 @@ export function productionUpdates(
     if (value.publishedOn !== undefined) row.published_on = value.publishedOn;
     if (value.draftUrl !== undefined) row.draft_url = value.draftUrl;
     if (value.liveUrl !== undefined) row.live_url = value.liveUrl;
-    if (value.contentType !== undefined) row.content_type = value.contentType;
     return { ok: true, row, value };
 }
