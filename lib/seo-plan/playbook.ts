@@ -1,5 +1,6 @@
 import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS } from '../marketing-plan-template';
-import { catalogAddBlocked, ONBOARDING_CHECKLIST } from './onboarding';
+import { catalogAddBlocked, onboardingChecklist } from './onboarding';
+import { drawerWording } from './playbook-plain';
 import { endOfMonthDay } from './plan-add';
 import { PHASE_STAGE_COPY, PLAN_PHASES, type BoardStage, type PlanBoard } from './plan-phases';
 import { monthKeyFromDay, planMonthTitle } from './plan-sections';
@@ -8,7 +9,8 @@ import { STAGE_ADD_MAX_TITLE_LENGTH, STAGE_ADD_MAX_TITLES } from './stage-add-li
 /**
  * Saved tasks a person can add to a work plan.
  * The rows come from the checklist, the saved work list, and tasks the
- * organization already saved. This module does not invent titles.
+ * organization already saved. Template keys stay the stored keys.
+ * The drawer shows plain wording for those saved tasks.
  * A row whose work is already on the plan is marked and left out of the add.
  */
 
@@ -29,6 +31,7 @@ export const PLAYBOOK_COPY = {
     emptyHint: 'You can also choose saved tasks with Add from a playbook.',
     loading: 'Loading your saved tasks…',
     error: 'Could not add those tasks. Try again.',
+    partial: 'Some tasks were added. The rest could not be added. Try again.',
     checklist: 'Starting checklist',
     library: 'Saved work list',
     saved: 'Your saved tasks',
@@ -47,6 +50,10 @@ export const PLAYBOOK_GROUP_TITLES: Record<string, string> = {
     links: 'Links from other sites',
     local: 'Showing up nearby',
 };
+
+export function playbookStageButtonLabel(stageTitle: string): string {
+    return `${PLAYBOOK_COPY.button} to ${stageTitle}`;
+}
 
 export function playbookAddLabel(count: number): string {
     if (count === 1) return 'Add 1 task';
@@ -83,9 +90,18 @@ export interface PlaybookSection {
     groups: PlaybookGroup[];
 }
 
+export interface PlaybookScope {
+    gbp?: boolean;
+    listings?: boolean;
+}
+
 export interface PlaybookExisting {
     title: string;
     templateKey?: string | null;
+    /** Ignored checklist rows are not treated as work still on the plan. */
+    status?: string | null;
+    /** Excluded tasks are not treated as work still on the plan. */
+    excluded?: boolean;
 }
 
 export type PlaybookRowState = 'plan' | 'same' | 'open' | 'chosen';
@@ -110,22 +126,29 @@ export function playbookGroupTitle(stepKey: string, fallback: string): string {
 }
 
 function libraryItem(stepKey: string, index: number, title: string, description: string, templateKey?: string): PlaybookItem {
+    const shown = drawerWording(title, description);
     return {
         id: `library:${stepKey}:${index}`,
-        title,
-        description,
+        title: shown.title,
+        description: shown.description,
         ...(templateKey ? { templateKey } : {}),
     };
 }
 
 /** The three sources, in the order a person scans them. */
-export function playbookCatalog(orgTasks: readonly PlaybookOrgTask[]): PlaybookSection[] {
-    const checklist: PlaybookItem[] = ONBOARDING_CHECKLIST.map(item => ({
-        id: `onboarding:${item.templateKey}`,
-        title: item.title,
-        description: item.description,
-        templateKey: item.templateKey,
-    }));
+export function playbookCatalog(
+    orgTasks: readonly PlaybookOrgTask[],
+    scope: PlaybookScope = {},
+): PlaybookSection[] {
+    const checklist: PlaybookItem[] = onboardingChecklist(scope).map(item => {
+        const shown = drawerWording(item.title, item.description);
+        return {
+            id: `onboarding:${item.templateKey}`,
+            title: shown.title,
+            description: shown.description,
+            templateKey: item.templateKey,
+        };
+    });
     const libraryGroups: PlaybookGroup[] = MARKETING_PLAN_STEPS.map(step => ({
         id: step.key,
         title: playbookGroupTitle(step.key, step.name),
@@ -202,12 +225,18 @@ export function playbookSameTitle(left: string, right: string): boolean {
  * The same title matches in any letter case. A shared checklist key also
  * matches, which is the rule the one-at-a-time library already uses.
  */
+/** Ignored checklist rows and excluded tasks are not still on the plan. */
+export function playbookLiveRows(existing: readonly PlaybookExisting[]): PlaybookExisting[] {
+    return existing.filter(row => row.status !== 'ignored' && row.excluded !== true && row.title.trim().length > 0);
+}
+
 export function playbookOnPlan(item: Pick<PlaybookItem, 'title' | 'templateKey'>, existing: readonly PlaybookExisting[]): boolean {
     const title = item.title.trim();
     if (!title) return false;
-    if (existing.some(row => playbookSameTitle(row.title, title))) return true;
+    const live = playbookLiveRows(existing);
+    if (live.some(row => playbookSameTitle(row.title, title))) return true;
     return catalogAddBlocked(
-        existing.map(row => ({ title: row.title, templateKey: row.templateKey })),
+        live.map(row => ({ title: row.title, templateKey: row.templateKey })),
         { title, templateKey: item.templateKey },
     );
 }

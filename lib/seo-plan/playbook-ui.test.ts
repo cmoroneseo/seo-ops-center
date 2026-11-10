@@ -7,6 +7,7 @@ import { JSDOM } from 'jsdom';
 import { StagePlanListView } from '../../components/seo-plan/StagePlanListView.tsx';
 import type { PlaybookAddCall, PlaybookExisting, PlaybookOrgTask } from './playbook.ts';
 import type { StageListTask } from './stage-list.ts';
+import { STAGE_ADD_MAX_TITLES } from './stage-add-lines.ts';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
@@ -115,7 +116,7 @@ test.after(() => {
 
 test('search filters the drawer and a task already on the plan cannot be picked', async () => {
     const view = mount({
-        planRows: [{ title: 'Confirm website and CMS access', templateKey: 'access.cms' }],
+        planRows: [{ title: 'Confirm website and CMS access', templateKey: 'access.cms', status: 'todo' }],
         orgTasks: [{ id: 'tpl-1', title: 'Send the monthly report', description: 'Mail the report.' }],
     });
     try {
@@ -133,12 +134,12 @@ test('search filters the drawer and a task already on the plan cannot be picked'
         assert.equal(box('Hold kickoff call and set expectations').disabled, true);
         assert.equal(box('Hold kickoff call and set expectations').getAttribute('data-playbook-state'), 'plan');
         assert.equal(box('Hold the kickoff and confirm the agreement').getAttribute('data-playbook-state'), 'plan');
-        assert.equal(document.body.textContent?.includes('Review robots.txt and XML sitemap'), false);
+        assert.equal(document.body.textContent?.includes('Review the crawl rules and the page list'), false);
         assert.match(document.body.textContent ?? '', /Already in the plan/);
 
-        await act(async () => { typeInto(search, 'website'); });
-        assert.equal(box('Confirm website and CMS access').getAttribute('data-playbook-state'), 'plan');
-        assert.equal(document.querySelectorAll('[data-playbook-title="Confirm website and CMS access"]').length, 2);
+        await act(async () => { typeInto(search, 'website editor'); });
+        assert.equal(box('Confirm access to the website editor').getAttribute('data-playbook-state'), 'plan');
+        assert.equal(document.querySelectorAll('[data-playbook-title="Confirm access to the website editor"]').length, 2);
 
         await act(async () => { typeInto(search, 'monthly report'); });
         assert.equal(box('Send the monthly report').getAttribute('data-playbook-state'), 'open');
@@ -158,8 +159,8 @@ test('multi-select adds the chosen tasks into the stage the person picks', async
         const search = document.querySelector('[data-playbook-search]');
         assert.ok(search instanceof dom.window.HTMLInputElement);
 
-        await act(async () => { typeInto(search, 'xml sitemap'); });
-        await act(async () => { box('Review robots.txt and XML sitemap').click(); });
+        await act(async () => { typeInto(search, 'page list'); });
+        await act(async () => { box('Review the crawl rules and the page list').click(); });
         await act(async () => { typeInto(search, 'local landing'); });
         await act(async () => { box('Build local landing pages').click(); });
 
@@ -174,7 +175,7 @@ test('multi-select adds the chosen tasks into the stage the person picks', async
         assert.equal(view.calls.length, 1);
         assert.equal(view.calls[0]?.stage, 'scale');
         assert.deepEqual(view.calls[0]?.titles, [
-            'Review robots.txt and XML sitemap',
+            'Review the crawl rules and the page list',
             'Build local landing pages',
         ]);
         assert.equal(view.calls[0]?.dueDate, undefined);
@@ -209,11 +210,11 @@ test('select all skips tasks already on the plan and a failed add stays in the d
         assert.equal(box('Hold kickoff call and set expectations').checked, false);
         assert.equal(box('Hold the kickoff and confirm the agreement').checked, false);
 
-        await act(async () => { typeInto(search, 'xml sitemap'); });
+        await act(async () => { typeInto(search, 'page list'); });
         const librarySelect = document.querySelector('[data-playbook-select="group:technical"]');
         assert.ok(librarySelect instanceof dom.window.HTMLButtonElement);
         await act(async () => { librarySelect.click(); });
-        assert.equal(box('Review robots.txt and XML sitemap').checked, true);
+        assert.equal(box('Review the crawl rules and the page list').checked, true);
 
         const add = document.querySelector('[data-playbook-add]');
         assert.ok(add instanceof dom.window.HTMLButtonElement);
@@ -251,15 +252,15 @@ test('the month board adds into Onboarding, This month, or Backlog', async () =>
 
         const search = document.querySelector('[data-playbook-search]');
         assert.ok(search instanceof dom.window.HTMLInputElement);
-        await act(async () => { typeInto(search, 'xml sitemap'); });
-        await act(async () => { box('Review robots.txt and XML sitemap').click(); });
+        await act(async () => { typeInto(search, 'page list'); });
+        await act(async () => { box('Review the crawl rules and the page list').click(); });
         const add = document.querySelector('[data-playbook-add]');
         assert.ok(add instanceof dom.window.HTMLButtonElement);
         await act(async () => { add.click(); });
         assert.equal(view.calls.length, 1);
         assert.equal(view.calls[0]?.stage, 'backlog');
         assert.equal(view.calls[0]?.dueDate, '2026-10-31');
-        assert.deepEqual(view.calls[0]?.items, [{ title: 'Review robots.txt and XML sitemap', depth: 0 }]);
+        assert.deepEqual(view.calls[0]?.items, [{ title: 'Review the crawl rules and the page list', depth: 0 }]);
         assert.equal(Object.hasOwn(view.calls[0] ?? {}, 'clientId'), false);
     } finally {
         view.unmount();
@@ -280,7 +281,58 @@ test('saved organization tasks stay hidden until they load', async () => {
             assert.ok(search instanceof dom.window.HTMLInputElement);
             typeInto(search, 'no-such-task-xyz');
         });
-        assert.match(document.body.textContent ?? '', /No saved tasks match that search/);
+        assert.match(document.body.textContent ?? '', /Loading your saved tasks/);
+        assert.equal(document.body.textContent?.includes('No saved tasks match that search.'), false);
+    } finally {
+        view.unmount();
+    }
+});
+
+test('search is focused when the drawer opens and Escape closes it back on the button', async () => {
+    const view = mount();
+    try {
+        const open = document.querySelector('[data-playbook-open="foundation"]');
+        assert.ok(open instanceof dom.window.HTMLButtonElement);
+        assert.equal(open.getAttribute('aria-label'), 'Add from a playbook to Foundation');
+        open.focus();
+        await act(async () => { open.click(); });
+        const search = document.querySelector('[data-playbook-search]');
+        assert.ok(search instanceof dom.window.HTMLInputElement);
+        assert.equal(document.activeElement, search);
+        await act(async () => {
+            search.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        });
+        assert.equal(document.querySelector('[data-playbook-drawer]'), null);
+        assert.equal(document.activeElement, open);
+    } finally {
+        view.unmount();
+    }
+});
+
+test('a second batch failure says the earlier tasks were added', async () => {
+    const calls: PlaybookAddCall[] = [];
+    const view = mount({
+        tasks: [],
+        onAdd: async input => {
+            calls.push(input);
+            if (calls.length > 1) throw new Error('second batch');
+        },
+    });
+    try {
+        const open = document.querySelector('[data-playbook-open="plan"]');
+        assert.ok(open instanceof dom.window.HTMLButtonElement);
+        await act(async () => { open.click(); });
+        const select = document.querySelector('[data-playbook-select="section:library"]');
+        assert.ok(select instanceof dom.window.HTMLButtonElement);
+        await act(async () => { select.click(); });
+        const add = document.querySelector('[data-playbook-add]');
+        assert.ok(add instanceof dom.window.HTMLButtonElement);
+        await act(async () => { add.click(); });
+        assert.equal(calls.length, 2);
+        assert.equal(calls[0]?.titles.length, STAGE_ADD_MAX_TITLES);
+        assert.ok((calls[1]?.titles.length ?? 0) > 0);
+        assert.match(document.body.textContent ?? '', /Some tasks were added\. The rest could not be added\. Try again\./);
+        assert.equal(document.querySelector('[data-playbook-drawer]') instanceof Element, true);
     } finally {
         view.unmount();
     }

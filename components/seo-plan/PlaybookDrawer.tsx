@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { X } from 'lucide-react';
 import {
     PLAYBOOK_COPY,
@@ -18,6 +18,7 @@ import {
     type PlaybookItem,
     type PlaybookOrgTask,
     type PlaybookRowState,
+    type PlaybookScope,
 } from '@/lib/seo-plan/playbook';
 import type { PlanBoard } from '@/lib/seo-plan/plan-phases';
 import { cn } from '@/lib/utils';
@@ -36,6 +37,7 @@ export function PlaybookDrawer({
     planRows = [],
     orgTasks = [],
     orgTasksReady = true,
+    checklistScope = {},
     onClose,
     onAdd,
 }: {
@@ -43,25 +45,30 @@ export function PlaybookDrawer({
     month: string;
     today: string;
     openedFrom: string | null;
-    tasks: readonly { title: string }[];
+    tasks: readonly { title: string; status?: string; excluded?: boolean }[];
     planRows?: readonly PlaybookExisting[];
     orgTasks?: readonly PlaybookOrgTask[];
     orgTasksReady?: boolean;
+    checklistScope?: PlaybookScope;
     onClose: () => void;
     onAdd: (input: PlaybookAddCall) => Promise<void>;
 }) {
     const titleId = useId();
+    const dialogRef = useRef<HTMLDivElement>(null);
     const searchRef = useRef<HTMLInputElement>(null);
     const [query, setQuery] = useState('');
     const [choiceId, setChoiceId] = useState(() => playbookChoiceId(board, openedFrom));
     const [selected, setSelected] = useState<Set<string>>(() => new Set());
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const catalog = useMemo(() => playbookCatalog(orgTasks), [orgTasks]);
+    const catalog = useMemo(() => playbookCatalog(orgTasks, checklistScope), [orgTasks, checklistScope]);
     const allItems = useMemo(() => playbookItems(catalog), [catalog]);
     const visible = useMemo(() => playbookMatching(catalog, query), [catalog, query]);
     const existing = useMemo(
-        () => [...tasks.map(task => ({ title: task.title })), ...planRows],
+        () => [
+            ...tasks.map(task => ({ title: task.title, status: task.status, excluded: task.excluded })),
+            ...planRows,
+        ],
         [tasks, planRows],
     );
     const selectedItems = allItems.filter(item => selected.has(item.id));
@@ -70,7 +77,11 @@ export function PlaybookDrawer({
     const titles = choice ? playbookAddTitles(selectedItems, existing) : [];
 
     useEffect(() => {
+        const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         searchRef.current?.focus();
+        return () => {
+            if (opener && opener.isConnected) opener.focus();
+        };
     }, []);
 
     function rowState(item: PlaybookItem): PlaybookRowState {
@@ -94,17 +105,42 @@ export function PlaybookDrawer({
         });
     }
 
+    function trapFocus(event: KeyboardEvent<HTMLDivElement>) {
+        if (event.key === 'Escape' && !busy) {
+            event.preventDefault();
+            event.stopPropagation();
+            onClose();
+            return;
+        }
+        if (event.key !== 'Tab' || !dialogRef.current) return;
+        const focusable = focusableIn(dialogRef.current);
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        if (event.shiftKey && (active === first || !dialogRef.current.contains(active))) {
+            event.preventDefault();
+            last?.focus();
+        } else if (!event.shiftKey && active === last) {
+            event.preventDefault();
+            first?.focus();
+        }
+    }
+
     async function add() {
         if (!choice || titles.length === 0 || busy) return;
+        const calls = playbookAddCalls(titles, choice);
         setBusy(true);
         setError(null);
+        let landed = 0;
         try {
-            for (const call of playbookAddCalls(titles, choice)) {
+            for (const call of calls) {
                 await onAdd(call);
+                landed += 1;
             }
             onClose();
         } catch {
-            setError(PLAYBOOK_COPY.error);
+            setError(landed > 0 ? PLAYBOOK_COPY.partial : PLAYBOOK_COPY.error);
         } finally {
             setBusy(false);
         }
@@ -117,18 +153,15 @@ export function PlaybookDrawer({
             onMouseDown={() => { if (!busy) onClose(); }}
         >
             <div
+                ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={titleId}
                 data-playbook-drawer
                 data-plan-menu
+                tabIndex={-1}
                 onMouseDown={event => event.stopPropagation()}
-                onKeyDown={event => {
-                    if (event.key !== 'Escape' || busy) return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onClose();
-                }}
+                onKeyDown={trapFocus}
                 className="flex h-full w-full max-w-md flex-col border-l border-[#e4e4e7] bg-[#ffffff] text-[#18181b] shadow-[-12px_0_32px_rgba(24,24,27,0.12)] outline-none"
             >
                 <div className="flex items-start gap-3 border-b border-[#e4e4e7] px-4 py-3">
@@ -190,7 +223,7 @@ export function PlaybookDrawer({
                 </div>
 
                 <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-3">
-                    {visible.length === 0 && (
+                    {visible.length === 0 && orgTasksReady && (
                         <p className="py-6 text-[13px] text-[#71717a]" data-playbook-empty>{PLAYBOOK_COPY.noMatch}</p>
                     )}
                     {visible.map(section => {
@@ -292,6 +325,11 @@ export function PlaybookDrawer({
             </div>
         </div>
     );
+}
+
+function focusableIn(root: HTMLElement): HTMLElement[] {
+    return [...root.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href]')]
+        .filter(element => !element.hasAttribute('disabled') && element.tabIndex !== -1);
 }
 
 function groupAction(items: readonly PlaybookItem[], stateOf: (item: PlaybookItem) => PlaybookRowState): 'select' | 'clear' | 'none' {

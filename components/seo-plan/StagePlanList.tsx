@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
-import type { PlaybookExisting, PlaybookOrgTask } from '@/lib/seo-plan/playbook';
+import type { PlaybookExisting, PlaybookOrgTask, PlaybookScope } from '@/lib/seo-plan/playbook';
 import { useTimer } from '@/components/providers/timer-provider';
 import { OpenTimerStrip } from '@/components/timer/OpenTimerStrip';
 import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
@@ -84,10 +84,12 @@ export function StagePlanList({
     clientId,
     clientName,
     onOpenResults,
+    checklistScope,
 }: {
     clientId: string;
     clientName: string;
     onOpenResults?: (month: string) => void;
+    checklistScope?: PlaybookScope;
 }) {
     const { userId } = useCurrentMember();
     const { organization } = useOrganization();
@@ -270,7 +272,11 @@ export function StagePlanList({
             setPlanRows((plan?.items ?? []).flatMap(item => {
                 const title = item.title.trim();
                 if (!title) return [];
-                return [{ title, ...(item.templateKey ? { templateKey: item.templateKey } : {}) }];
+                return [{
+                    title,
+                    status: item.status,
+                    ...(item.templateKey ? { templateKey: item.templateKey } : {}),
+                }];
             }));
         }).catch(() => {
             if (!cancelled) {
@@ -793,6 +799,7 @@ export function StagePlanList({
                 orgTasks={orgTasks}
                 orgTasksReady={orgTasksReady}
                 planRows={planRows}
+                checklistScope={checklistScope}
                 panel={model ? (
                     <PlanSidePanel
                         key={model.id}
