@@ -30,6 +30,8 @@ function base64UrlDecode(value: string) {
 }
 
 function signPayload(payload: string) {
+    // HMAC-SHA256 authenticates the OAuth state. It is not a password hash.
+    // codeql[js/insufficient-password-hash]
     return createHmac('sha256', getOAuthStateSecret()).update(payload).digest('base64url');
 }
 
