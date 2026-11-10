@@ -12,6 +12,7 @@ import {
     playbookAddLabel,
     playbookAddTitles,
     playbookCatalog,
+    checklistPlanRow,
     playbookChoice,
     playbookChoiceId,
     playbookChoices,
@@ -96,6 +97,52 @@ test('a task already on the plan is marked and left out, including a shared chec
     assert.equal(playbookOnPlan(kickoff, [{ title: kickoff.title, status: 'ignored' }]), false);
     assert.equal(playbookOnPlan(kickoff, [{ title: kickoff.title, excluded: true }]), false);
     assert.equal(playbookOnPlan(combined, [{ title: 'connect google analytics 4' }]), true);
+});
+
+test('a renamed saved task is already on the plan when the old title is there', () => {
+    const crawl = playbookItems(playbookCatalog([])).find(row => row.title === 'Review the crawl rules and the page list');
+    assert.ok(crawl);
+    assert.equal(crawl.templateKey, undefined);
+    assert.equal(crawl.sourceTitle, 'Review robots.txt and XML sitemap');
+    assert.equal(playbookOnPlan(crawl, [{ title: 'Review robots.txt and XML sitemap' }]), true);
+    assert.equal(playbookOnPlan(crawl, [{ title: '  REVIEW ROBOTS.TXT AND XML SITEMAP  ' }]), true);
+    assert.equal(playbookOnPlan(crawl, [{ title: 'review the crawl rules and the page list' }]), true);
+    assert.equal(playbookOnPlan(crawl, [{ title: 'Write the service page' }]), false);
+    assert.deepEqual(playbookAddTitles([crawl], [{ title: 'Review robots.txt and XML sitemap' }]), []);
+
+    const speed = playbookItems(playbookCatalog([])).find(row => row.sourceTitle === 'Audit Core Web Vitals');
+    const keywords = playbookItems(playbookCatalog([])).find(row => row.sourceTitle === 'Build the keyword universe in Ahrefs');
+    const questions = playbookItems(playbookCatalog([])).find(row => row.sourceTitle === 'Add FAQ sections to key pages');
+    const details = playbookItems(playbookCatalog([])).find(row => row.sourceTitle === 'Audit NAP consistency');
+    assert.ok(speed && keywords && questions && details);
+    assert.equal(speed.templateKey, undefined);
+    assert.equal(playbookOnPlan(speed, [{ title: 'Audit Core Web Vitals' }]), true);
+    assert.equal(playbookOnPlan(keywords, [{ title: 'build the keyword universe in ahrefs' }]), true);
+    assert.equal(playbookOnPlan(questions, [{ title: 'Add FAQ sections to key pages' }]), true);
+    assert.equal(playbookOnPlan(details, [{ title: 'Audit NAP consistency' }]), true);
+});
+
+test('a checklist row left off the roadmap is not already on the plan', () => {
+    const crawl = playbookItems(playbookCatalog([])).find(row => row.sourceTitle === 'Review robots.txt and XML sitemap');
+    assert.ok(crawl);
+    const leftOff = checklistPlanRow({
+        title: 'Review robots.txt and XML sitemap',
+        status: 'todo',
+        roadmapIncluded: false,
+    });
+    assert.equal(leftOff?.roadmapIncluded, false);
+    assert.equal(playbookOnPlan(crawl, leftOff ? [leftOff] : []), false);
+    const onRoadmap = checklistPlanRow({
+        title: 'Review the crawl rules and the page list',
+        roadmapIncluded: true,
+    });
+    assert.equal(playbookOnPlan(crawl, onRoadmap ? [onRoadmap] : []), true);
+    const ignored = checklistPlanRow({
+        title: 'Review robots.txt and XML sitemap',
+        status: 'ignored',
+        roadmapIncluded: true,
+    });
+    assert.equal(playbookOnPlan(crawl, ignored ? [ignored] : []), false);
 });
 
 test('picking the whole saved list keeps distinct titles and drops a repeated one', () => {

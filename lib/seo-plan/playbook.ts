@@ -73,9 +73,15 @@ export interface PlaybookOrgTask {
 
 export interface PlaybookItem {
     id: string;
+    /** Wording shown in the drawer, and the title written when the task is added. */
     title: string;
     description: string;
     templateKey?: string;
+    /**
+     * Catalog title before drawer wording.
+     * Tasks added before the wording change still use this title.
+     */
+    sourceTitle?: string;
 }
 
 export interface PlaybookGroup {
@@ -102,6 +108,11 @@ export interface PlaybookExisting {
     status?: string | null;
     /** Excluded tasks are not treated as work still on the plan. */
     excluded?: boolean;
+    /**
+     * Checklist rows left off the roadmap are not on the plan.
+     * Absent means the row was not a roadmap choice.
+     */
+    roadmapIncluded?: boolean;
 }
 
 export type PlaybookRowState = 'plan' | 'same' | 'open' | 'chosen';
@@ -131,6 +142,7 @@ function libraryItem(stepKey: string, index: number, title: string, description:
         id: `library:${stepKey}:${index}`,
         title: shown.title,
         description: shown.description,
+        sourceTitle: title,
         ...(templateKey ? { templateKey } : {}),
     };
 }
@@ -146,6 +158,7 @@ export function playbookCatalog(
             id: `onboarding:${item.templateKey}`,
             title: shown.title,
             description: shown.description,
+            sourceTitle: item.title,
             templateKey: item.templateKey,
         };
     });
@@ -220,25 +233,62 @@ export function playbookSameTitle(left: string, right: string): boolean {
     return left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase();
 }
 
-/**
- * True when this saved task is already represented on the plan.
- * The same title matches in any letter case. A shared checklist key also
- * matches, which is the rule the one-at-a-time library already uses.
- */
-/** Ignored checklist rows and excluded tasks are not still on the plan. */
+/** Ignored, excluded, and off-roadmap checklist rows are not still on the plan. */
 export function playbookLiveRows(existing: readonly PlaybookExisting[]): PlaybookExisting[] {
-    return existing.filter(row => row.status !== 'ignored' && row.excluded !== true && row.title.trim().length > 0);
+    return existing.filter(row => (
+        row.status !== 'ignored'
+        && row.excluded !== true
+        && row.roadmapIncluded !== false
+        && row.title.trim().length > 0
+    ));
 }
 
-export function playbookOnPlan(item: Pick<PlaybookItem, 'title' | 'templateKey'>, existing: readonly PlaybookExisting[]): boolean {
+/** Shown wording plus the stored catalog title, when the drawer renamed it. */
+export function playbookTitleAliases(item: Pick<PlaybookItem, 'title' | 'sourceTitle'>): string[] {
+    const aliases = [item.title, item.sourceTitle ?? ''];
+    const unique: string[] = [];
+    for (const alias of aliases) {
+        const title = alias.trim();
+        if (!title || unique.some(chosen => playbookSameTitle(chosen, title))) continue;
+        unique.push(title);
+    }
+    return unique;
+}
+
+/**
+ * A checklist row the plan already stores.
+ * A row left off the roadmap is excluded, same as an ignored or excluded row.
+ */
+export function checklistPlanRow(item: {
+    title: string;
+    status?: string | null;
+    templateKey?: string | null;
+    roadmapIncluded?: boolean;
+}): PlaybookExisting | null {
     const title = item.title.trim();
-    if (!title) return false;
+    if (!title) return null;
+    return {
+        title,
+        status: item.status,
+        ...(item.templateKey ? { templateKey: item.templateKey } : {}),
+        ...(item.roadmapIncluded === false ? { roadmapIncluded: false } : {}),
+    };
+}
+
+/**
+ * True when this saved task is already represented on the plan.
+ * The shown wording and the stored catalog title both count, in any letter case.
+ * A shared checklist key also matches.
+ */
+export function playbookOnPlan(item: Pick<PlaybookItem, 'title' | 'templateKey' | 'sourceTitle'>, existing: readonly PlaybookExisting[]): boolean {
+    const aliases = playbookTitleAliases(item);
+    if (aliases.length === 0) return false;
     const live = playbookLiveRows(existing);
-    if (live.some(row => playbookSameTitle(row.title, title))) return true;
-    return catalogAddBlocked(
+    if (live.some(row => aliases.some(alias => playbookSameTitle(row.title, alias)))) return true;
+    return aliases.some(alias => catalogAddBlocked(
         live.map(row => ({ title: row.title, templateKey: row.templateKey })),
-        { title, templateKey: item.templateKey },
-    );
+        { title: alias, templateKey: item.templateKey },
+    ));
 }
 
 export function playbookRowState(

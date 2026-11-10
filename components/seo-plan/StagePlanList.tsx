@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
-import type { PlaybookExisting, PlaybookOrgTask, PlaybookScope } from '@/lib/seo-plan/playbook';
+import { checklistPlanRow, type PlaybookExisting, type PlaybookOrgTask, type PlaybookScope } from '@/lib/seo-plan/playbook';
 import { useTimer } from '@/components/providers/timer-provider';
 import { OpenTimerStrip } from '@/components/timer/OpenTimerStrip';
 import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
@@ -270,13 +270,8 @@ export function StagePlanList({
                 taskId: item.taskId,
             })));
             setPlanRows((plan?.items ?? []).flatMap(item => {
-                const title = item.title.trim();
-                if (!title) return [];
-                return [{
-                    title,
-                    status: item.status,
-                    ...(item.templateKey ? { templateKey: item.templateKey } : {}),
-                }];
+                const row = checklistPlanRow(item);
+                return row ? [row] : [];
             }));
         }).catch(() => {
             if (!cancelled) {
