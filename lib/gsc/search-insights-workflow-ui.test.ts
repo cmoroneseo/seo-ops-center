@@ -1,14 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 
 import type { SearchInvestigation } from '../types';
 import { kindForEvidenceCategory } from './investigations.ts';
 import {
     mapInvestigationsByIdentity,
     investigationTaskHandoff,
-    InvestigationEvidenceCard,
 } from '../../components/workspace/SearchInsightsTab.tsx';
 
 const dismissed: SearchInvestigation = {
@@ -47,24 +44,6 @@ test('evidence categories map to stable semantic investigation kinds', () => {
     assert.equal(kindForEvidenceCategory('deeper_visibility'), 'query_page');
     assert.equal(kindForEvidenceCategory('page_visibility'), 'page');
     assert.equal(kindForEvidenceCategory('overlapping_urls'), 'overlap');
-});
-
-test('dismissed evidence retains its observed metrics beside the decision', () => {
-    const html = renderToStaticMarkup(createElement(InvestigationEvidenceCard, {
-        summary: createElement('span', null, '237 impressions · Position 33.0'),
-        decision: dismissed,
-        busy: false,
-        workflowDisabled: false,
-        onCreateTask() {},
-        onDismiss() {},
-        onRestore() {},
-    }, createElement('p', null, 'Observed on 7 saved days.')));
-
-    assert.match(html, /237 impressions/);
-    assert.match(html, /Position 33\.0/);
-    assert.match(html, /Observed on 7 saved days/);
-    assert.match(html, /Dismissed/);
-    assert.match(html, /Insufficient evidence/);
 });
 
 test('task handoff carries the investigation identity and evidence-conscious defaults', () => {

@@ -106,7 +106,7 @@ function isExcludedCandidate(query: string, page: string, brand: string) {
     return isBrandQuery(query, brand);
 }
 
-function isExcludedPage(page: string) {
+export function isExcludedPage(page: string) {
     const safe = safePageUrl(page);
     if (!safe) return true;
     const path = new URL(safe).pathname;

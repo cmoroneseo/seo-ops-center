@@ -1,10 +1,10 @@
 'use client';
 
 import type { KeyboardEvent } from 'react';
+import { OpportunityBacklog } from '@/components/opportunities/OpportunityBacklog';
 import { PerformanceFreshness } from '@/components/opportunities/PerformanceFreshness';
 import { SearchDashboard } from '@/components/search-dashboard/SearchDashboard';
 import { RankingsTab } from '@/components/workspace/RankingsTab';
-import { LegacySearchInsights } from '@/components/workspace/SearchInsightsTab';
 import { SiteInventoryTab } from '@/components/workspace/SiteInventoryTab';
 import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
 import {
@@ -124,12 +124,11 @@ export function OpportunitiesTab({
                     </div>
                 ) : null}
                 {selected === 'backlog' ? (
-                    <LegacySearchInsights
+                    <OpportunityBacklog
                         organizationId={organizationId}
                         clientId={clientId}
                         clientName={clientName}
                         onConnections={onConnections}
-                        variant="evidence"
                     />
                 ) : null}
                 {selected === 'rankings' && tracking ? (
