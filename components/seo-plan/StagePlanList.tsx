@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
+import type { PlaybookExisting, PlaybookOrgTask } from '@/lib/seo-plan/playbook';
 import { useTimer } from '@/components/providers/timer-provider';
 import { OpenTimerStrip } from '@/components/timer/OpenTimerStrip';
 import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
@@ -50,7 +51,7 @@ import { parseStageListTasks, type StageListTask } from '@/lib/seo-plan/stage-li
 import { useStageListMoves } from '@/lib/seo-plan/stage-list-moves';
 import { calendarDay } from '@/lib/seo-plan/this-month';
 import { RESUMED_OPEN_TIMER_MESSAGE, openTimerRows } from '@/lib/timer/attempt-state';
-import { createTask, deleteTask, getTask, updateTask } from '@/lib/supabase/tasks';
+import { createTask, deleteTask, getTask, getTaskTemplates, updateTask } from '@/lib/supabase/tasks';
 import type { UrlResultReadout } from '@/lib/search-reporting/url-results';
 import { parseLiveUrlInput, subtaskLineDrafts } from '@/lib/tasks/live-url';
 import type { Task, TimeLog } from '@/lib/types';
@@ -104,6 +105,9 @@ export function StagePlanList({
     const [error, setError] = useState(false);
     const [board, setBoard] = useState<PlanBoard | null>(null);
     const [planItems, setPlanItems] = useState<PlanChecklistItem[]>([]);
+    const [planRows, setPlanRows] = useState<PlaybookExisting[]>([]);
+    const [orgTasks, setOrgTasks] = useState<PlaybookOrgTask[]>([]);
+    const [orgTasksReady, setOrgTasksReady] = useState(false);
     const ledgerRef = useRef(emptyPanelSaveLedger());
     const [reloadKey, setReloadKey] = useState(0);
     const [detail, setDetail] = useState<Task | null>(null);
@@ -253,6 +257,7 @@ export function StagePlanList({
     useEffect(() => {
         let cancelled = false;
         setPlanItems([]);
+        setPlanRows([]);
         loadMarketingPlan(clientId).then(plan => {
             if (cancelled) return;
             setPlanItems((plan?.items ?? []).map(item => ({
@@ -262,11 +267,44 @@ export function StagePlanList({
                 dueDate: item.dueDate,
                 taskId: item.taskId,
             })));
+            setPlanRows((plan?.items ?? []).flatMap(item => {
+                const title = item.title.trim();
+                if (!title) return [];
+                return [{ title, ...(item.templateKey ? { templateKey: item.templateKey } : {}) }];
+            }));
         }).catch(() => {
-            if (!cancelled) setPlanItems([]);
+            if (!cancelled) {
+                setPlanItems([]);
+                setPlanRows([]);
+            }
         });
         return () => { cancelled = true; };
     }, [clientId, reloadKey]);
+
+    useEffect(() => {
+        const organizationId = organization?.id;
+        if (!organizationId) {
+            setOrgTasks([]);
+            setOrgTasksReady(true);
+            return;
+        }
+        let cancelled = false;
+        setOrgTasksReady(false);
+        getTaskTemplates(organizationId).then(templates => {
+            if (cancelled) return;
+            setOrgTasks(templates.flatMap(template => {
+                const title = (template.title ?? template.name).trim();
+                if (!title) return [];
+                return [{ id: template.id, title, ...(template.description?.trim() ? { description: template.description.trim() } : {}) }];
+            }));
+            setOrgTasksReady(true);
+        }).catch(() => {
+            if (cancelled) return;
+            setOrgTasks([]);
+            setOrgTasksReady(true);
+        });
+        return () => { cancelled = true; };
+    }, [organization?.id]);
 
     const reload = () => setReloadKey(key => key + 1);
 
@@ -752,6 +790,9 @@ export function StagePlanList({
                 basecamp={basecamp}
                 integrationsHref={`/workspace/${clientId}?tab=integrations`}
                 onRetrySync={retryBasecamp}
+                orgTasks={orgTasks}
+                orgTasksReady={orgTasksReady}
+                planRows={planRows}
                 panel={model ? (
                     <PlanSidePanel
                         key={model.id}
