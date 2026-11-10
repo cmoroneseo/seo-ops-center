@@ -17,6 +17,7 @@ import {
 } from '@/lib/reports/sections';
 import { Block } from '@/lib/reports/blocks';
 import { rankTrackerViewResult, type RankTrackerViewResult } from '@/lib/reports/rank-tracker-view';
+import { GtmEventsReportBlock } from './GtmEventsReportBlock';
 import { MarketingPlanReportBlock } from './MarketingPlanReportBlock';
 import { TrackedKeywordsReportBlock } from './TrackedKeywordsReportBlock';
 import type { TrackedKeywordReportSnapshot } from '@/lib/keyword-tracking/report-snapshot';
@@ -954,6 +955,7 @@ export function RenderBlock({ block, ctx }: { block: Block; ctx: ReportContext }
             return staffOnlyHidden(ctx) ? null : <div className="report-staff-only"><KeywordRankingsTableBlock block={block} ctx={ctx} /></div>;
         case 'tracked_keywords_gsc': return <TrackedKeywordsReportBlock block={block} ctx={ctx} />;
         case 'marketing_plan': return <MarketingPlanReportBlock block={block} ctx={ctx} />;
+        case 'gtm_events': return <GtmEventsReportBlock block={block} ctx={ctx} />;
         case 'page_break': return null; // handled by the canvas (page split)
         default: return null;
     }
