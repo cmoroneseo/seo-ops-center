@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { dueDateForSectionDrop, effectOfPlanDrop } from './plan-drag.ts';
+import { groupTasksByPhase } from './plan-phases.ts';
 import { groupTasksByPlanMonth } from './plan-sections.ts';
 import { applyStageReorder } from './stage-reorder.ts';
 import type { StageListTask } from './stage-list.ts';
@@ -215,4 +216,49 @@ test('a future selected month dates a dropped row on that month, not the current
         today: TODAY,
     });
     assert.equal(effect?.dueDate, '2026-11-30');
+});
+
+test('dragging between Foundation, Growth, and Scale changes the stage and keeps the due date', () => {
+    const basics = task({ id: 'basics', title: 'Fix the sitemap', stage: 'foundation', position: 1, dueDate: '2026-10-02' });
+    const page = task({ id: 'page', title: 'Service page', stage: 'growth', position: 1, dueDate: '2026-11-01' });
+    const child = task({ id: 'links', title: 'Link the service page', stage: 'foundation', position: 1, parentTaskId: 'basics' });
+    const tasks = [basics, page, child];
+    const effect = effectOfPlanDrop({
+        tasks,
+        dragId: 'basics',
+        section: 'scale',
+        beforeTaskId: null,
+        parentTaskId: null,
+        month: MONTH,
+        today: TODAY,
+    });
+    assert.ok(effect);
+    assert.equal(effect.dueDate, undefined);
+    assert.equal(effect.move.stage, 'scale');
+    assert.equal(effect.move.parentTaskId, null);
+    const next = apply(tasks, effect);
+    assert.equal(next.find(item => item.id === 'basics')?.stage, 'scale');
+    assert.equal(next.find(item => item.id === 'basics')?.dueDate, '2026-10-02');
+    assert.equal(next.find(item => item.id === 'links')?.stage, 'scale');
+    assert.equal(next.find(item => item.id === 'page')?.stage, 'growth');
+    const ids = (phase: 'foundation' | 'growth' | 'scale') => groupTasksByPhase(next, '', TODAY)
+        .find(section => section.id === phase)
+        ?.groups.map(group => group.task.id) ?? [];
+    assert.deepEqual(ids('scale'), ['basics']);
+    assert.deepEqual(ids('growth'), ['page']);
+    assert.deepEqual(ids('foundation'), []);
+
+    const intoGrowth = effectOfPlanDrop({
+        tasks: next,
+        dragId: 'page',
+        section: 'foundation',
+        beforeTaskId: null,
+        parentTaskId: null,
+        month: 'not-a-month',
+        today: TODAY,
+    });
+    assert.equal(intoGrowth?.move.stage, 'foundation');
+    assert.equal(intoGrowth?.dueDate, undefined);
+    const moved = apply(next, intoGrowth!);
+    assert.equal(moved.find(item => item.id === 'page')?.dueDate, '2026-11-01');
 });

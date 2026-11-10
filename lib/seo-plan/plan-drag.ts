@@ -8,6 +8,7 @@ import {
     isPlanMonth,
     type PlanSectionId,
 } from './plan-sections';
+import { isPlanPhase, type BoardStage, type PlanPhase } from './plan-phases';
 import { dueDay } from './this-month';
 
 /**
@@ -24,7 +25,7 @@ export interface PlanDragEffect {
 export interface PlanDropTarget {
     tasks: readonly StageListTask[];
     dragId: string;
-    section: PlanSectionId;
+    section: PlanSectionId | PlanPhase;
     /** Insert before this row. Null appends to the section. */
     beforeTaskId: string | null;
     /** Set when the drop reorders subtasks inside a pillar. */
@@ -35,7 +36,8 @@ export interface PlanDropTarget {
     today: string;
 }
 
-function storedStage(task: StageListTask): TaskStage {
+function storedStage(task: StageListTask): BoardStage {
+    if (isPlanPhase(task.stage)) return task.stage;
     return isTaskStage(task.stage) ? task.stage : 'backlog';
 }
 
@@ -44,6 +46,16 @@ function indexBefore(siblings: readonly StageListTask[], dragId: string, beforeT
     if (!beforeTaskId) return without.length;
     const at = without.findIndex(task => task.id === beforeTaskId);
     return at < 0 ? without.length : at;
+}
+
+function phaseTops(tasks: readonly StageListTask[], phase: PlanPhase): StageListTask[] {
+    const found: StageListTask[] = [];
+    for (const section of groupTasksByStage(tasks, '')) {
+        for (const group of section.groups) {
+            if (group.task.stage === phase) found.push(group.task);
+        }
+    }
+    return found;
 }
 
 function tops(tasks: readonly StageListTask[], stage: TaskStage): StageListTask[] {
@@ -104,7 +116,42 @@ export function dueDateForSectionDrop(
  * Dropping a row into another section updates the field that places it there.
  * Leaving Onboarding stores stage `backlog`. Entering it stores `onboarding`.
  */
+/**
+ * Drop across Foundation, Growth, and Scale.
+ * The stage changes. The due date stays as it is.
+ */
+function effectOfPhaseDrop(input: PlanDropTarget & { section: PlanPhase }): PlanDragEffect | null {
+    const dragged = input.tasks.find(task => task.id === input.dragId);
+    if (!dragged) return null;
+
+    if (input.parentTaskId) {
+        if (isPillar(input.tasks, dragged.id)) return null;
+        const parent = input.tasks.find(task => task.id === input.parentTaskId);
+        if (!parent) return null;
+        const move: StageReorderMove = {
+            taskId: dragged.id,
+            stage: storedStage(parent),
+            parentTaskId: parent.id,
+            index: indexBefore(childrenOf(input.tasks, parent.id), dragged.id, input.beforeTaskId),
+        };
+        const plan = applyStageReorder(input.tasks, move);
+        if (!plan.ok || plan.writes.length === 0) return null;
+        return { move };
+    }
+
+    const move: StageReorderMove = {
+        taskId: dragged.id,
+        stage: input.section,
+        parentTaskId: null,
+        index: indexBefore(phaseTops(input.tasks, input.section), dragged.id, input.beforeTaskId),
+    };
+    const plan = applyStageReorder(input.tasks, move);
+    if (!plan.ok || plan.writes.length === 0) return null;
+    return { move };
+}
+
 export function effectOfPlanDrop(input: PlanDropTarget): PlanDragEffect | null {
+    if (isPlanPhase(input.section)) return effectOfPhaseDrop({ ...input, section: input.section });
     const dragged = input.tasks.find(task => task.id === input.dragId);
     if (!dragged || !isPlanMonth(input.month)) return null;
 
