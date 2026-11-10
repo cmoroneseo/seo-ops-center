@@ -47,6 +47,12 @@ test('a new phase plan shows three empty stages and an add box on each', () => {
         assert.match(html, new RegExp(PHASE_STAGE_COPY[phase].description.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     }
     assert.equal(html.match(/data-add="(?:foundation|growth|scale)"/g)?.length, 3);
+    assert.match(html, /Add from a playbook/);
+    assert.match(html, /data-playbook-open="plan"/);
+    for (const phase of ['foundation', 'growth', 'scale'] as const) {
+        assert.match(html, new RegExp(`data-playbook-open="${phase}"`));
+    }
+    assert.match(html, /You can also choose saved tasks with Add from a playbook/);
     assert.doesNotMatch(html, /data-plan-month-control|data-plan-add="true"|data-plan-section="onboarding"|data-plan-section="this_month"|data-plan-footer|Done this month/);
     assert.doesNotMatch(html, /Month 1|Month 2|Month 3/);
 });
@@ -62,6 +68,9 @@ test('an existing month plan still shows Onboarding, This month, and Backlog', (
     assert.match(html, /data-plan-section="this_month"[\s\S]*Crawl the site/);
     assert.match(html, /data-plan-section="backlog"[\s\S]*Later cleanup/);
     assert.match(html, /data-plan-month-control/);
+    assert.match(html, /data-playbook-open="onboarding"/);
+    assert.match(html, /data-playbook-open="this_month"/);
+    assert.match(html, /data-playbook-open="backlog"/);
     assert.doesNotMatch(html, /data-plan-section="foundation"|data-add="growth"|Fixing the basics/);
 });
 

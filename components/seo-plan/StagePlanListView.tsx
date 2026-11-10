@@ -44,10 +44,15 @@ import { DoneThisMonthFooter } from './DoneThisMonthFooter';
 import { PlanAddLine, type PlanAddSubmission } from './PlanAddLine';
 import { StageAddBar } from './StageAddBar';
 import { EMPTY_PLAN_ADD_TASKS, EMPTY_PLAN_BODY, EMPTY_PLAN_TITLE } from '@/lib/seo-plan/empty-plan';
+import { PLAYBOOK_COPY, type PlaybookExisting, type PlaybookOrgTask } from '@/lib/seo-plan/playbook';
 import { PlanSyncBanner, PlanSyncDot } from './PlanSyncFailure';
 import type { PlanBasecampBanner, PlanBasecampSyncState } from '@/lib/seo-plan/basecamp-push';
 import { PlanShortcutSheet } from './PlanShortcutSheet';
+import { PlaybookDrawer } from './PlaybookDrawer';
 import { usePlanKeymap } from './use-plan-keymap';
+
+const NO_ORG_TASKS: readonly PlaybookOrgTask[] = [];
+const NO_PLAN_ROWS: readonly PlaybookExisting[] = [];
 
 export interface StageAddRequest {
     stage: BoardStage;
@@ -250,6 +255,9 @@ export function StagePlanListView({
     onRetrySync,
     doneHoldMs = 4000,
     board = 'months',
+    orgTasks = NO_ORG_TASKS,
+    orgTasksReady = true,
+    planRows = NO_PLAN_ROWS,
 }: {
     tasks: readonly StageListTask[];
     query: string;
@@ -310,6 +318,11 @@ export function StagePlanListView({
      * `months` keeps the existing month board. Defaults to months.
      */
     board?: PlanBoard;
+    /** Tasks the organization already saved. Loaded by the plan, not by this view. */
+    orgTasks?: readonly PlaybookOrgTask[];
+    orgTasksReady?: boolean;
+    /** Checklist rows already on this client's plan, including ones with no date. */
+    planRows?: readonly PlaybookExisting[];
 }) {
     const searchId = useId();
     const searchRef = useRef<HTMLInputElement>(null);
@@ -341,6 +354,7 @@ export function StagePlanListView({
     const shiftMonth = useCallback((delta: -1 | 1) => {
         setMonth(currentMonth => shiftPlanMonth(currentMonth, delta));
     }, []);
+    const [playbook, setPlaybook] = useState<{ from: string | null } | null>(null);
     const [finishPrompt, setFinishPrompt] = useState<{ taskId: string; foldDone: boolean } | null>(null);
     const [holdSeed, setHoldSeed] = useState<{ taskId: string; token: number } | null>(null);
     const beginFinish = useCallback((taskId: string, foldDone: boolean) => {
@@ -434,6 +448,14 @@ export function StagePlanListView({
                 </div>
                 )}
                 <div className="flex items-center gap-3">
+                    <button
+                        type="button"
+                        data-playbook-open="plan"
+                        onClick={() => setPlaybook({ from: null })}
+                        className="rounded-lg border border-[#e4e4e7] bg-[#ffffff] px-3 py-1.5 text-[13px] font-medium text-[#18181b] hover:bg-[#f4f4f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                    >
+                        {PLAYBOOK_COPY.button}
+                    </button>
                     <label htmlFor={searchId} className="sr-only">Search tasks</label>
                     <input
                         ref={searchRef}
@@ -477,7 +499,10 @@ export function StagePlanListView({
             )}
 
             {phaseBoard && tasks.length === 0 && !searching && (
-                <p data-plan-phase-empty className="text-[13px] leading-relaxed text-[#3f3f46]">{PHASE_BOARD_EMPTY}</p>
+                <div data-plan-phase-empty className="text-[13px] leading-relaxed text-[#3f3f46]">
+                    <p>{PHASE_BOARD_EMPTY}</p>
+                    <p className="mt-1">{PLAYBOOK_COPY.emptyHint}</p>
+                </div>
             )}
 
             {!phaseBoard && tasks.length === 0 && !searching ? (
@@ -485,6 +510,7 @@ export function StagePlanListView({
                     <h3 className="text-[13px] font-semibold text-[#18181b]">{EMPTY_PLAN_TITLE}</h3>
                     <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-[#3f3f46]">{EMPTY_PLAN_BODY}</p>
                     <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-[#3f3f46]">{EMPTY_PLAN_ADD_TASKS}</p>
+                    <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-[#3f3f46]">{PLAYBOOK_COPY.emptyHint}</p>
                 </div>
             ) : (
                 <PlanSections
@@ -518,6 +544,7 @@ export function StagePlanListView({
                 onAddInSection={phaseBoard
                     ? (stage, titles) => onAddTasks({ stage: stage as PlanPhase, titles })
                     : undefined}
+                onOpenPlaybook={stage => setPlaybook({ from: stage })}
             />
             )}
             {phaseBoard ? null : (
@@ -543,6 +570,20 @@ export function StagePlanListView({
         <>
             {body}
             {helpOpen && <PlanShortcutSheet onClose={closeHelp} />}
+            {playbook && (
+                <PlaybookDrawer
+                    board={board}
+                    month={month}
+                    today={day}
+                    openedFrom={playbook.from}
+                    tasks={tasks}
+                    planRows={planRows}
+                    orgTasks={orgTasks}
+                    orgTasksReady={orgTasksReady}
+                    onClose={() => setPlaybook(null)}
+                    onAdd={onAddTasks}
+                />
+            )}
         </>
     );
 }
@@ -584,6 +625,7 @@ function PlanSections({
     resultsByTaskId,
     doneHoldMs,
     onAddInSection,
+    onOpenPlaybook,
 }: {
     tasks: readonly StageListTask[];
     sections: Array<Omit<PlanSectionModel, 'id'> & { id: string; description?: string }>;
@@ -614,6 +656,7 @@ function PlanSections({
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
     doneHoldMs: number;
     onAddInSection?: (stage: string, titles: string[]) => Promise<void>;
+    onOpenPlaybook: (stage: string) => void;
 }) {
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
     const [showDone, setShowDone] = useState(false);
@@ -753,26 +796,36 @@ function PlanSections({
                             commit(section.id as PlanSectionId | PlanPhase, null, null);
                         }}
                     >
-                        <h3 id={headingId} className="flex min-h-9 items-center gap-2 px-3 py-1.5">
+                        <div className="flex min-h-9 items-center gap-2 px-3 py-1.5">
+                            <h3 id={headingId} className="min-w-0 flex-1">
+                                <button
+                                    type="button"
+                                    aria-expanded={!closed}
+                                    onClick={() => setCollapsed(current => ({ ...current, [section.id]: !closed }))}
+                                    className="flex w-full min-w-0 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                                >
+                                    <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-[#71717a] transition-transform', !closed && 'rotate-90')} />
+                                    <span className="min-w-0">
+                                        <span className={cn('block text-[13px] font-semibold', section.collapsedComplete && 'text-[#71717a]')}>{section.title}</span>
+                                        {section.description && (
+                                            <span data-phase-description={section.id} className="mt-0.5 block text-[12px] font-normal leading-5 text-[#52525b]">{section.description}</span>
+                                        )}
+                                    </span>
+                                    <span className="text-[11px] font-normal text-[#71717a]" data-count={section.count}>
+                                        <Meta meta={section.meta} late={section.late} />
+                                    </span>
+                                </button>
+                            </h3>
                             <button
                                 type="button"
-                                aria-expanded={!closed}
-                                onClick={() => setCollapsed(current => ({ ...current, [section.id]: !closed }))}
-                                className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                                data-playbook-open={section.id}
+                                onClick={() => onOpenPlaybook(section.id)}
+                                className="shrink-0 text-[12px] font-medium text-[#ec4899] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                             >
-                                <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-[#71717a] transition-transform', !closed && 'rotate-90')} />
-                                <span className="min-w-0">
-                                    <span className={cn('block text-[13px] font-semibold', section.collapsedComplete && 'text-[#71717a]')}>{section.title}</span>
-                                    {section.description && (
-                                        <span data-phase-description={section.id} className="mt-0.5 block text-[12px] font-normal leading-5 text-[#52525b]">{section.description}</span>
-                                    )}
-                                </span>
-                                <span className="text-[11px] font-normal text-[#71717a]" data-count={section.count}>
-                                    <Meta meta={section.meta} late={section.late} />
-                                </span>
+                                {PLAYBOOK_COPY.button}
                             </button>
                             {lookback && <span className="shrink-0 text-[11px] text-[#71717a]">look-back: open work stays in This month</span>}
-                        </h3>
+                        </div>
                         <div hidden={closed || undefined}>
                             {section.groups.length === 0 && !nothingMatches ? (
                                 <p className="border-t border-[#e4e4e7] px-3 py-3 text-[13px] text-[#71717a]">{section.empty}</p>
