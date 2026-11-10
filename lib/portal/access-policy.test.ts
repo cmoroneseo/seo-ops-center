@@ -61,7 +61,7 @@ test('client sessions stay on the portal, auth callback, and the token review po
     assert.equal(clientPortalAllowedPath('/api/client-portal/decision'), true);
     assert.equal(clientPortalAllowedPath('/review/abc'), true);
     assert.equal(clientPortalAllowedPath('/events/abc'), true);
-    assert.equal(clientPortalAllowedPath('/roadmap/abc'), true);
+    assert.equal(clientPortalAllowedPath('/roadmap/abc'), false);
     assert.equal(clientPortalAllowedPath('/api/portal/abc'), true);
     assert.equal(clientPortalAllowedPath('/auth/callback'), true);
     assert.equal(clientPortalAllowedPath('/dashboard'), false);

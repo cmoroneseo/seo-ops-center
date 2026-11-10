@@ -2,7 +2,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { displaySeoPlanTitle, SEO_PLAN_LABEL } from '@/lib/marketing-plan-template';
 import { clientSafeMetricData, previousMonth } from '@/lib/reports/sections';
 import type { PortalClientScope } from './session';
-import { checklistPlan, portalPlanItem, type PortalPlanItem, type PortalPlanStep } from './progress';
+import { portalPlanItem, type PortalPlanItem, type PortalPlanStep } from './progress';
 import type { PortalReportDetail } from './data';
 import { blocksForClientRender, type ReportSectionsField } from '@/lib/reports/blocks';
 import { assertShareCopy, copySourcesForMetrics } from '@/lib/reports/copy-rules';
@@ -51,6 +51,7 @@ export function samePlanScope(a: PortalPlanSnapshot, b: PortalPlanSnapshot): boo
 }
 
 export async function captureReport(scope: PortalClientScope, reportId: string, plan: PortalPlanSnapshot | null): Promise<PortalReportDetail | null> {
+    void plan;
     const admin = createAdminClient();
     const [{ data: report, error }, { data: rows, error: metricError }] = await Promise.all([
         admin.from('reports').select('id,title,report_month,executive_summary,recommendations,sections')
@@ -78,5 +79,5 @@ export async function captureReport(scope: PortalClientScope, reportId: string, 
     return { id: String(report.id), title: String(report.title), reportMonth: month, sharedAt: '',
         executiveSummary, recommendations,
         sections: { version: 2 as const, blocks }, metrics: { current, previous: metrics(previousMonth(month)), updatedAt }, history,
-        planSnapshot: plan ? { plan: checklistPlan({ ...plan, organizationId: scope.organizationId, clientId: scope.clientId }) } : null };
+        planSnapshot: null };
 }

@@ -142,7 +142,7 @@ test('a phase plan lists Foundation, Growth, and Scale and drops anything a clie
     }
 });
 
-test('a month plan lists Onboarding, This month, and Backlog', () => {
+test('a month plan lists Onboarding, This month, and Later', () => {
     const roadmap = projectClientRoadmap({
         board: 'months',
         today: TODAY,
@@ -153,7 +153,8 @@ test('a month plan lists Onboarding, This month, and Backlog', () => {
             task({ id: 'child', title: SUBTASK, stage: 'backlog', parentTaskId: 'later' }),
         ],
     });
-    assert.deepEqual(roadmap.stages.map(stage => stage.title), ['Onboarding', 'This month', 'Backlog']);
+    assert.deepEqual(roadmap.stages.map(stage => stage.title), ['Onboarding', 'This month', 'Later']);
+    assert.equal(roadmap.stages[2]?.id, 'backlog');
     assert.equal(roadmap.stages[0]?.description, ROADMAP_COPY.monthOnboarding);
     assert.equal(roadmap.stages[1]?.description, ROADMAP_COPY.monthThisMonth);
     assert.equal(roadmap.stages[2]?.description, ROADMAP_COPY.monthBacklog);
@@ -161,7 +162,23 @@ test('a month plan lists Onboarding, This month, and Backlog', () => {
     assert.deepEqual(roadmap.stages[1]?.tasks.map(row => row.title), ['Crawl the site']);
     assert.deepEqual(roadmap.stages[2]?.tasks.map(row => row.title), ['City pages']);
     assert.equal(JSON.stringify(roadmap).includes(SUBTASK), false);
+    assert.equal(JSON.stringify(roadmap).includes('Backlog'), false);
     assert.equal(roadmap.stages[1]?.progress, '0 of 1 done');
+});
+
+test('a subtask whose parent is not on the plan stays off the client list', () => {
+    const roadmap = projectClientRoadmap({
+        board: 'phases',
+        today: TODAY,
+        tasks: [
+            task({ id: 'fix', title: 'Fix the sitemap', stage: 'foundation', description: 'Make the sitemap so Google can read every page.' }),
+            task({ id: 'orphan', title: 'Orphan secret task', stage: 'growth', parentTaskId: 'missing-parent' }),
+        ],
+    });
+    const serialized = JSON.stringify(roadmap);
+    assert.equal(serialized.includes('Fix the sitemap'), true);
+    assert.equal(serialized.includes('Orphan secret task'), false);
+    assert.equal(roadmap.stages.find(stage => stage.id === 'growth')?.total, 0);
 });
 
 test('an empty plan has the three stages and no tasks', () => {

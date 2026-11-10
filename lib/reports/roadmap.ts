@@ -48,17 +48,11 @@ export const ROADMAP_COPY = {
     error: 'The roadmap could not be loaded. Refresh the page to try again.',
     showDescriptions: 'Show task descriptions',
     stagesToShow: 'Stages to show',
-    descriptionsHelp: 'Task descriptions are shown only when they are safe to share.',
+    descriptionsHelp: 'Task descriptions are internal notes; only turn this on if they are written for the client.',
+    later: 'Later',
     monthOnboarding: 'The setup we do at the start.',
     monthThisMonth: 'The work planned for this month.',
     monthBacklog: 'Work we will get to later.',
-    publicExpiredTitle: 'This report link has expired',
-    publicExpiredBody: 'Ask your account manager for a current link.',
-    publicRevokedTitle: 'This report link is no longer active',
-    publicRevokedBody: 'It was turned off by the team. Ask your account manager for a current link.',
-    publicMissingTitle: 'We couldn’t find that report',
-    publicMissingBody: 'Double-check the link. It may have been copied incompletely.',
-    notOnReport: 'This report does not include a roadmap.',
 } as const;
 
 const STATUS_WORDS: Record<string, string> = {
@@ -156,6 +150,10 @@ function projectTask(task: StageListTask): ClientRoadmapTask {
     return row;
 }
 
+function clientTasks(groups: readonly { task: StageListTask; parentBreadcrumb?: string }[]): StageListTask[] {
+    return groups.filter(group => !group.parentBreadcrumb).map(group => group.task);
+}
+
 function stageFromTasks(
     id: RoadmapStageId,
     title: string,
@@ -191,7 +189,7 @@ export function projectClientRoadmap(input: {
                 section.id,
                 PHASE_STAGE_COPY[section.id as PlanPhase].title,
                 PHASE_STAGE_COPY[section.id as PlanPhase].description,
-                section.groups.map(group => group.task),
+                clientTasks(section.groups),
             )),
         };
     }
@@ -204,11 +202,18 @@ export function projectClientRoadmap(input: {
     return {
         stages: sections.map(section => stageFromTasks(
             section.id,
-            section.title,
+            section.id === 'backlog' ? ROADMAP_COPY.later : section.title,
             monthStageDescription(section.id, section.title),
-            section.groups.map(group => group.task),
+            clientTasks(section.groups),
         )),
     };
+}
+
+/** True when other report content follows the Roadmap block, so it is not the last section. */
+export function roadmapBeforeFollowingContent(blocks: readonly { type: string }[]): boolean {
+    const index = blocks.findIndex(block => block.type === 'roadmap');
+    if (index < 0) return false;
+    return blocks.slice(index + 1).some(block => block.type !== 'page_break');
 }
 
 export function isRoadmapStageId(value: unknown): value is RoadmapStageId {
