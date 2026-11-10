@@ -1163,6 +1163,28 @@ export type PageType =
     | 'homepage' | 'comparison' | 'case_study' | 'other';
 export type MapRecordAction = 'create' | 'replace' | 'improve' | 'keep';
 export type MapRecordStatus = 'pending' | 'approved' | 'declined';
+/** Content lifecycle. Separate from plan approval (`MapRecordStatus`). */
+export type ProductionStatus =
+    | 'not_written'
+    | 'awaiting_approval'
+    | 'approved'
+    | 'writing'
+    | 'client_review'
+    | 'ready'
+    | 'published'
+    | 'already_live'
+    | 'declined'
+    | 'failed';
+/** Kind of page on the content list. Separate from the map page type. */
+export type MapContentType =
+    | 'blog_post'
+    | 'service_page'
+    | 'location_page'
+    | 'landing_page'
+    | 'pillar_page'
+    | 'product_page'
+    | 'faq_page'
+    | 'case_study';
 export type RecordSource = 'generated' | 'manual' | 'crawl' | 'gsc';
 export type SpecStatus = 'draft' | 'ready';
 export type SearchIntent = 'transactional' | 'commercial' | 'informational' | 'navigational';
@@ -1229,6 +1251,23 @@ export interface TopicalMapRecord {
     /** Where the record came from. Empty on rows created before migration 083. */
     source?: RecordSource;
     status: MapRecordStatus;
+    /**
+     * Content lifecycle. Null when unset, and null when migration 123 is not applied.
+     * Plan approval stays on `status`.
+     */
+    productionStatus?: ProductionStatus | null;
+    /** Calendar month, YYYY-MM. Null when unset. Does not fill the dates. */
+    workMonth?: string | null;
+    /** Calendar due date, YYYY-MM-DD. Null when unset. */
+    dueDate?: string | null;
+    /** Calendar publish date, YYYY-MM-DD. Null when unset. */
+    publishedOn?: string | null;
+    /** http(s) draft link. Null when unset. */
+    draftUrl?: string | null;
+    /** http(s) live link. Null when unset. */
+    liveUrl?: string | null;
+    /** Kind of page. Null when not chosen. */
+    contentType?: MapContentType | null;
     sitePageId?: string;
     matchedUrl?: string;
     taskId?: string;

@@ -24,6 +24,7 @@ import {
     type ManualRecordDraft,
     type SpecFieldPatch,
 } from '../topical-map/spec';
+import { productionFromRow, productionUpdates } from '../topical-map/production';
 
 // ─── Row Mappers ────────────────────────────────────────────────────────────
 
@@ -83,6 +84,7 @@ export function rowToRecord(row: Record<string, unknown>): TopicalMapRecord {
         specStatus: isSpecStatus(row.spec_status) ? row.spec_status : undefined,
         source: isRecordSource(row.source) ? row.source : undefined,
         status: (row.status as MapRecordStatus) ?? 'pending',
+        ...productionFromRow(row),
         sitePageId: row.site_page_id ? String(row.site_page_id) : undefined,
         matchedUrl: row.matched_url ? String(row.matched_url) : undefined,
         taskId: row.task_id ? String(row.task_id) : undefined,
@@ -217,10 +219,21 @@ export async function updateRecord(
     if (patch.specStatus !== undefined) row.spec_status = patch.specStatus;
     if (patch.reviewerNotes !== undefined) row.reviewer_notes = patch.reviewerNotes;
     if (patch.status !== undefined) row.status = patch.status;
+    const production = productionUpdates(patch);
+    if (!production.ok) return { success: false, error: production.error };
+    Object.assign(row, production.row);
     row.updated_at = new Date().toISOString();
 
     const { error } = await supabase.from('topical_map_records').update(row).eq('id', recordId);
-    if (error) return { success: false, error: error.message };
+    if (error) {
+        const missingColumn = (error.code === '42703' || error.code === 'PGRST204') && Object.keys(production.row).length > 0;
+        return {
+            success: false,
+            error: missingColumn
+                ? 'Content status cannot be saved until the database update is applied.'
+                : error.message,
+        };
+    }
     return { success: true };
 }
 
