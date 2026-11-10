@@ -15,9 +15,17 @@ import {
 
 interface RoadmapBlockContext {
     client: ClientProject | null;
+    clientFacing?: boolean;
+    reportId?: string;
+    reportStatus?: 'draft' | 'published';
     onEditText?: (blockId: string, patch: Record<string, unknown>) => void;
     roadmap?: ClientRoadmap | null;
     roadmapFromServer?: boolean;
+}
+
+interface ShareLinkRow {
+    id: string;
+    revokedAt: string | null;
 }
 
 type Load =
@@ -57,6 +65,76 @@ export function RoadmapReportBlock({ block, ctx }: { block: Block; ctx: RoadmapB
 
     const options = readRoadmapBlockOptions(block.props);
     const editable = Boolean(ctx.onEditText);
+    const staff = ctx.clientFacing !== true && editable && Boolean(ctx.reportId);
+    const sharing = staff && ctx.reportStatus === 'published';
+    const [shareUrl, setShareUrl] = useState('');
+    const [copied, setCopied] = useState(false);
+    const [creating, setCreating] = useState(false);
+    const [shareError, setShareError] = useState('');
+    const [links, setLinks] = useState<ShareLinkRow[]>([]);
+
+    useEffect(() => {
+        if (!sharing || !ctx.reportId) return;
+        let cancelled = false;
+        fetch(`/api/reports/${ctx.reportId}/roadmap-share`)
+            .then(response => response.json())
+            .then(body => {
+                if (cancelled) return;
+                if (body?.migrationRequired) {
+                    setShareError('Roadmap links are not available yet.');
+                    return;
+                }
+                if (Array.isArray(body?.links)) setLinks(body.links);
+            })
+            .catch(() => undefined);
+        return () => { cancelled = true; };
+    }, [sharing, ctx.reportId]);
+
+    async function copyLink(url: string) {
+        try {
+            await navigator.clipboard.writeText(url);
+            setCopied(true);
+            setShareError('');
+        } catch {
+            setCopied(false);
+            setShareError('Copy the link below.');
+        }
+    }
+
+    async function createLink() {
+        if (!ctx.reportId || creating) return;
+        setCreating(true);
+        setShareError('');
+        setCopied(false);
+        try {
+            const response = await fetch(`/api/reports/${ctx.reportId}/roadmap-share`, { method: 'POST' });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                setShareError(typeof body.error === 'string' ? body.error : 'Could not create a link.');
+                return;
+            }
+            const url = typeof body.url === 'string' ? body.url : '';
+            setShareUrl(url);
+            if (body.id) setLinks(current => [{ id: String(body.id), revokedAt: null }, ...current]);
+            if (url) await copyLink(url);
+        } catch {
+            setShareError('Could not create a link.');
+        } finally {
+            setCreating(false);
+        }
+    }
+
+    async function revokeLink(linkId: string) {
+        if (!ctx.reportId) return;
+        setShareError('');
+        const response = await fetch(`/api/reports/${ctx.reportId}/roadmap-share?linkId=${encodeURIComponent(linkId)}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            setShareError(typeof body.error === 'string' ? body.error : 'Could not turn off that link.');
+            return;
+        }
+        setLinks(current => current.map(link => link.id === linkId ? { ...link, revokedAt: new Date().toISOString() } : link));
+    }
 
     if (server && !ctx.roadmap) return null;
     if (!server && !ctx.client) return <p className="text-sm italic" style={{ color: '#9ca3af' }}>{ROADMAP_COPY.chooseClient}</p>;
@@ -75,6 +153,46 @@ export function RoadmapReportBlock({ block, ctx }: { block: Block; ctx: RoadmapB
 
     return (
         <div>
+            {staff ? (
+                <div className="print-hidden mb-4 text-xs">
+                    {sharing ? (
+                        <>
+                            <p className="mb-2 text-muted-foreground">Anyone with this link can see the live plan for this client. No login needed.</p>
+                            <button
+                                type="button"
+                                onClick={createLink}
+                                disabled={creating}
+                                className="rounded-md border border-border px-2.5 py-1.5 text-xs hover:bg-muted disabled:opacity-50"
+                            >
+                                {creating ? 'Creating link…' : 'Share roadmap link'}
+                            </button>
+                            {shareUrl ? (
+                                <p className="mt-2 break-all text-muted-foreground">
+                                    {copied ? 'Link copied. ' : null}
+                                    This is the only time this link is shown.{' '}
+                                    <button type="button" onClick={() => copyLink(shareUrl)} className="underline">Copy link</button>
+                                    <span className="mt-1 block">{shareUrl}</span>
+                                </p>
+                            ) : null}
+                            {links.length > 0 ? (
+                                <ul className="mt-2 space-y-1 text-muted-foreground">
+                                    {links.map(link => (
+                                        <li key={link.id} className="flex items-center gap-2">
+                                            <span>{link.revokedAt ? 'Link turned off' : 'Link active'}</span>
+                                            {!link.revokedAt ? (
+                                                <button type="button" onClick={() => revokeLink(link.id)} className="underline">Turn off</button>
+                                            ) : null}
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : null}
+                        </>
+                    ) : (
+                        <p className="text-muted-foreground">Approve the report, or share it with the client, to create a link.</p>
+                    )}
+                    {shareError ? <p className="mt-2 text-red-600">{shareError}</p> : null}
+                </div>
+            ) : null}
             {editable && block.props.settingsOpen ? (
                 <fieldset data-roadmap-editor className="print-hidden mb-4 space-y-3 rounded-lg border border-border p-3 text-sm">
                     <legend className="px-1 text-xs font-medium">{ROADMAP_COPY.stagesToShow}</legend>

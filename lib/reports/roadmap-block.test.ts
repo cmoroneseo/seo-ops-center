@@ -94,6 +94,52 @@ test('the public view has no settings and no staff fields', () => {
     assert.match(html, /1 of 1 done/);
 });
 
+test('a published report offers a link anyone can open without logging in', () => {
+    const html = renderToStaticMarkup(createElement(RoadmapReportBlock, {
+        block: { id: 'plan', type: 'roadmap', props: {} },
+        ctx: {
+            client,
+            roadmap,
+            roadmapFromServer: true,
+            onEditText: () => {},
+            reportId: '66666666-6666-4666-8666-666666666666',
+            reportStatus: 'published',
+        },
+    }));
+    assert.match(html, /Share roadmap link/);
+    assert.match(html, /Anyone with this link can see the live plan for this client\. No login needed\./);
+});
+
+test('a draft report and a client view do not offer that link', () => {
+    const draft = renderToStaticMarkup(createElement(RoadmapReportBlock, {
+        block: { id: 'plan', type: 'roadmap', props: {} },
+        ctx: {
+            client,
+            roadmap,
+            roadmapFromServer: true,
+            onEditText: () => {},
+            reportId: '66666666-6666-4666-8666-666666666666',
+            reportStatus: 'draft',
+        },
+    }));
+    assert.equal(draft.includes('Share roadmap link'), false);
+    assert.match(draft, /Approve the report, or share it with the client, to create a link/);
+
+    const clientView = renderToStaticMarkup(createElement(RoadmapReportBlock, {
+        block: { id: 'plan', type: 'roadmap', props: {} },
+        ctx: {
+            client,
+            roadmap,
+            roadmapFromServer: true,
+            clientFacing: true,
+            reportId: '66666666-6666-4666-8666-666666666666',
+            reportStatus: 'published',
+        },
+    }));
+    assert.equal(clientView.includes('Share roadmap link'), false);
+    assert.equal(clientView.includes('No login needed'), false);
+});
+
 test('an empty plan says no work has been planned yet', () => {
     const empty = projectClientRoadmap({ board: 'phases', tasks: [], today: '2026-11-10' });
     const html = renderToStaticMarkup(createElement(RoadmapReportView, { roadmap: empty }));
