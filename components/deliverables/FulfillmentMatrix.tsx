@@ -5,6 +5,7 @@ import { Grid3X3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DeliverableType, FulfillmentCell } from '@/lib/types';
 import { fulfillmentStatus } from '@/lib/seo-ops-logic';
+import { deliverableTypeLabel } from '@/lib/copy/labels';
 import { fulfillmentCellLabel } from '@/lib/deliverables/fulfillment-cells';
 import { severityBadgeClass } from './deliverable-ui';
 
@@ -44,13 +45,13 @@ export function FulfillmentMatrix({ clients, cells, daysLeftInMonth, onCellClick
             <div className="p-4 border-b border-border bg-muted/30">
                 <h3 className="font-semibold flex items-center gap-2">
                     <Grid3X3 className="h-4 w-4 text-primary" />
-                    Fulfillment Matrix
+                    This month's work
                 </h3>
             </div>
             {/* Mobile: stacked cards (table side-scroll is unusable on a phone) */}
             <div className="md:hidden divide-y divide-border/50">
                 {rows.length === 0 && (
-                    <div className="text-center py-10 text-muted-foreground text-sm">No active clients</div>
+                    <div className="text-center py-10 text-muted-foreground text-sm">No active clients yet.</div>
                 )}
                 {rows.map(({ client, hasWork }) => {
                     const clientCells = columns
@@ -82,7 +83,7 @@ export function FulfillmentMatrix({ clients, cells, daysLeftInMonth, onCellClick
                                                 pace ? severityBadgeClass(pace.severity) : 'text-muted-foreground bg-muted border-border',
                                             )}
                                         >
-                                            <span className="text-[11px] font-semibold uppercase tracking-wide opacity-70">{t}</span>
+                                            <span className="text-[11px] font-semibold uppercase tracking-wide opacity-70">{deliverableTypeLabel(t)}</span>
                                             {fulfillmentCellLabel(c)}
                                         </button>
                                     );
@@ -100,7 +101,7 @@ export function FulfillmentMatrix({ clients, cells, daysLeftInMonth, onCellClick
                         <tr>
                             <th className="text-left px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">Client</th>
                             {columns.map((t) => (
-                                <th key={t} className="text-center px-3 py-2.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">{t}</th>
+                                <th key={t} className="text-center px-3 py-2.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">{deliverableTypeLabel(t)}</th>
                             ))}
                         </tr>
                     </thead>
@@ -147,7 +148,7 @@ export function FulfillmentMatrix({ clients, cells, daysLeftInMonth, onCellClick
                         {rows.length === 0 && (
                             <tr>
                                 <td colSpan={columns.length + 1} className="text-center py-10 text-muted-foreground text-sm">
-                                    No active clients
+                                    No active clients yet.
                                 </td>
                             </tr>
                         )}

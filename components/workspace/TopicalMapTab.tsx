@@ -101,7 +101,7 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
             );
         }
         return (
-            <section className="space-y-5" aria-label="Topical Map">
+            <section className="space-y-5" aria-label="Topic map">
                 <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
                     <Map className="mx-auto h-8 w-8 text-primary" />
                     <h3 className="mt-3 font-semibold">No topical map yet</h3>
@@ -114,7 +114,7 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
                         className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
                     >
                         <Sparkles className="h-4 w-4" />
-                        Generate Topical Map
+                        Generate topic map
                     </button>
                     {error && (
                         <p className="mx-auto mt-4 flex max-w-xl items-center justify-center gap-2 text-xs text-red-500">
@@ -275,7 +275,7 @@ function TopicalMapReady({
     };
 
     return (
-        <section className="space-y-5" aria-label="Topical Map">
+        <section className="space-y-5" aria-label="Topic map">
             <TopicalMapHeader
                 map={map}
                 records={records}

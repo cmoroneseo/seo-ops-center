@@ -174,7 +174,7 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, onCl
                         <h2 className="text-lg font-semibold">
                             {step === 'profile' && 'Confirm Brand Profile'}
                             {step === 'seeds' && 'Rivals & Focus Topics'}
-                            {step === 'confirm' && 'Generate Topical Map'}
+                            {step === 'confirm' && 'Generate topic map'}
                         </h2>
                     </div>
                     <button onClick={onClose} aria-label="Close" className="p-1 text-muted-foreground hover:text-foreground">
@@ -353,7 +353,7 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, onCl
                             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
                         >
                             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                            {submitting ? 'Starting…' : 'Generate Topical Map'}
+                            {submitting ? 'Starting…' : 'Generate topic map'}
                         </button>
                     )}
                 </div>

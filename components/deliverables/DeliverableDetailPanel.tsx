@@ -183,7 +183,7 @@ export function DeliverableDetailPanel({
                                                     : 'text-muted-foreground/50 bg-transparent border-border/50 hover:bg-muted/30',
                                         )}
                                     >
-                                        {s === 'In Progress' ? 'In Prog.' : s}
+                                        {s === 'In Progress' ? 'In progress' : s}
                                     </button>
                                 );
                             })}

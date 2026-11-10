@@ -115,7 +115,7 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
     return (
         <div className="space-y-8">
             <div>
-                <div className="flex flex-wrap items-center gap-3"><h3 className="text-lg font-semibold">Portal management</h3><span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">Staff only</span></div>
+                <div className="flex flex-wrap items-center gap-3"><h3 className="text-lg font-semibold">Client portal</h3><span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">Staff only</span></div>
                 <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
                     Manage what {clientName} sees in their separate client portal. Invite contacts, share the SEO Plan and reports, and respond to their messages.
                     Internal notes, assignees, drafts, and timesheets stay in the workspace.

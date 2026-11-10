@@ -5,6 +5,7 @@ import {
     Package, PackageCheck, ChevronLeft, ChevronRight, RefreshCw,
     Factory, AlertTriangle, Percent, X, Calendar, User as UserIcon,
 } from 'lucide-react';
+import { deliverableTypeLabel } from '@/lib/copy/labels';
 import { getDeliverable } from '@/lib/supabase/deliverables';
 import { cn } from '@/lib/utils';
 import { Deliverable, DeliverableType } from '@/lib/types';
@@ -202,9 +203,9 @@ export default function DeliverablesPage() {
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                 <KPICard title="Promised" value={promisedLabel} change={monthDisplay(month)} trend="neutral" icon={Package} />
                 <KPICard title="Delivered" value={data ? String(delivered) : '—'} change={promised != null && promised > 0 ? `of ${promised}` : ''} trend={promised != null && delivered >= promised && promised > 0 ? 'up' : 'neutral'} icon={PackageCheck} />
-                <KPICard title="In Production" value={data ? String(inProduction) : '—'} change="" trend="neutral" icon={Factory} />
+                <KPICard title="In progress" value={data ? String(inProduction) : '—'} change="" trend="neutral" icon={Factory} />
                 <KPICard title="Overdue" value={data ? String(overdueCount) : '—'} change="" trend={overdueCount > 0 ? 'down' : 'neutral'} icon={AlertTriangle} />
-                <KPICard title="Fulfillment" value={fulfillmentPct === null ? '—' : `${fulfillmentPct}%`} change={`${daysLeft}d left`} trend={fulfillmentPct !== null && fulfillmentPct >= 100 ? 'up' : 'neutral'} icon={Percent} />
+                <KPICard title="Finished" value={fulfillmentPct === null ? '—' : `${fulfillmentPct}%`} change={`${daysLeft} days left`} trend={fulfillmentPct !== null && fulfillmentPct >= 100 ? 'up' : 'neutral'} icon={Percent} />
             </div>
 
             {/* Matrix + rail */}
@@ -281,7 +282,7 @@ export default function DeliverablesPage() {
                     >
                         <div className="sticky top-0 flex items-center justify-between p-4 border-b border-border/50 bg-card">
                             <h3 className="font-semibold text-sm">
-                                {clientNameById.get(cellFilter.clientId) ?? 'Client'} — {cellFilter.type}
+                                {clientNameById.get(cellFilter.clientId) ?? 'Client'} — {deliverableTypeLabel(cellFilter.type)}
                             </h3>
                             <button onClick={() => setCellFilter(null)} className="text-muted-foreground hover:text-foreground transition-colors">
                                 <X className="h-4 w-4" />
