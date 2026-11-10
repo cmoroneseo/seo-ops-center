@@ -1,8 +1,5 @@
 -- 121: per-client settings for the GTM Event Report.
 --
--- NOT APPLIED. Do not run this against the production Supabase project.
--- The owner reviews and applies it separately.
---
 -- The exclusion list is the consent-banner filter. It is not hardcoded to
 -- one client. Kentina Hospitality would save "Allow cookies" and "Decline".
 -- fallback_event_names is used only when Tag Manager is not connected.

@@ -1,8 +1,5 @@
 -- 122: no-login public links for a frozen GTM Event Report.
 --
--- NOT APPLIED. Do not run this against the production Supabase project.
--- The owner reviews and applies it separately.
---
 -- The raw token is never stored. token_hash is sha-256, same as content
 -- review links. The snapshot is the client report copied from the approved
 -- report version. Revoke by setting revoked_at. anon has no grants.

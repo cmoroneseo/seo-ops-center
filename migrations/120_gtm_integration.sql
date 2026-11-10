@@ -1,8 +1,5 @@
 -- 120: Google Tag Manager as its own client integration.
 --
--- NOT APPLIED. Do not run this against the production Supabase project.
--- The owner reviews and applies it separately.
---
 -- Widens client_integrations.service so a row can be service 'gtm'.
 -- Tokens and the chosen account/container stay in credentials, the same way
 -- GA4 stores property_id. This file does not seed a client.

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { googleOAuthPrompt, googleOAuthScopes, isGoogleOAuthGroup } from '@/lib/google/account';
 import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
-import { createGoogleOAuthState } from '@/lib/security/oauth-state';
+import { createSignedGoogleState } from '@/lib/security/oauth-state';
 
 /**
  * GET /api/integrations/google/connect?clientId=...&orgId=...&group=ga4|gsc|gbp|ga4-gsc|gtm
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
         );
     }
 
-    const state = createGoogleOAuthState({
+    const state = createSignedGoogleState({
         clientId: authorization.clientId,
         orgId: authorization.organizationId,
         group,

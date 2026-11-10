@@ -15914,7 +15914,7 @@ comment on column public.campaign_initiatives.target_month is
 
 -- =============================================================================
 -- 120_gtm_integration.sql
--- Google Tag Manager service on client_integrations. Not applied in this change.
+-- Google Tag Manager service on client_integrations.
 -- =============================================================================
 
 alter table public.client_integrations drop constraint if exists client_integrations_service_check;
@@ -15924,7 +15924,7 @@ alter table public.client_integrations
 
 -- =============================================================================
 -- 121_gtm_event_report_settings.sql
--- Consent-click exclusions for the GTM Event Report. Not applied in this change.
+-- Consent-click exclusions for the GTM Event Report.
 -- =============================================================================
 
 create table if not exists public.client_gtm_report_settings (
@@ -15963,7 +15963,7 @@ grant all on public.client_gtm_report_settings to service_role;
 
 -- =============================================================================
 -- 122_report_public_links.sql
--- No-login links to a frozen GTM Event Report. Not applied in this change.
+-- No-login links to a frozen GTM Event Report.
 -- =============================================================================
 
 create table if not exists public.report_public_links (

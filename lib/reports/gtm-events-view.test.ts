@@ -36,5 +36,5 @@ test('public link storage keeps the hash and does not add a raw token column', (
     assert.match(sql, /token_hash text not null/);
     assert.equal(/^\s*token text/m.test(sql), false);
     assert.match(sql, /revoke all on public\.report_public_links from public, anon, authenticated/);
-    assert.match(sql, /NOT APPLIED/);
+    assert.equal(sql.includes('NOT APPLIED'), false);
 });

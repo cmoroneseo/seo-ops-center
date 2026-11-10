@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { describeProperty, filterProperties, readGscSites, selectGscProperty, reconnectCredentials } from './gsc-properties';
-import { createGoogleOAuthState, verifyGoogleOAuthState } from '../security/oauth-state';
+import { createSignedGoogleState, verifySignedGoogleState } from '../security/oauth-state';
 
 test('domain and URL prefix identities stay distinct including path and protocol', () => {
   assert.deepEqual(describeProperty('sc-domain:example.com'), { label: 'example.com', type: 'Domain property', scope: 'sc-domain:example.com' });
@@ -40,8 +40,8 @@ test('Search Console sites.list is one page, and a page token is not treated as 
 });
 test('signed state accepts independent Google services and detects tampering', () => {
   process.env.GOOGLE_OAUTH_STATE_SECRET = 'test-gsc-state-secret';
-  const state = createGoogleOAuthState({ clientId: 'client', orgId: 'org', group: 'gsc' });
-  assert.equal(verifyGoogleOAuthState(state)?.group, 'gsc');
-  assert.equal(verifyGoogleOAuthState(state + 'x'), null);
-  assert.equal(verifyGoogleOAuthState(createGoogleOAuthState({ clientId: 'client', orgId: 'org', group: 'ga4' }))?.group, 'ga4');
+  const state = createSignedGoogleState({ clientId: 'client', orgId: 'org', group: 'gsc' });
+  assert.equal(verifySignedGoogleState(state)?.group, 'gsc');
+  assert.equal(verifySignedGoogleState(state + 'x'), null);
+  assert.equal(verifySignedGoogleState(createSignedGoogleState({ clientId: 'client', orgId: 'org', group: 'ga4' }))?.group, 'ga4');
 });

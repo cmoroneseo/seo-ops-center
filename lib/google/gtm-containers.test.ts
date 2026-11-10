@@ -12,7 +12,7 @@ import {
 } from './gtm-containers.ts';
 import { GTM_READONLY_SCOPE as SCOPE_FROM_ACCOUNT, googleOAuthScopes, isGoogleOAuthGroup, syncStatusAfterGoogleReconnect } from './account.ts';
 import { reconnectCredentials } from './gsc-properties.ts';
-import { createGoogleOAuthState, verifyGoogleOAuthState } from '../security/oauth-state.ts';
+import { createSignedGoogleState, verifySignedGoogleState } from '../security/oauth-state.ts';
 
 const containers: GtmContainerChoice[] = [
     {
@@ -165,13 +165,13 @@ test('reconnect keeps the chosen container and the signed state accepts the gtm 
     }), 'pending_setup');
 
     process.env.GOOGLE_OAUTH_STATE_SECRET = 'test-gtm-state-secret';
-    const state = createGoogleOAuthState({ clientId: 'client', orgId: 'org', group: 'gtm' });
-    assert.equal(verifyGoogleOAuthState(state)?.group, 'gtm');
+    const state = createSignedGoogleState({ clientId: 'client', orgId: 'org', group: 'gtm' });
+    assert.equal(verifySignedGoogleState(state)?.group, 'gtm');
 });
 
 test('migration 120 allows gtm without dropping bing, and does not seed a client', () => {
     const sql = readFileSync(new URL('../../migrations/120_gtm_integration.sql', import.meta.url), 'utf8');
     assert.match(sql, /service in \('ga4', 'gsc', 'gbp', 'ahrefs', 'bing', 'gtm'\)/);
     assert.equal(sql.toLowerCase().includes('insert into'), false);
-    assert.match(sql, /NOT APPLIED/);
+    assert.equal(sql.includes('NOT APPLIED'), false);
 });

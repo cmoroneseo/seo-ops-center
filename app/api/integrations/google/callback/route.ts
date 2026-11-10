@@ -4,7 +4,7 @@ import { readGoogleAccountEmail, syncStatusAfterGoogleReconnect } from '@/lib/go
 import { parseGrantedScopes } from '@/lib/ga4/connection-health';
 import { reconnectCredentials } from '@/lib/google/gsc-properties';
 import { upsertIntegration } from '@/lib/supabase/integrations';
-import { verifyGoogleOAuthState } from '@/lib/security/oauth-state';
+import { verifySignedGoogleState } from '@/lib/security/oauth-state';
 import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
 
 function getRequestOrigin(req: NextRequest) {
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
         return redirectWithIntegrationError(origin, 'missing_params');
     }
 
-    const state = verifyGoogleOAuthState(stateParam);
+    const state = verifySignedGoogleState(stateParam);
     if (!state) {
         return redirectWithIntegrationError(origin, 'invalid_state');
     }
