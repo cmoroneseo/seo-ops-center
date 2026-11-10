@@ -105,7 +105,7 @@ export async function middleware(request: NextRequest) {
     // Client content-approval portal. Authorization is the share token itself, verified
     // server-side against a stored sha-256 hash — clients have no account here, so any
     // session check would lock out exactly the people the link is for.
-    const isReviewPortal = pathname.startsWith('/review') || pathname.startsWith('/events') || pathname.startsWith('/api/portal')
+    const isReviewPortal = pathname.startsWith('/review') || pathname.startsWith('/events') || pathname.startsWith('/roadmap') || pathname.startsWith('/api/portal')
 
     // API routes that authenticate via secret/token, not session cookies
     const isWebhookRoute = pathname.startsWith('/api/integrations/basecamp/webhook') ||

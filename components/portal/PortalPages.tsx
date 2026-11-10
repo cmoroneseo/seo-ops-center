@@ -17,6 +17,9 @@ import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
 import { readStoredTrackingSnapshot, reportHasTrackedKeywordsBlock } from '@/lib/keyword-tracking/report-snapshot';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { SearchReportingAdmin } from '@/lib/search-reporting/load';
+import { blocksForClientRender, type ReportSectionsField } from '@/lib/reports/blocks';
+import { loadScopedRoadmap } from '@/lib/reports/roadmap-server';
+import type { ClientRoadmap } from '@/lib/reports/roadmap';
 export async function PortalHomeContent({ contact }: { contact: PortalClientScope }) {
     const home = await loadPortalHome(contact);
     return (
@@ -96,13 +99,23 @@ export async function PortalReportsContent({ contact }: { contact: PortalClientS
     return <div className="mx-auto max-w-4xl"><div className="mb-6 text-foreground"><h1 className="text-3xl font-bold tracking-tight">The bigger picture.</h1><p className="mt-3 text-sm text-muted-foreground">Your results, the work behind them, and what we’re learning each month.</p></div>{latest ? <><section className="portal-panel"><div className="flex flex-wrap items-start justify-between gap-5"><div><span className="portal-status">Latest report</span><h2 className="mt-3">{latest.title}</h2><p className="portal-panel-description flex items-center gap-2"><CalendarDays size={14} aria-hidden="true" />{monthLabel(latest.reportMonth)} · Shared {portalDate(latest.sharedAt)}</p><p className="mt-4 text-sm text-muted-foreground">Explore your results and month-over-month changes. Save a PDF from the report view.</p></div><Link className="portal-button" href={`/portal/reports/${latest.id}`}>Open report <ArrowRight size={15} aria-hidden="true" /></Link></div></section><section className="portal-panel mt-5"><h2>Report history</h2><ul className="mt-4 divide-y divide-border">{reports.map(report => <li key={report.id}><Link href={`/portal/reports/${report.id}`} className="flex min-h-20 items-center gap-4 py-4 hover:text-primary"><FileChartColumn size={24} className="shrink-0 text-primary" aria-hidden="true" /><div className="min-w-0 flex-1"><p className="text-sm font-semibold">{report.title}</p><p className="mt-1 text-xs text-muted-foreground">{monthLabel(report.reportMonth)}</p></div><ArrowRight size={17} className="shrink-0" aria-hidden="true" /></Link></li>)}</ul></section></> : <section className="portal-panel portal-empty"><FileChartColumn size={32} className="mx-auto mb-3 text-primary" aria-hidden="true" /><h2>Your reports will live here</h2><p className="mt-3">Your team hasn’t shared a report yet. In the meantime, your overview shows the work in motion.</p><Link href="/portal" className="mt-5 inline-block text-sm font-semibold text-primary hover:underline">Back to your progress →</Link></section>}</div>;
 }
 
+async function roadmapFor(contact: PortalClientScope, sections: ReportSectionsField): Promise<ClientRoadmap | null> {
+    if (!blocksForClientRender(sections).some(block => block.type === 'roadmap')) return null;
+    return loadScopedRoadmap(contact.organizationId, contact.clientId);
+}
+
 export async function PortalReportContent({ contact, id }: { contact: PortalClientScope; id: string }) {
     if (searchReportingEnabled()) {
         const model = await loadClientReportModel(contact, id);
-        if (model) return <ClientReport model={model} audience="client" />;
+        if (model) {
+            const shared = await loadPortalReport(contact, id);
+            const roadmap = shared ? await roadmapFor(contact, shared.sections) : null;
+            return <ClientReport model={model} audience="client" roadmap={roadmap} />;
+        }
     }
     const report = await loadPortalReport(contact, id);
     if (!report) notFound();
+    const roadmap = await roadmapFor(contact, report.sections);
     const trackingSnapshot = keywordTrackingEnabled() && reportHasTrackedKeywordsBlock(report.sections)
         ? await readStoredTrackingSnapshot({
             reportId: report.id,
@@ -124,7 +137,7 @@ export async function PortalReportContent({ contact, id }: { contact: PortalClie
             logoUrl={contact.logoUrl}
             metrics={report.metrics}
             history={report.history}
-            planSnapshot={report.planSnapshot}
+            roadmap={roadmap}
             trackingSnapshot={trackingSnapshot}
         />
     );

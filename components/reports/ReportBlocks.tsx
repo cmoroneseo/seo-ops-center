@@ -10,7 +10,8 @@ import {
     LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
     Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import { ClientProject, MarketingPlan } from '@/lib/types';
+import { ClientProject } from '@/lib/types';
+import type { ClientRoadmap } from '@/lib/reports/roadmap';
 import {
     METRIC_DEFS, REPORT_SECTIONS, formatMetric, formatMetricCaption,
     isModeledMetricKey, monthLabel, ReportSourceKey,
@@ -18,7 +19,7 @@ import {
 import { Block } from '@/lib/reports/blocks';
 import { rankTrackerViewResult, type RankTrackerViewResult } from '@/lib/reports/rank-tracker-view';
 import { GtmEventsReportBlock } from './GtmEventsReportBlock';
-import { MarketingPlanReportBlock } from './MarketingPlanReportBlock';
+import { RoadmapReportBlock } from './RoadmapReportBlock';
 import { TrackedKeywordsReportBlock } from './TrackedKeywordsReportBlock';
 import type { TrackedKeywordReportSnapshot } from '@/lib/keyword-tracking/report-snapshot';
 import { MoMDelta } from './MoMDelta';
@@ -45,11 +46,11 @@ export interface ReportContext {
     onEditText?: (blockId: string, patch: Record<string, any>) => void;
     onEditField?: (field: 'executive_summary' | 'recommendations', value: string) => void;
     /**
-     * When set (including null), the SEO Plan block renders this snapshot and
-     * does not query the checklist from the browser. The client portal passes
-     * a redacted plan, or null when the plan is not shared.
+     * Live roadmap supplied by the server (approved reports and the public link).
+     * When `roadmapFromServer` is set, the block does not fetch from the browser.
      */
-    planSnapshot?: { plan: MarketingPlan; taskDueDates?: Record<string, string | null> } | null;
+    roadmap?: ClientRoadmap | null;
+    roadmapFromServer?: boolean;
     /** Published reports render the tracked-keyword block from this frozen payload. */
     reportStatus?: 'draft' | 'published';
     organizationId?: string;
@@ -954,7 +955,8 @@ export function RenderBlock({ block, ctx }: { block: Block; ctx: ReportContext }
         case 'keyword_rankings_table':
             return staffOnlyHidden(ctx) ? null : <div className="report-staff-only"><KeywordRankingsTableBlock block={block} ctx={ctx} /></div>;
         case 'tracked_keywords_gsc': return <TrackedKeywordsReportBlock block={block} ctx={ctx} />;
-        case 'marketing_plan': return <MarketingPlanReportBlock block={block} ctx={ctx} />;
+        case 'roadmap':
+        case 'marketing_plan': return <RoadmapReportBlock block={block} ctx={ctx} />;
         case 'gtm_events': return <GtmEventsReportBlock block={block} ctx={ctx} />;
         case 'page_break': return null; // handled by the canvas (page split)
         default: return null;
