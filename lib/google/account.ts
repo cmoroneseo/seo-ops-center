@@ -1,4 +1,4 @@
-export type GoogleOAuthGroup = 'ga4-gsc' | 'ga4' | 'gsc' | 'gbp';
+export type GoogleOAuthGroup = 'ga4-gsc' | 'ga4' | 'gsc' | 'gbp' | 'gtm';
 
 /** The only `group` query values the connect route will send to Google. */
 export const GOOGLE_OAUTH_GROUPS: ReadonlySet<string> = new Set<string>([
@@ -6,9 +6,13 @@ export const GOOGLE_OAUTH_GROUPS: ReadonlySet<string> = new Set<string>([
     'ga4',
     'gsc',
     'gbp',
+    'gtm',
 ]);
 
 export const GA4_ANALYTICS_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
+
+/** Read-only Tag Manager. Not edit, not publish. Requested only by the gtm connect group. */
+export const GTM_READONLY_SCOPE = 'https://www.googleapis.com/auth/tagmanager.readonly';
 
 const SERVICE_SCOPES: Record<GoogleOAuthGroup, readonly string[]> = {
     'ga4-gsc': [
@@ -18,6 +22,7 @@ const SERVICE_SCOPES: Record<GoogleOAuthGroup, readonly string[]> = {
     ga4: [GA4_ANALYTICS_SCOPE],
     gsc: ['https://www.googleapis.com/auth/webmasters.readonly'],
     gbp: ['https://www.googleapis.com/auth/business.manage'],
+    gtm: [GTM_READONLY_SCOPE],
 };
 
 /** Identity scopes so the token exchange can record which Google account connected. */
@@ -43,7 +48,7 @@ export function googleConnectPath(clientId: string, orgId: string, group: Google
     return `/api/integrations/google/connect?${params.toString()}`;
 }
 
-const RESOURCE_KEY = { ga4: 'property_id', gsc: 'site_url', gbp: 'location_name' } as const;
+const RESOURCE_KEY = { ga4: 'property_id', gsc: 'site_url', gbp: 'location_name', gtm: 'container_id' } as const;
 
 /**
  * A reconnect keeps an already chosen property active. A first consent still
@@ -51,7 +56,7 @@ const RESOURCE_KEY = { ga4: 'property_id', gsc: 'site_url', gbp: 'location_name'
  * reuses the shared ga4-gsc grant.
  */
 export function syncStatusAfterGoogleReconnect(input: {
-    service: 'ga4' | 'gsc' | 'gbp';
+    service: 'ga4' | 'gsc' | 'gbp' | 'gtm';
     previousStatus?: string | null;
     credentials?: Record<string, unknown> | null;
 }): 'active' | 'pending_setup' {

@@ -1,6 +1,8 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-type GoogleOAuthGroup = 'ga4-gsc' | 'ga4' | 'gsc' | 'gbp';
+import type { GoogleOAuthGroup } from '../google/account';
+
+export type { GoogleOAuthGroup };
 
 export type GoogleOAuthState = {
     clientId: string;
@@ -32,7 +34,7 @@ function signPayload(payload: string) {
 }
 
 function isValidGroup(value: unknown): value is GoogleOAuthGroup {
-    return value === 'ga4-gsc' || value === 'ga4' || value === 'gsc' || value === 'gbp';
+    return value === 'ga4-gsc' || value === 'ga4' || value === 'gsc' || value === 'gbp' || value === 'gtm';
 }
 
 function isNonEmptyString(value: unknown): value is string {

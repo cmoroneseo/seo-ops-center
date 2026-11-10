@@ -90,7 +90,11 @@ export async function GET(req: NextRequest) {
         ...(googleEmail ? { google_email: googleEmail } : {}),
         ...(grantedScopes.length > 0 ? { granted_scopes: grantedScopes } : {}),
     };
-    const services = state.group === 'ga4-gsc' ? ['ga4', 'gsc'] as const : state.group === 'ga4' ? ['ga4'] as const : state.group === 'gsc' ? ['gsc'] as const : ['gbp'] as const;
+    const services = state.group === 'ga4-gsc' ? ['ga4', 'gsc'] as const
+        : state.group === 'ga4' ? ['ga4'] as const
+        : state.group === 'gsc' ? ['gsc'] as const
+        : state.group === 'gtm' ? ['gtm'] as const
+        : ['gbp'] as const;
 
     const admin = createAdminClient();
     for (const service of services) {

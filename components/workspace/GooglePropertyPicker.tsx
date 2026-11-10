@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
 import { filterGa4Properties, ga4SearchEmptyMessage, type Ga4PropertySummary } from '@/lib/google/ga4-properties';
+import { filterGtmContainers, gtmContainerKey, type GtmContainerChoice } from '@/lib/google/gtm-containers';
 import { GoogleAccountEmptyHint } from './GoogleAccountEmptyHint';
 import { PropertySearchInput } from './PropertySearchInput';
 
@@ -18,7 +19,7 @@ interface GBPLocation {
 interface Props {
     clientId: string;
     orgId: string;
-    group: 'ga4-gsc' | 'gbp';
+    group: 'ga4-gsc' | 'gbp' | 'gtm';
     onComplete: () => void;
     onCancel: () => void;
     googleEmail?: string;
@@ -137,6 +138,10 @@ export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCan
     const [selectedGBP, setSelectedGBP] = useState('');
     const [selectedGBPMeta, setSelectedGBPMeta] = useState<{ title: string; address: string }>({ title: '', address: '' });
 
+    const [gtmContainers, setGtmContainers] = useState<GtmContainerChoice[]>([]);
+    const [gtmQuery, setGtmQuery] = useState('');
+    const [selectedGtm, setSelectedGtm] = useState('');
+
     useEffect(() => {
         fetch(`/api/integrations/google/properties?clientId=${clientId}&group=${group}`)
             .then((r) => r.json())
@@ -148,6 +153,10 @@ export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCan
                         setSelectedGA4(data.ga4Properties[0].id);
                         setSelectedGA4Name(data.ga4Properties[0].displayName);
                     }
+                } else if (group === 'gtm') {
+                    const containers = (data.gtmContainers ?? []) as GtmContainerChoice[];
+                    setGtmContainers(containers);
+                    if (containers.length === 1) setSelectedGtm(gtmContainerKey(containers[0]));
                 } else {
                     setGbpLocations(data.gbpLocations ?? []);
                     if (data.gbpLocations?.length === 1) {
@@ -161,9 +170,12 @@ export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCan
             .finally(() => setLoading(false));
     }, [clientId, group]);
 
+    const selectedContainer = gtmContainers.find(container => gtmContainerKey(container) === selectedGtm);
     const canSave = group === 'ga4-gsc'
         ? Boolean(selectedGA4)
-        : Boolean(selectedGBP);
+        : group === 'gtm'
+            ? Boolean(selectedContainer)
+            : Boolean(selectedGBP);
 
     async function handleSave() {
         if (!canSave) return;
@@ -171,7 +183,9 @@ export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCan
         try {
             const body = group === 'ga4-gsc'
                 ? { clientId, orgId, ga4PropertyId: selectedGA4, ga4DisplayName: selectedGA4Name }
-                : { clientId, orgId, gbpLocationName: selectedGBP, gbpTitle: selectedGBPMeta.title, gbpAddress: selectedGBPMeta.address };
+                : group === 'gtm'
+                    ? { clientId, orgId, gtmAccountId: selectedContainer?.accountId, gtmContainerId: selectedContainer?.containerId }
+                    : { clientId, orgId, gbpLocationName: selectedGBP, gbpTitle: selectedGBPMeta.title, gbpAddress: selectedGBPMeta.address };
 
             const res = await fetch('/api/integrations/google/configure', {
                 method: 'POST',
@@ -187,10 +201,12 @@ export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCan
         }
     }
 
-    const title = group === 'ga4-gsc' ? 'Select Analytics Property' : 'Select Business Location';
+    const title = group === 'ga4-gsc' ? 'Select Analytics Property' : group === 'gtm' ? 'Select Tag Manager container' : 'Select Business Location';
     const subtitle = group === 'ga4-gsc'
         ? 'Choose which Google Analytics property belongs to this client.'
-        : 'Choose which Google Business Profile location belongs to this client.';
+        : group === 'gtm'
+            ? 'Choose the Tag Manager account and container for this client. This connection is read-only.'
+            : 'Choose which Google Business Profile location belongs to this client.';
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -233,6 +249,30 @@ export function GooglePropertyPicker({ clientId, orgId, group, onComplete, onCan
                         </div>
 
                         <p className="text-xs text-muted-foreground">Select Search Console separately from its integration card.</p>
+                    </div>
+                )}
+
+                {!loading && !error && group === 'gtm' && (
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Tag Manager container</label>
+                        <PropertySearchInput
+                            value={gtmQuery}
+                            onChange={setGtmQuery}
+                            placeholder="Search by name, account, or GTM- ID…"
+                            autoFocus
+                        />
+                        <PickerList
+                            items={filterGtmContainers(gtmContainers, gtmQuery)}
+                            selected={selectedGtm}
+                            onSelect={setSelectedGtm}
+                            getKey={gtmContainerKey}
+                            renderItem={(container) => (
+                                <>
+                                    <div className="font-medium text-foreground">{container.name}</div>
+                                    <div className="text-xs text-muted-foreground">{container.accountName} · {container.publicId}</div>
+                                </>
+                            )}
+                        />
                     </div>
                 )}
 

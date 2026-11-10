@@ -6,6 +6,7 @@ const PROPERTY_FIELD: Partial<Record<IntegrationService, string>> = {
     ga4: 'property_id',
     gsc: 'site_url',
     gbp: 'location_name',
+    gtm: 'container_id',
 };
 
 /** Browser-safe integration row. Credentials stay on the server except the Google account email. */
@@ -35,7 +36,10 @@ export function toPublicIntegration(row: {
         lastSyncedAt: row.last_synced_at ?? undefined,
         syncStatus: row.sync_status as ClientIntegration['syncStatus'],
         errorMessage: row.error_message ?? undefined,
-        selectedProperty: service === 'gsc' && row.sync_status !== 'disconnected' && typeof credentials.site_url === 'string' ? credentials.site_url : undefined,
+        selectedProperty: row.sync_status === 'disconnected' ? undefined
+            : service === 'gsc' && typeof credentials.site_url === 'string' ? credentials.site_url
+            : service === 'gtm' && typeof credentials.public_id === 'string' ? credentials.public_id
+            : undefined,
         needsPropertySetup: propertyField
             ? row.sync_status === 'active' && !credentials[propertyField]
             : false,

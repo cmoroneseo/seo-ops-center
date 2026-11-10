@@ -603,7 +603,7 @@ export interface ClientAssignment {
     notes?: string;           // optional reason for change
 }
 
-export type IntegrationService = 'ga4' | 'gsc' | 'gbp' | 'ahrefs';
+export type IntegrationService = 'ga4' | 'gsc' | 'gbp' | 'ahrefs' | 'gtm';
 export type IntegrationSyncStatus = 'active' | 'pending_setup' | 'error' | 'disconnected';
 
 export interface ClientIntegration {

@@ -32,7 +32,7 @@ interface ServiceConfig {
     service: IntegrationService;
     label: string;
     description: string;
-    group: 'ga4-gsc' | 'gbp' | 'ahrefs';
+    group: 'ga4-gsc' | 'gbp' | 'ahrefs' | 'gtm';
     icon: string;
 }
 
@@ -50,6 +50,13 @@ const SERVICES: ServiceConfig[] = [
         description: 'Organic traffic, impressions, keyword positions',
         group: 'ga4-gsc',
         icon: '🔍',
+    },
+    {
+        service: 'gtm',
+        label: 'Google Tag Manager',
+        description: 'Which events the site tags record. Read-only.',
+        group: 'gtm',
+        icon: '🏷️',
     },
     {
         service: 'gbp',
@@ -109,7 +116,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
     const [rankTrackerSaving, setRankTrackerSaving] = useState(false);
     const [rankTrackerError, setRankTrackerError] = useState('');
     const [disconnecting, setDisconnecting] = useState<IntegrationService | null>(null);
-    const [showPropertyPicker, setShowPropertyPicker] = useState<'ga4-gsc' | 'gbp' | null>(null);
+    const [showPropertyPicker, setShowPropertyPicker] = useState<'ga4-gsc' | 'gbp' | 'gtm' | null>(null);
     const openedGa4PickerFor = useRef<string | null>(null);
     const [showKeyEvents, setShowKeyEvents] = useState(false);
     const [showGscPicker, setShowGscPicker] = useState(false);
@@ -145,6 +152,9 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
             } else if (success === 'gbp') {
                 setSelectedService('gbp');
                 setShowPropertyPicker('gbp');
+            } else if (success === 'gtm') {
+                setSelectedService('gtm');
+                setShowPropertyPicker('gtm');
             }
             // Strip query param
             const url = new URL(window.location.href);
@@ -185,7 +195,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
         return (i?.syncStatus as string) === 'pending_setup';
     }
 
-    function connectGoogle(group: 'ga4-gsc' | 'gsc' | 'gbp') {
+    function connectGoogle(group: 'ga4-gsc' | 'gsc' | 'gbp' | 'gtm') {
         if (!orgId) return;
         window.location.href = googleConnectPath(clientId, orgId, group);
     }
@@ -239,9 +249,10 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
     async function disconnect(service: IntegrationService) {
         setDisconnecting(service);
         try {
-            const res = await fetch(`/api/integrations/ahrefs?clientId=${clientId}&service=${service}`, {
-                method: 'DELETE',
-            });
+            const path = service === 'ahrefs'
+                ? `/api/integrations/ahrefs?clientId=${clientId}`
+                : `/api/integrations/google/disconnect?clientId=${clientId}&service=${service}`;
+            const res = await fetch(path, { method: 'DELETE' });
             if (res.ok) {
                 setIntegrations((prev) =>
                     prev.map((i) => i.service === service ? { ...i, syncStatus: 'disconnected' } : i),
@@ -381,13 +392,13 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
         }
     }
 
-    const cards: IntegrationCardItem[] = ['gsc', 'ga4', 'gbp', 'ahrefs'].map(service => {
+    const cards: IntegrationCardItem[] = ['gsc', 'ga4', 'gtm', 'gbp', 'ahrefs'].map(service => {
         const cfg = SERVICES.find(item => item.service === service)!;
         const integration = getIntegration(cfg.service);
         const needsAnalytics = service === 'ga4' && integration?.connectionHealth === 'reconnect_analytics';
         const attention = needsAnalytics || integration?.syncStatus === 'error' || isPendingSetup(cfg.service) || integration?.needsPropertySetup || (service === 'gsc' && integration?.syncStatus === 'active' && !integration.selectedProperty);
         const connected = isConnected(cfg.service) && !attention;
-        const accountLabel = service === 'ga4' || service === 'gsc' ? connectedAccountLabel(integration?.googleEmail) : undefined;
+        const accountLabel = service === 'ga4' || service === 'gsc' || service === 'gtm' ? connectedAccountLabel(integration?.googleEmail) : undefined;
         return { id: service as IntegrationCardId, name: cfg.label, description: cfg.description,
             tone: attention ? 'attention' : connected ? 'connected' : 'neutral',
             accountLabel,
@@ -420,10 +431,10 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                     clientId={clientId}
                     orgId={orgId}
                     group={showPropertyPicker}
-                    googleEmail={showPropertyPicker === 'ga4-gsc' ? getIntegration('ga4')?.googleEmail : undefined}
-                    onReconnect={showPropertyPicker === 'ga4-gsc' ? () => connectGoogle('ga4-gsc') : undefined}
+                    googleEmail={showPropertyPicker === 'ga4-gsc' ? getIntegration('ga4')?.googleEmail : showPropertyPicker === 'gtm' ? getIntegration('gtm')?.googleEmail : undefined}
+                    onReconnect={showPropertyPicker === 'ga4-gsc' ? () => connectGoogle('ga4-gsc') : showPropertyPicker === 'gtm' ? () => connectGoogle('gtm') : undefined}
                     onComplete={async () => {
-                        const label = showPropertyPicker === 'ga4-gsc' ? 'Google Analytics' : 'Google Business Profile';
+                        const label = showPropertyPicker === 'ga4-gsc' ? 'Google Analytics' : showPropertyPicker === 'gtm' ? 'Tag Manager' : 'Google Business Profile';
                         setShowPropertyPicker(null);
                         setToast(`${label} connected successfully`);
                         const updated = await getClientIntegrations(clientId, orgId);
@@ -459,7 +470,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                     // back to 'active' after a successful run) — an error status
                     // doesn't mean the key needs re-entering.
                     const hasCredentials = !!integration && integration.syncStatus !== 'disconnected';
-                    const accountLabel = cfg.service === 'ga4' ? connectedAccountLabel(integration?.googleEmail) : undefined;
+                    const accountLabel = cfg.service === 'ga4' || cfg.service === 'gtm' ? connectedAccountLabel(integration?.googleEmail) : undefined;
 
                     return (
                         <div
@@ -496,7 +507,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                                         {pendingSetup && (
                                             <span className="flex items-center gap-1 text-xs text-yellow-500">
                                                 <Settings2 className="h-3 w-3" />
-                                                Select property
+                                                {cfg.service === 'gtm' ? 'Select container' : 'Select property'}
                                             </span>
                                         )}
                                         {hasError && (
@@ -514,6 +525,9 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                                     </div>
                                     <p className="text-xs text-muted-foreground mt-0.5">{cfg.description}</p>
                                     {accountLabel && <p className="text-xs text-muted-foreground mt-1">{accountLabel}</p>}
+                                    {cfg.service === 'gtm' && integration?.selectedProperty && (
+                                        <p className="text-xs text-muted-foreground mt-1">Container {integration.selectedProperty}</p>
+                                    )}
                                     {integration?.lastSyncedAt && (
                                         <p className="text-xs text-muted-foreground mt-1">
                                             Last synced: {new Date(integration.lastSyncedAt).toLocaleDateString()}
@@ -582,6 +596,15 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                                                 Select Property
                                             </button>
                                         )}
+                                        {(pendingSetup || needsPropertySetup) && cfg.service === 'gtm' && (
+                                            <button
+                                                onClick={() => setShowPropertyPicker('gtm')}
+                                                className="flex items-center gap-1.5 text-xs bg-yellow-500 text-white rounded-md px-2.5 py-1.5 hover:bg-yellow-500/90 transition-colors"
+                                            >
+                                                <Settings2 className="h-3.5 w-3.5" />
+                                                Select container
+                                            </button>
+                                        )}
                                         {(pendingSetup || needsPropertySetup) && cfg.service === 'gbp' && (
                                             <button
                                                 onClick={() => setShowPropertyPicker('gbp')}
@@ -610,9 +633,9 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                                                 Key events
                                             </button>
                                         )}
-                                        {connected && !needsPropertySetup && (cfg.service === 'ga4' || cfg.service === 'gbp') && (
+                                        {connected && !needsPropertySetup && (cfg.service === 'ga4' || cfg.service === 'gbp' || cfg.service === 'gtm') && (
                                             <button
-                                                onClick={() => setShowPropertyPicker(cfg.service === 'ga4' ? 'ga4-gsc' : 'gbp')}
+                                                onClick={() => setShowPropertyPicker(cfg.service === 'ga4' ? 'ga4-gsc' : cfg.service === 'gtm' ? 'gtm' : 'gbp')}
                                                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border hover:border-primary/40 rounded-md px-2.5 py-1.5 transition-all"
                                             >
                                                 <Settings2 className="h-3.5 w-3.5" />
@@ -620,7 +643,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                                             </button>
                                         )}
                                         {!pendingSetup && <button
-                                            onClick={() => connectGoogle(cfg.group as 'ga4-gsc' | 'gbp')}
+                                            onClick={() => connectGoogle(cfg.group === 'gtm' ? 'gtm' : cfg.group === 'gbp' ? 'gbp' : 'ga4-gsc')}
                                             className={cn(
                                                 'flex items-center gap-1.5 text-xs rounded-md px-2.5 py-1.5 transition-all border',
                                                 connected
@@ -636,7 +659,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                                             ) : (
                                                 <>
                                                     <ExternalLink className="h-3.5 w-3.5" />
-                                                    {cfg.group === 'ga4-gsc' ? 'Connect GA4' : 'Connect GBP'}
+                                                    {cfg.group === 'ga4-gsc' ? 'Connect GA4' : cfg.group === 'gtm' ? 'Connect Tag Manager' : 'Connect GBP'}
                                                 </>
                                             )}
                                         </button>}

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { GtmContainersError, readGtmContainers, selectGtmContainer } from '@/lib/google/gtm-containers';
 import { logClientActivity } from '@/lib/supabase/client-activity';
 import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
+import { getGoogleAccessToken, GoogleAuthError } from '@/lib/sync/token';
 
 async function readJsonBody(req: NextRequest) {
     try {
@@ -18,7 +20,8 @@ async function readJsonBody(req: NextRequest) {
  * flips sync_status from 'pending_setup' -> 'active'.
  *
  * GA4 body: { clientId, orgId?, ga4PropertyId, ga4DisplayName }
- * GBP body:     { clientId, orgId?, gbpLocationName, gbpTitle, gbpAddress }
+ * GBP body: { clientId, orgId?, gbpLocationName, gbpTitle, gbpAddress }
+ * GTM body: { clientId, orgId?, gtmAccountId, gtmContainerId }
  */
 export async function POST(req: NextRequest) {
     const body = await readJsonBody(req);
@@ -111,6 +114,64 @@ export async function POST(req: NextRequest) {
                 },
             });
         }
+    }
+
+    const gtmAccountId = (body as { gtmAccountId?: unknown }).gtmAccountId;
+    const gtmContainerId = (body as { gtmContainerId?: unknown }).gtmContainerId;
+    if (typeof gtmAccountId === 'string' || typeof gtmContainerId === 'string') {
+        let containers;
+        try {
+            const auth = await getGoogleAccessToken(authorization.clientId, 'gtm');
+            if (!auth) return NextResponse.json({ error: 'Connect Tag Manager before choosing a container.' }, { status: 404 });
+            containers = await readGtmContainers(auth.token);
+        } catch (error) {
+            if (error instanceof GtmContainersError) {
+                return NextResponse.json({ error: error.message }, { status: error.status });
+            }
+            if (error instanceof GoogleAuthError) {
+                return NextResponse.json({ error: 'Unable to confirm the Tag Manager container. Reconnect and try again.' }, { status: 401 });
+            }
+            return NextResponse.json({ error: 'Unable to confirm the Tag Manager container. Reconnect and try again.' }, { status: 502 });
+        }
+        const selected = selectGtmContainer(containers, gtmAccountId, gtmContainerId);
+        if (!selected) {
+            return NextResponse.json({ error: 'That container is not on the connected Google account. Refresh the list and choose another.' }, { status: 400 });
+        }
+        const { data: row } = await admin
+            .from('client_integrations')
+            .select('credentials, sync_status')
+            .eq('client_id', authorization.clientId)
+            .eq('service', 'gtm')
+            .maybeSingle();
+        if (!row) return NextResponse.json({ error: 'Connect Tag Manager before choosing a container.' }, { status: 404 });
+        const isReconfigure = row.sync_status === 'active' && row.credentials?.container_id;
+        updates.push(
+            admin.from('client_integrations').update({
+                credentials: {
+                    ...row.credentials,
+                    account_id: selected.accountId,
+                    container_id: selected.containerId,
+                    public_id: selected.publicId,
+                    display_name: selected.name,
+                },
+                sync_status: 'active',
+            }).eq('client_id', authorization.clientId).eq('service', 'gtm'),
+        );
+        activityEvents.push({
+            organizationId: authorization.organizationId,
+            clientId: authorization.clientId,
+            eventType: isReconfigure ? 'integration.reconfigured' : 'integration.connected',
+            actorId: authorization.userId,
+            actorName: authorization.actorName,
+            metadata: {
+                service: 'gtm',
+                display_name: selected.name,
+                public_id: selected.publicId,
+                account_id: selected.accountId,
+                container_id: selected.containerId,
+                ...(isReconfigure && { old_container_id: row.credentials.container_id }),
+            },
+        });
     }
 
     if (updates.length === 0) {

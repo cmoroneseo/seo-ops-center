@@ -4,11 +4,11 @@ import { requireClientIntegrationManager } from '@/lib/security/tenant-authz';
 import { createGoogleOAuthState } from '@/lib/security/oauth-state';
 
 /**
- * GET /api/integrations/google/connect?clientId=...&orgId=...&group=ga4|gsc|gbp|ga4-gsc
+ * GET /api/integrations/google/connect?clientId=...&orgId=...&group=ga4|gsc|gbp|ga4-gsc|gtm
  *
  * Redirects the AM to Google's OAuth consent screen. The `group` param controls
  * which scopes are requested: 'ga4-gsc' covers GA4 + GSC in a single auth,
- * 'gbp' covers Google Business Profile separately.
+ * 'gbp' covers Google Business Profile, and 'gtm' covers Tag Manager read-only.
  */
 export async function GET(req: NextRequest) {
     const { searchParams } = req.nextUrl;
