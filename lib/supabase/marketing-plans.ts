@@ -79,8 +79,8 @@ export async function getMarketingPlan(clientId: string): Promise<MarketingPlan 
     return { ...plan, items: (itemRows ?? []).map((row: any) => resolvePlanItem({ ...rowToItem(row), linkedTask: row.linked_task ? rowToTask(row.linked_task) : undefined })) };
 }
 
-/** Creates the plan shell only. Checklist rows are added with applyMarketingPlanSeed. */
-export async function createMarketingPlanFromTemplate(input: {
+/** Creates an empty plan. Checklist rows are added later with applyMarketingPlanSeed. */
+export async function createEmptyMarketingPlan(input: {
     organizationId: string;
     clientId: string;
     clientName: string;

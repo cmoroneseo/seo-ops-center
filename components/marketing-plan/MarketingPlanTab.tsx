@@ -5,7 +5,7 @@ import { ClipboardList, FileDown, ListChecks, Plus, Printer, Search, Sparkles } 
 import { cn } from '@/lib/utils';
 import { MarketingPlan, MarketingPlanItem, Task } from '@/lib/types';
 import {
-    createMarketingPlanFromTemplate, applyMarketingPlanSeed, addCustomItem, addCatalogItem, promoteItemToTask, updateMarketingPlanGoal, promoteItemsToTasks, promoteItemsAsPillar, nestTasksUnderPillar, addExistingTaskToPlan,
+    createEmptyMarketingPlan, applyMarketingPlanSeed, addCustomItem, addCatalogItem, promoteItemToTask, updateMarketingPlanGoal, promoteItemsToTasks, promoteItemsAsPillar, nestTasksUnderPillar, addExistingTaskToPlan,
 } from '@/lib/supabase/marketing-plans';
 import { loadMarketingPlan } from '@/lib/seo-plan/prefetch';
 import { createClient } from '@/lib/supabase/client';
@@ -210,7 +210,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
 
     const handleCreate = async () => {
         setCreating(true);
-        const res = await createMarketingPlanFromTemplate({ organizationId, clientId, clientName });
+        const res = await createEmptyMarketingPlan({ organizationId, clientId, clientName });
         if (res.success) {
             logActivity({ clientId, eventType: 'campaign.created', metadata: { source: 'empty_plan' } });
         } else {

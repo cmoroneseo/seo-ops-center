@@ -8,7 +8,7 @@ export const EMPTY_PLAN_BODY =
 export const EMPTY_PLAN_ADD_TASKS =
     'Type the first task in the Add task box above, then press Enter. Paste several lines to add more than one task.';
 
-export const EMPTY_CHECKLIST_ADD = 'Choose Add item to type the first task.';
+export const EMPTY_CHECKLIST_ADD = 'Choose Add Item to type the first task.';
 
 export const NO_PLAN_TITLE = 'No work plan yet';
 
@@ -42,3 +42,25 @@ export const SETUP_SCOPE_NOTE =
 export const SETUP_MONTHLY_CHOICE = 'Ongoing search engine optimization and content';
 
 export const SETUP_CUSTOM_CHOICE = 'Hours for a defined piece of work';
+
+export const SETUP_INTRO = 'Start by choosing how you work together, then set up the work.';
+
+export const SETUP_SAVED = 'Your client and the work details have been saved.';
+
+export const SETUP_CHOOSE = 'Choose how you work together';
+
+export const SETUP_MONTHLY_SERVICES = 'Monthly services';
+
+export const SETUP_HOURS_PER_MONTH = 'Hours of search work per month *';
+
+export const SETUP_HOURS_USED_TITLE = 'Management uses the search work hours';
+
+export const SETUP_HOURS_USED_HELP = 'Actual management work counts toward those hours.';
+
+export const SETUP_TOTAL_HOURS = 'Total estimated hours of search work';
+
+export const SETUP_SAVED_TOGETHER = 'Client details and services are saved together';
+
+export const SETUP_CREATE = 'Create client and save services';
+
+export const SETUP_OPEN_PLAN = 'Open the work plan';

@@ -15,12 +15,23 @@ import {
     EMPTY_PLAN_BODY,
     EMPTY_PLAN_TITLE,
     NO_PLAN_TITLE,
+    SETUP_CHOOSE,
+    SETUP_CREATE,
     SETUP_CUSTOM_CHOICE,
+    SETUP_HOURS_PER_MONTH,
+    SETUP_HOURS_USED_HELP,
+    SETUP_HOURS_USED_TITLE,
+    SETUP_INTRO,
     SETUP_MONTHLY_CHOICE,
+    SETUP_MONTHLY_SERVICES,
+    SETUP_OPEN_PLAN,
     SETUP_PLAN_NOTE,
     SETUP_PLAN_PREVIEW,
     SETUP_READY_NOTE,
+    SETUP_SAVED,
+    SETUP_SAVED_TOGETHER,
     SETUP_SCOPE_NOTE,
+    SETUP_TOTAL_HOURS,
     noPlanBody,
 } from './empty-plan.ts';
 
@@ -72,10 +83,21 @@ test('empty plan copy names the plan and tells a person how to add the first tas
         SETUP_PLAN_PREVIEW,
         SETUP_READY_NOTE,
         SETUP_SCOPE_NOTE,
+        SETUP_INTRO,
+        SETUP_SAVED,
+        SETUP_CHOOSE,
+        SETUP_MONTHLY_SERVICES,
+        SETUP_HOURS_PER_MONTH,
+        SETUP_HOURS_USED_TITLE,
+        SETUP_HOURS_USED_HELP,
+        SETUP_TOTAL_HOURS,
+        SETUP_SAVED_TOGETHER,
+        SETUP_CREATE,
+        SETUP_OPEN_PLAN,
     ].join('\n');
     assert.match(copy, /work plan/);
     assert.match(copy, /search engine optimization/);
     assert.match(copy, /Add task/);
-    assert.match(copy, /Add item/);
+    assert.match(copy, /Add Item/);
     assert.doesNotMatch(copy, /\bSEO\b|\bGBP\b|\bGA4\b|playbook|template|seed/i);
 });
