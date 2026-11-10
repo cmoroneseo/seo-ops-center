@@ -30,7 +30,7 @@ export function staleAsOf(dateLabel: string): string {
 }
 
 export function snapshotLocked(dateLabel: string): string {
-    return `Snapshot locked ${dateLabel}`;
+    return `Saved ${dateLabel}`;
 }
 
 /** Not connected renders an em dash plus the reason, never a fake zero. */

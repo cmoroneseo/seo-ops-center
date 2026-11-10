@@ -519,7 +519,7 @@ export function buildGtmEventsReport(input: BuildGtmEventsInput): GtmEventsSnaps
             lede: `${input.clientName} · ${currentPeriod.range} · compared with ${priorPeriod.range}`,
             totalEvents: 'All events recorded on the site.',
             tagEvents: tagSentence,
-            sessions: 'Sessions give context for the event counts.',
+            sessions: 'Visits give context for the event counts.',
             events: `Every event recorded in ${monthName}, sorted by count and compared with ${priorName}. Only events with a ${monthName} count are listed.`,
             outbound: `Which properties and links were clicked in ${monthName}, compared with ${priorName}.`,
             links: `The same clicks, listed by the words on the link. Only links with a ${monthName} count are listed.`,

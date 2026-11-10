@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
+import { reportStatusLabel } from '@/lib/copy/labels';
 import { monthLabel } from '@/lib/reports/sections';
 import Link from 'next/link';
 import { reportTitleMonthMismatch } from '@/lib/portal/readiness';
@@ -114,7 +115,7 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
     return (
         <div className="space-y-8">
             <div>
-                <div className="flex flex-wrap items-center gap-3"><h3 className="text-lg font-semibold">Portal management</h3><span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">Staff only</span></div>
+                <div className="flex flex-wrap items-center gap-3"><h3 className="text-lg font-semibold">Client portal</h3><span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">Staff only</span></div>
                 <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
                     Manage what {clientName} sees in their separate client portal. Invite contacts, share the SEO Plan and reports, and respond to their messages.
                     Internal notes, assignees, drafts, and timesheets stay in the workspace.
@@ -216,7 +217,7 @@ export function ClientPortalStaffPanel({ clientId, clientName }: { clientId: str
                         const shared = data?.sharedReportIds.includes(report.id);
                         return (
                             <li key={report.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                                <span>{report.title} · {monthLabel(report.report_month)} · {report.status}{reportTitleMonthMismatch(report.title, report.report_month) && <span className="mt-1 block text-destructive">Title and reporting month disagree. Correct this in Reports before sharing. <Link href={`/reports/${report.id}`} className="underline">Open report</Link></span>}</span>
+                                <span>{report.title} · {monthLabel(report.report_month)} · {reportStatusLabel(report.status)}{reportTitleMonthMismatch(report.title, report.report_month) && <span className="mt-1 block text-destructive">Title and reporting month disagree. Correct this in Reports before sharing. <Link href={`/reports/${report.id}`} className="underline">Open report</Link></span>}</span>
                                 {report.status === 'published' ? (
                                     <button
                                         type="button"

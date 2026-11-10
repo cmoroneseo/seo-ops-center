@@ -5,6 +5,7 @@ import {
     Check, CheckCheck, FileText, Loader2, MessageSquare, PenLine, Send, X,
 } from 'lucide-react';
 
+import { APPROVAL_DOC_STATUS_LABELS as STATUS_LABEL } from '@/lib/copy/labels';
 import { cn } from '@/lib/utils';
 import { ContentDocView } from '@/components/approvals/ContentDocView';
 import type { AnchoredItem } from '@/lib/approvals/comment-highlight';
@@ -29,13 +30,6 @@ function storeName(name: string): void {
         /* a reviewer in a private window just gets asked again — not worth failing over */
     }
 }
-
-const STATUS_LABEL: Record<ApprovalDocStatus, string> = {
-    pending: 'Awaiting your review',
-    approved: 'Approved',
-    approved_with_edits: 'Approved with edits',
-    changes_requested: 'Changes requested',
-};
 
 interface Draft {
     anchor: ContentAnchor;

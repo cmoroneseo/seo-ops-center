@@ -16,7 +16,7 @@ test('the client component renders the fixture without AM copy or banned words',
     const html = renderToStaticMarkup(React.createElement(ClientReport, { model: scottColeReport('client'), audience: 'client' }));
     assert.equal(html.includes('37,906'), true);
     assert.equal(html.includes('No September work is recorded'), false);
-    assert.equal(html.includes('AM writes this'), false);
+    assert.equal(html.includes('Account manager writes this'), false);
     assert.equal(html.includes('Extend Search history'), false);
     assert.equal(html.includes('August is only partly covered'), true);
     assert.equal((html.match(/data-page="/g) ?? []).length, 2);

@@ -22,7 +22,10 @@ import {
 import { keywordTrackingEnabled } from './flag';
 import type { KeywordSource } from './plan';
 
+/** Stored on published keyword snapshots. Do not change this string. */
 export const RANKING_POSITION_LABEL = 'GSC avg position, all locations & devices';
+
+export const RANKING_POSITION_DISPLAY = 'Average Google position, all locations and devices';
 
 export const RANKING_BANDS = [
     { id: '1-3', label: '1–3' },

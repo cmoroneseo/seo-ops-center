@@ -22,7 +22,7 @@ export const MIN_URL_IMPRESSIONS = 1;
 export const MIN_COMPETING_URLS = 2;
 
 export const CANNIBAL_DEFINITION =
-    'A keyword is affected when 2 or more normalized URLs each have impressions.';
+    'A keyword counts here when two or more different pages were each shown in Google for it.';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 

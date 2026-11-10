@@ -22,7 +22,9 @@ test('the client report hides sentinel labels and shows an em dash for a zero pr
     const html = renderToStaticMarkup(createElement(GtmEventsReport, { report, showChrome: true }));
     const body = html.replace(/<style>[\s\S]*?<\/style>/, '');
     assert.match(body, /3,010/);
-    assert.match(body, /GTM Event Report/);
+    assert.match(body, /Event report/);
+    assert.match(body, /Events from Google Tag Manager/);
+    assert.equal(body.includes('GTM'), false);
     assert.match(body, /De Portola Wine Trail/);
     assert.match(body, /—/);
     assert.match(body, /Nov 9, 2026/);

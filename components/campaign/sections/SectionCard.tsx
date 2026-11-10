@@ -2,9 +2,10 @@
 
 import React from 'react';
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
+import { CAMPAIGN_GOAL_STATUS_LABELS, CAMPAIGN_PLAN_STATUS_LABELS } from '@/lib/copy/labels';
 import { cn } from '@/lib/utils';
 import {
-    CampaignPlanStatus, CampaignGoalCategory, KpiGroup, KpiSource,
+    CampaignPlanStatus, CampaignGoalCategory, CampaignGoalStatus, KpiGroup, KpiSource,
     KpiConfidence, WorkstreamCategory, WorkstreamStatus, PhaseStatus,
     ExpectationType,
 } from '@/lib/types';
@@ -121,18 +122,18 @@ export const EXPECTATION_TYPES: { value: ExpectationType; label: string }[] = [
 ];
 
 export const STATUS_LABELS: Record<CampaignPlanStatus, { label: string; color: string }> = {
-    draft: { label: 'Draft', color: 'bg-gray-500/10 text-gray-500 border-gray-500/20' },
-    internal_review: { label: 'In Review', color: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20' },
-    approved: { label: 'Approved', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20' },
-    active: { label: 'Active', color: 'bg-green-500/10 text-green-500 border-green-500/20' },
-    archived: { label: 'Archived', color: 'bg-gray-500/10 text-gray-400 border-gray-500/20' },
+    draft: { label: CAMPAIGN_PLAN_STATUS_LABELS.draft, color: 'bg-gray-500/10 text-gray-500 border-gray-500/20' },
+    internal_review: { label: CAMPAIGN_PLAN_STATUS_LABELS.internal_review, color: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20' },
+    approved: { label: CAMPAIGN_PLAN_STATUS_LABELS.approved, color: 'bg-blue-500/10 text-blue-500 border-blue-500/20' },
+    active: { label: CAMPAIGN_PLAN_STATUS_LABELS.active, color: 'bg-green-500/10 text-green-500 border-green-500/20' },
+    archived: { label: CAMPAIGN_PLAN_STATUS_LABELS.archived, color: 'bg-gray-500/10 text-gray-400 border-gray-500/20' },
 };
 
-export const GOAL_STATUSES: { value: string; label: string }[] = [
-    { value: 'active', label: 'Active' },
-    { value: 'achieved', label: 'Achieved' },
-    { value: 'at_risk', label: 'At Risk' },
-    { value: 'dropped', label: 'Dropped' },
+export const GOAL_STATUSES: { value: CampaignGoalStatus; label: string }[] = [
+    { value: 'active', label: CAMPAIGN_GOAL_STATUS_LABELS.active },
+    { value: 'achieved', label: CAMPAIGN_GOAL_STATUS_LABELS.achieved },
+    { value: 'at_risk', label: CAMPAIGN_GOAL_STATUS_LABELS.at_risk },
+    { value: 'dropped', label: CAMPAIGN_GOAL_STATUS_LABELS.dropped },
 ];
 
 export const WS_STATUS_COLORS: Record<WorkstreamStatus, string> = {

@@ -102,7 +102,7 @@ export function CloseBoard({
                     <h1 className="text-2xl font-semibold tracking-tight">{board.title}</h1>
                     <p className="mt-1 text-sm text-muted-foreground">
                         {visible.meta}
-                        <span className="hidden sm:inline"> · Drafts appear once a client’s {board.monthName} GSC days are final</span>
+                        <span className="hidden sm:inline"> · Drafts appear once a client’s {board.monthName} Google Search Console days are final</span>
                     </p>
                 </div>
                 <div className="flex items-center gap-2 text-sm">
@@ -283,7 +283,7 @@ export function CloseBoard({
                                                 </span>
                                             )}
                                             <span className="mt-2 flex flex-wrap gap-1 text-[10px]">
-                                                {card.gscFinal && <span className="rounded-full border border-border px-1.5 py-0.5">GSC</span>}
+                                                {card.gscFinal && <span className="rounded-full border border-border px-1.5 py-0.5">Search Console</span>}
                                                 {card.blockingCount > 0 && <span className="rounded-full border border-destructive/40 px-1.5 py-0.5 text-destructive">{card.blockingCount} blocking</span>}
                                                 {card.warnCount > 0 && <span className="rounded-full border border-amber-500/40 px-1.5 py-0.5 text-amber-500">{card.warnCount} warn</span>}
                                             </span>
@@ -325,7 +325,7 @@ export function CloseBoard({
                                     </li>
                                 ))}
                                 {!selected.gbpConnected && <li className="text-xs text-muted-foreground">Business Profile isn’t connected. Call-button taps will show —.</li>}
-                                {!selected.ga4Connected && <li className="text-xs text-muted-foreground">GA4 isn’t connected. Form fills will show —.</li>}
+                                {!selected.ga4Connected && <li className="text-xs text-muted-foreground">Google Analytics isn’t connected. Form fills will show —.</li>}
                             </ul>
                             {needsNote && (
                                 <label className="block text-xs text-muted-foreground">

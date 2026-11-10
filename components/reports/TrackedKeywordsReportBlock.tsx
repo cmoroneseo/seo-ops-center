@@ -17,7 +17,7 @@ import {
     formatMeasuredCount,
     formatMeasuredPosition,
     rankingUrlLabel,
-    RANKING_POSITION_LABEL,
+    RANKING_POSITION_DISPLAY,
 } from '@/lib/keyword-tracking/rankings';
 import { formatSpan } from '@/lib/search-insights/view';
 
@@ -62,7 +62,7 @@ export function TrackedKeywordsReportBody({
             <div className="border-b-2 pb-2 mb-4" style={{ borderColor: '#ef4444' }}>
                 <h2 className="text-lg font-semibold" style={{ color: INK }}>{TRACKED_KEYWORDS_REPORT_LABEL}</h2>
                 <p className="mt-1 text-xs" style={{ color: MUTED }}>
-                    {RANKING_POSITION_LABEL}{windowLabel ? ` · ${windowLabel}` : ''}
+                    {RANKING_POSITION_DISPLAY}{windowLabel ? ` · ${windowLabel}` : ''}
                 </p>
             </div>
             {snapshot.state === 'empty' ? (
@@ -89,7 +89,7 @@ export function TrackedKeywordsReportBody({
                         <table className="w-full text-sm" style={{ color: '#374151' }} aria-label="Tracked keywords">
                             <thead>
                                 <tr className="border-b" style={{ borderColor: LINE }}>
-                                    {['Keyword', 'Change', RANKING_POSITION_LABEL, 'Clicks', 'Impressions', 'Best URL'].map(heading => (
+                                    {['Keyword', 'Change', RANKING_POSITION_DISPLAY, 'Clicks', 'Times shown', 'Best page'].map(heading => (
                                         <th key={heading} className="text-left py-2 pr-3 text-[11px] uppercase tracking-wide font-medium" style={{ color: MUTED }}>{heading}</th>
                                     ))}
                                 </tr>
@@ -117,18 +117,18 @@ export function TrackedKeywordsReportBody({
                     </div>
                     {snapshot.cannibalization ? (
                         <div className="mt-5" data-cannibalization="panel">
-                            <h3 className="text-sm font-semibold" style={{ color: INK }}>Cannibalization</h3>
+                            <h3 className="text-sm font-semibold" style={{ color: INK }}>Competing pages</h3>
                             <p className="mt-2 text-sm" style={{ color: INK }}>
-                                <span style={{ color: MUTED }}>Health </span>
+                                <span style={{ color: MUTED }}>Keywords with one main page: </span>
                                 <span className="font-semibold tabular-nums" data-metric="health">{formatCannibalHealth(snapshot.cannibalization.health)}</span>
                             </p>
                             {snapshot.cannibalization.health != null && snapshot.cannibalization.affected != null && snapshot.cannibalization.affected > 0 ? (
                                 <p className="mt-1 text-xs" style={{ color: MUTED }} data-metric="affected">
-                                    {snapshot.cannibalization.affected} of {snapshot.cannibalization.tracked} tracked keywords affected
+                                    {snapshot.cannibalization.affected} of {snapshot.cannibalization.tracked} tracked keywords show on more than one page
                                 </p>
                             ) : null}
                             {snapshot.cannibalization.health != null && snapshot.cannibalization.keywords.length === 0 ? (
-                                <p className="mt-2 text-sm" style={{ color: MUTED }}>No cannibalization signal.</p>
+                                <p className="mt-2 text-sm" style={{ color: MUTED }}>No pages are competing for the same search.</p>
                             ) : null}
                             <p className="mt-1 text-xs" style={{ color: MUTED }}>{CANNIBAL_DEFINITION}</p>
                         </div>

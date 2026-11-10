@@ -9,7 +9,7 @@ import { reportsNavHref } from '@/lib/reports/close-nav';
  * hides SEO Plan. The monthly board then lives on Campaign's Work tab.
  * Concept rows are omitted.
  *
- * `pipelineNav` regroups those same destinations into Client / Pipeline /
+ * `pipelineNav` regroups those same destinations into Client / Planning /
  * Delivery / More. Omitted, or anything but true, keeps the list below.
  */
 
@@ -139,9 +139,9 @@ export function clientSections(
     if (options.keywordTracking) search.push(link('rankings', 'Rankings', 'rankings'));
 
     const overflow: StaffLink[] = [
-        link('inventory', 'Site Inventory', 'inventory'),
+        link('inventory', 'Site pages', 'inventory'),
         link('approvals', 'Approvals', 'approvals'),
-        link('portal', 'Portal management', 'portal'),
+        link('portal', 'Client portal', 'portal'),
         link('integrations', 'Integrations', 'integrations'),
     ];
     if (options.vault) overflow.push(link('vault', 'Vault', 'vault'));
@@ -165,18 +165,18 @@ export function clientSections(
             label: 'Client workspace',
             links: workspace,
         },
-        { id: 'search', label: 'Search intelligence', links: search },
+        { id: 'search', label: 'Search performance', links: search },
         {
             id: 'more',
             label: 'More',
-            links: [link('topical-map', 'Topical Map', 'topical-map')],
+            links: [link('topical-map', 'Topic map', 'topical-map')],
             overflow,
         },
     ];
 }
 
 /**
- * Same workspace routes, grouped as Client / Pipeline / Delivery / More.
+ * Same workspace routes, grouped as Client / Planning / Delivery / More.
  * Content is omitted until a workspace content tab exists. Approvals stays
  * on `?tab=approvals` and is not listed until that content surface can hold it.
  */
@@ -192,7 +192,7 @@ function pipelineClientSections(
     });
 
     const opportunities = link('opportunities', 'Opportunities', 'search');
-    const nested: StaffLink[] = [link('inventory', 'Site Inventory', 'inventory')];
+    const nested: StaffLink[] = [link('inventory', 'Site pages', 'inventory')];
     if (options.keywordTracking) nested.push(link('rankings', 'Rankings', 'rankings'));
     opportunities.children = nested;
 
@@ -219,9 +219,9 @@ function pipelineClientSections(
         { id: 'client', label: 'Client', links: [link('overview', 'Overview', 'overview')] },
         {
             id: 'pipeline',
-            label: 'Pipeline',
+            label: 'Planning',
             links: [
-                link('topical-map', 'Topical Map', 'topical-map'),
+                link('topical-map', 'Topic map', 'topical-map'),
                 opportunities,
             ],
         },

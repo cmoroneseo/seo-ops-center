@@ -7,7 +7,7 @@ import { resolvePublicShare } from '@/lib/reports/gtm-share';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-    title: 'GTM Event Report',
+    title: 'Event report',
     robots: { index: false, follow: false, nocache: true },
 };
 

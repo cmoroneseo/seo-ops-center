@@ -62,7 +62,7 @@ function blockHtml(block: ClientBlock): string {
         case 'about_these_numbers':
             return `${open}<h2>About these numbers</h2>${block.lines.map(line => `<p>${escapeHtml(line)}</p>`).join('')}</section>`;
         case 'domain_rating':
-            return `${open}<h2>Domain Rating</h2><p>${escapeHtml(block.sentence)}</p></section>`;
+            return `${open}<h2>Site strength</h2><p>${escapeHtml(block.sentence)}</p></section>`;
         default: {
             const never: never = block;
             return never;

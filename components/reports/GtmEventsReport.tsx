@@ -163,13 +163,13 @@ export function GtmEventsReport({ report, showChrome = false }: { report: GtmEve
             <main className="wrap">
                 <section className="card">
                     <div className="eyebrow">Shared report</div>
-                    <h1>GTM Event Report</h1>
+                    <h1>Event report</h1>
                     <p className="lede">{report.copy.lede}</p>
                 </section>
                 <section className="kpis">
                     <Kpi label="Total events" current={report.kpis.totalEvents.current} prior={report.kpis.totalEvents.prior} note={report.copy.totalEvents} priorShort={report.priorShort} />
-                    <Kpi label="Events tracked via GTM" current={report.kpis.tagEvents.current} prior={report.kpis.tagEvents.prior} note={report.copy.tagEvents} priorShort={report.priorShort} />
-                    <Kpi label="Sessions" current={report.kpis.sessions.current} prior={report.kpis.sessions.prior} note={report.copy.sessions} priorShort={report.priorShort} />
+                    <Kpi label="Events from Google Tag Manager" current={report.kpis.tagEvents.current} prior={report.kpis.tagEvents.prior} note={report.copy.tagEvents} priorShort={report.priorShort} />
+                    <Kpi label="Visits" current={report.kpis.sessions.current} prior={report.kpis.sessions.prior} note={report.copy.sessions} priorShort={report.priorShort} />
                 </section>
                 <section className="card">
                     <h2>Events in {report.periodLabel.split(' ')[0]}</h2>

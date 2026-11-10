@@ -691,7 +691,7 @@ export function OrganicTableBlock({ ctx }: { ctx: ReportContext }) {
     return (
         <div>
             <div className="flex items-center gap-2 border-b-2 pb-2 mb-1" style={{ borderColor: ACCENT }}>
-                <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>Organic Traffic Overview</h2>
+                <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>Search and website history</h2>
             </div>
             <MetricCaption source="gsc" ctx={ctx} />
             <MetricCaption source="ga4" ctx={ctx} />
@@ -699,7 +699,7 @@ export function OrganicTableBlock({ ctx }: { ctx: ReportContext }) {
                 <table className="w-full text-sm" style={{ color: '#374151' }}>
                     <thead>
                         <tr className="border-b" style={{ borderColor: '#e5e7eb' }}>
-                            {['Month', 'Organic Sessions', 'Clicks', 'Times shown', 'CTR', 'Avg Position'].map(h => (
+                            {['Month', 'Website visits from search (Google Analytics)', 'Clicks', 'Times shown', 'Click-through rate', 'Average position'].map(h => (
                                 <th key={h} className="text-left py-2 pr-3 text-[11px] uppercase tracking-wide font-medium" style={{ color: '#6b7280' }}>{h}</th>
                             ))}
                         </tr>

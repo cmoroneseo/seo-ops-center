@@ -14,10 +14,10 @@ const PRIMARY = [
 const RANKINGS_TAB = ['rankings', 'Rankings'] as const;
 
 const MORE = [
-    ['inventory', 'Site Inventory'],
-    ['topical-map', 'Topical Map'],
+    ['inventory', 'Site pages'],
+    ['topical-map', 'Topic map'],
     ['approvals', 'Approvals'],
-    ['portal', 'Portal management'],
+    ['portal', 'Client portal'],
     ['integrations', 'Integrations'],
 ] as const;
 

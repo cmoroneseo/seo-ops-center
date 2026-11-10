@@ -20,7 +20,7 @@ const flags = { keywordTracking: true, vault: true, campaignWorkspace: false };
 
 test('client sections follow the approved groups and omit concept rows', () => {
     const on = clientSections('summit', { keywordTracking: true, vault: false, campaignWorkspace: false });
-    assert.deepEqual(on.map(section => section.label), ['Client workspace', 'Search intelligence', 'More']);
+    assert.deepEqual(on.map(section => section.label), ['Client workspace', 'Search performance', 'More']);
     assert.deepEqual(on[0].links.map(link => link.label), [
         'Overview', 'SEO Plan', 'Tasks', 'Deliverables', 'Time', 'Reports',
     ]);
@@ -199,9 +199,9 @@ function legacySections(options: { keywordTracking: boolean; vault: boolean; cam
     const search: StaffLink[] = [workspaceLink('search', 'Search', 'insights')];
     if (options.keywordTracking) search.push(workspaceLink('rankings', 'Rankings', 'rankings'));
     const overflow: StaffLink[] = [
-        workspaceLink('inventory', 'Site Inventory', 'inventory'),
+        workspaceLink('inventory', 'Site pages', 'inventory'),
         workspaceLink('approvals', 'Approvals', 'approvals'),
-        workspaceLink('portal', 'Portal management', 'portal'),
+        workspaceLink('portal', 'Client portal', 'portal'),
         workspaceLink('integrations', 'Integrations', 'integrations'),
     ];
     if (options.vault) overflow.push(workspaceLink('vault', 'Vault', 'vault'));
@@ -216,11 +216,11 @@ function legacySections(options: { keywordTracking: boolean; vault: boolean; cam
     );
     return [
         { id: 'workspace', label: 'Client workspace', links: workspace },
-        { id: 'search', label: 'Search intelligence', links: search },
+        { id: 'search', label: 'Search performance', links: search },
         {
             id: 'more',
             label: 'More',
-            links: [workspaceLink('topical-map', 'Topical Map', 'topical-map')],
+            links: [workspaceLink('topical-map', 'Topic map', 'topical-map')],
             overflow,
         },
     ];
@@ -260,18 +260,18 @@ test('pipeline nav on regroups the same routes and omits Content', () => {
         campaignWorkspace: true,
         pipelineNav: true,
     });
-    assert.deepEqual(on.map(section => section.label), ['Client', 'Pipeline', 'Delivery', 'More']);
+    assert.deepEqual(on.map(section => section.label), ['Client', 'Planning', 'Delivery', 'More']);
     assert.deepEqual(on.map(section => section.id), ['client', 'pipeline', 'delivery', 'more']);
 
     assert.deepEqual(on[0].links.map(link => link.label), ['Overview']);
     assert.equal(on[0].links[0].href, '/workspace/summit?tab=overview');
 
-    assert.deepEqual(on[1].links.map(link => link.label), ['Topical Map', 'Opportunities']);
+    assert.deepEqual(on[1].links.map(link => link.label), ['Topic map', 'Opportunities']);
     assert.equal(on[1].links[0].href, '/workspace/summit?tab=topical-map');
     const opportunities = on[1].links[1];
     assert.equal(opportunities.href, '/workspace/summit?tab=insights');
     assert.equal(opportunities.tab, 'insights');
-    assert.deepEqual(opportunities.children?.map(link => link.label), ['Site Inventory', 'Rankings']);
+    assert.deepEqual(opportunities.children?.map(link => link.label), ['Site pages', 'Rankings']);
     assert.equal(opportunities.children?.[0].href, '/workspace/summit?tab=inventory');
     assert.equal(opportunities.children?.[1].href, '/workspace/summit?tab=rankings');
 
@@ -304,7 +304,7 @@ test('pipeline nav on regroups the same routes and omits Content', () => {
         campaignWorkspace: false,
         pipelineNav: true,
     });
-    assert.deepEqual(noRankings[1].links[1].children?.map(link => link.label), ['Site Inventory']);
+    assert.deepEqual(noRankings[1].links[1].children?.map(link => link.label), ['Site pages']);
     assert.equal(flatLinks(noRankings).some(link => link.label === 'Rankings' || link.id === 'vault'), false);
     assert.deepEqual(noRankings[2].links.map(link => link.label), ['SEO Plan', 'Tasks', 'Reports']);
     assert.equal(noRankings[2].links[0].href, '/workspace/summit?tab=campaign');

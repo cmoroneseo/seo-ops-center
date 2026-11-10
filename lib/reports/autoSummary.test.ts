@@ -17,7 +17,7 @@ test('the summary states computed facts and drops canned advice', () => {
     assert.match(summary.executiveSummary, /Clicks to your website from Google: 65, higher by 25 from 40\./);
     assert.match(summary.executiveSummary, /Times shown: 200, higher by 100 \(100\.0%\) from 100\./);
     assert.match(summary.executiveSummary, /Call-button taps: 12\. No comparable baseline\./);
-    assert.match(summary.executiveSummary, /Domain Rating: 22\. No comparable baseline\./);
+    assert.match(summary.executiveSummary, /Site strength \(Domain Rating\): 22\. No comparable baseline\./);
     assert.doesNotMatch(summary.executiveSummary, /5000|traffic|positive momentum|building links|authority links/i);
     assert.doesNotMatch(`${summary.executiveSummary}\n${summary.recommendations}`, /\bcalls\b|\bpeople\b|\bvisits\b|\bvisitors\b|\bcustomers\b|\bleads\b/i);
     assert.doesNotThrow(() => assertClientCopy(summary.executiveSummary, ['gsc', 'organic_clicks', 'CALL_CLICKS']));
