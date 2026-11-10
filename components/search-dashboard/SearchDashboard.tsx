@@ -27,11 +27,17 @@ export function SearchDashboard({
     clientId,
     clientName,
     onConnections,
+    windowDays = 28,
+    embedded = false,
 }: {
     organizationId: string;
     clientId: string;
     clientName: string;
     onConnections: () => void;
+    /** 7, 28, or 90. Any other value keeps the 28-day read. */
+    windowDays?: number;
+    /** Drop the page title when a parent tab already names this view. */
+    embedded?: boolean;
 }) {
     const picked = useRef(false);
     const [source, setSource] = useState<SearchSource | null>(null);
@@ -43,11 +49,14 @@ export function SearchDashboard({
     const [section, setSection] = useState<'queries' | 'pages'>('queries');
 
     useEffect(() => {
-        const controller = new AbortController();
         picked.current = false;
         setSource(null);
+    }, [organizationId, clientId]);
+
+    useEffect(() => {
+        const controller = new AbortController();
         setLoading(true);
-        loadSearchDashboard({ organizationId, clientId, signal: controller.signal })
+        loadSearchDashboard({ organizationId, clientId, signal: controller.signal, windowDays })
             .then(result => {
                 if (controller.signal.aborted) return;
                 setData(result);
@@ -67,7 +76,7 @@ export function SearchDashboard({
                 console.error(reason instanceof Error ? reason.message : 'Unable to load Search.');
             });
         return () => controller.abort();
-    }, [organizationId, clientId]);
+    }, [organizationId, clientId, windowDays]);
 
     const bingEnabled = data?.bing.enabled === true;
     const sources = visibleSources(bingEnabled);
@@ -87,12 +96,12 @@ export function SearchDashboard({
                 setSource(next);
                 setSection('queries');
             }}
-            windowLabel={data?.windowLabel ?? 'Last 28 days'}
+            windowLabel={data?.windowLabel ?? `Last ${windowDays === 7 || windowDays === 90 ? windowDays : 28} days`}
             loading={loading}
             showTrack={keywordTrackingEnabled()}
             gscConnected={data?.gscConnected === true}
             gscError={data?.gscError ?? ''}
-            gscKpis={gscKpis(data?.gscCurrent ?? { clicks: null, impressions: null, ctr: null, position: null }, data?.gscPrior ?? null)}
+            gscKpis={gscKpis(data?.gscCurrent ?? { clicks: null, impressions: null, ctr: null, position: null }, data?.gscPrior ?? null, windowDays === 7 || windowDays === 90 ? windowDays : 28)}
             gscPoints={data?.gscPoints ?? []}
             gscSeries={gscSeries}
             gscToggles={gscToggles}
@@ -117,6 +126,7 @@ export function SearchDashboard({
             onBingToggle={key => setBingToggles(current => ({ ...current, [key]: !current[key] }))}
             bingSeries={bingSeries}
             onConnections={onConnections}
+            embedded={embedded}
         />
     );
 }

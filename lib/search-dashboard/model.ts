@@ -2,7 +2,8 @@
  * Search dashboard view model.
  *
  * One page, three sources. Windows are the Search Insights / Rankings pair:
- * 28 days ending on the last final day, then the 28 days before that.
+ * a rolling span (7, 28, or 90 days; 28 is the default) ending on the last
+ * final day, then the same number of days before that.
  * Metrics come from stored GSC property rows, ga4_daily, and Bing tables.
  * Missing measurements stay null. Users are not a GA metric. Bing is never
  * added into GSC or GA totals.
@@ -19,7 +20,7 @@ import {
 import { dateOffset } from '@/lib/gsc/history';
 import { safePageUrl, summarizePerformance, type HistoryDay, type HistoryRow } from '@/lib/gsc/insights';
 import { formatDelta, type DeltaTone, type FormattedDelta } from '@/lib/reporting/delta';
-import { comparisonDistortion, coverWindow, eachDate, lastFinalDate, rollingSpan, type DateSpan } from '@/lib/search-reporting/range';
+import { comparisonDistortion, coverWindow, eachDate, inclusiveDays, lastFinalDate, rollingSpan, type DateSpan } from '@/lib/search-reporting/range';
 
 export const SEARCH_SOURCES = ['gsc', 'ga', 'bing'] as const;
 export type SearchSource = (typeof SEARCH_SOURCES)[number];
@@ -231,20 +232,35 @@ export function sourceConnections(rows: readonly {
     };
 }
 
-export function historyChunks(today: string): DateSpan[] {
-    return [
-        { start: dateOffset(today, -30), end: today },
-        { start: dateOffset(today, -61), end: dateOffset(today, -31) },
-    ];
+export function historyChunks(today: string, windowDays = 28): DateSpan[] {
+    if (windowDays <= 28) {
+        return [
+            { start: dateOffset(today, -30), end: today },
+            { start: dateOffset(today, -61), end: dateOffset(today, -31) },
+        ];
+    }
+    const reach = windowDays * 2 + 1;
+    const chunks: DateSpan[] = [];
+    let cursorEnd = today;
+    let covered = 0;
+    while (covered < reach) {
+        const size = Math.min(31, reach - covered);
+        const start = dateOffset(cursorEnd, -(size - 1));
+        chunks.push({ start, end: cursorEnd });
+        covered += size;
+        cursorEnd = dateOffset(start, -1);
+    }
+    return chunks;
 }
 
-/** Last final day, then the prior 28. Comparable only when both windows have the same final coverage. */
-export function pairedWindows(days: readonly DayFlag[], today: string): PairedWindow | null {
+/** Last final day, then the prior window. Comparable only when both windows have the same final coverage. */
+export function pairedWindows(days: readonly DayFlag[], today: string, windowDays = 28): PairedWindow | null {
     const flags = days.map(day => ({ date: day.date, isIncomplete: day.isIncomplete }));
     const end = lastFinalDate(flags, today);
     if (!end) return null;
-    const current = rollingSpan(end);
-    const prior = rollingSpan(dateOffset(current.start, -1));
+    const length = windowDays > 0 ? windowDays : 28;
+    const current = rollingSpan(end, length);
+    const prior = rollingSpan(dateOffset(current.start, -1), length);
     const distortion = comparisonDistortion(coverWindow(current, flags), coverWindow(prior, flags));
     return { current, prior, comparable: !distortion.distorted };
 }
@@ -266,9 +282,10 @@ export function formatSpan(start: string, end: string): string {
     return `${left} ${a.day}, ${a.year}–${right} ${b.day}, ${b.year}`;
 }
 
-export function windowChip(window: PairedWindow | null): string {
-    if (!window) return 'Last 28 days';
-    return `Last 28 days · ${formatSpan(window.current.start, window.current.end)} vs ${formatSpan(window.prior.start, window.prior.end)}`;
+export function windowChip(window: PairedWindow | null, windowDays = 28): string {
+    const label = `Last ${windowDays} days`;
+    if (!window) return label;
+    return `${label} · ${formatSpan(window.current.start, window.current.end)} vs ${formatSpan(window.prior.start, window.prior.end)}`;
 }
 
 export function compareCaption(window: PairedWindow | null): string {
@@ -472,7 +489,7 @@ function vsPriorText(delta: FormattedDelta): { text: string; tone: DeltaTone } |
     return { text: delta.text, tone: delta.tone };
 }
 
-export function gscKpis(current: PeriodMetrics, prior: PeriodMetrics | null): KpiCell[] {
+export function gscKpis(current: PeriodMetrics, prior: PeriodMetrics | null, priorDays = 28): KpiCell[] {
     const cells: KpiCell[] = [
         { id: 'clicks', label: 'Clicks', value: formatCount(current.clicks), tone: null },
         { id: 'impressions', label: 'Impressions', value: formatCount(current.impressions), tone: null },
@@ -488,7 +505,7 @@ export function gscKpis(current: PeriodMetrics, prior: PeriodMetrics | null): Kp
         label: 'vs prior',
         value: vs?.text ?? '—',
         tone: vs?.tone ?? null,
-        title: 'Clicks versus the prior 28 days',
+        title: `Clicks versus the prior ${priorDays} days`,
     });
     return cells;
 }
@@ -690,7 +707,8 @@ export function buildBingDashboard(input: {
     if (gap) return { ...empty, gap };
     const current = trafficTotals(currentDays);
     const prior = trafficTotals(priorDays);
-    const priorFull = prior.days >= 28 && input.window.comparable;
+    const spanDays = inclusiveDays(input.window.current.start, input.window.current.end);
+    const priorFull = prior.days >= spanDays && input.window.comparable;
     const delta = priorFull
         ? formatDelta(current.clicks, prior.clicks, { metric: 'count', audience: 'staff', presentation: 'reporting' })
         : null;
@@ -712,7 +730,7 @@ export function buildBingDashboard(input: {
             cell('impressions', 'Impressions', formatCount(current.impressions)),
             cell('ctr', 'CTR', formatPercent(current.ctr)),
             cell('position', 'Avg position · weekly', formatPosition(position), null, 'Impression-weighted average position from weekly query rows'),
-            cell('vs-prior', 'vs prior', vs?.text ?? '—', vs?.tone ?? null, 'Clicks versus the prior 28 days'),
+            cell('vs-prior', 'vs prior', vs?.text ?? '—', vs?.tone ?? null, `Clicks versus the prior ${spanDays} days`),
         ],
         points: bingSeries(currentDays, input.window.current),
         queries: queryTable.rows,

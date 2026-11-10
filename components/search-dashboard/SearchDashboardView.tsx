@@ -143,14 +143,19 @@ export function SearchDashboardView(props: {
     onBingToggle: (key: keyof BingToggles) => void;
     bingSeries: ChartSeries[];
     onConnections: () => void;
+    embedded?: boolean;
 }) {
     const source = props.source;
     return (
         <section className="min-w-0 space-y-4" aria-label="Search" data-search-dashboard="" aria-busy={props.loading}>
             <header>
-                <h2 className="text-[22px] font-bold text-foreground">Search</h2>
-                <p className="mt-1 text-[13px] text-muted-foreground">Daily SEO status and insights across connected sources</p>
-                <div className="mt-3 flex flex-wrap gap-2">
+                {props.embedded ? null : (
+                    <>
+                        <h2 className="text-[22px] font-bold text-foreground">Search</h2>
+                        <p className="mt-1 text-[13px] text-muted-foreground">Daily SEO status and insights across connected sources</p>
+                    </>
+                )}
+                <div className={props.embedded ? 'flex flex-wrap gap-2' : 'mt-3 flex flex-wrap gap-2'}>
                     <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">All locations · All devices</span>
                     <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">locked</span>
                     <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">{props.windowLabel}</span>
