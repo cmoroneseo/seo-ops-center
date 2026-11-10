@@ -7,7 +7,7 @@ import { readApprovedPortalSnapshot } from '@/lib/reports/version-store';
 import { cleanDisplayName, cleanFeedbackBody, cleanShortText, isUuid, normalizeEmail } from './access-policy';
 import { planDecisionState } from './progress';
 import { capturePlan, captureReport, samePlanScope, type PortalPlanSnapshot } from './publication';
-import { loadPortalPlan, feedbackFrom } from './data';
+import { feedbackFrom } from './data';
 import { conversationNeedsReply, portalReadiness, rowToPortalUpdate, validPortalDate, reportTitleMonthMismatch } from './readiness';
 import { portalToday } from './dashboard';
 import { ensureStaffContact, sendContactLink } from './actions';
@@ -327,7 +327,6 @@ export async function staffShareReport(body: Record<string, unknown>, share: boo
         .is('unshared_at', null)
         .maybeSingle();
     if (live) return { ok: true as const };
-    const publishedPlan = await loadPortalPlan({ ...auth.actor, clientName: '', organizationName: '' });
     let approved: Awaited<ReturnType<typeof readApprovedPortalSnapshot>>;
     try {
         approved = await readApprovedPortalSnapshot(String(report.id), auth.actor.organizationId, auth.actor.clientId);
@@ -337,8 +336,7 @@ export async function staffShareReport(body: Record<string, unknown>, share: boo
     let snapshot = approved;
     if (!snapshot) {
         try {
-            snapshot = await captureReport({ ...auth.actor, clientName: '', organizationName: '' }, String(report.id),
-                publishedPlan.shared && publishedPlan.planId ? { planId: publishedPlan.planId, title: publishedPlan.title, steps: publishedPlan.steps, items: publishedPlan.items, createdAt: publishedPlan.createdAt ?? '' } : null);
+            snapshot = await captureReport({ ...auth.actor, clientName: '', organizationName: '' }, String(report.id));
         } catch (error) {
             if (error instanceof ClientCopyRejected) return { ok: false as const, status: 409, error: error.message };
             throw error;

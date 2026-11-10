@@ -72,6 +72,17 @@ test('the editor shows stage choices and the description toggle, and hides a sta
     assert.match(html, /aria-hidden="true"|type="checkbox"/);
 });
 
+test('a shared report with no roadmap data hides the block', () => {
+    const block: Block = { id: 'plan', type: 'roadmap', props: {} };
+    const html = renderToStaticMarkup(createElement(RoadmapReportBlock, {
+        block,
+        ctx: { client, roadmap: null, roadmapFromServer: true },
+    }));
+    assert.equal(html.includes(ROADMAP_COPY.error), false);
+    assert.equal(html.includes('data-roadmap-block'), false);
+    assert.equal(html, '');
+});
+
 test('the public view has no settings and no staff fields', () => {
     const html = renderToStaticMarkup(createElement(RoadmapReportView, { roadmap }));
     assert.match(html, /data-roadmap-block/);

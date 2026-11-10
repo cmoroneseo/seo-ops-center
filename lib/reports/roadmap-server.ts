@@ -1,55 +1,43 @@
 /**
- * Server read for the live roadmap on an approved client report.
+ * Server read for the live roadmap on a shared client report.
  * The service-role client stays in this file. The browser never sees it.
  */
 
 import 'server-only';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { loadClientPlanBoard, loadClientStageTasks } from '@/lib/seo-plan/stage-list-load';
-import { blocksForClientRender, type ReportSectionsField } from './blocks';
 import { todayForRoadmap, type ClientRoadmap } from './roadmap';
-import { readApprovedReportRoadmap } from './roadmap-live';
-
-function blockPropsFromSections(sections: unknown): unknown | null {
-    const blocks = blocksForClientRender(sections as ReportSectionsField);
-    const block = blocks.find(item => item.type === 'roadmap');
-    return block ? block.props : null;
-}
+import { readSharedReportRoadmap, type ShareRead } from './roadmap-live';
 
 /**
- * Live roadmap for one report the server has already scoped to an organization
- * and client. The report's own state and Roadmap block settings are read here.
- * A database error, a missing report, or a report with no Roadmap block
+ * Live roadmap for one report the portal has already shared.
+ * Sections are the frozen share the page is rendering, not the editable draft.
+ * The active share for this organization, client, and report is the permission.
+ * A failed lookup, a missing share, a missing block, or a failed task read
  * returns null. Hidden stages and descriptions are removed before return.
  */
 export async function loadScopedRoadmap(
     organizationId: string,
     clientId: string,
     reportId: string,
+    sections: unknown,
 ): Promise<ClientRoadmap | null> {
     try {
         const admin = createAdminClient();
-        const [review, report] = await Promise.all([
-            admin.from('report_reviews')
-                .select('state')
-                .eq('report_id', reportId)
-                .eq('organization_id', organizationId)
-                .eq('client_id', clientId)
-                .maybeSingle(),
-            admin.from('reports')
-                .select('sections')
-                .eq('id', reportId)
-                .eq('organization_id', organizationId)
-                .eq('client_id', clientId)
-                .maybeSingle(),
-        ]);
-        if (review.error || report.error || !review.data || !report.data) return null;
-        return await readApprovedReportRoadmap({
-            state: typeof review.data.state === 'string' ? review.data.state : '',
+        const share = await admin.from('client_portal_report_shares')
+            .select('id')
+            .eq('report_id', reportId)
+            .eq('organization_id', organizationId)
+            .eq('client_id', clientId)
+            .is('unshared_at', null)
+            .maybeSingle();
+        const access: ShareRead = share.error ? 'error' : share.data ? 'ok' : 'missing';
+        return await readSharedReportRoadmap({
             organizationId,
             clientId,
-            snapshot: null,
-            blockProps: blockPropsFromSections(report.data.sections),
+            reportId,
+            sections,
+            share: access,
         }, {
             today: todayForRoadmap(),
             loadTasks: (org, scopedClient) => loadClientStageTasks(admin, org, scopedClient),

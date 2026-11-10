@@ -58,6 +58,7 @@ export function RoadmapReportBlock({ block, ctx }: { block: Block; ctx: RoadmapB
     const options = readRoadmapBlockOptions(block.props);
     const editable = Boolean(ctx.onEditText);
 
+    if (server && !ctx.roadmap) return null;
     if (!server && !ctx.client) return <p className="text-sm italic" style={{ color: '#9ca3af' }}>{ROADMAP_COPY.chooseClient}</p>;
     if (load.status === 'loading') return <p className="text-sm italic" style={{ color: '#9ca3af' }}>{ROADMAP_COPY.loading}</p>;
     if (load.status === 'error') return <p className="text-sm italic" style={{ color: '#9ca3af' }}>{ROADMAP_COPY.error}</p>;

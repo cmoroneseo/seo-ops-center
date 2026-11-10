@@ -108,7 +108,9 @@ export async function PortalReportContent({ contact, id }: { contact: PortalClie
         const model = await loadClientReportModel(contact, id);
         if (model) {
             const shared = await loadPortalReport(contact, id);
-            const roadmap = await loadScopedRoadmap(contact.organizationId, contact.clientId, id);
+            const roadmap = shared
+                ? await loadScopedRoadmap(contact.organizationId, contact.clientId, id, shared.sections)
+                : null;
             return (
                 <ClientReport
                     model={model}
@@ -121,7 +123,7 @@ export async function PortalReportContent({ contact, id }: { contact: PortalClie
     }
     const report = await loadPortalReport(contact, id);
     if (!report) notFound();
-    const roadmap = await loadScopedRoadmap(contact.organizationId, contact.clientId, report.id);
+    const roadmap = await loadScopedRoadmap(contact.organizationId, contact.clientId, report.id, report.sections);
     const trackingSnapshot = keywordTrackingEnabled() && reportHasTrackedKeywordsBlock(report.sections)
         ? await readStoredTrackingSnapshot({
             reportId: report.id,

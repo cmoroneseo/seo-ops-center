@@ -13,44 +13,60 @@ import {
     type ClientRoadmap,
 } from './roadmap';
 
-const APPROVED = new Set(['approved', 'scheduled', 'sent']);
+export type ShareRead = 'ok' | 'missing' | 'error';
 
-export interface ApprovedReportRoadmapInput {
-    state: string;
+export interface SharedReportRoadmapInput {
     organizationId: string;
     clientId: string;
-    /** Frozen report. Included so a caller can see it is not the source. */
-    snapshot: unknown;
-    /**
-     * Settings from this report's Roadmap block.
-     * Null means the block is missing or the report row could not be read.
-     */
-    blockProps: unknown | null;
+    reportId: string;
+    /** Frozen sections from the active portal share. Not the editable draft. */
+    sections: unknown;
+    /** The active share already checked for this organization, client, and report. */
+    share: ShareRead;
 }
 
 /**
- * Approved, scheduled, and sent reports show the live plan.
- * A draft, a missing block, or a failed report read returns null and does not
- * load tasks. Hidden stages and hidden descriptions are removed here.
+ * Live plan for a report that is already shared with the client.
+ * Permission is that share, not a review record. Block settings come from
+ * the shared sections. A failed share lookup, a missing share, a missing
+ * block, or a failed task read returns null and does not leak another client's work.
+ * Hidden stages and hidden descriptions are removed here.
  */
-export async function readApprovedReportRoadmap(
-    report: ApprovedReportRoadmapInput,
+export async function readSharedReportRoadmap(
+    report: SharedReportRoadmapInput,
     deps: {
         today: string;
         loadTasks: (organizationId: string, clientId: string) => Promise<StageListTask[] | null>;
         loadBoard: (organizationId: string, clientId: string) => Promise<PlanBoard>;
     },
 ): Promise<ClientRoadmap | null> {
-    void report.snapshot;
-    if (report.blockProps == null) return null;
-    if (!APPROVED.has(report.state)) return null;
-    const [tasks, board] = await Promise.all([
-        deps.loadTasks(report.organizationId, report.clientId),
-        deps.loadBoard(report.organizationId, report.clientId),
-    ]);
-    if (tasks == null) return null;
-    return presentRoadmap(
-        projectClientRoadmap({ board, tasks, today: deps.today }),
-        readRoadmapBlockOptions(report.blockProps),
-    );
+    try {
+        if (report.share !== 'ok') return null;
+        const props = blockPropsFromSections(report.sections);
+        if (props == null) return null;
+        const [tasks, board] = await Promise.all([
+            deps.loadTasks(report.organizationId, report.clientId),
+            deps.loadBoard(report.organizationId, report.clientId),
+        ]);
+        if (tasks == null) return null;
+        return presentRoadmap(
+            projectClientRoadmap({ board, tasks, today: deps.today }),
+            readRoadmapBlockOptions(props),
+        );
+    } catch {
+        return null;
+    }
+}
+
+function blockPropsFromSections(sections: unknown): unknown | null {
+    if (!sections || typeof sections !== 'object' || !('blocks' in sections)) return null;
+    const blocks = (sections as { blocks?: unknown }).blocks;
+    if (!Array.isArray(blocks)) return null;
+    const block = blocks.find(item => {
+        if (!item || typeof item !== 'object') return false;
+        const type = (item as { type?: unknown }).type;
+        return type === 'roadmap' || type === 'marketing_plan';
+    });
+    if (!block || typeof block !== 'object') return null;
+    return (block as { props?: unknown }).props ?? {};
 }

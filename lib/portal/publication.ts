@@ -50,8 +50,7 @@ export function samePlanScope(a: PortalPlanSnapshot, b: PortalPlanSnapshot): boo
     return content(a) === content(b);
 }
 
-export async function captureReport(scope: PortalClientScope, reportId: string, plan: PortalPlanSnapshot | null): Promise<PortalReportDetail | null> {
-    void plan;
+export async function captureReport(scope: PortalClientScope, reportId: string): Promise<PortalReportDetail | null> {
     const admin = createAdminClient();
     const [{ data: report, error }, { data: rows, error: metricError }] = await Promise.all([
         admin.from('reports').select('id,title,report_month,executive_summary,recommendations,sections')
