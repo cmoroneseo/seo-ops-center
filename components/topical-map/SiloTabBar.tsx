@@ -1,6 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
+import { PAGE_TYPE_LABEL } from './constants';
 import type { MapRecordAction, MapRecordStatus, PageType, TopicalMapRecord, TopicalMapSilo } from '@/lib/types';
 
 export interface SiloFilters {
@@ -79,7 +80,7 @@ export function SiloTabBar({ silos, records, activeSiloId, onSelectSilo, filters
                 >
                     <option value="all">All page types</option>
                     {PAGE_TYPES.map(pt => (
-                        <option key={pt} value={pt}>{pt.replaceAll('_', ' ')}</option>
+                        <option key={pt} value={pt}>{PAGE_TYPE_LABEL[pt]}</option>
                     ))}
                 </select>
                 <select

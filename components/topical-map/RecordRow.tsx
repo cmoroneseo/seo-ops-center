@@ -1,22 +1,17 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import type { MapRecordStatus, TopicalMapRecord } from '@/lib/types';
-import { ACTION_STYLES, AI_ESTIMATE_CLASS, PILL_CLASS, SOURCE_STYLES } from './constants';
+import type { TopicalMapRecord } from '@/lib/types';
+import { ACTION_LABEL, ACTION_STYLES, AI_ESTIMATE_CLASS, PAGE_TYPE_LABEL, PILL_CLASS, PRODUCTION_STATUS_STYLES, SOURCE_STYLES } from './constants';
 import { AI_ESTIMATE_LABEL, hasAiDifficulty, hasAiSearchEstimate, hasAiVolume } from '@/lib/topical-map/metrics';
+import { displayedProductionStatus, PRODUCTION_STATUS_LABEL, PUBLISHED_NOTE } from '@/lib/topical-map/production';
 import { SOURCE_TITLE } from '@/lib/topical-map/spec';
-
-const STATUS_DOT: Record<MapRecordStatus, string> = {
-    pending: 'bg-muted-foreground/40',
-    approved: 'bg-emerald-500',
-    declined: 'bg-red-500',
-};
 
 function actionLabel(record: TopicalMapRecord): { label: string; className: string } {
     if (record.action === 'keep' && record.matchedUrl) {
         return { label: 'Existing', className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600' };
     }
-    return { label: record.action, className: ACTION_STYLES[record.action] };
+    return { label: ACTION_LABEL[record.action], className: ACTION_STYLES[record.action] };
 }
 
 function DifficultyBar({ value, aiEstimate }: { value?: number; aiEstimate?: boolean }) {
@@ -47,6 +42,7 @@ interface RecordRowProps {
 export function RecordRow({ record, isChild, onClick }: RecordRowProps) {
     const action = actionLabel(record);
     const aiEstimate = hasAiSearchEstimate(record);
+    const productionStatus = displayedProductionStatus(record);
 
     return (
         <div
@@ -60,14 +56,20 @@ export function RecordRow({ record, isChild, onClick }: RecordRowProps) {
                 }
             }}
             className={cn(
-                'grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto_auto_auto_auto] items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/40',
+                'grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/40',
                 isChild && 'ml-6',
             )}
         >
-            <span className={cn('h-2 w-2 shrink-0 rounded-full', STATUS_DOT[record.status])} aria-label={`Status: ${record.status}`} />
             <span className="min-w-0">
                 <span className="flex min-w-0 items-center gap-2">
                     <span className="truncate text-sm font-medium">{record.title}</span>
+                    <span
+                        data-production-status={productionStatus}
+                        title={productionStatus === 'published' ? PUBLISHED_NOTE : undefined}
+                        className={cn('shrink-0', PILL_CLASS, PRODUCTION_STATUS_STYLES[productionStatus])}
+                    >
+                        {PRODUCTION_STATUS_LABEL[productionStatus]}
+                    </span>
                     {record.source === 'manual' && (
                         <span title={SOURCE_TITLE.manual} className={cn(PILL_CLASS, SOURCE_STYLES.manual)}>manual</span>
                     )}
@@ -77,15 +79,15 @@ export function RecordRow({ record, isChild, onClick }: RecordRowProps) {
                     <span className={cn('mt-1 inline-flex', PILL_CLASS, AI_ESTIMATE_CLASS)}>{AI_ESTIMATE_LABEL}</span>
                 )}
             </span>
-            <span className="hidden shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] uppercase text-muted-foreground sm:inline-block">
-                {record.pageType.replaceAll('_', ' ')}
+            <span className="hidden shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground sm:inline-block">
+                {PAGE_TYPE_LABEL[record.pageType]}
             </span>
             {record.contentCategory && (
                 <span className="hidden shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground md:inline-block">
                     {record.contentCategory}
                 </span>
             )}
-            <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase', action.className)}>
+            <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium', action.className)}>
                 {action.label}
             </span>
             <span
