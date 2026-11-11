@@ -65,6 +65,7 @@ export function FloatingTimer({ clients, botControls = true }: FloatingTimerProp
         pauseBotTimer,
         resumeBotTimer,
         stopBotTimer,
+        botLoadError = null,
     } = useTimer();
     const canControlBots = botControls;
     const [botError, setBotError] = useState<string | null>(null);
@@ -127,8 +128,10 @@ export function FloatingTimer({ clients, botControls = true }: FloatingTimerProp
                     onStop={id => void runBot(id, 'stop')}
                 />
             ))}
-            {botError && <p role="alert" className="max-w-72 text-right text-xs text-destructive">{botError}</p>}
         </div>
+    ) : null;
+    const botNotice = (botLoadError || botError) ? (
+        <p role="alert" data-bot-load-error className="mb-2 max-w-72 text-right text-xs text-destructive">{botLoadError || botError}</p>
     ) : null;
 
     const openStopReview = async (attempt: TimerAttempt) => {
@@ -150,6 +153,7 @@ export function FloatingTimer({ clients, botControls = true }: FloatingTimerProp
         // completion or Basecamp push.
         return (
             <div ref={setWidgetNode} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50 flex flex-col items-end">
+                {botNotice}
                 {botStack}
                 {reviewAttemptId && <StopConfirmSheet attemptId={reviewAttemptId} onClose={() => setReviewAttemptId(null)} />}
                 <div className="relative">
@@ -180,6 +184,7 @@ export function FloatingTimer({ clients, botControls = true }: FloatingTimerProp
     if (!expanded) {
         return (
             <div ref={setWidgetNode} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50 flex flex-col items-end">
+                {botNotice}
                 {botStack}
                 <button
                     onClick={() => setExpanded(true)}
@@ -201,6 +206,7 @@ export function FloatingTimer({ clients, botControls = true }: FloatingTimerProp
 
     return (
         <div ref={setWidgetNode} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50 flex w-72 flex-col items-end animate-in slide-in-from-bottom-3 fade-in duration-200">
+            {botNotice}
             {botStack}
             <div className={cn('w-full bg-card border rounded-2xl shadow-2xl overflow-hidden', runningTimer ? 'border-[#ec4899]/30 shadow-[#ec4899]/5' : 'border-amber-500/30')}>
                 <div className={cn('h-0.5 w-full', runningTimer ? 'bg-gradient-to-r from-[#ec4899]/0 via-[#ec4899] to-[#ec4899]/0 animate-pulse' : 'bg-amber-500/60')} />

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 import { botTimerBasecampSummary } from './timer.ts';
 import { botRequestDecision } from './scope.ts';
-import { markDoneStopNote, parseStaffControl, staffControlOutcome, staffTimerRoleDecision } from './staff-control.ts';
+import { markDoneStopNote, parseStaffControl, staffControlOutcome, staffTimerLookupResult, staffTimerRoleDecision } from './staff-control.ts';
 
 const ID = '11111111-1111-4111-8111-111111111111';
 
@@ -39,6 +39,35 @@ test('only the organization owner may control a bot timer from the app', () => {
     const decisionAt = route.indexOf('staffTimerRoleDecision(');
     const writeAt = route.indexOf('runBotTimerControl(');
     assert.equal(decisionAt > 0 && writeAt > decisionAt, true);
+});
+
+test('a failed bot-timer lookup is an error, not a missing timer', () => {
+    const failed = staffTimerLookupResult({ failed: true, found: false, botOwned: false });
+    assert.equal(failed.ok, false);
+    if (!failed.ok) {
+        assert.equal(failed.status, 500);
+        assert.notEqual(failed.code, 'timer_not_running');
+    }
+    const missing = staffTimerLookupResult({ failed: false, found: false, botOwned: false });
+    assert.equal(missing.ok, false);
+    if (!missing.ok) assert.equal(missing.code, 'timer_not_running');
+    const route = readFileSync(new URL('../../app/api/bots/timer/staff/route.ts', import.meta.url), 'utf8');
+    assert.match(route, /staffTimerLookupResult\(/);
+    assert.equal(route.includes("error || !row"), false);
+});
+
+test('an unhinted time_log_segments embed is rejected', () => {
+    const source = readFileSync(new URL('../supabase/bot-timers.ts', import.meta.url), 'utf8');
+    const embeds = source.match(/time_log_segments[!(][^)]*\(/g) ?? [];
+    assert.ok(embeds.length > 0, 'the open bot timer read should embed segments');
+    for (const embed of embeds) {
+        assert.match(
+            embed,
+            /time_log_segments!time_log_segments_time_log_id_fkey\(/,
+            `ambiguous segment embed: ${embed}`,
+        );
+    }
+    assert.equal(/time_log_segments\(/.test(source), false);
 });
 
 test('marking a task done does not invent a stop note', () => {

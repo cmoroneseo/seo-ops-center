@@ -3,6 +3,26 @@ import type { BotStaffControlInput } from './handle.ts';
 /** Only the organization owner may pause, resume, or stop a bot timer from the app. */
 export const STAFF_TIMER_FORBIDDEN = 'Only the organization owner can pause, resume, or stop a bot timer.';
 
+export const STAFF_TIMER_LOOKUP_FAILED = 'Could not load the bot timer.';
+
+/**
+ * A failed read is 500. A missing row is 404. Those must not be the same outcome.
+ */
+export function staffTimerLookupResult(input: { failed: boolean; found: boolean; botOwned: boolean }):
+    | { ok: true }
+    | { ok: false; status: 500 | 404; code: string; error: string } {
+    if (input.failed) {
+        return { ok: false, status: 500, code: 'lookup_failed', error: STAFF_TIMER_LOOKUP_FAILED };
+    }
+    if (!input.found) {
+        return { ok: false, status: 404, code: 'timer_not_running', error: 'This bot timer is not running or paused.' };
+    }
+    if (!input.botOwned) {
+        return { ok: false, status: 404, code: 'not_a_bot_timer', error: 'That timer belongs to a person. Use the timer controls for it.' };
+    }
+    return { ok: true };
+}
+
 export function staffTimerRoleDecision(role: string | null | undefined):
     | { ok: true }
     | { ok: false; status: 403; code: 'forbidden'; error: string } {

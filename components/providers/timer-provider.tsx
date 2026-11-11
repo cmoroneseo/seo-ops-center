@@ -79,6 +79,8 @@ interface TimerContextType {
     resumeBotTimer?: (timeLogId: string) => Promise<void>;
     stopBotTimer?: (timeLogId: string) => Promise<{ capped: boolean }>;
     stopBotTimersOnTask?: (taskId: string) => Promise<{ ok: true; capped: boolean } | { ok: false; error: string }>;
+    /** Set when the open-bot-timer read failed. Empty timers are not this case. */
+    botLoadError?: string | null;
 }
 
 export const TimerContext = createContext<TimerContextType | undefined>(undefined);
@@ -88,6 +90,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     const [runningTimer, setRunningTimer] = useState<TimerAttempt | null>(null);
     const [pausedTimers, setPausedTimers] = useState<TimerAttempt[]>([]);
     const [botTimers, setBotTimers] = useState<BotTimerClock[]>([]);
+    const [botLoadError, setBotLoadError] = useState<string | null>(null);
     const [clockNow, setClockNow] = useState(() => Date.now());
     const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
 
@@ -160,7 +163,13 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
     const refreshBotTimers = useCallback(async () => {
         if (!organization) return;
-        setBotTimers(await getOpenBotTimers(organization.id));
+        const result = await getOpenBotTimers(organization.id);
+        if (result.error) {
+            setBotLoadError(result.error);
+            return;
+        }
+        setBotLoadError(null);
+        setBotTimers(result.timers);
     }, [organization]);
 
     useEffect(() => {
@@ -399,7 +408,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         resumeBotTimer,
         stopBotTimer,
         stopBotTimersOnTask,
-    }), [addNote, beginStop, botTimers, clockNow, deleteNote, discard, editNote, finalize, getAttemptById, pause, pauseBotTimer, pausedTimers, resume, resumeBotTimer, runningTimer, startTask, stopBotTimer, stopBotTimersOnTask, switchToTask]);
+        botLoadError,
+    }), [addNote, beginStop, botLoadError, botTimers, clockNow, deleteNote, discard, editNote, finalize, getAttemptById, pause, pauseBotTimer, pausedTimers, resume, resumeBotTimer, runningTimer, startTask, stopBotTimer, stopBotTimersOnTask, switchToTask]);
 
     return <TimerContext.Provider value={value}>{children}</TimerContext.Provider>;
 }

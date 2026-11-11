@@ -2,11 +2,19 @@ import { botTimerDeleteMessage, botTimerFromRow, type BotTimerClock } from '../t
 import { markDoneStopNote, type StaffControlOutcome } from '../bots/staff-control';
 import { createClient } from './client';
 
-const OPEN_BOT_COLUMNS = 'id, organization_id, client_id, task_id, user_id, bot_key_id, status, timer_started_at, billable, counts_toward_budget, clients(name), tasks(title), bot_api_keys(name), time_log_segments(started_at, ended_at)';
+const OPEN_BOT_COLUMNS = 'id, organization_id, client_id, task_id, user_id, bot_key_id, status, timer_started_at, billable, counts_toward_budget, clients(name), tasks(title), bot_api_keys(name), time_log_segments!time_log_segments_time_log_id_fkey(started_at, ended_at)';
+
+export const BOT_TIMER_LOAD_ERROR = 'Could not load running timers.';
+
+export interface OpenBotTimersResult {
+    timers: BotTimerClock[];
+    /** Set when the read failed. An empty timer list is not this case. */
+    error: string | null;
+}
 
 async function readOpenBotRows(organizationId: string, withNames: boolean): Promise<BotTimerClock[]> {
     const supabase = createClient();
-    if (!supabase) return [];
+    if (!supabase) throw new Error(BOT_TIMER_LOAD_ERROR);
     const columns = withNames
         ? OPEN_BOT_COLUMNS
         : OPEN_BOT_COLUMNS.replace(', bot_api_keys(name)', '');
@@ -23,16 +31,19 @@ async function readOpenBotRows(organizationId: string, withNames: boolean): Prom
         .filter((timer): timer is BotTimerClock => timer !== null);
 }
 
-/** Running and paused bot timers in this organization. Names fall back to "bot" if the key list is hidden. */
-export async function getOpenBotTimers(organizationId: string): Promise<BotTimerClock[]> {
+/**
+ * Running and paused bot timers in this organization.
+ * A failed read is `error`, not an empty list. Names fall back to "bot" if the key list is hidden.
+ */
+export async function getOpenBotTimers(organizationId: string): Promise<OpenBotTimersResult> {
     try {
-        return await readOpenBotRows(organizationId, true);
+        return { timers: await readOpenBotRows(organizationId, true), error: null };
     } catch {
         try {
-            return await readOpenBotRows(organizationId, false);
+            return { timers: await readOpenBotRows(organizationId, false), error: null };
         } catch (error) {
             console.error('Error fetching bot timers:', error);
-            return [];
+            return { timers: [], error: BOT_TIMER_LOAD_ERROR };
         }
     }
 }

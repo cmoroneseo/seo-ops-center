@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 
 import { liveBotDeps } from '@/lib/bots/live';
 import { runBotTimerControl } from '@/lib/bots/handle';
-import { parseStaffControl, staffControlOutcome, staffTimerRoleDecision } from '@/lib/bots/staff-control';
+import { parseStaffControl, staffControlOutcome, staffTimerLookupResult, staffTimerRoleDecision } from '@/lib/bots/staff-control';
 import { requireOrganizationMember } from '@/lib/security/tenant-authz';
 
 export const dynamic = 'force-dynamic';
@@ -50,11 +50,16 @@ export async function POST(request: Request) {
         .select('id, organization_id, bot_key_id')
         .eq('id', parsed.input.timeLogId)
         .maybeSingle();
-    if (error || !row) {
-        return NextResponse.json({ ok: false, code: 'timer_not_running', error: 'This bot timer is not running or paused.' }, { status: 404 });
-    }
-    if (!row.bot_key_id) {
-        return NextResponse.json({ ok: false, code: 'not_a_bot_timer', error: 'That timer belongs to a person. Use the timer controls for it.' }, { status: 404 });
+    const lookup = staffTimerLookupResult({
+        failed: Boolean(error),
+        found: Boolean(row),
+        botOwned: Boolean(row?.bot_key_id),
+    });
+    if (!lookup.ok || !row?.organization_id) {
+        if (!lookup.ok) {
+            return NextResponse.json({ ok: false, code: lookup.code, error: lookup.error }, { status: lookup.status });
+        }
+        return NextResponse.json({ ok: false, code: 'lookup_failed', error: 'Could not load the bot timer.' }, { status: 500 });
     }
 
     const member = await requireOrganizationMember(row.organization_id);

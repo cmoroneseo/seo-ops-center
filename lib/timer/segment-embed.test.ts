@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 const sources = {
     'app/api/time-tracking/route.ts': readFileSync(new URL('../../app/api/time-tracking/route.ts', import.meta.url), 'utf8'),
     'lib/supabase/time-logs.ts': readFileSync(new URL('../supabase/time-logs.ts', import.meta.url), 'utf8'),
+    'lib/supabase/bot-timers.ts': readFileSync(new URL('../supabase/bot-timers.ts', import.meta.url), 'utf8'),
     'lib/forecast/source.ts': readFileSync(new URL('../forecast/source.ts', import.meta.url), 'utf8'),
 };
 

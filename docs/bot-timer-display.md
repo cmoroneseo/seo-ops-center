@@ -31,7 +31,7 @@ The bot HTTP API's request shape does not change. The staff route is the only ne
 
 ## Refresh
 
-The dashboard polls open bot timers about every 8 seconds while the tab is visible, and again on focus. A bot that starts a timer shows up without a reload. There is no realtime subscription.
+The dashboard polls open bot timers about every 8 seconds while the tab is visible, and again on focus. A bot that starts a timer shows up without a reload. There is no realtime subscription. If that read fails, the screen says the timers could not be loaded. It does not pretend none are running. The segment embed names `time_log_segments_time_log_id_fkey`, because `time_log_segments` has two foreign keys to `time_logs`.
 
 ## Task complete and delete
 
