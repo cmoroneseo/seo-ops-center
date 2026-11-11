@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Crosshair, Plus, Check, X, Trash2, Pencil, Download, Loader2, Sparkles, Users } from 'lucide-react';
+import { Crosshair, Check, X, Trash2, Pencil, Download, Loader2, Sparkles, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { updateCampaignPlan } from '@/lib/supabase/campaign-plans';
 import { SectionCard, InlineInput, InlineSelect, CustomFieldSectionProps, KeywordEntry } from './SectionCard';
