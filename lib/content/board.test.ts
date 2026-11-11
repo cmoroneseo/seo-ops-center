@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { contentMonthChoices, groupApprovedContent, UNSCHEDULED_LABEL, type ContentBoardRecord } from './board.ts';
+import { CONTENT_TIME_ZONE, contentMonthChoices, currentWorkMonth, groupApprovedContent, UNSCHEDULED_LABEL, type ContentBoardRecord } from './board.ts';
 
 function page(overrides: Partial<ContentBoardRecord> = {}): ContentBoardRecord {
     return {
@@ -42,4 +42,17 @@ test('an empty plan and a month list stay predictable', () => {
         '2027-05', '2027-06', '2027-07', '2027-08', '2027-09', '2027-10',
     ]);
     assert.deepEqual(contentMonthChoices('November', []), []);
+});
+
+test('this month is the month in Los Angeles, not the browser time zone', () => {
+    // 9 PM on Nov 30 in Los Angeles is already Dec 1 in UTC and in New York.
+    assert.equal(currentWorkMonth(new Date('2026-12-01T05:00:00Z')), '2026-11');
+    assert.equal(currentWorkMonth(new Date('2026-12-01T07:59:00Z')), '2026-11');
+    assert.equal(currentWorkMonth(new Date('2026-12-01T08:00:00Z')), '2026-12');
+    // Daylight time: midnight in Los Angeles on Jul 1 is 07:00 UTC.
+    assert.equal(currentWorkMonth(new Date('2026-07-01T06:59:00Z')), '2026-06');
+    assert.equal(currentWorkMonth(new Date('2026-07-01T07:00:00Z')), '2026-07');
+    // New Year in Tokyo is still December in Los Angeles.
+    assert.equal(currentWorkMonth(new Date('2027-01-01T00:30:00+09:00')), '2026-12');
+    assert.equal(CONTENT_TIME_ZONE, 'America/Los_Angeles');
 });

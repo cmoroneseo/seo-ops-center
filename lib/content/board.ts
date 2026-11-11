@@ -36,8 +36,14 @@ export function topicMapHref(clientId: string): string {
     return `/workspace/${encodeURIComponent(clientId)}?tab=topical-map`;
 }
 
-export function currentWorkMonth(now = new Date()): string {
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+/** The agency works on Pacific time, so "this month" flips at midnight in Los Angeles for everyone. */
+export const CONTENT_TIME_ZONE = 'America/Los_Angeles';
+
+export function currentWorkMonth(now = new Date(), timeZone = CONTENT_TIME_ZONE): string {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit' }).formatToParts(now);
+    const year = parts.find(part => part.type === 'year')?.value ?? '';
+    const month = parts.find(part => part.type === 'month')?.value ?? '';
+    return `${year}-${month}`;
 }
 
 /** This month and the following months, plus any month already saved on a page. */
