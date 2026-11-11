@@ -106,7 +106,8 @@ No new Google scope. No new cron. Nightly GSC and GA4 syncs keep filling history
 
 - Correlation only. A control reduces the chance we credit a sitewide or seasonal swing. It is not a causal test.
 - GSC page totals and query totals do not match. Anonymized queries are missing.
-- The GBP-tagged homepage URL is a different row. v1 tracks the URLs that were typed in.
+- The GBP-tagged homepage URL is a different row. A logged URL with no query string does not claim `?utm_medium=gbp` rows. v1 tracks the URLs that were typed in.
+- Same dates last year are context on the detail. The verdict still uses the 28 days immediately before the change, plus the control.
 - GA4 is whatever is connected. A client with no property (Kentina) shows “Analytics isn’t connected” on those cards. Ecoworkz’s property, when connected, is `properties/296973560`.
 - Last year needs stored history. If those days are not there, the option says so instead of drawing a zero.
 - Revert is instructions. This app does not write to WordPress or Elementor.

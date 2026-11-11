@@ -52,6 +52,7 @@ type WorkspaceModule =
     | 'tasks'
     | 'deliverables'
     | 'search'
+    | 'changes'
     | 'rankings'
     | 'topical-map'
     | 'inventory'
@@ -92,6 +93,8 @@ function moduleOf(tab: string | null): WorkspaceModule | null {
             return 'deliverables';
         case 'insights':
             return 'search';
+        case 'changes':
+            return 'changes';
         case 'rankings':
             return 'rankings';
         case 'topical-map':
@@ -135,7 +138,10 @@ export function clientSections(
         tab: tabOf(section),
     });
 
-    const search: StaffLink[] = [link('search', 'Search', 'search')];
+    const search: StaffLink[] = [
+        link('search', 'Search', 'search'),
+        link('changes', 'Changes', 'changes'),
+    ];
     if (options.keywordTracking) search.push(link('rankings', 'Rankings', 'rankings'));
 
     const overflow: StaffLink[] = [
@@ -222,6 +228,7 @@ function pipelineClientSections(
             label: 'Planning',
             links: [
                 link('topical-map', 'Topic map', 'topical-map'),
+                link('changes', 'Changes', 'changes'),
                 opportunities,
             ],
         },
