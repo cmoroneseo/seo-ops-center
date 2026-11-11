@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { AlertTriangle, Loader2, Map, Sparkles } from 'lucide-react';
 
 import { fetchSpecEnabled, getTopicalMapByClient } from '@/lib/supabase/topical-map';
 import { selectVisibleSilos } from '@/lib/topical-map/visible-silos';
 import { MapGenerationWizard } from '@/components/topical-map/MapGenerationWizard';
+import { wizardStepForSetup, type WizardSetupStep } from '@/lib/onboarding/setup-checklist';
 import { MapProgressCard } from '@/components/topical-map/MapProgressCard';
 import { TopicalMapHeader } from '@/components/topical-map/TopicalMapHeader';
 import { SiloTabBar, type SiloFilters } from '@/components/topical-map/SiloTabBar';
@@ -45,6 +47,8 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
     const [loading, setLoading] = useState(true);
     const [loaded, setLoaded] = useState<LoadedMap>({ map: null, silos: [], records: [] });
     const [wizardOpen, setWizardOpen] = useState(false);
+    const [wizardStep, setWizardStep] = useState<WizardSetupStep>('profile');
+    const searchParams = useSearchParams();
     const [error, setError] = useState('');
     const [activeSiloId, setActiveSiloId] = useState<string | 'all'>('all');
     const [filters, setFilters] = useState<SiloFilters>({ action: 'all', pageType: 'all', status: 'all' });
@@ -65,6 +69,37 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
     }, [clientId]);
 
     useEffect(() => { void load(); }, [load]);
+
+    const setupStep = wizardStepForSetup(searchParams.get('setup'));
+    useEffect(() => {
+        if (!setupStep) return;
+        setWizardStep(setupStep);
+        setWizardOpen(true);
+    }, [setupStep, clientId]);
+
+    const openWizard = (step: WizardSetupStep) => {
+        setWizardStep(step);
+        setWizardOpen(true);
+    };
+
+    const wizard = wizardOpen ? (
+        <MapGenerationWizard
+            key={wizardStep}
+            organizationId={organizationId}
+            clientId={clientId}
+            clientName={clientName}
+            initialStep={wizardStep}
+            onClose={() => setWizardOpen(false)}
+            onGenerated={() => {
+                setWizardOpen(false);
+                if (loaded.map) void load();
+                else {
+                    setAwaitingMapRow(true);
+                    void load();
+                }
+            }}
+        />
+    ) : null;
 
     useEffect(() => {
         if (!awaitingMapRow) return;
@@ -110,7 +145,7 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
                         Generate a topic map for {clientName} from the brand profile, search demand, and pages already on the site.
                     </p>
                     <button
-                        onClick={() => setWizardOpen(true)}
+                        onClick={() => openWizard('profile')}
                         className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
                     >
                         <Sparkles className="h-4 w-4" />
@@ -122,20 +157,7 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
                         </p>
                     )}
                 </div>
-
-                {wizardOpen && (
-                    <MapGenerationWizard
-                        organizationId={organizationId}
-                        clientId={clientId}
-                        clientName={clientName}
-                        onClose={() => setWizardOpen(false)}
-                        onGenerated={() => {
-                            setWizardOpen(false);
-                            setAwaitingMapRow(true);
-                            void load();
-                        }}
-                    />
-                )}
+                {wizard}
             </section>
         );
     }
@@ -143,43 +165,47 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
     // Generating state — map exists in draft with generation still in progress.
     if (isGenerating) {
         return (
-            <MapProgressCard
-                clientId={clientId}
-                clientName={clientName}
-                onComplete={() => { void load(); }}
-            />
+            <>
+                <MapProgressCard
+                    clientId={clientId}
+                    clientName={clientName}
+                    onComplete={() => { void load(); }}
+                />
+                {wizard}
+            </>
         );
     }
 
     // Ready state — full silo/record workspace.
-    return <TopicalMapReady
-        organizationId={organizationId}
-        clientId={clientId}
-        clientName={clientName}
-        map={map}
-        silos={silos}
-        records={records}
-        userId={userId}
-        readOnly={role === 'viewer'}
-        activeSiloId={activeSiloId}
-        setActiveSiloId={setActiveSiloId}
-        filters={filters}
-        setFilters={setFilters}
-        selectedRecord={selectedRecord}
-        setSelectedRecord={setSelectedRecord}
-        detailOpen={detailOpen}
-        setDetailOpen={setDetailOpen}
-        wizardOpen={wizardOpen}
-        setWizardOpen={setWizardOpen}
-        onReload={load}
-        setLoaded={setLoaded}
-    />;
+    return (
+        <>
+            <TopicalMapReady
+                organizationId={organizationId}
+                clientId={clientId}
+                map={map}
+                silos={silos}
+                records={records}
+                userId={userId}
+                readOnly={role === 'viewer'}
+                activeSiloId={activeSiloId}
+                setActiveSiloId={setActiveSiloId}
+                filters={filters}
+                setFilters={setFilters}
+                selectedRecord={selectedRecord}
+                setSelectedRecord={setSelectedRecord}
+                detailOpen={detailOpen}
+                setDetailOpen={setDetailOpen}
+                openWizard={openWizard}
+                setLoaded={setLoaded}
+            />
+            {wizard}
+        </>
+    );
 }
 
 interface TopicalMapReadyProps {
     organizationId: string;
     clientId: string;
-    clientName: string;
     map: TopicalMap;
     silos: TopicalMapSilo[];
     records: TopicalMapRecord[];
@@ -193,17 +219,15 @@ interface TopicalMapReadyProps {
     setSelectedRecord: (r: TopicalMapRecord | null) => void;
     detailOpen: boolean;
     setDetailOpen: (open: boolean) => void;
-    wizardOpen: boolean;
-    setWizardOpen: (open: boolean) => void;
-    onReload: () => Promise<void>;
+    openWizard: (step: WizardSetupStep) => void;
     setLoaded: Dispatch<SetStateAction<LoadedMap>>;
 }
 
 function TopicalMapReady({
-    organizationId, clientId, clientName, map, silos, records, userId, readOnly = false,
+    organizationId, clientId, map, silos, records, userId, readOnly = false,
     activeSiloId, setActiveSiloId, filters, setFilters,
     selectedRecord, setSelectedRecord, detailOpen, setDetailOpen,
-    wizardOpen, setWizardOpen, onReload, setLoaded,
+    openWizard, setLoaded,
 }: TopicalMapReadyProps) {
     const [specEnabled, setSpecEnabled] = useState(false);
 
@@ -279,8 +303,8 @@ function TopicalMapReady({
             <TopicalMapHeader
                 map={map}
                 records={records}
-                onEditProfile={() => setWizardOpen(true)}
-                onRegenerate={() => setWizardOpen(true)}
+                onEditProfile={() => openWizard('profile')}
+                onRegenerate={() => openWizard('profile')}
             />
 
             <SiloTabBar
@@ -326,19 +350,6 @@ function TopicalMapReady({
                 specEnabled={specEnabled}
                 readOnly={editsLocked}
             />
-
-            {wizardOpen && (
-                <MapGenerationWizard
-                    organizationId={organizationId}
-                    clientId={clientId}
-                    clientName={clientName}
-                    onClose={() => setWizardOpen(false)}
-                    onGenerated={() => {
-                        setWizardOpen(false);
-                        void onReload();
-                    }}
-                />
-            )}
         </section>
     );
 }

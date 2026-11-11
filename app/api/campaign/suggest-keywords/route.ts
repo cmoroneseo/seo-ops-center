@@ -8,9 +8,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
     }
 
-    const { services, locations, industry, clientName } = await req.json();
+    const { services, locations, industry, clientName, rivals, focusTopics, brandName, businessDescription } = await req.json();
 
     const client = new Anthropic({ apiKey });
+    const rivalList = Array.isArray(rivals) ? rivals.map(String).filter(Boolean).slice(0, 8) : [];
+    const topicList = Array.isArray(focusTopics) ? focusTopics.map(String).filter(Boolean).slice(0, 12) : [];
+    const serviceList = Array.isArray(services) ? services.join(', ') : services || 'Not specified';
+    const locationList = Array.isArray(locations) ? locations.join(', ') : locations || 'Not specified';
 
     const message = await client.messages.create({
       model: 'claude-sonnet-4-6',
@@ -40,10 +44,10 @@ Guidelines:
         {
           role: 'user',
           content: `Generate SEO keyword opportunities for:
-Business: ${clientName || 'Unknown'}
-Industry: ${industry || 'Unknown'}
-Services: ${Array.isArray(services) ? services.join(', ') : services || 'Not specified'}
-Locations: ${Array.isArray(locations) ? locations.join(', ') : locations || 'Not specified'}`,
+Business: ${brandName || clientName || 'Unknown'}
+Industry: ${businessDescription || industry || 'Unknown'}
+Services: ${serviceList}
+Locations: ${locationList}${topicList.length ? `\nFocus topics: ${topicList.join(', ')}` : ''}${rivalList.length ? `\nCompetitors: ${rivalList.join(', ')}` : ''}`,
         },
       ],
     });

@@ -1,18 +1,25 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Loader2, Sparkles, X } from 'lucide-react';
 
+import { KeywordSeedStep } from '@/components/topical-map/KeywordSeedStep';
+import { loadKeywordSuggestions } from '@/lib/onboarding/load-keyword-suggestions';
+import type { KeywordRow, MetricSource } from '@/lib/onboarding/keyword-metrics';
 import { getClientProfile, saveClientProfile } from '@/lib/supabase/topical-map';
+import { generationRequestBody, normalizeSeedKeywords, selectedSeedKeywords } from '@/lib/topical-map/seed-keywords';
 import type { TopicalMapProfile } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
-type Step = 'profile' | 'seeds' | 'confirm';
+type Step = 'profile' | 'seeds' | 'keywords' | 'confirm';
+
+const STEPS: Step[] = ['profile', 'seeds', 'keywords', 'confirm'];
 
 interface MapGenerationWizardProps {
     organizationId: string;
     clientId: string;
     clientName: string;
+    initialStep?: Step;
     onClose: () => void;
     onGenerated: () => void;
 }
@@ -41,8 +48,8 @@ function ChipList({ items, onRemove }: { items: string[]; onRemove: (item: strin
     );
 }
 
-export function MapGenerationWizard({ organizationId, clientId, clientName, onClose, onGenerated }: MapGenerationWizardProps) {
-    const [step, setStep] = useState<Step>('profile');
+export function MapGenerationWizard({ organizationId, clientId, clientName, initialStep = 'profile', onClose, onGenerated }: MapGenerationWizardProps) {
+    const [step, setStep] = useState<Step>(STEPS.includes(initialStep) ? initialStep : 'profile');
     const [loadingProfile, setLoadingProfile] = useState(true);
     const [error, setError] = useState('');
 
@@ -53,26 +60,79 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, onCl
     const [focusTopics, setFocusTopics] = useState<string[]>([]);
     const [rivalInput, setRivalInput] = useState('');
     const [topicInput, setTopicInput] = useState('');
+    const [chosenKeywords, setChosenKeywords] = useState<string[]>([]);
+
+    const [keywordRows, setKeywordRows] = useState<KeywordRow[]>([]);
+    const [keywordVisit, setKeywordVisit] = useState(0);
+    const [keywordLoading, setKeywordLoading] = useState(false);
+    const [keywordNotice, setKeywordNotice] = useState<string | null>(null);
+    const [ahrefs, setAhrefs] = useState<MetricSource>('missing');
+    const [searchConsole, setSearchConsole] = useState<MetricSource>('missing');
+    const selectionTouched = useRef(false);
+    const savedKeywords = useRef<string[]>([]);
+    const keywordRequest = useRef(0);
+    const draftRef = useRef({ brandName, businessDescription, focusTopics, rivals, keywordRows });
+    draftRef.current = { brandName, businessDescription, focusTopics, rivals, keywordRows };
 
     const [drafting, setDrafting] = useState(false);
     const [suggestingRivals, setSuggestingRivals] = useState(false);
     const [suggestingTopics, setSuggestingTopics] = useState(false);
+    const [savingKeywords, setSavingKeywords] = useState(false);
     const [submitting, setSubmitting] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
         (async () => {
             const profile = await getClientProfile(clientId);
-            if (cancelled || !profile) { setLoadingProfile(false); return; }
-            setBrandName(profile.brandName);
-            setBusinessDescription(profile.businessDescription);
-            setContentLanguage(profile.contentLanguage || 'en');
-            setRivals(profile.rivals ?? []);
-            setFocusTopics(profile.focusTopics ?? []);
+            if (cancelled) return;
+            if (profile) {
+                setBrandName(profile.brandName);
+                setBusinessDescription(profile.businessDescription);
+                setContentLanguage(profile.contentLanguage || 'en');
+                setRivals(profile.rivals ?? []);
+                setFocusTopics(profile.focusTopics ?? []);
+                const keywords = normalizeSeedKeywords(profile.keywords);
+                savedKeywords.current = keywords;
+                setChosenKeywords(keywords);
+            }
             setLoadingProfile(false);
         })();
         return () => { cancelled = true; };
     }, [clientId]);
+
+    useEffect(() => {
+        if (loadingProfile || step !== 'keywords' || keywordVisit > 0) return;
+        setKeywordVisit(1);
+    }, [loadingProfile, step, keywordVisit]);
+
+    useEffect(() => {
+        if (keywordVisit === 0 || loadingProfile) return;
+        const request = ++keywordRequest.current;
+        const draft = draftRef.current;
+        const touched = selectionTouched.current;
+        setKeywordLoading(true);
+        setError('');
+        void loadKeywordSuggestions({
+            clientId,
+            brandName: draft.brandName,
+            businessDescription: draft.businessDescription,
+            focusTopics: draft.focusTopics,
+            rivals: draft.rivals,
+            saved: touched ? selectedSeedKeywords(draft.keywordRows) : savedKeywords.current,
+            selectionTouched: touched,
+        }).then(result => {
+            if (request !== keywordRequest.current) return;
+            setKeywordRows(result.rows);
+            setAhrefs(result.ahrefs);
+            setSearchConsole(result.searchConsole);
+            setKeywordNotice(result.notice);
+            setKeywordLoading(false);
+        }).catch(() => {
+            if (request !== keywordRequest.current) return;
+            setKeywordLoading(false);
+            setError('Keywords could not be loaded. You can still add your own.');
+        });
+    }, [keywordVisit, loadingProfile, clientId]);
 
     const addRival = () => {
         const value = rivalInput.trim();
@@ -84,6 +144,17 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, onCl
         if (value && !focusTopics.includes(value)) setFocusTopics(prev => [...prev, value]);
         setTopicInput('');
     };
+
+    const profilePayload = (keywords: string[]): TopicalMapProfile => ({
+        brandName: brandName.trim(),
+        businessDescription: businessDescription.trim(),
+        contentLanguage,
+        focusTopics,
+        rivals,
+        keywords,
+    });
+
+    const keywordsForGeneration = () => keywordVisit > 0 ? selectedSeedKeywords(keywordRows) : chosenKeywords;
 
     const handleAiDraft = async () => {
         setDrafting(true);
@@ -139,7 +210,8 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, onCl
     const handleGenerate = async () => {
         setSubmitting(true);
         setError('');
-        const profile: TopicalMapProfile = { brandName, businessDescription, contentLanguage, focusTopics, rivals };
+        const keywords = keywordsForGeneration();
+        const profile = profilePayload(keywords);
         try {
             const saved = await saveClientProfile(clientId, profile);
             if (!saved.success) throw new Error(saved.error || 'Failed to save profile');
@@ -151,7 +223,7 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, onCl
             fetch('/api/topical-map/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ clientId, organizationId }),
+                body: JSON.stringify(generationRequestBody({ clientId, organizationId, keywords })),
             }).catch(reason => {
                 console.error('Topical map generation request failed', reason);
             });
@@ -163,17 +235,52 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, onCl
         }
     };
 
+    const goToKeywords = () => {
+        setStep('keywords');
+        setKeywordVisit(visit => visit + 1);
+    };
+
+    const advanceFromKeywords = async () => {
+        setSavingKeywords(true);
+        setError('');
+        const keywords = selectedSeedKeywords(keywordRows);
+        try {
+            const saved = await saveClientProfile(clientId, profilePayload(keywords));
+            if (!saved.success) throw new Error(saved.error || 'Failed to save keywords');
+            savedKeywords.current = keywords;
+            setChosenKeywords(keywords);
+            setStep('confirm');
+        } catch (reason) {
+            setError(reason instanceof Error ? reason.message : 'Failed to save keywords');
+        } finally {
+            setSavingKeywords(false);
+        }
+    };
+
+    const toggleKeyword = (keyword: string) => {
+        selectionTouched.current = true;
+        setKeywordRows(rows => rows.map(row => row.keyword === keyword ? { ...row, selected: !row.selected } : row));
+    };
+
+    const replaceKeywordRows = (rows: KeywordRow[]) => {
+        selectionTouched.current = true;
+        setKeywordRows(rows);
+    };
+
     const canAdvanceFromProfile = brandName.trim().length > 0 && businessDescription.trim().length > 0;
+    const summaryKeywords = keywordsForGeneration();
+    const stepIndex = STEPS.indexOf(step);
 
     return (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[5vh] backdrop-blur-sm">
-            <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl border border-border bg-card shadow-2xl">
+            <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-2xl border border-border bg-card shadow-2xl">
                 <div className="flex items-center justify-between border-b border-border/50 px-6 py-4">
                     <div className="flex items-center gap-2">
                         <Sparkles className="h-5 w-5 text-primary" />
                         <h2 className="text-lg font-semibold">
-                            {step === 'profile' && 'Confirm Brand Profile'}
-                            {step === 'seeds' && 'Rivals & Focus Topics'}
+                            {step === 'profile' && 'Confirm brand'}
+                            {step === 'seeds' && 'Competitors and focus topics'}
+                            {step === 'keywords' && 'Keywords'}
                             {step === 'confirm' && 'Generate topic map'}
                         </h2>
                     </div>
@@ -182,14 +289,14 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, onCl
                     </button>
                 </div>
 
-                <div className="flex items-center gap-2 px-6 pt-4 text-xs text-muted-foreground">
-                    {(['profile', 'seeds', 'confirm'] as Step[]).map((s, idx) => (
+                <div className="flex items-center gap-2 px-6 pt-4 text-xs text-muted-foreground" aria-label={`Step ${stepIndex + 1} of ${STEPS.length}`}>
+                    {STEPS.map((s, idx) => (
                         <div key={s} className="flex items-center gap-2">
                             <span className={cn('flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-semibold',
                                 step === s ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground')}>
                                 {idx + 1}
                             </span>
-                            {idx < 2 && <span className="h-px w-6 bg-border" />}
+                            {idx < STEPS.length - 1 && <span className="h-px w-6 bg-border" />}
                         </div>
                     ))}
                 </div>
@@ -204,7 +311,7 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, onCl
                             {step === 'profile' && (
                                 <div className="space-y-4">
                                     <p className="text-sm text-muted-foreground">
-                                        Confirm the brand profile for {clientName}. This anchors the topical map's tone and scope.
+                                        Confirm the brand profile for {clientName}. This anchors the topic map.
                                     </p>
                                     <button
                                         type="button"
@@ -213,7 +320,7 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, onCl
                                         className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary disabled:opacity-50"
                                     >
                                         {drafting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                                        {drafting ? 'Drafting…' : 'AI Draft from crawled pages'}
+                                        {drafting ? 'Drafting…' : 'Draft from pages already on the site'}
                                     </button>
                                     <div>
                                         <label className="text-xs font-medium text-muted-foreground">Brand name</label>
@@ -251,7 +358,7 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, onCl
                                 <div className="space-y-6">
                                     <div>
                                         <div className="flex items-center justify-between">
-                                            <label className="text-xs font-medium text-muted-foreground">Rivals</label>
+                                            <label className="text-xs font-medium text-muted-foreground">Competitors</label>
                                             <button
                                                 type="button"
                                                 onClick={() => void handleSuggest('rivals')}
@@ -303,18 +410,43 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, onCl
                                 </div>
                             )}
 
+                            {step === 'keywords' && (
+                                <div className="space-y-3">
+                                    <div className="flex justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={() => setKeywordVisit(visit => visit + 1)}
+                                            disabled={keywordLoading}
+                                            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary disabled:opacity-50"
+                                        >
+                                            {keywordLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                                            Suggest again
+                                        </button>
+                                    </div>
+                                    <KeywordSeedStep
+                                        rows={keywordRows}
+                                        ahrefs={ahrefs}
+                                        searchConsole={searchConsole}
+                                        loading={keywordLoading}
+                                        notice={keywordNotice}
+                                        onToggle={toggleKeyword}
+                                        onRows={replaceKeywordRows}
+                                    />
+                                </div>
+                            )}
+
                             {step === 'confirm' && (
                                 <div className="space-y-4">
                                     <p className="text-sm text-muted-foreground">
-                                        This generates a new draft topical map for {clientName}. It runs across several stages — search demand,
-                                        existing pages, and AI architecture — and any prior active map is archived.
+                                        This generates a new draft topic map for {clientName}. It uses the brand, competitors, and the keywords you chose. Any current topic map is archived.
                                     </p>
                                     <dl className="space-y-3 rounded-xl border border-border bg-muted/30 p-4 text-sm">
                                         <div><dt className="text-xs text-muted-foreground">Brand</dt><dd className="font-medium">{brandName || '—'}</dd></div>
                                         <div><dt className="text-xs text-muted-foreground">Description</dt><dd>{businessDescription || '—'}</dd></div>
                                         <div><dt className="text-xs text-muted-foreground">Language</dt><dd>{LANGUAGES.find(l => l.value === contentLanguage)?.label ?? contentLanguage}</dd></div>
-                                        <div><dt className="text-xs text-muted-foreground">Rivals ({rivals.length})</dt><dd>{rivals.join(', ') || '—'}</dd></div>
+                                        <div><dt className="text-xs text-muted-foreground">Competitors ({rivals.length})</dt><dd>{rivals.join(', ') || '—'}</dd></div>
                                         <div><dt className="text-xs text-muted-foreground">Focus topics ({focusTopics.length})</dt><dd>{focusTopics.join(', ') || '—'}</dd></div>
+                                        <div><dt className="text-xs text-muted-foreground">Keywords ({summaryKeywords.length})</dt><dd>{summaryKeywords.join(', ') || '—'}</dd></div>
                                     </dl>
                                 </div>
                             )}
@@ -331,7 +463,10 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, onCl
                 <div className="flex items-center justify-between border-t border-border/50 px-6 py-4">
                     <button
                         type="button"
-                        onClick={() => (step === 'profile' ? onClose() : setStep(step === 'seeds' ? 'profile' : 'seeds'))}
+                        onClick={() => {
+                            if (stepIndex <= 0) onClose();
+                            else setStep(STEPS[stepIndex - 1]);
+                        }}
                         className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground"
                     >
                         {step === 'profile' ? 'Cancel' : 'Back'}
@@ -339,11 +474,16 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, onCl
                     {step !== 'confirm' ? (
                         <button
                             type="button"
-                            disabled={step === 'profile' && !canAdvanceFromProfile}
-                            onClick={() => setStep(step === 'profile' ? 'seeds' : 'confirm')}
-                            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                            disabled={(step === 'profile' && !canAdvanceFromProfile) || (step === 'keywords' && (keywordLoading || savingKeywords))}
+                            onClick={() => {
+                                if (step === 'profile') setStep('seeds');
+                                else if (step === 'seeds') goToKeywords();
+                                else void advanceFromKeywords();
+                            }}
+                            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
                         >
-                            Next
+                            {savingKeywords && <Loader2 className="h-4 w-4 animate-spin" />}
+                            {savingKeywords ? 'Saving…' : 'Next'}
                         </button>
                     ) : (
                         <button
