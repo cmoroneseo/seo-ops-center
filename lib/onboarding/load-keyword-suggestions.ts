@@ -65,7 +65,10 @@ export async function loadKeywordSuggestions(
     const rivalsToAsk = ahrefs === 'connected' ? input.rivals.filter(rival => rival.trim()).slice(0, RIVAL_LIMIT) : [];
     const rivalBodies = await Promise.all(rivalsToAsk.map(async rival => {
         const response = await fetchImpl(`/api/campaign/keyword-research?clientId=${clientId}&mode=competitor&competitor=${encodeURIComponent(rival.trim())}`);
-        return response.ok ? ahrefsKeywordRows(await readJson(response)) : [];
+        if (!response.ok) return [];
+        const body = await readJson(response) as { domain?: unknown } | null;
+        const competitor = typeof body?.domain === 'string' && body.domain.trim() ? body.domain.trim() : rival.trim();
+        return ahrefsKeywordRows(body).map(row => ({ ...row, competitor }));
     }));
 
     let searchConsole: MetricSource = 'failed';

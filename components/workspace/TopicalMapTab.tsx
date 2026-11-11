@@ -113,6 +113,9 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
         return () => clearInterval(interval);
     }, [awaitingMapRow, clientId]);
 
+    // Building a topic map is a full page in the tab, not a modal over it.
+    if (wizard) return wizard;
+
     if (loading) {
         return (
             <div role="status" className="flex items-center justify-center gap-2 rounded-xl border border-border p-10 text-sm text-muted-foreground">
@@ -157,7 +160,6 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
                         </p>
                     )}
                 </div>
-                {wizard}
             </section>
         );
     }
@@ -165,41 +167,35 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
     // Generating state — map exists in draft with generation still in progress.
     if (isGenerating) {
         return (
-            <>
-                <MapProgressCard
-                    clientId={clientId}
-                    clientName={clientName}
-                    onComplete={() => { void load(); }}
-                />
-                {wizard}
-            </>
+            <MapProgressCard
+                clientId={clientId}
+                clientName={clientName}
+                onComplete={() => { void load(); }}
+            />
         );
     }
 
     // Ready state — full silo/record workspace.
     return (
-        <>
-            <TopicalMapReady
-                organizationId={organizationId}
-                clientId={clientId}
-                map={map}
-                silos={silos}
-                records={records}
-                userId={userId}
-                readOnly={role === 'viewer'}
-                activeSiloId={activeSiloId}
-                setActiveSiloId={setActiveSiloId}
-                filters={filters}
-                setFilters={setFilters}
-                selectedRecord={selectedRecord}
-                setSelectedRecord={setSelectedRecord}
-                detailOpen={detailOpen}
-                setDetailOpen={setDetailOpen}
-                openWizard={openWizard}
-                setLoaded={setLoaded}
-            />
-            {wizard}
-        </>
+        <TopicalMapReady
+            organizationId={organizationId}
+            clientId={clientId}
+            map={map}
+            silos={silos}
+            records={records}
+            userId={userId}
+            readOnly={role === 'viewer'}
+            activeSiloId={activeSiloId}
+            setActiveSiloId={setActiveSiloId}
+            filters={filters}
+            setFilters={setFilters}
+            selectedRecord={selectedRecord}
+            setSelectedRecord={setSelectedRecord}
+            detailOpen={detailOpen}
+            setDetailOpen={setDetailOpen}
+            openWizard={openWizard}
+            setLoaded={setLoaded}
+        />
     );
 }
 

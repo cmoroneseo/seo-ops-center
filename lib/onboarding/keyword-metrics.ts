@@ -5,9 +5,13 @@
 
 import { MAX_SEED_KEYWORDS, normalizeSeedKeywords } from '../topical-map/seed-keywords';
 
-export const AHREFS_SEARCHES_NOTE = 'Connect Ahrefs to see monthly searches';
-export const AHREFS_DIFFICULTY_NOTE = 'Connect Ahrefs to see how hard each search is';
-export const SEARCH_CONSOLE_POSITION_NOTE = 'Connect Search Console to see your current position';
+export const AHREFS_SEARCHES_NOTE = 'Not available: connect Ahrefs';
+export const AHREFS_DIFFICULTY_NOTE = 'Not available: connect Ahrefs';
+export const SEARCH_CONSOLE_POSITION_NOTE = 'Not available: connect Google Search Console';
+
+/** Shown under a column header when its source is not connected. */
+export const NEEDS_AHREFS = 'Needs Ahrefs';
+export const NEEDS_SEARCH_CONSOLE = 'Needs Google Search Console';
 
 export const SEARCHES_FAILED_NOTE = 'Monthly searches could not be loaded.';
 export const DIFFICULTY_FAILED_NOTE = 'Difficulty could not be loaded.';
@@ -15,7 +19,8 @@ export const POSITION_FAILED_NOTE = 'Your current position could not be loaded.'
 
 export const SEARCHES_UNMEASURED_NOTE = 'Monthly searches were not measured for this keyword';
 export const DIFFICULTY_UNMEASURED_NOTE = 'Difficulty was not measured for this keyword';
-export const POSITION_UNMEASURED_NOTE = 'Not in recent Search Console data';
+/** Search Console is connected but has no data for this search. Never "Not in top 100": we do not know that. */
+export const NOT_SHOWING_YET = 'Not showing in Google yet';
 
 export type MetricSource = 'connected' | 'missing' | 'failed';
 export type MetricKind = 'volume' | 'difficulty' | 'position';
@@ -32,11 +37,26 @@ const FAILED_NOTE: Record<MetricKind, string> = {
     position: POSITION_FAILED_NOTE,
 };
 
-const UNMEASURED_NOTE: Record<MetricKind, string> = {
+const UNMEASURED_NOTE: Record<Exclude<MetricKind, 'position'>, string> = {
     volume: SEARCHES_UNMEASURED_NOTE,
     difficulty: DIFFICULTY_UNMEASURED_NOTE,
-    position: POSITION_UNMEASURED_NOTE,
 };
+
+export type DifficultyBand = 'Easy' | 'Medium' | 'Hard';
+
+/** Easy 0–29 · Medium 30–59 · Hard 60–100. */
+export function difficultyBand(score: number): { band: DifficultyBand; level: 1 | 2 | 3; score: number } {
+    const clamped = Math.min(100, Math.max(0, Math.round(score)));
+    if (clamped < 30) return { band: 'Easy', level: 1, score: clamped };
+    if (clamped < 60) return { band: 'Medium', level: 2, score: clamped };
+    return { band: 'Hard', level: 3, score: clamped };
+}
+
+/** Search Console average position as a rank and the Google results page it lands on. */
+export function rankParts(position: number): { rank: number; page: number } {
+    const rank = Math.max(1, Math.round(position));
+    return { rank, page: Math.ceil(rank / 10) };
+}
 
 export interface MetricCell {
     text: string;
@@ -54,32 +74,49 @@ export function measuredNumber(value: unknown): number | null {
 
 export function formatMeasured(value: number, kind: MetricKind): string {
     if (kind === 'position') {
-        const rounded = Math.round(value * 10) / 10;
-        return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+        const { rank, page } = rankParts(value);
+        return `#${rank} · page ${page} of Google`;
+    }
+    if (kind === 'difficulty') {
+        const { band, score } = difficultyBand(value);
+        return `${band} ${score}/100`;
     }
     return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
 }
 
 /**
  * A missing or failed source is always a dash, even when a caller passes 0 or a guess.
- * A connected source shows a measured number, including a real 0.
+ * A connected source shows a measured number, including a real 0. A connected
+ * Search Console with no data for the search says so in words.
  */
 export function keywordMetricCell(value: number | null, source: MetricSource, kind: MetricKind): MetricCell {
     if (source === 'missing') return { text: '—', note: MISSING_NOTE[kind] };
     if (source === 'failed') return { text: '—', note: FAILED_NOTE[kind] };
-    if (value == null || !Number.isFinite(value) || (kind === 'position' && value <= 0)) {
-        return { text: '—', note: UNMEASURED_NOTE[kind] };
+    if (kind === 'position') {
+        if (value == null || !Number.isFinite(value) || value <= 0) return { text: NOT_SHOWING_YET, note: null };
+        return { text: formatMeasured(value, kind), note: null };
     }
+    if (value == null || !Number.isFinite(value)) return { text: '—', note: UNMEASURED_NOTE[kind] };
     return { text: formatMeasured(value, kind), note: null };
 }
 
-export function keywordSourceNotes(ahrefs: MetricSource, searchConsole: MetricSource): string[] {
-    const notes: string[] = [];
-    if (ahrefs === 'missing') notes.push(AHREFS_SEARCHES_NOTE, AHREFS_DIFFICULTY_NOTE);
-    else if (ahrefs === 'failed') notes.push(SEARCHES_FAILED_NOTE, DIFFICULTY_FAILED_NOTE);
-    if (searchConsole === 'missing') notes.push(SEARCH_CONSOLE_POSITION_NOTE);
-    else if (searchConsole === 'failed') notes.push(POSITION_FAILED_NOTE);
-    return notes;
+/**
+ * Why a keyword is on the list, only where we hold the data that says so.
+ * AI ideas have no reason we can back up, so they carry none.
+ */
+export type KeywordReason = 'added' | 'site' | 'competitor' | 'saved';
+
+export function keywordReasonText(reason: KeywordReason): string {
+    switch (reason) {
+        case 'added':
+            return 'You added this';
+        case 'site':
+            return 'Your site already ranks for this';
+        case 'competitor':
+            return "On a competitor's site";
+        case 'saved':
+            return 'Chosen earlier';
+    }
 }
 
 export interface KeywordRow {
@@ -88,12 +125,29 @@ export interface KeywordRow {
     difficulty: number | null;
     position: number | null;
     selected: boolean;
+    reason?: KeywordReason | null;
+    /** The competitor domain, when the reason is "competitor". */
+    competitor?: string | null;
 }
 
 export interface RawKeyword {
     keyword: string;
     volume?: unknown;
     difficulty?: unknown;
+    /** Set on competitor rows: the domain Ahrefs found it on. */
+    competitor?: string;
+}
+
+/** Footer hint on the keyword step. Continue always works, even with a tool missing. */
+export function keywordStepHint(ahrefs: MetricSource, searchConsole: MetricSource): string {
+    return ahrefs === 'missing' || searchConsole === 'missing'
+        ? 'You can continue without these. The numbers fill in once the tools are connected.'
+        : 'You can change keywords later from the topic map.';
+}
+
+/** True when at least one row has a reason backed by data, so the column is worth showing. */
+export function hasKeywordReasons(rows: readonly KeywordRow[]): boolean {
+    return rows.some(row => row.reason != null);
 }
 
 /** Same cap as generation, so a keyword past it is never silently dropped later. */
@@ -141,9 +195,25 @@ export function buildKeywordRows(input: {
     const savedSet = new Set(saved.map(keyword => keyword.toLowerCase()));
     const useSavedSelection = input.selectionTouched || saved.length > 0;
     const metricsOn = input.ahrefs === 'connected';
-    const map = new Map<string, { keyword: string; volume: number | null; difficulty: number | null }>();
+    type Entry = {
+        keyword: string;
+        volume: number | null;
+        difficulty: number | null;
+        reason: KeywordReason | null;
+        competitor: string | null;
+    };
+    const map = new Map<string, Entry>();
+    // Ahrefs data about this site or a rival says more than "chosen earlier".
+    const strength = (reason: KeywordReason | null) => reason === 'site' ? 3 : reason === 'competitor' ? 2 : reason === 'saved' ? 1 : 0;
 
-    const take = (keyword: string, volume: unknown, difficulty: unknown, allowMetrics: boolean) => {
+    const take = (
+        keyword: string,
+        volume: unknown,
+        difficulty: unknown,
+        allowMetrics: boolean,
+        reason: KeywordReason | null,
+        competitor: string | null = null,
+    ) => {
         const clean = normalizeSeedKeywords([keyword])[0];
         if (!clean) return;
         const key = clean.toLowerCase();
@@ -151,17 +221,21 @@ export function buildKeywordRows(input: {
         const nextDifficulty = allowMetrics && metricsOn ? measuredNumber(difficulty) : null;
         const existing = map.get(key);
         if (!existing) {
-            map.set(key, { keyword: clean, volume: nextVolume, difficulty: nextDifficulty });
+            map.set(key, { keyword: clean, volume: nextVolume, difficulty: nextDifficulty, reason, competitor });
             return;
         }
         if (existing.volume == null && nextVolume != null) existing.volume = nextVolume;
         if (existing.difficulty == null && nextDifficulty != null) existing.difficulty = nextDifficulty;
+        if (strength(reason) > strength(existing.reason)) {
+            existing.reason = reason;
+            existing.competitor = competitor;
+        }
     };
 
-    for (const keyword of saved) take(keyword, null, null, false);
-    for (const row of input.site) take(row.keyword, row.volume, row.difficulty, true);
-    for (const row of input.rivals) take(row.keyword, row.volume, row.difficulty, true);
-    for (const row of input.ideas) take(row.keyword, row.volume, row.difficulty, false);
+    for (const keyword of saved) take(keyword, null, null, false, 'saved');
+    for (const row of input.site) take(row.keyword, row.volume, row.difficulty, true, 'site');
+    for (const row of input.rivals) take(row.keyword, row.volume, row.difficulty, true, 'competitor', row.competitor?.trim() || null);
+    for (const row of input.ideas) take(row.keyword, row.volume, row.difficulty, false, null);
 
     const positions = new Map<string, number>();
     if (input.searchConsole === 'connected') {
@@ -183,6 +257,8 @@ export function buildKeywordRows(input: {
             difficulty: metricsOn ? row.difficulty : null,
             position: input.searchConsole === 'connected' ? positions.get(row.keyword.toLowerCase()) ?? null : null,
             selected: useSavedSelection ? savedSet.has(row.keyword.toLowerCase()) : true,
+            reason: row.reason,
+            competitor: row.competitor,
         })),
     };
 }
@@ -202,7 +278,7 @@ export function addKeywordRow(rows: readonly KeywordRow[], raw: string): { rows:
             error: null,
         };
     }
-    const added: KeywordRow = { keyword, volume: null, difficulty: null, position: null, selected: true };
+    const added: KeywordRow = { keyword, volume: null, difficulty: null, position: null, selected: true, reason: 'added' };
     if (rows.length < KEYWORD_LIMIT) return { rows: [added, ...rows], error: null };
 
     // The list is full. Make room by dropping the last suggestion nobody kept.

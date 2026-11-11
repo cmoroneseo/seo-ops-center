@@ -176,7 +176,9 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
     }, [clientId, searchParams]);
 
     useEffect(() => {
-        if (searchParams.get('setup') === 'search-console') setSelectedService('gsc');
+        const setup = searchParams.get('setup');
+        if (setup === 'search-console') setSelectedService('gsc');
+        else if (setup === 'ahrefs') setSelectedService('ahrefs');
     }, [searchParams]);
 
     useEffect(() => {

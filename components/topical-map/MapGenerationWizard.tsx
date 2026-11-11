@@ -1,19 +1,69 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Loader2, Sparkles, X } from 'lucide-react';
+import Link from 'next/link';
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, Loader2, Sparkles, X } from 'lucide-react';
 
 import { KeywordSeedStep } from '@/components/topical-map/KeywordSeedStep';
 import { loadKeywordSuggestions } from '@/lib/onboarding/load-keyword-suggestions';
-import type { KeywordRow, MetricSource } from '@/lib/onboarding/keyword-metrics';
+import { keywordStepHint, type KeywordRow, type MetricSource } from '@/lib/onboarding/keyword-metrics';
 import { getClientProfile, saveClientProfile } from '@/lib/supabase/topical-map';
 import { generationRequestBody, normalizeSeedKeywords, selectedSeedKeywords } from '@/lib/topical-map/seed-keywords';
+import { WIZARD_STEPS, continueLabel, wizardStepperItems, type WizardStep, type WizardStepperItem } from '@/lib/topical-map/wizard-steps';
 import type { TopicalMapProfile } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
-type Step = 'profile' | 'seeds' | 'keywords' | 'confirm';
+type Step = WizardStep;
 
-const STEPS: Step[] = ['profile', 'seeds', 'keywords', 'confirm'];
+const STEPS: readonly Step[] = WIZARD_STEPS;
+
+const FOCUS = 'focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-[#ec4899]';
+const BUTTON_LG = cn('inline-flex h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-[18px] text-sm font-semibold disabled:opacity-50', FOCUS);
+const SECONDARY_LG = cn(BUTTON_LG, 'border-[#d4d4d8] bg-white text-[#18181b] hover:bg-[#fafafa]');
+const PRIMARY_LG = cn(BUTTON_LG, 'border-[#18181b] bg-[#18181b] text-white hover:bg-[#27272a]');
+
+/** Brand, Competitors, Keywords, Review and build. Done comes from saved state, not from position. */
+export function WizardStepper({ items }: { items: WizardStepperItem[] }) {
+    return (
+        <nav aria-label="Steps" className="mb-4 rounded-xl border border-[#e4e4e7] bg-white px-5 py-4">
+            <ol className="flex flex-wrap items-center gap-y-3">
+                {items.map((item, index) => (
+                    <li key={item.id} className={cn('flex items-center', index < items.length - 1 && 'flex-1')}>
+                        <div className="flex items-center gap-2.5" aria-current={item.status === 'current' ? 'step' : undefined}>
+                            <span
+                                aria-hidden="true"
+                                className={cn(
+                                    'grid h-7 w-7 flex-none place-items-center rounded-full border-2 text-[12.5px] font-bold',
+                                    item.status === 'done' && 'border-[#15803d] bg-[#15803d] text-white',
+                                    item.status === 'current' && 'border-[#18181b] bg-[#18181b] text-white shadow-[0_0_0_4px_#fce7f3]',
+                                    item.status === 'todo' && 'border-[#d4d4d8] bg-white text-[#52525b]',
+                                )}
+                            >
+                                {item.status === 'done' ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : index + 1}
+                            </span>
+                            <div>
+                                <b className="block text-[13.5px] font-bold">{item.label}</b>
+                                <small
+                                    className={cn(
+                                        'text-xs',
+                                        item.status === 'done' && 'font-semibold text-[#15803d]',
+                                        item.status === 'current' && 'font-bold text-[#be185d]',
+                                        item.status === 'todo' && 'text-[#52525b]',
+                                    )}
+                                >
+                                    {item.statusLabel}
+                                </small>
+                            </div>
+                        </div>
+                        {index < items.length - 1 && (
+                            <span aria-hidden="true" className={cn('mx-4 h-0.5 min-w-6 flex-1', item.status === 'done' ? 'bg-[#15803d]' : 'bg-[#d4d4d8]')} />
+                        )}
+                    </li>
+                ))}
+            </ol>
+        </nav>
+    );
+}
 
 interface MapGenerationWizardProps {
     organizationId: string;
@@ -270,38 +320,53 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, init
     const canAdvanceFromProfile = brandName.trim().length > 0 && businessDescription.trim().length > 0;
     const summaryKeywords = keywordsForGeneration();
     const stepIndex = STEPS.indexOf(step);
+    const name = clientName.trim() || 'this client';
+    const selectedCount = keywordRows.filter(row => row.selected).length;
+    const stepper = wizardStepperItems({
+        current: step,
+        brandDone: canAdvanceFromProfile,
+        competitorsDone: rivals.some(rival => rival.trim()),
+        keywordsDone: chosenKeywords.length > 0,
+    });
+    const continueDisabled = (step === 'profile' && !canAdvanceFromProfile)
+        || (step === 'keywords' && (keywordLoading || savingKeywords))
+        || (step === 'confirm' && submitting);
+    const goBack = () => {
+        if (stepIndex <= 0) onClose();
+        else setStep(STEPS[stepIndex - 1]);
+    };
+    const goForward = () => {
+        if (step === 'profile') setStep('seeds');
+        else if (step === 'seeds') goToKeywords();
+        else if (step === 'keywords') void advanceFromKeywords();
+        else void handleGenerate();
+    };
+    const busy = savingKeywords || submitting;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[5vh] backdrop-blur-sm">
-            <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-2xl border border-border bg-card shadow-2xl">
-                <div className="flex items-center justify-between border-b border-border/50 px-6 py-4">
-                    <div className="flex items-center gap-2">
-                        <Sparkles className="h-5 w-5 text-primary" />
-                        <h2 className="text-lg font-semibold">
-                            {step === 'profile' && 'Confirm brand'}
-                            {step === 'seeds' && 'Competitors and focus topics'}
-                            {step === 'keywords' && 'Keywords'}
-                            {step === 'confirm' && 'Generate topic map'}
-                        </h2>
-                    </div>
-                    <button onClick={onClose} aria-label="Close" className="p-1 text-muted-foreground hover:text-foreground">
-                        <X className="h-5 w-5" />
-                    </button>
-                </div>
+        <section aria-labelledby="map-wizard-title" className="text-[#18181b]">
+            <nav aria-label="Breadcrumb" className="mb-1.5 text-[12.5px] text-[#52525b]">
+                <ol className="flex flex-wrap items-center gap-1">
+                    <li><Link href="/workspace" className={cn('rounded hover:text-[#be185d] hover:underline', FOCUS)}>Clients</Link></li>
+                    <li aria-hidden="true">/</li>
+                    <li>
+                        <Link href={`/workspace/${encodeURIComponent(clientId)}?tab=overview`} className={cn('rounded hover:text-[#be185d] hover:underline', FOCUS)}>
+                            {name}
+                        </Link>
+                    </li>
+                    <li aria-hidden="true">/</li>
+                    <li>
+                        <button type="button" onClick={onClose} className={cn('rounded hover:text-[#be185d] hover:underline', FOCUS)}>Topical Map</button>
+                    </li>
+                    <li aria-hidden="true">/</li>
+                    <li aria-current="page">Build topic map</li>
+                </ol>
+            </nav>
+            <h1 id="map-wizard-title" className="mb-4 text-2xl font-bold tracking-[-.01em]">Build {name}&apos;s topic map</h1>
 
-                <div className="flex items-center gap-2 px-6 pt-4 text-xs text-muted-foreground" aria-label={`Step ${stepIndex + 1} of ${STEPS.length}`}>
-                    {STEPS.map((s, idx) => (
-                        <div key={s} className="flex items-center gap-2">
-                            <span className={cn('flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-semibold',
-                                step === s ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground')}>
-                                {idx + 1}
-                            </span>
-                            {idx < STEPS.length - 1 && <span className="h-px w-6 bg-border" />}
-                        </div>
-                    ))}
-                </div>
+            <WizardStepper items={stepper} />
 
-                <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className="rounded-xl border border-[#e4e4e7] bg-white px-6 py-[22px]">
                     {loadingProfile ? (
                         <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
                             <Loader2 className="h-4 w-4 animate-spin" />Loading brand profile…
@@ -310,9 +375,12 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, init
                         <>
                             {step === 'profile' && (
                                 <div className="space-y-4">
-                                    <p className="text-sm text-muted-foreground">
-                                        Confirm the brand profile for {clientName}. This anchors the topic map.
-                                    </p>
+                                    <div>
+                                        <h2 className="text-lg font-bold">Confirm {name}&apos;s brand</h2>
+                                        <p className="mt-1 text-[13.5px] text-[#52525b]">
+                                            Confirm the brand profile for {name}. The topic map is built around it.
+                                        </p>
+                                    </div>
                                     <button
                                         type="button"
                                         onClick={() => void handleAiDraft()}
@@ -356,6 +424,12 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, init
 
                             {step === 'seeds' && (
                                 <div className="space-y-6">
+                                    <div>
+                                        <h2 className="text-lg font-bold">Who {name} competes with</h2>
+                                        <p className="mt-1 text-[13.5px] text-[#52525b]">
+                                            Add the businesses {name} competes with online, and the topics the business wants to be known for.
+                                        </p>
+                                    </div>
                                     <div>
                                         <div className="flex items-center justify-between">
                                             <label className="text-xs font-medium text-muted-foreground">Competitors</label>
@@ -411,35 +485,28 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, init
                             )}
 
                             {step === 'keywords' && (
-                                <div className="space-y-3">
-                                    <div className="flex justify-end">
-                                        <button
-                                            type="button"
-                                            onClick={() => setKeywordVisit(visit => visit + 1)}
-                                            disabled={keywordLoading}
-                                            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary disabled:opacity-50"
-                                        >
-                                            {keywordLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                                            Suggest again
-                                        </button>
-                                    </div>
-                                    <KeywordSeedStep
-                                        rows={keywordRows}
-                                        ahrefs={ahrefs}
-                                        searchConsole={searchConsole}
-                                        loading={keywordLoading}
-                                        notice={keywordNotice}
-                                        onToggle={toggleKeyword}
-                                        onRows={replaceKeywordRows}
-                                    />
-                                </div>
+                                <KeywordSeedStep
+                                    clientId={clientId}
+                                    clientName={clientName}
+                                    rows={keywordRows}
+                                    ahrefs={ahrefs}
+                                    searchConsole={searchConsole}
+                                    loading={keywordLoading}
+                                    notice={keywordNotice}
+                                    onToggle={toggleKeyword}
+                                    onRows={replaceKeywordRows}
+                                    onSuggestAgain={() => setKeywordVisit(visit => visit + 1)}
+                                />
                             )}
 
                             {step === 'confirm' && (
                                 <div className="space-y-4">
-                                    <p className="text-sm text-muted-foreground">
-                                        This generates a new draft topic map for {clientName}. It uses the brand, competitors, and the keywords you chose. Any current topic map is archived.
-                                    </p>
+                                    <div>
+                                        <h2 className="text-lg font-bold">Review and build</h2>
+                                        <p className="mt-1 text-[13.5px] text-[#52525b]">
+                                            This builds a new draft topic map for {name} from the brand, competitors and the keywords you chose. Any current topic map is archived.
+                                        </p>
+                                    </div>
                                     <dl className="space-y-3 rounded-xl border border-border bg-muted/30 p-4 text-sm">
                                         <div><dt className="text-xs text-muted-foreground">Brand</dt><dd className="font-medium">{brandName || '—'}</dd></div>
                                         <div><dt className="text-xs text-muted-foreground">Description</dt><dd>{businessDescription || '—'}</dd></div>
@@ -454,50 +521,23 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, init
                     )}
 
                     {error && (
-                        <div className="mt-4 flex items-center gap-2 text-sm text-red-500">
-                            <AlertTriangle className="h-4 w-4 shrink-0" />{error}
+                        <div role="alert" className="mt-4 flex items-center gap-2 text-sm text-[#b91c1c]">
+                            <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />{error}
                         </div>
                     )}
-                </div>
 
-                <div className="flex items-center justify-between border-t border-border/50 px-6 py-4">
-                    <button
-                        type="button"
-                        onClick={() => {
-                            if (stepIndex <= 0) onClose();
-                            else setStep(STEPS[stepIndex - 1]);
-                        }}
-                        className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground"
-                    >
-                        {step === 'profile' ? 'Cancel' : 'Back'}
+                <div className="mt-5 flex flex-wrap items-center gap-[14px] border-t border-[#e4e4e7] pt-[18px]">
+                    <button type="button" onClick={goBack} className={SECONDARY_LG}>
+                        {step === 'profile' ? 'Cancel' : <><ArrowLeft className="h-4 w-4" aria-hidden="true" />Back</>}
                     </button>
-                    {step !== 'confirm' ? (
-                        <button
-                            type="button"
-                            disabled={(step === 'profile' && !canAdvanceFromProfile) || (step === 'keywords' && (keywordLoading || savingKeywords))}
-                            onClick={() => {
-                                if (step === 'profile') setStep('seeds');
-                                else if (step === 'seeds') goToKeywords();
-                                else void advanceFromKeywords();
-                            }}
-                            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
-                        >
-                            {savingKeywords && <Loader2 className="h-4 w-4 animate-spin" />}
-                            {savingKeywords ? 'Saving…' : 'Next'}
-                        </button>
-                    ) : (
-                        <button
-                            type="button"
-                            onClick={() => void handleGenerate()}
-                            disabled={submitting}
-                            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
-                        >
-                            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                            {submitting ? 'Starting…' : 'Generate topic map'}
-                        </button>
-                    )}
+                    {step === 'keywords' && <span className="text-[12.5px] text-[#52525b]">{keywordStepHint(ahrefs, searchConsole)}</span>}
+                    <button type="button" onClick={goForward} disabled={continueDisabled || loadingProfile} className={cn(PRIMARY_LG, 'ml-auto')}>
+                        {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                        {savingKeywords ? 'Saving…' : submitting ? 'Starting…' : continueLabel(step, selectedCount)}
+                        {!busy && <ArrowRight className="h-4 w-4" aria-hidden="true" />}
+                    </button>
                 </div>
             </div>
-        </div>
+        </section>
     );
 }
