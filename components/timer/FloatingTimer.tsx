@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { Clock, ChevronDown, Pause, Play, Plus, Square, StickyNote } from 'lucide-react';
 import { useTimer } from '@/components/providers/timer-provider';
-import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { BotTimerChip } from './BotTimerChip';
 import { StopConfirmSheet } from './StopConfirmSheet';
 import { QuickStartPopover } from './QuickStartPopover';
@@ -45,11 +44,14 @@ function formatElapsed(seconds: number) {
 
 interface FloatingTimerProps {
     clients: ClientProject[];
-    /** Fixture pages pass this. The dashboard leaves it unset and uses the org owner check. */
+    /**
+     * Pause, resume, and stop on a bot chip. The dashboard passes the org owner check.
+     * Omitted in tests, which then show the controls.
+     */
     botControls?: boolean;
 }
 
-export function FloatingTimer({ clients, botControls }: FloatingTimerProps) {
+export function FloatingTimer({ clients, botControls = true }: FloatingTimerProps) {
     const {
         runningTimer,
         pausedTimers,
@@ -64,8 +66,7 @@ export function FloatingTimer({ clients, botControls }: FloatingTimerProps) {
         resumeBotTimer,
         stopBotTimer,
     } = useTimer();
-    const { isOwner, isLoading: memberLoading } = useCurrentMember();
-    const canControlBots = botControls ?? (isOwner && !memberLoading);
+    const canControlBots = botControls;
     const [botError, setBotError] = useState<string | null>(null);
     const [botPending, setBotPending] = useState<string | null>(null);
     const [expanded, setExpanded] = useState(false);

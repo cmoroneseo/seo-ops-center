@@ -23,7 +23,6 @@ import { PUSH_OUTCOME_MESSAGE, pushOutcomeFor, type PushOutcome } from '@/lib/ti
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useTimer } from '@/components/providers/timer-provider';
-import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { RESUMED_OPEN_TIMER_MESSAGE, REVIEWING_TIMER_MESSAGE } from '@/lib/timer/attempt-state';
 import { groupSegmentsForDisplay, sumActiveSeconds } from '@/lib/timer/segments';
 import { taskStretchLines } from '@/lib/timer/task-stretches';
@@ -60,6 +59,8 @@ interface TaskDetailModalProps {
      * the shared push after a field save.
      */
     hideBasecampSend?: boolean;
+    /** Pause, resume, and stop on a bot timer. Callers pass the org owner check. */
+    canControlBotTimers?: boolean;
     /** Tests pass a recorder. The modal otherwise writes the time log itself. */
     saveTimeLog?: typeof createTimeLog;
     /**
@@ -209,7 +210,7 @@ function TaskTimeLogRow({
     );
 }
 
-export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId, initialCompletion = false, embedded = false, hideBasecampSend = false, saveTimeLog = createTimeLog, taskReaders }: TaskDetailModalProps) {
+export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId, initialCompletion = false, embedded = false, hideBasecampSend = false, canControlBotTimers = true, saveTimeLog = createTimeLog, taskReaders }: TaskDetailModalProps) {
     const { organization, memberships } = useOrganization();
     const {
         runningTimer,
@@ -224,8 +225,6 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         resumeBotTimer,
         stopBotTimer,
     } = useTimer();
-    const { isOwner, isLoading: memberLoading } = useCurrentMember();
-    const canControlBots = isOwner && !memberLoading;
     const [timerPending, setTimerPending] = useState(false);
     const [timerNotice, setTimerNotice] = useState<string | null>(null);
     const timerPendingRef = useRef<string | null>(null);
@@ -1460,7 +1459,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                     key={timer.id}
                                     timer={timer}
                                     seconds={getBotElapsedSeconds ? getBotElapsedSeconds(timer) : 0}
-                                    controls={canControlBots}
+                                    controls={canControlBotTimers}
                                     onPause={id => void pauseBotTimer?.(id).catch(error => {
                                         setTimerNotice(error instanceof Error ? error.message : 'Could not pause the bot timer.');
                                     })}

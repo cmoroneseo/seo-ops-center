@@ -858,6 +858,7 @@ export default function ClientDetailPage() {
             <TaskDetailModal
                 task={selectedTask}
                 isOpen={isTaskDetailOpen}
+                canControlBotTimers={isOwner && !memberLoading}
                 onClose={() => setIsTaskDetailOpen(false)}
                 onUpdate={(updated) => {
                     setClientTasks(prev => prev.map(t => t.id === updated.id ? mergeSavedTask(t, updated) : t));
