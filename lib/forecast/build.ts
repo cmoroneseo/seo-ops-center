@@ -154,6 +154,11 @@ export interface ForecastBuildInput {
     logs: ForecastLog[];
     events: ForecastEvent[];
     tasks: ForecastTask[];
+    /**
+     * Instant used to split the current week into elapsed and still-ahead work.
+     * Version 2 reads it. Absent means the whole of today is still ahead.
+     */
+    now?: string;
 }
 
 export interface ForecastBuildResult {
@@ -237,6 +242,14 @@ export function calendarDateInTimeZone(instant: string, timeZone: string): strin
 
 export function forecastBasis(weekStart: string, today: string): 'actual' | 'estimate' {
     return weekStart <= weekStartFor(today) ? 'actual' : 'estimate';
+}
+
+/** Past weeks are logged only. The current week is mixed. Later weeks are estimates. */
+export function forecastWeekKind(weekStart: string, today: string): 'past' | 'current' | 'future' {
+    const current = weekStartFor(today);
+    if (weekStart < current) return 'past';
+    if (weekStart > current) return 'future';
+    return 'current';
 }
 
 function minutesFromHours(hours: number | null): number | null {

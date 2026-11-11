@@ -74,9 +74,12 @@ test('minutes, hours, basis, monday, and internal client are enforced', () => {
     const wrongHours = structuredClone(body());
     (wrongHours.weeks[0] as WeekShape).people[0].days[0].items[0].hours = '1.51';
     assert.throws(() => parseForecastPayloadV2(wrongHours), /hours must equal minutes/);
+    const planned = structuredClone(body());
+    (planned.weeks[0] as WeekShape).people[0].days[0].items[0].source = 'estimate';
+    assert.equal(parseForecastPayloadV2(planned).weeks[0].people[0].days[0].items[0].source, 'estimate');
     const wrongSource = structuredClone(body());
-    (wrongSource.weeks[0] as WeekShape).people[0].days[0].items[0].source = 'estimate';
-    assert.throws(() => parseForecastPayloadV2(wrongSource), /source must match basis/);
+    (wrongSource.weeks[0] as WeekShape).people[0].days[0].items[0].source = 'guess';
+    assert.throws(() => parseForecastPayloadV2(wrongSource), /source must be actual or estimate/);
     const sunday = structuredClone(body());
     (sunday.weeks[0] as { weekStart: string }).weekStart = '2026-10-13';
     assert.throws(() => parseForecastPayloadV2(sunday), /Monday/);

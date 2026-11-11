@@ -35,7 +35,7 @@ export interface ForecastPreviewPersonView {
 export interface ForecastPreviewSectionView {
     weekStart: string;
     heading: string;
-    basisLabel: 'Actual' | 'Estimate';
+    basisLabel: 'Actual' | 'Estimate' | 'Logged and planned';
     people: ForecastPreviewPersonView[];
     emptyLabel: string | null;
 }
@@ -145,7 +145,11 @@ export function presentForecast(
         sections: result.weeks.map(week => ({
             weekStart: week.weekStart,
             heading: formatWeekRange(week.weekStart),
-            basisLabel: week.basis === 'actual' ? 'Actual' : 'Estimate',
+            basisLabel: week.basis === 'estimate'
+                ? 'Estimate'
+                : week.people.some(person => person.rows.some(row => row.source === 'estimate'))
+                    ? 'Logged and planned'
+                    : 'Actual',
             people: week.people.map(presentPerson),
             emptyLabel: week.people.length === 0 ? 'No hours in this week.' : null,
         })),
@@ -168,7 +172,8 @@ function forecastNotes(result: ForecastPresentSource): string[] {
     const notes: string[] = [];
     if (result.payloadVersion === 2) {
         if (result.weeks.some(week => week.basis === 'actual')) {
-            notes.push('The current week and earlier weeks send tracked time for each day. Scheduled work that has not been logged is left out.');
+            notes.push('This week sends hours already logged, plus work still on the calendar for later today and the rest of the week. Work that was both planned and logged is sent once.');
+            notes.push('Earlier weeks send hours already logged. Planned work that was never logged is left out.');
         }
         if (result.weeks.some(week => week.basis === 'estimate')) {
             notes.push('Later weeks put each task estimate on its start date. A task with several people is split evenly.');
