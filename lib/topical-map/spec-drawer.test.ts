@@ -82,23 +82,29 @@ test('the spec drawer shows the spec, an em dash for empty fields, and approve a
     assert.equal(/<p[^>]*>\s*\u2014\s*<\/p>/.test(afterDate), false);
     assert.equal(html.includes('value="0"'), false);
     assert.equal(html.includes('0 of 60'), false);
-    assert.equal(buttonDisabled(html, 'Approve'), false);
+    const label = html.match(/>(Approve for [^<]+)</)?.[1];
+    assert.ok(label);
+    assert.equal(buttonDisabled(html, label), false);
     assert.equal(buttonDisabled(html, 'Decline'), false);
 });
 
 test('approve and decline stay available when the spec flag is off', () => {
     const html = panel(false);
     assert.match(html, /Main search phrase/);
-    assert.match(html, />Approve</);
+    assert.match(html, />Approve for /);
     assert.match(html, />Decline</);
     assert.equal(html.includes('Unique angle'), false);
     assert.equal(html.includes('Answer in the first 60 words'), false);
     const approved = panel(false, { status: 'approved' });
-    assert.equal(buttonDisabled(approved, 'Approve'), true);
+    const approvedLabel = approved.match(/>(Approve for [^<]+)</)?.[1];
+    assert.ok(approvedLabel);
+    assert.equal(buttonDisabled(approved, approvedLabel), true);
     assert.equal(buttonDisabled(approved, 'Decline'), false);
     const declined = panel(false, { status: 'declined' });
+    const declinedLabel = declined.match(/>(Approve for [^<]+)</)?.[1];
+    assert.ok(declinedLabel);
     assert.equal(buttonDisabled(declined, 'Decline'), true);
-    assert.equal(buttonDisabled(declined, 'Approve'), false);
+    assert.equal(buttonDisabled(declined, declinedLabel), false);
 });
 
 test('a manual record shows a manual badge and each silo can add one', () => {

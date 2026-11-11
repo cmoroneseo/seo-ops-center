@@ -15,6 +15,7 @@ import { displayedProductionStatus } from '@/lib/topical-map/production';
 import { SiloAccordion } from '@/components/topical-map/SiloAccordion';
 import { RecordDetailPanel } from '@/components/topical-map/RecordDetailPanel';
 import { ReconciliationSummary } from '@/components/topical-map/ReconciliationSummary';
+import { canEditContent } from '@/lib/content/access';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import type { TopicalMap, TopicalMapRecord, TopicalMapSilo } from '@/lib/types';
 
@@ -40,9 +41,10 @@ interface TopicalMapTabProps {
     organizationId: string;
     clientId: string;
     clientName: string;
+    contentPieces?: number | null;
 }
 
-export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalMapTabProps) {
+export function TopicalMapTab({ organizationId, clientId, clientName, contentPieces = null }: TopicalMapTabProps) {
     const { userId, role } = useCurrentMember();
     const [loading, setLoading] = useState(true);
     const [loaded, setLoaded] = useState<LoadedMap>({ map: null, silos: [], records: [] });
@@ -185,6 +187,8 @@ export function TopicalMapTab({ organizationId, clientId, clientName }: TopicalM
             records={records}
             userId={userId}
             readOnly={role === 'viewer'}
+            contentReadOnly={!canEditContent(role)}
+            contentPieces={contentPieces}
             activeSiloId={activeSiloId}
             setActiveSiloId={setActiveSiloId}
             filters={filters}
@@ -207,6 +211,8 @@ interface TopicalMapReadyProps {
     records: TopicalMapRecord[];
     userId?: string;
     readOnly?: boolean;
+    contentReadOnly?: boolean;
+    contentPieces?: number | null;
     activeSiloId: string | 'all';
     setActiveSiloId: (id: string | 'all') => void;
     filters: SiloFilters;
@@ -221,6 +227,7 @@ interface TopicalMapReadyProps {
 
 function TopicalMapReady({
     organizationId, clientId, map, silos, records, userId, readOnly = false,
+    contentReadOnly = false, contentPieces = null,
     activeSiloId, setActiveSiloId, filters, setFilters,
     selectedRecord, setSelectedRecord, detailOpen, setDetailOpen,
     openWizard, setLoaded,
@@ -345,6 +352,9 @@ function TopicalMapReady({
                 userId={userId}
                 specEnabled={specEnabled}
                 readOnly={editsLocked}
+                contentReadOnly={contentReadOnly}
+                contentPieces={contentPieces}
+                boardRecords={records}
             />
         </section>
     );

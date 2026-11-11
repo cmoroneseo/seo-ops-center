@@ -1,15 +1,18 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { Check, ExternalLink, Loader2, X } from 'lucide-react';
+import { ExternalLink, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
     MapRecordAction, MapRecordStatus, PageType, ProductionStatus, TopicalMapRecord, TopicalMapSilo,
 } from '@/lib/types';
-import { approveRecord, declineRecord, updateRecord, updateRecordSpec } from '@/lib/supabase/topical-map';
+import { updateRecord, updateRecordSpec } from '@/lib/supabase/topical-map';
+import { approveContentRecord, declineContentRecord, updateContentRecord } from '@/lib/content/client';
+import { contentMonthChoices, currentWorkMonth } from '@/lib/content/board';
+import { contentQuota, plannedAfterApproval } from '@/lib/content/quota';
+import { ApproveForMonth } from '@/components/content/ApproveForMonth';
 import { PAGE_TYPES, type SpecFieldPatch } from '@/lib/topical-map/spec';
 import {
-    approveRecordPatch,
     canMarkAlreadyLive,
     cleanProductionPatch,
     displayedProductionStatus,
@@ -19,6 +22,7 @@ import {
     PRODUCTION_STATUSES,
     PUBLISHED_NOTE,
     readHttpUrl,
+    readWorkMonth,
     type MapProduction,
 } from '@/lib/topical-map/production';
 import {
@@ -56,6 +60,11 @@ interface RecordDetailPanelProps {
     userId?: string;
     specEnabled?: boolean;
     readOnly?: boolean;
+    /** Viewers cannot approve a page or change its month, even when other fields stay open. */
+    contentReadOnly?: boolean;
+    contentPieces?: number | null;
+    boardRecords?: TopicalMapRecord[];
+    today?: string;
 }
 
 function numberField(value: number | undefined): string {
@@ -69,8 +78,9 @@ function emptyCount(value: number | undefined): string {
 }
 
 export function RecordDetailPanel({
-    record, silos, isOpen, onClose, onUpdated, organizationId, clientId, userId,
-    specEnabled = false, readOnly = false,
+    record, silos, isOpen, onClose, onUpdated, clientId,
+    specEnabled = false, readOnly = false, contentReadOnly = false,
+    contentPieces = null, boardRecords = [], today,
 }: RecordDetailPanelProps) {
     const headingId = useId();
     const open = isOpen && Boolean(record);
@@ -82,6 +92,9 @@ export function RecordDetailPanel({
     const [isApproving, setIsApproving] = useState(false);
     const [isDeclining, setIsDeclining] = useState(false);
     const [error, setError] = useState('');
+    const todayMonth = readWorkMonth(today) ?? currentWorkMonth();
+    const [approveMonth, setApproveMonth] = useState(todayMonth);
+    const productionLocked = readOnly || contentReadOnly;
     const [saveState, setSaveState] = useState<SpecSaveState>('idle');
     const draftRef = useRef<TopicalMapRecord | null>(record);
     const savedRef = useRef<SpecFieldPatch>(saved);
@@ -115,6 +128,7 @@ export function RecordDetailPanel({
         revisions.current = {};
         setSaveState('idle');
         setNotesDraft(record?.reviewerNotes ?? '');
+        setApproveMonth(readWorkMonth(record?.workMonth) ?? (readWorkMonth(today) ?? currentWorkMonth()));
         setError('');
         // Reset only when a different page opens. Depending on `record` would
         // wipe an unsaved title when a spec save refreshes the same id.
@@ -196,6 +210,10 @@ export function RecordDetailPanel({
     const productionChoices = PRODUCTION_STATUSES.filter(status => status !== 'already_live' || canMarkAlreadyLive(draft));
     const draftHref = readHttpUrl(draft.draftUrl);
     const liveHref = readHttpUrl(draft.liveUrl);
+    const approveMonths = contentMonthChoices(todayMonth, [draft.workMonth]);
+    const selectedMonth = approveMonths.includes(approveMonth) ? approveMonth : approveMonths[0] ?? approveMonth;
+    const quota = contentQuota(plannedAfterApproval(boardRecords, draft.id, selectedMonth), contentPieces, selectedMonth);
+    const approveLocked = productionLocked || isApproving || isDeclining || draft.status === 'approved';
 
     const patch = async (nextPatch: Partial<TopicalMapRecord>) => {
         const base = draftRef.current;
@@ -222,12 +240,13 @@ export function RecordDetailPanel({
         const optimistic = { ...base, ...nextPatch };
         replaceDraft(optimistic);
         setError('');
-        void updateRecord(base.id, nextPatch).then(res => {
+        void updateContentRecord({ clientId, recordId: base.id, ...cleaned.value }).then(res => {
             if (!draftRef.current || draftRef.current.id !== base.id) return;
-            const settled = draftAfterProductionSave(base, optimistic, res.success);
+            const saved = res.record;
+            const settled = draftAfterProductionSave(base, saved ? { ...base, ...saved } : optimistic, Boolean(saved));
             replaceDraft(settled);
-            if (res.success) onUpdatedRef.current(settled);
-            else setError(res.error ?? 'Failed to save change');
+            if (saved) onUpdatedRef.current(settled);
+            else setError(res.error ?? 'Could not save this page.');
         });
     };
 
@@ -236,6 +255,10 @@ export function RecordDetailPanel({
     };
 
     const handleApprove = async () => {
+        if (productionLocked || !draft || draft.status === 'approved') return;
+        const months = contentMonthChoices(todayMonth, [draft.workMonth]);
+        const month = months.includes(approveMonth) ? approveMonth : months[0];
+        if (!month) return;
         setIsApproving(true);
         setError('');
         const flushed = await flushPending();
@@ -244,23 +267,22 @@ export function RecordDetailPanel({
             return;
         }
         const current = draftRef.current ?? draft;
-        const res = await approveRecord(current, organizationId, clientId, userId);
+        const res = await approveContentRecord({
+            clientId,
+            recordId: current.id,
+            workMonth: month,
+        });
         setIsApproving(false);
-        if (res.success) {
-            const written = approveRecordPatch(res.taskId ?? '', current.productionStatus);
-            onUpdatedRef.current({
-                ...current,
-                status: 'approved',
-                taskId: res.taskId,
-                ...(written.productionStatus ? { productionStatus: written.productionStatus } : {}),
-            });
+        if (res.record) {
+            onUpdatedRef.current(res.record);
             onClose();
         } else {
-            setError(res.error ?? 'Failed to approve record');
+            setError(res.error ?? 'Could not approve this page.');
         }
     };
 
     const handleDecline = async () => {
+        if (productionLocked) return;
         setIsDeclining(true);
         setError('');
         const flushed = await flushPending();
@@ -268,13 +290,13 @@ export function RecordDetailPanel({
             setIsDeclining(false);
             return;
         }
-        const res = await declineRecord(record.id);
+        const res = await declineContentRecord({ clientId, recordId: record.id });
         setIsDeclining(false);
-        if (res.success) {
-            onUpdatedRef.current({ ...(draftRef.current ?? draft), status: 'declined', productionStatus: 'declined' });
+        if (res.record) {
+            onUpdatedRef.current({ ...(draftRef.current ?? draft), ...res.record });
             onClose();
         } else {
-            setError(res.error ?? 'Failed to decline record');
+            setError(res.error ?? 'Could not decline this page.');
         }
     };
 
@@ -366,7 +388,7 @@ export function RecordDetailPanel({
                                 <select
                                     id="record-production-status"
                                     value={productionChoices.includes(productionStatus) ? productionStatus : productionChoices[0]}
-                                    disabled={readOnly}
+                                    disabled={productionLocked}
                                     onChange={event => saveProduction(productionChoicePatch(event.target.value as ProductionStatus))}
                                     className={inputClasses}
                                 >
@@ -383,7 +405,7 @@ export function RecordDetailPanel({
                                     id="record-work-month"
                                     type="month"
                                     value={draft.workMonth ?? ''}
-                                    disabled={readOnly}
+                                    disabled={productionLocked}
                                     onChange={event => saveProduction({ workMonth: event.target.value || null })}
                                     className={inputClasses}
                                 />
@@ -394,7 +416,7 @@ export function RecordDetailPanel({
                                     id="record-due-date"
                                     type="date"
                                     value={draft.dueDate ?? ''}
-                                    disabled={readOnly}
+                                    disabled={productionLocked}
                                     onChange={event => saveProduction({ dueDate: event.target.value || null })}
                                     className={inputClasses}
                                 />
@@ -406,7 +428,7 @@ export function RecordDetailPanel({
                                 id="record-published-on"
                                 type="date"
                                 value={draft.publishedOn ?? ''}
-                                disabled={readOnly}
+                                disabled={productionLocked}
                                 onChange={event => saveProduction({ publishedOn: event.target.value || null })}
                                 className={inputClasses}
                             />
@@ -418,7 +440,7 @@ export function RecordDetailPanel({
                                 type="url"
                                 value={draft.draftUrl ?? ''}
                                 placeholder="—"
-                                disabled={readOnly}
+                                disabled={productionLocked}
                                 onChange={event => editDraft({ draftUrl: event.target.value })}
                                 onBlur={event => {
                                     const value = event.currentTarget.value.trim();
@@ -440,7 +462,7 @@ export function RecordDetailPanel({
                                 type="url"
                                 value={draft.liveUrl ?? ''}
                                 placeholder="—"
-                                disabled={readOnly}
+                                disabled={productionLocked}
                                 onChange={event => editDraft({ liveUrl: event.target.value })}
                                 onBlur={event => {
                                     const value = event.currentTarget.value.trim();
@@ -682,27 +704,27 @@ export function RecordDetailPanel({
                     </div>
                 </div>
 
-                <div className="sticky bottom-0 flex gap-2 border-t border-border/50 bg-card p-4">
+                <div className="sticky bottom-0 space-y-3 border-t border-border/50 bg-card p-4">
+                    <ApproveForMonth
+                        month={selectedMonth}
+                        months={approveMonths}
+                        quota={quota}
+                        disabled={approveLocked}
+                        busy={isApproving}
+                        onMonth={setApproveMonth}
+                        onApprove={() => { void handleApprove(); }}
+                    />
                     <button
                         type="button"
                         onClick={handleDecline}
-                        disabled={isDeclining || isApproving || draft.status === 'declined'}
+                        disabled={productionLocked || isDeclining || isApproving || draft.status === 'declined'}
                         className={cn(
-                            'flex-1 inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
+                            'inline-flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
                             'border-red-500/30 text-red-500 hover:bg-red-500/10',
                         )}
                     >
                         {isDeclining ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
                         Decline
-                    </button>
-                    <button
-                        type="button"
-                        onClick={handleApprove}
-                        disabled={isApproving || isDeclining || draft.status === 'approved'}
-                        className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-                    >
-                        {isApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                        Approve
                     </button>
                 </div>
             </div>
