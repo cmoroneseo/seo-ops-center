@@ -11,7 +11,8 @@ import { normalizeChange, type ChangeInput } from './validate';
  */
 export const EXAMPLE_AS_OF = new Date('2026-12-15T20:00:00.000Z');
 
-export const EXAMPLE_NOTE = 'Example data. Not a live Search Console or Analytics pull. Shown as of Dec 15, 2026 so the 28-day window can be drawn. On Nov 10, 2026 this change is too early.';
+export const EXAMPLE_NOTE = "Example data. Not a live Google Search Console or Analytics pull. Shown as of Dec 15, 2026 so the 28-day check can be drawn. On Nov 10, 2026 this change is too early to tell.";
+export const EXAMPLE_BASELINE_NOTE = 'Example starting point. Not read from Google Search Console.';
 
 const H1_BEFORE = 'Hardscape, Landscape & Outdoor Living Contractors in Corona, CA';
 const H1_AFTER = 'Hardscape & Landscape Contractors in Corona, CA';

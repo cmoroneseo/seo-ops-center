@@ -6,28 +6,20 @@ import { Button } from '@/components/ui/button';
 import {
     CHANGE_TYPES,
     CHANGE_TYPE_LABEL,
-    VERDICT_LABEL,
     type ChangeType,
     type Confounder,
     type ImpactModel,
     type SeoChange,
     type TimelineItem,
-    type Verdict,
 } from '@/lib/change-log/types';
-import { formatDay, formatPt } from '@/lib/change-log/time';
+import { formatDay, formatDayWithYear } from '@/lib/change-log/time';
 import type { ChangeInput } from '@/lib/change-log/validate';
 
 import { ChangeDetail } from './ChangeDetail';
 import { ChangeForm } from './ChangeForm';
+import { VerdictPill } from './VerdictPill';
 
 export type ChangeLogMode = 'list' | 'form' | 'detail' | 'loading' | 'empty' | 'setup';
-
-function badgeClass(verdict: Verdict): string {
-    if (verdict === 'improved') return 'bg-green-50 text-green-800 ring-green-600/20';
-    if (verdict === 'declined') return 'bg-red-50 text-red-800 ring-red-600/20';
-    if (verdict === 'flat') return 'bg-zinc-100 text-zinc-700 ring-zinc-500/20';
-    return 'bg-amber-50 text-amber-900 ring-amber-600/20';
-}
 
 export function ChangeLogView({
     clientName,
@@ -118,7 +110,7 @@ export function ChangeLogView({
             {mode === 'empty' && (
                 <div className="rounded-lg border border-dashed border-border bg-card p-8 text-center">
                     <p className="font-medium">No changes logged yet.</p>
-                    <p className="mt-1 text-sm text-muted-foreground">Log an H1, title, or new page, then track it here.</p>
+                    <p className="mt-1 text-sm text-muted-foreground">Log a main page heading, a search result title, or a new page, then track it here.</p>
                     <Button type="button" className="mt-4" onClick={onLog}>Log a change</Button>
                 </div>
             )}
@@ -143,15 +135,10 @@ export function ChangeLogView({
                                         <span>
                                             <span className="block text-sm font-medium">{item.title}</span>
                                             <span className="mt-0.5 block text-xs text-muted-foreground">
-                                                {formatPt(item.liveAt)} · {CHANGE_TYPE_LABEL[item.changeType]} · {item.pageLabel}
+                                                {formatDayWithYear(item.liveOn)} · {CHANGE_TYPE_LABEL[item.changeType]} · {item.pageLabel}
                                             </span>
                                         </span>
-                                        <span className="flex items-center gap-2">
-                                            <span className="text-xs tabular-nums text-muted-foreground">{item.deltaText}</span>
-                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${badgeClass(item.verdict)}`}>
-                                                {VERDICT_LABEL[item.verdict]}{item.estimate ? ' · Estimate' : ''}
-                                            </span>
-                                        </span>
+                                        <VerdictPill verdict={item.verdict} estimate={item.estimate} />
                                     </button>
                                 </li>
                             ))}

@@ -10,18 +10,19 @@ import {
     type CheckpointDays,
 } from './thresholds';
 import { afterWindow, baselineWindow, finalThrough, formatDay, shiftWindowLastYear } from './time';
-import type {
-    ChartPoint,
-    CheckpointRead,
-    Confounder,
-    DayPoint,
-    ImpactModel,
-    Kpi,
-    MetricRead,
-    QueryCompare,
-    SeoChange,
-    TimelineItem,
-    Verdict,
+import {
+    VERDICT_LABEL,
+    type ChartPoint,
+    type CheckpointRead,
+    type Confounder,
+    type DayPoint,
+    type ImpactModel,
+    type Kpi,
+    type MetricRead,
+    type QueryCompare,
+    type SeoChange,
+    type TimelineItem,
+    type Verdict,
 } from './types';
 import { classifyCheckpoint, isLowData } from './verdict';
 
@@ -41,7 +42,7 @@ export interface ImpactSource {
 
 export function buildImpact(source: ImpactSource): ImpactModel {
     const through = finalThrough(source.now);
-    const lagNote = `Search Console is about ${GSC_LAG_DAYS} days behind (final through ${formatDay(through)}).`;
+    const lagNote = `Google Search Console is about ${GSC_LAG_DAYS} days behind (final through ${formatDay(through)}).`;
     const baselineSpan = baselineWindow(source.liveOn);
     const baseline = sumWindow(source.pageDays, baselineSpan.start, baselineSpan.end, through);
     const baselineReady = baseline.measured && baseline.daysPresent >= VERDICT_THRESHOLDS.minBaselineDays;
@@ -80,7 +81,7 @@ export function buildImpact(source: ImpactSource): ImpactModel {
         baselineReady,
         yoy: yoy?.read ?? null,
         yoyNote: source.compareLastYear
-            ? (yoy?.note ?? 'Last year is context. The verdict uses the 28 days before the change.')
+            ? (yoy?.note ?? 'Last year is context. The result uses the 28 days before the change.')
             : null,
         headline,
         checkpoints,
@@ -156,9 +157,9 @@ function readYoy(source: ImpactSource, through: string): { read: ReturnType<type
     const span = shiftWindowLastYear(baselineWindow(source.liveOn));
     const read = sumWindow(source.yoyPageDays ?? [], span.start, span.end, through);
     if (!read.measured || read.daysPresent < VERDICT_THRESHOLDS.minBaselineDays) {
-        return { read, note: `Same dates last year (${formatDay(span.start)}–${formatDay(span.end)}) are not stored. The verdict still uses the 28 days before the change.` };
+        return { read, note: `Same dates last year (${formatDay(span.start)}–${formatDay(span.end)}) are not stored. The result still uses the 28 days before the change.` };
     }
-    return { read, note: 'Last year is context. The verdict uses the 28 days before the change.' };
+    return { read, note: 'Last year is context. The result uses the 28 days before the change.' };
 }
 
 function chartSeries(source: ImpactSource, through: string, start: string, end: string): ChartPoint[] {
@@ -210,17 +211,17 @@ function queryRows(source: ImpactSource, through: string, headline: CheckpointRe
 }
 
 function sourceLines(source: ImpactSource): string[] {
-    const lines = [
-        source.gscConnected ? 'Search Console · organic' : 'Search Console not connected',
-        source.ga4Connected ? 'Analytics · landing page' : 'Analytics not connected',
-    ];
-    return lines;
+    const search = source.gscConnected
+        ? 'Google Search Console · organic search'
+        : "Google Search Console isn't connected";
+    const analytics = source.ga4Connected ? 'Analytics · landing page' : 'Analytics not connected';
+    return [search, analytics];
 }
 
 export function dailyRateText(kpi: Kpi, before: MetricRead, after: MetricRead): string {
     const prior = daily(kpi, before);
     const next = daily(kpi, after);
-    if (prior == null || next == null) return 'Too early';
+    if (prior == null || next == null) return 'Not ready yet';
     const move = moveFor(kpi, before, after);
     const rel = formatHelpful(move.helpful, move.fromZero);
     if (kpi === 'avg_position') return `${formatPosition(prior)} → ${formatPosition(next)} ${rel}`.trim();
@@ -275,7 +276,7 @@ export function timelineItem(change: SeoChange, impact: ImpactModel): TimelineIt
         url: page?.url ?? '',
         verdict: head.verdict,
         estimate: head.estimate,
-        deltaText: head.verdict === 'too_early' ? 'Too early' : dailyRateText(change.kpi, impact.baseline, head.page),
+        deltaText: head.verdict === 'too_early' ? VERDICT_LABEL.too_early : dailyRateText(change.kpi, impact.baseline, head.page),
         kpi: change.kpi,
         checkpointDays: head.ready ? head.days : null,
     };
@@ -312,8 +313,8 @@ export function findConfounders(
 
 export function overlapLabel(overlap: Confounder['overlap']): string {
     if (overlap === 'same_day') return 'Same day';
-    if (overlap === 'baseline') return 'In the baseline';
-    return 'In the after window';
+    if (overlap === 'baseline') return 'In the starting point';
+    return 'After it went live';
 }
 
 export function verdictRank(verdict: Verdict): number {

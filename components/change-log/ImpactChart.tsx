@@ -5,7 +5,7 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } 
 
 import { formatDay } from '@/lib/change-log/time';
 import type { ChartPoint, Kpi } from '@/lib/change-log/types';
-import { KPI_LABEL } from '@/lib/change-log/types';
+import { chartHeading } from '@/lib/change-log/types';
 
 export function ImpactChart({
     points,
@@ -29,13 +29,13 @@ export function ImpactChart({
         return () => window.removeEventListener('resize', measure);
     }, []);
     const data = indexToBaseline(points, liveOn);
-    const label = `${KPI_LABEL[kpi]} indexed to the baseline. Marker on ${formatDay(liveOn)}.`;
+    const label = `${chartHeading(kpi)}. 100 = the page's normal level before the change. Marker on ${formatDay(liveOn)}.`;
     return (
         <div>
             <ul className="mb-2 flex flex-wrap gap-4 text-xs text-muted-foreground">
                 <li className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-zinc-900" /> Page</li>
                 <li className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-zinc-400" /> {controlLabel}</li>
-                <li className="inline-flex items-center gap-1.5"><span className="h-2 w-0.5 bg-amber-700" /> Live {formatDay(liveOn)}</li>
+                <li className="inline-flex items-center gap-1.5"><span className="h-2 w-0.5 bg-amber-700" /> Went live {formatDay(liveOn)}</li>
             </ul>
             <div ref={frame} className="h-56 w-full min-w-0" role="img" aria-label={label}>
                 {width > 0 ? (
@@ -47,7 +47,7 @@ export function ImpactChart({
                             contentStyle={{ background: '#ffffff', border: '1px solid #e4e4e7', borderRadius: 8, fontSize: 12 }}
                             labelFormatter={value => formatDay(String(value))}
                         />
-                        <ReferenceLine x={liveOn} stroke="#b45309" strokeDasharray="3 3" label={{ value: 'Live', fill: '#b45309', fontSize: 11, position: 'insideTopLeft' }} />
+                        <ReferenceLine x={liveOn} stroke="#b45309" strokeDasharray="3 3" label={{ value: 'Went live', fill: '#b45309', fontSize: 11, position: 'insideTopLeft' }} />
                         <Line type="monotone" dataKey="page" name="Page" stroke="#18181b" strokeWidth={2} dot={false} connectNulls={false} />
                         <Line type="monotone" dataKey="control" name={controlLabel} stroke="#a1a1aa" strokeWidth={1.5} dot={false} connectNulls={false} />
                     </LineChart>
@@ -55,7 +55,7 @@ export function ImpactChart({
                     <div className="h-full animate-pulse rounded-md bg-muted" />
                 )}
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">100 is the average before the change. Marker on {formatDay(liveOn)}. Days after the final date are left off, not drawn as zero.</p>
+            <p className="mt-2 text-xs text-muted-foreground">100 = the page&apos;s normal level before the change. Marker on {formatDay(liveOn)}. Days after the final date are not ready yet. They are left off, not drawn as zero.</p>
         </div>
     );
 }

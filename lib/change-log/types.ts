@@ -16,16 +16,24 @@ export const CHANGE_TYPES = [
 export type ChangeType = (typeof CHANGE_TYPES)[number];
 
 export const CHANGE_TYPE_LABEL: Record<ChangeType, string> = {
-    title: 'Title',
+    title: 'Search result title',
+    h1: 'Main page heading',
+    meta: 'Search result description',
+    content_refresh: 'Content update',
+    internal_links: 'Links between pages',
+    schema: 'Search-friendly page data',
+    new_page: 'New page',
+    redirect: 'Redirect (old address sends visitors to a new one)',
+    cro_block: 'Call-to-action section',
+    other: 'Other',
+};
+
+/** Technical name, shown once in grey beside the plain label. */
+export const CHANGE_TYPE_HINT: Partial<Record<ChangeType, string>> = {
     h1: 'H1',
     meta: 'Meta',
-    content_refresh: 'Content refresh',
-    internal_links: 'Internal links',
     schema: 'Schema',
-    new_page: 'New page',
-    redirect: 'Redirect',
-    cro_block: 'CRO block',
-    other: 'Other',
+    cro_block: 'CRO',
 };
 
 export const KPIS = [
@@ -40,13 +48,25 @@ export const KPIS = [
 export type Kpi = (typeof KPIS)[number];
 
 export const KPI_LABEL: Record<Kpi, string> = {
-    clicks: 'Clicks',
-    impressions: 'Impressions',
-    ctr: 'CTR',
-    avg_position: 'Avg. position',
-    organic_sessions: 'Organic sessions',
-    key_events: 'Key events',
+    clicks: 'Clicks from Google',
+    impressions: 'Times shown in Google',
+    ctr: 'Click rate',
+    avg_position: 'Average Google position',
+    organic_sessions: 'Visits from search',
+    key_events: 'Leads and key actions',
 };
+
+/** Technical name, shown once in grey beside the plain label. */
+export const KPI_HINT: Partial<Record<Kpi, string>> = {
+    ctr: 'CTR',
+};
+
+/** Chart title. The metric name already says where the numbers come from. */
+export function chartHeading(kpi: Kpi): string {
+    const metric = KPI_LABEL[kpi];
+    if (kpi === 'ctr') return `${metric} from Google, day by day`;
+    return `${metric}, day by day`;
+}
 
 export type Verdict = 'improved' | 'flat' | 'declined' | 'too_early';
 export type ControlMode = 'untouched' | 'sitewide' | 'none';
@@ -54,10 +74,19 @@ export type BaselineStatus = 'captured' | 'partial' | 'missing';
 
 export const VERDICT_LABEL: Record<Verdict, string> = {
     improved: 'Improved',
-    flat: 'Flat',
+    flat: 'No clear change',
     declined: 'Declined',
-    too_early: 'Too early',
+    too_early: 'Too early to tell',
 };
+
+export const EARLY_ESTIMATE_LABEL = 'Early estimate';
+
+/** One result name. An estimate replaces the verdict word instead of appending it. */
+export function resultLabel(verdict: Verdict, estimate: boolean): string {
+    return estimate ? EARLY_ESTIMATE_LABEL : VERDICT_LABEL[verdict];
+}
+
+export const SEARCH_CONSOLE_HINT = "Google's report on how your site shows up in search.";
 
 export interface ChangePage {
     url: string;

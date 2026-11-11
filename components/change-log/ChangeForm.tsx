@@ -64,7 +64,7 @@ export function ChangeForm({
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                     <h2 className="text-lg font-semibold">Log a change</h2>
-                    <p className="text-sm text-muted-foreground">Times are Pacific. This does not edit the live site.</p>
+                    <p className="text-sm text-muted-foreground">Times are Pacific time. This doesn&apos;t change the live site.</p>
                 </div>
                 <div className="flex gap-2">
                     <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
@@ -92,7 +92,7 @@ export function ChangeForm({
                     <textarea className="field min-h-20" value={input.afterText} onChange={event => setInput({ ...input, afterText: event.target.value })} />
                 </label>
                 <label className="block text-sm">
-                    <span className="mb-1 block font-medium">Live date and time (PT)</span>
+                    <span className="mb-1 block font-medium">Went live (Pacific time)</span>
                     <input className="field" type="datetime-local" value={input.liveAtLocal} onChange={event => setInput({ ...input, liveAtLocal: event.target.value })} />
                 </label>
                 <label className="block text-sm">
@@ -100,21 +100,21 @@ export function ChangeForm({
                     <input className="field" value={input.approvedByName} onChange={event => setInput({ ...input, approvedByName: event.target.value })} />
                 </label>
                 <label className="block text-sm">
-                    <span className="mb-1 block font-medium">Approved at (PT, optional)</span>
+                    <span className="mb-1 block font-medium">Approved at (Pacific time, optional)</span>
                     <input className="field" type="datetime-local" value={input.approvedAtLocal} onChange={event => setInput({ ...input, approvedAtLocal: event.target.value })} />
                 </label>
                 <label className="block text-sm">
-                    <span className="mb-1 block font-medium">KPI to move</span>
+                    <span className="mb-1 block font-medium">What we&apos;re watching</span>
                     <select className="field" value={input.kpi} onChange={event => setInput({ ...input, kpi: event.target.value })}>
                         {KPIS.map(kpi => <option key={kpi} value={kpi}>{KPI_LABEL[kpi]}</option>)}
                     </select>
                 </label>
                 <label className="block text-sm sm:col-span-2">
-                    <span className="mb-1 block font-medium">Backup reference</span>
+                    <span className="mb-1 block font-medium">Saved copy of the old version</span>
                     <input className="field" value={input.backupReference} onChange={event => setInput({ ...input, backupReference: event.target.value })} />
                 </label>
                 <label className="block text-sm sm:col-span-2">
-                    <span className="mb-1 block font-medium">How to revert</span>
+                    <span className="mb-1 block font-medium">How to undo</span>
                     <textarea className="field min-h-16" value={input.revertInstructions} onChange={event => setInput({ ...input, revertInstructions: event.target.value })} />
                 </label>
             </div>
@@ -137,7 +137,7 @@ export function ChangeForm({
                 )}
             </fieldset>
             <label className="block text-sm">
-                <span className="mb-1 block font-medium">Target queries, one per line</span>
+                <span className="mb-1 block font-medium">Search terms people used, one per line</span>
                 <textarea
                     className="field min-h-20"
                     value={input.queries.join('\n')}
@@ -146,7 +146,7 @@ export function ChangeForm({
             </label>
             <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={input.compareLastYear} onChange={event => setInput({ ...input, compareLastYear: event.target.checked })} />
-                Also read the same dates last year. The verdict still uses the 28 days before the change.
+                Also read the same dates last year. The result still uses the 28 days before the change.
             </label>
         </form>
     );

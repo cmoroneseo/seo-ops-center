@@ -1,6 +1,12 @@
 import type { ControlMode, DayPoint, Kpi, MetricRead } from './types';
 import { isGaKpi } from './metrics';
 
+/** Plain name for the comparison group. `none` means there is nothing to compare. */
+export function controlModeLabel(mode: ControlMode): string {
+    if (mode === 'none') return 'No comparison';
+    return 'Rest of the site';
+}
+
 export interface ControlWindow {
     read: MetricRead | null;
     mode: ControlMode;
@@ -14,20 +20,20 @@ function ctr(clicks: number, impressions: number): number | null {
 }
 
 /**
- * Untouched pages are the sitewide total minus the changed URLs.
- * Position cannot be subtracted, so position uses the sitewide trend.
+ * The rest of the site is the sitewide total minus the changed pages.
+ * Position cannot be subtracted, so position uses the sitewide total.
  * A negative remainder means the slices don't share a base. Fall back to
  * the sitewide trend and say the control is unreliable.
  */
 export function controlFor(page: MetricRead, site: MetricRead | null, kpi: Kpi): ControlWindow {
     if (!site?.measured) {
-        return { read: null, mode: 'none', unreliable: false, label: 'No control' };
+        return { read: null, mode: 'none', unreliable: false, label: controlModeLabel('none') };
     }
     if (kpi === 'avg_position') {
-        return { read: site, mode: 'sitewide', unreliable: false, label: 'Sitewide trend' };
+        return { read: site, mode: 'sitewide', unreliable: false, label: controlModeLabel('sitewide') };
     }
     if (page.measured && page.daysPresent !== site.daysPresent) {
-        return { read: site, mode: 'sitewide', unreliable: true, label: 'Sitewide trend' };
+        return { read: site, mode: 'sitewide', unreliable: true, label: controlModeLabel('sitewide') };
     }
     const clicks = site.clicks - page.clicks;
     const impressions = site.impressions - page.impressions;
@@ -36,7 +42,7 @@ export function controlFor(page: MetricRead, site: MetricRead | null, kpi: Kpi):
     const gscBroken = clicks < 0 || impressions < 0;
     const gaBroken = isGaKpi(kpi) && (sessions == null || events == null || sessions < 0 || events < 0);
     if (gscBroken || (isGaKpi(kpi) && gaBroken)) {
-        return { read: site, mode: 'sitewide', unreliable: true, label: 'Sitewide trend' };
+        return { read: site, mode: 'sitewide', unreliable: true, label: controlModeLabel('sitewide') };
     }
     return {
         read: {
@@ -52,7 +58,7 @@ export function controlFor(page: MetricRead, site: MetricRead | null, kpi: Kpi):
         },
         mode: 'untouched',
         unreliable: false,
-        label: 'Untouched pages',
+        label: controlModeLabel('untouched'),
     };
 }
 
