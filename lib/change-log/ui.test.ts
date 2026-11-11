@@ -17,13 +17,13 @@ function html(mode: 'list' | 'form' | 'detail' | 'loading' | 'empty') {
         clientName: 'Ecoworkz',
         mode,
         example: true,
-        exampleNote: 'Example data. Not a live Search Console or Analytics pull.',
+        exampleNote: 'Example data. Not a live Google Search Console or Analytics pull.',
         items: board.items,
         detail: {
             change: h1,
             impact: board.impacts[h1.id],
             confounders: exampleConfounders(board, h1.id),
-            baselineNote: 'Example baseline.',
+            baselineNote: 'Example starting point.',
         },
         formInitial: ecoworkzH1Input(),
         onLog: () => undefined,
@@ -156,7 +156,30 @@ test('the detail uses the plain chart title, the rest of the site, and the hones
     assert.match(markup, /How to undo/);
     assert.match(markup, /Starting point/);
     assert.match(markup, /Not ready yet/);
-    assert.match(markup, /widget 47eaa58/);
+    assert.match(markup, /Section id/);
+    assert.match(markup, /47eaa58/);
+    assert.equal(/\bwidget\b/i.test(markup), false);
+    assert.equal(/\bbaseline\b/i.test(markup), false);
+    assert.match(markup, /All changes/);
+    assert.match(markup, /Download/);
+    assert.match(markup, /More actions/);
+    assert.match(markup, /Before and after the change/);
+    assert.match(markup, /When we check/);
+    assert.match(markup, /What changed/);
+    assert.match(markup, /Lower is better/);
+    assert.match(markup, /<details class="change-log-record/);
+    assert.equal(/<details[^>]*\sopen/.test(markup), false);
+    assert.match(markup, /data-check-days="28"[^>]*data-due="2026-12-08"[^>]*data-ready="2026-12-11"/);
+    assert.match(markup, /data-check-days="56"[^>]*data-due="2027-01-05"[^>]*data-ready="2027-01-08"/);
+    assert.match(markup, /Data ready ~Dec 11/);
+    assert.equal(markup.includes('Data ready ~Dec 10'), false);
+    assert.equal(markup.includes('Remove from log'), false);
+    const answerAt = markup.indexOf('Homepage H1');
+    const changedAt = markup.indexOf('What changed');
+    const checksAt = markup.indexOf('When we check');
+    const tableAt = markup.indexOf('Before and after the change');
+    const chartAt = markup.indexOf('Clicks from Google, day by day');
+    assert.ok(answerAt >= 0 && changedAt > answerAt && checksAt > changedAt && tableAt > checksAt && chartAt > tableAt);
     assert.match(markup, /Same day/);
     assert.match(markup, /hardscape contractors corona/);
     assert.match(markup, /Search terms people used/);
@@ -175,4 +198,32 @@ test('the log form is filled with the Ecoworkz H1', () => {
     assert.match(markup, /2026-11-10T14:04/);
     assert.match(markup, /Elementor template 11115/);
     assert.match(markup, /value="Carlos"/);
+    assert.match(markup, /aria-label="Page address"/);
+    assert.match(markup, /aria-label="Section id"/);
+    assert.match(markup, /Add another page/);
+    assert.equal(markup.includes('aria-label="Page URL"'), false);
+    assert.equal(markup.includes('placeholder="Widget"'), false);
+    assert.equal(markup.includes('Add another URL'), false);
+});
+
+test('the chart caption drops the comparison when there is nothing to compare', () => {
+    const markup = renderToStaticMarkup(createElement(ChangeLogView, {
+        clientName: 'Ecoworkz',
+        mode: 'detail',
+        example: true,
+        items: board.items,
+        detail: {
+            change: h1,
+            impact: { ...board.impacts[h1.id], controlLabel: 'No comparison' },
+            confounders: [],
+            baselineNote: 'Example starting point.',
+        },
+        onLog: () => undefined,
+        onOpen: () => undefined,
+        onBack: () => undefined,
+        onSubmit: () => undefined,
+        onRemove: () => undefined,
+    }));
+    assert.match(markup, /Other changes on this page are listed below/);
+    assert.equal(markup.includes('Compared with the rest of the site'), false);
 });

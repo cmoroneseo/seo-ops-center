@@ -1,6 +1,7 @@
 import { dateOffset } from '@/lib/gsc/history';
 
-import { CHECKPOINTS, GSC_LAG_DAYS, type CheckpointDays } from './thresholds';
+import { dataReadyOn } from './schedule';
+import { CHECKPOINTS, type CheckpointDays } from './thresholds';
 import { afterWindow, formatDay, formatDayWithYear, isIsoDay } from './time';
 import {
     CHANGE_TYPE_LABEL,
@@ -199,10 +200,11 @@ export function nextCheckCopy(
         return { date: 'No further check', check: '', data: null };
     }
     const waiting = isIsoDay(today) && item.nextCheckOn <= today;
+    const readyOn = dataReadyOn(item.nextCheckOn);
     return {
         date: formatDayWithYear(item.nextCheckOn),
         check: `${item.nextCheckDays}-day check`,
-        data: waiting ? `data ~${formatDay(dateOffset(item.nextCheckOn, GSC_LAG_DAYS))}` : null,
+        data: waiting && readyOn ? `data ~${formatDay(readyOn)}` : null,
     };
 }
 

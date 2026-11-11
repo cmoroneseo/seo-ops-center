@@ -38,10 +38,10 @@ export function impactCsv(change: SeoChange, impact: ImpactModel): string {
     for (const query of impact.queries) {
         lines.push([
             query.query,
-            String(query.beforeClicks),
-            String(query.afterClicks),
-            String(query.beforeImpressions),
-            String(query.afterImpressions),
+            query.beforeClicks == null ? '' : String(query.beforeClicks),
+            query.afterClicks == null ? '' : String(query.afterClicks),
+            query.beforeImpressions == null ? '' : String(query.beforeImpressions),
+            query.afterImpressions == null ? '' : String(query.afterImpressions),
             query.beforePosition == null ? '' : String(query.beforePosition),
             query.afterPosition == null ? '' : String(query.afterPosition),
         ]);

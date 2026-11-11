@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { exampleBoard, exampleConfounders, EXAMPLE_BASELINE_NOTE, EXAMPLE_NOTE, ecoworkzH1Input } from '@/lib/change-log/fixture';
+import { exampleBoard, exampleConfounders, EXAMPLE_BASELINE_NOTE, EXAMPLE_NOTE, EXAMPLE_TODAY, ecoworkzH1Input } from '@/lib/change-log/fixture';
 import type { Confounder, ImpactModel, SeoChange, TimelineItem } from '@/lib/change-log/types';
 import type { ChangeInput } from '@/lib/change-log/validate';
 
@@ -140,7 +140,6 @@ export function ChangeLogTab({
 
     async function remove() {
         if (!changeId || example) return;
-        if (!window.confirm('Remove this change from the log?')) return;
         const response = await fetch(`/api/clients/${encodeURIComponent(clientId)}/changes/${encodeURIComponent(changeId)}`, { method: 'DELETE' });
         if (!response.ok) {
             setError('Unable to remove the change.');
@@ -171,6 +170,7 @@ export function ChangeLogTab({
                 onSubmit={submit}
                 onRemove={remove}
                 onExample={() => go({ example: true })}
+                today={example ? EXAMPLE_TODAY : undefined}
             />
         </div>
     );

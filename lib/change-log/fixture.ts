@@ -10,6 +10,8 @@ import { normalizeChange, type ChangeInput } from './validate';
  * change has a finished 28-day window. Numbers below are synthetic.
  */
 export const EXAMPLE_AS_OF = new Date('2026-12-15T20:00:00.000Z');
+/** Pacific date of EXAMPLE_AS_OF. Example screens use this as "today". */
+export const EXAMPLE_TODAY = '2026-12-15';
 
 export const EXAMPLE_NOTE = "Example data. Not a live Google Search Console or Analytics pull. Shown as of Dec 15, 2026 so the 28-day check can be drawn. On Nov 10, 2026 this change is too early to tell.";
 export const EXAMPLE_BASELINE_NOTE = 'Example starting point. Not read from Google Search Console.';

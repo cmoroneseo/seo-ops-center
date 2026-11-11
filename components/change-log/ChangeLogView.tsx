@@ -289,6 +289,7 @@ export function ChangeLogView({
                     baselineNote={detail.baselineNote}
                     example={example}
                     revertInitiallyOpen={revertOpen}
+                    today={asOf}
                     onBack={onBack}
                     onOpen={onOpen}
                     onRemove={onRemove}
