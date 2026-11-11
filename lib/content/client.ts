@@ -21,6 +21,17 @@ export async function updateContentRecord(input: {
     return send('PATCH', input);
 }
 
+/**
+ * Decline goes through the same server route as every other content change,
+ * so a viewer gets the same 403. "Not going ahead" sets the plan to declined.
+ */
+export async function declineContentRecord(input: {
+    clientId: string;
+    recordId: string;
+}): Promise<{ record: TopicalMapRecord | null; error?: string }> {
+    return send('PATCH', { ...input, productionStatus: 'declined' satisfies ProductionStatus });
+}
+
 async function send(
     method: 'POST' | 'PATCH',
     body: unknown,

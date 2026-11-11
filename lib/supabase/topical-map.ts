@@ -14,7 +14,6 @@ import { createTask } from './tasks';
 import {
     approvalTaskDescription,
     cleanOptionalText,
-    declineUpdate,
     isRecordSource,
     isSpecStatus,
     normalizeOutgoingLinks,
@@ -296,10 +295,6 @@ export async function approveRecord(
     const updateResult = await updateRecord(record.id, patch);
     if (!updateResult.success) return { success: false, error: updateResult.error };
     return { success: true, taskId };
-}
-
-export async function declineRecord(recordId: string): Promise<{ success: boolean; error?: string }> {
-    return updateRecord(recordId, declineUpdate());
 }
 
 export async function fetchSpecEnabled(clientId: string): Promise<boolean> {

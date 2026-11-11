@@ -160,6 +160,34 @@ test('viewers cannot approve or move a page', async () => {
     assert.match((await live.json() as { error: string }).error, /not already on the site/);
 });
 
+test('decline goes through the server route: viewers get 403, members decline the plan', async () => {
+    const patch = (body: unknown) => new Request('https://app.test/api/content/records', {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+    const viewer = handlers(record(), 'viewer');
+    const blocked = await viewer.api.update(patch({ clientId: client, recordId, productionStatus: 'declined' }));
+    assert.equal(blocked.status, 403);
+    assert.match((await blocked.json() as { error: string }).error, /view this content/);
+    assert.equal(viewer.calls.updates.length, 0);
+
+    const outsider = handlers();
+    const wrongClient = await outsider.api.update(patch({ clientId: 'someone-else', recordId, productionStatus: 'declined' }));
+    assert.equal(wrongClient.status, 401);
+    assert.equal(outsider.calls.updates.length, 0);
+
+    const member = handlers(record({ taskId: 'task-3' }));
+    const declined = await member.api.update(patch({ clientId: client, recordId, productionStatus: 'declined' }));
+    assert.equal(declined.status, 200);
+    const body = await declined.json() as { record: { status: string; productionStatus: string } };
+    assert.equal(body.record.status, 'declined');
+    assert.equal(body.record.productionStatus, 'declined');
+    assert.equal(member.calls.updates[0].status, 'declined');
+    assert.equal(member.calls.updates[0].production_status, 'declined');
+    assert.equal(member.calls.tasks, 0);
+    assert.equal(member.read().taskId, 'task-3');
+});
+
 test('approving again after the status was reset reuses the linked task', async () => {
     const { api, calls, read } = handlers();
     const first = await api.approve(post({ clientId: client, recordId, workMonth: '2026-11' }));

@@ -6,8 +6,8 @@ import { cn } from '@/lib/utils';
 import type {
     MapRecordAction, MapRecordStatus, PageType, ProductionStatus, TopicalMapRecord, TopicalMapSilo,
 } from '@/lib/types';
-import { declineRecord, updateRecord, updateRecordSpec } from '@/lib/supabase/topical-map';
-import { approveContentRecord, updateContentRecord } from '@/lib/content/client';
+import { updateRecord, updateRecordSpec } from '@/lib/supabase/topical-map';
+import { approveContentRecord, declineContentRecord, updateContentRecord } from '@/lib/content/client';
 import { contentMonthChoices, currentWorkMonth } from '@/lib/content/board';
 import { contentQuota, plannedAfterApproval } from '@/lib/content/quota';
 import { ApproveForMonth } from '@/components/content/ApproveForMonth';
@@ -290,13 +290,13 @@ export function RecordDetailPanel({
             setIsDeclining(false);
             return;
         }
-        const res = await declineRecord(record.id);
+        const res = await declineContentRecord({ clientId, recordId: record.id });
         setIsDeclining(false);
-        if (res.success) {
-            onUpdatedRef.current({ ...(draftRef.current ?? draft), status: 'declined', productionStatus: 'declined' });
+        if (res.record) {
+            onUpdatedRef.current({ ...(draftRef.current ?? draft), ...res.record });
             onClose();
         } else {
-            setError(res.error ?? 'Failed to decline record');
+            setError(res.error ?? 'Could not decline this page.');
         }
     };
 
