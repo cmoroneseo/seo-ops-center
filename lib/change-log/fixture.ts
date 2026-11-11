@@ -21,15 +21,15 @@ const H1_AFTER = 'Hardscape & Landscape Contractors in Corona, CA';
 
 export function ecoworkzH1Input(): ChangeInput {
     return {
-        title: 'Homepage H1',
+        title: 'Homepage main heading',
         changeType: 'h1',
         beforeText: H1_BEFORE,
         afterText: H1_AFTER,
         liveAtLocal: '2026-11-10T14:04',
         approvedByName: 'Carlos',
         approvedAtLocal: '2026-11-10T14:04',
-        backupReference: 'Elementor template 11115',
-        revertInstructions: 'Set Elementor widget 47eaa58 on page 7901 back to the long H1: Hardscape, Landscape & Outdoor Living Contractors in Corona, CA.',
+        backupReference: 'Saved copy of the old homepage heading',
+        revertInstructions: 'Put the main heading back to: Hardscape, Landscape & Outdoor Living Contractors in Corona, CA.',
         kpi: 'clicks',
         compareLastYear: true,
         pages: [{
@@ -51,12 +51,12 @@ export function elNinoInput(): ChangeInput {
         title: 'El Niño promo banner',
         changeType: 'cro_block',
         beforeText: 'No El Niño sale banner.',
-        afterText: 'El Niño promo in the header banner. Not in the H1.',
+        afterText: 'El Niño promo in the header banner. Not in the main heading.',
         liveAtLocal: '2026-11-10T13:28',
         approvedByName: 'Carlos',
         approvedAtLocal: '2026-11-10T13:28',
-        backupReference: 'Header template 10654',
-        revertInstructions: 'Turn the El Niño banner off. Do not edit the H1.',
+        backupReference: 'Saved copy of the old header',
+        revertInstructions: 'Turn the El Niño banner off. Do not edit the main heading.',
         kpi: 'clicks',
         compareLastYear: false,
         pages: [{

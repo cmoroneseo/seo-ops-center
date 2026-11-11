@@ -76,3 +76,142 @@ test('download and more menus open, and remove asks before it deletes', async ()
     act(() => root.unmount());
     container.remove();
 });
+
+test('arrow keys move through the download menu', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+        root.render(createElement(ChangeLogView, {
+            clientName: 'Ecoworkz',
+            mode: 'detail',
+            example: false,
+            items: board.items,
+            today: EXAMPLE_TODAY,
+            detail: {
+                change: h1,
+                impact: board.impacts[h1.id],
+                confounders: exampleConfounders(board, h1.id),
+                baselineNote: 'Example starting point.',
+            },
+            onLog: () => undefined,
+            onOpen: () => undefined,
+            onBack: () => undefined,
+            onSubmit: () => undefined,
+            onRemove: () => undefined,
+        }));
+    });
+    await act(async () => {
+        container.querySelector<HTMLButtonElement>('[data-menu="download"]')?.click();
+    });
+    const menu = document.querySelector<HTMLElement>('[role="menu"]');
+    const items = [...menu?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []];
+    assert.equal(items.length, 2);
+    assert.equal(document.activeElement, items[0]);
+    await act(async () => {
+        menu?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    });
+    assert.equal(document.activeElement, items[1]);
+    await act(async () => {
+        menu?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    assert.equal(document.activeElement, items[0]);
+    await act(async () => {
+        menu?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    });
+    assert.equal(document.activeElement, items[1]);
+    await act(async () => {
+        menu?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    });
+    assert.equal(document.activeElement, items[0]);
+    act(() => root.unmount());
+    container.remove();
+});
+
+test('chart tabs switch the story, and position says higher is better', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+        root.render(createElement(ChangeLogView, {
+            clientName: 'Ecoworkz',
+            mode: 'detail',
+            example: true,
+            items: board.items,
+            today: EXAMPLE_TODAY,
+            detail: {
+                change: h1,
+                impact: board.impacts[h1.id],
+                confounders: exampleConfounders(board, h1.id),
+                baselineNote: 'Example starting point.',
+            },
+            onLog: () => undefined,
+            onOpen: () => undefined,
+            onBack: () => undefined,
+            onSubmit: () => undefined,
+            onRemove: () => undefined,
+        }));
+    });
+    assert.equal(container.querySelector('[data-chart-tab]')?.getAttribute('data-chart-tab'), 'daily');
+    assert.equal((container.textContent ?? '').includes('Higher on the chart is better'), false);
+
+    await act(async () => {
+        container.querySelector<HTMLButtonElement>('[data-chart-metric-option="avg_position"]')?.click();
+    });
+    assert.match(container.textContent ?? '', /Higher on the chart is better/);
+    assert.match(container.textContent ?? '', /Average position from Google, day by day/);
+
+    await act(async () => {
+        container.querySelector<HTMLButtonElement>('[data-chart-tab-option="aligned"]')?.click();
+    });
+    assert.match(container.textContent ?? '', /lined up with the 28 days after/);
+    assert.equal(container.querySelector('[data-chart-tab]')?.getAttribute('data-chart-tab'), 'aligned');
+
+    await act(async () => {
+        container.querySelector<HTMLButtonElement>('[data-chart-tab-option="indexed"]')?.click();
+    });
+    assert.match(container.querySelector('[data-chart-caption]')?.textContent ?? '', /100 = the page's normal level before the change/);
+    assert.match(container.textContent ?? '', /Rest of the site/);
+    assert.equal((container.textContent ?? '').includes('No comparison'), false);
+
+    act(() => root.unmount());
+    container.remove();
+});
+
+test('a chart with nothing to compare leaves out the caption and the No comparison legend', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+        root.render(createElement(ChangeLogView, {
+            clientName: 'Ecoworkz',
+            mode: 'detail',
+            example: true,
+            items: [],
+            today: EXAMPLE_TODAY,
+            canEdit: false,
+            detail: {
+                change: h1,
+                impact: { ...board.impacts[h1.id], controlLabel: 'No comparison' },
+                confounders: [],
+                baselineNote: 'Example starting point.',
+            },
+            onLog: () => undefined,
+            onOpen: () => undefined,
+            onBack: () => undefined,
+            onSubmit: () => undefined,
+            onRemove: () => undefined,
+        }));
+    });
+    await act(async () => {
+        container.querySelector<HTMLButtonElement>('[data-chart-tab-option="indexed"]')?.click();
+    });
+    assert.equal(container.querySelector('[data-chart-caption]'), null);
+    assert.equal((container.textContent ?? '').includes('No comparison'), false);
+    await act(async () => {
+        container.querySelector<HTMLButtonElement>('[data-menu="more"]')?.click();
+    });
+    assert.equal((document.body.textContent ?? '').includes('Remove from log'), false);
+    act(() => root.unmount());
+    container.remove();
+});

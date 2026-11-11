@@ -12,6 +12,7 @@ import {
 import { ga4PathFor, gscPageCandidates } from './match';
 import { afterWindow, baselineWindow, finalThrough, ptDate, shiftWindowLastYear } from './time';
 import { GSC_LAG_DAYS } from './thresholds';
+import { samePageMarkers, type ChartMarker } from './chart';
 import { findConfounders, timelineItem } from './impact';
 import type { Confounder, ImpactModel, SeoChange, TimelineItem } from './types';
 import type { NormalizedChange } from './validate';
@@ -32,6 +33,7 @@ export interface ChangeDetailResult {
     impact: ImpactModel | null;
     confounders: Confounder[];
     baselineNote: string | null;
+    pageMarkers: ChartMarker[];
 }
 
 function text(value: unknown): string {
@@ -354,7 +356,7 @@ export async function getChange(organizationId: string, clientId: string, change
         const db = createAdminClient();
         const changes = await loadChanges(db, organizationId, clientId);
         const change = changes.find(item => item.id === changeId) ?? null;
-        if (!change) return { setup: 'ready', change: null, impact: null, confounders: [], baselineNote: null };
+        if (!change) return { setup: 'ready', change: null, impact: null, confounders: [], baselineNote: null, pageMarkers: [] };
         const loaded = await loadImpacts(db, organizationId, clientId, [change], now);
         const { data } = await db.from('seo_change_baselines')
             .select('note, status')
@@ -369,9 +371,18 @@ export async function getChange(organizationId: string, clientId: string, change
             impact: loaded.impacts[change.id] ?? null,
             confounders: findConfounders(changes, change, loaded.impacts[change.id]?.headline.ready ? loaded.impacts[change.id].headline.days : 28),
             baselineNote: plainStartingPointNote(note, status),
+            pageMarkers: samePageMarkers(
+                { id: change.id, pageKeys: change.pages.map(page => page.urlKey) },
+                changes.map(item => ({
+                    id: item.id,
+                    title: item.title,
+                    liveOn: item.liveOn,
+                    pageKeys: item.pages.map(page => page.urlKey),
+                })),
+            ),
         };
     } catch (error) {
-        if (error instanceof MissingTable) return { setup: 'missing', change: null, impact: null, confounders: [], baselineNote: null };
+        if (error instanceof MissingTable) return { setup: 'missing', change: null, impact: null, confounders: [], baselineNote: null, pageMarkers: [] };
         throw error;
     }
 }

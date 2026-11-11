@@ -189,10 +189,24 @@ export interface QueryCompare {
 
 export interface ChartPoint {
     date: string;
+    /** Watched metric for this day. Null when the day was not measured. */
     page: number | null;
     control: number | null;
     live: boolean;
     preliminary: boolean;
+    /**
+     * Real daily counts for the changed page.
+     * Null means that day was not measured. Zero is a real zero.
+     * Click rate and position stay null when the page was not shown.
+     */
+    clicks: number | null;
+    impressions: number | null;
+    ctr: number | null;
+    position: number | null;
+    controlClicks: number | null;
+    controlImpressions: number | null;
+    controlCtr: number | null;
+    controlPosition: number | null;
 }
 
 export interface ImpactModel {

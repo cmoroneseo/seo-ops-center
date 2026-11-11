@@ -3,6 +3,8 @@
 import { useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, ChevronsUpDown, Clock, Minus } from 'lucide-react';
 
+import { samePageMarkers, type ChartMarker } from '@/lib/change-log/chart';
+import { normalizeResultUrl } from '@/lib/search-reporting/result-url';
 import { Button } from '@/components/ui/button';
 import {
     Table,
@@ -63,6 +65,7 @@ export function ChangeLogView({
     pending,
     revertOpen,
     today,
+    canEdit = true,
     onLog,
     onOpen,
     onBack,
@@ -75,13 +78,21 @@ export function ChangeLogView({
     example: boolean;
     exampleNote?: string;
     items: TimelineItem[];
-    detail?: { change: SeoChange; impact: ImpactModel; confounders: Confounder[]; baselineNote: string | null } | null;
+    detail?: {
+        change: SeoChange;
+        impact: ImpactModel;
+        confounders: Confounder[];
+        baselineNote: string | null;
+        pageMarkers?: ChartMarker[];
+    } | null;
     formInitial?: ChangeInput;
     formError?: string | null;
     pending?: boolean;
     revertOpen?: boolean;
     /** Pacific date used for the "data ~" hint. Defaults to today. */
     today?: string;
+    /** Viewers can open the log. They cannot add or remove a change. */
+    canEdit?: boolean;
     onLog: () => void;
     onOpen: (id: string) => void;
     onBack: () => void;
@@ -137,7 +148,7 @@ export function ChangeLogView({
                         <h1 className="text-2xl font-semibold tracking-tight">{clientName}</h1>
                         <p className="text-sm text-muted-foreground">Client: {clientName}</p>
                     </div>
-                    {mode !== 'setup' && mode !== 'loading' && (
+                    {canEdit && mode !== 'setup' && mode !== 'loading' && (
                         <Button type="button" onClick={onLog}>Log a change</Button>
                     )}
                 </header>
@@ -153,8 +164,12 @@ export function ChangeLogView({
             {mode === 'empty' && (
                 <div className="rounded-lg border border-dashed border-border bg-card p-8 text-center">
                     <p className="font-medium">No changes logged yet.</p>
-                    <p className="mt-1 text-sm text-muted-foreground">Log a main page heading, a search result title, or a new page, then track it here.</p>
-                    <Button type="button" className="mt-4" onClick={onLog}>Log a change</Button>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                        {canEdit
+                            ? 'Log a main page heading, a search result title, or a new page, then track it here.'
+                            : 'Changes show up here after a teammate logs one.'}
+                    </p>
+                    {canEdit && <Button type="button" className="mt-4" onClick={onLog}>Log a change</Button>}
                 </div>
             )}
             {mode === 'list' && (
@@ -275,11 +290,14 @@ export function ChangeLogView({
                     </div>
                 </>
             )}
-            {mode === 'form' && (
+            {mode === 'form' && canEdit && (
                 <div className="rounded-lg border border-border bg-card p-4">
                     {formError && <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{formError}</p>}
                     <ChangeForm initial={formInitial} example={example} pending={pending === true} onCancel={onBack} onSubmit={onSubmit} />
                 </div>
+            )}
+            {mode === 'form' && !canEdit && (
+                <p className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">You can view the change log. You can&apos;t add a change.</p>
             )}
             {mode === 'detail' && detail && (
                 <ChangeDetail
@@ -288,6 +306,16 @@ export function ChangeLogView({
                     confounders={detail.confounders}
                     baselineNote={detail.baselineNote}
                     example={example}
+                    canEdit={canEdit}
+                    markers={detail.pageMarkers ?? samePageMarkers(
+                        { id: detail.change.id, pageKeys: detail.change.pages.map(page => page.urlKey) },
+                        items.map(item => ({
+                            id: item.id,
+                            title: item.title,
+                            liveOn: item.liveOn,
+                            pageKeys: item.url ? [normalizeResultUrl(item.url) ?? ''] : [],
+                        })),
+                    )}
                     revertInitiallyOpen={revertOpen}
                     today={asOf}
                     onBack={onBack}

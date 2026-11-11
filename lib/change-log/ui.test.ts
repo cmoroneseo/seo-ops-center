@@ -37,7 +37,7 @@ function html(mode: 'list' | 'form' | 'detail' | 'loading' | 'empty') {
 test('the example list shows one result pill per row', () => {
     const markup = html('list');
     assert.match(markup, /Example data/);
-    assert.match(markup, /Homepage H1/);
+    assert.match(markup, /Homepage main heading/);
     assert.match(markup, /El Niño promo banner/);
     assert.match(markup, /<table/);
     assert.match(markup, /data-went-live="all"/);
@@ -140,9 +140,12 @@ test('an estimate or an early row does not repeat the verdict beside the pill', 
 test('the detail uses the plain chart title, the rest of the site, and the honesty line', () => {
     const markup = html('detail');
     assert.match(markup, /Clicks from Google, day by day/);
-    assert.match(markup, /Compared with the rest of the site\. Other changes on this page are listed below\./);
-    assert.match(markup, /100 = the page(?:'|&#x27;|&apos;)s normal level before the change/);
-    assert.match(markup, /Marker on Nov 10/);
+    assert.match(markup, /Day by day/);
+    assert.match(markup, /Side by side/);
+    assert.match(markup, /Compared with the rest of the site/);
+    assert.match(markup, /data-chart-tab="daily"/);
+    assert.match(markup, /aria-selected="true"/);
+    assert.match(markup, /A gap is a day with no report/);
     assert.match(markup, /Rest of the site/);
     assert.match(markup, /prove the change caused it/);
     assert.equal(markup.includes('Does not show the change caused it'), false);
@@ -174,7 +177,7 @@ test('the detail uses the plain chart title, the rest of the site, and the hones
     assert.match(markup, /Data ready ~Dec 11/);
     assert.equal(markup.includes('Data ready ~Dec 10'), false);
     assert.equal(markup.includes('Remove from log'), false);
-    const answerAt = markup.indexOf('Homepage H1');
+    const answerAt = markup.indexOf('Homepage main heading');
     const changedAt = markup.indexOf('What changed');
     const checksAt = markup.indexOf('When we check');
     const tableAt = markup.indexOf('Before and after the change');
@@ -187,6 +190,72 @@ test('the detail uses the plain chart title, the rest of the site, and the hones
     assert.match(markup, /Google(?:'|&#x27;|&apos;)s report on how your site shows up in search/);
 });
 
+test('viewers do not see Log a change or the add form', () => {
+    const shared = {
+        clientName: 'Ecoworkz',
+        example: false,
+        items: board.items,
+        canEdit: false,
+        onLog: () => undefined,
+        onOpen: () => undefined,
+        onBack: () => undefined,
+        onSubmit: () => undefined,
+        onRemove: () => undefined,
+    };
+    const list = renderToStaticMarkup(createElement(ChangeLogView, { ...shared, mode: 'list' }));
+    const empty = renderToStaticMarkup(createElement(ChangeLogView, { ...shared, mode: 'empty', items: [] }));
+    const form = renderToStaticMarkup(createElement(ChangeLogView, { ...shared, mode: 'form' }));
+    assert.equal(list.includes('Log a change'), false);
+    assert.equal(empty.includes('Log a change'), false);
+    assert.match(empty, /after a teammate logs one/);
+    assert.match(form, /can(?:'|&#x27;|&apos;)t add a change/);
+    assert.equal(form.includes('aria-label="Page address"'), false);
+});
+
+test('a small sample says the chart is weekly, and an unmeasured term is not zero', () => {
+    const impact = board.impacts[h1.id];
+    const markup = renderToStaticMarkup(createElement(ChangeLogView, {
+        clientName: 'Ecoworkz',
+        mode: 'detail',
+        example: true,
+        items: board.items,
+        detail: {
+            change: h1,
+            impact: {
+                ...impact,
+                headline: { ...impact.headline, lowData: true },
+                queries: [{
+                    query: 'cosmetic dentist denver',
+                    beforeClicks: 4,
+                    afterClicks: null,
+                    beforeImpressions: 20,
+                    afterImpressions: null,
+                    beforePosition: 14.2,
+                    afterPosition: null,
+                    beforeCtr: 0.2,
+                    afterCtr: null,
+                    clicksDelta: null,
+                    impressionsDelta: null,
+                    positionDelta: null,
+                }],
+            },
+            confounders: [],
+            baselineNote: 'Example starting point.',
+        },
+        onLog: () => undefined,
+        onOpen: () => undefined,
+        onBack: () => undefined,
+        onSubmit: () => undefined,
+        onRemove: () => undefined,
+    }));
+    assert.match(markup, /week by week/);
+    assert.match(markup, /Showing weekly totals/);
+    assert.match(markup, /cosmetic dentist denver/);
+    assert.match(markup, /— not reported yet/);
+    assert.match(markup, /wasn(?:'|&#x27;|&apos;)t measured/);
+    assert.match(markup, /4 → — not reported yet/);
+});
+
 test('empty and loading states are real screens', () => {
     assert.match(html('empty'), /No changes logged yet/);
     assert.match(html('loading'), /Loading changes/);
@@ -196,7 +265,7 @@ test('the log form is filled with the Ecoworkz H1', () => {
     const markup = html('form');
     assert.match(markup, /Hardscape &amp; Landscape Contractors in Corona, CA|Hardscape & Landscape Contractors in Corona, CA/);
     assert.match(markup, /2026-11-10T14:04/);
-    assert.match(markup, /Elementor template 11115/);
+    assert.match(markup, /Saved copy of the old homepage heading/);
     assert.match(markup, /value="Carlos"/);
     assert.match(markup, /aria-label="Page address"/);
     assert.match(markup, /aria-label="Section id"/);
@@ -206,7 +275,7 @@ test('the log form is filled with the Ecoworkz H1', () => {
     assert.equal(markup.includes('Add another URL'), false);
 });
 
-test('the chart caption drops the comparison when there is nothing to compare', () => {
+test('the closed chart does not print a No comparison legend', () => {
     const markup = renderToStaticMarkup(createElement(ChangeLogView, {
         clientName: 'Ecoworkz',
         mode: 'detail',
@@ -224,6 +293,6 @@ test('the chart caption drops the comparison when there is nothing to compare', 
         onSubmit: () => undefined,
         onRemove: () => undefined,
     }));
-    assert.match(markup, /Other changes on this page are listed below/);
-    assert.equal(markup.includes('Compared with the rest of the site'), false);
+    assert.equal(markup.includes('No comparison'), false);
+    assert.equal(markup.includes('data-chart-caption'), false);
 });

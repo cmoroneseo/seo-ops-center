@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { CHANGE_LOG_READ_ONLY, canEditChangeLog } from '@/lib/change-log/access';
 import { deleteChange, getChange, missingTable } from '@/lib/change-log/store';
 import { requireClientOrgMember } from '@/lib/security/tenant-authz';
 
@@ -23,6 +24,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
             impact: result.impact,
             confounders: result.confounders,
             baselineNote: result.baselineNote,
+            pageMarkers: result.pageMarkers,
+            canEdit: canEditChangeLog(access.role),
         });
     } catch (error) {
         if (missingTable(error)) return json({ setup: 'missing' });
@@ -34,7 +37,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     const { id, changeId } = await params;
     const access = await requireClientOrgMember(id);
     if (!access.ok) return json({ error: access.error }, access.status);
-    if (access.role === 'viewer') return json({ error: 'You can view the change log, not edit it.' }, 403);
+    if (!canEditChangeLog(access.role)) return json({ error: CHANGE_LOG_READ_ONLY }, 403);
     try {
         const removed = await deleteChange(access.organizationId, access.clientId, changeId);
         if (!removed) return json({ error: 'Change not found.' }, 404);

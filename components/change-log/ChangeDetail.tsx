@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { ChevronDown, ChevronLeft, Download, Info, MoreHorizontal } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -12,19 +12,24 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import type { ChartMarker } from '@/lib/change-log/chart';
 import { impactCsv } from '@/lib/change-log/csv';
 import { addedWords, removedWords, wordDiff, type DiffToken } from '@/lib/change-log/diff';
 import { overlapLabel } from '@/lib/change-log/impact';
 import { formatHeadlinePct, headlineFields, pagePath } from '@/lib/change-log/list';
 import {
     EARLY_ESTIMATE_NOTE,
+    TERMS_EMPTY_COPY,
+    TERMS_MISSING_NOTE,
     answerLine,
     buildResultsTable,
     changeTone,
-    chartCaption,
     formatChangePercent,
     formatResultsValue,
+    formatTermValue,
     notReadyCopy,
+    searchTermsEmpty,
+    termsHaveGaps,
 } from '@/lib/change-log/results';
 import { checkSchedule, type CheckDate } from '@/lib/change-log/schedule';
 import { nextStep } from '@/lib/change-log/verdict';
@@ -35,7 +40,6 @@ import {
     KPI_HINT,
     KPI_LABEL,
     SEARCH_CONSOLE_HINT,
-    chartHeading,
     type ChangePage,
     type CheckpointRead,
     type Confounder,
@@ -58,6 +62,8 @@ export function ChangeDetail({
     confounders,
     baselineNote,
     example,
+    canEdit = true,
+    markers,
     revertInitiallyOpen = false,
     today,
     onBack,
@@ -69,6 +75,10 @@ export function ChangeDetail({
     confounders: Confounder[];
     baselineNote: string | null;
     example: boolean;
+    /** Viewers do not get Remove from log. */
+    canEdit?: boolean;
+    /** Other logged changes on the same page. */
+    markers: ChartMarker[];
     revertInitiallyOpen?: boolean;
     /** Pacific date for the "Today" marker. Defaults to today. */
     today?: string;
@@ -145,7 +155,7 @@ export function ChangeDetail({
                             {copied ? 'Link copied' : 'Copy link to this change'}
                         </MenuItem>
                         <MenuItem onClick={() => { setMoreOpen(false); window.print?.(); }}>Print or save as PDF</MenuItem>
-                        {!example && (
+                        {canEdit && !example && (
                             <MenuItem
                                 destructive
                                 onClick={() => {
@@ -205,46 +215,24 @@ export function ChangeDetail({
             <ResultsTable impact={impact} />
 
             <section className="rounded-lg border border-border bg-card p-4">
-                <h3 className="mb-1 text-sm font-medium">{chartHeading(change.kpi)}</h3>
-                <p className="mb-3 text-xs text-muted-foreground">{chartCaption(impact.controlLabel)}</p>
-                <ImpactChart points={impact.series} kpi={change.kpi} liveOn={change.liveOn} controlLabel={impact.controlLabel} />
+                <ImpactChart
+                    points={impact.series}
+                    kpi={change.kpi}
+                    liveOn={change.liveOn}
+                    finalThrough={impact.finalThrough}
+                    controlLabel={impact.controlLabel}
+                    lowData={impact.headline.lowData}
+                    markers={markers}
+                />
             </section>
 
-            <section className="rounded-lg border border-border bg-card">
-                <div className="flex items-center justify-between px-4 py-3">
-                    <h3 className="text-sm font-medium">Search terms people used</h3>
-                    <p className="text-xs text-muted-foreground">Only some terms. Google hides some searches.</p>
-                </div>
-                {impact.queries.length === 0 ? (
-                    <p className="px-4 pb-4 text-sm text-muted-foreground">No search terms were saved on this change.</p>
-                ) : (
-                    <div className="insights-table-scroll">
-                        <table className="w-full min-w-[640px] text-left text-sm">
-                            <thead className="text-xs text-muted-foreground">
-                                <tr>
-                                    <SortHead label="Search term" onClick={() => toggle('query')} />
-                                    <SortHead label="Clicks from Google" onClick={() => toggle('clicks')} />
-                                    <SortHead label="Times shown in Google" onClick={() => toggle('impressions')} />
-                                    <SortHead label="Average Google position" onClick={() => toggle('position')} />
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {queries.map(query => (
-                                    <tr key={query.query} className="border-t border-border">
-                                        <td className="px-4 py-2">{query.query}</td>
-                                        <td className="px-4 py-2 tabular-nums">{termSide(query.beforeClicks)} → {termSide(query.afterClicks)}</td>
-                                        <td className="px-4 py-2 tabular-nums">{termSide(query.beforeImpressions)} → {termSide(query.afterImpressions)}</td>
-                                        <td className="px-4 py-2 tabular-nums">{termSide(query.beforePosition)} → {termSide(query.afterPosition)}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-                {!head.ready && impact.queries.length > 0 && (
-                    <p className="px-4 pb-3 text-xs text-muted-foreground">These later numbers are not ready yet. Treat those cells as empty, not as zero.</p>
-                )}
-            </section>
+            <SearchTerms
+                queries={queries}
+                ready={head.ready}
+                empty={searchTermsEmpty(impact.queries)}
+                gaps={termsHaveGaps(impact.queries)}
+                onToggle={toggle}
+            />
 
             <section className="rounded-lg border border-border bg-card p-4">
                 <h3 className="text-sm font-medium">Other changes in this window</h3>
@@ -577,13 +565,24 @@ function ActionMenu({
     children: ReactNode;
 }) {
     const ref = useRef<HTMLDivElement>(null);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
+    const focusEdge = useRef<'first' | 'last'>('first');
+    useEffect(() => {
+        if (!open) return;
+        const items = menuItems(menuRef.current);
+        (focusEdge.current === 'last' ? items[items.length - 1] : items[0])?.focus();
+    }, [open]);
     useEffect(() => {
         if (!open) return;
         function onPointer(event: MouseEvent) {
             if (!ref.current?.contains(event.target as Node)) onOpenChange(false);
         }
         function onKey(event: KeyboardEvent) {
-            if (event.key === 'Escape') onOpenChange(false);
+            if (event.key === 'Escape') {
+                onOpenChange(false);
+                triggerRef.current?.focus();
+            }
         }
         document.addEventListener('mousedown', onPointer);
         document.addEventListener('keydown', onKey);
@@ -592,9 +591,40 @@ function ActionMenu({
             document.removeEventListener('keydown', onKey);
         };
     }, [open, onOpenChange]);
+
+    function onTriggerKey(event: ReactKeyboardEvent<HTMLButtonElement>) {
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+        event.preventDefault();
+        focusEdge.current = event.key === 'ArrowUp' ? 'last' : 'first';
+        onOpenChange(true);
+    }
+
+    function onMenuKey(event: ReactKeyboardEvent<HTMLDivElement>) {
+        const items = menuItems(menuRef.current);
+        if (items.length === 0) return;
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            onOpenChange(false);
+            triggerRef.current?.focus();
+            return;
+        }
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return;
+        event.preventDefault();
+        const current = items.indexOf(document.activeElement as HTMLButtonElement);
+        const next = event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+                ? items.length - 1
+                : event.key === 'ArrowUp'
+                    ? (current <= 0 ? items.length - 1 : current - 1)
+                    : (current < 0 || current >= items.length - 1 ? 0 : current + 1);
+        items[next]?.focus();
+    }
+
     return (
         <div ref={ref} className="relative">
             <Button
+                ref={triggerRef}
                 type="button"
                 variant="outline"
                 size="sm"
@@ -602,17 +632,31 @@ function ActionMenu({
                 aria-expanded={open}
                 aria-label={menuLabel}
                 data-menu={menuLabel === 'Download' ? 'download' : 'more'}
-                onClick={() => onOpenChange(!open)}
+                onClick={() => {
+                    focusEdge.current = 'first';
+                    onOpenChange(!open);
+                }}
+                onKeyDown={onTriggerKey}
             >
                 {label}
             </Button>
             {open && (
-                <div role="menu" aria-label={menuLabel} className="absolute right-0 z-30 mt-1 min-w-56 rounded-md border border-border bg-card p-1 shadow-md">
+                <div
+                    ref={menuRef}
+                    role="menu"
+                    aria-label={menuLabel}
+                    className="absolute right-0 z-30 mt-1 min-w-56 rounded-md border border-border bg-card p-1 shadow-md"
+                    onKeyDown={onMenuKey}
+                >
                     {children}
                 </div>
             )}
         </div>
     );
+}
+
+function menuItems(menu: HTMLElement | null): HTMLButtonElement[] {
+    return [...menu?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []];
 }
 
 function MenuItem({
@@ -628,11 +672,67 @@ function MenuItem({
         <button
             type="button"
             role="menuitem"
+            tabIndex={-1}
             className={cn('block w-full rounded-sm px-3 py-2 text-left text-sm hover:bg-muted', destructive && 'font-medium text-red-700')}
             onClick={onClick}
         >
             {children}
         </button>
+    );
+}
+
+function SearchTerms({
+    queries,
+    ready,
+    empty,
+    gaps,
+    onToggle,
+}: {
+    queries: QueryCompare[];
+    ready: boolean;
+    empty: 'none' | 'unmeasured' | null;
+    gaps: boolean;
+    onToggle: (key: SortKey) => void;
+}) {
+    return (
+        <section className="rounded-lg border border-border bg-card" data-terms-empty={empty ?? 'false'}>
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
+                <h3 className="text-sm font-medium">Search terms people used</h3>
+                <p className="text-xs text-muted-foreground">Only some terms. Google hides some searches.</p>
+            </div>
+            {empty ? (
+                <p className="px-4 pb-4 text-sm text-muted-foreground">{TERMS_EMPTY_COPY[empty]}</p>
+            ) : (
+                <div className="insights-table-scroll">
+                    <table className="w-full min-w-[640px] text-left text-sm">
+                        <thead className="text-xs text-muted-foreground">
+                            <tr>
+                                <SortHead label="Search term" onClick={() => onToggle('query')} />
+                                <SortHead label="Clicks from Google" onClick={() => onToggle('clicks')} />
+                                <SortHead label="Times shown in Google" onClick={() => onToggle('impressions')} />
+                                <SortHead label="Average Google position" onClick={() => onToggle('position')} />
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {queries.map(query => (
+                                <tr key={query.query} className="border-t border-border">
+                                    <td className="px-4 py-2">{query.query}</td>
+                                    <td className="px-4 py-2 tabular-nums">{formatTermValue(query.beforeClicks)} → {formatTermValue(query.afterClicks)}</td>
+                                    <td className="px-4 py-2 tabular-nums">{formatTermValue(query.beforeImpressions)} → {formatTermValue(query.afterImpressions)}</td>
+                                    <td className="px-4 py-2 tabular-nums">{formatTermValue(query.beforePosition)} → {formatTermValue(query.afterPosition)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+            {!empty && !ready && (
+                <p className="px-4 py-3 text-xs text-muted-foreground">The numbers after this went live aren&apos;t ready yet. {TERMS_MISSING_NOTE}</p>
+            )}
+            {!empty && ready && gaps && (
+                <p className="px-4 py-3 text-xs text-muted-foreground">{TERMS_MISSING_NOTE}</p>
+            )}
+        </section>
     );
 }
 
@@ -642,10 +742,6 @@ function SortHead({ label, onClick }: { label: string; onClick: () => void }) {
             <button type="button" onClick={onClick} className="hover:text-foreground">{label}</button>
         </th>
     );
-}
-
-function termSide(value: number | null): string {
-    return value == null ? '— not reported yet' : String(value);
 }
 
 function compareDelta(a: number | null, b: number | null, dir: 1 | -1): number {
