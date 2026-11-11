@@ -225,6 +225,13 @@ export interface TimelineItem {
     deltaText: string;
     kpi: Kpi;
     checkpointDays: CheckpointDays | null;
+    /** Finished check the latest result came from. Null when no check is finished. */
+    headlineDays: CheckpointDays | null;
+    /** Percentage points versus pages we didn't change. Null when it isn't ready — never a stand-in zero. */
+    headlinePct: number | null;
+    /** Date the next check is due. Null when every check is already final. */
+    nextCheckOn: string | null;
+    nextCheckDays: CheckpointDays | null;
 }
 
 export interface Confounder {
