@@ -67,6 +67,7 @@ import { useSeoPlanV2 } from '@/components/seo-plan/use-seo-plan-v2';
 import { seoPlanReadOnly } from '@/lib/seo-plan/read-only';
 import { PanelSkeleton } from '@/components/seo-plan/PanelSkeleton';
 import { PlanOverviewPanel } from '@/components/seo-plan/PlanOverviewPanel';
+import { SetupChecklist } from '@/components/onboarding/SetupChecklist';
 import { prefetchClientWorkspace } from '@/lib/seo-plan/prefetch';
 import { TaskToolbar } from '@/components/seo-plan/TaskToolbar';
 import {
@@ -226,6 +227,19 @@ export default function ClientDetailPage() {
         if (vaultEnabled !== true) return;
         if (new URLSearchParams(window.location.search).get('tab') === 'vault') setActiveTabState('vault');
     }, [vaultEnabled, id]);
+
+    useEffect(() => {
+        const query = new URLSearchParams(searchKey);
+        const tab = query.get('tab');
+        const onOverview = !tab || tab === 'overview';
+        if (!onOverview || query.get('setup') !== 'details') return;
+        setShowEditPanel(true);
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('setup') !== 'details') return;
+        url.searchParams.delete('setup');
+        window.history.replaceState(null, '', url);
+        notifyStaffNav();
+    }, [searchKey]);
 
     useEffect(() => {
         const openVault = () => {
@@ -544,6 +558,15 @@ export default function ClientDetailPage() {
 
             {activeTab === 'overview' && searchParams.get('navNotice') === 'unavailable' && (
                 <p className="text-sm text-muted-foreground">{UNAVAILABLE_MODULE_NOTICE}</p>
+            )}
+
+            {activeTab === 'overview' && organization?.id && (
+                <SetupChecklist
+                    clientId={client.id}
+                    organizationId={organization.id}
+                    clientName={client.clientName}
+                    website={client.domain ?? null}
+                />
             )}
 
             {/* SEO Marketing Plan tab */}
