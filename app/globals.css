@@ -469,3 +469,15 @@
   z-index: 1;
   background: var(--card);
 }
+
+@media print {
+  body:has(.change-log-sheet) .staff-sidebar,
+  body:has(.change-log-sheet) header,
+  body:has(.change-log-sheet) .change-log-no-print {
+    display: none !important;
+  }
+  body:has(.change-log-sheet) main {
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+}
