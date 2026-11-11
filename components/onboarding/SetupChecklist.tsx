@@ -145,7 +145,7 @@ export function SetupChecklistView({
                                 aria-valuemin={0}
                                 aria-valuemax={progress.total}
                                 aria-valuenow={progress.done}
-                                className="h-2 overflow-hidden rounded-full bg-[#e4e4e7]"
+                                className="h-2.5 overflow-hidden rounded-full bg-[#e4e4e7]"
                             >
                                 <span className="block h-full rounded-full bg-[#db2777]" style={{ width: `${progress.percent}%` }} />
                             </div>
