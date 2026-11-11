@@ -1,4 +1,5 @@
 import { CAMPAIGN_WORKSPACE_TAB, isSeoPlanWorkspaceTab, seoPlanWorkSearch } from '@/lib/campaign-workspace/view';
+import { PLAN_FILTER_QUERY_KEYS } from '@/lib/seo-plan/plan-filters';
 import { reportsNavHref } from '@/lib/reports/close-nav';
 
 /**
@@ -43,7 +44,7 @@ export interface AgencyLink {
     dividerAfter?: boolean;
 }
 
-const KEEP_PARAMS = ['planView', 'phase', 'range', 'section', 'approvalBatch', 'campaignView'] as const;
+const KEEP_PARAMS = ['planView', 'phase', 'range', 'section', 'approvalBatch', 'campaignView', ...PLAN_FILTER_QUERY_KEYS] as const;
 
 type WorkspaceModule =
     | 'overview'

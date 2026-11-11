@@ -75,6 +75,7 @@ test('stage task reads are limited to the session organization and the client', 
     assert.match(STAGE_LIST_TASK_COLUMNS, /\bdescription\b/);
     assert.match(STAGE_LIST_TASK_COLUMNS, /\bestimated_hours\b/);
     assert.match(STAGE_LIST_TASK_COLUMNS, /\bassignee_ids\b/);
+    assert.match(STAGE_LIST_TASK_COLUMNS, /\bpriority\b/);
     assert.match(STAGE_LIST_TASK_COLUMNS, /\bblocked_reason\b/);
 });
 

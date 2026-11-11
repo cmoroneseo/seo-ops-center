@@ -783,6 +783,8 @@ export function StagePlanList({
                 query={query}
                 onQueryChange={setQuery}
                 partOfChoices={partOf ?? []}
+                partOfReady={partOf !== null}
+                viewerId={userId || null}
                 clientName={clientName}
                 panelTaskId={open?.id ?? null}
                 onClosePanel={() => setPanel(null)}

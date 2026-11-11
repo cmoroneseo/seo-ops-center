@@ -1,3 +1,5 @@
+import { PLAN_FILTER_QUERY_KEYS } from '../seo-plan/plan-filters';
+
 /** Local Campaign tabs. Overview is the default; unknown values stay there. */
 export type CampaignView = 'overview' | 'roadmap' | 'work' | 'results';
 
@@ -14,7 +16,7 @@ const SEO_PLAN_TABS = new Set(['campaign', 'plan']);
  * Query the monthly board still reads after an SEO Plan URL moves under Campaign Work.
  * `planView` is not one of them: Work is the monthly board, not the old subviews.
  */
-const SEO_PLAN_WORK_KEEP = ['overviewMonth', 'overviewTask', 'phase'] as const;
+const SEO_PLAN_WORK_KEEP = ['overviewMonth', 'overviewTask', 'phase', ...PLAN_FILTER_QUERY_KEYS] as const;
 
 export function parseCampaignView(value: string | null | undefined): CampaignView {
     if (value === 'roadmap' || value === 'work' || value === 'results') return value;

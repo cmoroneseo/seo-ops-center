@@ -74,9 +74,12 @@ test('a pillar row drags from the card and a subtask drags from its grip', () =>
     assert.match(html, /data-stage-drop="backlog"/);
 });
 
-test('search and a pending row do not offer a drag', () => {
+test('a search still lets the remaining rows move, and a pending row does not', () => {
     const searching = render('keywords');
-    assert.doesNotMatch(searching, /draggable|data-stage-grip|data-stage-move|data-stage-drop/);
+    assert.match(searching, /data-stage-drag="task"/);
+    assert.match(searching, /data-stage-grip="keywords"/);
+    assert.match(searching, /data-stage-drop="onboarding"/);
+    assert.match(searching, /data-stage-drop="backlog"/);
     assert.match(searching, /<mark[^>]*>keywords<\/mark>/);
 
     const html = render();

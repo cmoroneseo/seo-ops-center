@@ -6,9 +6,12 @@ import { planBasecampBanner, type PlanBasecampBanner } from './basecamp-push';
 import { planBoardFromSteps, type PlanBoard } from './plan-phases';
 import { stageListTaskFromRow, type StageListTask } from './stage-list';
 
-/** Columns the stage list reads. Recurrence is reduced to a boolean before it leaves the server. */
+/**
+ * Columns the stage list reads. Recurrence is reduced to a boolean before it leaves the server.
+ * Priority is one more column on the same client-scoped read. The org and client filters stay.
+ */
 export const STAGE_LIST_TASK_COLUMNS =
-    'id, title, status, stage, position, parent_task_id, created_at, category, basecamp_todo_id, recurrence, published_url, due_date, completed_at, assignee_ids, blocked_reason, description, estimated_hours, basecamp_sync_state, basecamp_sync_error, basecamp_sync_attempted_at';
+    'id, title, status, priority, stage, position, parent_task_id, created_at, category, basecamp_todo_id, recurrence, published_url, due_date, completed_at, assignee_ids, blocked_reason, description, estimated_hours, basecamp_sync_state, basecamp_sync_error, basecamp_sync_attempted_at';
 
 export const STAGE_LIST_CLIENT_COLUMNS = 'id';
 

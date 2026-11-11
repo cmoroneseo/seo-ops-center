@@ -1,7 +1,7 @@
 import type { PlanBasecampSyncState } from './basecamp-push';
 import { nestingParentId, progressOf, taskExcluded, type ProgressTask } from '../tasks/subtask-progress';
 import { isTaskStage } from '../tasks/stage';
-import { TASK_STAGES, type TaskStage } from '../types';
+import { TASK_STAGES, type TaskPriority, type TaskStage } from '../types';
 
 /**
  * One client task in the stage list.
@@ -32,6 +32,8 @@ export interface StageListTask {
     completedAt?: string | null;
     /** tasks.assignee_ids. Absent when that column was not selected. Ids only, never names. */
     assigneeIds?: string[];
+    /** tasks.priority. Absent when that column was not selected. Null means the stored value was not a known priority. */
+    priority?: TaskPriority | null;
     /** tasks.blocked_reason. Absent when that column was not selected. Empty means not blocked. */
     blockedReason?: string | null;
     /** tasks.description. Absent when that column was not selected. Empty string means the task has no description yet. */
@@ -271,6 +273,7 @@ export function stageListTaskFromRow(row: unknown): StageListTask | null {
         ...('due_date' in record ? { dueDate: readDueDay(record.due_date) } : {}),
         ...('completed_at' in record ? { completedAt: readTimestamp(record.completed_at) } : {}),
         ...('assignee_ids' in record ? { assigneeIds: readAssigneeIds(record.assignee_ids) } : {}),
+        ...('priority' in record ? { priority: readPriority(record.priority) } : {}),
         ...('blocked_reason' in record ? { blockedReason: readBlockedReason(record.blocked_reason) } : {}),
         ...('description' in record ? { description: readDescription(record.description) } : {}),
         ...('estimated_hours' in record ? { estimatedHours: readEstimatedHours(record.estimated_hours) } : {}),
@@ -309,6 +312,11 @@ function readDueDay(value: unknown): string | null {
 
 function readTimestamp(value: unknown): string | null {
     return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function readPriority(value: unknown): TaskPriority | null {
+    if (value === 'low' || value === 'medium' || value === 'high' || value === 'urgent') return value;
+    return null;
 }
 
 function readAssigneeIds(value: unknown): string[] {
@@ -361,6 +369,7 @@ export function parseStageListTasks(value: unknown): StageListTask[] {
             ...('dueDate' in record ? { dueDate: readDueDay(record.dueDate) } : {}),
             ...('completedAt' in record ? { completedAt: readTimestamp(record.completedAt) } : {}),
             ...('assigneeIds' in record ? { assigneeIds: readAssigneeIds(record.assigneeIds) } : {}),
+            ...('priority' in record ? { priority: readPriority(record.priority) } : {}),
             ...('blockedReason' in record ? { blockedReason: readBlockedReason(record.blockedReason) } : {}),
             ...('description' in record ? { description: readDescription(record.description) } : {}),
             ...('estimatedHours' in record ? { estimatedHours: readEstimatedHours(record.estimatedHours) } : {}),

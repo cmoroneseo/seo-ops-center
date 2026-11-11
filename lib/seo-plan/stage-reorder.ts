@@ -275,6 +275,7 @@ export function mergeStageTasks(current: readonly StageListTask[], updated: read
         if (next.dueDate === undefined && task.dueDate !== undefined) next = { ...next, dueDate: task.dueDate };
         if (next.completedAt === undefined && task.completedAt !== undefined) next = { ...next, completedAt: task.completedAt };
         if (next.assigneeIds === undefined && task.assigneeIds !== undefined) next = { ...next, assigneeIds: task.assigneeIds };
+        if (next.priority === undefined && task.priority !== undefined) next = { ...next, priority: task.priority };
         return next;
     });
 }

@@ -4,6 +4,17 @@ import { useCallback, useEffect, useId, useRef, useState, type DragEvent, type R
 import { Check, ChevronRight, GripVertical, Play } from 'lucide-react';
 import { isPendingStageTaskId } from '@/lib/seo-plan/stage-add';
 import { hrefWithOverviewMonth, readOverviewMonth } from '@/lib/seo-plan/plan-month-url';
+import {
+    EMPTY_PLAN_FILTERS,
+    describeFilteredSections,
+    filterPlanTasks,
+    hideSectionsOutsideStage,
+    hrefWithPlanFilters,
+    knownStage,
+    planFilterEmptyCopy,
+    readPlanFilters,
+    type PlanBoardFilters,
+} from '@/lib/seo-plan/plan-filters';
 import { isChecklistTaskId } from '@/lib/seo-plan/plan-work';
 import { effectOfPlanDrop } from '@/lib/seo-plan/plan-drag';
 import {
@@ -23,7 +34,6 @@ import {
     isPlanMonth,
     monthKeyFromDay,
     planHourRollup,
-    planSearchMissCopy,
     PLAN_LOOKBACK_NOTE,
     shiftPlanMonth,
     type PlanGroup,
@@ -33,7 +43,7 @@ import {
 import type { DoneThisMonthLog } from '@/lib/seo-plan/done-this-month';
 import { type PlanPanelField } from '@/lib/seo-plan/plan-panel';
 import { stageListTitleParts, type StageListTask } from '@/lib/seo-plan/stage-list';
-import { tasksPartOf, type PartOfChoice } from '@/lib/tasks/part-of';
+import type { PartOfChoice } from '@/lib/tasks/part-of';
 import { calendarDay, STAGE_LIST_TIME_ZONE } from '@/lib/seo-plan/this-month';
 import type { StageReorderMove } from '@/lib/seo-plan/stage-reorder';
 import { cn } from '@/lib/utils';
@@ -51,6 +61,7 @@ import { PlanSyncBanner, PlanSyncDot } from './PlanSyncFailure';
 import type { PlanBasecampBanner, PlanBasecampSyncState } from '@/lib/seo-plan/basecamp-push';
 import { PlanShortcutSheet } from './PlanShortcutSheet';
 import { PlaybookDrawer } from './PlaybookDrawer';
+import { PlanFilterBar } from './PlanFilterBar';
 import { usePlanKeymap } from './use-plan-keymap';
 
 const NO_ORG_TASKS: readonly PlaybookOrgTask[] = [];
@@ -211,6 +222,14 @@ interface DropHint {
     parentTaskId: string | null;
 }
 
+function samePlanFilters(left: PlanBoardFilters, right: PlanBoardFilters): boolean {
+    return left.status === right.status
+        && left.priority === right.priority
+        && left.assignee === right.assignee
+        && left.stage === right.stage
+        && left.partOf === right.partOf;
+}
+
 function hintKey(hint: DropHint | null): string {
     if (!hint) return '';
     return `${hint.section}:${hint.parentTaskId ?? ''}:${hint.beforeTaskId ?? ''}`;
@@ -262,6 +281,8 @@ export function StagePlanListView({
     planRows = NO_PLAN_ROWS,
     checklistScope = {},
     partOfChoices = [],
+    partOfReady = false,
+    viewerId = null,
 }: {
     tasks: readonly StageListTask[];
     query: string;
@@ -331,25 +352,48 @@ export function StagePlanListView({
     checklistScope?: PlaybookScope;
     /** Roadmap rows this client can filter by. Empty hides the control. */
     partOfChoices?: readonly PartOfChoice[];
+    /** True once the Part of list has loaded. A link to a missing row is then dropped. */
+    partOfReady?: boolean;
+    /** Signed-in person. My tasks uses this id. */
+    viewerId?: string | null;
 }) {
-    const searchId = useId();
     const searchRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const [focusedId, setFocusedId] = useState<string | null>(null);
-    const [partOfId, setPartOfId] = useState('');
+    const [filters, setFilters] = useState<PlanBoardFilters>(EMPTY_PLAN_FILTERS);
+    /** undefined until the address is read. null after state matches that read. */
+    const urlFilters = useRef<{ filters: PlanBoardFilters; query: string } | null | undefined>(undefined);
+    const queryRef = useRef(query);
+    queryRef.current = query;
+    const onQueryChangeRef = useRef(onQueryChange);
+    onQueryChangeRef.current = onQueryChange;
     const day = today ?? calendarDay(new Date());
     const [month, setMonth] = useState(() => (initialMonth && isPlanMonth(initialMonth) ? initialMonth : monthKeyFromDay(day)));
     const urlMonth = useRef<string | null | undefined>(undefined);
     const phaseBoard = board === 'phases';
-    const partOfActive = partOfChoices.some(choice => choice.id === partOfId) ? partOfId : '';
-    const listed = tasksPartOf(tasks, partOfActive || null);
+    const partOfActive = partOfChoices.some(choice => choice.id === filters.partOf) ? filters.partOf : '';
+    const boardKind = phaseBoard ? 'phases' : 'months';
+    const stageActive = filters.stage && knownStage(filters.stage, boardKind) ? filters.stage : '';
+    const appliedFilters: PlanBoardFilters = {
+        ...filters,
+        partOf: partOfActive,
+        stage: stageActive,
+    };
+    const listed = filterPlanTasks(tasks, appliedFilters);
+    const attributeCount = [appliedFilters.status, appliedFilters.priority, appliedFilters.assignee, appliedFilters.stage, appliedFilters.partOf]
+        .filter(Boolean).length;
     const sections = phaseBoard
-        ? groupTasksByPhase(listed, query, day)
-        : groupTasksByPlanMonth(listed, { month, today: day, query });
+        ? describeFilteredSections(
+            hideSectionsOutsideStage(groupTasksByPhase(listed, query, day), appliedFilters.stage, 'phases', day),
+            attributeCount > 0,
+        )
+        : describeFilteredSections(
+            hideSectionsOutsideStage(groupTasksByPlanMonth(listed, { month, today: day, query }), appliedFilters.stage, 'months', day),
+            attributeCount > 0,
+        );
     const searching = query.trim().length > 0;
-    const narrowing = searching || partOfActive !== '';
-    const nothingMatches = searching && sections.every(section => section.groups.length === 0);
-    const partOfMiss = partOfActive !== '' && !searching && sections.every(section => section.groups.length === 0);
+    const filterState = { ...appliedFilters, query };
+    const nothingMatches = (searching || attributeCount > 0) && sections.every(section => section.groups.length === 0);
     const current = month === monthKeyFromDay(day);
     const clientFailure = Boolean(basecamp?.connected && basecamp.failure);
     void clientName;
@@ -425,6 +469,31 @@ export function StagePlanListView({
         onMonthChange?.(month);
     }, [month, onMonthChange, phaseBoard]);
 
+    useEffect(() => {
+        const read = readPlanFilters(window.location.search);
+        urlFilters.current = read;
+        setFilters(read.filters);
+        if (read.query !== queryRef.current) onQueryChangeRef.current(read.query);
+    }, []);
+
+    useEffect(() => {
+        const pending = urlFilters.current;
+        if (pending === undefined) return;
+        if (pending !== null) {
+            if (!samePlanFilters(filters, pending.filters) || query !== pending.query) return;
+            urlFilters.current = null;
+        }
+        const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        const next = hrefWithPlanFilters(current, { ...filters, query });
+        if (next !== current) window.history.replaceState(window.history.state, '', next);
+    }, [filters, query]);
+
+    useEffect(() => {
+        if (!partOfReady || !filters.partOf) return;
+        if (partOfChoices.some(choice => choice.id === filters.partOf)) return;
+        setFilters(current => (current.partOf ? { ...current, partOf: '' } : current));
+    }, [filters.partOf, partOfChoices, partOfReady]);
+
     const list = (
         <div ref={listRef} data-seo-plan-stage-list data-plan-board={board} data-plan-month={phaseBoard ? undefined : month} className="min-w-0 flex-1 space-y-3 text-[13px] text-[#18181b]">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -460,45 +529,26 @@ export function StagePlanListView({
                     </button>
                 </div>
                 )}
-                <div className="flex items-center gap-3">
-                    <button
-                        type="button"
-                        data-playbook-open="plan"
-                        onClick={() => setPlaybook({ from: null })}
-                        className="rounded-lg border border-[#e4e4e7] bg-[#ffffff] px-3 py-1.5 text-[13px] font-medium text-[#18181b] hover:bg-[#f4f4f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
-                    >
-                        {PLAYBOOK_COPY.button}
-                    </button>
-                    {partOfChoices.length > 0 ? (
-                        <label>
-                            <span className="sr-only">Part of</span>
-                            <select
-                                aria-label="Part of"
-                                data-plan-part-of
-                                value={partOfActive}
-                                onChange={event => setPartOfId(event.target.value)}
-                                className="max-w-48 rounded-lg border border-[#e4e4e7] bg-[#ffffff] px-2 py-1.5 text-[13px] text-[#18181b] outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
-                            >
-                                <option value="">All tasks</option>
-                                {partOfChoices.map(choice => (
-                                    <option key={choice.id} value={choice.id}>{choice.title}</option>
-                                ))}
-                            </select>
-                        </label>
-                    ) : null}
-                    <label htmlFor={searchId} className="sr-only">Search tasks</label>
-                    <input
-                        ref={searchRef}
-                        id={searchId}
-                        type="search"
-                        value={query}
-                        data-plan-search
-                        onChange={event => onQueryChange(event.target.value)}
-                        placeholder="Search tasks"
-                        className="w-56 max-w-full rounded-lg border border-[#e4e4e7] bg-[#ffffff] px-3 py-1.5 text-[13px] text-[#18181b] outline-none placeholder:text-[#a1a1aa] focus-visible:ring-2 focus-visible:ring-[#ec4899]"
-                    />
-                </div>
+                <button
+                    type="button"
+                    data-playbook-open="plan"
+                    onClick={() => setPlaybook({ from: null })}
+                    className="rounded-lg border border-[#e4e4e7] bg-[#ffffff] px-3 py-1.5 text-[13px] font-medium text-[#18181b] hover:bg-[#f4f4f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                >
+                    {PLAYBOOK_COPY.button}
+                </button>
             </div>
+            <PlanFilterBar
+                board={phaseBoard ? 'phases' : 'months'}
+                query={query}
+                filters={filters}
+                people={people}
+                viewerId={viewerId}
+                partOfChoices={partOfChoices}
+                searchRef={searchRef}
+                onQueryChange={onQueryChange}
+                onFiltersChange={setFilters}
+            />
 
             {phaseBoard ? null : (
             <PlanAddLine
@@ -522,23 +572,29 @@ export function StagePlanListView({
             )}
 
             {nothingMatches && (
-                <p className="text-[13px] text-[#71717a]">
-                    {planSearchMissCopy(query)}{' '}
-                    <button type="button" onClick={() => onQueryChange('')} className="text-[#ec4899] hover:underline">Clear search</button>
+                <p data-plan-filter-empty className="text-[13px] text-[#71717a]">
+                    {planFilterEmptyCopy(filterState)}{' '}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setFilters(EMPTY_PLAN_FILTERS);
+                            onQueryChange('');
+                        }}
+                        className="text-[#ec4899] hover:underline"
+                    >
+                        Clear
+                    </button>
                 </p>
             )}
-            {partOfMiss && (
-                <p data-plan-part-of-empty className="text-[13px] text-[#71717a]">No tasks are part of this.</p>
-            )}
 
-            {phaseBoard && tasks.length === 0 && !searching && (
+            {phaseBoard && tasks.length === 0 && !searching && attributeCount === 0 && (
                 <div data-plan-phase-empty className="text-[13px] leading-relaxed text-[#3f3f46]">
                     <p>{PHASE_BOARD_EMPTY}</p>
                     <p className="mt-1">{PLAYBOOK_COPY.emptyHint}</p>
                 </div>
             )}
 
-            {!phaseBoard && tasks.length === 0 && !searching ? (
+            {!phaseBoard && tasks.length === 0 && !searching && attributeCount === 0 ? (
                 <div data-plan-empty className="rounded-[10px] border border-[#e4e4e7] bg-[#ffffff] px-4 py-6">
                     <h3 className="text-[13px] font-semibold text-[#18181b]">{EMPTY_PLAN_TITLE}</h3>
                     <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-[#3f3f46]">{EMPTY_PLAN_BODY}</p>
@@ -547,12 +603,11 @@ export function StagePlanListView({
                 </div>
             ) : (
                 <PlanSections
-                key={`${query}:${partOfActive}`}
+                key={`${query}:${appliedFilters.status}:${appliedFilters.priority}:${appliedFilters.assignee}:${appliedFilters.stage}:${appliedFilters.partOf}`}
                 tasks={tasks}
                 sections={sections}
                 query={query}
                 searching={searching}
-                dragLocked={narrowing}
                 nothingMatches={nothingMatches}
                 month={month}
                 today={day}
@@ -637,7 +692,6 @@ function PlanSections({
     sections,
     query,
     searching,
-    dragLocked = false,
     nothingMatches,
     month,
     today,
@@ -667,8 +721,6 @@ function PlanSections({
     sections: Array<Omit<PlanSectionModel, 'id'> & { id: string; description?: string }>;
     query: string;
     searching: boolean;
-    /** Text search or the Part of filter. Dragging would skip hidden rows. */
-    dragLocked?: boolean;
     nothingMatches: boolean;
     month: string;
     today: string;
@@ -779,7 +831,7 @@ function PlanSections({
 
     const commit = (section: PlanSectionId | PlanPhase, beforeTaskId: string | null, parentTaskId: string | null) => {
         const activeId = dragIdRef.current;
-        if (!activeId || dragLocked) {
+        if (!activeId) {
             clearDrag();
             return;
         }
@@ -820,16 +872,16 @@ function PlanSections({
                         data-stage={section.id}
                         data-plan-section={section.id}
                         data-plan-collapsed={closed ? 'true' : 'false'}
-                        data-stage-drop={dragLocked ? undefined : section.id}
+                        data-stage-drop={section.id}
                         aria-labelledby={headingId}
                         className="overflow-hidden rounded-[10px] border border-[#e4e4e7] bg-[#ffffff]"
                         onDragOver={event => {
-                            if (dragLocked || !dragIdRef.current) return;
+                            if (!dragIdRef.current) return;
                             event.preventDefault();
                             showHint({ section: section.id as PlanSectionId | PlanPhase, beforeTaskId: null, parentTaskId: null });
                         }}
                         onDrop={event => {
-                            if (dragLocked || !dragIdRef.current) return;
+                            if (!dragIdRef.current) return;
                             event.preventDefault();
                             commit(section.id as PlanSectionId | PlanPhase, null, null);
                         }}
@@ -879,7 +931,6 @@ function PlanSections({
                                             section={section.id as PlanSectionId | PlanPhase}
                                             query={query}
                                             searching={searching}
-                                            dragLocked={dragLocked}
                                             today={today}
                                             people={people}
                                             loggedHours={loggedHours}
@@ -959,7 +1010,6 @@ function PlanRow({
     section,
     query,
     searching,
-    dragLocked,
     today,
     people,
     loggedHours,
@@ -993,7 +1043,6 @@ function PlanRow({
     section: PlanSectionId | PlanPhase;
     query: string;
     searching: boolean;
-    dragLocked: boolean;
     today: string;
     people: readonly PlanAssignee[];
     loggedHours: Readonly<Record<string, number>>;
@@ -1073,7 +1122,7 @@ function PlanRow({
                 return child?.assigneeIds ?? [];
             })])
             : (task.assigneeIds ?? []);
-        const draggable = !dragLocked && !locked && options.role === 'task';
+        const draggable = !locked && options.role === 'task';
         return (
             <div
                 key={task.id}
@@ -1101,7 +1150,7 @@ function PlanRow({
                     onDragStart(task.id);
                 }}
                 onDragOver={event => {
-                    if (searching || !dragId || locked) return;
+                    if (!dragId || locked) return;
                     event.preventDefault();
                     event.stopPropagation();
                     const before = pointerFraction(event) < 0.5;
@@ -1112,7 +1161,7 @@ function PlanRow({
                     });
                 }}
                 onDrop={event => {
-                    if (searching || locked) return;
+                    if (locked) return;
                     event.preventDefault();
                     event.stopPropagation();
                     const before = pointerFraction(event) < 0.5;
@@ -1352,13 +1401,12 @@ function PlanRow({
                     id={panelId}
                     data-stage-children={group.task.id}
                     onDragOver={event => {
-                        if (dragLocked || !dragId) return;
+                        if (!dragId) return;
                         event.preventDefault();
                         event.stopPropagation();
                         onHint({ section, beforeTaskId: null, parentTaskId: group.task.id });
                     }}
                     onDrop={event => {
-                        if (dragLocked) return;
                         event.preventDefault();
                         event.stopPropagation();
                         onDropRow(null, group.task.id);
@@ -1371,7 +1419,7 @@ function PlanRow({
                                 parentId: group.task.id,
                                 parentTitle: group.task.title,
                                 nextId: visibleChildren[index + 1]?.id ?? null,
-                                leading: dragLocked || isPendingStageTaskId(child.id) ? undefined : (
+                                leading: isPendingStageTaskId(child.id) ? undefined : (
                                     <span
                                         draggable
                                         data-stage-grip={child.id}
