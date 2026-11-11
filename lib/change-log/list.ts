@@ -51,6 +51,66 @@ export interface ChangeListFilter {
     result?: ResultBucket | null;
 }
 
+export type LiveRangePreset = '30' | '90' | 'all' | 'custom';
+
+export interface LiveRange {
+    from: string;
+    to: string;
+}
+
+export const LIVE_RANGE_PRESETS: { id: LiveRangePreset; label: string }[] = [
+    { id: '30', label: 'Last 30 days' },
+    { id: '90', label: 'Last 90 days' },
+    { id: 'all', label: 'All time' },
+    { id: 'custom', label: 'Custom' },
+];
+
+const PRESET_DAYS = { '30': 30, '90': 90 } as const;
+
+/** No start and no end. The list shows every go-live date. */
+export function clearLiveRange(): LiveRange {
+    return { from: '', to: '' };
+}
+
+/**
+ * Inclusive Pacific window ending on today.
+ * Last 30 days is today and the 29 days before it. An unusable today means All time.
+ */
+export function liveRangeForPreset(preset: '30' | '90' | 'all', today: string): LiveRange {
+    if (preset === 'all' || !isIsoDay(today)) return clearLiveRange();
+    return { from: dateOffset(today, 1 - PRESET_DAYS[preset]), to: today };
+}
+
+/** Keeps real dates only. A backwards pair is swapped so the earlier day is the start. */
+export function customLiveRange(from: string, to: string): LiveRange {
+    const start = isIsoDay(from) ? from : '';
+    const end = isIsoDay(to) ? to : '';
+    if (start && end && start > end) return { from: end, to: start };
+    return { from: start, to: end };
+}
+
+export function matchLiveRange(range: LiveRange, today: string): LiveRangePreset {
+    if (!range.from && !range.to) return 'all';
+    if (isIsoDay(today)) {
+        for (const preset of ['30', '90'] as const) {
+            const expected = liveRangeForPreset(preset, today);
+            if (range.from === expected.from && range.to === expected.to) return preset;
+        }
+    }
+    return 'custom';
+}
+
+export function liveRangeLabel(range: LiveRange, today: string): string {
+    const preset = matchLiveRange(range, today);
+    if (preset === '30') return 'Last 30 days';
+    if (preset === '90') return 'Last 90 days';
+    if (preset === 'all') return 'All time';
+    if (range.from && range.to) return `${formatDayWithYear(range.from)} – ${formatDayWithYear(range.to)}`;
+    if (range.from) return `From ${formatDayWithYear(range.from)}`;
+    if (range.to) return `Through ${formatDayWithYear(range.to)}`;
+    return 'Custom';
+}
+
 export function resultBucket(item: Pick<TimelineItem, 'verdict' | 'estimate'>): ResultBucket {
     return item.estimate ? 'early_estimate' : item.verdict;
 }

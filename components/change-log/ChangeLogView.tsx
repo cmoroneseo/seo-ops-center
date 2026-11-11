@@ -47,6 +47,7 @@ import { cn } from '@/lib/utils';
 import { ChangeDetail } from './ChangeDetail';
 import { ChangeForm } from './ChangeForm';
 import { VerdictPill } from './VerdictPill';
+import { WentLiveFilter } from './WentLiveFilter';
 
 export type ChangeLogMode = 'list' | 'form' | 'detail' | 'loading' | 'empty' | 'setup';
 
@@ -116,6 +117,15 @@ export function ChangeLogView({
                     padding: 0.4rem 0.6rem;
                     font-size: 0.875rem;
                 }
+                .change-log-root .field:focus-visible,
+                .change-log-root .field:focus-within {
+                    outline: none;
+                    box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
+                }
+                @media (min-width: 40rem) {
+                    .change-log-root .field-auto { width: auto; }
+                    .change-log-root .field-search { width: 16rem; }
+                }
             `}</style>
             {example && exampleNote && (
                 <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">{exampleNote}</p>
@@ -161,7 +171,7 @@ export function ChangeLogView({
                                     aria-pressed={selected}
                                     onClick={() => setResult(current => toggleResult(current, bucket.id))}
                                     className={cn(
-                                        'rounded-lg border bg-card px-3 py-3 text-left',
+                                        'rounded-lg border bg-card px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                                         selected ? cn('ring-2 ring-offset-2', bucketRing(bucket.id)) : 'border-border',
                                     )}
                                 >
@@ -180,14 +190,24 @@ export function ChangeLogView({
                         })}
                     </div>
                     <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="grid flex-1 gap-2 sm:grid-cols-4">
-                            <input className="field" placeholder="Search changes or pages" aria-label="Search changes or pages" value={pageQuery} onChange={event => setPageQuery(event.target.value)} />
-                            <select className="field" aria-label="Change type" value={type} onChange={event => setType(event.target.value as ChangeType | '')}>
-                                <option value="">All types</option>
-                                {CHANGE_TYPES.map(item => <option key={item} value={item}>{CHANGE_TYPE_LABEL[item]}</option>)}
-                            </select>
-                            <input className="field" type="date" aria-label="From date" value={from} onChange={event => setFrom(event.target.value)} />
-                            <input className="field" type="date" aria-label="To date" value={to} onChange={event => setTo(event.target.value)} />
+                        <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                            <input className="field field-search" placeholder="Search changes or pages" aria-label="Search changes or pages" value={pageQuery} onChange={event => setPageQuery(event.target.value)} />
+                            <label className="field field-auto inline-flex items-center gap-2">
+                                <span className="text-muted-foreground">Type</span>
+                                <select className="bg-transparent outline-none" aria-label="Change type" value={type} onChange={event => setType(event.target.value as ChangeType | '')}>
+                                    <option value="">All</option>
+                                    {CHANGE_TYPES.map(item => <option key={item} value={item}>{CHANGE_TYPE_LABEL[item]}</option>)}
+                                </select>
+                            </label>
+                            <WentLiveFilter
+                                from={from}
+                                to={to}
+                                today={asOf}
+                                onChange={range => {
+                                    setFrom(range.from);
+                                    setTo(range.to);
+                                }}
+                            />
                         </div>
                         <p className="text-sm text-muted-foreground lg:shrink-0">
                             {shown.length === 1 ? '1 change' : `${shown.length} changes`}
@@ -195,7 +215,10 @@ export function ChangeLogView({
                         </p>
                     </div>
                     <div className="overflow-hidden rounded-lg border border-border bg-card">
-                        <Table>
+                        <Table className="caption-bottom">
+                            <TableCaption>
+                                Showing {shown.length} of {items.length}. Went live is the date the change appeared on the website. Results compare each page with pages we didn&apos;t change.
+                            </TableCaption>
                             <TableHeader>
                                 <TableRow className="hover:bg-transparent">
                                     {CHANGE_COLUMNS.map(column => (
@@ -222,7 +245,7 @@ export function ChangeLogView({
                                             <TableCell className="whitespace-normal">
                                                 <button
                                                     type="button"
-                                                    className="text-left text-sm font-medium hover:underline"
+                                                    className="rounded-sm text-left text-sm font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                                     onClick={event => {
                                                         event.stopPropagation();
                                                         onOpen(item.id);
@@ -248,9 +271,6 @@ export function ChangeLogView({
                                     );
                                 })}
                             </TableBody>
-                            <TableCaption>
-                                Showing {shown.length} of {items.length}. Went live is the date the change appeared on the website. Results compare each page with pages we didn&apos;t change.
-                            </TableCaption>
                         </Table>
                     </div>
                 </>
@@ -294,7 +314,7 @@ function SortHeader({
             <button
                 type="button"
                 data-sort={column.key}
-                className="inline-flex items-center gap-1 text-left text-xs font-medium text-muted-foreground hover:text-foreground"
+                className="inline-flex items-center gap-1 rounded-sm text-left text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 onClick={() => onSort(column.key)}
             >
                 {column.label}

@@ -6,9 +6,14 @@ import { dateOffset } from '@/lib/gsc/history';
 import { exampleBoard } from './fixture.ts';
 import { buildImpact, timelineItem } from './impact.ts';
 import {
+    clearLiveRange,
+    customLiveRange,
     filterChanges,
     formatHeadlinePct,
     headlineFields,
+    liveRangeForPreset,
+    liveRangeLabel,
+    matchLiveRange,
     nextCheck,
     nextCheckCopy,
     pagePath,
@@ -110,6 +115,35 @@ test('a due check names the date Google data should catch up, and a future check
         check: '',
         data: null,
     });
+});
+
+test('a change that went live today and one with a future date still get a first check', () => {
+    const future = '2026-12-01';
+    assert.deepEqual(nextCheck(TODAY, FINAL_THROUGH), {
+        nextCheckDays: 7,
+        nextCheckOn: '2026-11-17',
+    });
+    assert.deepEqual(nextCheck(future, FINAL_THROUGH), {
+        nextCheckDays: 7,
+        nextCheckOn: '2026-12-08',
+    });
+    const todayCopy = nextCheckCopy(nextCheck(TODAY, FINAL_THROUGH), TODAY);
+    assert.equal(todayCopy.date, 'Nov 17, 2026');
+    assert.equal(todayCopy.check, '7-day check');
+    assert.equal(todayCopy.data, null);
+    const futureCopy = nextCheckCopy(nextCheck(future, FINAL_THROUGH), TODAY);
+    assert.equal(futureCopy.date, 'Dec 8, 2026');
+    assert.equal(futureCopy.check, '7-day check');
+    assert.equal(futureCopy.data, null);
+
+    const items = [
+        row({ id: 'past', title: 'Past', liveOn: '2026-10-02' }),
+        row({ id: 'today', title: 'Today', liveOn: TODAY }),
+        row({ id: 'future', title: 'Future', liveOn: future }),
+    ];
+    assert.deepEqual(sortChanges(items, 'live', 'desc').map(item => item.id), ['future', 'today', 'past']);
+    assert.deepEqual(filterChanges(items, { to: TODAY }).map(item => item.id), ['past', 'today']);
+    assert.deepEqual(filterChanges(items, { from: TODAY }).map(item => item.id), ['today', 'future']);
 });
 
 test('headline fields are null when the check is unfinished, never zero', () => {
@@ -297,6 +331,76 @@ test('every column sorts, went live starts newest first, and missing values are 
         const sorted = sortChanges(items, key, 'asc').map(item => item.id);
         assert.deepEqual(sortChanges(items, key, 'desc').map(item => item.id).reverse(), sorted);
     }
+});
+
+test('went-live presets, a custom range, and clearing compose with search, type, and result', () => {
+    assert.deepEqual(liveRangeForPreset('30', TODAY), { from: '2026-10-12', to: TODAY });
+    assert.deepEqual(liveRangeForPreset('90', TODAY), { from: '2026-08-13', to: TODAY });
+    assert.deepEqual(liveRangeForPreset('all', TODAY), clearLiveRange());
+    assert.deepEqual(liveRangeForPreset('30', 'not-a-day'), clearLiveRange());
+    assert.deepEqual(clearLiveRange(), { from: '', to: '' });
+    assert.equal(matchLiveRange(clearLiveRange(), TODAY), 'all');
+    assert.equal(matchLiveRange(liveRangeForPreset('30', TODAY), TODAY), '30');
+    assert.equal(matchLiveRange(liveRangeForPreset('90', TODAY), TODAY), '90');
+    assert.equal(matchLiveRange({ from: '2026-10-01', to: '2026-10-20' }, TODAY), 'custom');
+    assert.deepEqual(customLiveRange('2026-11-02', '2026-10-01'), { from: '2026-10-01', to: '2026-11-02' });
+    assert.deepEqual(customLiveRange('', 'soon'), clearLiveRange());
+    assert.equal(liveRangeLabel(liveRangeForPreset('90', TODAY), TODAY), 'Last 90 days');
+    assert.equal(liveRangeLabel(clearLiveRange(), TODAY), 'All time');
+    assert.equal(liveRangeLabel({ from: '2026-10-01', to: '2026-10-20' }, TODAY), 'Oct 1, 2026 – Oct 20, 2026');
+    assert.equal(liveRangeLabel({ from: '2026-10-12', to: '' }, TODAY), 'From Oct 12, 2026');
+    assert.equal(liveRangeLabel({ from: '', to: TODAY }, TODAY), 'Through Nov 10, 2026');
+
+    const items = [
+        row({ id: 'today', title: 'Emergency title', liveOn: TODAY, changeType: 'title', verdict: 'too_early' }),
+        row({ id: 'future', title: 'Future heading', liveOn: '2026-12-01', changeType: 'h1', verdict: 'too_early' }),
+        row({ id: 'old', title: 'Old redirect', liveOn: '2026-01-15', changeType: 'redirect', verdict: 'improved', headlineDays: 28, headlinePct: 11 }),
+        row({ id: 'edge', title: 'Edge day', liveOn: '2026-10-12', changeType: 'meta', verdict: 'flat', headlineDays: 14, headlinePct: 2 }),
+        row({ id: 'before', title: 'Day before', liveOn: '2026-10-11', changeType: 'meta', verdict: 'declined', headlineDays: 28, headlinePct: -4 }),
+        row({ id: 'home', title: 'Homepage heading', liveOn: '2026-10-13', changeType: 'h1', verdict: 'improved', headlineDays: 14, headlinePct: 18 }),
+    ];
+
+    assert.deepEqual(filterChanges(items, liveRangeForPreset('30', TODAY)).map(item => item.id), ['today', 'edge', 'home']);
+    assert.deepEqual(filterChanges(items, liveRangeForPreset('90', TODAY)).map(item => item.id), ['today', 'edge', 'before', 'home']);
+    assert.deepEqual(
+        filterChanges(items, customLiveRange('2026-10-13', '2026-10-12')).map(item => item.id),
+        ['edge', 'home'],
+    );
+    assert.equal(filterChanges(items, clearLiveRange()).length, items.length);
+
+    const narrowed = filterChanges(items, {
+        ...liveRangeForPreset('30', TODAY),
+        type: 'h1',
+        query: 'homepage',
+    });
+    assert.deepEqual(narrowed.map(item => item.id), ['home']);
+    const counts = summaryCounts(narrowed);
+    assert.deepEqual(counts, {
+        improved: 1,
+        flat: 0,
+        declined: 0,
+        too_early: 0,
+        early_estimate: 0,
+    });
+    assert.deepEqual(filterChanges(narrowed, { result: 'improved' }).map(item => item.id), ['home']);
+    assert.equal(filterChanges(narrowed, { result: 'declined' }).length, 0);
+    assert.deepEqual(summaryCounts(narrowed), counts);
+
+    const ranged = filterChanges(items, liveRangeForPreset('90', TODAY));
+    const rangedCounts = summaryCounts(ranged);
+    assert.deepEqual(rangedCounts, {
+        improved: 1,
+        flat: 1,
+        declined: 1,
+        too_early: 1,
+        early_estimate: 0,
+    });
+    assert.deepEqual(filterChanges(ranged, { result: 'declined' }).map(item => item.id), ['before']);
+    assert.deepEqual(summaryCounts(ranged), rangedCounts);
+    assert.equal(
+        rangedCounts.improved + rangedCounts.flat + rangedCounts.declined + rangedCounts.too_early + rangedCounts.early_estimate,
+        ranged.length,
+    );
 });
 
 test('the page path is the address under the title', () => {

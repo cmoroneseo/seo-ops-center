@@ -40,6 +40,15 @@ test('the example list shows one result pill per row', () => {
     assert.match(markup, /Homepage H1/);
     assert.match(markup, /El Niño promo banner/);
     assert.match(markup, /<table/);
+    assert.match(markup, /data-went-live="all"/);
+    assert.match(markup, /aria-label="Went live: All time"/);
+    assert.equal(markup.includes('type="date"'), false);
+    assert.equal(markup.includes('From date'), false);
+    assert.equal(markup.includes('To date'), false);
+    const tableAt = markup.indexOf('<table');
+    const captionAt = markup.indexOf('<caption');
+    const headAt = markup.indexOf('<thead');
+    assert.ok(tableAt >= 0 && captionAt > tableAt && headAt > captionAt);
     assert.match(markup, /What we(?:'|&#x27;|&apos;)re watching/);
     assert.match(markup, /Latest result/);
     assert.match(markup, /Next check/);
