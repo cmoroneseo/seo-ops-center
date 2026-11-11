@@ -84,6 +84,7 @@ export function KeywordSnapshotSection({ plan, expanded, onToggle, onRefresh, cl
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    clientId,
                     clientName: plan.title,
                     services: cf.targetServices ?? [],
                     locations: cf.targetLocations ?? [],

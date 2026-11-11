@@ -137,6 +137,7 @@ test('keyword lookup uses the research routes and drops guessed or unconnected n
         if (url.includes('/api/campaign/keyword-research')) return json({ error: 'Ahrefs not connected' }, 404);
         if (url.includes('/api/campaign/suggest-keywords')) {
             const body = JSON.parse(String(init?.body));
+            assert.equal(body.clientId, 'client 1');
             assert.equal(body.clientName, 'Northside');
             assert.deepEqual(body.focusTopics, ['drains']);
             assert.deepEqual(body.rivals, ['rival.example', 'other.example']);

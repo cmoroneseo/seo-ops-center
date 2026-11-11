@@ -48,6 +48,7 @@ export async function loadKeywordSuggestions(
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+                clientId: input.clientId,
                 clientName: input.brandName,
                 industry: input.businessDescription,
                 services: input.focusTopics,
