@@ -27,6 +27,7 @@ test('the user message still passes measured Search Console queries', () => {
         clientDomain: 'northside.example',
     });
     assert.match(message, /"emergency plumber" \| 3 clicks \| 40 impr \| pos 8\.2/);
+    assert.equal(message.includes('Keywords to cover'), false);
 });
 
 test('model volume and difficulty are not stored', () => {

@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import Anthropic from '@anthropic-ai/sdk';
 import { loadArchitectGscQueries } from '@/lib/topical-map/architect-gsc';
 import { buildSystemPrompt, buildUserMessage } from '@/lib/topical-map/generate-prompt';
+import { seedKeywordsFromMap } from '@/lib/topical-map/seed-keywords';
 import { architectStoredMetrics } from '@/lib/topical-map/metrics';
 import { reconcileRecord } from '@/lib/topical-map/reconcile';
 import type { SearchReportingAdmin } from '@/lib/search-reporting/load';
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
     // Load the map and verify ownership via RLS
     const { data: mapRow } = await supabase
         .from('topical_maps')
-        .select('id, client_id, organization_id, generation_metadata')
+        .select('id, client_id, organization_id, generation_metadata, seed_input')
         .eq('id', mapId)
         .single();
 
@@ -122,6 +123,7 @@ export async function POST(req: NextRequest) {
         existingPages: existingPages.map(p => ({ url: p.url, title: p.title, h1s: p.h1s, wordCount: p.wordCount })),
         gscQueries,
         clientDomain: String(clientCheck.domain ?? ''),
+        seedKeywords: seedKeywordsFromMap(mapRow.seed_input),
     };
 
     const startTime = Date.now();
