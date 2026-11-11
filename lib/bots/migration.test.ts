@@ -149,8 +149,8 @@ test('migration 114 is unapplied and allows one running timer per bot', async ()
     );
 });
 
-test('migration 125 is unapplied and lets a bot pause without taking the open-segment slot', async () => {
-    const sql = readFileSync(new URL('../../migrations/125_bot_timer_pause.sql', import.meta.url), 'utf8');
+test('migration 127 is unapplied and lets a bot pause without taking the open-segment slot', async () => {
+    const sql = readFileSync(new URL('../../migrations/127_bot_timer_pause.sql', import.meta.url), 'utf8');
     const mirrored = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
     for (const needle of [
         'NOT APPLIED',

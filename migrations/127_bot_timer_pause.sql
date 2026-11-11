@@ -1,4 +1,4 @@
--- Migration 125: paused bot timers and a note on each stretch.
+-- Migration 127: paused bot timers and a note on each stretch.
 --
 -- NOT APPLIED. Do not run this against the production Supabase project
 -- (sgszojorcftyaknruckh). The owner reviews and applies it separately.

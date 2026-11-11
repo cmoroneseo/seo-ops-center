@@ -10,7 +10,7 @@ This is not a Supabase key. A bot key cannot read the database, delete rows, or 
 
 **Migration `114_bot_running_timer` is marked NOT APPLIED** in `migrations/114_bot_running_timer.sql`. It adds one unique index so a bot cannot have two running timers (`status = 'in_progress'`). The index closes a race between two starts. A paused row is not `in_progress`, so it does not take that slot. Migration 113 (bot keys, `bot_key_id`) is already in production. Apply 114 before relying on the index in production.
 
-**Migration `125_bot_timer_pause` is NOT APPLIED.** It widens `time_logs.status` to allow `paused`, and adds `time_log_segments.note` for the notes on each stretch. Do not run it until it is approved on its own. Pause and resume need it. Human pause does not use `paused` and does not write `note`.
+**Migration `127_bot_timer_pause` is NOT APPLIED.** It widens `time_logs.status` to allow `paused`, and adds `time_log_segments.note` for the notes on each stretch. Do not run it until it is approved on its own. Pause and resume need it. Human pause does not use `paused` and does not write `note`.
 
 ## Auth
 

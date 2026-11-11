@@ -16249,7 +16249,7 @@ comment on column public.topical_map_records.draft_url is
 comment on column public.topical_map_records.live_url is
     'Optional http(s) live link. Null means not set. Not required when the status is published.';
 
--- Migration 125: paused bot timers and a note on each stretch.
+-- Migration 127: paused bot timers and a note on each stretch.
 --
 -- NOT APPLIED. Do not run this against the production Supabase project
 -- (sgszojorcftyaknruckh). The owner reviews and applies it separately.
