@@ -1,19 +1,48 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, ChevronsUpDown, Clock, Minus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
+    Table,
+    TableBody,
+    TableCaption,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/table';
+import {
+    CHANGE_COLUMNS,
+    DEFAULT_CHANGE_SORT,
+    RESULT_STRIP,
+    filterChanges,
+    nextCheckCopy,
+    pagePath,
+    resultDetail,
+    sortChanges,
+    summaryCounts,
+    toggleResult,
+    toggleSort,
+    type ChangeSort,
+    type ChangeSortKey,
+    type ResultBucket,
+} from '@/lib/change-log/list';
+import {
     CHANGE_TYPES,
     CHANGE_TYPE_LABEL,
+    KPI_LABEL,
     type ChangeType,
     type Confounder,
     type ImpactModel,
     type SeoChange,
     type TimelineItem,
 } from '@/lib/change-log/types';
-import { formatDay, formatDayWithYear } from '@/lib/change-log/time';
+import { formatDayWithYear, isIsoDay } from '@/lib/change-log/time';
+import { ptToday } from '@/lib/sync/months';
 import type { ChangeInput } from '@/lib/change-log/validate';
+import { cn } from '@/lib/utils';
 
 import { ChangeDetail } from './ChangeDetail';
 import { ChangeForm } from './ChangeForm';
@@ -32,6 +61,7 @@ export function ChangeLogView({
     formError,
     pending,
     revertOpen,
+    today,
     onLog,
     onOpen,
     onBack,
@@ -49,6 +79,8 @@ export function ChangeLogView({
     formError?: string | null;
     pending?: boolean;
     revertOpen?: boolean;
+    /** Pacific date used for the "data ~" hint. Defaults to today. */
+    today?: string;
     onLog: () => void;
     onOpen: (id: string) => void;
     onBack: () => void;
@@ -60,17 +92,18 @@ export function ChangeLogView({
     const [type, setType] = useState<ChangeType | ''>('');
     const [from, setFrom] = useState('');
     const [to, setTo] = useState('');
-    const filtered = useMemo(() => items.filter(item => {
-        if (type && item.changeType !== type) return false;
-        if (from && item.liveOn < from) return false;
-        if (to && item.liveOn > to) return false;
-        if (pageQuery.trim()) {
-            const needle = pageQuery.trim().toLowerCase();
-            const hay = `${item.pageLabel} ${item.url} ${item.title}`.toLowerCase();
-            if (!hay.includes(needle)) return false;
-        }
-        return true;
-    }), [items, type, from, to, pageQuery]);
+    const [result, setResult] = useState<ResultBucket | null>(null);
+    const [sort, setSort] = useState<ChangeSort>(DEFAULT_CHANGE_SORT);
+    const asOf = today && isIsoDay(today) ? today : ptToday(new Date());
+    const narrowed = useMemo(
+        () => filterChanges(items, { query: pageQuery, type, from, to }),
+        [items, pageQuery, type, from, to],
+    );
+    const counts = useMemo(() => summaryCounts(narrowed), [narrowed]);
+    const shown = useMemo(
+        () => sortChanges(filterChanges(narrowed, { result }), sort.key, sort.direction),
+        [narrowed, result, sort],
+    );
 
     return (
         <div className="change-log-root mx-auto max-w-6xl space-y-4">
@@ -116,35 +149,110 @@ export function ChangeLogView({
             )}
             {mode === 'list' && (
                 <>
-                    <div className="grid gap-2 sm:grid-cols-4">
-                        <input className="field" placeholder="Page or title" aria-label="Filter by page" value={pageQuery} onChange={event => setPageQuery(event.target.value)} />
-                        <select className="field" aria-label="Change type" value={type} onChange={event => setType(event.target.value as ChangeType | '')}>
-                            <option value="">All types</option>
-                            {CHANGE_TYPES.map(item => <option key={item} value={item}>{CHANGE_TYPE_LABEL[item]}</option>)}
-                        </select>
-                        <input className="field" type="date" aria-label="From date" value={from} onChange={event => setFrom(event.target.value)} />
-                        <input className="field" type="date" aria-label="To date" value={to} onChange={event => setTo(event.target.value)} />
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                        {RESULT_STRIP.map(bucket => {
+                            const selected = result === bucket.id;
+                            return (
+                                <button
+                                    key={bucket.id}
+                                    type="button"
+                                    data-bucket={bucket.id}
+                                    data-count={counts[bucket.id]}
+                                    aria-pressed={selected}
+                                    onClick={() => setResult(current => toggleResult(current, bucket.id))}
+                                    className={cn(
+                                        'rounded-lg border bg-card px-3 py-3 text-left',
+                                        selected ? cn('ring-2 ring-offset-2', bucketRing(bucket.id)) : 'border-border',
+                                    )}
+                                >
+                                    <span className={cn('flex items-center gap-1.5 text-sm font-medium', bucketTone(bucket.id), selected && 'underline')}>
+                                        <SummaryIcon bucket={bucket.id} />
+                                        {bucket.label}
+                                    </span>
+                                    <span className={cn('mt-2 block text-2xl font-semibold tabular-nums leading-none', bucketTone(bucket.id))}>
+                                        {counts[bucket.id]}
+                                    </span>
+                                    <span className="mt-1 block text-xs text-muted-foreground">
+                                        of {narrowed.length} {narrowed.length === 1 ? 'change' : 'changes'}
+                                    </span>
+                                </button>
+                            );
+                        })}
                     </div>
-                    {filtered.length === 0 ? (
-                        <p className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">No changes match these filters.</p>
-                    ) : (
-                        <ol className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
-                            {filtered.map(item => (
-                                <li key={item.id}>
-                                    <button type="button" onClick={() => onOpen(item.id)} className="flex w-full flex-col gap-2 px-4 py-3 text-left hover:bg-muted/60 sm:flex-row sm:items-center sm:justify-between">
-                                        <span>
-                                            <span className="block text-sm font-medium">{item.title}</span>
-                                            <span className="mt-0.5 block text-xs text-muted-foreground">
-                                                {formatDayWithYear(item.liveOn)} · {CHANGE_TYPE_LABEL[item.changeType]} · {item.pageLabel}
-                                            </span>
-                                        </span>
-                                        <VerdictPill verdict={item.verdict} estimate={item.estimate} />
-                                    </button>
-                                </li>
-                            ))}
-                        </ol>
-                    )}
-                    <p className="text-xs text-muted-foreground">Showing {filtered.length} of {items.length}. {formatDay(items[0]?.liveOn ?? '') && 'Newest first.'}</p>
+                    <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="grid flex-1 gap-2 sm:grid-cols-4">
+                            <input className="field" placeholder="Search changes or pages" aria-label="Search changes or pages" value={pageQuery} onChange={event => setPageQuery(event.target.value)} />
+                            <select className="field" aria-label="Change type" value={type} onChange={event => setType(event.target.value as ChangeType | '')}>
+                                <option value="">All types</option>
+                                {CHANGE_TYPES.map(item => <option key={item} value={item}>{CHANGE_TYPE_LABEL[item]}</option>)}
+                            </select>
+                            <input className="field" type="date" aria-label="From date" value={from} onChange={event => setFrom(event.target.value)} />
+                            <input className="field" type="date" aria-label="To date" value={to} onChange={event => setTo(event.target.value)} />
+                        </div>
+                        <p className="text-sm text-muted-foreground lg:shrink-0">
+                            {shown.length === 1 ? '1 change' : `${shown.length} changes`}
+                            {sort.key === 'live' && sort.direction === 'desc' ? ' · newest first' : ''}
+                        </p>
+                    </div>
+                    <div className="overflow-hidden rounded-lg border border-border bg-card">
+                        <Table>
+                            <TableHeader>
+                                <TableRow className="hover:bg-transparent">
+                                    {CHANGE_COLUMNS.map(column => (
+                                        <SortHeader key={column.key} column={column} sort={sort} onSort={key => setSort(current => toggleSort(current, key))} />
+                                    ))}
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {shown.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={CHANGE_COLUMNS.length} className="text-sm text-muted-foreground">
+                                            No changes match these filters.
+                                        </TableCell>
+                                    </TableRow>
+                                ) : shown.map(item => {
+                                    const upcoming = nextCheckCopy(item, asOf);
+                                    return (
+                                        <TableRow
+                                            key={item.id}
+                                            data-change-id={item.id}
+                                            className="cursor-pointer"
+                                            onClick={() => onOpen(item.id)}
+                                        >
+                                            <TableCell className="whitespace-normal">
+                                                <button
+                                                    type="button"
+                                                    className="text-left text-sm font-medium hover:underline"
+                                                    onClick={event => {
+                                                        event.stopPropagation();
+                                                        onOpen(item.id);
+                                                    }}
+                                                >
+                                                    {item.title}
+                                                </button>
+                                                <span className="mt-0.5 block text-xs text-muted-foreground">{pagePath(item.url, item.pageLabel)}</span>
+                                            </TableCell>
+                                            <TableCell className="whitespace-normal text-sm">{CHANGE_TYPE_LABEL[item.changeType]}</TableCell>
+                                            <TableCell className="whitespace-nowrap text-sm">{formatDayWithYear(item.liveOn)}</TableCell>
+                                            <TableCell className="whitespace-normal text-sm">{KPI_LABEL[item.kpi]}</TableCell>
+                                            <TableCell className="whitespace-normal">
+                                                <VerdictPill verdict={item.verdict} estimate={item.estimate} pct={item.headlinePct} />
+                                                <span className="mt-1 block text-xs text-muted-foreground">{resultDetail(item)}</span>
+                                            </TableCell>
+                                            <TableCell className="whitespace-normal">
+                                                <p className="text-sm">{upcoming.date}</p>
+                                                {upcoming.check ? <p className="text-xs text-muted-foreground">{upcoming.check}</p> : null}
+                                                {upcoming.data ? <p className="text-xs text-muted-foreground">{upcoming.data}</p> : null}
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })}
+                            </TableBody>
+                            <TableCaption>
+                                Showing {shown.length} of {items.length}. Went live is the date the change appeared on the website. Results compare each page with pages we didn&apos;t change.
+                            </TableCaption>
+                        </Table>
+                    </div>
                 </>
             )}
             {mode === 'form' && (
@@ -168,6 +276,58 @@ export function ChangeLogView({
             )}
         </div>
     );
+}
+
+function SortHeader({
+    column,
+    sort,
+    onSort,
+}: {
+    column: { key: ChangeSortKey; label: string };
+    sort: ChangeSort;
+    onSort: (key: ChangeSortKey) => void;
+}) {
+    const active = sort.key === column.key;
+    const Icon = !active ? ChevronsUpDown : sort.direction === 'asc' ? ChevronUp : ChevronDown;
+    return (
+        <TableHead aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+            <button
+                type="button"
+                data-sort={column.key}
+                className="inline-flex items-center gap-1 text-left text-xs font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => onSort(column.key)}
+            >
+                {column.label}
+                <Icon aria-hidden="true" className="size-3.5" />
+            </button>
+        </TableHead>
+    );
+}
+
+function SummaryIcon({ bucket }: { bucket: ResultBucket }) {
+    if (bucket === 'early_estimate') {
+        return (
+            <span aria-hidden="true" className="inline-flex size-4 items-center justify-center rounded-full border border-dashed border-current text-[10px] leading-none">
+                ~
+            </span>
+        );
+    }
+    const Icon = bucket === 'improved' ? ArrowUp : bucket === 'declined' ? ArrowDown : bucket === 'flat' ? Minus : Clock;
+    return <Icon aria-hidden="true" className="size-3.5" />;
+}
+
+function bucketTone(bucket: ResultBucket): string {
+    if (bucket === 'improved') return 'text-green-800';
+    if (bucket === 'declined') return 'text-red-800';
+    if (bucket === 'flat') return 'text-zinc-700';
+    return 'text-amber-900';
+}
+
+function bucketRing(bucket: ResultBucket): string {
+    if (bucket === 'improved') return 'ring-green-700';
+    if (bucket === 'declined') return 'ring-red-700';
+    if (bucket === 'flat') return 'ring-zinc-500';
+    return 'ring-amber-700';
 }
 
 function LoadingState() {

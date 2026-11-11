@@ -24,6 +24,7 @@ import {
     type TimelineItem,
     type Verdict,
 } from './types';
+import { headlineFields, nextCheck } from './list';
 import { classifyCheckpoint, isLowData } from './verdict';
 
 export interface ImpactSource {
@@ -266,6 +267,8 @@ function formatCtr(value: number): string {
 export function timelineItem(change: SeoChange, impact: ImpactModel): TimelineItem {
     const head = impact.headline;
     const page = change.pages[0];
+    const headline = headlineFields(head);
+    const upcoming = nextCheck(change.liveOn, impact.finalThrough);
     return {
         id: change.id,
         title: change.title,
@@ -279,6 +282,10 @@ export function timelineItem(change: SeoChange, impact: ImpactModel): TimelineIt
         deltaText: head.verdict === 'too_early' ? VERDICT_LABEL.too_early : dailyRateText(change.kpi, impact.baseline, head.page),
         kpi: change.kpi,
         checkpointDays: head.ready ? head.days : null,
+        headlineDays: headline.headlineDays,
+        headlinePct: headline.headlinePct,
+        nextCheckOn: upcoming.nextCheckOn,
+        nextCheckDays: upcoming.nextCheckDays,
     };
 }
 
