@@ -1,10 +1,13 @@
 import type { TopicalMapProfile } from '../types';
+import { normalizeSeedKeywords } from './seed-keywords';
 
 export interface GenerationContext {
     profile: TopicalMapProfile;
     existingPages: Array<{ url: string; title?: string; h1s: string[]; wordCount?: number }>;
     gscQueries: Array<{ query: string; clicks: number; impressions: number; position: number }>;
     clientDomain: string;
+    /** Chosen searches. Omitted or empty leaves the prompt unchanged. */
+    seedKeywords?: readonly string[];
 }
 
 export function buildSystemPrompt(): string {
@@ -121,6 +124,11 @@ export function buildUserMessage(ctx: GenerationContext): string {
         ? `**Competitors:** ${ctx.profile.rivals.join(', ')} — study what topics they likely cover and find angles they miss`
         : '**Competitors:** None specified';
 
+    const seedKeywords = normalizeSeedKeywords(ctx.seedKeywords);
+    const seedLine = seedKeywords.length > 0
+        ? `\n**Keywords to cover:** ${seedKeywords.join(', ')}\nBuild pages around these searches. Do not invent monthly searches or difficulty.`
+        : '';
+
     return `Build a topical authority map for this business. Remember: go deep, not wide. Each silo needs 8-15 records covering the full buyer journey.
 
 ## Business profile
@@ -129,7 +137,7 @@ export function buildUserMessage(ctx: GenerationContext): string {
 **Description:** ${ctx.profile.businessDescription}
 **Language:** ${ctx.profile.contentLanguage}
 ${focusLine}
-${rivalsLine}
+${rivalsLine}${seedLine}
 ${existingSummary}
 ${gscSummary}`;
 }

@@ -1194,7 +1194,7 @@ export interface TopicalMap {
     status: TopicalMapStatus;
     title: string;
     architectureSummary?: string;
-    seedInput: { rivals: string[]; focusTopics: string[]; notes?: string };
+    seedInput: { rivals: string[]; focusTopics: string[]; notes?: string; keywords?: string[] };
     generationMetadata: {
         model?: string;
         tokensUsed?: number;
@@ -1289,6 +1289,8 @@ export interface TopicalMapProfile {
     contentLanguage: string;
     focusTopics: string[];
     rivals: string[];
+    /** Searches chosen for the topic map. Empty until someone picks them. */
+    keywords?: string[];
     profileGeneratedAt?: string;
 }
 

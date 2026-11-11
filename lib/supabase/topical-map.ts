@@ -24,6 +24,7 @@ import {
 } from '../topical-map/spec';
 import { planRecordApproval } from '../content/approve';
 import { approveRecordPatch, productionFromRow, productionUpdates, readWorkMonth } from '../topical-map/production';
+import { profileFromStored, profileToStored } from '../topical-map/profile';
 
 export const MISSING_PRODUCTION_COLUMN = 'Content status cannot be saved until the database update is applied.';
 
@@ -355,18 +356,7 @@ export async function getClientProfile(clientId: string): Promise<TopicalMapProf
         .eq('id', clientId)
         .single();
 
-    const profile = (data?.custom_fields as Record<string, unknown>)?.topical_map_profile;
-    if (!profile || typeof profile !== 'object') return null;
-
-    const p = profile as Record<string, unknown>;
-    return {
-        brandName: String(p.brand_name ?? ''),
-        businessDescription: String(p.business_description ?? ''),
-        contentLanguage: String(p.content_language ?? 'en'),
-        focusTopics: (p.focus_topics as string[]) ?? [],
-        rivals: (p.rivals as string[]) ?? [],
-        profileGeneratedAt: p.profile_generated_at ? String(p.profile_generated_at) : undefined,
-    };
+    return profileFromStored((data?.custom_fields as Record<string, unknown>)?.topical_map_profile);
 }
 
 export async function saveClientProfile(
@@ -383,14 +373,7 @@ export async function saveClientProfile(
         .single();
 
     const customFields = (existing?.custom_fields as Record<string, unknown>) ?? {};
-    customFields.topical_map_profile = {
-        brand_name: profile.brandName,
-        business_description: profile.businessDescription,
-        content_language: profile.contentLanguage,
-        focus_topics: profile.focusTopics,
-        rivals: profile.rivals,
-        profile_generated_at: new Date().toISOString(),
-    };
+    customFields.topical_map_profile = profileToStored(profile);
 
     const { error } = await supabase
         .from('clients')

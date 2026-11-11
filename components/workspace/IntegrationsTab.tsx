@@ -176,6 +176,12 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
     }, [clientId, searchParams]);
 
     useEffect(() => {
+        const setup = searchParams.get('setup');
+        if (setup === 'search-console') setSelectedService('gsc');
+        else if (setup === 'ahrefs') setSelectedService('ahrefs');
+    }, [searchParams]);
+
+    useEffect(() => {
         if (!toast) return;
         const t = setTimeout(() => setToast(''), 4000);
         return () => clearTimeout(t);

@@ -3,6 +3,7 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { TopicalMapProfile } from '@/lib/types';
+import { normalizeSeedKeywords, seedInputWithKeywords } from '@/lib/topical-map/seed-keywords';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +24,9 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { clientId, organizationId } = await req.json();
+    const body = await req.json();
+    const { clientId, organizationId } = body ?? {};
+    const keywords = normalizeSeedKeywords(body?.keywords);
     if (!clientId || !organizationId) {
         return NextResponse.json({ error: 'clientId and organizationId required' }, { status: 400 });
     }
@@ -70,7 +73,10 @@ export async function POST(req: NextRequest) {
             client_id: clientId,
             status: 'draft',
             title: `What ${profile.brandName} should own in search`,
-            seed_input: { rivals: profile.rivals, focus_topics: profile.focusTopics },
+            seed_input: seedInputWithKeywords(
+                { rivals: profile.rivals, focus_topics: profile.focusTopics },
+                keywords,
+            ),
             generation_metadata: { stages_completed: ['profile'] },
             created_by: user.id,
         })
