@@ -2,15 +2,16 @@ import type { MapRecordStatus, ProductionStatus } from '../types';
 import { approveRecordPatch, productionUpdates, readWorkMonth } from '../topical-map/production';
 
 /**
- * A second approve creates a task only when this page is not already
- * approved and linked to one. The month can still be saved.
+ * A page gets one task. Approve creates it only when no task is linked yet.
+ * A page that was put back to "not written" or declined keeps its task link,
+ * so approving it again reuses that task. The month can still be saved.
  */
 export function planRecordApproval(record: {
     status: MapRecordStatus;
     taskId?: string | null;
 }): { createTask: boolean; taskId: string | null } {
     const taskId = record.taskId?.trim() ?? '';
-    if (record.status === 'approved' && taskId) return { createTask: false, taskId };
+    if (taskId) return { createTask: false, taskId };
     return { createTask: true, taskId: null };
 }
 

@@ -159,3 +159,27 @@ test('viewers cannot approve or move a page', async () => {
     assert.equal(live.status, 400);
     assert.match((await live.json() as { error: string }).error, /not already on the site/);
 });
+
+test('approving again after the status was reset reuses the linked task', async () => {
+    const { api, calls, read } = handlers();
+    const first = await api.approve(post({ clientId: client, recordId, workMonth: '2026-11' }));
+    assert.equal(first.status, 200);
+    assert.equal(calls.tasks, 1);
+
+    const reset = await api.update(post({ clientId: client, recordId, productionStatus: 'not_written' }));
+    assert.equal(reset.status, 200);
+    assert.equal(read().status, 'pending');
+    assert.equal(read().taskId, 'task-1');
+
+    const declined = await api.update(post({ clientId: client, recordId, productionStatus: 'declined' }));
+    assert.equal(declined.status, 200);
+    assert.equal(read().status, 'declined');
+
+    const again = await api.approve(post({ clientId: client, recordId, workMonth: '2026-12' }));
+    assert.equal(again.status, 200);
+    const body = await again.json() as { taskId: string; record: { status: string; workMonth: string } };
+    assert.equal(body.taskId, 'task-1');
+    assert.equal(body.record.status, 'approved');
+    assert.equal(body.record.workMonth, '2026-12');
+    assert.equal(calls.tasks, 1);
+});

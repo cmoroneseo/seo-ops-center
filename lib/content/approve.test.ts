@@ -17,8 +17,13 @@ test('approving a page that is already approved and linked does not ask for anot
 
     assert.equal(planRecordApproval({ status: 'approved', taskId: '' }).createTask, true);
     assert.equal(planRecordApproval({ status: 'approved' }).createTask, true);
-    assert.equal(planRecordApproval({ status: 'pending', taskId: 'task-1' }).createTask, true);
-    assert.equal(planRecordApproval({ status: 'declined', taskId: 'task-1' }).createTask, true);
+});
+
+test('a page reset to not written or declined keeps its task when approved again', () => {
+    assert.deepEqual(planRecordApproval({ status: 'pending', taskId: 'task-1' }), { createTask: false, taskId: 'task-1' });
+    assert.deepEqual(planRecordApproval({ status: 'declined', taskId: 'task-1' }), { createTask: false, taskId: 'task-1' });
+    assert.deepEqual(planRecordApproval({ status: 'pending', taskId: '   ' }), { createTask: true, taskId: null });
+    assert.deepEqual(planRecordApproval({ status: 'declined', taskId: null }), { createTask: true, taskId: null });
 });
 
 test('the saved approval keeps the existing task and the chosen month', () => {
