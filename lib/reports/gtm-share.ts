@@ -10,7 +10,7 @@ export interface PublicShareRow {
     expiresAt: string | null;
     snapshot: unknown;
     /**
-     * Missing on a row read before migration 127. Those rows are event reports.
+     * Missing on a row read before migration 128. Those rows are event reports.
      * A roadmap row must say so explicitly.
      */
     kind?: string | null;
