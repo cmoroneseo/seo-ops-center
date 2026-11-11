@@ -3,7 +3,7 @@
  * A disconnected or failed source never becomes 0, and guessed numbers are dropped.
  */
 
-import { normalizeSeedKeywords } from '../topical-map/seed-keywords';
+import { MAX_SEED_KEYWORDS, normalizeSeedKeywords } from '../topical-map/seed-keywords';
 
 export const AHREFS_SEARCHES_NOTE = 'Connect Ahrefs to see monthly searches';
 export const AHREFS_DIFFICULTY_NOTE = 'Connect Ahrefs to see how hard each search is';
@@ -96,7 +96,9 @@ export interface RawKeyword {
     difficulty?: unknown;
 }
 
-const KEYWORD_LIMIT = 40;
+/** Same cap as generation, so a keyword past it is never silently dropped later. */
+export const KEYWORD_LIMIT = MAX_SEED_KEYWORDS;
+export const KEYWORD_LIMIT_MESSAGE = `You can choose up to ${KEYWORD_LIMIT} keywords. Uncheck one to add another.`;
 
 export function ahrefsKeywordRows(body: unknown): RawKeyword[] {
     if (!body || typeof body !== 'object') return [];
@@ -200,8 +202,14 @@ export function addKeywordRow(rows: readonly KeywordRow[], raw: string): { rows:
             error: null,
         };
     }
-    return {
-        rows: [{ keyword, volume: null, difficulty: null, position: null, selected: true }, ...rows],
-        error: null,
-    };
+    const added: KeywordRow = { keyword, volume: null, difficulty: null, position: null, selected: true };
+    if (rows.length < KEYWORD_LIMIT) return { rows: [added, ...rows], error: null };
+
+    // The list is full. Make room by dropping the last suggestion nobody kept.
+    let drop = -1;
+    for (let index = rows.length - 1; index >= 0; index--) {
+        if (!rows[index].selected) { drop = index; break; }
+    }
+    if (drop === -1) return { rows: [...rows], error: KEYWORD_LIMIT_MESSAGE };
+    return { rows: [added, ...rows.filter((_, index) => index !== drop)], error: null };
 }

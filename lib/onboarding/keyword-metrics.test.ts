@@ -8,6 +8,8 @@ import { loadKeywordSuggestions } from './load-keyword-suggestions.ts';
 import { gscRowConnected, keywordPositionsPayload } from './keyword-positions.ts';
 import {
     AHREFS_SEARCHES_NOTE,
+    KEYWORD_LIMIT,
+    KEYWORD_LIMIT_MESSAGE,
     SEARCH_CONSOLE_POSITION_NOTE,
     addKeywordRow,
     buildKeywordRows,
@@ -119,6 +121,32 @@ test('adding a keyword selects it and does not invent monthly searches', () => {
     assert.equal(again.rows[0].selected, true);
     assert.equal(again.rows.length, 1);
     assert.equal(addKeywordRow([], '   ').error, 'Enter a keyword.');
+});
+
+test('adding past the 40-keyword cap is refused with a plain message, or replaces an unchecked suggestion', () => {
+    const full: KeywordRow[] = Array.from({ length: KEYWORD_LIMIT }, (_, index) => ({
+        keyword: `keyword ${index}`, volume: null, difficulty: null, position: null, selected: true,
+    }));
+    const refused = addKeywordRow(full, 'one more');
+    assert.equal(refused.error, 'You can choose up to 40 keywords. Uncheck one to add another.');
+    assert.equal(refused.error, KEYWORD_LIMIT_MESSAGE);
+    assert.equal(refused.rows.length, 40);
+    assert.equal(refused.rows.some(row => row.keyword === 'one more'), false);
+
+    // Re-checking a keyword already in the full list is not an addition.
+    const rechecked = addKeywordRow(full.map((row, index) => index === 3 ? { ...row, selected: false } : row), 'Keyword 3');
+    assert.equal(rechecked.error, null);
+    assert.equal(rechecked.rows.length, 40);
+    assert.equal(rechecked.rows[3].selected, true);
+
+    const withSpare = full.map((row, index) => index === 39 || index === 10 ? { ...row, selected: false } : row);
+    const replaced = addKeywordRow(withSpare, 'one more');
+    assert.equal(replaced.error, null);
+    assert.equal(replaced.rows.length, 40);
+    assert.equal(replaced.rows[0].keyword, 'one more');
+    assert.equal(replaced.rows.some(row => row.keyword === 'keyword 39'), false);
+    assert.equal(replaced.rows.some(row => row.keyword === 'keyword 10'), true);
+    assert.equal(replaced.rows.filter(row => row.selected).length, 39);
 });
 
 test('keyword lookup uses the research routes and drops guessed or unconnected numbers', async () => {
