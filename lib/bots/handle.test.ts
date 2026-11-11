@@ -8,6 +8,7 @@ import { hashBotKey } from './keys.ts';
 import { matchBotTask } from './task-lookup.ts';
 import { botCreatedTaskRow } from './task-create.ts';
 import {
+    BotTimerLookupError,
     capOverdueBotTimers,
     handleBotRequest,
     type BotActor,
@@ -975,4 +976,124 @@ test('resume at two hours is rejected, and two bots can run at the same time', a
     assert.equal(other.status, 200);
     assert.equal(mem.timers.filter(item => item.pausedAt == null).length, 1);
     assert.equal(mem.timers.filter(item => item.pausedAt != null).length, 1);
+});
+
+async function withErrorLog(run: (logs: unknown[][]) => Promise<void>) {
+    const logs: unknown[][] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+        logs.push(args);
+    };
+    try {
+        await run(logs);
+    } finally {
+        console.error = original;
+    }
+}
+
+test('a missing running timer stays 404 timer_not_running', async () => {
+    const { mem, deps } = world();
+    await withErrorLog(async logs => {
+        const response = await handleBotRequest(request(BOT_TIMER_PAUSE_PATH, {
+            idempotencyKey: 'pause-none',
+        }), deps);
+        assert.equal(response.status, 404);
+        const body = await response.json() as { code: string };
+        assert.equal(body.code, 'timer_not_running');
+        assert.equal(logs.length, 0);
+        assert.equal(mem.timers.length, 0);
+    });
+});
+
+test('a timer lookup error is 500 timer_lookup_failed, not 404', async () => {
+    const { mem, deps } = world();
+    deps.findRunningTimer = async () => {
+        throw new BotTimerLookupError('PGRST201');
+    };
+    await withErrorLog(async logs => {
+        const response = await handleBotRequest(request(BOT_TIMER_PAUSE_PATH, {
+            idempotencyKey: 'pause-lookup-failed',
+        }), deps);
+        assert.equal(response.status, 500);
+        const body = await response.json() as { code: string; error: string };
+        assert.equal(body.code, 'timer_lookup_failed');
+        assert.equal(body.error, 'The timer could not be looked up.');
+        const encoded = JSON.stringify(body);
+        assert.equal(encoded.includes('PGRST201'), false);
+        assert.equal(encoded.includes('time_log_segments'), false);
+        assert.equal(encoded.includes(TOKEN), false);
+        assert.deepEqual(logs, [['bot timer lookup failed', { code: 'PGRST201' }]]);
+        assert.equal(JSON.stringify(logs).includes(TOKEN), false);
+        const operation = mem.operations.find(item => item.idempotencyKey === 'pause-lookup-failed');
+        assert.equal(operation?.status, 'pending');
+        assert.equal(operation?.httpStatus, null);
+        assert.equal(mem.segments.length, 0);
+    });
+});
+
+test('a paused-timer lookup error on stop is 500, not timer_not_running', async () => {
+    const { deps } = world();
+    deps.listPausedTimers = async () => {
+        throw new BotTimerLookupError('Bearer seo_bot_testtokenvalue could not embed');
+    };
+    await withErrorLog(async logs => {
+        const response = await handleBotRequest(request(BOT_TIMER_STOP_PATH, {
+            idempotencyKey: 'stop-lookup-failed',
+        }), deps);
+        assert.equal(response.status, 500);
+        const body = await response.json() as { code: string };
+        assert.equal(body.code, 'timer_lookup_failed');
+        assert.deepEqual(logs, [['bot timer lookup failed', { code: 'unknown' }]]);
+        assert.equal(JSON.stringify(logs).includes(TOKEN), false);
+        assert.equal(JSON.stringify(logs).includes('could not embed'), false);
+    });
+});
+
+test('getTimer lookup error on pause is 500, not a missing timer', async () => {
+    const { mem, deps } = world();
+    mem.operations.push({
+        id: '88888888-8888-4888-8888-888888888888',
+        botKeyId: KEY,
+        idempotencyKey: 'pause-get-timer',
+        requestHash: 'ignored-while-pending',
+        status: 'pending',
+        lockedAt: new Date(0).toISOString(),
+        taskId: null,
+        timeLogId: '99999999-9999-4999-8999-999999999999',
+        httpStatus: null,
+        response: null,
+    });
+    deps.getTimer = async () => {
+        throw new BotTimerLookupError('PGRST201');
+    };
+    await withErrorLog(async logs => {
+        const response = await handleBotRequest(request(BOT_TIMER_PAUSE_PATH, {
+            idempotencyKey: 'pause-get-timer',
+        }), deps);
+        assert.equal(response.status, 500);
+        const body = await response.json() as { code: string };
+        assert.equal(body.code, 'timer_lookup_failed');
+        assert.deepEqual(logs, [['bot timer lookup failed', { code: 'PGRST201' }]]);
+    });
+});
+
+test('start does not treat a timer lookup error as no running timer', async () => {
+    const existing = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Brief' });
+    const { mem, deps } = world({ tasks: [existing] });
+    deps.findRunningTimer = async () => {
+        throw new BotTimerLookupError('PGRST201');
+    };
+    await withErrorLog(async logs => {
+        const response = await handleBotRequest(request(BOT_TIMER_START_PATH, {
+            idempotencyKey: 'start-lookup-failed',
+            clientId: CLIENT,
+            taskId: existing.id,
+        }), deps);
+        assert.equal(response.status, 500);
+        const body = await response.json() as { code: string };
+        assert.equal(body.code, 'timer_lookup_failed');
+        assert.equal(mem.timers.length, 0);
+        assert.equal(mem.operations.length, 0);
+        assert.deepEqual(logs, [['bot timer lookup failed', { code: 'PGRST201' }]]);
+    });
 });

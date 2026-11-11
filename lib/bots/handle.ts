@@ -241,6 +241,28 @@ function errorBody(code: string, error: string, extra?: Record<string, unknown>)
     return { error, code, ...extra };
 }
 
+const SAFE_DB_CODE = /^[A-Za-z0-9]{1,16}$/;
+
+/**
+ * A timer read failed. This is not a missing timer.
+ * `dbCode` is a PostgREST or Postgres code only. Messages and row values stay off it.
+ */
+export class BotTimerLookupError extends Error {
+    readonly dbCode: string;
+
+    constructor(dbCode?: string) {
+        super('Bot timer lookup failed');
+        this.name = 'BotTimerLookupError';
+        this.dbCode = dbCode && SAFE_DB_CODE.test(dbCode) ? dbCode : 'unknown';
+    }
+}
+
+function timerLookupResponse(failure: BotTimerLookupError): Response {
+    const code = failure.dbCode;
+    console.error('bot timer lookup failed', { code });
+    return json(errorBody('timer_lookup_failed', 'The timer could not be looked up.'), 500);
+}
+
 function isTaskLookupError(value: unknown): value is Extract<BotTaskMatch, { ok: false }> & { parentId?: string } {
     return !!value
         && typeof value === 'object'
@@ -1135,9 +1157,15 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
 
     // Stop applies the cap itself so the response is the stop, not a 404 after a silent close.
     // Pause and stop apply the cap themselves so the response is that call, not a 404 after a silent close.
-    const cappedJustNow = command.kind === 'stop' || command.kind === 'pause'
-        ? null
-        : await capThisBot(key.id, deps);
+    let cappedJustNow: FinalizedBotLog | null = null;
+    if (command.kind !== 'stop' && command.kind !== 'pause') {
+        try {
+            cappedJustNow = await capThisBot(key.id, deps);
+        } catch (error) {
+            if (error instanceof BotTimerLookupError) return timerLookupResponse(error);
+            throw error;
+        }
+    }
 
     let operation = await deps.findOperation(key.id, command.idempotencyKey);
     if (operation?.status === 'completed') {
@@ -1194,8 +1222,9 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
             await deps.saveOperation(operation.id, { lockedAt: new Date(0).toISOString() });
         }
         return json(result.body, result.status);
-    } catch {
+    } catch (error) {
         await deps.saveOperation(operation.id, { lockedAt: new Date(0).toISOString() }).catch(() => undefined);
+        if (error instanceof BotTimerLookupError) return timerLookupResponse(error);
         return json(errorBody('internal', 'Bot request failed.'), 500);
     }
 }

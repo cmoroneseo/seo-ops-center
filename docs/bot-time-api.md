@@ -134,7 +134,7 @@ The response `timer.status` is `paused`. `timer.stretches` lists every closed st
 
 Pausing a timer that is already past two hours of running time does not pause it. The entry is capped (`needs_review`) and is not sent to Basecamp. The response has `capped: true`.
 
-There is no running timer is **404** `timer_not_running`.
+There is no running timer is **404** `timer_not_running`. A failure while reading the timer is **500** `timer_lookup_failed`. That is not a missing timer. The same request can be retried.
 
 ```bash
 curl -X POST https://seo-ops-center.vercel.app/api/bots/timer/pause \
@@ -267,3 +267,4 @@ A new start key, while the same task's timer is still running, is not a replay. 
 | 409 | `idempotency_in_progress` | The same key is already running. |
 | 409 | `actor_not_found` | Carlos Morones is not a member of the key's organization. |
 | 500 | `internal` | The write failed after the key was accepted. A retry of the same body resumes the same operation. |
+| 500 | `timer_lookup_failed` | The timer could not be read. This is not a missing timer. Retry the same request. |
