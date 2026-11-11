@@ -1,4 +1,4 @@
--- 125_report_public_link_kind.sql
+-- 127_report_public_link_kind.sql
 -- Separate no-login links for the live roadmap from frozen event-report links.
 --
 -- NOT APPLIED. Do not run this against any Supabase project.

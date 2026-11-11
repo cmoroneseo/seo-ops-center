@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 
-const migration = readFileSync(new URL('../../migrations/125_report_public_link_kind.sql', import.meta.url), 'utf8');
+const migration = readFileSync(new URL('../../migrations/127_report_public_link_kind.sql', import.meta.url), 'utf8');
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const CLIENT = '33333333-3333-4333-8333-333333333333';
