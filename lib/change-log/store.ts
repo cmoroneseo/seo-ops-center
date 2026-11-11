@@ -337,6 +337,18 @@ export async function listChanges(organizationId: string, clientId: string, now 
     }
 }
 
+/** Known system sentences, rewritten at display time. Anything else is shown as stored. */
+export function plainStartingPointNote(note: string, status: string): string | null {
+    const trimmed = note.trim();
+    if (!trimmed) return status === 'missing' ? 'The starting point was not saved.' : null;
+    return trimmed
+        .replaceAll('Baseline was not stored.', 'The starting point was not saved.')
+        .replaceAll('No stored days in the 28 days before this change.', 'No saved days in the 28 days before this change.')
+        .replaceAll('Baseline saved from stored Search Console and Analytics history.', 'Starting point saved from stored Google Search Console and Analytics history.')
+        .replaceAll('Baseline saved with', 'Starting point saved with')
+        .replaceAll('Search Console is about', 'Google Search Console is about');
+}
+
 export async function getChange(organizationId: string, clientId: string, changeId: string, now = new Date()): Promise<ChangeDetailResult> {
     try {
         const db = createAdminClient();
@@ -356,7 +368,7 @@ export async function getChange(organizationId: string, clientId: string, change
             change,
             impact: loaded.impacts[change.id] ?? null,
             confounders: findConfounders(changes, change, loaded.impacts[change.id]?.headline.ready ? loaded.impacts[change.id].headline.days : 28),
-            baselineNote: status === 'missing' ? (note || 'Baseline was not stored.') : note || null,
+            baselineNote: plainStartingPointNote(note, status),
         };
     } catch (error) {
         if (error instanceof MissingTable) return { setup: 'missing', change: null, impact: null, confounders: [], baselineNote: null };
@@ -425,10 +437,10 @@ export async function createChange(input: {
                 ? 'partial'
                 : 'captured';
         const note = status === 'missing'
-            ? 'No stored days in the 28 days before this change.'
+            ? 'No saved days in the 28 days before this change.'
             : status === 'partial'
-                ? `Baseline saved with ${impact.baseline.daysPresent} of ${impact.baseline.daysExpected} days. Search Console is about ${GSC_LAG_DAYS} days behind.`
-                : 'Baseline saved from stored Search Console and Analytics history.';
+                ? `Starting point saved with ${impact.baseline.daysPresent} of ${impact.baseline.daysExpected} days. Google Search Console is about ${GSC_LAG_DAYS} days behind.`
+                : 'Starting point saved from stored Google Search Console and Analytics history.';
         await db.from('seo_change_baselines').insert({
             change_id: id,
             organization_id: input.organizationId,

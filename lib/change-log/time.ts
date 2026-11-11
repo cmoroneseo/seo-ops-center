@@ -23,6 +23,24 @@ export function ptDate(iso: string): string | null {
     }).format(date);
 }
 
+/** Date and time, once, on an opened change. */
+export function formatWentLive(iso: string): string {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    const day = new Intl.DateTimeFormat('en-US', {
+        timeZone: PACIFIC,
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    }).format(date);
+    const time = new Intl.DateTimeFormat('en-US', {
+        timeZone: PACIFIC,
+        hour: 'numeric',
+        minute: '2-digit',
+    }).format(date);
+    return `${day} · ${time} PT (Pacific time)`;
+}
+
 export function formatPt(iso: string): string {
     const date = new Date(iso);
     if (Number.isNaN(date.getTime())) return iso;

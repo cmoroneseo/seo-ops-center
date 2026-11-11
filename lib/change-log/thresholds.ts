@@ -43,4 +43,4 @@ export const VERDICT_THRESHOLDS = {
     lowDataKeyEvents: 5,
 } as const;
 
-export const CAUSATION = 'Lines up with the change. Does not show the change caused it.';
+export const CAUSATION = "Lines up with the change. Doesn't prove the change caused it.";

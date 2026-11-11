@@ -125,7 +125,7 @@ function invalidReason(input: ChangeInput): string {
     if (!TYPE_SET.has(input.changeType)) return 'Pick a change type.';
     if (!KPI_SET.has(input.kpi)) return 'Pick the metric this change should move.';
     const liveAt = ptLocalToIso(input.liveAtLocal.trim());
-    if (!liveAt) return 'Enter the live date and time in Pacific time.';
+    if (!liveAt) return 'Enter when it went live, in Pacific time.';
     if (input.approvedByName.trim().length < 1) return 'Enter who approved it.';
     const pages = input.pages.filter(page => page.url.trim());
     if (pages.length < 1) return 'Add at least one page URL.';

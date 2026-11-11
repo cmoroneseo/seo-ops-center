@@ -85,7 +85,7 @@ test('a page that beats a flat control is improved', () => {
     assert.ok((impact.checkpoints.find(row => row.days === 7)?.pageMove.helpful ?? 0) > 0);
     assert.equal(impact.checkpoints.find(row => row.days === 56)?.ready, false);
     assert.equal(impact.checkpoints.find(row => row.days === 56)?.verdict, 'too_early');
-    assert.match(impact.causation, /does not show the change caused it/i);
+    assert.equal(impact.causation, "Lines up with the change. Doesn't prove the change caused it.");
 });
 
 test('a sitewide swing is not credited to the change', () => {
@@ -182,7 +182,8 @@ test('low data is still judged and marked as an estimate', () => {
     assert.equal(impact.headline.verdict, 'improved');
     assert.equal(impact.headline.lowData, true);
     assert.equal(impact.headline.estimate, true);
-    assert.match(impact.headline.note, /Estimate/);
+    assert.match(impact.headline.note, /Early estimate/);
+    assert.equal(impact.headline.note.includes('· Estimate'), false);
 });
 
 test('a negative untouched remainder falls back to the sitewide trend', () => {
@@ -257,6 +258,14 @@ test('the Ecoworkz example is improved, estimated nowhere, and flags the same-da
     assert.equal(exported.hostname, 'www.ecoworkz.net');
     assert.equal(exported.pathname, '/');
     assert.equal(csv.includes('access_token'), false);
+    assert.match(csv, /Type,Main page heading/);
+    assert.match(csv, /What we're watching,Clicks from Google/);
+    assert.match(csv, /Keep in mind,"?Lines up with the change\. Doesn't prove the change caused it\./);
+    assert.match(csv, /Rest of the site/);
+    assert.match(csv, /Not ready yet/);
+    assert.equal(csv.includes('Untouched'), false);
+    assert.equal(/\bKPI\b/.test(csv), false);
+    assert.match(csv, /Nov 10, 2026 · 2:04 PM PT \(Pacific time\)/);
     assert.equal(h1.series.some(point => point.live), true);
     assert.equal(h1.yoy?.measured, true);
 });

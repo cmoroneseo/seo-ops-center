@@ -1,6 +1,7 @@
+import { controlModeLabel } from './control';
 import { dailyRateText } from './impact';
-import { CHANGE_TYPE_LABEL, KPI_LABEL, VERDICT_LABEL, type ImpactModel, type SeoChange } from './types';
-import { formatPt } from './time';
+import { CHANGE_TYPE_LABEL, KPI_LABEL, resultLabel, type ImpactModel, type SeoChange } from './types';
+import { formatWentLive } from './time';
 
 function cell(value: string | number | null | undefined): string {
     const text = value == null ? '' : String(value);
@@ -12,28 +13,28 @@ export function impactCsv(change: SeoChange, impact: ImpactModel): string {
     const lines: string[][] = [
         ['Change', change.title],
         ['Type', CHANGE_TYPE_LABEL[change.changeType]],
-        ['Live', formatPt(change.liveAt)],
+        ['Went live', formatWentLive(change.liveAt)],
         ['Approved by', change.approvedByName],
-        ['KPI', KPI_LABEL[change.kpi]],
+        ["What we're watching", KPI_LABEL[change.kpi]],
         ['Pages', change.pages.map(page => page.url).join(' ')],
-        ['Verdict', VERDICT_LABEL[impact.headline.verdict]],
+        ['Result', resultLabel(impact.headline.verdict, impact.headline.estimate)],
         ['Note', impact.headline.note],
-        ['Causation', impact.causation],
+        ['Keep in mind', impact.causation],
         [],
-        ['Checkpoint', 'Ready', 'Verdict', 'Estimate', 'Page', 'Control'],
+        ['Check', 'Ready', 'Result', 'Early estimate', 'This page', 'Rest of the site'],
     ];
     for (const checkpoint of impact.checkpoints) {
         lines.push([
-            String(checkpoint.days),
+            `${checkpoint.days}-day check`,
             checkpoint.ready ? 'yes' : 'no',
-            VERDICT_LABEL[checkpoint.verdict],
-            checkpoint.estimate ? 'estimate' : '',
-            checkpoint.ready ? dailyRateText(change.kpi, impact.baseline, checkpoint.page) : '',
-            checkpoint.controlMode,
+            resultLabel(checkpoint.verdict, checkpoint.estimate),
+            checkpoint.estimate ? 'Early estimate' : '',
+            checkpoint.ready ? dailyRateText(change.kpi, impact.baseline, checkpoint.page) : 'Not ready yet',
+            controlModeLabel(checkpoint.controlMode),
         ]);
     }
     lines.push([]);
-    lines.push(['Query', 'Before clicks', 'After clicks', 'Before impressions', 'After impressions', 'Before position', 'After position']);
+    lines.push(['Search term', 'Clicks from Google before', 'Clicks from Google after', 'Times shown in Google before', 'Times shown in Google after', 'Average Google position before', 'Average Google position after']);
     for (const query of impact.queries) {
         lines.push([
             query.query,

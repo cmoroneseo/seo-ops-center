@@ -1,6 +1,5 @@
 import { VERDICT_THRESHOLDS } from './thresholds';
-import type { ControlMode, Kpi, MetricRead, RateDelta, Verdict } from './types';
-import { KPI_LABEL } from './types';
+import { KPI_LABEL, type ControlMode, type Kpi, type MetricRead, type RateDelta, type Verdict } from './types';
 
 export interface Classified {
     verdict: Verdict;
@@ -31,7 +30,8 @@ export function isLowData(kpi: Kpi, before: MetricRead, after: MetricRead): bool
 
 function withEstimate(note: string, estimate: boolean): string {
     if (!estimate) return note;
-    return note.endsWith('.') ? `${note.slice(0, -1)}. Estimate.` : `${note} Estimate.`;
+    const base = note.endsWith('.') ? note.slice(0, -1) : note;
+    return `${base}. Early estimate.`;
 }
 
 /**
@@ -52,18 +52,18 @@ export function classifyCheckpoint(input: {
     lagNote: string;
 }): Classified {
     const estimate = input.lowData || input.partial || input.controlUnreliable;
-    const name = KPI_LABEL[input.kpi].toLowerCase();
+    const name = KPI_LABEL[input.kpi];
 
     if (!input.connected) {
         const note = input.kpi === 'organic_sessions' || input.kpi === 'key_events'
             ? "Analytics isn't connected."
-            : "Search Console isn't connected.";
+            : "Google Search Console isn't connected.";
         return { verdict: 'too_early', note, estimate: false, lowData: false, lift: null };
     }
     if (!input.baselineReady) {
         return {
             verdict: 'too_early',
-            note: 'The 28 days before this change are not stored yet.',
+            note: "The starting point isn't saved yet. We need the 28 days before this change.",
             estimate: false,
             lowData: false,
             lift: null,
@@ -72,7 +72,7 @@ export function classifyCheckpoint(input: {
     if (!input.ready) {
         return {
             verdict: 'too_early',
-            note: `Too early. The first read waits for 7 final days. ${input.lagNote}`,
+            note: `Too early to tell. The first check waits for 7 final days. ${input.lagNote}`,
             estimate: false,
             lowData: false,
             lift: null,
@@ -82,7 +82,7 @@ export function classifyCheckpoint(input: {
     if (input.kpi === 'avg_position' && input.page.absolute != null && Math.abs(input.page.absolute) < VERDICT_THRESHOLDS.positionNoise) {
         return {
             verdict: 'flat',
-            note: withEstimate('Average position moved less than 1.', estimate),
+            note: withEstimate('Average Google position moved less than 1.', estimate),
             estimate,
             lowData: input.lowData,
             lift: null,
@@ -102,7 +102,7 @@ export function classifyCheckpoint(input: {
         }
         return {
             verdict: 'improved',
-            note: withEstimate(`Up from zero on ${name}. The percent isn't meaningful.`, true),
+            note: withEstimate(`Up from zero on ${lower(name)}. The percent isn't meaningful.`, true),
             estimate: true,
             lowData: input.lowData,
             lift: null,
@@ -113,7 +113,7 @@ export function classifyCheckpoint(input: {
     if (pageMove == null) {
         return {
             verdict: 'too_early',
-            note: `No ${name} number in this window.`,
+            note: `We don't have ${lower(name)} for this check yet.`,
             estimate: false,
             lowData: input.lowData,
             lift: null,
@@ -124,8 +124,8 @@ export function classifyCheckpoint(input: {
         const band = VERDICT_THRESHOLDS.pageBand;
         const verdict: Verdict = pageMove >= band ? 'improved' : pageMove <= -band ? 'declined' : 'flat';
         const note = verdict === 'flat'
-            ? `No control. ${capitalize(name)} stayed inside 15%.`
-            : `No control. ${capitalize(name)} ${verdict === 'improved' ? 'rose' : 'fell'} at least 15% on the page alone.`;
+            ? `No comparison with the rest of the site. ${name} stayed inside 15%.`
+            : `No comparison with the rest of the site. ${name} ${verdict === 'improved' ? 'rose' : 'fell'} at least 15% on this page alone.`;
         return { verdict, note: withEstimate(note, estimate), estimate, lowData: input.lowData, lift: null };
     }
 
@@ -136,10 +136,10 @@ export function classifyCheckpoint(input: {
     else if (lift <= -gate && pageMove < 0) verdict = 'declined';
 
     let note: string;
-    if (verdict === 'improved') note = `${capitalize(name)} beat the rest of the site.`;
-    else if (verdict === 'declined') note = `${capitalize(name)} fell more than the rest of the site.`;
+    if (verdict === 'improved') note = `${name} beat the rest of the site.`;
+    else if (verdict === 'declined') note = `${name} fell more than the rest of the site.`;
     else if (input.control.helpful > 0 && pageMove > 0) note = 'The rest of the site moved with it.';
-    else note = `${capitalize(name)} stayed inside the band.`;
+    else note = `${name} stayed close to the rest of the site.`;
 
     return {
         verdict,
@@ -150,21 +150,21 @@ export function classifyCheckpoint(input: {
     };
 }
 
-function capitalize(value: string): string {
-    return value.charAt(0).toUpperCase() + value.slice(1);
+function lower(value: string): string {
+    return value.charAt(0).toLowerCase() + value.slice(1);
 }
 
 export function nextStep(changeType: string, verdict: Verdict): string {
-    if (verdict === 'too_early') return 'Wait for the 7-day read before changing it again.';
+    if (verdict === 'too_early') return 'Wait for the 7-day check before changing it again.';
     if (verdict === 'declined') {
-        if (changeType === 'h1') return 'Revert the H1, then test a smaller wording change.';
-        return 'Revert this change, then test one smaller edit.';
+        if (changeType === 'h1') return 'Undo the main page heading, then try a smaller wording change.';
+        return 'Undo this change, then try one smaller edit.';
     }
     if (verdict === 'improved') {
-        if (changeType === 'h1') return 'Leave the H1. Next test is the title or the line under it, one at a time.';
-        return 'Leave it. Check again at the next checkpoint before stacking another edit.';
+        if (changeType === 'h1') return 'Leave the main page heading. Next, try the search result title or the line under the heading, one at a time.';
+        return 'Leave it. Look again at the next check before making another edit.';
     }
-    if (changeType === 'h1') return 'The H1 did not separate from the rest of the site. Next test: the hero line, not another H1.';
-    if (changeType === 'title') return 'The title did not separate from the rest of the site. Next test: the H1, not another title.';
-    return 'It did not separate from the rest of the site. Next test: one tighter edit, not a bundle.';
+    if (changeType === 'h1') return 'The main page heading did not stand out from the rest of the site. Next, try the line under the heading, not another heading.';
+    if (changeType === 'title') return 'The search result title did not stand out from the rest of the site. Next, try the main page heading, not another search result title.';
+    return 'It did not stand out from the rest of the site. Next, try one smaller edit, not several at once.';
 }
