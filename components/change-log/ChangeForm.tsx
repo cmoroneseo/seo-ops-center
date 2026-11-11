@@ -122,17 +122,17 @@ export function ChangeForm({
                 <legend className="text-sm font-medium">Pages</legend>
                 {input.pages.map((page, index) => (
                     <div key={index} className="grid gap-2 sm:grid-cols-4">
-                        <input className="field sm:col-span-2" placeholder="https://" aria-label="Page URL" value={page.url} onChange={event => setPage(index, { url: event.target.value })} />
+                        <input className="field sm:col-span-2" placeholder="https://" aria-label="Page address" value={page.url} onChange={event => setPage(index, { url: event.target.value })} />
                         <input className="field" placeholder="Label" aria-label="Page label" value={page.label} onChange={event => setPage(index, { label: event.target.value })} />
                         <div className="grid grid-cols-2 gap-2">
-                            <input className="field" placeholder="Page id" aria-label="CMS page id" value={page.cmsPageId} onChange={event => setPage(index, { cmsPageId: event.target.value })} />
-                            <input className="field" placeholder="Widget" aria-label="CMS widget id" value={page.cmsWidgetId} onChange={event => setPage(index, { cmsWidgetId: event.target.value })} />
+                            <input className="field" placeholder="Page id" aria-label="Page id" value={page.cmsPageId} onChange={event => setPage(index, { cmsPageId: event.target.value })} />
+                            <input className="field" placeholder="Section id" aria-label="Section id" value={page.cmsWidgetId} onChange={event => setPage(index, { cmsWidgetId: event.target.value })} />
                         </div>
                     </div>
                 ))}
                 {input.pages.length < 8 && (
                     <button type="button" className="text-sm text-primary" onClick={() => setInput({ ...input, pages: [...input.pages, { url: '', label: '', cmsPageId: '', cmsWidgetId: '' }] })}>
-                        Add another URL
+                        Add another page
                     </button>
                 )}
             </fieldset>

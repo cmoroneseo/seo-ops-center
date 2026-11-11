@@ -101,6 +101,7 @@ test('column headers sort and a result count filters the same rows it counted', 
     });
 
     assert.deepEqual(ids(container), ['zebra', 'alpha', 'middle']);
+    assert.match(container.textContent ?? '', /Showing 3 of 3/);
     const table = container.querySelector('table');
     assert.equal(table?.firstElementChild?.tagName, 'CAPTION');
     assert.match(table?.className ?? '', /caption-bottom/);
@@ -154,6 +155,7 @@ test('column headers sort and a result count filters the same rows it counted', 
     });
     assert.equal(container.querySelector('[data-bucket="declined"]')?.getAttribute('aria-pressed'), 'true');
     assert.deepEqual(ids(container), ['middle']);
+    assert.match(container.textContent ?? '', /Showing 1 of 3/);
     assert.equal(bucketCount(container, 'declined'), '1');
     assert.equal(bucketCount(container, 'early_estimate'), '1');
     await act(async () => {
@@ -174,6 +176,7 @@ test('column headers sort and a result count filters the same rows it counted', 
     });
     assert.equal(search.value, 'alpha');
     assert.deepEqual(ids(container), ['alpha']);
+    assert.match(container.textContent ?? '', /Showing 1 of 1/);
     assert.equal(bucketCount(container, 'early_estimate'), '1');
     assert.equal(bucketCount(container, 'declined'), '0');
     assert.equal(bucketCount(container, 'too_early'), '0');
