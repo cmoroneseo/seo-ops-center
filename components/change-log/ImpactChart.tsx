@@ -25,9 +25,8 @@ export function ImpactChart({
         if (!node) return;
         const measure = () => setWidth(node.clientWidth);
         measure();
-        const observer = new ResizeObserver(measure);
-        observer.observe(node);
-        return () => observer.disconnect();
+        window.addEventListener('resize', measure);
+        return () => window.removeEventListener('resize', measure);
     }, []);
     const data = indexToBaseline(points, liveOn);
     const label = `${KPI_LABEL[kpi]} indexed to the baseline. Marker on ${formatDay(liveOn)}.`;

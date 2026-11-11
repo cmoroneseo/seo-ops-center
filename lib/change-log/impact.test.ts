@@ -252,7 +252,10 @@ test('the Ecoworkz example is improved, estimated nowhere, and flags the same-da
     const others = findConfounders(board.changes, board.changes[1], 28);
     assert.equal(others[0].id, 'example-ecoworkz-h1');
     const csv = impactCsv(board.changes[0], h1);
-    assert.match(csv, /https:\/\/www\.ecoworkz\.net\//);
+    const pagesRow = csv.split('\n').find(row => row.startsWith('Pages,'));
+    const exported = new URL((pagesRow ?? '').slice('Pages,'.length).split(' ')[0] ?? '');
+    assert.equal(exported.hostname, 'www.ecoworkz.net');
+    assert.equal(exported.pathname, '/');
     assert.equal(csv.includes('access_token'), false);
     assert.equal(h1.series.some(point => point.live), true);
     assert.equal(h1.yoy?.measured, true);
@@ -267,7 +270,8 @@ test('Pacific wall time, last year, and the GBP-tagged URL', () => {
         'https://www.ecoworkz.net/?utm_source=google&utm_medium=organic&utm_campaign=gbp_listing',
         'https://www.ecoworkz.net/',
     ), false);
-    assert.ok(gscPageCandidates('https://www.ecoworkz.net/').includes('https://ecoworkz.net/'));
+    const candidates = gscPageCandidates('https://www.ecoworkz.net/').map(value => new URL(value));
+    assert.equal(candidates.some(url => url.hostname === 'ecoworkz.net' && url.pathname === '/'), true);
     assert.equal(validateChange(ecoworkzH1Input()), null);
     const saved = normalizeChange(ecoworkzH1Input());
     assert.equal(saved?.pages[0].cmsPageId, '7901');
