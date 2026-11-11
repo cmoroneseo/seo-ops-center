@@ -217,7 +217,7 @@ export function ChangeLogView({
                     <div className="overflow-hidden rounded-lg border border-border bg-card">
                         <Table className="caption-bottom">
                             <TableCaption>
-                                Showing {shown.length} of {items.length}. Went live is the date the change appeared on the website. Results compare each page with pages we didn&apos;t change.
+                                Showing {shown.length} of {narrowed.length}. Went live is the date the change appeared on the website. Results compare each page with pages we didn&apos;t change.
                             </TableCaption>
                             <TableHeader>
                                 <TableRow className="hover:bg-transparent">
@@ -289,6 +289,7 @@ export function ChangeLogView({
                     baselineNote={detail.baselineNote}
                     example={example}
                     revertInitiallyOpen={revertOpen}
+                    today={asOf}
                     onBack={onBack}
                     onOpen={onOpen}
                     onRemove={onRemove}

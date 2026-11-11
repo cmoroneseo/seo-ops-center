@@ -69,6 +69,8 @@ export function buildImpact(source: ImpactSource): ImpactModel {
         ? readYoy(source, through)
         : null;
 
+    const baselineControlWindow = controlFor(baseline, siteBaseline.measured ? siteBaseline : null, 'clicks');
+    const baselineControl = baselineControlWindow.mode === 'untouched' ? baselineControlWindow.read : null;
     const control = controlFor(baseline, siteBaseline.measured ? siteBaseline : null, source.kpi);
     const seriesEnd = afterWindow(source.liveOn, 56).end;
     const series = chartSeries(source, through, baselineSpan.start, seriesEnd > through ? through : seriesEnd);
@@ -79,6 +81,7 @@ export function buildImpact(source: ImpactSource): ImpactModel {
         finalThrough: through,
         lagDays: GSC_LAG_DAYS,
         baseline,
+        baselineControl,
         baselineReady,
         yoy: yoy?.read ?? null,
         yoyNote: source.compareLastYear
@@ -114,6 +117,8 @@ function readCheckpoint(input: {
     const partial = page.measured && page.daysPresent < page.daysExpected;
     const baselinePartial = input.baseline.measured && input.baseline.daysPresent < input.baseline.daysExpected;
     const control = controlFor(page, site.measured ? site : null, input.source.kpi);
+    const restWindow = controlFor(page, site.measured ? site : null, 'clicks');
+    const restOfSite = restWindow.mode === 'untouched' ? restWindow.read : null;
     const baselineControl = controlFor(
         input.baseline,
         input.siteBaseline.measured ? input.siteBaseline : null,
@@ -151,6 +156,7 @@ function readCheckpoint(input: {
         pageMove,
         controlMove,
         lift: classified.lift,
+        restOfSite,
     };
 }
 
@@ -194,19 +200,25 @@ function queryRows(source: ImpactSource, through: string, headline: CheckpointRe
     return (source.queries ?? []).map(query => {
         const prior = sumWindow(query.days, before.start, before.end, through);
         const next = sumWindow(query.days, after.start, after.end, through);
+        const beforeClicks = prior.measured ? prior.clicks : null;
+        const afterClicks = next.measured ? next.clicks : null;
+        const beforeImpressions = prior.measured ? prior.impressions : null;
+        const afterImpressions = next.measured ? next.impressions : null;
         return {
             query: query.query,
-            beforeClicks: prior.measured ? prior.clicks : 0,
-            afterClicks: next.measured ? next.clicks : 0,
-            beforeImpressions: prior.measured ? prior.impressions : 0,
-            afterImpressions: next.measured ? next.impressions : 0,
-            beforePosition: prior.position,
-            afterPosition: next.position,
-            beforeCtr: prior.ctr,
-            afterCtr: next.ctr,
-            clicksDelta: (next.measured ? next.clicks : 0) - (prior.measured ? prior.clicks : 0),
-            impressionsDelta: (next.measured ? next.impressions : 0) - (prior.measured ? prior.impressions : 0),
-            positionDelta: prior.position != null && next.position != null ? next.position - prior.position : null,
+            beforeClicks,
+            afterClicks,
+            beforeImpressions,
+            afterImpressions,
+            beforePosition: prior.measured ? prior.position : null,
+            afterPosition: next.measured ? next.position : null,
+            beforeCtr: prior.measured ? prior.ctr : null,
+            afterCtr: next.measured ? next.ctr : null,
+            clicksDelta: beforeClicks != null && afterClicks != null ? afterClicks - beforeClicks : null,
+            impressionsDelta: beforeImpressions != null && afterImpressions != null ? afterImpressions - beforeImpressions : null,
+            positionDelta: prior.measured && next.measured && prior.position != null && next.position != null
+                ? next.position - prior.position
+                : null,
         };
     });
 }

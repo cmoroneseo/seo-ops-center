@@ -128,7 +128,7 @@ function invalidReason(input: ChangeInput): string {
     if (!liveAt) return 'Enter when it went live, in Pacific time.';
     if (input.approvedByName.trim().length < 1) return 'Enter who approved it.';
     const pages = input.pages.filter(page => page.url.trim());
-    if (pages.length < 1) return 'Add at least one page URL.';
-    if (pages.some(page => !normalizeResultUrl(page.url))) return 'Page URLs need to start with http:// or https://.';
+    if (pages.length < 1) return 'Add at least one page.';
+    if (pages.some(page => !normalizeResultUrl(page.url))) return 'Page addresses need to start with http:// or https://.';
     return 'Check the form and try again.';
 }

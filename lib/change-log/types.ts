@@ -167,20 +167,23 @@ export interface CheckpointRead {
     pageMove: RateDelta;
     controlMove: RateDelta | null;
     lift: number | null;
+    /** Rest-of-site clicks for this check. Null when the site wasn't measured. Not a stand-in zero. */
+    restOfSite: MetricRead | null;
 }
 
 export interface QueryCompare {
     query: string;
-    beforeClicks: number;
-    afterClicks: number;
-    beforeImpressions: number;
-    afterImpressions: number;
+    /** Null when that side was not measured. A measured zero stays 0. */
+    beforeClicks: number | null;
+    afterClicks: number | null;
+    beforeImpressions: number | null;
+    afterImpressions: number | null;
     beforePosition: number | null;
     afterPosition: number | null;
     beforeCtr: number | null;
     afterCtr: number | null;
-    clicksDelta: number;
-    impressionsDelta: number;
+    clicksDelta: number | null;
+    impressionsDelta: number | null;
     positionDelta: number | null;
 }
 
@@ -198,6 +201,11 @@ export interface ImpactModel {
     finalThrough: string;
     lagDays: number;
     baseline: MetricRead;
+    /**
+     * Rest-of-site clicks over the 28 days before go-live.
+     * Null when the site wasn't measured. Never a stand-in zero.
+     */
+    baselineControl: MetricRead | null;
     baselineReady: boolean;
     yoy: MetricRead | null;
     yoyNote: string | null;

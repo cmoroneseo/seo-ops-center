@@ -286,5 +286,5 @@ test('Pacific wall time, last year, and the GBP-tagged URL', () => {
     assert.equal(saved?.pages[0].cmsPageId, '7901');
     assert.equal(saved?.pages[0].cmsWidgetId, '47eaa58');
     assert.equal(saved?.queries.length, 3);
-    assert.equal(validateChange({ ...ecoworkzH1Input(), pages: [] }), 'Add at least one page URL.');
+    assert.equal(validateChange({ ...ecoworkzH1Input(), pages: [] }), 'Add at least one page.');
 });

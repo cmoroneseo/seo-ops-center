@@ -2,7 +2,7 @@
 
 import { useSearchParams } from 'next/navigation';
 
-import { exampleBoard, exampleConfounders, EXAMPLE_BASELINE_NOTE, EXAMPLE_NOTE, ecoworkzH1Input } from '@/lib/change-log/fixture';
+import { exampleBoard, exampleConfounders, EXAMPLE_BASELINE_NOTE, EXAMPLE_NOTE, EXAMPLE_TODAY, ecoworkzH1Input } from '@/lib/change-log/fixture';
 
 import { ChangeLogView } from './ChangeLogView';
 
@@ -54,6 +54,7 @@ export function ExampleGallery() {
                 onBack={() => { window.location.href = '/change-log-example?screen=timeline'; }}
                 onSubmit={() => { window.location.href = '/change-log-example?screen=detail'; }}
                 onRemove={() => undefined}
+                today={EXAMPLE_TODAY}
             />
         </div>
     );
