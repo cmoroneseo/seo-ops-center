@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
 import {
+    SETUP_LOAD_FAILED,
     deriveSetupChecklist,
     generationStages,
     searchConsoleConnectedFromIntegration,
@@ -44,7 +45,7 @@ export function SetupChecklistView({
                 </button>
             </div>
             {panel === 'loading' && <p className="mt-4 text-sm text-muted-foreground">Checking what is left to set up…</p>}
-            {panel === 'unavailable' && <p className="mt-4 text-sm text-muted-foreground">—</p>}
+            {panel === 'unavailable' && <p className="mt-4 text-sm text-muted-foreground">{SETUP_LOAD_FAILED}</p>}
             {panel === 'list' && (
                 <ol className="mt-2 divide-y divide-border">
                     {steps.map((step, index) => (

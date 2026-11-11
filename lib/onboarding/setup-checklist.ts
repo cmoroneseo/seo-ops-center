@@ -15,7 +15,9 @@ export const SETUP_STEP_ORDER = [
     'plan',
 ] as const;
 
-export type SetupStepId = (typeof SETUP_STEP_ORDER)[number];
+export const SETUP_LOAD_FAILED = "Couldn't load setup progress. Refresh to try again.";
+
+export type SetupStepId =(typeof SETUP_STEP_ORDER)[number];
 
 export type WizardSetupStep = 'profile' | 'seeds' | 'keywords' | 'confirm';
 

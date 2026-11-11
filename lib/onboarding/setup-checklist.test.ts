@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { SetupChecklistView } from '../../components/onboarding/SetupChecklist.tsx';
 import {
+    SETUP_LOAD_FAILED,
     SETUP_STEP_ORDER,
     clientDetailsDone,
     deriveSetupChecklist,
@@ -138,7 +139,8 @@ test('the list hides when every step is done or when it is dismissed, and a fail
     const hidden = renderToStaticMarkup(createElement(SetupChecklistView, { steps, panel: 'hidden', onDismiss: () => {} }));
     assert.equal(hidden, '');
     const failed = renderToStaticMarkup(createElement(SetupChecklistView, { steps: open, panel: 'unavailable', onDismiss: () => {} }));
-    assert.match(failed, /—/);
+    assert.ok(failed.includes('Couldn&#x27;t load setup progress. Refresh to try again.'));
+    assert.equal(SETUP_LOAD_FAILED, "Couldn't load setup progress. Refresh to try again.");
     assert.equal(failed.includes('Not done'), false);
     assert.equal(failed.includes('0'), false);
 });
