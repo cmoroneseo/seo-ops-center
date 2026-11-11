@@ -51,7 +51,9 @@ import { parseStageListTasks, type StageListTask } from '@/lib/seo-plan/stage-li
 import { useStageListMoves } from '@/lib/seo-plan/stage-list-moves';
 import { calendarDay } from '@/lib/seo-plan/this-month';
 import { RESUMED_OPEN_TIMER_MESSAGE, openTimerRows } from '@/lib/timer/attempt-state';
+import { listCampaignInitiatives } from '@/lib/supabase/campaign-initiatives';
 import { createTask, deleteTask, getTask, getTaskTemplates, updateTask } from '@/lib/supabase/tasks';
+import type { PartOfChoice } from '@/lib/tasks/part-of';
 import type { UrlResultReadout } from '@/lib/search-reporting/url-results';
 import { parseLiveUrlInput, subtaskLineDrafts } from '@/lib/tasks/live-url';
 import type { Task, TimeLog } from '@/lib/types';
@@ -94,6 +96,7 @@ export function StagePlanList({
     const { userId } = useCurrentMember();
     const { organization } = useOrganization();
     const [query, setQuery] = useState('');
+    const [partOfChoices, setPartOfChoices] = useState<PartOfChoice[] | null>(null);
     const [people, setPeople] = useState<PlanAssignee[]>([]);
     const [loggedHours, setLoggedHours] = useState<Record<string, number>>({});
     const [footerMonth, setFooterMonth] = useState<string | null>(null);
@@ -188,6 +191,16 @@ export function StagePlanList({
             });
         return () => { cancelled = true; };
     }, [clientId, reloadKey, setList, updateList]);
+
+    useEffect(() => {
+        let cancelled = false;
+        setPartOfChoices(null);
+        void listCampaignInitiatives(clientId).then(result => {
+            if (cancelled) return;
+            setPartOfChoices(result.unavailable ? null : result.initiatives.map(item => ({ id: item.id, title: item.title })));
+        });
+        return () => { cancelled = true; };
+    }, [clientId, reloadKey]);
 
     useEffect(() => {
         let cancelled = false;
@@ -353,6 +366,7 @@ export function StagePlanList({
         const currentTasks = tasks ?? [];
         const snapshot = currentTasks.find(task => task.id === taskId);
         if (!snapshot) return 'That task is not on this plan.';
+        if (save.field === 'partOf' && snapshot.parentTaskId) return 'Part of applies to the main task.';
         if (save.field === 'parent') {
             const planned = planParentMove(currentTasks, taskId, save.parentTaskId);
             if (!planned.ok) return planned.error;
@@ -728,6 +742,8 @@ export function StagePlanList({
     if (!tasks || board == null) return <PanelSkeleton label="Loading SEO plan" />;
 
     const visibleTasks = shownTasks ?? tasks;
+    const linksKnown = visibleTasks.some(task => 'initiativeId' in task);
+    const partOf = linksKnown ? partOfChoices : null;
     const open = panel && tasks.some(task => task.id === panel.id) ? panel : null;
     const selected = open ? tasks.find(task => task.id === open.id) : undefined;
     const model = open && selected ? planPanelTask({
@@ -766,6 +782,7 @@ export function StagePlanList({
                 tasks={visibleTasks}
                 query={query}
                 onQueryChange={setQuery}
+                partOfChoices={partOf ?? []}
                 clientName={clientName}
                 panelTaskId={open?.id ?? null}
                 onClosePanel={() => setPanel(null)}
@@ -805,6 +822,7 @@ export function StagePlanList({
                         today={calendarDay(new Date())}
                         focusField={open?.field ?? null}
                         onSave={savePanel}
+                        partOf={partOf}
                         onDuplicate={duplicatePanel}
                         onDelete={deletePanel}
                         onAddSubtasks={titles => addTasks({
@@ -874,6 +892,8 @@ function panelPatch(save: Exclude<PlanPanelSave, { field: 'parent' }>) {
             return { stage: save.stage };
         case 'liveUrl':
             return { publishedUrl: save.publishedUrl };
+        case 'partOf':
+            return { initiativeId: save.initiativeId };
     }
 }
 
@@ -899,5 +919,6 @@ function stageRowFromTask(
         estimatedHours: created.estimatedHours ?? null,
         assigneeIds: created.assigneeIds ?? [],
         blockedReason: created.blockedReason?.trim() ? created.blockedReason.trim() : null,
+        ...('initiativeId' in created ? { initiativeId: created.initiativeId ?? null } : {}),
     };
 }

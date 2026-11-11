@@ -436,6 +436,8 @@ export interface PlanPanelTask {
     tags: string[];
     stage: TaskStage;
     parentTaskId: string | null;
+    /** Null when this task is not part of a roadmap row. Absent when the column was not read. */
+    initiativeId?: string | null;
     childCount: number;
     childDone: number;
     publishedUrl: string | null;
@@ -497,6 +499,7 @@ export function planPanelTask(input: {
         tags: detail?.tags ?? [],
         stage: input.task.stage === 'onboarding' ? 'onboarding' : 'backlog',
         parentTaskId: input.task.parentTaskId,
+        ...('initiativeId' in input.task ? { initiativeId: input.task.initiativeId ?? null } : {}),
         childCount: children.length,
         childDone: children.filter(task => task.status === 'done').length,
         publishedUrl: input.task.publishedUrl ?? null,
@@ -524,6 +527,7 @@ export type PlanPanelSave =
     | { field: 'blocked'; blockedReason: string | null }
     | { field: 'onboarding'; stage: TaskStage }
     | { field: 'parent'; parentTaskId: string | null }
+    | { field: 'partOf'; initiativeId: string | null }
     | { field: 'liveUrl'; publishedUrl: string | null };
 
 export function mergePlanTask(task: StageListTask, data: Task): StageListTask {
@@ -533,6 +537,7 @@ export function mergePlanTask(task: StageListTask, data: Task): StageListTask {
         status: data.status,
         stage: data.stage ?? task.stage,
         parentTaskId: data.parentTaskId ?? null,
+        ...('initiativeId' in data ? { initiativeId: data.initiativeId ?? null } : {}),
         category: data.category ?? null,
         publishedUrl: data.publishedUrl ?? null,
         dueDate: data.dueDate ?? null,
@@ -568,6 +573,8 @@ export function applyPlanPanelSave(task: StageListTask, save: PlanPanelSave, now
             return { ...task, stage: save.stage };
         case 'liveUrl':
             return { ...task, publishedUrl: save.publishedUrl };
+        case 'partOf':
+            return { ...task, initiativeId: save.initiativeId };
         case 'description':
             return { ...task, description: save.description };
         case 'estimate':

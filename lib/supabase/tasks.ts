@@ -19,6 +19,7 @@ import { seoPlanPushTodolistId } from '../basecamp/plan-lists';
 import { taskCreateRow } from '../tasks/create-row';
 import { completedAtForLiveUrl, parseLiveUrlInput, splitLiveUrl } from '../tasks/live-url';
 import { isTaskStage } from '../tasks/stage';
+import { PART_OF_OTHER_CLIENT_ERROR, partOfWrite } from '../tasks/part-of';
 import { normalizeBlockedReason, taskStatusUpdate } from '../tasks/status';
 import { sumTaskLoggedHours } from '../time-budget-logic';
 import {
@@ -91,6 +92,9 @@ export function rowToTask(row: any): Task {
         scheduledMinutes: row.scheduled_minutes ?? undefined,
         deliverableId: row.deliverable_id ?? undefined,
         parentTaskId: row.parent_task_id ?? undefined,
+        ...('initiative_id' in row ? {
+            initiativeId: typeof row.initiative_id === 'string' && row.initiative_id ? row.initiative_id : null,
+        } : {}),
         sortOrder: row.sort_order ?? 0,
         statusHistory: row.status_history ?? [],
         customFields: row.custom_fields ?? {},
@@ -590,6 +594,8 @@ export async function updateTask(
         publishedUrl?: string | null;
         /** null removes the blocked label. A reason is one line. */
         blockedReason?: string | null;
+        /** null clears Part of. A value must be a roadmap row for this task's client. */
+        initiativeId?: string | null;
         /** null clears the label stored in category. */
         category?: string | null;
         /** Onboarding flag. Written directly so a nested task can change it. */
@@ -637,6 +643,39 @@ export async function updateTask(
             const parsed = parseLiveUrlInput(patch.publishedUrl ?? '');
             if (!parsed.ok) return { success: false, error: parsed.error };
             candidate.published_url = parsed.publishedUrl;
+        }
+
+        if (patch.initiativeId !== undefined) {
+            if (patch.initiativeId == null || patch.initiativeId === '') {
+                candidate.initiative_id = null;
+            } else {
+                const owned = await supabase
+                    .from('tasks')
+                    .select('organization_id, client_id, parent_task_id')
+                    .eq('id', taskId)
+                    .maybeSingle();
+                if (owned.error || !owned.data) return { success: false, error: 'That task is not on this plan.' };
+                const goal = await supabase
+                    .from('campaign_initiatives')
+                    .select('id, organization_id, client_id')
+                    .eq('id', patch.initiativeId)
+                    .maybeSingle();
+                if (goal.error) return { success: false, error: PART_OF_OTHER_CLIENT_ERROR };
+                const goalRow = goal.data as { id?: unknown; organization_id?: unknown; client_id?: unknown } | null;
+                const decision = partOfWrite(
+                    {
+                        parentTaskId: typeof owned.data.parent_task_id === 'string' ? owned.data.parent_task_id : null,
+                        clientId: typeof owned.data.client_id === 'string' ? owned.data.client_id : null,
+                        organizationId: typeof owned.data.organization_id === 'string' ? owned.data.organization_id : null,
+                    },
+                    goalRow && typeof goalRow.id === 'string' && typeof goalRow.client_id === 'string' && typeof goalRow.organization_id === 'string'
+                        ? { id: goalRow.id, clientId: goalRow.client_id, organizationId: goalRow.organization_id }
+                        : null,
+                    patch.initiativeId,
+                );
+                if (!decision.ok) return { success: false, error: decision.error };
+                candidate.initiative_id = decision.initiativeId;
+            }
         }
 
         // Fetch current task row when status or assignees are changing

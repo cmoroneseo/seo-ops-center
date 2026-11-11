@@ -25,6 +25,7 @@ import {
     type TimelineRow,
 } from '@/lib/campaign-workspace/initiatives';
 import { saveCampaignInitiative } from '@/lib/supabase/campaign-initiatives';
+import { linkedTaskProgress, type PartOfProgress, type PartOfTask } from '@/lib/tasks/part-of';
 import { cn } from '@/lib/utils';
 import { InitiativeMark, initiativeBarClass, initiativeToneClass } from './initiative-status';
 
@@ -161,6 +162,7 @@ export function RoadmapPanel({
     selectedId,
     onSelect,
     onSaved,
+    links = [],
 }: {
     initiatives: readonly CampaignInitiative[];
     today: string;
@@ -170,6 +172,8 @@ export function RoadmapPanel({
     selectedId: string | null;
     onSelect: (id: string) => void;
     onSaved: (id: string) => void;
+    /** Top-level work-plan tasks. Empty keeps the row on its manual fields. */
+    links?: readonly PartOfTask[];
 }) {
     const [form, setForm] = useState<FormState | null>(null);
     const model = timelineModel(initiatives, today);
@@ -248,6 +252,7 @@ export function RoadmapPanel({
                                         <InitiativeTimelineRow
                                             key={row.id}
                                             row={row}
+                                            progress={linkedTaskProgress(row.id, links)}
                                             active={selected?.id === row.id}
                                             todayFraction={model.todayFraction}
                                             onSelect={onSelect}
@@ -260,6 +265,7 @@ export function RoadmapPanel({
                                         <InitiativeTimelineRow
                                             key={row.id}
                                             row={row}
+                                            progress={linkedTaskProgress(row.id, links)}
                                             active={selected?.id === row.id}
                                             todayFraction={model.todayFraction}
                                             onSelect={onSelect}
@@ -285,7 +291,12 @@ export function RoadmapPanel({
                     }}
                 />
             ) : (
-                <Detail initiative={message ? null : selected} message={message} today={today} onEdit={(initiative) => {
+                <Detail
+                    initiative={message ? null : selected}
+                    progress={selected ? linkedTaskProgress(selected.id, links) : null}
+                    message={message}
+                    today={today}
+                    onEdit={(initiative) => {
                     onSelect(initiative.id);
                     setForm(formFromInitiative(initiative));
                 }} />
@@ -296,11 +307,13 @@ export function RoadmapPanel({
 
 function InitiativeTimelineRow({
     row,
+    progress,
     active,
     todayFraction,
     onSelect,
 }: {
     row: TimelineRow;
+    progress: PartOfProgress | null;
     active: boolean;
     todayFraction: number | null;
     onSelect: (id: string) => void;
@@ -328,6 +341,11 @@ function InitiativeTimelineRow({
                         <InitiativeMark tone={row.tone} />
                         {row.stateLabel}
                     </span>
+                    {progress ? (
+                        <span data-task-progress={`${progress.done}/${progress.total}`} className="mt-1 block text-[12px] leading-4 text-[#71717a]">
+                            {progress.label}
+                        </span>
+                    ) : null}
                 </button>
             </td>
             <td className="px-3 py-3 align-middle">
@@ -403,13 +421,38 @@ function ScheduleHeader({ model }: { model: ReturnType<typeof timelineModel> }) 
     );
 }
 
+function LinkedTasks({ progress }: { progress: PartOfProgress }) {
+    return (
+        <div className="mt-4">
+            <h3 className="text-[10px] font-medium uppercase tracking-wide text-[#71717a]">Tasks</h3>
+            <p data-task-progress={`${progress.done}/${progress.total}`} className="mt-1 text-[13px] text-[#18181b]">{progress.label}</p>
+            <ul className="mt-2 space-y-1">
+                {progress.tasks.map(task => (
+                    <li key={task.id} data-linked-task={task.id} className="text-[13px] leading-5 text-[#18181b]">
+                        {task.title} · {linkedStatus(task.status)}
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+}
+
+function linkedStatus(status: string): string {
+    if (status === 'done') return 'Done';
+    if (status === 'in_progress') return 'In progress';
+    if (status === 'review') return 'In review';
+    return 'To do';
+}
+
 function Detail({
     initiative,
+    progress,
     message,
     today,
     onEdit,
 }: {
     initiative: CampaignInitiative | null;
+    progress: PartOfProgress | null;
     message: string | null;
     today: string;
     onEdit: (initiative: CampaignInitiative) => void;
@@ -468,6 +511,7 @@ function Detail({
                     {pageUrl}
                 </a>
             ) : null}
+            {progress ? <LinkedTasks progress={progress} /> : null}
             <h3 className="mt-4 text-[10px] font-medium uppercase tracking-wide text-[#71717a]">Delivery checklist</h3>
             {initiative.items.length === 0 ? (
                 <p className="mt-1 text-[13px] text-[#52525b]">No deliverables yet</p>
