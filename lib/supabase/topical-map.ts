@@ -14,7 +14,6 @@ import { createTask } from './tasks';
 import {
     approvalTaskDescription,
     cleanOptionalText,
-    declineUpdate,
     isRecordSource,
     isSpecStatus,
     normalizeOutgoingLinks,
@@ -23,7 +22,8 @@ import {
     type ManualRecordDraft,
     type SpecFieldPatch,
 } from '../topical-map/spec';
-import { approveRecordPatch, productionFromRow, productionUpdates } from '../topical-map/production';
+import { planRecordApproval } from '../content/approve';
+import { approveRecordPatch, productionFromRow, productionUpdates, readWorkMonth } from '../topical-map/production';
 
 export const MISSING_PRODUCTION_COLUMN = 'Content status cannot be saved until the database update is applied.';
 
@@ -229,6 +229,7 @@ export async function updateRecord(
     if (patch.specStatus !== undefined) row.spec_status = patch.specStatus;
     if (patch.reviewerNotes !== undefined) row.reviewer_notes = patch.reviewerNotes;
     if (patch.status !== undefined) row.status = patch.status;
+    if (typeof patch.taskId === 'string' && patch.taskId.trim()) row.task_id = patch.taskId.trim();
     const production = productionUpdates(patch);
     if (!production.ok) return { success: false, error: production.error };
     Object.assign(row, production.row);
@@ -257,35 +258,43 @@ export async function approveRecord(
     organizationId: string,
     clientId: string,
     userId?: string,
+    workMonth?: string | null,
 ): Promise<{ success: boolean; taskId?: string; error?: string }> {
-    const description = approvalTaskDescription(record);
-
-    const taskResult = await createTask({
-        organizationId,
-        clientId,
-        title: record.title,
-        description,
-        category: 'content',
-        priority: 'medium',
-        tags: [record.pageType, record.contentCategory].filter(Boolean) as string[],
-        createdBy: userId,
-    });
-
-    if (!taskResult.success || !taskResult.data) {
-        return { success: false, error: taskResult.error ?? 'Failed to create task' };
+    let month: string | undefined;
+    if (workMonth !== undefined && workMonth !== null) {
+        const parsed = readWorkMonth(workMonth);
+        if (!parsed) return { success: false, error: 'Month needs a real month.' };
+        month = parsed;
     }
 
-    const updateResult = await updateRecord(record.id, approveRecordPatch(taskResult.data.id, record.productionStatus));
-
-    if (!updateResult.success) {
-        return { success: false, error: updateResult.error };
+    const plan = planRecordApproval(record);
+    let taskId = plan.taskId;
+    if (plan.createTask) {
+        const description = approvalTaskDescription(record);
+        const taskResult = await createTask({
+            organizationId,
+            clientId,
+            title: record.title,
+            description,
+            category: 'content',
+            priority: 'medium',
+            tags: [record.pageType, record.contentCategory].filter(Boolean) as string[],
+            createdBy: userId,
+        });
+        if (!taskResult.success || !taskResult.data) {
+            return { success: false, error: taskResult.error ?? 'Could not create the task for this page.' };
+        }
+        taskId = taskResult.data.id;
     }
+    if (!taskId) return { success: false, error: 'Could not create the task for this page.' };
 
-    return { success: true, taskId: taskResult.data.id };
-}
-
-export async function declineRecord(recordId: string): Promise<{ success: boolean; error?: string }> {
-    return updateRecord(recordId, declineUpdate());
+    const patch = {
+        ...approveRecordPatch(taskId, record.productionStatus),
+        ...(month ? { workMonth: month } : {}),
+    };
+    const updateResult = await updateRecord(record.id, patch);
+    if (!updateResult.success) return { success: false, error: updateResult.error };
+    return { success: true, taskId };
 }
 
 export async function fetchSpecEnabled(clientId: string): Promise<boolean> {

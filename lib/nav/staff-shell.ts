@@ -56,6 +56,7 @@ type WorkspaceModule =
     | 'changes'
     | 'rankings'
     | 'topical-map'
+    | 'content'
     | 'inventory'
     | 'approvals'
     | 'portal'
@@ -100,6 +101,8 @@ function moduleOf(tab: string | null): WorkspaceModule | null {
             return 'rankings';
         case 'topical-map':
             return 'topical-map';
+        case 'content':
+            return 'content';
         case 'inventory':
             return 'inventory';
         case 'approvals':
@@ -184,8 +187,8 @@ export function clientSections(
 
 /**
  * Same workspace routes, grouped as Client / Planning / Delivery / More.
- * Content is omitted until a workspace content tab exists. Approvals stays
- * on `?tab=approvals` and is not listed until that content surface can hold it.
+ * Content is the production board for approved pages. Client review stays
+ * on `?tab=approvals`; the content board links there and does not replace it.
  */
 function pipelineClientSections(
     clientId: string,
@@ -229,6 +232,7 @@ function pipelineClientSections(
             label: 'Planning',
             links: [
                 link('topical-map', 'Topic map', 'topical-map'),
+                link('content', 'Content', 'content'),
                 link('changes', 'Changes', 'changes'),
                 opportunities,
             ],

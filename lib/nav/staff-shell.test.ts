@@ -268,7 +268,7 @@ test('pipeline nav off matches today\'s client items exactly', () => {
     }
 });
 
-test('pipeline nav on regroups the same routes and omits Content', () => {
+test('pipeline nav on regroups the same routes and lists Content', () => {
     const on = clientSections('summit', {
         keywordTracking: true,
         vault: true,
@@ -281,10 +281,12 @@ test('pipeline nav on regroups the same routes and omits Content', () => {
     assert.deepEqual(on[0].links.map(link => link.label), ['Overview']);
     assert.equal(on[0].links[0].href, '/workspace/summit?tab=overview');
 
-    assert.deepEqual(on[1].links.map(link => link.label), ['Topic map', 'Changes', 'Opportunities']);
+    assert.deepEqual(on[1].links.map(link => link.label), ['Topic map', 'Content', 'Changes', 'Opportunities']);
     assert.equal(on[1].links[0].href, '/workspace/summit?tab=topical-map');
-    assert.equal(on[1].links[1].href, '/workspace/summit?tab=changes');
-    const opportunities = on[1].links[2];
+    assert.equal(on[1].links[1].href, '/workspace/summit?tab=content');
+    assert.equal(on[1].links[1].tab, 'content');
+    assert.equal(on[1].links[2].href, '/workspace/summit?tab=changes');
+    const opportunities = on[1].links[3];
     assert.equal(opportunities.href, '/workspace/summit?tab=insights');
     assert.equal(opportunities.tab, 'insights');
     assert.deepEqual(opportunities.children?.map(link => link.label), ['Site pages', 'Rankings']);
@@ -309,10 +311,21 @@ test('pipeline nav on regroups the same routes and omits Content', () => {
     assert.equal(on[3].overflow, undefined);
 
     const labels = flatLinks(on).map(link => link.label);
-    assert.equal(labels.includes('Content'), false);
+    assert.equal(labels.includes('Content'), true);
+    assert.equal(labels.filter(label => label === 'Content').length, 1);
     assert.equal(labels.includes('Search'), false);
-    assert.equal(JSON.stringify(on).includes('tab=content'), false);
+    assert.equal(JSON.stringify(on).includes('tab=content'), true);
     assert.equal(labels.includes('Approvals'), false);
+    const shell = readFileSync(new URL('./staff-shell.ts', import.meta.url), 'utf8');
+    assert.equal(shell.includes('Content is omitted'), false);
+
+    const legacy = clientSections('summit', {
+        keywordTracking: true,
+        vault: true,
+        campaignWorkspace: true,
+        pipelineNav: false,
+    });
+    assert.equal(flatLinks(legacy).some(link => link.label === 'Content' || link.tab === 'content'), false);
 
     const noRankings = clientSections('summit', {
         keywordTracking: false,
@@ -320,7 +333,7 @@ test('pipeline nav on regroups the same routes and omits Content', () => {
         campaignWorkspace: false,
         pipelineNav: true,
     });
-    assert.deepEqual(noRankings[1].links[2].children?.map(link => link.label), ['Site pages']);
+    assert.deepEqual(noRankings[1].links[3].children?.map(link => link.label), ['Site pages']);
     assert.equal(flatLinks(noRankings).some(link => link.label === 'Rankings' || link.id === 'vault'), false);
     assert.deepEqual(noRankings[2].links.map(link => link.label), ['SEO Plan', 'Tasks', 'Reports']);
     assert.equal(noRankings[2].links[0].href, '/workspace/summit?tab=campaign');
@@ -329,6 +342,9 @@ test('pipeline nav on regroups the same routes and omits Content', () => {
     ]);
 
     const flagsOn = { keywordTracking: true, vault: true, campaignWorkspace: true };
+    const content = on[1].links[1];
+    assert.equal(isClientLinkActive('/workspace/summit', 'tab=content', content, flagsOn), true);
+    assert.equal(isClientLinkActive('/workspace/summit', 'tab=content', on[0].links[0], flagsOn), false);
     assert.equal(isClientLinkActive('/workspace/summit', 'tab=insights', opportunities, flagsOn), true);
     assert.equal(isClientLinkActive('/workspace/summit', 'tab=inventory', opportunities, flagsOn), false);
     assert.equal(isClientLinkActive('/workspace/summit', 'tab=inventory', opportunities.children![0], flagsOn), true);
@@ -342,6 +358,7 @@ test('pipeline nav on regroups the same routes and omits Content', () => {
         ['tab=insights', '/workspace/maya?tab=insights'],
         ['tab=inventory', '/workspace/maya?tab=inventory'],
         ['tab=topical-map', '/workspace/maya?tab=topical-map'],
+        ['tab=content', '/workspace/maya?tab=content'],
         ['tab=approvals&approvalBatch=batch-1', '/workspace/maya?tab=approvals&approvalBatch=batch-1'],
         ['tab=deliverables', '/workspace/maya?tab=deliverables'],
         ['tab=portal', '/workspace/maya?tab=portal'],
