@@ -1,3 +1,4 @@
+import { nudgeForecastSync } from '../forecast/nudge';
 import { createClient } from './client';
 import { createNotification } from './notifications';
 import { logActivity } from './client-activity';
@@ -565,6 +566,7 @@ export async function createTask(
             });
         }
 
+        nudgeForecastSync({ organizationId: task.organizationId, instants: [task.startDate] });
         return { success: true, data: task, ...(basecampSync ? { basecampSync } : {}) };
     } catch (err: any) {
         console.error('Error creating task:', err);
@@ -607,6 +609,15 @@ export async function updateTask(
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
+        let previousStart: string | null = null;
+        if (patch.startDate !== undefined) {
+            const { data: before } = await supabase
+                .from('tasks')
+                .select('start_date')
+                .eq('id', taskId)
+                .maybeSingle();
+            previousStart = typeof before?.start_date === 'string' ? before.start_date : null;
+        }
         // Build row, stripping undefined values
         const candidate: Record<string, unknown> = {
             ...(patch.title !== undefined && { title: patch.title }),
@@ -924,6 +935,10 @@ export async function updateTask(
             });
         }
 
+        nudgeForecastSync({
+            organizationId: updatedTask.organizationId,
+            instants: [updatedTask.startDate, previousStart],
+        });
         return { success: true, data: updatedTask };
     } catch (err: any) {
         console.error('Error updating task:', err);
@@ -935,9 +950,18 @@ export async function deleteTask(taskId: string): Promise<{ success: boolean; er
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
+        const { data: existing } = await supabase
+            .from('tasks')
+            .select('organization_id, start_date')
+            .eq('id', taskId)
+            .maybeSingle();
         // Subtasks cascade via FK; comments cascade via FK
         const { error } = await supabase.from('tasks').delete().eq('id', taskId);
         if (error) throw error;
+        nudgeForecastSync({
+            organizationId: typeof existing?.organization_id === 'string' ? existing.organization_id : undefined,
+            instants: [typeof existing?.start_date === 'string' ? existing.start_date : null],
+        });
         return { success: true };
     } catch (err: any) {
         console.error('Error deleting task:', err);

@@ -55,7 +55,7 @@ function liveClient(): ForecastHttpDependencies['client'] {
     return campaignDeskClientFrom(baseUrl, token);
 }
 
-function dependencies(): ForecastHttpDependencies {
+export function forecastHttpDependencies(): ForecastHttpDependencies {
     const client = liveClient();
     return {
         now: () => new Date(),
@@ -86,7 +86,7 @@ function dependencies(): ForecastHttpDependencies {
     };
 }
 
-const wired = dependencies();
+const wired = forecastHttpDependencies();
 
 export const forecastPreviewGet = createForecastPreviewGet(wired);
 export const forecastStatusGet = createForecastStatusGet(wired);

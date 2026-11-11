@@ -231,6 +231,14 @@ export interface BotDeps {
     pushTodo(taskId: string, actor: BotActor): Promise<BasecampStep>;
     syncTimesheet(timeLogId: string, actor: BotActor): Promise<BasecampStep>;
     completeTodo(taskId: string, actor: BotActor): Promise<BasecampStep>;
+    /** Best-effort. A failure here must not fail the bot request. */
+    onCommitted?(event: {
+        organizationId: string;
+        userId: string;
+        actorName: string;
+        timeZone: string;
+        dates: string[];
+    }): void;
 }
 
 function json(body: unknown, status: number, headers?: Record<string, string>): Response {
@@ -1211,6 +1219,20 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
                     : command.kind === 'resume'
                         ? await executeResume(key, actor, command, operation, deps, cappedJustNow)
                         : await executeStop(key, actor, command, operation, deps);
+        if (result.status >= 200 && result.status < 300) {
+            try {
+                const timeZone = 'timeZone' in command && command.timeZone ? command.timeZone : BOT_ACTOR_TIME_ZONE;
+                deps.onCommitted?.({
+                    organizationId: actor.organizationId,
+                    userId: actor.userId,
+                    actorName: actor.name,
+                    timeZone,
+                    dates: [deps.now().toISOString()],
+                });
+            } catch {
+                // The bot change is already saved. Campaign Desk can catch up on the next edit.
+            }
+        }
         if (result.status >= 200 && result.status < 500) {
             await deps.saveOperation(operation.id, {
                 status: 'completed',
