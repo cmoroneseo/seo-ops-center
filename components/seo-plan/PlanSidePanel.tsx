@@ -36,6 +36,7 @@ import {
 import { cn } from '@/lib/utils';
 import { CompletionDatePrompt } from '@/components/tasks/CompletionDatePrompt';
 import { PlanSubtaskAdd } from './PlanSubtaskAdd';
+import { partOfLine, type PartOfChoice } from '@/lib/tasks/part-of';
 
 /**
  * Non-modal task panel for the SEO Plan.
@@ -52,6 +53,7 @@ export function PlanSidePanel({
     focusField,
     autosaveMs = PLAN_TEXT_AUTOSAVE_MS,
     onSave,
+    partOf = null,
     onDuplicate,
     onDelete,
     onAddSubtasks,
@@ -66,6 +68,8 @@ export function PlanSidePanel({
     focusField: PlanPanelField | null;
     autosaveMs?: number;
     onSave: (taskId: string, save: PlanPanelSave) => Promise<string | null>;
+    /** Roadmap rows for this client. Null hides the control. */
+    partOf?: readonly PartOfChoice[] | null;
     onDuplicate: () => Promise<string | null>;
     onDelete: () => Promise<string | null>;
     /** Creates subtasks under this task through the plan's existing add path. */
@@ -92,6 +96,7 @@ export function PlanSidePanel({
     const [blockedDraft, setBlockedDraft] = useState('');
     const [blockedError, setBlockedError] = useState<string | null>(null);
     const [parentOpen, setParentOpen] = useState(false);
+    const [partOfOpen, setPartOfOpen] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const titleDirty = useRef(false);
     const descriptionDirty = useRef(false);
@@ -125,6 +130,7 @@ export function PlanSidePanel({
         setBlockedDraft('');
         setBlockedError(null);
         setParentOpen(false);
+        setPartOfOpen(false);
         // The id is the only signal. Title and description from this render belong to the task being opened.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [task.id]);
@@ -320,6 +326,8 @@ export function PlanSidePanel({
         now: now ?? new Date(),
     });
     const parent = planParentField(tasks, task.id);
+    const partOfTitle = partOf?.find(choice => choice.id === task.initiativeId)?.title ?? null;
+    const showPartOf = Array.isArray(partOf) && task.parentTaskId == null && (partOf.length > 0 || Boolean(task.initiativeId));
     const subtasks = planCanAddSubtasks(task) ? planSubtasks(tasks, task.id) : [];
     const selectedPeople = task.assigneeIds
         .map(id => people.find(person => person.id === id))
@@ -333,13 +341,14 @@ export function PlanSidePanel({
             aria-label="Task details"
             onKeyDown={event => {
                 if (event.key !== 'Escape') return;
-                if (!assigneeOpen && !labelOpen && !blockedOpen && !parentOpen && !confirmDelete) return;
+                if (!assigneeOpen && !labelOpen && !blockedOpen && !parentOpen && !partOfOpen && !confirmDelete) return;
                 event.stopPropagation();
                 setAssigneeOpen(false);
                 setLabelOpen(false);
                 setBlockedOpen(false);
                 setBlockedError(null);
                 setParentOpen(false);
+                setPartOfOpen(false);
                 setConfirmDelete(false);
             }}
             className="sticky top-4 flex h-[calc(100vh-5rem)] w-[380px] max-w-full shrink-0 flex-col border-l border-[#e4e4e7] bg-[#ffffff] shadow-[-12px_0_32px_rgba(24,24,27,0.08)]"
@@ -602,6 +611,50 @@ export function PlanSidePanel({
                             </>
                         )}
                     </Field>
+                    {showPartOf && partOf ? (
+                        <Field label="Part of">
+                            <span data-plan-part-of={task.initiativeId ?? 'none'}>
+                                {partOfLine(partOfTitle, Boolean(task.initiativeId))}
+                            </span>
+                            <button
+                                type="button"
+                                data-plan-field="part-of"
+                                className="text-[11px] text-[#ec4899] hover:underline"
+                                onClick={() => setPartOfOpen(open => !open)}
+                            >
+                                Change
+                            </button>
+                            {partOfOpen && (
+                                <div data-plan-menu="part-of" className="mt-1 max-h-40 w-full overflow-auto rounded-md border border-[#e4e4e7] bg-[#ffffff] p-1">
+                                    <button
+                                        type="button"
+                                        data-plan-part-of-choice="none"
+                                        className="block w-full rounded px-2 py-1 text-left hover:bg-[#f4f4f6]"
+                                        onClick={() => {
+                                            setPartOfOpen(false);
+                                            void commit({ field: 'partOf', initiativeId: null });
+                                        }}
+                                    >
+                                        None
+                                    </button>
+                                    {partOf.filter(choice => choice.id !== task.initiativeId).map(choice => (
+                                        <button
+                                            key={choice.id}
+                                            type="button"
+                                            data-plan-part-of-choice={choice.id}
+                                            className="block w-full rounded px-2 py-1 text-left hover:bg-[#f4f4f6]"
+                                            onClick={() => {
+                                                setPartOfOpen(false);
+                                                void commit({ field: 'partOf', initiativeId: choice.id });
+                                            }}
+                                        >
+                                            {choice.title}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </Field>
+                    ) : null}
                     <Field label="Labels">
                         {labels.map(label => (
                             <button

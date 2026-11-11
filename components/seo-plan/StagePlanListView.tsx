@@ -33,6 +33,7 @@ import {
 import type { DoneThisMonthLog } from '@/lib/seo-plan/done-this-month';
 import { type PlanPanelField } from '@/lib/seo-plan/plan-panel';
 import { stageListTitleParts, type StageListTask } from '@/lib/seo-plan/stage-list';
+import { tasksPartOf, type PartOfChoice } from '@/lib/tasks/part-of';
 import { calendarDay, STAGE_LIST_TIME_ZONE } from '@/lib/seo-plan/this-month';
 import type { StageReorderMove } from '@/lib/seo-plan/stage-reorder';
 import { cn } from '@/lib/utils';
@@ -260,6 +261,7 @@ export function StagePlanListView({
     orgTasksReady = true,
     planRows = NO_PLAN_ROWS,
     checklistScope = {},
+    partOfChoices = [],
 }: {
     tasks: readonly StageListTask[];
     query: string;
@@ -327,20 +329,27 @@ export function StagePlanListView({
     planRows?: readonly PlaybookExisting[];
     /** Google Business Profile and directory listings follow the client's saved scope. */
     checklistScope?: PlaybookScope;
+    /** Roadmap rows this client can filter by. Empty hides the control. */
+    partOfChoices?: readonly PartOfChoice[];
 }) {
     const searchId = useId();
     const searchRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const [focusedId, setFocusedId] = useState<string | null>(null);
+    const [partOfId, setPartOfId] = useState('');
     const day = today ?? calendarDay(new Date());
     const [month, setMonth] = useState(() => (initialMonth && isPlanMonth(initialMonth) ? initialMonth : monthKeyFromDay(day)));
     const urlMonth = useRef<string | null | undefined>(undefined);
     const phaseBoard = board === 'phases';
+    const partOfActive = partOfChoices.some(choice => choice.id === partOfId) ? partOfId : '';
+    const listed = tasksPartOf(tasks, partOfActive || null);
     const sections = phaseBoard
-        ? groupTasksByPhase(tasks, query, day)
-        : groupTasksByPlanMonth(tasks, { month, today: day, query });
+        ? groupTasksByPhase(listed, query, day)
+        : groupTasksByPlanMonth(listed, { month, today: day, query });
     const searching = query.trim().length > 0;
+    const narrowing = searching || partOfActive !== '';
     const nothingMatches = searching && sections.every(section => section.groups.length === 0);
+    const partOfMiss = partOfActive !== '' && !searching && sections.every(section => section.groups.length === 0);
     const current = month === monthKeyFromDay(day);
     const clientFailure = Boolean(basecamp?.connected && basecamp.failure);
     void clientName;
@@ -460,6 +469,23 @@ export function StagePlanListView({
                     >
                         {PLAYBOOK_COPY.button}
                     </button>
+                    {partOfChoices.length > 0 ? (
+                        <label>
+                            <span className="sr-only">Part of</span>
+                            <select
+                                aria-label="Part of"
+                                data-plan-part-of
+                                value={partOfActive}
+                                onChange={event => setPartOfId(event.target.value)}
+                                className="max-w-48 rounded-lg border border-[#e4e4e7] bg-[#ffffff] px-2 py-1.5 text-[13px] text-[#18181b] outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                            >
+                                <option value="">All tasks</option>
+                                {partOfChoices.map(choice => (
+                                    <option key={choice.id} value={choice.id}>{choice.title}</option>
+                                ))}
+                            </select>
+                        </label>
+                    ) : null}
                     <label htmlFor={searchId} className="sr-only">Search tasks</label>
                     <input
                         ref={searchRef}
@@ -501,6 +527,9 @@ export function StagePlanListView({
                     <button type="button" onClick={() => onQueryChange('')} className="text-[#ec4899] hover:underline">Clear search</button>
                 </p>
             )}
+            {partOfMiss && (
+                <p data-plan-part-of-empty className="text-[13px] text-[#71717a]">No tasks are part of this.</p>
+            )}
 
             {phaseBoard && tasks.length === 0 && !searching && (
                 <div data-plan-phase-empty className="text-[13px] leading-relaxed text-[#3f3f46]">
@@ -518,11 +547,12 @@ export function StagePlanListView({
                 </div>
             ) : (
                 <PlanSections
-                key={query}
+                key={`${query}:${partOfActive}`}
                 tasks={tasks}
                 sections={sections}
                 query={query}
                 searching={searching}
+                dragLocked={narrowing}
                 nothingMatches={nothingMatches}
                 month={month}
                 today={day}
@@ -607,6 +637,7 @@ function PlanSections({
     sections,
     query,
     searching,
+    dragLocked = false,
     nothingMatches,
     month,
     today,
@@ -636,6 +667,8 @@ function PlanSections({
     sections: Array<Omit<PlanSectionModel, 'id'> & { id: string; description?: string }>;
     query: string;
     searching: boolean;
+    /** Text search or the Part of filter. Dragging would skip hidden rows. */
+    dragLocked?: boolean;
     nothingMatches: boolean;
     month: string;
     today: string;
@@ -746,7 +779,7 @@ function PlanSections({
 
     const commit = (section: PlanSectionId | PlanPhase, beforeTaskId: string | null, parentTaskId: string | null) => {
         const activeId = dragIdRef.current;
-        if (!activeId || searching) {
+        if (!activeId || dragLocked) {
             clearDrag();
             return;
         }
@@ -787,16 +820,16 @@ function PlanSections({
                         data-stage={section.id}
                         data-plan-section={section.id}
                         data-plan-collapsed={closed ? 'true' : 'false'}
-                        data-stage-drop={searching ? undefined : section.id}
+                        data-stage-drop={dragLocked ? undefined : section.id}
                         aria-labelledby={headingId}
                         className="overflow-hidden rounded-[10px] border border-[#e4e4e7] bg-[#ffffff]"
                         onDragOver={event => {
-                            if (searching || !dragIdRef.current) return;
+                            if (dragLocked || !dragIdRef.current) return;
                             event.preventDefault();
                             showHint({ section: section.id as PlanSectionId | PlanPhase, beforeTaskId: null, parentTaskId: null });
                         }}
                         onDrop={event => {
-                            if (searching || !dragIdRef.current) return;
+                            if (dragLocked || !dragIdRef.current) return;
                             event.preventDefault();
                             commit(section.id as PlanSectionId | PlanPhase, null, null);
                         }}
@@ -846,6 +879,7 @@ function PlanSections({
                                             section={section.id as PlanSectionId | PlanPhase}
                                             query={query}
                                             searching={searching}
+                                            dragLocked={dragLocked}
                                             today={today}
                                             people={people}
                                             loggedHours={loggedHours}
@@ -925,6 +959,7 @@ function PlanRow({
     section,
     query,
     searching,
+    dragLocked,
     today,
     people,
     loggedHours,
@@ -958,6 +993,7 @@ function PlanRow({
     section: PlanSectionId | PlanPhase;
     query: string;
     searching: boolean;
+    dragLocked: boolean;
     today: string;
     people: readonly PlanAssignee[];
     loggedHours: Readonly<Record<string, number>>;
@@ -1037,7 +1073,7 @@ function PlanRow({
                 return child?.assigneeIds ?? [];
             })])
             : (task.assigneeIds ?? []);
-        const draggable = !searching && !locked && options.role === 'task';
+        const draggable = !dragLocked && !locked && options.role === 'task';
         return (
             <div
                 key={task.id}
@@ -1316,13 +1352,13 @@ function PlanRow({
                     id={panelId}
                     data-stage-children={group.task.id}
                     onDragOver={event => {
-                        if (searching || !dragId) return;
+                        if (dragLocked || !dragId) return;
                         event.preventDefault();
                         event.stopPropagation();
                         onHint({ section, beforeTaskId: null, parentTaskId: group.task.id });
                     }}
                     onDrop={event => {
-                        if (searching) return;
+                        if (dragLocked) return;
                         event.preventDefault();
                         event.stopPropagation();
                         onDropRow(null, group.task.id);
@@ -1335,7 +1371,7 @@ function PlanRow({
                                 parentId: group.task.id,
                                 parentTitle: group.task.title,
                                 nextId: visibleChildren[index + 1]?.id ?? null,
-                                leading: searching || isPendingStageTaskId(child.id) ? undefined : (
+                                leading: dragLocked || isPendingStageTaskId(child.id) ? undefined : (
                                     <span
                                         draggable
                                         data-stage-grip={child.id}

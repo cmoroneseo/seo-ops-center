@@ -85,6 +85,62 @@ test('a client outside the session organization does not load tasks', async () =
     assert.equal(fake.filters.some(filter => filter.table === 'tasks'), false);
 });
 
+function taskClient(link: 'present' | 'missing'): SupabaseClient {
+    return {
+        from() {
+            let columns = '';
+            const api = {
+                select(next: string) {
+                    columns = next;
+                    return api;
+                },
+                eq() { return api; },
+                order() { return api; },
+                maybeSingle() {
+                    return Promise.resolve({ data: { id: clientId }, error: null });
+                },
+                then(resolve: (value: { data: unknown; error: { message: string } | null }) => unknown) {
+                    if (columns.includes('initiative_id')) {
+                        if (link === 'missing') {
+                            return Promise.resolve({ data: null, error: { message: 'column tasks.initiative_id does not exist' } }).then(resolve);
+                        }
+                        return Promise.resolve({
+                            data: [{ id: 'setup', initiative_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }],
+                            error: null,
+                        }).then(resolve);
+                    }
+                    return Promise.resolve({
+                        data: [{
+                            id: 'setup',
+                            title: 'SEO Setup',
+                            status: 'todo',
+                            stage: 'onboarding',
+                            position: 1,
+                            parent_task_id: null,
+                            created_at: '2026-01-02T00:00:00.000Z',
+                            category: null,
+                            basecamp_todo_id: null,
+                            recurrence: null,
+                        }],
+                        error: null,
+                    }).then(resolve);
+                },
+            };
+            return api;
+        },
+    } as unknown as SupabaseClient;
+}
+
+test('a present initiative column is attached and a missing one leaves the plan alone', async () => {
+    const linked = await loadClientStageTasks(taskClient('present'), org, clientId);
+    assert.equal(linked?.[0]?.title, 'SEO Setup');
+    assert.equal(linked?.[0]?.initiativeId, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+
+    const plain = await loadClientStageTasks(taskClient('missing'), org, clientId);
+    assert.equal(plain?.[0]?.title, 'SEO Setup');
+    assert.equal('initiativeId' in (plain?.[0] ?? {}), false);
+});
+
 test('database failures stay generic', async () => {
     await assert.rejects(loadClientStageTasks(db({ clientError: true }).client, org, clientId), /Unable to load client/);
     await assert.rejects(loadClientStageTasks(db({ taskError: true }).client, org, clientId), /Unable to load tasks/);

@@ -89,6 +89,8 @@ export function mergeListField(task: StageListTask, saved: Task, field: SaveFiel
             return { ...task, stage: saved.stage ?? task.stage };
         case 'liveUrl':
             return { ...task, publishedUrl: saved.publishedUrl ?? null };
+        case 'partOf':
+            return { ...task, initiativeId: saved.initiativeId ?? null };
         default:
             return task;
     }
@@ -122,6 +124,8 @@ export function restoreListField(task: StageListTask, snapshot: StageListTask, f
             return { ...task, stage: snapshot.stage };
         case 'liveUrl':
             return { ...task, publishedUrl: snapshot.publishedUrl };
+        case 'partOf':
+            return { ...task, initiativeId: snapshot.initiativeId };
         default:
             return task;
     }
@@ -157,6 +161,8 @@ export function mergeDetailField(current: Task, saved: Task, field: SaveField): 
             return { ...current, stage: saved.stage, updatedAt };
         case 'liveUrl':
             return { ...current, publishedUrl: saved.publishedUrl, updatedAt };
+        case 'partOf':
+            return { ...current, initiativeId: saved.initiativeId ?? null, updatedAt };
         default:
             return current;
     }
@@ -190,6 +196,7 @@ export function mergeRefreshedTasks(
             blockedReason: kept.blockedReason,
             publishedUrl: kept.publishedUrl,
             parentTaskId: kept.parentTaskId,
+            ...('initiativeId' in kept ? { initiativeId: kept.initiativeId } : {}),
         };
     });
     const seen = new Set(merged.map(task => task.id));

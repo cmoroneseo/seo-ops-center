@@ -263,6 +263,11 @@ export interface Task {
     subtasksState?: 'loading' | 'ready' | 'unavailable';
     deliverableId?: string;
     parentTaskId?: string;
+    /**
+     * Roadmap row this task belongs to. Null when it is not linked.
+     * Column from migration 126. Absent when that column was not selected.
+     */
+    initiativeId?: string | null;
     /** How long the work takes. Never written by the planner. */
     estimatedHours?: number;
     /** How much of a day the planner has blocked for it (migration 028). */
