@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { TASK_STATUS_LABELS } from '../copy/labels.ts';
 import { planSearchMissCopy } from './plan-sections.ts';
 import {
     EMPTY_PLAN_FILTERS,
+    PLAN_FILTER_STATUS_OPTIONS,
+    PLAN_QUICK_VIEWS,
     activePlanFilterCount,
     describeFilteredSections,
     filterPlanTasks,
@@ -172,4 +175,29 @@ test('empty copy stays plain and a title search keeps its own sentence', () => {
     assert.equal(planFilterEmptyCopy(state({ partOf: RANK })), 'No tasks are part of this.');
     assert.equal(planFilterEmptyCopy(state({ status: 'done', query: 'page' })), 'No tasks match these filters.');
     assert.equal(planFilterEmptyCopy(state({ assignee: 'none' })), 'No tasks match these filters.');
+    assert.equal(PLAN_QUICK_VIEWS.find(view => view.id === 'not-started')?.label, TASK_STATUS_LABELS.todo);
+    assert.equal(PLAN_QUICK_VIEWS.find(view => view.id === 'in-progress')?.label, TASK_STATUS_LABELS.in_progress);
+    assert.equal(PLAN_FILTER_STATUS_OPTIONS.map(option => option.label).join('|'), 'To Do|In Progress|Done');
+});
+
+test('a stage filter keeps the late count for the tasks that remain', () => {
+    const sections = [{
+        id: 'foundation',
+        title: 'Foundation',
+        groups: [
+            { task: { stage: 'foundation', status: 'todo', dueDate: '2026-10-01' }, children: [] },
+            { task: { stage: 'growth', status: 'todo', dueDate: '2026-10-02' }, children: [] },
+        ],
+        count: 2,
+        open: 2,
+        late: 2,
+        done: 0,
+        meta: '2 open · 2 late · 0 done',
+        empty: 'None',
+    }];
+    const kept = hideSectionsOutsideStage(sections, 'foundation', 'phases', '2026-11-07');
+    assert.equal(kept[0]?.groups.length, 1);
+    assert.equal(kept[0]?.late, 1);
+    assert.equal(kept[0]?.open, 1);
+    assert.equal(kept[0]?.meta, '1 open · 1 late · 0 done');
 });

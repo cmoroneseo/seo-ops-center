@@ -1,3 +1,4 @@
+import { TASK_STATUS_LABELS } from '../copy/labels';
 import { tasksPartOf } from '../tasks/part-of';
 
 /**
@@ -44,17 +45,17 @@ export type PlanFilterBoard = 'phases' | 'months';
 
 export const PLAN_QUICK_VIEWS = [
     { id: 'mine', label: 'My tasks' },
-    { id: 'not-started', label: 'Not started' },
-    { id: 'in-progress', label: 'In progress' },
-    { id: 'done', label: 'Done' },
+    { id: 'not-started', label: TASK_STATUS_LABELS.todo },
+    { id: 'in-progress', label: TASK_STATUS_LABELS.in_progress },
+    { id: 'done', label: TASK_STATUS_LABELS.done },
 ] as const;
 
 export type PlanQuickView = (typeof PLAN_QUICK_VIEWS)[number]['id'];
 
 export const PLAN_FILTER_STATUS_OPTIONS: { value: PlanFilterStatus; label: string }[] = [
-    { value: 'todo', label: 'Not started' },
-    { value: 'in_progress', label: 'In progress' },
-    { value: 'done', label: 'Done' },
+    { value: 'todo', label: TASK_STATUS_LABELS.todo },
+    { value: 'in_progress', label: TASK_STATUS_LABELS.in_progress },
+    { value: 'done', label: TASK_STATUS_LABELS.done },
 ];
 
 export const PLAN_FILTER_PRIORITY_OPTIONS: { value: PlanFilterPriority; label: string }[] = [
@@ -125,7 +126,7 @@ export function planSectionFilterEmpty(title: string): string {
     return `No tasks in ${title} match these filters.`;
 }
 
-function knownStage(stage: string, board: PlanFilterBoard): boolean {
+export function knownStage(stage: string, board: PlanFilterBoard): boolean {
     return planStageOptions(board).some(option => option.value === stage);
 }
 
@@ -208,7 +209,8 @@ export function filtersForPreset(
     }
     if (view === 'not-started') return { ...EMPTY_PLAN_FILTERS, status: 'todo' };
     if (view === 'in-progress') return { ...EMPTY_PLAN_FILTERS, status: 'in_progress' };
-    return { ...EMPTY_PLAN_FILTERS, status: 'done' };
+    if (view === 'done') return { ...EMPTY_PLAN_FILTERS, status: 'done' };
+    return null;
 }
 
 /** A quick view is pressed only when the filters are exactly that preset. */
@@ -292,18 +294,26 @@ export function filterPlanTasks<T extends PlanFilterTask>(
  * On Foundation, Growth, and Scale, Later means a task stored as backlog.
  * Those tasks stay in the Foundation column, which is where the board already shows them.
  */
+function rowIsLate(task: { status?: string; dueDate?: string | null }, today: string): boolean {
+    if (!task.status || task.status === 'done') return false;
+    const due = task.dueDate?.slice(0, 10) ?? '';
+    const now = today.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(due) || !/^\d{4}-\d{2}-\d{2}$/.test(now)) return false;
+    return due < now;
+}
+
 export function hideSectionsOutsideStage<T extends {
     id: string;
     groups: readonly {
-        task: { stage: string | null; status?: string };
-        children?: readonly { status?: string }[];
+        task: { stage: string | null; status?: string; dueDate?: string | null };
+        children?: readonly { status?: string; dueDate?: string | null }[];
     }[];
     count: number;
     open: number;
     late: number;
     done: number;
     meta: string;
-}>(sections: readonly T[], stage: string, board: PlanFilterBoard): T[] {
+}>(sections: readonly T[], stage: string, board: PlanFilterBoard, today?: string): T[] {
     if (!stage || !knownStage(stage, board)) return [...sections];
     if (board === 'months') {
         return sections.map(section => {
@@ -318,14 +328,16 @@ export function hideSectionsOutsideStage<T extends {
         const counted = rows.length > 0 && rows.every(row => typeof row.status === 'string');
         const done = rows.filter(row => row.status === 'done').length;
         const open = rows.length - done;
+        const late = counted && today ? rows.filter(row => rowIsLate(row, today)).length : section.late;
+        const lateNote = late > 0 ? ` · ${late} late` : '';
         return {
             ...section,
             groups,
             count: counted ? rows.length : groups.length,
-            open: counted ? open : 0,
-            late: 0,
-            done: counted ? done : 0,
-            meta: counted ? `${open} open · ${done} done` : section.meta,
+            open: counted ? open : section.open,
+            late,
+            done: counted ? done : section.done,
+            meta: counted ? `${open} open${lateNote} · ${done} done` : section.meta,
         } as T;
     });
 }

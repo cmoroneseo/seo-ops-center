@@ -369,7 +369,7 @@ export function parseStageListTasks(value: unknown): StageListTask[] {
             ...('dueDate' in record ? { dueDate: readDueDay(record.dueDate) } : {}),
             ...('completedAt' in record ? { completedAt: readTimestamp(record.completedAt) } : {}),
             ...('assigneeIds' in record ? { assigneeIds: readAssigneeIds(record.assigneeIds) } : {}),
-        ...('priority' in record ? { priority: readPriority(record.priority) } : {}),
+            ...('priority' in record ? { priority: readPriority(record.priority) } : {}),
             ...('blockedReason' in record ? { blockedReason: readBlockedReason(record.blockedReason) } : {}),
             ...('description' in record ? { description: readDescription(record.description) } : {}),
             ...('estimatedHours' in record ? { estimatedHours: readEstimatedHours(record.estimatedHours) } : {}),

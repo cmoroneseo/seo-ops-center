@@ -10,6 +10,7 @@ import {
     filterPlanTasks,
     hideSectionsOutsideStage,
     hrefWithPlanFilters,
+    knownStage,
     planFilterEmptyCopy,
     readPlanFilters,
     type PlanBoardFilters,
@@ -221,6 +222,14 @@ interface DropHint {
     parentTaskId: string | null;
 }
 
+function samePlanFilters(left: PlanBoardFilters, right: PlanBoardFilters): boolean {
+    return left.status === right.status
+        && left.priority === right.priority
+        && left.assignee === right.assignee
+        && left.stage === right.stage
+        && left.partOf === right.partOf;
+}
+
 function hintKey(hint: DropHint | null): string {
     if (!hint) return '';
     return `${hint.section}:${hint.parentTaskId ?? ''}:${hint.beforeTaskId ?? ''}`;
@@ -351,34 +360,35 @@ export function StagePlanListView({
     const searchRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const [focusedId, setFocusedId] = useState<string | null>(null);
-    const [filters, setFilters] = useState<PlanBoardFilters>(() => (
-        typeof window === 'undefined' ? EMPTY_PLAN_FILTERS : readPlanFilters(window.location.search).filters
-    ));
-    const appliedUrl = useRef(false);
-    const urlQueryPending = useRef<string | null>(null);
+    const [filters, setFilters] = useState<PlanBoardFilters>(EMPTY_PLAN_FILTERS);
+    /** undefined until the address is read. null after state matches that read. */
+    const urlFilters = useRef<{ filters: PlanBoardFilters; query: string } | null | undefined>(undefined);
+    const queryRef = useRef(query);
+    queryRef.current = query;
+    const onQueryChangeRef = useRef(onQueryChange);
+    onQueryChangeRef.current = onQueryChange;
     const day = today ?? calendarDay(new Date());
     const [month, setMonth] = useState(() => (initialMonth && isPlanMonth(initialMonth) ? initialMonth : monthKeyFromDay(day)));
     const urlMonth = useRef<string | null | undefined>(undefined);
     const phaseBoard = board === 'phases';
     const partOfActive = partOfChoices.some(choice => choice.id === filters.partOf) ? filters.partOf : '';
-    const stageOptionsKnown = phaseBoard
-        ? filters.stage === 'foundation' || filters.stage === 'growth' || filters.stage === 'scale' || filters.stage === 'backlog'
-        : filters.stage === 'onboarding' || filters.stage === 'this_month' || filters.stage === 'backlog';
+    const boardKind = phaseBoard ? 'phases' : 'months';
+    const stageActive = filters.stage && knownStage(filters.stage, boardKind) ? filters.stage : '';
     const appliedFilters: PlanBoardFilters = {
         ...filters,
         partOf: partOfActive,
-        stage: stageOptionsKnown ? filters.stage : '',
+        stage: stageActive,
     };
     const listed = filterPlanTasks(tasks, appliedFilters);
     const attributeCount = [appliedFilters.status, appliedFilters.priority, appliedFilters.assignee, appliedFilters.stage, appliedFilters.partOf]
         .filter(Boolean).length;
     const sections = phaseBoard
         ? describeFilteredSections(
-            hideSectionsOutsideStage(groupTasksByPhase(listed, query, day), appliedFilters.stage, 'phases'),
+            hideSectionsOutsideStage(groupTasksByPhase(listed, query, day), appliedFilters.stage, 'phases', day),
             attributeCount > 0,
         )
         : describeFilteredSections(
-            hideSectionsOutsideStage(groupTasksByPlanMonth(listed, { month, today: day, query }), appliedFilters.stage, 'months'),
+            hideSectionsOutsideStage(groupTasksByPlanMonth(listed, { month, today: day, query }), appliedFilters.stage, 'months', day),
             attributeCount > 0,
         );
     const searching = query.trim().length > 0;
@@ -460,21 +470,18 @@ export function StagePlanListView({
     }, [month, onMonthChange, phaseBoard]);
 
     useEffect(() => {
-        if (appliedUrl.current || typeof window === 'undefined') return;
-        appliedUrl.current = true;
         const read = readPlanFilters(window.location.search);
+        urlFilters.current = read;
         setFilters(read.filters);
-        if (read.query !== query) {
-            urlQueryPending.current = read.query;
-            onQueryChange(read.query);
-        }
-    }, [onQueryChange, query]);
+        if (read.query !== queryRef.current) onQueryChangeRef.current(read.query);
+    }, []);
 
     useEffect(() => {
-        if (!appliedUrl.current || typeof window === 'undefined') return;
-        if (urlQueryPending.current !== null) {
-            if (query !== urlQueryPending.current) return;
-            urlQueryPending.current = null;
+        const pending = urlFilters.current;
+        if (pending === undefined) return;
+        if (pending !== null) {
+            if (!samePlanFilters(filters, pending.filters) || query !== pending.query) return;
+            urlFilters.current = null;
         }
         const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
         const next = hrefWithPlanFilters(current, { ...filters, query });
@@ -601,7 +608,6 @@ export function StagePlanListView({
                 sections={sections}
                 query={query}
                 searching={searching}
-                dragLocked={false}
                 nothingMatches={nothingMatches}
                 month={month}
                 today={day}
@@ -686,7 +692,6 @@ function PlanSections({
     sections,
     query,
     searching,
-    dragLocked = false,
     nothingMatches,
     month,
     today,
@@ -716,8 +721,6 @@ function PlanSections({
     sections: Array<Omit<PlanSectionModel, 'id'> & { id: string; description?: string }>;
     query: string;
     searching: boolean;
-    /** Pending saves can lock a drag. Filters do not: the drop uses the full list. */
-    dragLocked?: boolean;
     nothingMatches: boolean;
     month: string;
     today: string;
@@ -828,7 +831,7 @@ function PlanSections({
 
     const commit = (section: PlanSectionId | PlanPhase, beforeTaskId: string | null, parentTaskId: string | null) => {
         const activeId = dragIdRef.current;
-        if (!activeId || dragLocked) {
+        if (!activeId) {
             clearDrag();
             return;
         }
@@ -869,16 +872,16 @@ function PlanSections({
                         data-stage={section.id}
                         data-plan-section={section.id}
                         data-plan-collapsed={closed ? 'true' : 'false'}
-                        data-stage-drop={dragLocked ? undefined : section.id}
+                        data-stage-drop={section.id}
                         aria-labelledby={headingId}
                         className="overflow-hidden rounded-[10px] border border-[#e4e4e7] bg-[#ffffff]"
                         onDragOver={event => {
-                            if (dragLocked || !dragIdRef.current) return;
+                            if (!dragIdRef.current) return;
                             event.preventDefault();
                             showHint({ section: section.id as PlanSectionId | PlanPhase, beforeTaskId: null, parentTaskId: null });
                         }}
                         onDrop={event => {
-                            if (dragLocked || !dragIdRef.current) return;
+                            if (!dragIdRef.current) return;
                             event.preventDefault();
                             commit(section.id as PlanSectionId | PlanPhase, null, null);
                         }}
@@ -928,7 +931,6 @@ function PlanSections({
                                             section={section.id as PlanSectionId | PlanPhase}
                                             query={query}
                                             searching={searching}
-                                            dragLocked={dragLocked}
                                             today={today}
                                             people={people}
                                             loggedHours={loggedHours}
@@ -1008,7 +1010,6 @@ function PlanRow({
     section,
     query,
     searching,
-    dragLocked,
     today,
     people,
     loggedHours,
@@ -1042,7 +1043,6 @@ function PlanRow({
     section: PlanSectionId | PlanPhase;
     query: string;
     searching: boolean;
-    dragLocked: boolean;
     today: string;
     people: readonly PlanAssignee[];
     loggedHours: Readonly<Record<string, number>>;
@@ -1122,7 +1122,7 @@ function PlanRow({
                 return child?.assigneeIds ?? [];
             })])
             : (task.assigneeIds ?? []);
-        const draggable = !dragLocked && !locked && options.role === 'task';
+        const draggable = !locked && options.role === 'task';
         return (
             <div
                 key={task.id}
@@ -1150,7 +1150,7 @@ function PlanRow({
                     onDragStart(task.id);
                 }}
                 onDragOver={event => {
-                    if (dragLocked || !dragId || locked) return;
+                    if (!dragId || locked) return;
                     event.preventDefault();
                     event.stopPropagation();
                     const before = pointerFraction(event) < 0.5;
@@ -1161,7 +1161,7 @@ function PlanRow({
                     });
                 }}
                 onDrop={event => {
-                    if (dragLocked || locked) return;
+                    if (locked) return;
                     event.preventDefault();
                     event.stopPropagation();
                     const before = pointerFraction(event) < 0.5;
@@ -1401,13 +1401,12 @@ function PlanRow({
                     id={panelId}
                     data-stage-children={group.task.id}
                     onDragOver={event => {
-                        if (dragLocked || !dragId) return;
+                        if (!dragId) return;
                         event.preventDefault();
                         event.stopPropagation();
                         onHint({ section, beforeTaskId: null, parentTaskId: group.task.id });
                     }}
                     onDrop={event => {
-                        if (dragLocked) return;
                         event.preventDefault();
                         event.stopPropagation();
                         onDropRow(null, group.task.id);
@@ -1420,7 +1419,7 @@ function PlanRow({
                                 parentId: group.task.id,
                                 parentTitle: group.task.title,
                                 nextId: visibleChildren[index + 1]?.id ?? null,
-                                leading: dragLocked || isPendingStageTaskId(child.id) ? undefined : (
+                                leading: isPendingStageTaskId(child.id) ? undefined : (
                                     <span
                                         draggable
                                         data-stage-grip={child.id}

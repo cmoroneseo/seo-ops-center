@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 
 import { StagePlanListView } from '../../components/seo-plan/StagePlanListView.tsx';
@@ -264,6 +265,47 @@ test('dragging to another stage hides the task when that stage is filtered out, 
         });
         assert.equal(document.querySelector('[data-task-id="footer"]')?.closest('[data-plan-section]')?.getAttribute('data-plan-section'), 'scale');
     } finally {
+        await act(async () => { root.unmount(); });
+    }
+});
+
+test('URL params survive first render / are not stripped', async () => {
+    window.history.replaceState(null, '', '/workspace/harbor?tab=campaign&overviewMonth=2026-11&planStatus=in_progress');
+    const first = renderToStaticMarkup(createElement(StagePlanListView, {
+        tasks: seed,
+        board: 'phases',
+        query: '',
+        onQueryChange: () => undefined,
+        onOpenTask: () => undefined,
+        onAddTasks: async () => undefined,
+        onReorder: async () => undefined,
+        today: '2026-11-07',
+        viewerId: ME,
+        partOfReady: true,
+        partOfChoices: [{ id: RANK, title: 'Rank the service pages' }],
+        people: [{ id: ME, name: 'Carlos Morones', initials: 'CM' }],
+    }));
+    assert.match(first, /value="" selected="">Any status/);
+    assert.doesNotMatch(first, /value="in_progress" selected/);
+
+    const written: string[] = [];
+    const native = window.history.replaceState.bind(window.history);
+    window.history.replaceState = ((state: unknown, title: string, url?: string | URL | null) => {
+        written.push(String(url ?? ''));
+        native(state, title, url);
+    }) as typeof window.history.replaceState;
+    const root = await mount(createElement(Board, { tasks: seed }));
+    try {
+        for (const url of written) {
+            assert.match(url, /planStatus=in_progress/);
+            assert.match(url, /tab=campaign/);
+            assert.match(url, /overviewMonth=2026-11/);
+        }
+        assert.match(window.location.search, /planStatus=in_progress/);
+        assert.equal((document.querySelector('[data-plan-filter="status"]') as HTMLSelectElement).value, 'in_progress');
+        assert.deepEqual(rowIds(), ['footer', 'heading', 'page']);
+    } finally {
+        window.history.replaceState = native;
         await act(async () => { root.unmount(); });
     }
 });
