@@ -31,9 +31,10 @@ const DENIALS = {
 
 export default async function PublicGtmEventsPage({ params }: { params: Promise<{ token: string }> }) {
     const { token } = await params;
-    const result = await resolvePublicShare(token, { findByHash: findPublicShareByHash });
-    if (!result.ok) {
-        const { icon: Icon, title, body } = DENIALS[result.denial];
+    const result = await resolvePublicShare(token, { expectedKind: 'events', findByHash: findPublicShareByHash });
+    if (!result.ok || result.kind !== 'events') {
+        const denial = result.ok ? 'not_found' : result.denial;
+        const { icon: Icon, title, body } = DENIALS[denial];
         return (
             <main className="flex min-h-screen items-center justify-center bg-background px-6">
                 <div className="w-full max-w-md rounded-xl border border-border bg-card p-8 text-center">

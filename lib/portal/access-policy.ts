@@ -41,6 +41,7 @@ export function clientPortalAllowedPath(pathname: string): boolean {
     if (pathname.startsWith('/auth')) return true;
     if (pathname.startsWith('/review')) return true;
     if (pathname.startsWith('/events')) return true;
+    if (pathname.startsWith('/roadmap')) return true;
     if (pathname.startsWith('/api/portal')) return true;
     return false;
 }

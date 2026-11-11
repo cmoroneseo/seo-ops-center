@@ -16541,3 +16541,50 @@ alter table public.time_log_segments
 
 comment on column public.time_log_segments.note is
   'Notes for this stretch, one per line, in the order they were sent. Null on human segments. Bot pause and resume write it. The Basecamp timesheet note is separate and is written only when the bot stops.';
+
+-- =============================================================================
+-- 128_report_public_link_kind.sql
+-- Separate no-login links for the live roadmap from frozen event-report links.
+-- Existing rows stay events. A roadmap link stores no snapshot.
+-- Row level security is unchanged.
+-- =============================================================================
+
+alter table public.report_public_links
+  add column if not exists kind text not null default 'events';
+
+alter table public.report_public_links
+  drop constraint if exists report_public_links_kind_check;
+
+alter table public.report_public_links
+  add constraint report_public_links_kind_check
+  check (kind in ('events', 'roadmap'));
+
+alter table public.report_public_links
+  alter column snapshot drop not null;
+
+alter table public.report_public_links
+  drop constraint if exists report_public_links_snapshot_object;
+
+alter table public.report_public_links
+  add constraint report_public_links_snapshot_kind
+  check (
+    (
+      kind = 'events'
+      and snapshot is not null
+      and jsonb_typeof(snapshot) = 'object'
+      and pg_column_size(snapshot) <= 524288
+    )
+    or (
+      kind = 'roadmap'
+      and snapshot is null
+    )
+  );
+
+create index if not exists report_public_links_report_kind_idx
+  on public.report_public_links (organization_id, report_id, kind, created_at desc);
+
+comment on column public.report_public_links.kind is
+  'events is a frozen event report. roadmap stores no snapshot and reads the live plan. Existing rows stay events.';
+
+comment on table public.report_public_links is
+  'Unguessable, revocable links. events freezes an event report. roadmap reads the live plan and stores no snapshot. The raw token is not stored.';
