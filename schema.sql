@@ -1492,6 +1492,15 @@ create table if not exists public.time_log_segments (
   constraint time_log_segments_positive check (ended_at is null or ended_at > started_at)
 );
 
+-- time_log_segments has two foreign keys to time_logs:
+--   * time_log_segments_time_log_id_fkey on (time_log_id), from the column
+--     reference in the create table above
+--   * time_log_segments_parent_identity_fkey on (time_log_id, organization_id, user_id),
+--     the composite constraint below
+-- PostgREST cannot embed time_log_segments from a time_logs select unless the
+-- embed names one of them. Selects use
+-- time_log_segments!time_log_segments_time_log_id_fkey(...).
+--
 -- This composite identity is the concurrency-safe parent/child authority. The
 -- foreign key's PostgreSQL RI locks serialize a segment insert against a
 -- concurrent parent tenant/owner update in either statement order.

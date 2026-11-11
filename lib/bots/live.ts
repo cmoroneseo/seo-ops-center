@@ -7,6 +7,7 @@ import { matchBotTask } from './task-lookup.ts';
 import { botStretchSegmentId } from './timer.ts';
 import {
     basecampStepFromResponse,
+    BotTimerLookupError,
     type BasecampStep,
     type BotActor,
     type BotClientRecord,
@@ -144,7 +145,14 @@ function operationRecord(row: Record<string, unknown>): BotOperationRecord {
     };
 }
 
-const TIMER_COLUMNS = 'id, organization_id, client_id, project_id, task_id, user_id, bot_key_id, status, timer_started_at, description, counts_toward_budget, billable, tasks(title), time_log_segments(started_at, ended_at, note)';
+// time_log_segments has two foreign keys to time_logs, so PostgREST rejects an
+// unqualified embed. Name the time_log_id relationship. The columns stay the
+// same: started_at, ended_at, note.
+const TIMER_COLUMNS = 'id, organization_id, client_id, project_id, task_id, user_id, bot_key_id, status, timer_started_at, description, counts_toward_budget, billable, tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(started_at, ended_at, note)';
+
+function raiseTimerLookupError(error: { code?: string | null }): never {
+    throw new BotTimerLookupError(typeof error.code === 'string' ? error.code : undefined);
+}
 
 async function authorizeTask(actor: BotActor, taskId: unknown) {
     if (typeof taskId !== 'string' || taskId.trim().length === 0) {
@@ -480,7 +488,8 @@ export function liveBotDeps(): BotDeps {
                 .order('timer_started_at', { ascending: true })
                 .limit(1)
                 .maybeSingle();
-            if (error || !data) return null;
+            if (error) raiseTimerLookupError(error);
+            if (!data) return null;
             return runningRecord(data);
         },
         async listPausedTimers(botKeyId) {
@@ -490,7 +499,7 @@ export function liveBotDeps(): BotDeps {
                 .eq('bot_key_id', botKeyId)
                 .eq('status', 'paused')
                 .order('created_at', { ascending: true });
-            if (error) throw error;
+            if (error) raiseTimerLookupError(error);
             return (data ?? []).map(pausedRecord).filter((row): row is RunningBotTimer => row !== null);
         },
         async listAllPausedTimers() {
@@ -499,7 +508,7 @@ export function liveBotDeps(): BotDeps {
                 .select(TIMER_COLUMNS)
                 .eq('status', 'paused')
                 .not('bot_key_id', 'is', null);
-            if (error) throw error;
+            if (error) raiseTimerLookupError(error);
             return (data ?? []).map(pausedRecord).filter((row): row is RunningBotTimer => row !== null);
         },
         async listOverdueTimers() {
@@ -511,7 +520,7 @@ export function liveBotDeps(): BotDeps {
                 .eq('status', 'in_progress')
                 .not('bot_key_id', 'is', null)
                 .not('timer_started_at', 'is', null);
-            if (error) throw error;
+            if (error) raiseTimerLookupError(error);
             return (data ?? []).map(runningRecord).filter((row): row is RunningBotTimer => row !== null);
         },
         async getTimer(id) {
@@ -520,7 +529,8 @@ export function liveBotDeps(): BotDeps {
                 .select(TIMER_COLUMNS)
                 .eq('id', id)
                 .maybeSingle();
-            if (error || !data) return null;
+            if (error) raiseTimerLookupError(error);
+            if (!data) return null;
             if (data.status === 'paused') return pausedRecord(data);
             if (data.status === 'in_progress') return runningRecord(data);
             return null;
@@ -580,7 +590,7 @@ export function liveBotDeps(): BotDeps {
                 .eq('status', 'in_progress')
                 .select(TIMER_COLUMNS)
                 .maybeSingle();
-            if (error) throw error;
+            if (error) raiseTimerLookupError(error);
             if (data) {
                 const paused = pausedRecord({
                     ...data,
@@ -598,7 +608,8 @@ export function liveBotDeps(): BotDeps {
                 .select(TIMER_COLUMNS)
                 .eq('id', input.timer.id)
                 .maybeSingle();
-            if (readError || !existing) return null;
+            if (readError) raiseTimerLookupError(readError);
+            if (!existing) return null;
             return pausedRecord({ ...existing, tasks: { title: input.timer.taskTitle } });
         },
         async resumeTimer(input) {
@@ -614,7 +625,7 @@ export function liveBotDeps(): BotDeps {
                 .select(TIMER_COLUMNS)
                 .maybeSingle();
             if (error?.code === '23505') return 'conflict';
-            if (error) throw error;
+            if (error) raiseTimerLookupError(error);
             if (!data) return null;
             const timer = runningRecord({
                 ...data,
