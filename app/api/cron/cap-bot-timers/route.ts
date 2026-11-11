@@ -9,8 +9,10 @@ export const maxDuration = 60;
 /**
  * GET|POST /api/cron/cap-bot-timers
  *
- * Stops bot timers that have been running longer than two hours. The entry is
- * cut at the two-hour mark and left as needs_review. It is not sent to Basecamp.
+ * Stops bot timers whose cumulative running time is longer than two hours.
+ * Paused time does not count, and a paused timer is not closed. Timers paused
+ * for seven days are returned as stalePaused for review. A capped entry is
+ * needs_review and is not sent to Basecamp.
  *
  * The same cap runs on the next call from that bot. This sweep is for a bot
  * that never calls back. Vercel Hobby allows each cron path once a day, so a

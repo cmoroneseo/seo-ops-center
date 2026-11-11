@@ -4,11 +4,15 @@ export const BOT_KEY_PREFIX = 'seo_bot_';
 export const BOT_TASKS_PATH = '/api/bots/tasks';
 export const BOT_TIMER_START_PATH = '/api/bots/timer/start';
 export const BOT_TIMER_STOP_PATH = '/api/bots/timer/stop';
+export const BOT_TIMER_PAUSE_PATH = '/api/bots/timer/pause';
+export const BOT_TIMER_RESUME_PATH = '/api/bots/timer/resume';
 
 const BOT_POST_PATHS = new Set([
     BOT_TASKS_PATH,
     BOT_TIMER_START_PATH,
     BOT_TIMER_STOP_PATH,
+    BOT_TIMER_PAUSE_PATH,
+    BOT_TIMER_RESUME_PATH,
 ]);
 
 export function bearerToken(authorization: string | null | undefined): string | null {
@@ -22,7 +26,7 @@ export function isBotKeyToken(token: string | null | undefined): boolean {
 }
 
 /**
- * A bot key may POST task create and the timer start/stop routes, and nothing else.
+ * A bot key may POST task create and the timer start/pause/resume/stop routes, and nothing else.
  * Missing or non-bot credentials are ignored so session and cron auth keep working.
  */
 export function botRequestDecision(input: {

@@ -151,7 +151,7 @@ export async function getTimeLogs(
     if (!supabase) { if (opts.throwOnError) throw new Error('Time data unavailable'); return []; }
     try {
         let q = supabase.from('time_logs').select('*, clients(name, launch_date, onboarding_date, setup_scope, status), tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(*)').eq('organization_id', organizationId);
-        if (opts.includeNeedsReview) q = q.in('status', ['logged', 'needs_review']);
+        if (opts.includeNeedsReview) q = q.in('status', ['logged', 'needs_review', 'paused']);
         else if (!opts.includeInProgress) q = q.eq('status', 'logged');
         if (!opts.includeUnreviewedImports) q = q.eq('import_status', COUNTABLE_IMPORT_STATUS);
         if (opts.clientId) q = q.eq('client_id', opts.clientId);
@@ -200,7 +200,7 @@ export async function getTaskTimeLogs(taskId: string, alsoTaskIds: string[] = []
             .from('time_logs')
             .select('*, clients(name), tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(*)')
             .in('task_id', taskIds)
-            .eq('status', 'logged')
+            .or('status.eq.logged,status.eq.paused,and(status.eq.in_progress,bot_key_id.not.is.null)')
             // Voided and still-in-review imports are not time the task has
             // consumed; the timesheet already excludes them.
             .eq('import_status', COUNTABLE_IMPORT_STATUS)

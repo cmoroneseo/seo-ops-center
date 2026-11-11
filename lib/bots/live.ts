@@ -4,7 +4,7 @@ import { createLiveBasecampTimesheetPost } from '../basecamp/timesheet-live.ts';
 import { BOT_ACTOR_EMAIL, hashBotKey } from './keys.ts';
 import { botCreatedTaskRow } from './task-create.ts';
 import { matchBotTask } from './task-lookup.ts';
-import { BOT_TIMER_CAP_MS } from './timer.ts';
+import { botStretchSegmentId } from './timer.ts';
 import {
     basecampStepFromResponse,
     type BasecampStep,
@@ -14,6 +14,7 @@ import {
     type BotKeyRecord,
     type BotOperationRecord,
     type BotTaskRecord,
+    type BotTimerStretch,
     type FinalizedBotLog,
     type RunningBotTimer,
 } from './handle.ts';
@@ -61,15 +62,30 @@ function logRecord(row: Record<string, unknown>): FinalizedBotLog {
     };
 }
 
-function runningRecord(row: Record<string, unknown>): RunningBotTimer | null {
-    const startedAt = typeof row.timer_started_at === 'string' ? row.timer_started_at : null;
+function stretchRows(value: unknown): BotTimerStretch[] {
+    const rows = Array.isArray(value) ? value : [];
+    return rows.flatMap(item => {
+        if (!item || typeof item !== 'object') return [];
+        const row = item as Record<string, unknown>;
+        const startedAt = typeof row.started_at === 'string' ? row.started_at : null;
+        const endedAt = typeof row.ended_at === 'string' ? row.ended_at : null;
+        if (!startedAt || !endedAt) return [];
+        return [{
+            startedAt,
+            endedAt,
+            note: typeof row.note === 'string' && row.note.trim() ? row.note : null,
+        }];
+    }).sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+}
+
+function timerBase(row: Record<string, unknown>, stretches: BotTimerStretch[]): Omit<RunningBotTimer, 'startedAt' | 'openNote' | 'pausedAt'> | null {
     const taskId = typeof row.task_id === 'string' ? row.task_id : null;
     const botKeyId = typeof row.bot_key_id === 'string' ? row.bot_key_id : null;
-    if (!startedAt || !taskId || !botKeyId) return null;
+    if (!taskId || !botKeyId) return null;
     const task = row.tasks && typeof row.tasks === 'object' ? row.tasks as Record<string, unknown> : null;
     const title = typeof task?.title === 'string'
         ? task.title
-        : (typeof row.description === 'string' ? row.description : 'Task');
+        : (typeof row.description === 'string' && row.description.trim() ? row.description : 'Task');
     return {
         id: String(row.id),
         organizationId: String(row.organization_id),
@@ -78,11 +94,38 @@ function runningRecord(row: Record<string, unknown>): RunningBotTimer | null {
         taskTitle: title,
         userId: String(row.user_id),
         botKeyId,
-        startedAt,
         description: typeof row.description === 'string' ? row.description : null,
         countsTowardBudget: row.counts_toward_budget !== false,
         billable: row.billable !== false,
         projectId: typeof row.project_id === 'string' ? row.project_id : null,
+        stretches,
+    };
+}
+
+function runningRecord(row: Record<string, unknown>): RunningBotTimer | null {
+    const startedAt = typeof row.timer_started_at === 'string' ? row.timer_started_at : null;
+    if (!startedAt) return null;
+    const base = timerBase(row, stretchRows(row.time_log_segments));
+    if (!base) return null;
+    return {
+        ...base,
+        startedAt,
+        openNote: typeof row.description === 'string' && row.description.trim() ? row.description : null,
+        pausedAt: null,
+    };
+}
+
+function pausedRecord(row: Record<string, unknown>): RunningBotTimer | null {
+    const stretches = stretchRows(row.time_log_segments);
+    const base = timerBase(row, stretches);
+    if (!base) return null;
+    const pausedAt = stretches[stretches.length - 1]?.endedAt ?? null;
+    if (!pausedAt) return null;
+    return {
+        ...base,
+        startedAt: null,
+        openNote: null,
+        pausedAt,
     };
 }
 
@@ -101,7 +144,7 @@ function operationRecord(row: Record<string, unknown>): BotOperationRecord {
     };
 }
 
-const RUNNING_COLUMNS = 'id, organization_id, client_id, project_id, task_id, user_id, bot_key_id, timer_started_at, description, counts_toward_budget, billable, tasks(title)';
+const TIMER_COLUMNS = 'id, organization_id, client_id, project_id, task_id, user_id, bot_key_id, status, timer_started_at, description, counts_toward_budget, billable, tasks(title), time_log_segments(started_at, ended_at, note)';
 
 async function authorizeTask(actor: BotActor, taskId: unknown) {
     if (typeof taskId !== 'string' || taskId.trim().length === 0) {
@@ -430,7 +473,7 @@ export function liveBotDeps(): BotDeps {
         async findRunningTimer(botKeyId) {
             const { data, error } = await admin()
                 .from('time_logs')
-                .select(RUNNING_COLUMNS)
+                .select(TIMER_COLUMNS)
                 .eq('bot_key_id', botKeyId)
                 .eq('status', 'in_progress')
                 .not('timer_started_at', 'is', null)
@@ -440,17 +483,47 @@ export function liveBotDeps(): BotDeps {
             if (error || !data) return null;
             return runningRecord(data);
         },
-        async listOverdueTimers(now) {
-            const cutoff = new Date(now.getTime() - BOT_TIMER_CAP_MS).toISOString();
+        async listPausedTimers(botKeyId) {
             const { data, error } = await admin()
                 .from('time_logs')
-                .select(RUNNING_COLUMNS)
+                .select(TIMER_COLUMNS)
+                .eq('bot_key_id', botKeyId)
+                .eq('status', 'paused')
+                .order('created_at', { ascending: true });
+            if (error) throw error;
+            return (data ?? []).map(pausedRecord).filter((row): row is RunningBotTimer => row !== null);
+        },
+        async listAllPausedTimers() {
+            const { data, error } = await admin()
+                .from('time_logs')
+                .select(TIMER_COLUMNS)
+                .eq('status', 'paused')
+                .not('bot_key_id', 'is', null);
+            if (error) throw error;
+            return (data ?? []).map(pausedRecord).filter((row): row is RunningBotTimer => row !== null);
+        },
+        async listOverdueTimers() {
+            // Every running bot timer. Cumulative running time, not the open
+            // stretch's wall clock, decides the cap. Paused rows are not here.
+            const { data, error } = await admin()
+                .from('time_logs')
+                .select(TIMER_COLUMNS)
                 .eq('status', 'in_progress')
                 .not('bot_key_id', 'is', null)
-                .not('timer_started_at', 'is', null)
-                .lt('timer_started_at', cutoff);
+                .not('timer_started_at', 'is', null);
             if (error) throw error;
             return (data ?? []).map(runningRecord).filter((row): row is RunningBotTimer => row !== null);
+        },
+        async getTimer(id) {
+            const { data, error } = await admin()
+                .from('time_logs')
+                .select(TIMER_COLUMNS)
+                .eq('id', id)
+                .maybeSingle();
+            if (error || !data) return null;
+            if (data.status === 'paused') return pausedRecord(data);
+            if (data.status === 'in_progress') return runningRecord(data);
+            return null;
         },
         async insertRunningTimer(input) {
             const { data, error } = await admin()
@@ -463,7 +536,7 @@ export function liveBotDeps(): BotDeps {
                     user_id: input.actor.userId,
                     date: input.date,
                     hours: 0,
-                    description: input.description,
+                    description: input.openNote,
                     billable: input.billable,
                     counts_toward_budget: input.countsTowardBudget,
                     status: 'in_progress',
@@ -474,17 +547,102 @@ export function liveBotDeps(): BotDeps {
                     bot_key_id: input.botKeyId,
                     bot_operation_id: input.botOperationId,
                 })
-                .select(RUNNING_COLUMNS)
+                .select(TIMER_COLUMNS)
                 .single();
             if (error?.code === '23505') return 'conflict';
             if (error || !data) throw error ?? new Error('timer insert failed');
-            const timer = runningRecord({ ...data, tasks: { title: input.taskTitle } });
+            const timer = runningRecord({ ...data, tasks: { title: input.taskTitle }, description: input.openNote });
             if (!timer) throw new Error('timer insert failed');
+            return timer;
+        },
+        async pauseTimer(input) {
+            const { error: segmentError } = await admin().from('time_log_segments').insert({
+                id: botStretchSegmentId(input.timer.id, input.stretch.startedAt),
+                time_log_id: input.timer.id,
+                organization_id: input.timer.organizationId,
+                user_id: input.timer.userId,
+                started_at: input.stretch.startedAt,
+                ended_at: input.stretch.endedAt,
+                note: input.stretch.note,
+            });
+            // A replay inserts the same segment id. The closed row is not an open segment.
+            if (segmentError && segmentError.code !== '23505') throw segmentError;
+            const { data, error } = await admin()
+                .from('time_logs')
+                .update({
+                    status: 'paused',
+                    timer_started_at: null,
+                    elapsed_seconds: input.elapsedSeconds,
+                    hours: input.hours,
+                    description: input.description,
+                })
+                .eq('id', input.timer.id)
+                .eq('status', 'in_progress')
+                .select(TIMER_COLUMNS)
+                .maybeSingle();
+            if (error) throw error;
+            if (data) {
+                const paused = pausedRecord({
+                    ...data,
+                    tasks: { title: input.timer.taskTitle },
+                    time_log_segments: [...(data.time_log_segments ?? []), {
+                        started_at: input.stretch.startedAt,
+                        ended_at: input.stretch.endedAt,
+                        note: input.stretch.note,
+                    }],
+                });
+                if (paused) return paused;
+            }
+            const { data: existing, error: readError } = await admin()
+                .from('time_logs')
+                .select(TIMER_COLUMNS)
+                .eq('id', input.timer.id)
+                .maybeSingle();
+            if (readError || !existing) return null;
+            return pausedRecord({ ...existing, tasks: { title: input.timer.taskTitle } });
+        },
+        async resumeTimer(input) {
+            const { data, error } = await admin()
+                .from('time_logs')
+                .update({
+                    status: 'in_progress',
+                    timer_started_at: input.startedAt,
+                    description: input.openNote,
+                })
+                .eq('id', input.timer.id)
+                .eq('status', 'paused')
+                .select(TIMER_COLUMNS)
+                .maybeSingle();
+            if (error?.code === '23505') return 'conflict';
+            if (error) throw error;
+            if (!data) return null;
+            const timer = runningRecord({
+                ...data,
+                description: input.openNote,
+                tasks: { title: input.timer.taskTitle },
+                time_log_segments: input.timer.stretches.map(stretch => ({
+                    started_at: stretch.startedAt,
+                    ended_at: stretch.endedAt,
+                    note: stretch.note,
+                })),
+            });
             return timer;
         },
         async finalizeTimer(input) {
             const first = input.slices[0];
             if (!first) return null;
+            for (const stretch of input.stretches) {
+                const { error: segmentError } = await admin().from('time_log_segments').insert({
+                    id: botStretchSegmentId(input.timer.id, stretch.startedAt),
+                    time_log_id: input.timer.id,
+                    organization_id: input.timer.organizationId,
+                    user_id: input.timer.userId,
+                    started_at: stretch.startedAt,
+                    ended_at: stretch.endedAt,
+                    note: stretch.note,
+                });
+                if (segmentError && segmentError.code !== '23505') throw segmentError;
+            }
             const status = input.capped ? 'needs_review' : 'logged';
             const patch: Record<string, unknown> = {
                 date: first.date,
@@ -509,7 +667,7 @@ export function liveBotDeps(): BotDeps {
                 .from('time_logs')
                 .update(patch)
                 .eq('id', input.timer.id)
-                .eq('status', 'in_progress')
+                .in('status', ['in_progress', 'paused'])
                 .select('id, task_id, date, hours, description, counts_toward_budget, billable, status, basecamp_entry_id')
                 .maybeSingle();
             if (error) throw error;
@@ -519,17 +677,9 @@ export function liveBotDeps(): BotDeps {
                     .select('id, task_id, date, hours, description, counts_toward_budget, billable, status, basecamp_entry_id')
                     .eq('id', input.timer.id)
                     .maybeSingle();
-                if (readError || !existing || existing.status === 'in_progress') return null;
+                if (readError || !existing || existing.status === 'in_progress' || existing.status === 'paused') return null;
                 return [logRecord(existing)];
             }
-            const { error: segmentError } = await admin().from('time_log_segments').insert({
-                time_log_id: input.timer.id,
-                organization_id: input.timer.organizationId,
-                user_id: input.timer.userId,
-                started_at: input.timer.startedAt,
-                ended_at: input.stoppedAt,
-            });
-            if (segmentError && segmentError.code !== '23505') throw segmentError;
             const logs = [logRecord(data)];
             for (const slice of input.slices.slice(1)) {
                 const { data: extra, error: extraError } = await admin()

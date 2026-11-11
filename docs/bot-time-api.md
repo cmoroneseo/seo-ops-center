@@ -8,7 +8,9 @@ A task this API creates is assigned to Carlos. The insert sets `assignee_id` and
 
 This is not a Supabase key. A bot key cannot read the database, delete rows, or change settings. The service role stays on the server.
 
-**Migration `114_bot_running_timer` is applied in production** (`migrations/114_bot_running_timer.sql`). It adds one unique index so a bot cannot have two running timers. The index closes a race between two starts. Migration 113 (bot keys, `bot_key_id`) is already in production.
+**Migration `114_bot_running_timer` is marked NOT APPLIED** in `migrations/114_bot_running_timer.sql`. It adds one unique index so a bot cannot have two running timers (`status = 'in_progress'`). The index closes a race between two starts. A paused row is not `in_progress`, so it does not take that slot. Migration 113 (bot keys, `bot_key_id`) is already in production. Apply 114 before relying on the index in production.
+
+**Migration `127_bot_timer_pause` is NOT APPLIED.** It widens `time_logs.status` to allow `paused`, and adds `time_log_segments.note` for the notes on each stretch. Do not run it until it is approved on its own. Pause and resume need it. Human pause does not use `paused` and does not write `note`.
 
 ## Auth
 
@@ -33,7 +35,7 @@ The response includes `token` once. Only the SHA-256 hash is stored. Revoke with
 
 A missing or unknown key is **401**. A bot key sent to any other route, including the removed `POST /api/bots/time`, is **403**.
 
-The key name is the bot. `seo-manager` is the only name that can create tasks. Any other live key (`technical-seo`, and so on) can start and stop timers. The comparison is case-insensitive.
+The key name is the bot. `seo-manager` is the only name that can create tasks. Any other live key (`technical-seo`, and so on) can start, pause, resume, and stop timers. The comparison is case-insensitive.
 
 ## Create a task
 
@@ -94,13 +96,15 @@ Any bot key. The task must already exist. This route never creates a task.
 | `billable` | no | Defaults to `true`. |
 | `timeZone` | no | IANA zone for the calendar day. Defaults to `America/Los_Angeles`. |
 
-A bot has one running timer.
+A bot has one **running** timer. A paused timer does not use that slot.
 
-- Starting the **same** task while that timer is still under two hours returns the running timer (`timer.alreadyRunning: true`). It does not reset the clock.
-- Starting a **different** task while a timer is under two hours is **409** `timer_already_running`. The body includes the running timer. Stop it, then start the other task.
-- Starting anything while the running timer is **already past two hours** closes that timer at the cap (see below) and then starts the new one. The response includes `cappedTimer`.
+- Starting the **same** task while that timer is still under two hours of running time returns the running timer (`timer.alreadyRunning: true`). It does not reset the clock.
+- Starting a **different** task while a timer is under two hours is **409** `timer_already_running`. The body includes the running timer. Pause or stop it, then start the other task.
+- Starting anything while the running timer is **already past two hours of running time** closes that timer at the cap (see below) and then starts the new one. The response includes `cappedTimer`.
+- Starting the **same** task that already has a paused timer is **409** `timer_paused`. Call resume. The body includes the paused timer.
+- Starting a **different** task while this bot has paused timers is allowed. Those paused entries stay paused. Two bots can each have a running timer at the same time.
 
-The running row is an `in_progress` time log with `bot_key_id` set and `user_id` Carlos. It does not take his open timer slot, so his own timer keeps working. The floating timer does not show it.
+The running row is an `in_progress` time log with `bot_key_id` set and `user_id` Carlos. It does not insert an open `time_log_segments` row, so it does not take his `one_open_time_segment_per_user` slot and his own timer keeps working. The floating timer does not show it. `description` on a running row is the note for the open stretch, when start sent one. The task title is not stored as a stretch note.
 
 ```bash
 curl -X POST https://seo-ops-center.vercel.app/api/bots/timer/start \
@@ -114,30 +118,89 @@ curl -X POST https://seo-ops-center.vercel.app/api/bots/timer/start \
   }'
 ```
 
+## Pause a timer
+
+`POST /api/bots/timer/pause`
+
+Ends the running stretch and keeps the **same** time entry open with `status: "paused"`. The time so far is stored. Nothing is sent to Basecamp. A paused timer does not use the one-running slot.
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `idempotencyKey` | yes | A replay returns the original pause and does not write a second segment. |
+| `taskId` | no | When sent, it must be the task the timer is on. A mismatch is **409** `timer_task_mismatch`. |
+| `description` | no | Note for the stretch being closed. Kept after the note from start or resume. |
+
+The response `timer.status` is `paused`. `timer.stretches` lists every closed stretch with `startedAt`, `endedAt`, and `note`. `timer.hours` is the running time so far.
+
+Pausing a timer that is already past two hours of running time does not pause it. The entry is capped (`needs_review`) and is not sent to Basecamp. The response has `capped: true`.
+
+There is no running timer is **404** `timer_not_running`.
+
+```bash
+curl -X POST https://seo-ops-center.vercel.app/api/bots/timer/pause \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <minted-bot-token>' \
+  -d '{
+    "idempotencyKey": "brief-pause",
+    "description": "Checked the top ten"
+  }'
+```
+
+## Resume a timer
+
+`POST /api/bots/timer/resume`
+
+Opens a new stretch on the paused entry for `taskId`. The entry goes back to `in_progress`. Nothing is sent to Basecamp.
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `idempotencyKey` | yes | A replay returns the original resume and does not open another stretch. |
+| `taskId` | yes | The paused timer to continue. |
+| `description` | no | Note for the new stretch. |
+
+- No paused timer on that task is **404** `timer_not_paused`.
+- This bot already has a running timer is **409** `timer_already_running`.
+- The paused entry already has two hours of running time is **409** `timer_cap_reached`. Stop it instead of resuming.
+
+```bash
+curl -X POST https://seo-ops-center.vercel.app/api/bots/timer/resume \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <minted-bot-token>' \
+  -d '{
+    "idempotencyKey": "brief-resume",
+    "taskId": "<task uuid>",
+    "description": "Drafted the brief"
+  }'
+```
+
 ## Stop a timer
 
 `POST /api/bots/timer/stop`
 
-Stops the timer this key has running. The elapsed time is stored the way a person stopping the drawer timer is stored: one closed session, hours rounded to the hundredth, split into one row per local day when the session crosses midnight. The time log stays on the subtask. Basecamp gets the time on the parent to-do when the task is a subtask, which is the same rule the drawer uses.
+Stops the running timer, or a paused timer when nothing is running. Stop works from either state. The elapsed running time is stored the way a person stopping the drawer timer is stored: closed stretches, hours rounded to the hundredth, split into one row per local day when a stretch crosses midnight. Time spent paused is not counted. The time log stays on the subtask. Basecamp gets **one** push per day-row at stop, for that day's hours, on the parent to-do when the task is a subtask. Pause and resume never push to Basecamp.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `idempotencyKey` | yes | A replay returns the original stop and does not post a second Basecamp entry. |
 | `taskId` | no | When sent, it must be the task the timer is on. A mismatch is **409** `timer_task_mismatch`. Omit it to stop whatever is running. |
-| `description` | no | Timesheet note. Falls back to the note from start, then the task title. |
+| `description` | no | Stop note. Appended after every stretch note. It is not a duration. |
 | `countsTowardBudget` | no | Falls back to the value from start. |
 | `billable` | no | Falls back to the value from start. |
 | `complete` | no | `true` marks the task done and completes the linked Basecamp to-do or step. |
 | `completedOn` | no | `YYYY-MM-DD`, only with `complete: true`. A future day is rejected. |
 | `timeZone` | no | IANA zone for the calendar day and the midnight split. Defaults to `America/Los_Angeles`. |
 
-A normal stop is sent to Basecamp with `createIfMissing: true`, the same call the drawer makes when Send to Basecamp is on. `basecamp.status` is `pushed`, `skipped`, or `failed`.
+A normal stop is sent to Basecamp with `createIfMissing: true`, the same call the drawer makes when Send to Basecamp is on. `basecamp.status` is `pushed`, `skipped`, or `failed`. The timesheet **note** is the stretch notes in order, then the stop note. Hours, minutes, and timestamps are not written into that note. Time stays in the timesheet hours field. If no note was sent, the note falls back to the task title.
 
-There is no running timer (including when the sweep already stopped it) is **404** `timer_not_running`.
+Omit `taskId` and a running timer is stopped. Omit `taskId` with nothing running and exactly one paused timer, and that paused timer is stopped. Several paused timers and no `taskId` is **409** `timer_ambiguous`. `taskId` of a paused timer stops that one and leaves a different running timer alone. A `taskId` that matches neither is **409** `timer_task_mismatch` when something is running, and **404** `timer_not_running` when nothing is.
+
+There is nothing running or paused to stop (including when the sweep already capped the running timer) is **404** `timer_not_running`.
+
+`complete: true` still marks the task done. It works from running or paused.
 
 ## Two-hour cap
 
-A timer that runs **longer than two hours** is stopped at exactly two hours. The entry's `status` is `needs_review`. It is not sent to Basecamp.
+Running time **longer than two hours** is stopped at exactly two hours. The two hours are the sum of the stretches. Time spent paused does not count, and a paused timer is not capped. The entry's `status` is `needs_review`. It is not sent to Basecamp.
 
 The owner sees it in two places:
 
@@ -146,8 +209,8 @@ The owner sees it in two places:
 
 The cap does not wait for the bot to call stop.
 
-- Every bot call for that key closes an overdue timer first.
-- `GET` or `POST /api/cron/cap-bot-timers` closes every overdue bot timer. It runs once a day (05:30 UTC). A bot that never calls back waits for that run. The saved duration is still two hours from the start, not from when the sweep noticed.
+- Every bot call except pause and stop closes an overdue **running** timer first. Pause and stop apply the cap in that response.
+- `GET` or `POST /api/cron/cap-bot-timers` closes every running bot timer past the cap. It does not close paused timers. A paused timer whose latest stretch ended at least seven days ago is returned as `stalePaused` for review and is left paused. The sweep runs once a day (05:30 UTC). A bot that never calls back waits for that run. The saved duration is still two hours of running time, not the time until the sweep noticed.
 
 `basecamp.status` on a capped stop is `not_sent`.
 
@@ -162,7 +225,9 @@ join bot_api_keys on bot_api_keys.id = time_logs.bot_key_id
 where bot_api_keys.name = 'seo-manager';
 ```
 
-The same column on `tasks` marks tasks the bot created. A running timer is `time_logs.status = 'in_progress'` and `bot_key_id` set. A capped entry is `status = 'needs_review'`.
+The same column on `tasks` marks tasks the bot created. A running timer is `time_logs.status = 'in_progress'` and `bot_key_id` set. A paused timer is `status = 'paused'` on that same row. A capped entry is `status = 'needs_review'`.
+
+Paused and capped bot timers show in Timesheets. A paused entry is in **Paused bot timers** and is not SEO budget time until stop. Each stretch, with its start, end, and note, shows on the task. A human pause is unchanged: the row stays `in_progress`, the open segment is closed, and no `paused` status is written.
 
 ## Idempotency
 
@@ -189,11 +254,15 @@ A new start key, while the same task's timer is still running, is not a replay. 
 | 400 | `completion_date` | `completedOn` is in the future or is not a real day. |
 | 404 | `client_not_found` | No client in this organization matches. |
 | 404 | `task_not_found` | No task matches. Timers never create one. |
-| 404 | `timer_not_running` | Stop found nothing running for this bot. |
+| 404 | `timer_not_running` | Pause found nothing running, or stop found nothing running or paused. |
+| 404 | `timer_not_paused` | Resume found no paused timer on that task. |
 | 409 | `ambiguous_client` | More than one client has that exact name. Send `clientId`. |
 | 409 | `ambiguous_task` | More than one task has that title, or the ids and titles disagree. |
-| 409 | `timer_already_running` | This bot is already timing a different task. |
-| 409 | `timer_task_mismatch` | Stop sent a `taskId` that is not the running task. |
+| 409 | `timer_already_running` | This bot is already timing a different task, or resume was called while a timer is running. |
+| 409 | `timer_paused` | Start targeted a task that already has a paused timer. Resume it. |
+| 409 | `timer_cap_reached` | Resume targeted a paused timer that already has two hours. Stop it. |
+| 409 | `timer_task_mismatch` | Pause or stop sent a `taskId` that is not the timer being closed. |
+| 409 | `timer_ambiguous` | Stop omitted `taskId` and this bot has more than one paused timer. |
 | 409 | `idempotency_conflict` | This key was already used with a different body. |
 | 409 | `idempotency_in_progress` | The same key is already running. |
 | 409 | `actor_not_found` | Carlos Morones is not a member of the key's organization. |

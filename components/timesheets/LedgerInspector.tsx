@@ -45,7 +45,9 @@ export function LedgerInspector({
         .filter(entry => row.entryIds.includes(entry.id))
         .sort((left, right) => left.date.localeCompare(right.date));
 
-    const budgetLabel = group.isInternal
+    const budgetLabel = group.paused
+        ? 'Not budget time until stop'
+        : group.isInternal
         ? 'Internal'
         : rowEntries.every(entry => entry.countsTowardBudget)
             ? 'SEO budget'
@@ -99,6 +101,7 @@ export function LedgerInspector({
                         const heading = formatDayHeading(entry.date);
                         const needsReview = entry.importStatus === 'needs_context';
                         const cappedBotTimer = entry.status === 'needs_review';
+                        const pausedBotTimer = entry.status === 'paused';
                         const splitNote = midnightSplitLabel(entry, entries);
                         return (
                             <li
@@ -128,7 +131,10 @@ export function LedgerInspector({
                                 )}
 
                                 <div className="mt-1 flex items-center justify-between gap-3">
-                                    <p className="min-w-0 text-sm text-muted-foreground">
+                                    <p className={cn(
+                                        'min-w-0 text-sm text-muted-foreground',
+                                        pausedBotTimer && 'whitespace-pre-line',
+                                    )}>
                                         {entry.description || 'No description'}
                                     </p>
                                     <span className="shrink-0 text-xs text-muted-foreground">
@@ -147,8 +153,16 @@ export function LedgerInspector({
                                     </p>
                                 )}
 
+                                {pausedBotTimer && (
+                                    <p className="mt-2 text-sm text-foreground">
+                                        Paused. The time so far stays on this entry. Nothing was sent to Basecamp.
+                                    </p>
+                                )}
+
                                 <div className="mt-3 flex items-center justify-between gap-3">
-                                    {cappedBotTimer ? (
+                                    {pausedBotTimer ? (
+                                        <span className="text-sm font-medium text-foreground">Paused</span>
+                                    ) : cappedBotTimer ? (
                                         <span className="flex items-center gap-2 text-sm text-amber-500">
                                             <AlertTriangle className="h-4 w-4" aria-hidden />
                                             Needs review

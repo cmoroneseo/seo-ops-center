@@ -5,7 +5,13 @@ import {
     resolveCompletionInstant,
 } from '../tasks/completion-date.ts';
 import { BOT_ACTOR_TIME_ZONE } from './keys.ts';
-import { BOT_TASKS_PATH, BOT_TIMER_START_PATH, BOT_TIMER_STOP_PATH } from './scope.ts';
+import {
+    BOT_TASKS_PATH,
+    BOT_TIMER_PAUSE_PATH,
+    BOT_TIMER_RESUME_PATH,
+    BOT_TIMER_START_PATH,
+    BOT_TIMER_STOP_PATH,
+} from './scope.ts';
 import { TASK_CATEGORY_ERROR, taskCategoryShapeError } from './task-create.ts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -64,6 +70,22 @@ export interface BotTimerStartCommand extends BotTaskTarget {
     timeZone: string;
 }
 
+export interface BotTimerPauseCommand {
+    kind: 'pause';
+    idempotencyKey: string;
+    requestHash: string;
+    taskId?: string;
+    description?: string;
+}
+
+export interface BotTimerResumeCommand {
+    kind: 'resume';
+    idempotencyKey: string;
+    requestHash: string;
+    taskId: string;
+    description?: string;
+}
+
 export interface BotTimerStopCommand {
     kind: 'stop';
     idempotencyKey: string;
@@ -77,7 +99,12 @@ export interface BotTimerStopCommand {
     timeZone: string;
 }
 
-export type BotCommand = BotCreateCommand | BotTimerStartCommand | BotTimerStopCommand;
+export type BotCommand =
+    | BotCreateCommand
+    | BotTimerStartCommand
+    | BotTimerPauseCommand
+    | BotTimerResumeCommand
+    | BotTimerStopCommand;
 
 export type BotRequestParse =
     | { ok: true; command: BotCommand }
@@ -119,7 +146,7 @@ function text(value: unknown): string | undefined {
 function rejectForbidden(record: Record<string, unknown>): BotRequestParse | null {
     for (const key of Object.keys(record)) {
         if (FORBIDDEN.has(key)) {
-            return fail(403, 'forbidden', 'This key cannot do that. It can create a task or start and stop a timer.');
+            return fail(403, 'forbidden', 'This key cannot do that. It can create a task or start, pause, resume, and stop a timer.');
         }
     }
     return null;
@@ -234,6 +261,10 @@ const STOP_FIELDS = new Set([
     'billable', 'complete', 'completedOn', 'timeZone',
 ]);
 
+const PAUSE_FIELDS = new Set(['idempotencyKey', 'taskId', 'description']);
+
+const RESUME_FIELDS = new Set(['idempotencyKey', 'taskId', 'description']);
+
 function subtasksOf(value: unknown): BotRequestParse | { subtasks: BotSubtaskDraft[] } {
     if (value == null) return { subtasks: [] };
     if (!Array.isArray(value)) return fail(400, 'invalid_request', 'subtasks must be a list.');
@@ -338,6 +369,46 @@ function parseStart(record: Record<string, unknown>): BotRequestParse {
     };
 }
 
+function parsePause(record: Record<string, unknown>): BotRequestParse {
+    const unknown = unknownFields(record, PAUSE_FIELDS);
+    if (unknown) return unknown;
+    const key = idempotencyKeyOf(record);
+    if ('ok' in key) return key;
+    const taskId = text(record.taskId);
+    if (taskId && !UUID.test(taskId)) return fail(400, 'invalid_request', 'taskId must be a UUID.');
+    const description = descriptionOf(record);
+    if ('ok' in description) return description;
+    return {
+        ok: true,
+        command: withHash<BotTimerPauseCommand>({
+            kind: 'pause',
+            idempotencyKey: key.key,
+            ...(taskId ? { taskId } : {}),
+            ...description,
+        }),
+    };
+}
+
+function parseResume(record: Record<string, unknown>): BotRequestParse {
+    const unknown = unknownFields(record, RESUME_FIELDS);
+    if (unknown) return unknown;
+    const key = idempotencyKeyOf(record);
+    if ('ok' in key) return key;
+    const taskId = text(record.taskId);
+    if (!taskId || !UUID.test(taskId)) return fail(400, 'invalid_request', 'taskId must be a UUID.');
+    const description = descriptionOf(record);
+    if ('ok' in description) return description;
+    return {
+        ok: true,
+        command: withHash<BotTimerResumeCommand>({
+            kind: 'resume',
+            idempotencyKey: key.key,
+            taskId,
+            ...description,
+        }),
+    };
+}
+
 function parseStop(record: Record<string, unknown>, now: Date): BotRequestParse {
     const unknown = unknownFields(record, STOP_FIELDS);
     if (unknown) return unknown;
@@ -394,6 +465,8 @@ export function parseBotRequest(pathname: string, body: unknown, now: Date): Bot
     if (forbidden) return forbidden;
     if (pathname === BOT_TASKS_PATH) return parseCreate(record);
     if (pathname === BOT_TIMER_START_PATH) return parseStart(record);
+    if (pathname === BOT_TIMER_PAUSE_PATH) return parsePause(record);
+    if (pathname === BOT_TIMER_RESUME_PATH) return parseResume(record);
     if (pathname === BOT_TIMER_STOP_PATH) return parseStop(record, now);
     return fail(403, 'forbidden', 'This key cannot call that route.');
 }

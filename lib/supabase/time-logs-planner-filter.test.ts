@@ -31,6 +31,10 @@ test('planner range query only reads countable logged time', () => {
     assert.match(logged, /\.eq\('import_status', COUNTABLE_IMPORT_STATUS\)/);
 });
 
-test('task time log query only reads countable time', () => {
-    assert.match(bodyOf('getTaskTimeLogs'), /\.eq\('import_status', COUNTABLE_IMPORT_STATUS\)/);
+test('task time log query reads paused bot entries and leaves human open timers out', () => {
+    const body = bodyOf('getTaskTimeLogs');
+    assert.match(body, /\.eq\('import_status', COUNTABLE_IMPORT_STATUS\)/);
+    assert.match(body, /status\.eq\.paused/);
+    assert.match(body, /bot_key_id\.not\.is\.null/);
+    assert.doesNotMatch(body, /\.eq\('status', 'in_progress'\)/);
 });

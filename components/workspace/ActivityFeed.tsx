@@ -52,7 +52,7 @@ function domainsOf(item: ActivityItem): Exclude<ActivityType, 'all'>[] {
 function itemHours(item: ActivityItem): number {
     if (item.type !== 'time_log' && item.type !== 'time_and_completion') return 0;
     // A capped bot timer is visible here and stays out of the hour total until accepted.
-    if (item.data.status === 'needs_review') return 0;
+    if (item.data.status === 'needs_review' || item.data.status === 'paused') return 0;
     return item.data.hours;
 }
 
@@ -173,7 +173,7 @@ function TimeLogRow({ log, onEdit, loggerName }: { log: TimeLog; onEdit: (log: T
                 <div className="flex items-start justify-between gap-2">
                     <p className="text-sm leading-snug">
                         <span className="font-semibold text-blue-500">{log.hours}h</span>
-                        <span className="text-foreground/80"> logged</span>
+                        <span className="text-foreground/80">{log.status === 'paused' ? ' paused' : ' logged'}</span>
                         {loggerName && <span className="text-foreground/80"> by <span className="font-semibold">{loggerName}</span></span>}
                         <span className="text-muted-foreground text-xs ml-1.5">
                             {new Date(log.date.includes('T') ? log.date : log.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -182,6 +182,11 @@ function TimeLogRow({ log, onEdit, loggerName }: { log: TimeLog; onEdit: (log: T
                             <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-500 ml-1.5 align-middle">
                                 <AlertTriangle className="h-2.5 w-2.5" />
                                 Review — stopped at 2 hours
+                            </span>
+                        )}
+                        {log.status === 'paused' && (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-foreground/80 ml-1.5 align-middle">
+                                Paused
                             </span>
                         )}
                         {log.basecampEntryId && (
