@@ -12,7 +12,9 @@ import {
     planBuilt,
     searchConsoleConnectedFromIntegration,
     setupChecklistPanel,
+    setupChecklistRows,
     setupChecklistVisible,
+    setupProgress,
     topicMapBuiltFrom,
     wizardStepForSetup,
     type SetupChecklistFacts,
@@ -54,7 +56,7 @@ test('setup steps follow the client setup order and link to the place each one i
         'Confirm brand',
         'Competitors',
         'Keywords',
-        'Connect Search Console',
+        'Connect Google Search Console',
         'Build topic map',
         'Build plan',
     ]);
@@ -110,6 +112,35 @@ test('each step is done only from real state, and a failed read stays unknown', 
     assert.deepEqual(unknown.slice(1).map(step => step.done), [null, null, null, null, null, null]);
 });
 
+test('done rows say Done, the first open step is the only Next up with the only primary button, and the topic map waits on keywords', () => {
+    const steps = deriveSetupChecklist(facts({
+        competitors: [],
+        keywords: [],
+        searchConsoleConnected: false,
+        topicMapBuilt: false,
+        marketingPlanItemCount: 0,
+        initiativeCount: null,
+    }), options);
+    const rows = setupChecklistRows(steps);
+    assert.deepEqual(rows.map(row => row.state), ['done', 'done', 'next', 'todo', 'todo', 'locked', 'unknown']);
+    assert.equal(rows[5].lockedReason, 'needs keywords first');
+    assert.deepEqual(setupProgress(steps), { done: 2, total: 7, left: 5, percent: 29 });
+
+    const html = renderToStaticMarkup(createElement(SetupChecklistView, {
+        clientName: 'Northside Plumbing', steps, panel: 'list', onDismiss: () => {},
+    }));
+    assert.equal(html.match(/>Done</g)?.length, 2);
+    assert.equal(html.match(/Next up/g)?.length, 1);
+    assert.equal(html.match(/aria-current="step"/g)?.length, 1);
+    assert.match(html, /data-state="next"[^>]*bg-\[#fdf2f8\]/);
+    // Only one primary (dark, 44px) button on the list.
+    assert.equal(html.match(/h-11 [^"]*bg-\[#18181b\]/g)?.length, 1);
+    assert.match(html, /h-11[^>]*>Add competitors/);
+    assert.match(html, /Not started · needs keywords first/);
+    assert.match(html, /Couldn&#x27;t check/);
+    assert.equal(html.includes('Not done'), false);
+});
+
 test('client details are done with only a name, because the create form marks the website optional', () => {
     // A client created without a website: nothing in the facts carries one.
     const steps = deriveSetupChecklist(facts({ clientName: 'No Website Co' }), options);
@@ -130,23 +161,25 @@ test('the list hides when every step is done or when it is dismissed, and a fail
 
     const open = deriveSetupChecklist(facts({ keywords: [], topicMapBuilt: false, marketingPlanItemCount: 0, initiativeCount: 0 }), options);
     const list = renderToStaticMarkup(createElement(SetupChecklistView, {
+        clientName: 'Northside Plumbing',
         steps: open,
         panel: 'list',
         onDismiss: () => {},
     }));
-    assert.match(list, /Set up this client/);
+    assert.match(list, /Finish setting up Northside Plumbing/);
+    assert.match(list, /4 of 7 done/);
+    assert.match(list, /3 to go/);
+    assert.match(list, /role="progressbar"[^>]*aria-valuemax="7"[^>]*aria-valuenow="4"/);
     assert.match(list, /Add client details/);
-    assert.match(list, /Keywords/);
-    assert.match(list, /Not done/);
-    assert.match(list, /Done/);
     assert.match(list, /href="\/workspace\/client%20id\?tab=topical-map&amp;setup=keywords"/);
-    assert.equal(list.includes('0 of'), false);
+    assert.match(list, />Hide</);
 
-    const hidden = renderToStaticMarkup(createElement(SetupChecklistView, { steps, panel: 'hidden', onDismiss: () => {} }));
+    const hidden = renderToStaticMarkup(createElement(SetupChecklistView, { clientName: 'Northside Plumbing', steps, panel: 'hidden', onDismiss: () => {} }));
     assert.equal(hidden, '');
-    const failed = renderToStaticMarkup(createElement(SetupChecklistView, { steps: open, panel: 'unavailable', onDismiss: () => {} }));
+    const failed = renderToStaticMarkup(createElement(SetupChecklistView, { clientName: 'Northside Plumbing', steps: open, panel: 'unavailable', onDismiss: () => {} }));
     assert.ok(failed.includes('Couldn&#x27;t load setup progress. Refresh to try again.'));
     assert.equal(SETUP_LOAD_FAILED, "Couldn't load setup progress. Refresh to try again.");
     assert.equal(failed.includes('Not done'), false);
-    assert.equal(failed.includes('0'), false);
+    assert.equal(failed.includes(' done<'), false);
+    assert.equal(failed.includes('progressbar'), false);
 });
