@@ -82,8 +82,10 @@ import { managerIsAssigned, planHourLabel, planHoursNarrative } from '@/lib/seo-
 import { planChooseTaskClass } from '@/lib/seo-plan/row-timer';
 import { GLOBAL_TIMER_HINT, GLOBAL_TIMER_LABEL } from '@/lib/timer/attempt-state';
 import { ChangeLogTab } from '@/components/change-log/ChangeLogTab';
+import { ContentBoard } from '@/components/content/ContentBoard';
+import { canEditContent } from '@/lib/content/access';
 
-type Tab = 'overview' | 'campaign' | 'tasks' | 'deliverables' | 'integrations' | 'insights' | 'changes' | 'rankings' | 'inventory' | 'topical-map' | 'approvals' | 'portal' | 'vault' | 'campaign-workspace';
+type Tab = 'overview' | 'campaign' | 'tasks' | 'deliverables' | 'integrations' | 'insights' | 'changes' | 'rankings' | 'inventory' | 'topical-map' | 'content' | 'approvals' | 'portal' | 'vault' | 'campaign-workspace';
 
 export default function ClientDetailPage() {
     const params = useParams();
@@ -91,7 +93,7 @@ export default function ClientDetailPage() {
     const searchParams = useSearchParams();
     const id = params.id as string;
     const { organization, memberships } = useOrganization();
-    const { isOwner, displayName, isLoading: memberLoading, userId } = useCurrentMember();
+    const { isOwner, displayName, isLoading: memberLoading, userId, role } = useCurrentMember();
     const membership = memberships.find((member) => member.userId === userId);
     const vaultEnabled = useVaultEnabled(organization?.id);
     const seoPlanV2 = useSeoPlanV2(organization?.id);
@@ -175,7 +177,7 @@ export default function ClientDetailPage() {
             }
             return;
         }
-        const knownTabs = ['overview', 'campaign', 'tasks', 'deliverables', 'integrations', 'insights', 'changes', 'inventory', 'topical-map', 'approvals', 'portal'];
+        const knownTabs = ['overview', 'campaign', 'tasks', 'deliverables', 'integrations', 'insights', 'changes', 'inventory', 'topical-map', 'content', 'approvals', 'portal'];
         if (keywordTrackingEnabled()) knownTabs.push('rankings');
         if (campaignWorkspaceEnabled()) knownTabs.push(CAMPAIGN_WORKSPACE_TAB);
         const opportunity = readOpportunityRoute(searchKey, { keywordTracking: keywordTrackingEnabled() });
@@ -682,6 +684,16 @@ export default function ClientDetailPage() {
                     organizationId={organization?.id ?? ''}
                     clientId={client.id}
                     clientName={client.clientName}
+                    contentPieces={client.setupScope ? client.setupScope.contentPieces : null}
+                />
+            )}
+
+            {activeTab === 'content' && client.organizationId === organization?.id && (
+                <ContentBoard
+                    clientId={client.id}
+                    clientName={client.clientName}
+                    contentPieces={client.setupScope ? client.setupScope.contentPieces : null}
+                    readOnly={!canEditContent(role)}
                 />
             )}
 
