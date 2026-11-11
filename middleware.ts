@@ -18,6 +18,15 @@ export async function middleware(request: NextRequest) {
     }
     if (botDecision === 'allow') return NextResponse.next()
 
+    // Fixture screen for the paused bot timer. Dev only. It renders labeled
+    // sample rows and does not read or write the database.
+    if (
+        request.nextUrl.pathname === '/dev/bot-timer-paused'
+        && process.env.NODE_ENV !== 'production'
+    ) {
+        return NextResponse.next()
+    }
+
     // The metrics handler validates the cron secret or client-scoped session itself.
     if (request.nextUrl.pathname === '/api/sync/metrics') return NextResponse.next();
 

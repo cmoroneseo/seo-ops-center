@@ -250,6 +250,57 @@ test('a capped bot timer is visible for review and is not client budget time', (
     assert.equal(ledger.exceptions[0]?.kind, 'bot_timer_cap');
 });
 
+test('a paused bot timer is visible and is not confirmed budget time', () => {
+    const ledger = buildWeeklyLedger(
+        [
+            log({
+                id: 'paused',
+                date: '2026-08-24',
+                hours: 0.5,
+                status: 'paused',
+                description: 'Mapped the keyword set',
+                taskTitle: 'Brief',
+                pausedAt: '2026-08-24T18:00:00.000Z',
+            }),
+            log({ id: 'ok', date: '2026-08-24', hours: 1 }),
+        ],
+        '2026-08-23',
+        { now: new Date('2026-08-24T20:00:00.000Z') },
+    );
+
+    const paused = ledger.clients.find(group => group.clientName === 'Paused bot timers');
+    const client = ledger.clients.find(group => group.clientId === 'client-a');
+    assert.equal(paused?.paused, true);
+    assert.equal(paused?.totalMinutes, 30);
+    assert.equal(paused?.rows[0].taskTitle, 'Brief');
+    assert.equal(client?.budgetMinutes, 60);
+    assert.equal(ledger.totals.budgetMinutes, 60);
+    assert.equal(ledger.totals.totalMinutes, 60);
+    assert.equal(ledger.exceptions[0]?.kind, 'bot_timer_paused');
+    assert.equal(ledger.exceptions[0]?.description.includes('7 days'), false);
+});
+
+test('a paused bot timer older than seven days is flagged and still not closed into the week total', () => {
+    const ledger = buildWeeklyLedger(
+        [
+            log({
+                id: 'stale',
+                date: '2026-08-17',
+                hours: 0.5,
+                status: 'paused',
+                taskTitle: 'Brief',
+                pausedAt: '2026-08-17T18:00:00.000Z',
+            }),
+        ],
+        '2026-08-17',
+        { now: new Date('2026-08-24T18:00:00.000Z') },
+    );
+
+    assert.equal(ledger.totals.totalMinutes, 0);
+    assert.equal(ledger.exceptions[0]?.kind, 'bot_timer_paused');
+    assert.match(ledger.exceptions[0]?.description ?? '', /7 days/);
+});
+
 test('running timers are excluded from the ledger', () => {
     const ledger = buildWeeklyLedger(
         [log({ id: 'running', date: '2026-08-24', hours: 0, status: 'in_progress' })],

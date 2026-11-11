@@ -36,6 +36,8 @@ export interface LedgerLog {
     operationId?: string;
     /** Active seconds on this dated row, before hours were rounded. */
     elapsedSeconds?: number;
+    /** When a paused bot timer last stopped a stretch. */
+    pausedAt?: string;
 }
 
 export interface LedgerTaskRow {
@@ -58,6 +60,8 @@ export interface LedgerClientGroup {
     clientName: string;
     isInternal: boolean;
     needsReview: boolean;
+    /** Bot timer paused in SEO Ops. Not confirmed time and not sent to Basecamp. */
+    paused: boolean;
     rows: LedgerTaskRow[];
     dailyMinutes: number[];
     totalMinutes: number;
@@ -77,7 +81,7 @@ export interface LedgerTotals {
     unmappedCount: number;
 }
 
-export type LedgerExceptionKind = 'unmapped_import' | 'bot_timer_cap';
+export type LedgerExceptionKind = 'unmapped_import' | 'bot_timer_cap' | 'bot_timer_paused';
 
 export interface LedgerException {
     kind: LedgerExceptionKind;
@@ -99,12 +103,17 @@ export interface WeeklyLedger {
 export interface WeeklyLedgerOptions {
     /** Restrict to one member. Authorization is enforced server-side, not here. */
     userId?: string;
+    /** Clock for the stale-paused hint. Tests pass a fixed instant. */
+    now?: Date;
 }
 
 const DAYS_IN_WEEK = 7;
 export const INTERNAL_GROUP_LABEL = 'Internal';
 export const REVIEW_GROUP_LABEL = 'Needs review';
 export const BOT_TIMER_REVIEW_LABEL = 'Bot timer review';
+export const PAUSED_BOT_TIMER_LABEL = 'Paused bot timers';
+/** Matches the sweep. A paused bot timer older than this is marked for review and is not closed. */
+export const PAUSED_BOT_TIMER_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Hours are numeric(5,2); minutes are the unit every total is carried in. */
 export function minutesFromHours(hours: number): number {
@@ -150,9 +159,11 @@ function emptyDays(): number[] {
  * A row that no longer reflects real, resolved, finalized work.
  * `needs_review` is a bot timer stopped at the two-hour cap. It is visible
  * and it is not confirmed client time until the owner accepts it.
+ * `paused` is a bot timer waiting for more work. It is visible and it is not
+ * budget time until stop.
  */
 function isLedgerEligible(log: LedgerLog): boolean {
-    return (log.status === 'logged' || log.status === 'needs_review')
+    return (log.status === 'logged' || log.status === 'needs_review' || log.status === 'paused')
         && log.importStatus !== 'voided'
         && !log.voidedAt;
 }
@@ -176,15 +187,26 @@ interface GroupKey {
     clientName: string;
     isInternal: boolean;
     needsReview: boolean;
+    paused: boolean;
 }
 
 function groupKeyFor(log: LedgerLog): GroupKey {
+    if (log.status === 'paused') {
+        return {
+            clientId: null,
+            clientName: PAUSED_BOT_TIMER_LABEL,
+            isInternal: false,
+            needsReview: true,
+            paused: true,
+        };
+    }
     if (log.status === 'needs_review') {
         return {
             clientId: null,
             clientName: BOT_TIMER_REVIEW_LABEL,
             isInternal: false,
             needsReview: true,
+            paused: false,
         };
     }
     if (isUnmappedImport(log)) {
@@ -193,6 +215,7 @@ function groupKeyFor(log: LedgerLog): GroupKey {
             clientName: REVIEW_GROUP_LABEL,
             isInternal: false,
             needsReview: true,
+            paused: false,
         };
     }
     if (!log.clientId) {
@@ -201,6 +224,7 @@ function groupKeyFor(log: LedgerLog): GroupKey {
             clientName: INTERNAL_GROUP_LABEL,
             isInternal: true,
             needsReview: false,
+            paused: false,
         };
     }
     return {
@@ -208,6 +232,7 @@ function groupKeyFor(log: LedgerLog): GroupKey {
         clientName: log.clientName ?? 'Unnamed client',
         isInternal: false,
         needsReview: false,
+        paused: false,
     };
 }
 
@@ -241,6 +266,7 @@ export function buildWeeklyLedger(
 ): WeeklyLedger {
     const days = weekDays(weekStart);
     const dayIndex = new Map(days.map((day, index) => [day, index]));
+    const nowMs = (options.now ?? new Date()).getTime();
 
     const groups = new Map<string, GroupAccumulator>();
     const exceptions: LedgerException[] = [];
@@ -310,8 +336,12 @@ export function buildWeeklyLedger(
         group.dailyMinutes[index] += minutes;
         group.totalMinutes += minutes;
 
-        totals.dailyMinutes[index] += minutes;
-        totals.totalMinutes += minutes;
+        // Paused bot time is visible on its own row. It is not confirmed yet,
+        // so it stays out of the week footer until stop finalizes the entry.
+        if (!key.paused) {
+            totals.dailyMinutes[index] += minutes;
+            totals.totalMinutes += minutes;
+        }
 
         // Unapproved import time is not client time yet. It shows in the week's
         // totals and in its own bucket, but it must never be reported as
@@ -347,6 +377,19 @@ export function buildWeeklyLedger(
                 userId: log.userId,
                 description: log.description,
             });
+        } else if (log.status === 'paused') {
+            const pausedMs = log.pausedAt ? Date.parse(log.pausedAt) : Number.NaN;
+            const stale = Number.isFinite(pausedMs) && nowMs - pausedMs >= PAUSED_BOT_TIMER_STALE_MS;
+            exceptions.push({
+                kind: 'bot_timer_paused',
+                timeLogId: log.id,
+                date: log.date,
+                minutes,
+                userId: log.userId,
+                description: stale
+                    ? 'Paused for more than 7 days. Review it. It was not closed.'
+                    : log.description,
+            });
         }
     }
 
@@ -356,6 +399,7 @@ export function buildWeeklyLedger(
             clientName: group.clientName,
             isInternal: group.isInternal,
             needsReview: group.needsReview,
+            paused: group.paused,
             dailyMinutes: group.dailyMinutes,
             totalMinutes: group.totalMinutes,
             budgetMinutes: group.budgetMinutes,

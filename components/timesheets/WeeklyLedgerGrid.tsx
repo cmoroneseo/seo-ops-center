@@ -15,7 +15,8 @@ interface WeeklyLedgerGridProps {
 }
 
 function groupId(group: LedgerClientGroup) {
-    return group.needsReview ? 'review' : group.clientId ?? 'internal';
+    if (group.needsReview) return `review:${group.clientName}`;
+    return group.clientId ?? 'internal';
 }
 
 /**
@@ -194,7 +195,7 @@ function FragmentGroup({
                         className="flex items-center gap-2 rounded text-sm font-medium text-foreground hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                     >
                         <Chevron className="h-4 w-4 text-muted-foreground" aria-hidden />
-                        {group.needsReview && (
+                        {group.needsReview && !group.paused && (
                             <AlertTriangle className="h-4 w-4 text-amber-500" aria-hidden />
                         )}
                         {group.clientName}
@@ -265,7 +266,7 @@ function FragmentGroup({
             {!isCollapsed && group.rows.length > 0 && (
                 <tr className="border-b border-border bg-muted/20">
                     <th scope="row" className="sticky left-0 z-10 bg-card px-4 py-3 pl-10 text-left text-xs font-normal text-muted-foreground">
-                        {group.needsReview ? 'Needs attention total' : 'Client total'}
+                        {group.paused ? 'Paused total' : group.needsReview ? 'Needs attention total' : 'Client total'}
                     </th>
                     {group.dailyMinutes.map((minutes, index) => (
                         <td

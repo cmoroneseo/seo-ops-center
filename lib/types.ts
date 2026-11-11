@@ -834,7 +834,7 @@ export interface SyncRun {
     errorSummary: { clientId: string; service: string; message: string }[];
 }
 
-export type TimeLogStatus = 'in_progress' | 'logged' | 'needs_review';
+export type TimeLogStatus = 'in_progress' | 'paused' | 'logged' | 'needs_review';
 
 /** Where a ledger row originated. Provenance, not a second system. */
 export type TimeLogSource = 'seo_pm' | 'basecamp';
@@ -969,6 +969,8 @@ export interface TimeLogSegment {
     userId: string;
     startedAt: string;
     endedAt?: string;
+    /** Notes for this stretch. Set on bot timers. Human segments leave it empty. */
+    note?: string;
 }
 
 export interface TimerAttempt extends TimeLog {

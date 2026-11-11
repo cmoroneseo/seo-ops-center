@@ -148,3 +148,83 @@ test('migration 114 is unapplied and allows one running timer per bot', async ()
         `insert into public.time_logs (bot_key_id, status) values (null, 'in_progress'), (null, 'in_progress')`,
     );
 });
+
+test('migration 125 is unapplied and lets a bot pause without taking the open-segment slot', async () => {
+    const sql = readFileSync(new URL('../../migrations/125_bot_timer_pause.sql', import.meta.url), 'utf8');
+    const mirrored = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
+    for (const needle of [
+        'NOT APPLIED',
+        'sgszojorcftyaknruckh',
+        'Not applied in this change',
+        'time_logs_status_check',
+        "'paused'",
+        'time_log_segments',
+        'add column if not exists note text',
+        'one_open_time_segment_per_user',
+    ]) {
+        assert.equal(sql.includes(needle), true, needle);
+    }
+    assert.equal(mirrored.includes(sql.trim()), true);
+    assert.equal(/^\s*(update|delete from|truncate)\s/im.test(sql.replace(/--.*$/gm, '')), false);
+
+    const db = new PGlite();
+    await db.exec(`
+        create table public.time_logs (
+          id uuid primary key default gen_random_uuid(),
+          bot_key_id uuid,
+          status text not null default 'logged' check (status in ('in_progress', 'logged', 'needs_review'))
+        );
+        create table public.time_log_segments (
+          id uuid primary key default gen_random_uuid(),
+          time_log_id uuid,
+          organization_id uuid,
+          user_id uuid,
+          started_at timestamptz not null,
+          ended_at timestamptz
+        );
+        create unique index one_open_time_segment_per_user
+          on public.time_log_segments (organization_id, user_id)
+          where ended_at is null;
+        create unique index time_logs_one_running_bot_timer
+          on public.time_logs (bot_key_id)
+          where status = 'in_progress' and bot_key_id is not null;
+    `);
+    await db.exec(sql);
+
+    const bot = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const user = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const org = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    await db.query(
+        `insert into public.time_logs (bot_key_id, status) values ($1, 'paused'), ($1, 'paused'), ($1, 'in_progress')`,
+        [bot],
+    );
+    await assert.rejects(
+        () => db.query(`insert into public.time_logs (bot_key_id, status) values ($1, 'in_progress')`, [bot]),
+        /time_logs_one_running_bot_timer|duplicate key/,
+    );
+    await assert.rejects(
+        () => db.query(`insert into public.time_logs (bot_key_id, status) values ($1, 'nope')`, [bot]),
+        /time_logs_status_check|check constraint/,
+    );
+
+    const log = await db.query<{ id: string }>(`select id from public.time_logs where status = 'paused' limit 1`);
+    await db.query(
+        `insert into public.time_log_segments (time_log_id, organization_id, user_id, started_at, ended_at, note)
+         values ($1, $2, $3, '2026-11-03T18:00:00Z', '2026-11-03T18:30:00Z', 'Mapped the keyword set'),
+                ($1, $2, $3, '2026-11-03T19:00:00Z', '2026-11-03T19:20:00Z', 'Drafted the brief')`,
+        [log.rows[0].id, org, user],
+    );
+    await db.query(
+        `insert into public.time_log_segments (time_log_id, organization_id, user_id, started_at)
+         values ($1, $2, $3, '2026-11-03T20:00:00Z')`,
+        [log.rows[0].id, org, user],
+    );
+    await assert.rejects(
+        () => db.query(
+            `insert into public.time_log_segments (time_log_id, organization_id, user_id, started_at)
+             values ($1, $2, $3, '2026-11-03T21:00:00Z')`,
+            [log.rows[0].id, org, user],
+        ),
+        /one_open_time_segment_per_user|duplicate key/,
+    );
+});

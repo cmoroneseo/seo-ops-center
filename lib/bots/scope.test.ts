@@ -23,6 +23,16 @@ test('a bot key may POST task create and timer start/stop only', () => {
         authorization: token,
     }), 'allow');
     assert.equal(botRequestDecision({
+        pathname: '/api/bots/timer/pause',
+        method: 'POST',
+        authorization: token,
+    }), 'allow');
+    assert.equal(botRequestDecision({
+        pathname: '/api/bots/timer/resume',
+        method: 'POST',
+        authorization: token,
+    }), 'allow');
+    assert.equal(botRequestDecision({
         pathname: '/api/bots/time',
         method: 'POST',
         authorization: token,

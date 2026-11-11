@@ -76,6 +76,7 @@ function segmentFromRow(value: unknown): TimeLogSegment | null {
     const userId = optionalString(row.user_id);
     const startedAt = optionalString(row.started_at);
     if (!id || !timeLogId || !organizationId || !userId || !startedAt) return null;
+    const note = optionalString(row.note);
     return {
         id,
         timeLogId,
@@ -83,6 +84,7 @@ function segmentFromRow(value: unknown): TimeLogSegment | null {
         userId,
         startedAt,
         endedAt: optionalString(row.ended_at),
+        ...(note ? { note } : {}),
     };
 }
 

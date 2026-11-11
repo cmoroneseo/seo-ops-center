@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { parseBotRequest } from './request.ts';
-import { BOT_TASKS_PATH, BOT_TIMER_START_PATH, BOT_TIMER_STOP_PATH } from './scope.ts';
+import { BOT_TASKS_PATH, BOT_TIMER_PAUSE_PATH, BOT_TIMER_RESUME_PATH, BOT_TIMER_START_PATH, BOT_TIMER_STOP_PATH } from './scope.ts';
 
 const NOW = new Date('2026-11-03T18:00:00.000Z');
 const CLIENT = '33333333-3333-4333-8333-333333333333';
@@ -81,11 +81,41 @@ test('stop accepts completion and rejects a future day', () => {
 });
 
 test('a delete field is forbidden on every bot route', () => {
-    for (const pathname of [BOT_TASKS_PATH, BOT_TIMER_START_PATH, BOT_TIMER_STOP_PATH]) {
+    for (const pathname of [BOT_TASKS_PATH, BOT_TIMER_START_PATH, BOT_TIMER_PAUSE_PATH, BOT_TIMER_RESUME_PATH, BOT_TIMER_STOP_PATH]) {
         const parsed = parse(pathname, { idempotencyKey: 'not-allowed', delete: true });
         assert.equal(parsed.ok, false);
         if (!parsed.ok) assert.equal(parsed.code, 'forbidden');
     }
+});
+
+test('pause and resume accept a note and reject unknown fields', () => {
+    const pause = parse(BOT_TIMER_PAUSE_PATH, {
+        idempotencyKey: 'pause-brief',
+        description: 'Checked the top ten',
+    });
+    assert.equal(pause.ok, true);
+    if (!pause.ok || pause.command.kind !== 'pause') return;
+    assert.equal(pause.command.description, 'Checked the top ten');
+
+    const resume = parse(BOT_TIMER_RESUME_PATH, {
+        idempotencyKey: 'resume-brief',
+        taskId: PARENT,
+        description: 'Drafted the brief',
+    });
+    assert.equal(resume.ok, true);
+    if (!resume.ok || resume.command.kind !== 'resume') return;
+    assert.equal(resume.command.taskId, PARENT);
+
+    const missing = parse(BOT_TIMER_RESUME_PATH, { idempotencyKey: 'resume-brief' });
+    assert.equal(missing.ok, false);
+    if (!missing.ok) assert.equal(missing.code, 'invalid_request');
+
+    const unknown = parse(BOT_TIMER_PAUSE_PATH, {
+        idempotencyKey: 'pause-brief',
+        hours: 1,
+    });
+    assert.equal(unknown.ok, false);
+    if (!unknown.ok) assert.equal(unknown.code, 'unknown_field');
 });
 
 test('category rules match the app labels', () => {

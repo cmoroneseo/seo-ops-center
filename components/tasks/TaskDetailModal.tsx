@@ -25,6 +25,7 @@ import { useOrganization } from '@/components/providers/organization-provider';
 import { useTimer } from '@/components/providers/timer-provider';
 import { RESUMED_OPEN_TIMER_MESSAGE, REVIEWING_TIMER_MESSAGE } from '@/lib/timer/attempt-state';
 import { groupSegmentsForDisplay, sumActiveSeconds } from '@/lib/timer/segments';
+import { taskStretchLines } from '@/lib/timer/task-stretches';
 import { timeLogBasecampCopy } from '@/lib/timesheets/log-sync-state';
 import { TIME_LOG_BASECAMP_EVENT, type TimeLogBasecampNotice, basecampSyncNotice } from '@/lib/basecamp/sync-notice';
 import { completeTaskWithReconciliation } from '@/lib/tasks/task-completion';
@@ -123,6 +124,7 @@ function TaskTimeLogRow({
     syncNotice?: string | null;
 }) {
     const groups = groupSegmentsForDisplay(log.segments);
+    const stretches = taskStretchLines(log);
     const activeSeconds = sumActiveSeconds(log.segments);
 
     return (
@@ -136,7 +138,9 @@ function TaskTimeLogRow({
                         </span>
                     )}
                 </p>
-                <span className="text-[11px] text-muted-foreground">{log.date.slice(0, 10)}</span>
+                <span className="text-[11px] text-muted-foreground">
+                    {log.status === 'paused' ? 'Paused' : log.date.slice(0, 10)}
+                </span>
             </div>
             <p className="text-[11px] text-muted-foreground">
                 {loggerName ?? 'Team member'}
@@ -146,7 +150,22 @@ function TaskTimeLogRow({
                     </span>
                 )}
             </p>
-            {groups.length > 0 && (
+            {stretches ? (
+                <ul className="space-y-1.5" data-bot-stretches>
+                    {stretches.map(stretch => (
+                        <li key={`${stretch.startedAt}:${stretch.endedAt ?? 'open'}`} className="text-[11px] text-muted-foreground">
+                            <span className="text-foreground">
+                                {stretch.endedAt
+                                    ? formatClockRange(stretch.startedAt, stretch.endedAt)
+                                    : `${formatClockRange(stretch.startedAt)} · still running`}
+                            </span>
+                            {stretch.note && (
+                                <span className="mt-0.5 block whitespace-pre-line">{stretch.note}</span>
+                            )}
+                        </li>
+                    ))}
+                </ul>
+            ) : groups.length > 0 && (
                 <ul className="text-[11px] text-muted-foreground/70 space-y-0.5">
                     {groups.map(group => (
                         <li key={group.startsAt}>{formatClockRange(group.startsAt, group.endsAt)}</li>
@@ -1411,12 +1430,14 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                             )}
 
                             {/* Summary */}
-                            {loggedHours > 0 ? (
+                            {loggedHours > 0 || timeLogs.length > 0 ? (
                                 <div className="space-y-2">
-                                    <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/30 border border-border">
-                                        <Clock className="h-5 w-5 text-muted-foreground" />
-                                        <p className="text-sm font-semibold">{loggedHours.toFixed(1)}h logged</p>
-                                    </div>
+                                    {loggedHours > 0 && (
+                                        <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/30 border border-border">
+                                            <Clock className="h-5 w-5 text-muted-foreground" />
+                                            <p className="text-sm font-semibold">{loggedHours.toFixed(1)}h logged</p>
+                                        </div>
+                                    )}
                                     {timeLogs.slice(0, 5).map(log => (
                                         <TaskTimeLogRow
                                             key={log.id}
