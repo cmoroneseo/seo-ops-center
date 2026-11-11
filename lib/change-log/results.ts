@@ -7,6 +7,7 @@ import {
     type ImpactModel,
     type Kpi,
     type MetricRead,
+    type QueryCompare,
 } from './types';
 
 export type ResultsMetric = 'clicks' | 'impressions' | 'ctr' | 'avg_position' | 'rest_clicks';
@@ -115,10 +116,51 @@ export function notReadyCopy(notReady: ResultsNotReady | null): string | null {
     return `Not ready yet. The ${notReady.days}-day check is due ${formatDayWithYear(notReady.dueOn)}. Google's numbers are ready around ${formatDayWithYear(notReady.dataReadyOn)}.`;
 }
 
-/** Drop the comparison claim when there is nothing to compare. */
-export function chartCaption(controlLabel: string): string {
-    if (controlLabel === 'No comparison') return 'Other changes on this page are listed below.';
-    return 'Compared with the rest of the site. Other changes on this page are listed below.';
+/**
+ * Plain caption for the indexed chart.
+ * Null when there is nothing to compare, so the page does not render an empty line.
+ */
+export function chartCaption(controlLabel: string): string | null {
+    if (controlLabel === 'No comparison') return null;
+    return "Compared with the rest of the site. 100 = the page's normal level before the change.";
+}
+
+export const TERM_NOT_REPORTED = '— not reported yet';
+
+export const TERMS_EMPTY_COPY = {
+    none: 'No search terms were saved on this change.',
+    unmeasured: "These terms haven't been reported yet.",
+} as const;
+
+export const TERMS_MISSING_NOTE = "— not reported yet means that term wasn't measured for that period. It isn't zero.";
+
+export type TermsEmpty = keyof typeof TERMS_EMPTY_COPY;
+
+/** A measured zero stays 0. An unmeasured side stays null and reads as not reported. */
+export function formatTermValue(value: number | null): string {
+    if (value == null || !Number.isFinite(value)) return TERM_NOT_REPORTED;
+    const rounded = Math.round(value * 10) / 10;
+    return Number.isInteger(rounded)
+        ? new Intl.NumberFormat('en-US').format(rounded)
+        : rounded.toFixed(1);
+}
+
+export function searchTermsEmpty(queries: readonly QueryCompare[]): TermsEmpty | null {
+    if (queries.length === 0) return 'none';
+    const measured = queries.some(query => (
+        query.beforeClicks != null || query.afterClicks != null
+        || query.beforeImpressions != null || query.afterImpressions != null
+        || query.beforePosition != null || query.afterPosition != null
+    ));
+    return measured ? null : 'unmeasured';
+}
+
+export function termsHaveGaps(queries: readonly QueryCompare[]): boolean {
+    return queries.some(query => (
+        query.beforeClicks == null || query.afterClicks == null
+        || query.beforeImpressions == null || query.afterImpressions == null
+        || query.beforePosition == null || query.afterPosition == null
+    ));
 }
 
 export function answerLine(

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { exampleBoard, exampleConfounders, EXAMPLE_BASELINE_NOTE, EXAMPLE_NOTE, EXAMPLE_TODAY, ecoworkzH1Input } from '@/lib/change-log/fixture';
+import type { ChartMarker } from '@/lib/change-log/chart';
 import type { Confounder, ImpactModel, SeoChange, TimelineItem } from '@/lib/change-log/types';
 import type { ChangeInput } from '@/lib/change-log/validate';
 
@@ -29,8 +30,15 @@ export function ChangeLogTab({
     const [setup, setSetup] = useState<'ready' | 'missing' | 'loading'>(example ? 'ready' : 'loading');
     const [error, setError] = useState<string | null>(null);
     const [pending, setPending] = useState(false);
-    const [detail, setDetail] = useState<{ change: SeoChange; impact: ImpactModel; confounders: Confounder[]; baselineNote: string | null } | null>(null);
+    const [detail, setDetail] = useState<{
+        change: SeoChange;
+        impact: ImpactModel;
+        confounders: Confounder[];
+        baselineNote: string | null;
+        pageMarkers?: ChartMarker[];
+    } | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
+    const [canEdit, setCanEdit] = useState(true);
 
     function go(next: { change?: string | null; view?: string | null; example?: boolean; screen?: string | null }) {
         const params = new URLSearchParams();
@@ -56,6 +64,7 @@ export function ChangeLogTab({
                 if (!response.ok) throw new Error(body?.error || 'Unable to load the change log.');
                 setItems(Array.isArray(body?.items) ? body.items : []);
                 setSetup(body?.setup === 'missing' ? 'missing' : 'ready');
+                if (typeof body?.canEdit === 'boolean') setCanEdit(body.canEdit);
             })
             .catch(loadError => {
                 if (controller.signal.aborted) return;
@@ -96,7 +105,9 @@ export function ChangeLogTab({
                     impact: body.impact,
                     confounders: Array.isArray(body.confounders) ? body.confounders : [],
                     baselineNote: typeof body.baselineNote === 'string' ? body.baselineNote : null,
+                    pageMarkers: Array.isArray(body.pageMarkers) ? body.pageMarkers : [],
                 });
+                if (typeof body.canEdit === 'boolean') setCanEdit(body.canEdit);
             })
             .catch(loadError => {
                 if (!controller.signal.aborted) setError(loadError instanceof Error ? loadError.message : 'Unable to load this change.');
@@ -107,13 +118,14 @@ export function ChangeLogTab({
     let mode: ChangeLogMode = 'list';
     if (screen === 'loading') mode = 'loading';
     else if (screen === 'empty') mode = 'empty';
-    else if (view === 'new') mode = 'form';
+    else if (view === 'new' && canEdit) mode = 'form';
     else if (changeId) mode = 'detail';
     else if (!example && setup === 'loading') mode = 'loading';
     else if (!example && setup === 'missing') mode = 'setup';
     else if (!example && items.length === 0 && !error) mode = 'empty';
 
     async function submit(input: ChangeInput) {
+        if (!canEdit) return;
         if (example) {
             setNotice('Example only. Nothing was saved.');
             go({ view: null, change: 'example-ecoworkz-h1' });
@@ -139,7 +151,7 @@ export function ChangeLogTab({
     }
 
     async function remove() {
-        if (!changeId || example) return;
+        if (!canEdit || !changeId || example) return;
         const response = await fetch(`/api/clients/${encodeURIComponent(clientId)}/changes/${encodeURIComponent(changeId)}`, { method: 'DELETE' });
         if (!response.ok) {
             setError('Unable to remove the change.');
@@ -171,6 +183,7 @@ export function ChangeLogTab({
                 onRemove={remove}
                 onExample={() => go({ example: true })}
                 today={example ? EXAMPLE_TODAY : undefined}
+                canEdit={canEdit}
             />
         </div>
     );

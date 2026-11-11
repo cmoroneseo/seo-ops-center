@@ -13,8 +13,11 @@ import {
     chartCaption,
     dailyAverage,
     formatChangePercent,
+    formatTermValue,
     notReadyCopy,
     percentChange,
+    searchTermsEmpty,
+    termsHaveGaps,
 } from './results';
 import { dataReadyOn } from './schedule';
 import type { DayPoint, ImpactModel, Kpi } from './types';
@@ -265,6 +268,32 @@ test('an unmeasured window is null, a measured zero stays zero, and a missing si
         siteDays: [],
     });
     assert.equal(buildResultsTable(empty).rows.find(item => item.id === 'clicks')?.before, null);
-    assert.equal(chartCaption('No comparison'), 'Other changes on this page are listed below.');
-    assert.match(chartCaption('Rest of the site'), /Compared with the rest of the site/);
+    assert.equal(chartCaption('No comparison'), null);
+    assert.match(chartCaption('Rest of the site') ?? '', /Compared with the rest of the site/);
+    assert.match(chartCaption('Rest of the site') ?? '', /100 = the page's normal level before the change/);
+});
+
+test('search terms keep a real zero and say when a side was not reported', () => {
+    assert.equal(formatTermValue(0), '0');
+    assert.equal(formatTermValue(null), '— not reported yet');
+    assert.equal(formatTermValue(12.34), '12.3');
+    const blank = {
+        query: 'missing',
+        beforeClicks: null,
+        afterClicks: null,
+        beforeImpressions: null,
+        afterImpressions: null,
+        beforePosition: null,
+        afterPosition: null,
+        beforeCtr: null,
+        afterCtr: null,
+        clicksDelta: null,
+        impressionsDelta: null,
+        positionDelta: null,
+    };
+    assert.equal(searchTermsEmpty([]), 'none');
+    assert.equal(searchTermsEmpty([blank]), 'unmeasured');
+    assert.equal(searchTermsEmpty([{ ...blank, beforeClicks: 0 }]), null);
+    assert.equal(termsHaveGaps([{ ...blank, beforeClicks: 0 }]), true);
+    assert.equal(termsHaveGaps([{ ...blank, beforeClicks: 1, afterClicks: 2, beforeImpressions: 3, afterImpressions: 4, beforePosition: 5, afterPosition: 6 }]), false);
 });

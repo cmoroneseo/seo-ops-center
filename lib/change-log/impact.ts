@@ -1,3 +1,4 @@
+import { dateOffset } from '@/lib/gsc/history';
 import { eachDate } from '@/lib/search-reporting/range';
 
 import { controlDayValue, controlFor } from './control';
@@ -72,8 +73,10 @@ export function buildImpact(source: ImpactSource): ImpactModel {
     const baselineControlWindow = controlFor(baseline, siteBaseline.measured ? siteBaseline : null, 'clicks');
     const baselineControl = baselineControlWindow.mode === 'untouched' ? baselineControlWindow.read : null;
     const control = controlFor(baseline, siteBaseline.measured ? siteBaseline : null, source.kpi);
-    const seriesEnd = afterWindow(source.liveOn, 56).end;
-    const series = chartSeries(source, through, baselineSpan.start, seriesEnd > through ? through : seriesEnd);
+    const windowEnd = afterWindow(source.liveOn, 56).end;
+    const lagEnd = dateOffset(through, GSC_LAG_DAYS);
+    const seriesEnd = windowEnd < lagEnd ? windowEnd : lagEnd;
+    const series = chartSeries(source, through, baselineSpan.start, seriesEnd < baselineSpan.start ? baselineSpan.start : seriesEnd);
 
     return {
         kpi: source.kpi,
@@ -169,6 +172,30 @@ function readYoy(source: ImpactSource, through: string): { read: ReturnType<type
     return { read, note: 'Last year is context. The result uses the 28 days before the change.' };
 }
 
+function pageCounts(day: DayPoint | undefined, preliminary: boolean) {
+    if (preliminary || !day || day.preliminary) {
+        return { clicks: null, impressions: null, ctr: null, position: null };
+    }
+    return {
+        clicks: day.clicks,
+        impressions: day.impressions,
+        ctr: day.impressions > 0 ? day.clicks / day.impressions : null,
+        position: day.impressions > 0 ? day.position : null,
+    };
+}
+
+function controlCounts(page: DayPoint | undefined, site: DayPoint | undefined, preliminary: boolean) {
+    if (preliminary) {
+        return { controlClicks: null, controlImpressions: null, controlCtr: null, controlPosition: null };
+    }
+    return {
+        controlClicks: controlDayValue(page, site, 'clicks'),
+        controlImpressions: controlDayValue(page, site, 'impressions'),
+        controlCtr: controlDayValue(page, site, 'ctr'),
+        controlPosition: controlDayValue(page, site, 'avg_position'),
+    };
+}
+
 function chartSeries(source: ImpactSource, through: string, start: string, end: string): ChartPoint[] {
     const pageByDate = new Map(source.pageDays.map(day => [day.date, day]));
     const siteByDate = new Map(source.sitewideDays.map(day => [day.date, day]));
@@ -178,16 +205,33 @@ function chartSeries(source: ImpactSource, through: string, start: string, end: 
         const preliminary = date > through;
         const pageDay = pageByDate.get(date);
         const siteDay = siteByDate.get(date);
+        const measuredPage = !preliminary && pageDay && !pageDay.preliminary ? pageDay : undefined;
         points.push({
             date,
-            page: preliminary || !pageDay || pageDay.preliminary ? null : dayKpi(pageDay, source.kpi),
+            page: measuredPage ? dayKpi(measuredPage, source.kpi) : null,
             control: preliminary ? null : controlDayValue(pageDay, siteDay, source.kpi),
             live: date === source.liveOn,
             preliminary,
+            ...pageCounts(pageDay, preliminary),
+            ...controlCounts(pageDay, siteDay, preliminary),
         });
     }
     if (!points.some(point => point.date === source.liveOn)) {
-        points.push({ date: source.liveOn, page: null, control: null, live: true, preliminary: source.liveOn > through });
+        points.push({
+            date: source.liveOn,
+            page: null,
+            control: null,
+            live: true,
+            preliminary: source.liveOn > through,
+            clicks: null,
+            impressions: null,
+            ctr: null,
+            position: null,
+            controlClicks: null,
+            controlImpressions: null,
+            controlCtr: null,
+            controlPosition: null,
+        });
     }
     return points;
 }

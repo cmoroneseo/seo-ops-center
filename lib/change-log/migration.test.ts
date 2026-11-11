@@ -60,8 +60,8 @@ test('a member can log a change in their org and cannot read another org', async
             organization_id, client_id, change_type, title, before_text, after_text,
             live_at, approved_by_name, backup_reference, revert_instructions, kpi
         ) values (
-            '${org}', '${client}', 'h1', 'Homepage H1', 'before', 'after',
-            '2026-11-10T22:04:00Z', 'Carlos', 'Elementor template 11115', 'Set the widget back.', 'clicks'
+            '${org}', '${client}', 'h1', 'Homepage main heading', 'before', 'after',
+            '2026-11-10T22:04:00Z', 'Carlos', 'Saved copy of the old homepage heading', 'Put the main heading back.', 'clicks'
         );
     `);
     const id = (await db.query<{ id: string }>('select id from public.seo_changes')).rows[0].id;

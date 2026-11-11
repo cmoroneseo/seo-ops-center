@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Prints the Ecoworkz homepage H1 example.
+ * Prints the Ecoworkz homepage main heading example.
  * Does not connect to a database and does not insert a row.
  * The live numbers in the app's example screen are synthetic.
  * Apply migration 125 separately, then log the change in the product.
@@ -28,8 +28,8 @@ const seed = {
     after: 'Hardscape & Landscape Contractors in Corona, CA',
     liveAtPacific: '2026-11-10T14:04',
     approvedBy: 'Carlos',
-    backup: 'Elementor template 11115',
-    revert: 'Set Elementor widget 47eaa58 on page 7901 back to the long H1.',
+    backup: 'Saved copy of the old homepage heading',
+    revert: 'Put the main heading back to: Hardscape, Landscape & Outdoor Living Contractors in Corona, CA.',
     queries: ['hardscape contractors corona', 'landscape contractors corona', 'corona landscaping'],
     gscProperty: 'sc-domain:ecoworkz.net',
     ga4Property: 'properties/296973560',

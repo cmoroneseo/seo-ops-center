@@ -243,6 +243,8 @@ test('the Ecoworkz example is improved, estimated nowhere, and flags the same-da
     assert.equal(h1.headline.verdict, 'improved');
     assert.equal(h1.headline.estimate, false);
     assert.equal(promo.headline.verdict, 'flat');
+    assert.equal(board.changes[0].title, 'Homepage main heading');
+    assert.equal(/\b(H1|Elementor|widget)\b/i.test(`${board.changes[0].title} ${board.changes[0].backupReference} ${board.changes[0].revertInstructions} ${board.changes[1].afterText} ${board.changes[1].revertInstructions}`), false);
     assert.equal(board.changes[0].beforeText.includes('Outdoor Living'), true);
     assert.equal(board.changes[0].afterText, 'Hardscape & Landscape Contractors in Corona, CA');
     assert.equal(board.changes[0].liveAt, '2026-11-10T22:04:00.000Z');
@@ -267,6 +269,10 @@ test('the Ecoworkz example is improved, estimated nowhere, and flags the same-da
     assert.equal(/\bKPI\b/.test(csv), false);
     assert.match(csv, /Nov 10, 2026 · 2:04 PM PT \(Pacific time\)/);
     assert.equal(h1.series.some(point => point.live), true);
+    assert.equal(h1.series.find(point => point.date === '2026-11-10')?.clicks, 12);
+    const waiting = h1.series.filter(point => point.date > h1.finalThrough);
+    assert.equal(waiting.length, GSC_LAG_DAYS);
+    assert.ok(waiting.every(point => point.preliminary && point.clicks == null && point.page == null));
     assert.equal(h1.yoy?.measured, true);
 });
 
