@@ -39,17 +39,39 @@ test('the example list shows one result pill per row', () => {
     assert.match(markup, /Example data/);
     assert.match(markup, /Homepage H1/);
     assert.match(markup, /El Niño promo banner/);
-    assert.equal(markup.split('Improved').length - 1, 1);
+    assert.match(markup, /<table/);
+    assert.match(markup, /What we(?:'|&#x27;|&apos;)re watching/);
+    assert.match(markup, /Latest result/);
+    assert.match(markup, /Next check/);
+    assert.match(markup, /aria-sort="descending"/);
+    assert.match(markup, /Clicks from Google/);
+    assert.match(markup, /56-day check/);
+    assert.match(markup, /Jan 5, 2027/);
+    assert.match(markup, /of 2 changes/);
+    assert.match(markup, /newest first/);
+    assert.match(markup, /pages we didn(?:'|&#x27;|&apos;)t change/);
+    assert.equal(markup.split('Improved').length - 1, 2);
     assert.match(markup, /No clear change/);
-    assert.equal(markup.includes('Flat'), false);
-    assert.equal(markup.includes('· Estimate'), false);
-    assert.equal(markup.includes('/day'), false);
-    assert.equal((markup.match(/data-result=/g) ?? []).length, 2);
+    assert.match(markup, /Too early to tell/);
+    assert.match(markup, /Early estimate/);
+    assert.match(markup, /Declined/);
+    const visible = markup.replace(/<style>[\s\S]*?<\/style>/, '');
+    assert.equal(visible.includes('Flat'), false);
+    assert.equal(visible.includes('· Estimate'), false);
+    assert.equal(visible.includes('/day'), false);
+    assert.equal(visible.includes('0%'), false);
+    assert.equal((markup.match(/data-result="/g) ?? []).length, 2);
+    assert.equal((markup.match(/data-bucket="/g) ?? []).length, 5);
+    assert.match(markup, /data-bucket="improved"[^>]*data-count="1"/);
+    assert.match(markup, /data-bucket="flat"[^>]*data-count="1"/);
+    assert.match(markup, /data-bucket="declined"[^>]*data-count="0"/);
     assert.match(markup, /data-result="improved"/);
     assert.match(markup, /data-result="flat"/);
     assert.match(markup, /<svg/);
     assert.match(markup, /Main page heading/);
+    assert.match(markup, /Call-to-action section/);
     assert.equal(markup.includes('(H1)'), false);
+    assert.equal(markup.includes('(CTR)'), false);
     assert.match(markup, /Nov 10, 2026/);
     assert.equal(markup.includes('2:04'), false);
 });
@@ -62,6 +84,11 @@ test('an estimate or an early row does not repeat the verdict beside the pill', 
         verdict: 'too_early',
         estimate: false,
         deltaText: 'Too early',
+        headlineDays: null,
+        headlinePct: null,
+        checkpointDays: null,
+        nextCheckOn: '2026-11-11',
+        nextCheckDays: 7,
     };
     const estimated: TimelineItem = {
         ...board.items[0],
@@ -70,6 +97,11 @@ test('an estimate or an early row does not repeat the verdict beside the pill', 
         verdict: 'improved',
         estimate: true,
         deltaText: '9/day → 10/day (+12%)',
+        headlineDays: 7,
+        headlinePct: 12,
+        checkpointDays: 7,
+        nextCheckOn: '2026-11-18',
+        nextCheckDays: 14,
     };
     const markup = renderToStaticMarkup(createElement(ChangeLogView, {
         clientName: 'Ecoworkz',
@@ -82,15 +114,18 @@ test('an estimate or an early row does not repeat the verdict beside the pill', 
         onSubmit: () => undefined,
         onRemove: () => undefined,
     }));
-    assert.equal(markup.split('Too early').length - 1, 1);
     assert.match(markup, /Too early to tell/);
-    assert.match(markup, /Early estimate/);
+    assert.match(markup, /Early estimate \+12%/);
+    assert.match(markup, /7-day check/);
+    assert.match(markup, /Not ready yet/);
     assert.match(markup, /data-result="early-estimate"/);
-    assert.equal(markup.includes('Improved'), false);
+    assert.match(markup, /data-result="too_early"/);
+    assert.equal(markup.split('Improved').length - 1, 1);
     assert.equal(markup.includes('· Estimate'), false);
     assert.equal(markup.includes('9/day'), false);
     assert.equal(markup.includes('(+12%)'), false);
-    assert.equal((markup.match(/data-result=/g) ?? []).length, 2);
+    assert.equal(markup.replace(/<style>[\s\S]*?<\/style>/, '').includes('0%'), false);
+    assert.equal((markup.match(/data-result="/g) ?? []).length, 2);
 });
 
 test('the detail uses the plain chart title, the rest of the site, and the honesty line', () => {
