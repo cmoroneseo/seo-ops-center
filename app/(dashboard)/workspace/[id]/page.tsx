@@ -565,7 +565,6 @@ export default function ClientDetailPage() {
                     clientId={client.id}
                     organizationId={organization.id}
                     clientName={client.clientName}
-                    website={client.domain ?? null}
                 />
             )}
 

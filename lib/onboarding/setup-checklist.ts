@@ -33,7 +33,6 @@ const LABELS: Record<SetupStepId, string> = {
 
 export interface SetupChecklistFacts {
     clientName: string;
-    website: string | null;
     /** Null when the brand profile could not be read. */
     brandName: string | null;
     businessDescription: string | null;
@@ -56,8 +55,9 @@ function filled(value: string | null | undefined): boolean {
     return Boolean(value && value.trim());
 }
 
-export function clientDetailsDone(name: string, website: string | null | undefined): boolean {
-    return filled(name) && filled(website);
+/** The create form requires only a name. The website is optional there, so it is not required here either. */
+export function clientDetailsDone(name: string): boolean {
+    return filled(name);
 }
 
 export function brandConfirmed(brandName: string, description: string): boolean {
@@ -154,7 +154,7 @@ export function deriveSetupChecklist(
     options: { clientId: string; campaignWorkspace: boolean },
 ): SetupStepView[] {
     const done: Record<SetupStepId, boolean | null> = {
-        details: clientDetailsDone(facts.clientName, facts.website),
+        details: clientDetailsDone(facts.clientName),
         brand: facts.brandName == null || facts.businessDescription == null
             ? null
             : brandConfirmed(facts.brandName, facts.businessDescription),

@@ -23,7 +23,6 @@ import {
 function facts(patch: Partial<SetupChecklistFacts> = {}): SetupChecklistFacts {
     return {
         clientName: 'Northside Plumbing',
-        website: 'https://northside.example',
         brandName: 'Northside Plumbing',
         businessDescription: 'Local plumbing',
         competitors: ['rival.example'],
@@ -41,7 +40,6 @@ const options = { clientId: 'client id', campaignWorkspace: false };
 test('setup steps follow the client setup order and link to the place each one is done', () => {
     const steps = deriveSetupChecklist(facts({
         clientName: '  ',
-        website: '   ',
         brandName: '',
         businessDescription: 'Plumbing',
         competitors: [],
@@ -76,8 +74,8 @@ test('setup steps follow the client setup order and link to the place each one i
 });
 
 test('each step is done only from real state, and a failed read stays unknown', () => {
-    assert.equal(clientDetailsDone('Northside', 'https://northside.example'), true);
-    assert.equal(clientDetailsDone('Northside', '  '), false);
+    assert.equal(clientDetailsDone('Northside'), true);
+    assert.equal(clientDetailsDone('  '), false);
     assert.equal(searchConsoleConnectedFromIntegration(null), false);
     assert.equal(searchConsoleConnectedFromIntegration('unknown'), null);
     assert.equal(searchConsoleConnectedFromIntegration({ syncStatus: 'active', selectedProperty: '' }), false);
@@ -110,6 +108,14 @@ test('each step is done only from real state, and a failed read stays unknown', 
     }), options);
     assert.equal(unknown[0].done, true);
     assert.deepEqual(unknown.slice(1).map(step => step.done), [null, null, null, null, null, null]);
+});
+
+test('client details are done with only a name, because the create form marks the website optional', () => {
+    // A client created without a website: nothing in the facts carries one.
+    const steps = deriveSetupChecklist(facts({ clientName: 'No Website Co' }), options);
+    assert.equal(steps[0].id, 'details');
+    assert.equal(steps[0].done, true);
+    assert.equal(deriveSetupChecklist(facts({ clientName: ' ' }), options)[0].done, false);
 });
 
 test('the list hides when every step is done or when it is dismissed, and a failed load does not invent not-done', () => {

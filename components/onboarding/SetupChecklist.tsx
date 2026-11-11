@@ -64,7 +64,7 @@ export function SetupChecklistView({
     );
 }
 
-async function loadFacts(clientId: string, organizationId: string, clientName: string, website: string | null): Promise<SetupChecklistFacts> {
+async function loadFacts(clientId: string, organizationId: string, clientName: string): Promise<SetupChecklistFacts> {
     const [profileResult, mapResult, planResult, initiativeResult, integrationResult] = await Promise.all([
         getClientProfile(clientId).then(profile => ({ profile, failed: false })).catch(() => ({ profile: null, failed: true })),
         getTopicalMapByClient(clientId).then(loaded => ({ loaded, failed: false })).catch(() => ({ loaded: null, failed: true })),
@@ -81,7 +81,6 @@ async function loadFacts(clientId: string, organizationId: string, clientName: s
 
     return {
         clientName,
-        website,
         brandName: profileResult.failed ? null : profileResult.profile?.brandName ?? '',
         businessDescription: profileResult.failed ? null : profileResult.profile?.businessDescription ?? '',
         competitors: profileResult.failed ? null : profileResult.profile?.rivals ?? [],
@@ -101,12 +100,10 @@ export function SetupChecklist({
     clientId,
     organizationId,
     clientName,
-    website,
 }: {
     clientId: string;
     organizationId: string;
     clientName: string;
-    website: string | null;
 }) {
     const [dismissed, setDismissed] = useState<boolean | null>(null);
     const [status, setStatus] = useState<'loading' | 'failed' | 'ready'>('loading');
@@ -120,7 +117,7 @@ export function SetupChecklist({
         if (dismissed !== false) return;
         let cancelled = false;
         setStatus('loading');
-        loadFacts(clientId, organizationId, clientName, website).then(facts => {
+        loadFacts(clientId, organizationId, clientName).then(facts => {
             if (cancelled) return;
             setSteps(deriveSetupChecklist(facts, { clientId, campaignWorkspace: campaignWorkspaceEnabled() }));
             setStatus('ready');
@@ -128,7 +125,7 @@ export function SetupChecklist({
             if (!cancelled) setStatus('failed');
         });
         return () => { cancelled = true; };
-    }, [dismissed, clientId, organizationId, clientName, website]);
+    }, [dismissed, clientId, organizationId, clientName]);
 
     if (dismissed == null) return null;
     const panel = setupChecklistPanel({ status: dismissed ? 'ready' : status, steps, dismissed });
