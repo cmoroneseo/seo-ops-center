@@ -1,4 +1,5 @@
-import { readWorkMonth, workMonthLabel } from '../topical-map/production';
+import type { MapRecordAction, ProductionStatus } from '../types';
+import { displayedProductionStatus, readWorkMonth, workMonthLabel } from '../topical-map/production';
 
 /**
  * Monthly content plan from client setup.
@@ -17,18 +18,48 @@ export function contentPlanLimit(value: number | null | undefined): number | nul
     return value;
 }
 
-export function plannedPieces(
-    records: ReadonlyArray<{ status: string; workMonth?: string | null }>,
-    month: string,
-): number {
+export interface PlanCountable {
+    status: string;
+    productionStatus?: ProductionStatus | null;
+    action?: MapRecordAction;
+    matchedUrl?: string | null;
+    workMonth?: string | null;
+}
+
+/** Statuses that use up a piece of the monthly plan. */
+const PLAN_STATUSES: ReadonlySet<ProductionStatus> = new Set([
+    'approved',
+    'writing',
+    'client_review',
+    'ready',
+    'published',
+]);
+
+/**
+ * Approved counts every page that's approved, being written, in client
+ * review, ready or published. A page that is already on the site, or that
+ * could not be published, does not use up a piece.
+ */
+export function countsTowardPlan(record: PlanCountable): boolean {
+    if (record.status !== 'approved') return false;
+    const shown = displayedProductionStatus({
+        status: 'approved',
+        productionStatus: record.productionStatus,
+        action: record.action ?? 'create',
+        matchedUrl: record.matchedUrl,
+    });
+    return PLAN_STATUSES.has(shown);
+}
+
+export function plannedPieces(records: ReadonlyArray<PlanCountable>, month: string): number {
     const target = readWorkMonth(month);
     if (!target) return 0;
-    return records.filter(record => record.status === 'approved' && readWorkMonth(record.workMonth) === target).length;
+    return records.filter(record => countsTowardPlan(record) && readWorkMonth(record.workMonth) === target).length;
 }
 
 /** How many approved pages the month will have once this page is placed there. */
 export function plannedAfterApproval(
-    records: ReadonlyArray<{ id: string; status: string; workMonth?: string | null }>,
+    records: ReadonlyArray<PlanCountable & { id: string }>,
     recordId: string,
     month: string,
 ): number {
@@ -36,7 +67,7 @@ export function plannedAfterApproval(
     if (!target) return 0;
     const others = records.filter(record =>
         record.id !== recordId
-        && record.status === 'approved'
+        && countsTowardPlan(record)
         && readWorkMonth(record.workMonth) === target,
     ).length;
     return others + 1;

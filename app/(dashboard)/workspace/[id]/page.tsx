@@ -694,6 +694,7 @@ export default function ClientDetailPage() {
                     clientName={client.clientName}
                     contentPieces={client.setupScope ? client.setupScope.contentPieces : null}
                     readOnly={!canEditContent(role)}
+                    onEditPlan={() => setShowEditPanel(true)}
                 />
             )}
 
