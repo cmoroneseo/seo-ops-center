@@ -77,7 +77,6 @@ https://seo-ops-center.vercel.app
   - PDF parsing: `pdf-parse@1.1.1` (import via `pdf-parse/lib/pdf-parse.js` to avoid test-file ENOENT in serverless)
 
 ## Key files (campaign)
-- `components/campaign/CampaignPlanTab.tsx` — 3-tab orchestrator
 - `components/campaign/sections/SectionCard.tsx` — shared helpers, types, label maps
 - `components/campaign/sections/SeoOverviewSection.tsx` — ART framework + AI Draft
 - `components/campaign/sections/WebsiteAnalysisSection.tsx` — findings builder with screenshots

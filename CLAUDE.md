@@ -154,7 +154,6 @@ https://seo-ops-center.vercel.app
   - **Hardcoded purple/violet/indigo literals were deliberately left alone** — they are categorical (deliverable type, event category, roadmap stage), not brand-carrying. Collapsing them into `primary` would destroy the category distinction
 
 ## Key files (campaign)
-- `components/campaign/CampaignPlanTab.tsx` — 3-tab orchestrator
 - `components/campaign/sections/SectionCard.tsx` — shared helpers, types, label maps
 - `components/campaign/sections/SeoOverviewSection.tsx` — ART framework + AI Draft
 - `components/campaign/sections/WebsiteAnalysisSection.tsx` — findings builder with screenshots
