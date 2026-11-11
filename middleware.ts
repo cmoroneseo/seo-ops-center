@@ -22,6 +22,7 @@ export async function middleware(request: NextRequest) {
     // sample rows and does not read or write the database.
     if (
         request.nextUrl.pathname === '/dev/bot-timer-paused'
+        || request.nextUrl.pathname === '/dev/bot-timer-running'
         && process.env.NODE_ENV !== 'production'
     ) {
         return NextResponse.next()

@@ -26,6 +26,8 @@ import { useTimer } from '@/components/providers/timer-provider';
 import { RESUMED_OPEN_TIMER_MESSAGE, REVIEWING_TIMER_MESSAGE } from '@/lib/timer/attempt-state';
 import { groupSegmentsForDisplay, sumActiveSeconds } from '@/lib/timer/segments';
 import { taskStretchLines } from '@/lib/timer/task-stretches';
+import { formatOpenTaskHours, taskHoursWithBotTimers } from '@/lib/timer/bot-display';
+import { BotTimerChip } from '@/components/timer/BotTimerChip';
 import { timeLogBasecampCopy } from '@/lib/timesheets/log-sync-state';
 import { TIME_LOG_BASECAMP_EVENT, type TimeLogBasecampNotice, basecampSyncNotice } from '@/lib/basecamp/sync-notice';
 import { completeTaskWithReconciliation } from '@/lib/tasks/task-completion';
@@ -208,7 +210,19 @@ function TaskTimeLogRow({
 
 export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, currentUserId, initialCompletion = false, embedded = false, hideBasecampSend = false, saveTimeLog = createTimeLog, taskReaders }: TaskDetailModalProps) {
     const { organization, memberships } = useOrganization();
-    const { runningTimer, pausedTimers, startTask, pause, resume, beginStop } = useTimer();
+    const {
+        runningTimer,
+        pausedTimers,
+        startTask,
+        pause,
+        resume,
+        beginStop,
+        botTimers = [],
+        getBotElapsedSeconds,
+        pauseBotTimer,
+        resumeBotTimer,
+        stopBotTimer,
+    } = useTimer();
     const [timerPending, setTimerPending] = useState(false);
     const [timerNotice, setTimerNotice] = useState<string | null>(null);
     const timerPendingRef = useRef<string | null>(null);
@@ -911,6 +925,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             ? { state: 'unavailable' as const, done: 0, total: 0, label: null, ids: [] as string[] }
             : progressOf(subtasks.map(row => ({ id: row.id, title: row.title, status: row.status })));
 
+    const botsOnTask = task ? botTimers.filter(item => item.taskId === task.id) : [];
+    const liveHours = taskHoursWithBotTimers(loggedHours, botsOnTask);
+
     if (!mounted || !task) return null;
 
     const manualPlacement = workedWindowForEdit({
@@ -972,7 +989,12 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                     <button
                                         onClick={async () => {
                                             if (!task) return;
-                                            await deleteTask(task.id);
+                                            const result = await deleteTask(task.id);
+                                            if (!result.success) {
+                                                setSaveError(result.error || 'Could not delete that task.');
+                                                setConfirmDelete(false);
+                                                return;
+                                            }
                                             onDelete?.(task.id);
                                             onClose();
                                         }}
@@ -1430,12 +1452,33 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                             )}
 
                             {/* Summary */}
-                            {loggedHours > 0 || timeLogs.length > 0 ? (
+                            {botsOnTask.map(timer => (
+                                <BotTimerChip
+                                    key={timer.id}
+                                    timer={timer}
+                                    seconds={getBotElapsedSeconds ? getBotElapsedSeconds(timer) : 0}
+                                    onPause={id => void pauseBotTimer?.(id).catch(error => {
+                                        setTimerNotice(error instanceof Error ? error.message : 'Could not pause the bot timer.');
+                                    })}
+                                    onResume={id => void resumeBotTimer?.(id).catch(error => {
+                                        setTimerNotice(error instanceof Error ? error.message : 'Could not resume the bot timer.');
+                                    })}
+                                    onStop={id => void stopBotTimer?.(id).then(result => {
+                                        setTimerNotice(result.capped ? 'Stopped at 2 hours. Review it before it counts.' : 'Bot timer stopped.');
+                                        void loadTaskData();
+                                    }).catch(error => {
+                                        setTimerNotice(error instanceof Error ? error.message : 'Could not stop the bot timer.');
+                                    })}
+                                />
+                            ))}
+                            {(liveHours > 0 || timeLogs.length > 0) ? (
                                 <div className="space-y-2">
-                                    {loggedHours > 0 && (
+                                    {liveHours > 0 && (
                                         <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/30 border border-border">
                                             <Clock className="h-5 w-5 text-muted-foreground" />
-                                            <p className="text-sm font-semibold">{loggedHours.toFixed(1)}h logged</p>
+                                            <p className="text-sm font-semibold" data-task-live-hours>
+                                                {botsOnTask.length > 0 ? `${formatOpenTaskHours(liveHours)} so far` : `${liveHours.toFixed(1)}h logged`}
+                                            </p>
                                         </div>
                                     )}
                                     {timeLogs.slice(0, 5).map(log => (
@@ -1455,7 +1498,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                         </p>
                                     )}
                                 </div>
-                            ) : !showLogForm ? (
+                            ) : !showLogForm && botsOnTask.length === 0 ? (
                                 <div className="border border-dashed border-border rounded-xl py-6 flex flex-col items-center justify-center text-muted-foreground gap-2">
                                     <Clock className="h-6 w-6 opacity-20" />
                                     <p className="text-xs italic">No time logged yet</p>

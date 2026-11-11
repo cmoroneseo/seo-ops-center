@@ -104,7 +104,7 @@ A bot has one **running** timer. A paused timer does not use that slot.
 - Starting the **same** task that already has a paused timer is **409** `timer_paused`. Call resume. The body includes the paused timer.
 - Starting a **different** task while this bot has paused timers is allowed. Those paused entries stay paused. Two bots can each have a running timer at the same time.
 
-The running row is an `in_progress` time log with `bot_key_id` set and `user_id` Carlos. It does not insert an open `time_log_segments` row, so it does not take his `one_open_time_segment_per_user` slot and his own timer keeps working. The floating timer does not show it. `description` on a running row is the note for the open stretch, when start sent one. The task title is not stored as a stretch note.
+The running row is an `in_progress` time log with `bot_key_id` set and `user_id` Carlos. It does not insert an open `time_log_segments` row, so it does not take his `one_open_time_segment_per_user` slot and his own timer keeps working. The task row, the floating timer, and the task view show it as a running timer with a badge for the bot name. See `docs/bot-timer-display.md`. A signed-in member pauses, resumes, or stops it from those controls through `POST /api/bots/timer/staff`, which uses this same close path. That route does not accept a bot key. `description` on a running row is the note for the open stretch, when start sent one. The task title is not stored as a stretch note.
 
 ```bash
 curl -X POST https://seo-ops-center.vercel.app/api/bots/timer/start \

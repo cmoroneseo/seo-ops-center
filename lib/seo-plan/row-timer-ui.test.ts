@@ -238,3 +238,25 @@ test('t toggles the focused row timer once per press', () => {
     assert.deepEqual(timers, ['alpha', 'alpha']);
     view.unmount();
 });
+
+test('a bot timer on the row shows the live clock and the bot badge', () => {
+    const view = mount({
+        loggedHours: { alpha: 0 },
+        timerByTaskId: {
+            alpha: {
+                phase: 'running',
+                seconds: 125,
+                owner: 'bot',
+                botTimerId: 'bot-1',
+                botLabel: 'seo-manager bot',
+            },
+        },
+        onRowTimer: () => undefined,
+    });
+    const running = row(view.container, 'alpha');
+    assert.equal(running.getAttribute('data-plan-timer'), 'running');
+    assert.equal(running.querySelector('[data-plan-time]')?.textContent, '2:05');
+    assert.equal(running.querySelector('[data-bot-badge]')?.textContent, 'seo-manager bot');
+    assert.match(running.querySelector('[data-plan-time]')?.getAttribute('aria-label') ?? '', /seo-manager bot/);
+    view.unmount();
+});

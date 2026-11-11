@@ -51,6 +51,7 @@ import { parseStageListTasks, type StageListTask } from '@/lib/seo-plan/stage-li
 import { useStageListMoves } from '@/lib/seo-plan/stage-list-moves';
 import { calendarDay } from '@/lib/seo-plan/this-month';
 import { RESUMED_OPEN_TIMER_MESSAGE, openTimerRows } from '@/lib/timer/attempt-state';
+import { planRowWithBotTimer, rowTimerClick } from '@/lib/timer/bot-display';
 import { listCampaignInitiatives } from '@/lib/supabase/campaign-initiatives';
 import { createTask, deleteTask, getTask, getTaskTemplates, updateTask } from '@/lib/supabase/tasks';
 import type { PartOfChoice } from '@/lib/tasks/part-of';
@@ -136,6 +137,11 @@ export function StagePlanList({
         resume,
         beginStop,
         getAttemptById,
+        botTimers = [],
+        getBotElapsedSeconds,
+        pauseBotTimer,
+        resumeBotTimer,
+        stopBotTimersOnTask,
     } = useTimer();
     const seenClient = useRef<string | null>(null);
     const { tasks, setList, updateList, move } = useStageListMoves(async (requested) => {
@@ -617,14 +623,34 @@ export function StagePlanList({
         return next;
     };
 
-    const timerByTaskId: Record<string, ReturnType<typeof planRowTimerView>> = {};
+    const timerByTaskId: Record<string, ReturnType<typeof planRowWithBotTimer>> = {};
     for (const task of tasks ?? []) {
-        const view = planRowTimerView(task.id, runningTimer, pausedTimers, getElapsedSeconds);
-        if (view.phase !== 'idle') timerByTaskId[task.id] = view;
+        const human = planRowTimerView(task.id, runningTimer, pausedTimers, getElapsedSeconds);
+        const view = planRowWithBotTimer(
+            human,
+            botTimers.filter(item => item.taskId === task.id),
+            getBotElapsedSeconds ?? (() => 0),
+        );
+        if (view.phase !== 'idle' || (view.extraBotLabels?.length ?? 0) > 0) timerByTaskId[task.id] = view;
     }
 
     const onRowTimer = (taskId: string) => {
         if (pendingTimerRef.current) return;
+        const directBot = timerByTaskId[taskId];
+        if (directBot?.owner === 'bot' && directBot.botTimerId && (directBot.phase === 'running' || directBot.phase === 'paused')) {
+            pendingTimerRef.current = taskId;
+            setPendingTimerTaskId(taskId);
+            setTimerError(null);
+            setTimerNotice(null);
+            const run = directBot.phase === 'running' ? pauseBotTimer : resumeBotTimer;
+            void run?.(directBot.botTimerId).catch(caught => {
+                setTimerError(caught instanceof Error ? caught.message : 'Unable to update the bot timer.');
+            }).finally(() => {
+                pendingTimerRef.current = null;
+                setPendingTimerTaskId(null);
+            });
+            return;
+        }
         // The row button passes the task that keeps the time. Keyboard `t`
         // passes the focused row, which may be the subtask.
         const direct = tasks?.find(item => item.id === taskId);
@@ -643,6 +669,17 @@ export function StagePlanList({
         setPendingTimerTaskId(tracked.taskId);
         setTimerError(null);
         setTimerNotice(null);
+        const click = rowTimerClick(timerByTaskId[tracked.taskId] ?? { phase: 'idle', seconds: 0, owner: 'none', extraBotLabels: [] });
+        if (click.action === 'pause-bot' || click.action === 'resume-bot') {
+            const run = click.action === 'pause-bot' ? pauseBotTimer : resumeBotTimer;
+            void run?.(click.botTimerId).catch(caught => {
+                setTimerError(caught instanceof Error ? caught.message : 'Unable to update the bot timer.');
+            }).finally(() => {
+                pendingTimerRef.current = null;
+                setPendingTimerTaskId(null);
+            });
+            return;
+        }
         void clickPlanRowTimer({
             taskId: tracked.taskId,
             taskTitle: target?.title ?? tracked.parentTitle ?? task.title,
@@ -672,9 +709,30 @@ export function StagePlanList({
 
     const onCheckRunning = (taskId: string) => {
         setTimerError(null);
-        void openPlanStopReview({ taskId, running: runningTimer, beginStop }).then(opened => {
-            if (opened) setReview({ attemptId: opened.attemptId, taskId });
-        }).catch(caught => {
+        const botsHere = botTimers.some(item => item.taskId === taskId);
+        const humanHere = runningTimer?.taskId === taskId && !runningTimer.reviewingAt;
+        void (async () => {
+            if (botsHere && humanHere && stopBotTimersOnTask) {
+                const stopped = await stopBotTimersOnTask(taskId);
+                if (!stopped.ok) {
+                    setTimerError(stopped.error);
+                    return;
+                }
+                if (stopped.capped) setTimerNotice('Stopped at 2 hours. Review it before it counts.');
+            }
+            if (humanHere) {
+                const opened = await openPlanStopReview({ taskId, running: runningTimer, beginStop });
+                if (opened) setReview({ attemptId: opened.attemptId, taskId });
+                return;
+            }
+            const saved = await savePanel(taskId, {
+                field: 'status',
+                status: 'done',
+                completedAt: new Date().toISOString(),
+            });
+            if (saved) setTimerError(saved);
+            else if (botsHere) setTimerNotice('Bot timer stopped.');
+        })().catch(caught => {
             setTimerError(caught instanceof Error ? caught.message : 'Unable to stop this timer.');
         });
     };

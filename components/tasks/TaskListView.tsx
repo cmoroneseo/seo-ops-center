@@ -4,7 +4,7 @@ import { Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Play, Pause, ChevronDown, ChevronRight, Calendar, MoreVertical } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { planRowTimerLabel, planRowTimerView } from '@/lib/seo-plan/row-timer';
+import { formatPlanClock, planRowTimerLabel } from '@/lib/seo-plan/row-timer';
 import { useTaskTimerClick } from './use-task-timer-click';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
@@ -25,7 +25,7 @@ interface TaskListViewProps {
 }
 
 export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListViewProps) {
-    const { pendingTaskId, notice, onTimer, runningTimer, pausedTimers, getElapsedSeconds } = useTaskTimerClick();
+    const { pendingTaskId, notice, onTimer, viewFor } = useTaskTimerClick();
     const { organization } = useOrganization();
     const [memberMap, setMemberMap] = useState<Record<string, string>>({});
 
@@ -109,7 +109,7 @@ export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListView
                                     </td>
                                 </tr>
                                 {expandedClients.has(clientName) && clientTasks.map((task) => {
-                                    const timer = planRowTimerView(task.id, runningTimer, pausedTimers, getElapsedSeconds);
+                                    const timer = viewFor(task.id);
                                     const timerPending = pendingTaskId === task.id;
                                     const isOverdue = task.dueDate && task.dueDate < today && task.status !== 'done';
                                     const assignees = task.assigneeIds ?? task.assignees ?? [];
@@ -237,7 +237,11 @@ export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListView
                                                             type="button"
                                                             disabled={timerPending || timer.phase === 'reviewing'}
                                                             aria-busy={timerPending || undefined}
-                                                            aria-label={timerPending ? `Starting timer for ${task.title}` : planRowTimerLabel(timer.phase, task.title)}
+                                                            aria-label={timerPending
+                                                                ? `Starting timer for ${task.title}`
+                                                                : timer.botLabel
+                                                                    ? `${planRowTimerLabel(timer.phase, task.title)}. ${timer.botLabel}`
+                                                                    : planRowTimerLabel(timer.phase, task.title)}
                                                             data-task-timer={timerPending ? 'pending' : timer.phase}
                                                             className={cn(
                                                                 "inline-flex items-center gap-1 rounded-full p-1.5 text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-70",
@@ -256,6 +260,12 @@ export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListView
                                                                     : timer.phase === 'paused'
                                                                         ? 'Resume'
                                                                         : <Play className="h-3 w-3 fill-current" />}
+                                                            {timer.phase !== 'idle' && !timerPending && (
+                                                                <span className="font-mono tabular-nums">{formatPlanClock(timer.seconds)}</span>
+                                                            )}
+                                                            {timer.botLabel && (
+                                                                <span data-bot-badge className="rounded-full bg-[#ec4899]/10 px-1.5 py-0.5 text-[10px] font-medium">{timer.botLabel}</span>
+                                                            )}
                                                         </button>
                                                     )}
                                                     <button className="p-1.5 rounded-full hover:bg-muted text-muted-foreground opacity-0 group-hover:opacity-100 transition-all">

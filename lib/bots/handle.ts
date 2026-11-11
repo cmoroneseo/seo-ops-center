@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { completionCalendarDay } from '../tasks/completion-date.ts';
 import { taskStatusUpdate, type TaskStatusHistoryEntryLike } from '../tasks/status.ts';
@@ -123,6 +123,12 @@ export interface FinalizedBotLog {
     basecampEntryId: string | null;
 }
 
+/** What `finalizeTimer` returns. `transitioned` is false when the row was already closed. */
+export interface FinalizedBotTimerResult {
+    logs: FinalizedBotLog[];
+    transitioned: boolean;
+}
+
 export interface BasecampStep {
     status: 'pushed' | 'skipped' | 'failed' | 'not_sent';
     reason?: string;
@@ -227,7 +233,7 @@ export interface BotDeps {
         /** Set on the first row when this stop has an idempotency operation. */
         botOperationId: string | null;
         note: string | null;
-    }): Promise<FinalizedBotLog[] | null>;
+    }): Promise<FinalizedBotTimerResult | null>;
     pushTodo(taskId: string, actor: BotActor): Promise<BasecampStep>;
     syncTimesheet(timeLogId: string, actor: BotActor): Promise<BasecampStep>;
     completeTodo(taskId: string, actor: BotActor): Promise<BasecampStep>;
@@ -591,10 +597,10 @@ async function closeTimer(
         botOperationId: string | null;
     },
     deps: BotDeps,
-): Promise<{ status: number; body: unknown } | { logs: FinalizedBotLog[]; capped: boolean }> {
+): Promise<{ status: number; body: unknown } | { logs: FinalizedBotLog[]; capped: boolean; transitioned: boolean }> {
     const slices = botTimerDaySlicesFromStretches(input.stretches, input.timeZone);
     if (slices.length === 0) return { status: 500, body: errorBody('internal', 'Timer could not be stopped.') };
-    const logs = await deps.finalizeTimer({
+    const finalized = await deps.finalizeTimer({
         timer,
         stoppedAt: input.stoppedAt,
         description: input.description,
@@ -607,8 +613,8 @@ async function closeTimer(
         botOperationId: input.botOperationId,
         note: input.capped ? CAP_NOTE : null,
     });
-    if (!logs || logs.length === 0) return { status: 500, body: errorBody('internal', 'Timer could not be stopped.') };
-    return { logs, capped: input.capped };
+    if (!finalized || finalized.logs.length === 0) return { status: 500, body: errorBody('internal', 'Timer could not be stopped.') };
+    return { logs: finalized.logs, capped: input.capped, transitioned: finalized.transitioned };
 }
 
 async function capTimer(timer: RunningBotTimer, deps: BotDeps): Promise<FinalizedBotLog | null> {
@@ -987,6 +993,36 @@ async function executeStop(
         botOperationId: operation.id,
     }, deps);
     if ('status' in finalized) return finalized;
+    if (!finalized.transitioned) {
+        const primary = finalized.logs[0];
+        return {
+            status: 200,
+            body: {
+                idempotencyKey: command.idempotencyKey,
+                bot: key.name,
+                actor: actorBody(actor),
+                alreadyStopped: true,
+                capped: primary.status === 'needs_review',
+                review: primary.status === 'needs_review',
+                timeLog: {
+                    id: primary.id,
+                    date: primary.date,
+                    hours: primary.hours,
+                    minutes: primary.minutes,
+                    status: primary.status,
+                    countsTowardBudget: primary.countsTowardBudget,
+                    billable: primary.billable,
+                    description: primary.description,
+                    basecampEntryId: primary.basecampEntryId,
+                    basecamp: {
+                        status: 'skipped' as const,
+                        reason: 'This timer was already stopped.',
+                    },
+                    stretches: closed.stretches,
+                },
+            },
+        };
+    }
 
     const steps: BasecampStep[] = [];
     if (!closed.capped) {
@@ -1198,4 +1234,91 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
         await deps.saveOperation(operation.id, { lockedAt: new Date(0).toISOString() }).catch(() => undefined);
         return json(errorBody('internal', 'Bot request failed.'), 500);
     }
+}
+
+export interface BotStaffControlInput {
+    action: 'pause' | 'resume' | 'stop';
+    timeLogId: string;
+    description?: string | null;
+    timeZone?: string;
+    billable?: boolean;
+    countsTowardBudget?: boolean;
+    complete?: boolean;
+    completedAt?: string | null;
+}
+
+/**
+ * Pause, resume, or stop one bot timer from a signed-in member.
+ * Uses the same close path as the bot API. A stop pushes to Basecamp only
+ * when this call is the one that closes the row.
+ */
+export async function runBotTimerControl(
+    deps: BotDeps & { getBotKey(id: string): Promise<BotKeyRecord | null> },
+    input: BotStaffControlInput,
+): Promise<{ status: number; body: unknown }> {
+    const timer = await deps.getTimer(input.timeLogId);
+    if (!timer) {
+        return { status: 404, body: errorBody('timer_not_running', 'This bot timer is not running or paused.') };
+    }
+    const key = await deps.getBotKey(timer.botKeyId);
+    if (!key || key.revokedAt || key.organizationId !== timer.organizationId) {
+        return { status: 404, body: errorBody('timer_not_running', 'This bot timer is not running or paused.') };
+    }
+    const actor = await deps.actor(key.organizationId);
+    if (!actor) {
+        return { status: 409, body: errorBody('actor_not_found', 'Carlos Morones is not a member of this organization.') };
+    }
+    const idempotencyKey = `staff-${randomUUID()}`;
+    const requestHash = createHash('sha256')
+        .update(`${input.action}:${input.timeLogId}:${idempotencyKey}`)
+        .digest('hex');
+    const inserted = await deps.insertOperation({
+        organizationId: key.organizationId,
+        botKeyId: key.id,
+        idempotencyKey,
+        requestHash,
+        lockedAt: deps.now().toISOString(),
+    });
+    if (inserted === 'conflict') {
+        return { status: 500, body: errorBody('internal', 'The operation could not be recorded.') };
+    }
+    const description = input.description?.trim() || undefined;
+    const timeZone = input.timeZone?.trim() || BOT_ACTOR_TIME_ZONE;
+    const result = input.action === 'pause'
+        ? await executePause(key, actor, {
+            kind: 'pause',
+            idempotencyKey,
+            requestHash,
+            taskId: timer.taskId,
+            ...(description ? { description } : {}),
+        }, inserted, deps)
+        : input.action === 'resume'
+            ? await executeResume(key, actor, {
+                kind: 'resume',
+                idempotencyKey,
+                requestHash,
+                taskId: timer.taskId,
+                ...(description ? { description } : {}),
+            }, inserted, deps, null)
+            : await executeStop(key, actor, {
+                kind: 'stop',
+                idempotencyKey,
+                requestHash,
+                taskId: timer.taskId,
+                ...(description ? { description } : {}),
+                ...(input.billable === undefined ? {} : { billable: input.billable }),
+                ...(input.countsTowardBudget === undefined ? {} : { countsTowardBudget: input.countsTowardBudget }),
+                complete: input.complete === true,
+                ...(input.completedAt ? { completedAt: input.completedAt } : {}),
+                timeZone,
+            }, inserted, deps);
+    if (result.status >= 200 && result.status < 500) {
+        await deps.saveOperation(inserted.id, {
+            status: 'completed',
+            httpStatus: result.status,
+            response: result.body,
+            lockedAt: deps.now().toISOString(),
+        });
+    }
+    return result;
 }

@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { Task } from '@/lib/types';
 import { taskDescriptionText } from '@/lib/tasks/description';
 import { listedSubtaskProgress } from '@/lib/tasks/subtask-progress';
-import { planRowTimerLabel, planRowTimerView } from '@/lib/seo-plan/row-timer';
+import { formatPlanClock, planRowTimerLabel } from '@/lib/seo-plan/row-timer';
 import { SubtaskProgressText } from './SubtaskProgressText';
 import { useTaskTimerClick } from './use-task-timer-click';
 
@@ -17,8 +17,8 @@ interface TaskCardProps {
 }
 
 export function TaskCard({ task, clientId, clientName, memberMap = {} }: TaskCardProps) {
-    const { pendingTaskId, notice, onTimer, runningTimer, pausedTimers, getElapsedSeconds } = useTaskTimerClick();
-    const timer = planRowTimerView(task.id, runningTimer, pausedTimers, getElapsedSeconds);
+    const { pendingTaskId, notice, onTimer, viewFor } = useTaskTimerClick();
+    const timer = viewFor(task.id);
     const timerPending = pendingTaskId === task.id;
 
     const handleTimerClick = async (e: React.MouseEvent) => {
@@ -77,7 +77,11 @@ export function TaskCard({ task, clientId, clientName, memberMap = {} }: TaskCar
                     onClick={handleTimerClick}
                     disabled={timerPending || timer.phase === 'reviewing'}
                     aria-busy={timerPending || undefined}
-                    aria-label={timerPending ? `Starting timer for ${task.title}` : planRowTimerLabel(timer.phase, task.title)}
+                    aria-label={timerPending
+                        ? `Starting timer for ${task.title}`
+                        : timer.botLabel
+                            ? `${planRowTimerLabel(timer.phase, task.title)}. ${timer.botLabel}`
+                            : planRowTimerLabel(timer.phase, task.title)}
                     data-task-timer={timerPending ? 'pending' : timer.phase}
                     className={cn(
                         'flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1 transition-all duration-150 w-fit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-70',
@@ -95,6 +99,10 @@ export function TaskCard({ task, clientId, clientName, memberMap = {} }: TaskCar
                             : timer.phase === 'paused'
                                 ? <><Play className="h-3 w-3 fill-current" /> Resume</>
                                 : <><Play className="h-3 w-3 fill-current" /> Start Timer</>}
+                    {timer.phase !== 'idle' && !timerPending && (
+                        <span className="font-mono tabular-nums">{formatPlanClock(timer.seconds)}</span>
+                    )}
+                    {timer.botLabel && <span data-bot-badge>{timer.botLabel}</span>}
                 </button>
             )}
             {notice && <p role="status" className="text-xs text-muted-foreground">{notice}</p>}

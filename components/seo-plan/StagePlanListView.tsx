@@ -1053,10 +1053,14 @@ function PlanRow({
             : null;
         const logged = hours ? hours.total : (loggedHours[task.id] ?? 0);
         const tracked = timerTargetById.get(task.id) ?? { taskId: task.id, label: null as string | null, parentTitle: null as string | null };
-        const timer = timerByTaskId?.[tracked.taskId] ?? { phase: 'idle' as const, seconds: 0 };
+        const ownTimer = timerByTaskId?.[task.id];
+        const trackedTimer = timerByTaskId?.[tracked.taskId] ?? { phase: 'idle' as const, seconds: 0 };
+        // A bot timer stays on the task it was started on, including a subtask.
+        const timer = ownTimer?.owner === 'bot' ? ownTimer : trackedTimer;
+        const controlTaskId = timer.owner === 'bot' ? task.id : tracked.taskId;
         const loggedLabel = options.pillar ? `Σ ${formatPlanHours(logged)}` : formatPlanHours(logged);
         const timeText = onRowTimer ? planRowTimeText(timer, loggedLabel) : loggedLabel;
-        const timerPending = Boolean(onRowTimer) && pendingTimerTaskId === tracked.taskId;
+        const timerPending = Boolean(onRowTimer) && pendingTimerTaskId === controlTaskId;
         const stopOnCheck = timer.phase === 'running' && Boolean(onCheckRunning) && !locked && !timerPending;
         const childResults = options.pillar
             ? group.children.flatMap(child => {
@@ -1184,6 +1188,16 @@ function PlanRow({
                         {options.parentTitle && <span className="sr-only">Subtask of {options.parentTitle}. </span>}
                         <TitleText title={task.title} query={query} done={done} />
                     </button>
+                    {timer.botLabel && (
+                        <span data-bot-badge className="shrink-0 rounded-full bg-[#ec4899]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#ec4899]">
+                            {timer.botLabel}
+                        </span>
+                    )}
+                    {(timer.extraBotLabels ?? []).map(label => (
+                        <span key={label} data-bot-badge className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            {label}
+                        </span>
+                    ))}
                     {checklist && (
                         <span data-plan-checklist className="shrink-0 rounded-full bg-[#f4f4f6] px-1.5 py-0.5 text-[11px] text-[#71717a]">
                             Checklist
@@ -1280,15 +1294,18 @@ function PlanRow({
                         aria-busy={timerPending || undefined}
                         aria-label={timerPending
                             ? `Starting timer for ${tracked.parentTitle || task.title}`
-                            : tracked.label
-                                ? `${planRowTimerLabel(timer.phase, tracked.parentTitle || 'the parent task')}. ${tracked.label}`
-                                : planRowTimerLabel(timer.phase, task.title)}
+                            : [
+                                tracked.label
+                                    ? `${planRowTimerLabel(timer.phase, tracked.parentTitle || 'the parent task')}. ${tracked.label}`
+                                    : planRowTimerLabel(timer.phase, task.title),
+                                timer.botLabel,
+                            ].filter(Boolean).join('. ')}
                         title={tracked.label ?? (timer.phase === 'idle' && hours ? hours.tooltip : undefined)}
                         data-plan-time={timerPending ? 'Starting…' : timeText}
                         data-plan-tracks={tracked.label ?? undefined}
                         onClick={event => {
                             event.stopPropagation();
-                            if (!locked && !timerPending) onRowTimer(tracked.taskId);
+                            if (!locked && !timerPending) onRowTimer(controlTaskId);
                         }}
                         className={cn(
                             'inline-flex w-full items-center justify-end gap-1 text-right text-[12px] tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-70',

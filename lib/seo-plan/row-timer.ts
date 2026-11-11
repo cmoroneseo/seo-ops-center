@@ -16,6 +16,12 @@ export interface PlanRowTimerView {
     phase: PlanRowTimerPhase;
     /** Active seconds on the open attempt. Idle rows ignore this and show logged time. */
     seconds: number;
+    /** Whose entry the play button drives. Absent means a human timer, as before. */
+    owner?: 'human' | 'bot' | 'none';
+    botTimerId?: string;
+    /** Badge such as `seo-manager bot` when this row is showing a bot timer. */
+    botLabel?: string;
+    extraBotLabels?: string[];
 }
 
 export interface PlanRowStart {
