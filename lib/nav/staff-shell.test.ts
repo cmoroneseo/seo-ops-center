@@ -93,6 +93,15 @@ test('switching clients keeps the module, and a closed rankings flag opens Overv
     }), '/workspace/maya?tab=campaign&planView=tasks');
 
     assert.equal(switchClientHref({
+        fromPathname: '/workspace/summit',
+        fromSearch: 'tab=campaign&planStatus=in_progress&planAssignee=none',
+        targetClientId: 'maya',
+        keywordTracking: false,
+        vaultEnabled: false,
+        campaignWorkspace: false,
+    }), '/workspace/maya?tab=campaign&planStatus=in_progress&planAssignee=none');
+
+    assert.equal(switchClientHref({
         fromPathname: '/tasks',
         fromSearch: 'client=summit&task=old',
         targetClientId: 'maya',

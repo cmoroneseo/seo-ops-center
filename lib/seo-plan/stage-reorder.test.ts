@@ -192,6 +192,10 @@ test('a move keeps a live URL the save payload does not return', () => {
     assert.equal(mergeStageTasks(dated, [saved])[0].dueDate, '2026-10-12');
     const undated = task({ id: 'piece', title: 'Chino service page', dueDate: null });
     assert.equal(mergeStageTasks(dated, [undated])[0].dueDate, null);
+    const ranked = [task({ id: 'piece', title: 'Chino service page', priority: 'high' })];
+    assert.equal(mergeStageTasks(ranked, [saved])[0].priority, 'high');
+    const lowered = task({ id: 'piece', title: 'Chino service page', priority: 'low' });
+    assert.equal(mergeStageTasks(ranked, [lowered])[0].priority, 'low');
 });
 
 test('the middle of a pillar header nests, and its edges reorder', () => {

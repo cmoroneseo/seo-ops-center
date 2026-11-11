@@ -151,6 +151,10 @@ test('an SEO Plan URL opens Campaign Work only while Campaign is on', () => {
     assert.equal(seoPlanWorkSearch('tab=tasks', true), null);
     assert.equal(seoPlanWorkSearch('tab=campaign-workspace&campaignView=roadmap', true), null);
     assert.equal(seoPlanWorkSearch('tab=overview', true), null);
+    assert.equal(
+        seoPlanWorkSearch('tab=campaign&planStatus=todo&planQ=page&overviewMonth=2026-11', true),
+        'tab=campaign-workspace&campaignView=work&overviewMonth=2026-11&planQ=page&planStatus=todo',
+    );
 });
 
 test('the campaign shell stays hidden when the flag is off', () => {
