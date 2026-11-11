@@ -42,10 +42,42 @@ export async function loadClientStageTasks(
     if (tasks.error) throw new Error('Unable to load tasks');
 
     const rows = Array.isArray(tasks.data) ? tasks.data : [];
-    return rows.flatMap(row => {
+    const loaded = rows.flatMap(row => {
         const task = stageListTaskFromRow(row);
         return task ? [task] : [];
     });
+    return attachInitiativeLinks(db, organizationId, clientId, loaded);
+}
+
+/**
+ * A missing initiative_id column leaves the plan list alone.
+ * The column is read on its own so the main task select still works before migration 126.
+ */
+async function attachInitiativeLinks(
+    db: SupabaseClient,
+    organizationId: string,
+    clientId: string,
+    tasks: StageListTask[],
+): Promise<StageListTask[]> {
+    try {
+        const links = await db
+            .from('tasks')
+            .select('id, initiative_id')
+            .eq('organization_id', organizationId)
+            .eq('client_id', clientId);
+        if (links.error || !Array.isArray(links.data) || links.data.length === 0) return tasks;
+        const byId = new Map<string, string | null>();
+        for (const row of links.data) {
+            if (!row || typeof row !== 'object') return tasks;
+            const record = row as Record<string, unknown>;
+            if (typeof record.id !== 'string' || !('initiative_id' in record)) return tasks;
+            const value = record.initiative_id;
+            byId.set(record.id, typeof value === 'string' && value ? value : null);
+        }
+        return tasks.map(task => ({ ...task, initiativeId: byId.get(task.id) ?? null }));
+    } catch {
+        return tasks;
+    }
 }
 
 /**

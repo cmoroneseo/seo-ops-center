@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { OverviewBriefing } from '@/components/campaign-workspace/OverviewBriefing';
-import { RoadmapPanel } from '@/components/campaign-workspace/RoadmapPanel';
+import { InitiativeRoadmap } from '@/components/campaign-workspace/InitiativeRoadmap';
 import {
     EMPTY_ENGAGEMENT,
     scopeBrief,
@@ -310,7 +310,7 @@ export function CampaignWorkspace({
                     />
                 )}
                 {view === 'roadmap' && (
-                    <RoadmapPanel
+                    <InitiativeRoadmap
                         initiatives={readyInitiatives}
                         today={today}
                         message={workMessage}
@@ -318,6 +318,7 @@ export function CampaignWorkspace({
                         organizationId={organizationId}
                         selectedId={selectedInitiativeId}
                         onSelect={setSelectedInitiativeId}
+                        reloadToken={reloadToken}
                         onSaved={(id) => {
                             setSelectedInitiativeId(id);
                             setReloadToken(token => token + 1);

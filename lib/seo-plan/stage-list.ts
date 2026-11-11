@@ -15,6 +15,11 @@ export interface StageListTask {
     stage: string | null;
     position: number | null;
     parentTaskId: string | null;
+    /**
+     * tasks.initiative_id. Absent when that column was not read.
+     * Null means this task is not part of a roadmap row.
+     */
+    initiativeId?: string | null;
     createdAt: string | null;
     category: string | null;
     basecamp: boolean;
@@ -250,6 +255,9 @@ export function stageListTaskFromRow(row: unknown): StageListTask | null {
         stage: typeof record.stage === 'string' ? record.stage : null,
         position,
         parentTaskId: typeof record.parent_task_id === 'string' && record.parent_task_id ? record.parent_task_id : null,
+        ...('initiative_id' in record ? {
+            initiativeId: typeof record.initiative_id === 'string' && record.initiative_id ? record.initiative_id : null,
+        } : {}),
         createdAt: typeof record.created_at === 'string' ? record.created_at : null,
         category: typeof record.category === 'string' && record.category ? record.category : null,
         basecamp: typeof basecampId === 'number' || (typeof basecampId === 'string' && basecampId !== ''),
@@ -337,6 +345,9 @@ export function parseStageListTasks(value: unknown): StageListTask[] {
             stage: typeof record.stage === 'string' ? record.stage : null,
             position: typeof record.position === 'number' && Number.isFinite(record.position) ? record.position : null,
             parentTaskId: typeof record.parentTaskId === 'string' && record.parentTaskId ? record.parentTaskId : null,
+            ...('initiativeId' in record ? {
+                initiativeId: typeof record.initiativeId === 'string' && record.initiativeId ? record.initiativeId : null,
+            } : {}),
             createdAt: typeof record.createdAt === 'string' ? record.createdAt : null,
             category: typeof record.category === 'string' && record.category ? record.category : null,
             basecamp: record.basecamp === true,
