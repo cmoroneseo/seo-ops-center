@@ -2,7 +2,7 @@
 
 import { useSearchParams } from 'next/navigation';
 
-import { exampleBoard, exampleConfounders, EXAMPLE_NOTE, ecoworkzH1Input } from '@/lib/change-log/fixture';
+import { exampleBoard, exampleConfounders, EXAMPLE_BASELINE_NOTE, EXAMPLE_NOTE, ecoworkzH1Input } from '@/lib/change-log/fixture';
 
 import { ChangeLogView } from './ChangeLogView';
 
@@ -45,7 +45,7 @@ export function ExampleGallery() {
                     change: h1,
                     impact: board.impacts[h1.id],
                     confounders: exampleConfounders(board, h1.id),
-                    baselineNote: 'Example baseline. Not read from Search Console.',
+                    baselineNote: EXAMPLE_BASELINE_NOTE,
                 }}
                 revertOpen={params.get('revert') === '1'}
                 formInitial={ecoworkzH1Input()}

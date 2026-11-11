@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { exampleBoard, exampleConfounders, EXAMPLE_NOTE, ecoworkzH1Input } from '@/lib/change-log/fixture';
+import { exampleBoard, exampleConfounders, EXAMPLE_BASELINE_NOTE, EXAMPLE_NOTE, ecoworkzH1Input } from '@/lib/change-log/fixture';
 import type { Confounder, ImpactModel, SeoChange, TimelineItem } from '@/lib/change-log/types';
 import type { ChangeInput } from '@/lib/change-log/validate';
 
@@ -78,7 +78,7 @@ export function ChangeLogTab({
                 change,
                 impact,
                 confounders: exampleConfounders(next, change.id),
-                baselineNote: 'Example baseline. Not read from Search Console.',
+                baselineNote: EXAMPLE_BASELINE_NOTE,
             } : null);
             return;
         }

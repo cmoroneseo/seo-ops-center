@@ -4,30 +4,27 @@ import { useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { impactCsv } from '@/lib/change-log/csv';
-import { dailyRateText } from '@/lib/change-log/impact';
+import { dailyRateText, overlapLabel } from '@/lib/change-log/impact';
 import { nextStep } from '@/lib/change-log/verdict';
-import { formatDay, formatPt } from '@/lib/change-log/time';
+import { formatDay, formatDayWithYear, formatWentLive } from '@/lib/change-log/time';
 import {
+    CHANGE_TYPE_HINT,
     CHANGE_TYPE_LABEL,
+    chartHeading,
+    KPI_HINT,
     KPI_LABEL,
-    VERDICT_LABEL,
+    resultLabel,
+    SEARCH_CONSOLE_HINT,
     type Confounder,
     type QueryCompare,
     type SeoChange,
     type ImpactModel,
 } from '@/lib/change-log/types';
-import { overlapLabel } from '@/lib/change-log/impact';
 
 import { ImpactChart } from './ImpactChart';
+import { VerdictPill } from './VerdictPill';
 
 type SortKey = 'query' | 'clicks' | 'impressions' | 'position';
-
-function badgeClass(verdict: ImpactModel['headline']['verdict']): string {
-    if (verdict === 'improved') return 'bg-green-50 text-green-800 ring-green-600/20';
-    if (verdict === 'declined') return 'bg-red-50 text-red-800 ring-red-600/20';
-    if (verdict === 'flat') return 'bg-zinc-100 text-zinc-700 ring-zinc-500/20';
-    return 'bg-amber-50 text-amber-900 ring-amber-600/20';
-}
 
 export function ChangeDetail({
     change,
@@ -75,29 +72,36 @@ export function ChangeDetail({
         <div className="change-log-sheet space-y-4">
             <div className="flex flex-wrap items-center gap-2 change-log-no-print">
                 <Button type="button" variant="outline" size="sm" onClick={onBack}>Back</Button>
-                <Button type="button" variant="outline" size="sm" onClick={download}>CSV</Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>Print / Save PDF</Button>
-                {!example && <Button type="button" variant="ghost" size="sm" onClick={onRemove}>Remove</Button>}
+                <Button type="button" variant="outline" size="sm" onClick={download}>Spreadsheet (CSV)</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>Print or save as PDF</Button>
+                {!example && <Button type="button" variant="ghost" size="sm" onClick={onRemove}>Remove from log…</Button>}
             </div>
             <header className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${badgeClass(head.verdict)}`}>
-                        {VERDICT_LABEL[head.verdict]}{head.estimate ? ' · Estimate' : ''}
+                    <VerdictPill verdict={head.verdict} estimate={head.estimate} />
+                    <span className="text-xs text-muted-foreground">
+                        {CHANGE_TYPE_LABEL[change.changeType]}
+                        {CHANGE_TYPE_HINT[change.changeType] ? <span className="text-zinc-400"> ({CHANGE_TYPE_HINT[change.changeType]})</span> : null}
                     </span>
-                    <span className="text-xs text-muted-foreground">{CHANGE_TYPE_LABEL[change.changeType]}</span>
-                    {head.ready && <span className="text-xs text-muted-foreground">{head.days}-day read</span>}
+                    {head.ready && <span className="text-xs text-muted-foreground">{head.days}-day check</span>}
                 </div>
                 <h2 className="text-xl font-semibold tracking-tight">{change.title}</h2>
                 <p className="text-sm text-muted-foreground">{head.note}</p>
                 <p className="text-sm">{impact.causation}</p>
             </header>
             <dl className="grid gap-3 rounded-lg border border-border bg-card p-4 text-sm sm:grid-cols-2">
-                <div><dt className="text-xs text-muted-foreground">Live</dt><dd>{formatPt(change.liveAt)}</dd></div>
+                <div><dt className="text-xs text-muted-foreground">Went live</dt><dd>{formatWentLive(change.liveAt)}</dd></div>
                 <div><dt className="text-xs text-muted-foreground">Approved by</dt><dd>{change.approvedByName}</dd></div>
                 <div><dt className="text-xs text-muted-foreground">Before</dt><dd>{change.beforeText || '—'}</dd></div>
                 <div><dt className="text-xs text-muted-foreground">After</dt><dd>{change.afterText || '—'}</dd></div>
-                <div><dt className="text-xs text-muted-foreground">Backup</dt><dd>{change.backupReference || '—'}</dd></div>
-                <div><dt className="text-xs text-muted-foreground">KPI</dt><dd>{KPI_LABEL[change.kpi]}</dd></div>
+                <div><dt className="text-xs text-muted-foreground">Saved copy of the old version</dt><dd>{change.backupReference || '—'}</dd></div>
+                <div>
+                    <dt className="text-xs text-muted-foreground">What we&apos;re watching</dt>
+                    <dd>
+                        {KPI_LABEL[change.kpi]}
+                        {KPI_HINT[change.kpi] ? <span className="text-zinc-400"> ({KPI_HINT[change.kpi]})</span> : null}
+                    </dd>
+                </div>
                 {change.pages.map(page => (
                     <div key={page.url} className="sm:col-span-2">
                         <dt className="text-xs text-muted-foreground">{page.label || 'Page'}</dt>
@@ -108,51 +112,51 @@ export function ChangeDetail({
             <section className="grid grid-cols-2 gap-2 lg:grid-cols-4">
                 {impact.checkpoints.map(checkpoint => (
                     <article key={checkpoint.days} className={`rounded-lg border bg-card p-3 ${checkpoint.days === head.days && head.ready ? 'border-zinc-900' : 'border-border'}`}>
-                        <p className="text-xs text-muted-foreground">{checkpoint.days} days</p>
-                        <p className="mt-1 text-sm font-medium">{VERDICT_LABEL[checkpoint.verdict]}{checkpoint.estimate ? ' · Estimate' : ''}</p>
+                        <p className="text-xs text-muted-foreground">{checkpoint.days}-day check</p>
+                        <p className="mt-1 text-sm font-medium">{resultLabel(checkpoint.verdict, checkpoint.estimate)}</p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                            {checkpoint.ready ? dailyRateText(change.kpi, impact.baseline, checkpoint.page) : 'Not final yet'}
+                            {checkpoint.ready ? dailyRateText(change.kpi, impact.baseline, checkpoint.page) : 'Not ready yet'}
                         </p>
                     </article>
                 ))}
             </section>
             <section className="rounded-lg border border-border bg-card p-4">
-                <h3 className="mb-1 text-sm font-medium">{KPI_LABEL[change.kpi]} · page vs {impact.controlLabel.toLowerCase()}</h3>
-                <p className="mb-3 text-xs text-muted-foreground">The control is other URLs on this site. Other edits on this page are listed below, not removed from the line.</p>
+                <h3 className="mb-1 text-sm font-medium">{chartHeading(change.kpi)}</h3>
+                <p className="mb-3 text-xs text-muted-foreground">Compared with the rest of the site. Other changes on this page are listed below.</p>
                 <ImpactChart points={impact.series} kpi={change.kpi} liveOn={change.liveOn} controlLabel={impact.controlLabel} />
             </section>
             <section className="rounded-lg border border-border bg-card p-4 text-sm">
-                <h3 className="font-medium">Baseline</h3>
+                <h3 className="font-medium">Starting point</h3>
                 <p className="mt-1 text-muted-foreground">
                     {impact.baselineReady
-                        ? `${impact.baseline.daysPresent} of ${impact.baseline.daysExpected} days before ${formatDay(change.liveOn)} are stored. Final through ${formatDay(impact.finalThrough)}.`
-                        : 'The 28 days before this change are not stored yet.'}
+                        ? `${impact.baseline.daysPresent} of ${impact.baseline.daysExpected} days before ${formatDay(change.liveOn)} are saved. Numbers are final through ${formatDay(impact.finalThrough)}.`
+                        : "The 28 days before this change aren't saved yet."}
                 </p>
                 {baselineNote && <p className="mt-1">{baselineNote}</p>}
                 {impact.yoyNote && (
                     <p className="mt-2">
                         {impact.yoyNote}
-                        {impact.yoy?.measured ? ` Last year: ${impact.yoy.clicks} clicks, ${impact.yoy.impressions} impressions.` : ''}
+                        {impact.yoy?.measured ? ` Last year: ${impact.yoy.clicks} clicks from Google, ${impact.yoy.impressions} times shown in Google.` : ''}
                     </p>
                 )}
-                <p className="mt-2 text-xs text-muted-foreground">{impact.sources.join(' · ')}</p>
+                <p className="mt-2 text-xs text-muted-foreground">{impact.sources.join(' · ')}. {SEARCH_CONSOLE_HINT}</p>
             </section>
             <section className="rounded-lg border border-border bg-card">
                 <div className="flex items-center justify-between px-4 py-3">
-                    <h3 className="text-sm font-medium">Target queries</h3>
-                    <p className="text-xs text-muted-foreground">A subset. Google hides some queries.</p>
+                    <h3 className="text-sm font-medium">Search terms people used</h3>
+                    <p className="text-xs text-muted-foreground">Only some terms. Google hides some searches.</p>
                 </div>
                 {impact.queries.length === 0 ? (
-                    <p className="px-4 pb-4 text-sm text-muted-foreground">No target queries on this change.</p>
+                    <p className="px-4 pb-4 text-sm text-muted-foreground">No search terms were saved on this change.</p>
                 ) : (
                     <div className="insights-table-scroll">
                         <table className="w-full min-w-[640px] text-left text-sm">
                             <thead className="text-xs text-muted-foreground">
                                 <tr>
-                                    <SortHead label="Query" onClick={() => toggle('query')} />
-                                    <SortHead label="Clicks" onClick={() => toggle('clicks')} />
-                                    <SortHead label="Impressions" onClick={() => toggle('impressions')} />
-                                    <SortHead label="Position" onClick={() => toggle('position')} />
+                                    <SortHead label="Search term" onClick={() => toggle('query')} />
+                                    <SortHead label="Clicks from Google" onClick={() => toggle('clicks')} />
+                                    <SortHead label="Times shown in Google" onClick={() => toggle('impressions')} />
+                                    <SortHead label="Average Google position" onClick={() => toggle('position')} />
                                 </tr>
                             </thead>
                             <tbody>
@@ -169,7 +173,7 @@ export function ChangeDetail({
                     </div>
                 )}
                 {!head.ready && impact.queries.length > 0 && (
-                    <p className="px-4 pb-3 text-xs text-muted-foreground">The after window is not final yet. Treat those cells as empty, not as a drop to zero.</p>
+                    <p className="px-4 pb-3 text-xs text-muted-foreground">These later numbers are not ready yet. Treat those cells as empty, not as zero.</p>
                 )}
             </section>
             <section className="rounded-lg border border-border bg-card p-4">
@@ -181,7 +185,7 @@ export function ChangeDetail({
                         {confounders.map(item => (
                             <li key={item.id}>
                                 <button type="button" className="font-medium text-primary" onClick={() => onOpen(item.id)}>{item.title}</button>
-                                <span className="text-muted-foreground"> · {CHANGE_TYPE_LABEL[item.changeType]} · {overlapLabel(item.overlap)} · {formatPt(item.liveAt)}</span>
+                                <span className="text-muted-foreground"> · {CHANGE_TYPE_LABEL[item.changeType]} · {overlapLabel(item.overlap)} · {formatDayWithYear(item.liveOn)}</span>
                             </li>
                         ))}
                     </ul>
@@ -189,15 +193,15 @@ export function ChangeDetail({
             </section>
             <section className="rounded-lg border border-border bg-card p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="text-sm font-medium">Next</h3>
-                    <Button type="button" size="sm" variant="outline" className="change-log-no-print" onClick={() => setRevertOpen(true)}>Revert</Button>
+                    <h3 className="text-sm font-medium">What happens next</h3>
+                    <Button type="button" size="sm" variant="outline" className="change-log-no-print" onClick={() => setRevertOpen(true)}>How to undo</Button>
                 </div>
                 <p className="mt-1 text-sm">{nextStep(change.changeType, head.verdict)}</p>
                 {revertOpen && (
                     <div className="mt-3 rounded-md bg-muted p-3 text-sm">
-                        <p className="font-medium">This does not edit the live site.</p>
-                        <p className="mt-1">{change.revertInstructions || 'No revert steps were saved.'}</p>
-                        {change.backupReference && <p className="mt-1 text-muted-foreground">Backup: {change.backupReference}</p>}
+                        <p className="font-medium">Shows the saved steps. Doesn&apos;t change the live site.</p>
+                        <p className="mt-1">{change.revertInstructions || 'No undo steps were saved.'}</p>
+                        {change.backupReference && <p className="mt-1 text-muted-foreground">Saved copy of the old version: {change.backupReference}</p>}
                     </div>
                 )}
             </section>
