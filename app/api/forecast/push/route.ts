@@ -1,4 +1,4 @@
-import { createForecastPushPost } from '@/lib/forecast/push';
+import { createForecastPushPost, forecastPushViewerRejection } from '@/lib/forecast/push';
 import { scheduleLiveForecastPush } from '@/lib/forecast/live-push';
 import { requireOrganizationMember } from '@/lib/security/tenant-authz';
 
@@ -10,6 +10,8 @@ export const POST = createForecastPushPost({
     async authorize(organizationId) {
         const result = await requireOrganizationMember(organizationId);
         if (!result.ok) return result;
+        const viewer = forecastPushViewerRejection(result.role);
+        if (viewer) return viewer;
         return {
             ok: true,
             userId: result.userId,

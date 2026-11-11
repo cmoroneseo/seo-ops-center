@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseForecastPayloadV2 } from './contract-v2.ts';
+import { presentForecast } from './present.ts';
 import { buildForecastV2, type ForecastV2Input } from './v2.ts';
 import type { ForecastEvent, ForecastLog, ForecastTask } from './build.ts';
 
@@ -40,6 +41,7 @@ function input(overrides: Partial<ForecastV2Input> = {}): ForecastV2Input {
         tasks: [],
         clientLinks: new Map([[CLIENT, 'rc_north']]),
         deskClients: [{ id: 'rc_north', name: 'Northwind Plumbing' }],
+        hybridWeek: true,
         ...overrides,
     };
 }
@@ -228,4 +230,89 @@ test('a logged plan is not sent again, and a past week stays logged only', () =>
     const sources = week?.people.flatMap(person => person.days.flatMap(day => day.items.map(item => item.source))) ?? [];
     assert.equal(sources.includes('actual'), true);
     assert.equal(sources.includes('estimate'), true);
+});
+
+test('with the hybrid flag off, the current week is logged time and every source matches the basis', () => {
+    const result = buildForecastV2(input({
+        hybridWeek: false,
+        logs: [log({ id: LOG, date: '2026-10-12', hours: 1, taskId: TASK, taskTitle: 'Monday pages' })],
+        tasks: [
+            task({ id: LATER, title: 'Later today', startDate: '2026-10-14T22:00:00.000Z', estimatedHours: 2 }),
+            task({ id: NEXT_TASK, title: 'Next Tuesday', startDate: '2026-10-20T16:00:00.000Z', estimatedHours: 3 }),
+        ],
+        events: [focus({ taskId: LATER, taskTitle: 'Later today' })],
+    }));
+    const items = sentItems(result);
+    assert.equal(items.some(item => item.week === '2026-10-12' && item.source === 'estimate'), false);
+    assert.equal(items.some(item => item.itemKey.includes(LATER)), false);
+    assert.equal(items.find(item => item.date === '2026-10-12')?.source, 'actual');
+    const next = items.find(item => item.itemKey === `task:${NEXT_TASK}:2026-10-20`);
+    assert.equal(next?.source, 'estimate');
+    assert.equal(next?.basis, 'estimate');
+    assert.equal(items.every(item => item.source === item.basis), true);
+    const parsed = parseForecastPayloadV2({
+        ...result.payloadBody,
+        runId: '11111111-1111-4111-8111-111111111111',
+    });
+    assert.equal(parsed.weeks.every(week => week.people.every(person =>
+        person.days.every(day => day.items.every(item => item.source === week.basis)))), true);
+});
+
+test('an all-day focus does not hide the task, and a second focus the same day is not added', () => {
+    const early = FOCUS;
+    const late = '66666666-6666-4666-8666-666666666674';
+    const allDay = buildForecastV2(input({
+        tasks: [task({ estimatedHours: 2, startDate: '2026-10-14T22:00:00.000Z' })],
+        events: [focus({
+            allDay: true,
+            taskId: TASK,
+            startsAt: '2026-10-14T07:00:00.000Z',
+            endsAt: '2026-10-15T07:00:00.000Z',
+            title: 'All day',
+        })],
+    }));
+    const allDayItems = sentItems(allDay).filter(item => item.date === '2026-10-14');
+    assert.equal(allDayItems.length, 1);
+    assert.equal(allDayItems[0]?.itemKey, `task:${TASK}:2026-10-14`);
+    assert.equal(allDayItems[0]?.source, 'estimate');
+    assert.equal(allDayItems[0]?.minutes, 120);
+
+    const doubled = buildForecastV2(input({
+        tasks: [task({ estimatedHours: 5, startDate: '2026-10-14T22:00:00.000Z' })],
+        events: [
+            focus({
+                id: late,
+                taskId: TASK,
+                startsAt: '2026-10-14T23:00:00.000Z',
+                endsAt: '2026-10-15T00:00:00.000Z',
+                title: 'Later block',
+            }),
+            focus({
+                id: early,
+                taskId: TASK,
+                startsAt: '2026-10-14T22:00:00.000Z',
+                endsAt: '2026-10-14T23:00:00.000Z',
+                title: 'First block',
+            }),
+        ],
+    }));
+    const blocks = sentItems(doubled).filter(item => item.date === '2026-10-14');
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0]?.itemKey, `event:${early}:2026-10-14`);
+    assert.equal(blocks[0]?.minutes, 60);
+});
+
+test('a preview of only last week does not call it this week', () => {
+    const result = buildForecastV2(input({
+        selectedWeekStarts: ['2026-10-05'],
+        logs: [log({ id: LOG, date: '2026-10-07', hours: 1, description: 'Last week' })],
+        tasks: [],
+        events: [],
+    }));
+    const view = presentForecast(result, { enabled: true, reason: null }, null, {
+        today: TODAY,
+        hybridWeek: true,
+    });
+    assert.equal(view.notes.some(note => note.startsWith('This week')), false);
+    assert.match(view.notes.join(' '), /Earlier weeks send hours already logged/);
 });

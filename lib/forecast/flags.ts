@@ -76,6 +76,15 @@ export function campaignDeskSyncV2(env: NodeJS.ProcessEnv = process.env): boolea
     return env.CAMPAIGN_DESK_SYNC_V2 === 'true';
 }
 
+/**
+ * Current week includes planned work still ahead, and an automatic push may
+ * clear an empty week. Off unless the value is exactly `true`. Campaign Desk
+ * must accept mixed item sources and an empty people list before this is turned on.
+ */
+export function campaignDeskHybridWeek(env: NodeJS.ProcessEnv = process.env): boolean {
+    return env.CAMPAIGN_DESK_HYBRID_WEEK === 'true';
+}
+
 /** True only when this organization may call Campaign Desk. */
 export function campaignDeskReady(
     organizationId: string,

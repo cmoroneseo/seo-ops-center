@@ -300,6 +300,7 @@ export function buildForecastV2(input: ForecastV2Input): ForecastV2BuildResult {
     let allDayBreaks = 0;
     let oooLeftOut = 0;
     let splitEstimates = 0;
+    const hybrid = input.hybridWeek === true;
     const groups = new Map<string, Group>();
     const gaps: Gap[] = [];
     const forcedDesk = new Map<string, string>();
@@ -307,18 +308,30 @@ export function buildForecastV2(input: ForecastV2Input): ForecastV2BuildResult {
     const loggedEvents = new Set<string>();
     /** user + task + day that already has a counted log. */
     const loggedTasks = new Set<string>();
-    /** user + task + day covered by a focus block, logged or not. */
+    /** user + task + day covered by one remaining focus block that can be sent. */
     const focusSessions = new Set<string>();
-    for (const event of input.events) {
-        if (event.kind !== 'focus') continue;
-        const taskId = uuidOrNull(event.taskId);
-        if (!taskId) continue;
-        const day = calendarDateInTimeZone(event.startsAt, input.timeZone);
-        if (!day) continue;
-        const weekStart = weekStartFor(day);
-        if (!selected.includes(weekStart) || forecastWeekKind(weekStart, input.today) !== 'current') continue;
-        if (!planIsRemaining(day, event.allDay ? null : event.startsAt, input)) continue;
-        focusSessions.add(`${event.userId}\0${taskId}\0${day}`);
+    /** The earliest remaining focus for that person, task, and day. */
+    const focusKeeper = new Map<string, string>();
+    if (hybrid) {
+        for (const event of input.events) {
+            if (event.kind !== 'focus' || eventDurationMinutes(event) == null) continue;
+            const taskId = uuidOrNull(event.taskId);
+            if (!taskId) continue;
+            const day = calendarDateInTimeZone(event.startsAt, input.timeZone);
+            if (!day) continue;
+            const weekStart = weekStartFor(day);
+            if (!selected.includes(weekStart) || forecastWeekKind(weekStart, input.today) !== 'current') continue;
+            if (!planIsRemaining(day, event.startsAt, input)) continue;
+            const cover = `${event.userId}\0${taskId}\0${day}`;
+            const start = Date.parse(event.startsAt);
+            const kept = focusKeeper.get(cover);
+            const keptEvent = kept ? input.events.find(item => item.id === kept) : undefined;
+            const keptStart = keptEvent ? Date.parse(keptEvent.startsAt) : Number.POSITIVE_INFINITY;
+            if (!kept || start < keptStart || (start === keptStart && event.id < kept)) {
+                focusKeeper.set(cover, event.id);
+            }
+        }
+        for (const cover of focusKeeper.keys()) focusSessions.add(cover);
     }
 
     const addGroup = (draft: Omit<Group, 'minutes' | 'timeLogIds' | 'votes'> & {
@@ -454,9 +467,12 @@ export function buildForecastV2(input: ForecastV2Input): ForecastV2BuildResult {
         const day = calendarDateInTimeZone(event.startsAt, input.timeZone);
         if (!day) continue;
         const weekStart = weekStartFor(day);
-        if (!selected.includes(weekStart) || forecastWeekKind(weekStart, input.today) === 'past') continue;
+        if (!selected.includes(weekStart)) continue;
+        if (!hybrid && forecastBasis(weekStart, input.today) !== 'estimate') continue;
+        if (hybrid && forecastWeekKind(weekStart, input.today) === 'past') continue;
         if (
-            forecastWeekKind(weekStart, input.today) === 'current'
+            hybrid
+            && forecastWeekKind(weekStart, input.today) === 'current'
             && input.logs.some(log => log.plannerEventId === event.id)
         ) continue;
         if (event.kind === 'ooo') {
@@ -484,8 +500,10 @@ export function buildForecastV2(input: ForecastV2Input): ForecastV2BuildResult {
         }
         const weekStart = weekStartFor(day);
         const weekKind = forecastWeekKind(weekStart, input.today);
-        if (!selected.includes(weekStart) || weekKind === 'past') continue;
-        if (weekKind === 'current' && !planIsRemaining(day, task.startDate ?? null, input)) continue;
+        if (!selected.includes(weekStart)) continue;
+        if (!hybrid && forecastBasis(weekStart, input.today) !== 'estimate') continue;
+        if (hybrid && weekKind === 'past') continue;
+        if (hybrid && weekKind === 'current' && !planIsRemaining(day, task.startDate ?? null, input)) continue;
         const assignees = [...new Set(task.assigneeIds.filter(Boolean))].sort();
         if (assignees.length === 0) {
             bump('unassigned_tasks');
@@ -558,7 +576,7 @@ export function buildForecastV2(input: ForecastV2Input): ForecastV2BuildResult {
         });
     }
 
-    for (const event of input.events) {
+    if (hybrid) for (const event of input.events) {
         if (event.kind !== 'focus' && event.kind !== 'meeting' && event.kind !== 'event') continue;
         const day = calendarDateInTimeZone(event.startsAt, input.timeZone);
         if (!day) continue;
@@ -582,6 +600,10 @@ export function buildForecastV2(input: ForecastV2Input): ForecastV2BuildResult {
         const startTime = clockTimeInTimeZone(event.startsAt, input.timeZone);
         for (const userId of people) {
             if (!members.has(userId) || loggedEvents.has(`${userId}\0${event.id}`)) continue;
+            if (event.kind === 'focus' && taskId) {
+                const keeper = focusKeeper.get(`${userId}\0${taskId}\0${day}`);
+                if (keeper && keeper !== event.id) continue;
+            }
             addGroup({
                 userId,
                 date: day,

@@ -133,6 +133,7 @@ export function presentForecast(
     result: ForecastPresentSource,
     connection: ForecastReadiness,
     directoryError: string | null,
+    options?: { today?: string; hybridWeek?: boolean },
 ): ForecastPreviewView {
     const overCap = (result.itemCount ?? 0) > 500;
     const emptySend = forecastSendableCount(result) === 0;
@@ -161,19 +162,38 @@ export function presentForecast(
                     ? { href: '/settings?tab=forecast', hrefLabel: 'Match clients' }
                     : {}),
         })),
-        notes: forecastNotes(result),
+        notes: forecastNotes(result, options),
         syncLabel: syncButtonLabel(result.weeks.length),
         syncDisabled: blocked != null,
         syncDisabledReason: blocked,
     };
 }
 
-function forecastNotes(result: ForecastPresentSource): string[] {
+function forecastNotes(
+    result: ForecastPresentSource,
+    options?: { today?: string; hybridWeek?: boolean },
+): string[] {
     const notes: string[] = [];
     if (result.payloadVersion === 2) {
         if (result.weeks.some(week => week.basis === 'actual')) {
-            notes.push('This week sends hours already logged, plus work still on the calendar for later today and the rest of the week. Work that was both planned and logged is sent once.');
-            notes.push('Earlier weeks send hours already logged. Planned work that was never logged is left out.');
+            if (options?.hybridWeek && options.today) {
+                let current = '';
+                try {
+                    current = weekStartFor(options.today);
+                } catch {
+                    current = '';
+                }
+                const includesCurrent = current !== '' && result.weeks.some(week => week.weekStart === current);
+                const includesPast = current !== '' && result.weeks.some(week => week.weekStart < current);
+                if (includesCurrent) {
+                    notes.push('This week sends hours already logged, plus work still on the calendar for later today and the rest of the week. Work that was both planned and logged is sent once.');
+                }
+                if (includesPast) {
+                    notes.push('Earlier weeks send hours already logged. Planned work that was never logged is left out.');
+                }
+            } else {
+                notes.push('The current week and earlier weeks send tracked time for each day. Scheduled work that has not been logged is left out.');
+            }
         }
         if (result.weeks.some(week => week.basis === 'estimate')) {
             notes.push('Later weeks put each task estimate on its start date. A task with several people is split evenly.');

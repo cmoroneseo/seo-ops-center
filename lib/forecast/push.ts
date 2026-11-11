@@ -1,3 +1,4 @@
+import { campaignDeskHybridWeek } from './flags.ts';
 import { executeForecastSync, type ForecastHttpDependencies, type ForecastSyncCommand } from './http.ts';
 import { forecastPushWindow } from './nudge.ts';
 import { resolveClientToday, assertTimeZone } from './weeks.ts';
@@ -13,6 +14,11 @@ export interface ForecastPushTarget {
     userId: string;
     actorName: string;
     now?: string;
+    /**
+     * Set only by a server hook that just deleted the work. A request to
+     * /api/forecast/push cannot turn this on.
+     */
+    allowEmpty?: boolean;
 }
 
 export interface ForecastPushTimer {
@@ -67,7 +73,7 @@ export async function runForecastPush(
             today: target.today,
             timeZone: target.timeZone,
             weekStarts: [target.weekStart],
-            allowEmpty: true,
+            allowEmpty: target.allowEmpty === true && (deps.hybridWeek?.() ?? campaignDeskHybridWeek()),
             now: target.now,
             isStale,
         };
@@ -101,6 +107,14 @@ export interface ForecastPushAuthFailure {
     ok: false;
     status: number;
     error: string;
+}
+
+/** Viewers can look, not send. Owners, admins, and members can. */
+export function forecastPushViewerRejection(
+    role: 'owner' | 'admin' | 'member' | 'viewer',
+): ForecastPushAuthFailure | null {
+    if (role !== 'viewer') return null;
+    return { ok: false, status: 403, error: 'Forbidden' };
 }
 
 export interface ForecastPushPostDependencies {

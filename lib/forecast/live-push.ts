@@ -60,7 +60,8 @@ export function scheduleLiveForecastPush(target: ForecastPushTarget): void {
  * Used when the week is not known until a row is read.
  */
 export function scheduleLiveForecastPushResolved(resolve: () => Promise<ForecastPushTarget[]>): void {
-    after(async () => {
+    try {
+        after(async () => {
         try {
             const targets = await resolve();
             for (const target of targets) {
@@ -79,7 +80,10 @@ export function scheduleLiveForecastPushResolved(resolve: () => Promise<Forecast
         } catch {
             logPushFailure();
         }
-    });
+        });
+    } catch {
+        logPushFailure();
+    }
 }
 
 /** Resolve calendar weeks, then schedule one push per week. */

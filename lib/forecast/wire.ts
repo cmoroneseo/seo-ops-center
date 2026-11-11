@@ -1,6 +1,6 @@
 import { requireOrganizationAdmin } from '@/lib/security/tenant-authz';
 import { createForecastClientLinksGet, createForecastClientLinksPut } from './client-map-http.ts';
-import { campaignDeskBaseUrl, campaignDeskReady, campaignDeskSyncV2, campaignDeskToken } from './flags.ts';
+import { campaignDeskBaseUrl, campaignDeskHybridWeek, campaignDeskReady, campaignDeskSyncV2, campaignDeskToken } from './flags.ts';
 import {
     campaignDeskClientFrom,
     createForecastPreviewGet,
@@ -78,6 +78,7 @@ export function forecastHttpDependencies(): ForecastHttpDependencies {
         readiness: organizationId => campaignDeskReady(organizationId),
         listPeople: () => client.listPeople(),
         payloadVersion: () => campaignDeskSyncV2() ? 2 : 1,
+        hybridWeek: () => campaignDeskHybridWeek(),
         listClients: () => client.listClients(),
         loadClientLinks: loadForecastClientLinks,
         rememberNameMatches: rememberForecastClientNameMatches,

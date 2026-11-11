@@ -20,7 +20,7 @@ import {
     normalizeEmail,
 } from './contract.ts';
 import { parseStoredForecastPayload } from './contract-v2.ts';
-import type { ForecastReadiness } from './flags.ts';
+import { campaignDeskHybridWeek, type ForecastReadiness } from './flags.ts';
 import { EMPTY_FORECAST_SYNC_REASON, forecastSendableCount, forecastStatusLabel, formatLastSynced, forecastWeekChip, presentForecast } from './present.ts';
 import { coveringRun, latestRun, memberForecastStatus, personForecastDigest } from './status.ts';
 import { ForecastClientMapUnavailable, ForecastStoreUnavailable, type ForecastRunStore, type ForecastSyncRunRecord } from './store.ts';
@@ -62,6 +62,8 @@ export interface ForecastHttpDependencies {
     newRunId(): string;
     /** 2 only when CAMPAIGN_DESK_SYNC_V2 is exactly true. */
     payloadVersion(): 1 | 2;
+    /** True only when CAMPAIGN_DESK_HYBRID_WEEK is exactly true. */
+    hybridWeek?: () => boolean;
     listClients(): Promise<ForecastDeskClient[]>;
     loadClientLinks(organizationId: string): Promise<ForecastClientLink[]>;
     rememberNameMatches(
@@ -329,6 +331,7 @@ async function buildChosen(
     return {
         built: buildForecastV2({
             ...rest,
+            hybridWeek: deps.hybridWeek?.() ?? campaignDeskHybridWeek(),
             clientLinks,
             deskClients: desk.clients,
             basecampProjects,
@@ -360,7 +363,10 @@ async function previewPayload(
         connectionEnabled: connection.enabled,
     });
     const allowed = selectableWeekStarts(today);
-    const preview = presentForecast(built, connection, directory.error);
+    const preview = presentForecast(built, connection, directory.error, {
+        today,
+        hybridWeek: deps.hybridWeek?.() ?? campaignDeskHybridWeek(),
+    });
     if (clientsError) preview.warnings.push({ message: clientsError });
     return {
         connection,

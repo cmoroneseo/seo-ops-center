@@ -7,6 +7,7 @@ import { nudgeForecastSync } from './nudge.ts';
 import {
     createForecastPushPost,
     createForecastPushScheduler,
+    forecastPushViewerRejection,
     runForecastPush,
     type ForecastPushTarget,
     type ForecastPushTimer,
@@ -112,7 +113,12 @@ function memoryStore(): ForecastRunStore & { runs: ForecastSyncRunRecord[] } {
     };
 }
 
-function deps(options: { fail?: boolean; store?: ForecastRunStore } = {}) {
+function deps(options: {
+    fail?: boolean;
+    store?: ForecastRunStore;
+    hybridWeek?: boolean;
+    empty?: boolean;
+} = {}) {
     const calls = { upsert: 0 };
     const client: CampaignDeskClient = {
         async listPeople() {
@@ -146,7 +152,7 @@ function deps(options: { fail?: boolean; store?: ForecastRunStore } = {}) {
                     displayName: 'Carlos Morones',
                     email: 'cmorones@marketingempiregroup.com',
                 }],
-                logs: [{
+                logs: options.empty ? [] : [{
                     id: '55555555-5555-4555-8555-555555555555',
                     userId: 'user-carlos',
                     clientId: CLIENT,
@@ -158,7 +164,7 @@ function deps(options: { fail?: boolean; store?: ForecastRunStore } = {}) {
                     importStatus: 'mapped',
                 }],
                 events: [],
-                tasks: [{
+                tasks: options.empty ? [] : [{
                     id: '44444444-4444-4444-8444-444444444444',
                     title: 'Later today',
                     status: 'todo',
@@ -174,6 +180,7 @@ function deps(options: { fail?: boolean; store?: ForecastRunStore } = {}) {
         readiness() {
             return { enabled: true, reason: null };
         },
+        hybridWeek: () => options.hybridWeek === true,
         listPeople: () => client.listPeople(),
         payloadVersion: () => 2,
         listClients: () => client.listClients(),
@@ -266,4 +273,72 @@ test('the nudge answers before Campaign Desk runs', async () => {
         }),
     }));
     assert.equal(ignored.status, 202);
+});
+
+test('a viewer is rejected and a request cannot ask to clear a week', async () => {
+    assert.equal(forecastPushViewerRejection('viewer')?.status, 403);
+    assert.equal(forecastPushViewerRejection('member'), null);
+    const scheduled: ForecastPushTarget[] = [];
+    const post = createForecastPushPost({
+        now: () => new Date('2026-10-14T18:00:00.000Z'),
+        async authorize() {
+            return { ok: false, status: 403, error: 'Forbidden' };
+        },
+        schedule(item) {
+            scheduled.push(item);
+        },
+    });
+    const denied = await post(new Request('https://seo-pm.test/api/forecast/push', {
+        method: 'POST',
+        body: JSON.stringify({
+            organizationId: ORG,
+            weekStarts: ['2026-10-12'],
+            today: '2026-10-14',
+            timeZone: 'America/Los_Angeles',
+            allowEmpty: true,
+        }),
+    }));
+    assert.equal(denied.status, 403);
+    assert.equal(scheduled.length, 0);
+
+    const allowed = createForecastPushPost({
+        now: () => new Date('2026-10-14T18:00:00.000Z'),
+        async authorize(organizationId) {
+            return {
+                ok: true,
+                userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                actorName: 'Carlos Morones',
+                organizationId,
+            };
+        },
+        schedule(item) {
+            scheduled.push(item);
+        },
+    });
+    const accepted = await allowed(new Request('https://seo-pm.test/api/forecast/push', {
+        method: 'POST',
+        body: JSON.stringify({
+            organizationId: ORG,
+            weekStarts: ['2026-10-12'],
+            today: '2026-10-14',
+            timeZone: 'America/Los_Angeles',
+            allowEmpty: true,
+        }),
+    }));
+    assert.equal(accepted.status, 202);
+    assert.equal(scheduled.length, 1);
+    assert.equal(scheduled[0]?.allowEmpty, undefined);
+});
+
+test('an empty week is not cleared unless the hybrid flag is on and a server delete asked for it', async () => {
+    const off = deps({ empty: true, hybridWeek: false });
+    const skipped = await runForecastPush(off.harness, { ...target(), allowEmpty: true });
+    assert.equal(skipped, undefined);
+    assert.equal(off.calls.upsert, 0);
+
+    const on = deps({ empty: true, hybridWeek: true });
+    await runForecastPush(on.harness, target());
+    assert.equal(on.calls.upsert, 0);
+    await runForecastPush(on.harness, { ...target(), allowEmpty: true });
+    assert.equal(on.calls.upsert, 1);
 });

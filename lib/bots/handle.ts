@@ -993,7 +993,7 @@ async function executeStop(
     command: BotTimerStopCommand,
     operation: BotOperationRecord,
     deps: BotDeps,
-): Promise<{ status: number; body: unknown }> {
+): Promise<{ status: number; body: unknown; forecastDates?: string[] }> {
     const target = await resolveStopTarget(key, command, deps);
     if ('status' in target) return target;
     const timer = target.timer;
@@ -1055,6 +1055,7 @@ async function executeStop(
         : (steps[0] ?? { status: 'skipped' as const, reason: 'No timesheet step ran.' });
     return {
         status: 200,
+        forecastDates: finalized.logs.map(log => log.date),
         body: {
             idempotencyKey: command.idempotencyKey,
             bot: key.name,
@@ -1222,12 +1223,18 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
         if (result.status >= 200 && result.status < 300) {
             try {
                 const timeZone = 'timeZone' in command && command.timeZone ? command.timeZone : BOT_ACTOR_TIME_ZONE;
+                const dates = [deps.now().toISOString()];
+                if ('forecastDates' in result && Array.isArray(result.forecastDates)) {
+                    for (const date of result.forecastDates) {
+                        if (typeof date === 'string' && date.trim()) dates.push(date);
+                    }
+                }
                 deps.onCommitted?.({
                     organizationId: actor.organizationId,
                     userId: actor.userId,
                     actorName: actor.name,
                     timeZone,
-                    dates: [deps.now().toISOString()],
+                    dates,
                 });
             } catch {
                 // The bot change is already saved. Campaign Desk can catch up on the next edit.

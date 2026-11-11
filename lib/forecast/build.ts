@@ -159,6 +159,11 @@ export interface ForecastBuildInput {
      * Version 2 reads it. Absent means the whole of today is still ahead.
      */
     now?: string;
+    /**
+     * Version 2 only. Off, or omitted, keeps the current week logged-only so
+     * every item source matches the week basis.
+     */
+    hybridWeek?: boolean;
 }
 
 export interface ForecastBuildResult {
