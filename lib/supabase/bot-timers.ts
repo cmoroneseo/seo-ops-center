@@ -1,5 +1,5 @@
 import { botTimerDeleteMessage, botTimerFromRow, type BotTimerClock } from '../timer/bot-display';
-import type { StaffControlOutcome } from '../bots/staff-control';
+import { markDoneStopNote, type StaffControlOutcome } from '../bots/staff-control';
 import { createClient } from './client';
 
 const OPEN_BOT_COLUMNS = 'id, organization_id, client_id, task_id, user_id, bot_key_id, status, timer_started_at, billable, counts_toward_budget, clients(name), tasks(title), bot_api_keys(name), time_log_segments(started_at, ended_at)';
@@ -79,9 +79,13 @@ export async function stopOpenBotTimersForTask(taskId: string): Promise<{ ok: tr
     for (const row of data ?? []) {
         const id = typeof row.id === 'string' ? row.id : '';
         if (!id) continue;
+        // Mark-done does not type a note. markDoneStopNote stays null, so the
+        // stop does not add "task completed" or any other process line.
+        const note = markDoneStopNote(null);
         const result = await controlBotTimer({
             action: 'stop',
             timeLogId: id,
+            ...(note ? { description: note } : {}),
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
         });
         if (!result.ok && result.code !== 'timer_not_running') {
@@ -96,31 +100,13 @@ export async function stopOpenBotTimersForTask(taskId: string): Promise<{ ok: tr
 export async function botTimerDeleteBlock(taskId: string): Promise<string | null> {
     const supabase = createClient();
     if (!supabase) return 'Time data unavailable';
-    const named = await supabase
-        .from('time_logs')
-        .select('id, bot_api_keys(name)')
-        .eq('task_id', taskId)
-        .in('status', ['in_progress', 'paused'])
-        .not('bot_key_id', 'is', null);
-    if (!named.error) {
-        const rows: unknown[] = named.data ?? [];
-        const names = rows.map(row => {
-            const key = typeof row === 'object' && row !== null
-                ? (row as { bot_api_keys?: unknown }).bot_api_keys
-                : null;
-            const record = Array.isArray(key) ? key[0] : key;
-            return record && typeof record === 'object' && typeof (record as { name?: unknown }).name === 'string'
-                ? (record as { name: string }).name
-                : 'bot';
-        });
-        return names.length > 0 ? botTimerDeleteMessage(names) : null;
-    }
-    const plain = await supabase
+    const open = await supabase
         .from('time_logs')
         .select('id')
         .eq('task_id', taskId)
         .in('status', ['in_progress', 'paused'])
         .not('bot_key_id', 'is', null);
-    if (plain.error) return 'Could not check the bot timer on this task.';
-    return (plain.data ?? []).length > 0 ? botTimerDeleteMessage([]) : null;
+    if (open.error) return 'Could not check the bot timer on this task.';
+    const count = open.data?.length ?? 0;
+    return count > 0 ? botTimerDeleteMessage(count) : null;
 }

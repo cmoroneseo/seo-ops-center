@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-    botBadgeLabel,
     botTimerDeleteMessage,
     formatOpenTaskHours,
     botTimerElapsedSeconds,
@@ -84,8 +83,10 @@ test('the row shows the bot clock when Carlos has no timer on that task', () => 
     assert.equal(view.phase, 'running');
     assert.equal(view.seconds, 90);
     assert.equal(view.owner, 'bot');
-    assert.equal(view.botLabel, 'seo-manager bot');
+    assert.equal(view.botControls, true);
+    assert.equal('botLabel' in view, false);
     assert.deepEqual(rowTimerClick(view), { action: 'pause-bot', botTimerId: 'bot-1' });
+    assert.deepEqual(rowTimerClick({ ...view, botControls: false }), { action: 'ignore' });
 });
 
 test('his own timer keeps the play button when a bot is also on the task', () => {
@@ -96,11 +97,10 @@ test('his own timer keeps the play button when a bot is also on the task', () =>
     );
     assert.equal(view.owner, 'human');
     assert.equal(view.seconds, 40);
-    assert.deepEqual(view.extraBotLabels, ['seo-manager bot']);
     assert.deepEqual(rowTimerClick(view), { action: 'human' });
 });
 
-test('two bots on one idle task: the running one owns the row and the other is labelled', () => {
+test('two bots on one idle task: the running one owns the row, and a member cannot control it', () => {
     const view = planRowWithBotTimer(
         { phase: 'idle', seconds: 0 },
         [
@@ -108,22 +108,17 @@ test('two bots on one idle task: the running one owns the row and the other is l
             clock({ id: 'running', botName: 'seo-manager' }),
         ],
         timer => timer.id === 'running' ? 12 : 40,
+        false,
     );
     assert.equal(view.botTimerId, 'running');
-    assert.equal(view.botLabel, 'seo-manager bot');
-    assert.deepEqual(view.extraBotLabels, ['technical-seo bot']);
-    assert.deepEqual(rowTimerClick({ ...view, phase: 'paused' }), { action: 'resume-bot', botTimerId: 'running' });
+    assert.equal(view.botControls, false);
+    assert.deepEqual(rowTimerClick({ ...view, phase: 'paused' }), { action: 'ignore' });
 });
 
-test('badge and delete copy name the bot', () => {
-    assert.equal(botBadgeLabel('seo-manager'), 'seo-manager bot');
-    assert.equal(botBadgeLabel('SEO Manager Bot'), 'SEO Manager Bot');
-    assert.equal(botBadgeLabel('  '), 'bot');
-    assert.equal(
-        botTimerDeleteMessage(['seo-manager']),
-        'Stop the seo-manager bot timer before deleting this task.',
-    );
-    assert.match(botTimerDeleteMessage(['seo-manager', 'technical-seo']), /seo-manager bot and technical-seo bot/);
+test('delete copy does not name the bot', () => {
+    assert.equal(botTimerDeleteMessage(1), 'Stop the running timer on this task before deleting it.');
+    assert.equal(botTimerDeleteMessage(2), 'Stop the running timers on this task before deleting it.');
+    assert.equal(botTimerDeleteMessage(1).includes('seo-manager'), false);
 });
 
 test('a database row becomes a clock without treating an open segment as bot time', () => {

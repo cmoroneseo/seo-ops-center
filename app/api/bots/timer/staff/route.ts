@@ -4,14 +4,16 @@ import { NextResponse } from 'next/server';
 
 import { liveBotDeps } from '@/lib/bots/live';
 import { runBotTimerControl } from '@/lib/bots/handle';
-import { parseStaffControl, staffControlOutcome } from '@/lib/bots/staff-control';
+import { parseStaffControl, staffControlOutcome, staffTimerRoleDecision } from '@/lib/bots/staff-control';
+import { requireOrganizationMember } from '@/lib/security/tenant-authz';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/bots/timer/staff
- * A signed-in member pauses, resumes, or stops one bot timer.
- * The bot key is not accepted here. The write uses the same close path as the bot API.
+ * The organization owner pauses, resumes, or stops one bot timer.
+ * A bot key is not accepted here. Other members get 403.
+ * The write uses the same close path as the bot API.
  */
 export async function POST(request: Request) {
     const cookieStore = await cookies();
@@ -45,7 +47,7 @@ export async function POST(request: Request) {
 
     const { data: row, error } = await supabase
         .from('time_logs')
-        .select('id, bot_key_id')
+        .select('id, organization_id, bot_key_id')
         .eq('id', parsed.input.timeLogId)
         .maybeSingle();
     if (error || !row) {
@@ -53,6 +55,15 @@ export async function POST(request: Request) {
     }
     if (!row.bot_key_id) {
         return NextResponse.json({ ok: false, code: 'not_a_bot_timer', error: 'That timer belongs to a person. Use the timer controls for it.' }, { status: 404 });
+    }
+
+    const member = await requireOrganizationMember(row.organization_id);
+    if (!member.ok) {
+        return NextResponse.json({ ok: false, error: member.error }, { status: member.status });
+    }
+    const decision = staffTimerRoleDecision(member.role);
+    if (!decision.ok) {
+        return NextResponse.json({ ok: false, code: decision.code, error: decision.error }, { status: decision.status });
     }
 
     try {

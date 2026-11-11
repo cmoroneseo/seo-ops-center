@@ -239,7 +239,7 @@ test('t toggles the focused row timer once per press', () => {
     view.unmount();
 });
 
-test('a bot timer on the row shows the live clock and the bot badge', () => {
+test('a bot timer on the row shows the live clock and no bot name', () => {
     const view = mount({
         loggedHours: { alpha: 0 },
         timerByTaskId: {
@@ -248,7 +248,7 @@ test('a bot timer on the row shows the live clock and the bot badge', () => {
                 seconds: 125,
                 owner: 'bot',
                 botTimerId: 'bot-1',
-                botLabel: 'seo-manager bot',
+                botControls: true,
             },
         },
         onRowTimer: () => undefined,
@@ -256,7 +256,27 @@ test('a bot timer on the row shows the live clock and the bot badge', () => {
     const running = row(view.container, 'alpha');
     assert.equal(running.getAttribute('data-plan-timer'), 'running');
     assert.equal(running.querySelector('[data-plan-time]')?.textContent, '2:05');
-    assert.equal(running.querySelector('[data-bot-badge]')?.textContent, 'seo-manager bot');
-    assert.match(running.querySelector('[data-plan-time]')?.getAttribute('aria-label') ?? '', /seo-manager bot/);
+    assert.equal(running.querySelector('[data-bot-badge]'), null);
+    assert.equal((running.textContent ?? '').includes('seo-manager'), false);
+    assert.match(running.querySelector('[data-plan-time]')?.getAttribute('aria-label') ?? '', /Pause timer/);
     view.unmount();
+
+    const member = mount({
+        loggedHours: { alpha: 0 },
+        timerByTaskId: {
+            alpha: {
+                phase: 'running',
+                seconds: 125,
+                owner: 'bot',
+                botTimerId: 'bot-1',
+                botControls: false,
+            },
+        },
+        onRowTimer: () => undefined,
+    });
+    const locked = row(member.container, 'alpha');
+    assert.equal(locked.querySelector('[data-bot-controls]')?.getAttribute('data-bot-controls'), 'hidden');
+    assert.equal(locked.querySelector('button[data-plan-time]'), null);
+    assert.equal(locked.querySelector('[data-plan-time]')?.textContent, '2:05');
+    member.unmount();
 });

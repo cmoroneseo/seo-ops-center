@@ -1,5 +1,24 @@
 import type { BotStaffControlInput } from './handle.ts';
 
+/** Only the organization owner may pause, resume, or stop a bot timer from the app. */
+export const STAFF_TIMER_FORBIDDEN = 'Only the organization owner can pause, resume, or stop a bot timer.';
+
+export function staffTimerRoleDecision(role: string | null | undefined):
+    | { ok: true }
+    | { ok: false; status: 403; code: 'forbidden'; error: string } {
+    if (role === 'owner') return { ok: true };
+    return { ok: false, status: 403, code: 'forbidden', error: STAFF_TIMER_FORBIDDEN };
+}
+
+/**
+ * Note sent when a task is marked done and its bot timer is stopped.
+ * Empty unless the person typed one. Never a process line such as "task completed".
+ */
+export function markDoneStopNote(typed?: string | null): string | null {
+    const note = typed?.trim() ?? '';
+    return note.length > 0 ? note : null;
+}
+
 const ACTIONS = new Set(['pause', 'resume', 'stop']);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

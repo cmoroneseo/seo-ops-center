@@ -23,6 +23,7 @@ import { PUSH_OUTCOME_MESSAGE, pushOutcomeFor, type PushOutcome } from '@/lib/ti
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useTimer } from '@/components/providers/timer-provider';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { RESUMED_OPEN_TIMER_MESSAGE, REVIEWING_TIMER_MESSAGE } from '@/lib/timer/attempt-state';
 import { groupSegmentsForDisplay, sumActiveSeconds } from '@/lib/timer/segments';
 import { taskStretchLines } from '@/lib/timer/task-stretches';
@@ -223,6 +224,8 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         resumeBotTimer,
         stopBotTimer,
     } = useTimer();
+    const { isOwner, isLoading: memberLoading } = useCurrentMember();
+    const canControlBots = isOwner && !memberLoading;
     const [timerPending, setTimerPending] = useState(false);
     const [timerNotice, setTimerNotice] = useState<string | null>(null);
     const timerPendingRef = useRef<string | null>(null);
@@ -1457,6 +1460,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                     key={timer.id}
                                     timer={timer}
                                     seconds={getBotElapsedSeconds ? getBotElapsedSeconds(timer) : 0}
+                                    controls={canControlBots}
                                     onPause={id => void pauseBotTimer?.(id).catch(error => {
                                         setTimerNotice(error instanceof Error ? error.message : 'Could not pause the bot timer.');
                                     })}

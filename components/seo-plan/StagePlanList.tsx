@@ -143,6 +143,8 @@ export function StagePlanList({
         resumeBotTimer,
         stopBotTimersOnTask,
     } = useTimer();
+    const { isOwner, isLoading: memberLoading } = useCurrentMember();
+    const canControlBots = isOwner && !memberLoading;
     const seenClient = useRef<string | null>(null);
     const { tasks, setList, updateList, move } = useStageListMoves(async (requested) => {
         const requestedClient = clientId;
@@ -630,13 +632,15 @@ export function StagePlanList({
             human,
             botTimers.filter(item => item.taskId === task.id),
             getBotElapsedSeconds ?? (() => 0),
+            canControlBots,
         );
-        if (view.phase !== 'idle' || (view.extraBotLabels?.length ?? 0) > 0) timerByTaskId[task.id] = view;
+        if (view.phase !== 'idle') timerByTaskId[task.id] = view;
     }
 
     const onRowTimer = (taskId: string) => {
         if (pendingTimerRef.current) return;
         const directBot = timerByTaskId[taskId];
+        if (directBot?.owner === 'bot' && directBot.botControls === false) return;
         if (directBot?.owner === 'bot' && directBot.botTimerId && (directBot.phase === 'running' || directBot.phase === 'paused')) {
             pendingTimerRef.current = taskId;
             setPendingTimerTaskId(taskId);
@@ -669,7 +673,12 @@ export function StagePlanList({
         setPendingTimerTaskId(tracked.taskId);
         setTimerError(null);
         setTimerNotice(null);
-        const click = rowTimerClick(timerByTaskId[tracked.taskId] ?? { phase: 'idle', seconds: 0, owner: 'none', extraBotLabels: [] });
+        const click = rowTimerClick(timerByTaskId[tracked.taskId] ?? { phase: 'idle', seconds: 0, owner: 'none' });
+        if (click.action === 'ignore') {
+            pendingTimerRef.current = null;
+            setPendingTimerTaskId(null);
+            return;
+        }
         if (click.action === 'pause-bot' || click.action === 'resume-bot') {
             const run = click.action === 'pause-bot' ? pauseBotTimer : resumeBotTimer;
             void run?.(click.botTimerId).catch(caught => {

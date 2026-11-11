@@ -71,17 +71,26 @@ export function TaskCard({ task, clientId, clientName, memberMap = {} }: TaskCar
                 )}
             </div>
 
-            {canStartTimer && (
+            {canStartTimer && timer.owner === 'bot' && timer.botControls === false ? (
+                <span
+                    data-task-timer={timer.phase}
+                    data-bot-controls="hidden"
+                    aria-label={timer.phase === 'paused' ? `Timer paused for ${task.title}` : `Timer running for ${task.title}`}
+                    className={cn(
+                        'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-mono tabular-nums',
+                        timer.phase === 'running' ? 'bg-[#ec4899]/15 text-[#ec4899]' : 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+                    )}
+                >
+                    {timer.phase === 'running' && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[#ec4899] animate-pulse" />}
+                    {formatPlanClock(timer.seconds)}
+                </span>
+            ) : canStartTimer && (
                 <button
                     type="button"
                     onClick={handleTimerClick}
                     disabled={timerPending || timer.phase === 'reviewing'}
                     aria-busy={timerPending || undefined}
-                    aria-label={timerPending
-                        ? `Starting timer for ${task.title}`
-                        : timer.botLabel
-                            ? `${planRowTimerLabel(timer.phase, task.title)}. ${timer.botLabel}`
-                            : planRowTimerLabel(timer.phase, task.title)}
+                    aria-label={timerPending ? `Starting timer for ${task.title}` : planRowTimerLabel(timer.phase, task.title)}
                     data-task-timer={timerPending ? 'pending' : timer.phase}
                     className={cn(
                         'flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1 transition-all duration-150 w-fit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-70',
@@ -102,7 +111,6 @@ export function TaskCard({ task, clientId, clientName, memberMap = {} }: TaskCar
                     {timer.phase !== 'idle' && !timerPending && (
                         <span className="font-mono tabular-nums">{formatPlanClock(timer.seconds)}</span>
                     )}
-                    {timer.botLabel && <span data-bot-badge>{timer.botLabel}</span>}
                 </button>
             )}
             {notice && <p role="status" className="text-xs text-muted-foreground">{notice}</p>}

@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { useTimer } from '@/components/providers/timer-provider';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { attemptForPlanTask, planRowTimerView, type PlanRowTimerView } from '@/lib/seo-plan/row-timer';
 import { planRowWithBotTimer, rowTimerClick } from '@/lib/timer/bot-display';
 import { RESUMED_OPEN_TIMER_MESSAGE, REVIEWING_TIMER_MESSAGE } from '@/lib/timer/attempt-state';
@@ -20,6 +21,8 @@ export interface TaskTimerTarget {
  */
 export function useTaskTimerClick() {
     const timer = useTimer();
+    const { isOwner, isLoading: memberLoading } = useCurrentMember();
+    const canControlBots = isOwner && !memberLoading;
     const pendingRef = useRef<string | null>(null);
     const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
@@ -28,6 +31,7 @@ export function useTaskTimerClick() {
         planRowTimerView(taskId, timer.runningTimer, timer.pausedTimers, timer.getElapsedSeconds),
         (timer.botTimers ?? []).filter(item => item.taskId === taskId),
         timer.getBotElapsedSeconds ?? (() => 0),
+        canControlBots,
     );
 
     const onTimer = async (task: TaskTimerTarget, trackedTaskId = task.id) => {
@@ -38,6 +42,7 @@ export function useTaskTimerClick() {
         try {
             const view = viewFor(trackedTaskId);
             const click = rowTimerClick(view);
+            if (click.action === 'ignore') return;
             if (click.action === 'pause-bot') {
                 await timer.pauseBotTimer?.(click.botTimerId);
                 return;

@@ -31,16 +31,6 @@ export interface PlanRowBotView extends PlanRowTimerView {
     /** Whose entry the row's main play button drives. */
     owner: 'human' | 'bot' | 'none';
     botTimerId?: string;
-    /** `seo-manager bot` when this row is showing a bot timer. */
-    botLabel?: string;
-    /** Other bot timers on the same task. The floating timer controls those. */
-    extraBotLabels: string[];
-}
-
-/** `seo-manager bot`. A name that already ends in "bot" is left as written. */
-export function botBadgeLabel(botName: string | null | undefined): string {
-    const name = (botName ?? '').trim() || 'bot';
-    return /\bbot$/i.test(name) ? name : `${name} bot`;
 }
 
 function stretchSeconds(stretch: BotTimerStretchClock): number {
@@ -115,40 +105,33 @@ function primaryBot(bots: readonly BotTimerClock[]): BotTimerClock | null {
 
 /**
  * The row clock. Carlos's own attempt wins the play button.
- * A bot timer fills that button only when he has nothing open on this task.
+ * A bot timer fills that clock only when he has nothing open on this task.
+ * `controls` is false for everyone except the organization owner.
  */
 export function planRowWithBotTimer(
     human: PlanRowTimerView,
     bots: readonly BotTimerClock[],
     elapsed: (timer: BotTimerClock) => number,
+    controls = true,
 ): PlanRowBotView {
-    const labels = bots.map(timer => botBadgeLabel(timer.botName));
     if (human.phase !== 'idle') {
-        return {
-            ...human,
-            owner: 'human',
-            extraBotLabels: labels,
-        };
+        return { ...human, owner: 'human' };
     }
     const primary = primaryBot(bots);
-    if (!primary) {
-        return { phase: 'idle', seconds: 0, owner: 'none', extraBotLabels: [] };
-    }
+    if (!primary) return { phase: 'idle', seconds: 0, owner: 'none' };
     const phase: PlanRowTimerPhase = primary.phase === 'running' ? 'running' : 'paused';
     return {
         phase,
         seconds: elapsed(primary),
         owner: 'bot',
         botTimerId: primary.id,
-        botLabel: botBadgeLabel(primary.botName),
-        extraBotLabels: bots
-            .filter(timer => timer.id !== primary.id)
-            .map(timer => botBadgeLabel(timer.botName)),
+        botControls: controls,
     };
 }
 
 export type RowTimerClick =
     | { action: 'human' }
+    | { action: 'ignore' }
     | { action: 'pause-bot'; botTimerId: string }
     | { action: 'resume-bot'; botTimerId: string };
 
@@ -157,20 +140,19 @@ export function rowTimerClick(view: {
     phase: PlanRowTimerPhase;
     owner?: 'human' | 'bot' | 'none';
     botTimerId?: string;
+    botControls?: boolean;
 }): RowTimerClick {
     if (view.owner === 'bot' && view.botTimerId) {
+        if (view.botControls === false) return { action: 'ignore' };
         if (view.phase === 'running') return { action: 'pause-bot', botTimerId: view.botTimerId };
         if (view.phase === 'paused') return { action: 'resume-bot', botTimerId: view.botTimerId };
     }
     return { action: 'human' };
 }
 
-export function botTimerDeleteMessage(names: readonly string[]): string {
-    const labels = names.map(name => botBadgeLabel(name));
-    if (labels.length === 0) return 'Stop the bot timer on this task before deleting it.';
-    if (labels.length === 1) return `Stop the ${labels[0]} timer before deleting this task.`;
-    const last = labels[labels.length - 1];
-    return `Stop the ${labels.slice(0, -1).join(', ')} and ${last} timers before deleting this task.`;
+export function botTimerDeleteMessage(openCount: number): string {
+    if (openCount > 1) return 'Stop the running timers on this task before deleting it.';
+    return 'Stop the running timer on this task before deleting it.';
 }
 
 function objectRow(value: unknown): Record<string, unknown> | null {

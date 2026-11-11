@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { FloatingTimer } from '../../components/timer/FloatingTimer.tsx';
+import { OrganizationContext } from '../../components/providers/organization-provider.tsx';
 import { TimerContext } from '../../components/providers/timer-provider.tsx';
 import { formatTimerStartClock } from './widget-label.ts';
 import type { TimerAttempt } from '../types.ts';
@@ -75,6 +76,9 @@ test('the floating timer shows the running task and start time, and resumes a pa
     const root: Root = createRoot(container);
     await act(async () => {
         root.render(createElement(
+            OrganizationContext.Provider,
+            { value: { organization: null, memberships: [], isLoading: false, setOrganization: () => undefined } },
+            createElement(
             TimerContext.Provider,
             {
                 value: {
@@ -97,8 +101,8 @@ test('the floating timer shows the running task and start time, and resumes a pa
                     getAttemptById: () => running,
                 },
             },
-            createElement(FloatingTimer, { clients: [] }),
-        ));
+            createElement(FloatingTimer, { clients: [], botControls: true }),
+        )));
     });
 
     const task = container.querySelector('[data-timer-task]');
@@ -139,6 +143,9 @@ test('a paused entry under a minute can be discarded in one click and is not del
     const root: Root = createRoot(container);
     await act(async () => {
         root.render(createElement(
+            OrganizationContext.Provider,
+            { value: { organization: null, memberships: [], isLoading: false, setOrganization: () => undefined } },
+            createElement(
             TimerContext.Provider,
             {
                 value: {
@@ -158,8 +165,8 @@ test('a paused entry under a minute can be discarded in one click and is not del
                     getAttemptById: () => paused,
                 },
             },
-            createElement(FloatingTimer, { clients: [] }),
-        ));
+            createElement(FloatingTimer, { clients: [], botControls: true }),
+        )));
     });
 
     assert.match(container.querySelector('[data-timer-short="short"]')?.textContent ?? '', /Under 1 minute/);

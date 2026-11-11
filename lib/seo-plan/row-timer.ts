@@ -19,9 +19,11 @@ export interface PlanRowTimerView {
     /** Whose entry the play button drives. Absent means a human timer, as before. */
     owner?: 'human' | 'bot' | 'none';
     botTimerId?: string;
-    /** Badge such as `seo-manager bot` when this row is showing a bot timer. */
-    botLabel?: string;
-    extraBotLabels?: string[];
+    /**
+     * False hides pause, resume, and stop on a bot timer.
+     * The live clock stays. Only the organization owner gets the controls.
+     */
+    botControls?: boolean;
 }
 
 export interface PlanRowStart {

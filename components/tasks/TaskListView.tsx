@@ -232,16 +232,25 @@ export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListView
                                             </td>
                                             <td className="px-4 py-4">
                                                 <div className="flex items-center gap-2">
-                                                    {canTimer && (
+                                                    {canTimer && timer.owner === 'bot' && timer.botControls === false ? (
+                                                        <span
+                                                            data-task-timer={timer.phase}
+                                                            data-bot-controls="hidden"
+                                                            aria-label={timer.phase === 'paused' ? `Timer paused for ${task.title}` : `Timer running for ${task.title}`}
+                                                            className={cn(
+                                                                'inline-flex items-center gap-1 rounded-full p-1.5 text-xs font-mono tabular-nums',
+                                                                timer.phase === 'running' ? 'bg-[#ec4899]/15 text-[#ec4899]' : 'bg-amber-500/15 text-amber-500',
+                                                            )}
+                                                        >
+                                                            {timer.phase === 'running' && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[#ec4899] animate-pulse" />}
+                                                            {formatPlanClock(timer.seconds)}
+                                                        </span>
+                                                    ) : canTimer && (
                                                         <button
                                                             type="button"
                                                             disabled={timerPending || timer.phase === 'reviewing'}
                                                             aria-busy={timerPending || undefined}
-                                                            aria-label={timerPending
-                                                                ? `Starting timer for ${task.title}`
-                                                                : timer.botLabel
-                                                                    ? `${planRowTimerLabel(timer.phase, task.title)}. ${timer.botLabel}`
-                                                                    : planRowTimerLabel(timer.phase, task.title)}
+                                                            aria-label={timerPending ? `Starting timer for ${task.title}` : planRowTimerLabel(timer.phase, task.title)}
                                                             data-task-timer={timerPending ? 'pending' : timer.phase}
                                                             className={cn(
                                                                 "inline-flex items-center gap-1 rounded-full p-1.5 text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-70",
@@ -262,9 +271,6 @@ export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListView
                                                                         : <Play className="h-3 w-3 fill-current" />}
                                                             {timer.phase !== 'idle' && !timerPending && (
                                                                 <span className="font-mono tabular-nums">{formatPlanClock(timer.seconds)}</span>
-                                                            )}
-                                                            {timer.botLabel && (
-                                                                <span data-bot-badge className="rounded-full bg-[#ec4899]/10 px-1.5 py-0.5 text-[10px] font-medium">{timer.botLabel}</span>
                                                             )}
                                                         </button>
                                                     )}

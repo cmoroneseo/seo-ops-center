@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { OrganizationContext } from '@/components/providers/organization-provider';
 import { TimerContext } from '@/components/providers/timer-provider';
 import { BotTimerChip } from '@/components/timer/BotTimerChip';
 import { FloatingTimer } from '@/components/timer/FloatingTimer';
@@ -120,6 +121,7 @@ function Fixture() {
     };
 
     return (
+        <OrganizationContext.Provider value={{ organization: null, memberships: [], isLoading: false, setOrganization: () => undefined }}>
         <TimerContext.Provider
             value={{
                 runningTimer: human,
@@ -175,7 +177,7 @@ function Fixture() {
                                     seconds,
                                     owner: 'bot',
                                     botTimerId: bot.id,
-                                    botLabel: 'seo-manager bot',
+                                    botControls: true,
                                 },
                                 'fixture-mine': { phase: 'running', seconds: 45, owner: 'human' },
                             }}
@@ -203,10 +205,18 @@ function Fixture() {
                                 <p data-task-live-hours className="text-sm font-semibold">{formatOpenTaskHours(liveHours)} so far</p>
                             </>
                         )}
+                        {phase !== 'stopped' && (
+                            <div data-member-view className="space-y-2 border-t border-border pt-3">
+                                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Member view — not the owner</p>
+                                <p className="text-sm text-muted-foreground">Pause, resume, and stop stay hidden.</p>
+                                <BotTimerChip timer={bot} seconds={seconds} controls={false} />
+                            </div>
+                        )}
                     </section>
                 </div>
-                <FloatingTimer clients={[]} />
+                <FloatingTimer clients={[]} botControls />
             </main>
         </TimerContext.Provider>
+        </OrganizationContext.Provider>
     );
 }

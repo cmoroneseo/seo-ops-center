@@ -1059,8 +1059,9 @@ function PlanRow({
         const timer = ownTimer?.owner === 'bot' ? ownTimer : trackedTimer;
         const controlTaskId = timer.owner === 'bot' ? task.id : tracked.taskId;
         const loggedLabel = options.pillar ? `Σ ${formatPlanHours(logged)}` : formatPlanHours(logged);
-        const timeText = onRowTimer ? planRowTimeText(timer, loggedLabel) : loggedLabel;
-        const timerPending = Boolean(onRowTimer) && pendingTimerTaskId === controlTaskId;
+        const botReadOnly = timer.owner === 'bot' && timer.botControls === false;
+        const timeText = (onRowTimer || botReadOnly) ? planRowTimeText(timer, loggedLabel) : loggedLabel;
+        const timerPending = Boolean(onRowTimer) && !botReadOnly && pendingTimerTaskId === controlTaskId;
         const stopOnCheck = timer.phase === 'running' && Boolean(onCheckRunning) && !locked && !timerPending;
         const childResults = options.pillar
             ? group.children.flatMap(child => {
@@ -1090,7 +1091,7 @@ function PlanRow({
                 data-plan-focused={focusedId === task.id ? 'true' : undefined}
                 data-late={due.late ? 'true' : undefined}
                 data-plan-status={task.status}
-                data-plan-timer={onRowTimer ? (timerPending ? 'pending' : timer.phase) : undefined}
+                data-plan-timer={(onRowTimer || botReadOnly) ? (timerPending ? 'pending' : timer.phase) : undefined}
                 draggable={draggable || undefined}
                 onDragStart={event => {
                     if (!draggable) return;
@@ -1188,16 +1189,6 @@ function PlanRow({
                         {options.parentTitle && <span className="sr-only">Subtask of {options.parentTitle}. </span>}
                         <TitleText title={task.title} query={query} done={done} />
                     </button>
-                    {timer.botLabel && (
-                        <span data-bot-badge className="shrink-0 rounded-full bg-[#ec4899]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#ec4899]">
-                            {timer.botLabel}
-                        </span>
-                    )}
-                    {(timer.extraBotLabels ?? []).map(label => (
-                        <span key={label} data-bot-badge className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                            {label}
-                        </span>
-                    ))}
                     {checklist && (
                         <span data-plan-checklist className="shrink-0 rounded-full bg-[#f4f4f6] px-1.5 py-0.5 text-[11px] text-[#71717a]">
                             Checklist
@@ -1287,19 +1278,32 @@ function PlanRow({
                 >
                     <AssigneeStack ids={assigneeIds} people={people} />
                 </button>
-                {onRowTimer ? (
+                {botReadOnly ? (
+                    <span
+                        data-plan-time={timeText}
+                        data-bot-controls="hidden"
+                        aria-label={timer.phase === 'paused' ? `Timer paused for ${task.title}` : `Timer running for ${task.title}`}
+                        className={cn(
+                            'inline-flex w-full items-center justify-end gap-1 text-right text-[12px] tabular-nums',
+                            timer.phase === 'running' && 'rounded-full bg-[#ec4899]/15 px-1.5 py-0.5 font-mono text-[#ec4899]',
+                            timer.phase === 'paused' && 'text-amber-400',
+                        )}
+                    >
+                        {timer.phase === 'running' && (
+                            <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ec4899] animate-pulse" />
+                        )}
+                        <span>{timeText}</span>
+                    </span>
+                ) : onRowTimer ? (
                     <button
                         type="button"
                         disabled={locked || timerPending || timer.phase === 'reviewing'}
                         aria-busy={timerPending || undefined}
                         aria-label={timerPending
                             ? `Starting timer for ${tracked.parentTitle || task.title}`
-                            : [
-                                tracked.label
-                                    ? `${planRowTimerLabel(timer.phase, tracked.parentTitle || 'the parent task')}. ${tracked.label}`
-                                    : planRowTimerLabel(timer.phase, task.title),
-                                timer.botLabel,
-                            ].filter(Boolean).join('. ')}
+                            : tracked.label
+                                ? `${planRowTimerLabel(timer.phase, tracked.parentTitle || 'the parent task')}. ${tracked.label}`
+                                : planRowTimerLabel(timer.phase, task.title)}
                         title={tracked.label ?? (timer.phase === 'idle' && hours ? hours.tooltip : undefined)}
                         data-plan-time={timerPending ? 'Starting…' : timeText}
                         data-plan-tracks={tracked.label ?? undefined}
