@@ -1,25 +1,21 @@
 /**
- * Pull keyword ideas from the existing research routes and attach measured numbers only.
+ * Keyword ideas for the topic map wizard, with where the site ranks from Google Search Console.
+ * Search demand for the map comes from Search Console, so no keyword tool is asked for monthly searches.
  */
 
 import {
-    ahrefsKeywordRows,
-    ahrefsSourceFromStatus,
     buildKeywordRows,
-    ideaKeywordRows,
+    ideaKeywords,
     type KeywordRow,
     type MetricSource,
 } from './keyword-metrics';
 
 export interface KeywordSuggestionResult {
     rows: KeywordRow[];
-    ahrefs: MetricSource;
     searchConsole: MetricSource;
     notice: string | null;
     truncated: boolean;
 }
-
-const RIVAL_LIMIT = 5;
 
 async function readJson(response: Response): Promise<unknown> {
     try {
@@ -42,8 +38,7 @@ export async function loadKeywordSuggestions(
     fetchImpl: typeof fetch = fetch,
 ): Promise<KeywordSuggestionResult> {
     const clientId = encodeURIComponent(input.clientId);
-    const [domainResponse, ideasResponse, positionsResponse] = await Promise.all([
-        fetchImpl(`/api/campaign/keyword-research?clientId=${clientId}&mode=domain`),
+    const [ideasResponse, positionsResponse] = await Promise.all([
         fetchImpl('/api/campaign/suggest-keywords', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -59,17 +54,6 @@ export async function loadKeywordSuggestions(
         }),
         fetchImpl(`/api/topical-map/keyword-positions?clientId=${clientId}`),
     ]);
-
-    const ahrefs = ahrefsSourceFromStatus(domainResponse.status);
-    const site = domainResponse.ok ? ahrefsKeywordRows(await readJson(domainResponse)) : [];
-    const rivalsToAsk = ahrefs === 'connected' ? input.rivals.filter(rival => rival.trim()).slice(0, RIVAL_LIMIT) : [];
-    const rivalBodies = await Promise.all(rivalsToAsk.map(async rival => {
-        const response = await fetchImpl(`/api/campaign/keyword-research?clientId=${clientId}&mode=competitor&competitor=${encodeURIComponent(rival.trim())}`);
-        if (!response.ok) return [];
-        const body = await readJson(response) as { domain?: unknown } | null;
-        const competitor = typeof body?.domain === 'string' && body.domain.trim() ? body.domain.trim() : rival.trim();
-        return ahrefsKeywordRows(body).map(row => ({ ...row, competitor }));
-    }));
 
     let searchConsole: MetricSource = 'failed';
     let positions: { query: string; position: number }[] = [];
@@ -87,30 +71,22 @@ export async function loadKeywordSuggestions(
             : [];
     }
 
-    const ideas = ideasResponse.ok ? ideaKeywordRows(await readJson(ideasResponse)) : [];
+    const ideas = ideasResponse.ok ? ideaKeywords(await readJson(ideasResponse)) : [];
     const built = buildKeywordRows({
-        site,
-        rivals: rivalBodies.flat(),
         ideas,
         positions,
         saved: input.saved,
         selectionTouched: input.selectionTouched,
-        ahrefs,
         searchConsole,
     });
 
     const notices: string[] = [];
     if (!ideasResponse.ok) notices.push('Keyword ideas could not be loaded. You can still add your own.');
-    if (ahrefs === 'failed') notices.push('Monthly searches could not be loaded.');
     if (searchConsole === 'failed') notices.push('Your current position could not be loaded.');
-    if (input.rivals.filter(rival => rival.trim()).length > RIVAL_LIMIT) {
-        notices.push('Suggestions use the first 5 competitors.');
-    }
     if (built.truncated) notices.push('Showing the first 40 keywords. Add your own if one is missing.');
 
     return {
         rows: built.rows,
-        ahrefs,
         searchConsole,
         notice: notices.length > 0 ? notices.join(' ') : null,
         truncated: built.truncated,
