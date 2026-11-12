@@ -63,6 +63,34 @@ test('specialty modifiers and places must match before shared words count', () =
     assert.equal(ideaCoversSearch(idea('e', { targetQuery: 'pavers vs concrete' }), group('pavers', 50)), false);
 });
 
+test('an idea for a broad region covers the same search with no place or with "near me"', () => {
+    const socal = idea('socal', {
+        targetQuery: 'artificial grass installation Southern California',
+        title: 'Artificial Grass Installation in Southern California',
+    });
+    const corona = { page: 'https://www.example.com/corona-ca/', pagePosition: 30 };
+    assert.equal(ideaCoversSearch(socal, group('artificial grass installation near me', 1318)), true);
+    assert.equal(ideaCoversSearch(idea('i', { targetQuery: 'artificial turf Inland Empire' }), group('artificial turf', 100)), true);
+    assert.equal(ideaCoversSearch(idea('l', { targetQuery: 'landscaping contractor near me' }), group('landscaper near me', 146)), true);
+    assert.equal(ideaCoversSearch(idea('h', { targetQuery: 'hardscaping services' }), group('hardscapers', 50)), true);
+    // No general "-er" fold: a paver search is not a "pave" search, nor water a "wat" one.
+    assert.equal(ideaCoversSearch(idea('p', { targetQuery: 'paving contractor' }), group('pavers', 50)), false);
+    assert.equal(ideaCoversSearch(idea('l2', { targetQuery: 'landscaping contractor near me' }), group('commercial landscaper near me', 50)), false);
+
+    // The guards still hold: modifiers, and a city or county versus no place.
+    assert.equal(ideaCoversSearch(socal, group('pet turf installation near me', 40)), false);
+    assert.equal(ideaCoversSearch(socal, group('artificial grass installation corona', 60, corona)), false);
+    assert.equal(ideaCoversSearch(socal, group('artificial grass installation orange county', 307)), false);
+    assert.equal(ideaCoversSearch(socal, group('commercial artificial grass installation', 79)), false);
+    assert.equal(ideaCoversSearch(socal, group('putting green installation near me', 30)), false);
+    assert.equal(ideaCoversSearch(socal, group('playground turf near me', 30)), false);
+    assert.equal(ideaCoversSearch(socal, group('artificial grass cost', 30)), false);
+    assert.equal(ideaCoversSearch(
+        idea('c', { targetQuery: 'artificial grass installation corona', title: 'Artificial Grass Installation in Corona, CA' }),
+        group('artificial grass installation near me', 1318),
+    ), false);
+});
+
 test('pages on another host, such as a staging copy, are never shown', () => {
     const check = mapCheck({
         ideas: [idea('a', { action: 'improve', matchedUrl: 'https://www.example.com/pavers/' })],

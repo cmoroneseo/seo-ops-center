@@ -107,6 +107,27 @@ export function knownPlaces(texts: ReadonlyArray<string>, urls: ReadonlyArray<st
     return out;
 }
 
+/**
+ * Words compared for overlap: the topic words plus the words of any city or
+ * county named. Broad regions (Southern California, SoCal, Inland Empire)
+ * are left out, as PR 1's readText leaves them out: an idea for the whole
+ * region covers the same search with no place or with "near me".
+ */
+function overlapTokens(read: TextFacts): string[] {
+    return [...read.topic.map(token => TRADE_FOLD.get(token) ?? token), ...read.places.flatMap(place => place.split(' '))];
+}
+
+/**
+ * The trade name read as the trade ("landscaper near me" = "landscaping
+ * contractor near me"). An explicit list, not a general "-er" rule, which
+ * would mangle paver, water, cover and putter. Kept to this check: folding
+ * it into PR 1's shared tokenizer would also regroup PR 2's searches.
+ */
+const TRADE_FOLD: ReadonlyMap<string, string> = new Map([
+    ['landscaper', significantTokens('landscaping')[0]],
+    ['hardscaper', significantTokens('hardscaping')[0]],
+]);
+
 /** Same modifiers (commercial, pet, cost, DIY, putting green, playground), same "vs", same places. */
 function sameScope(a: TextFacts, b: TextFacts): boolean {
     return sameSet(a.flags, b.flags) && a.comparison === b.comparison && sameSet(new Set(a.places), new Set(b.places));
@@ -117,7 +138,7 @@ function sameScope(a: TextFacts, b: TextFacts): boolean {
  * cited for it, or its title has the same intent: the same modifiers and
  * places (PR 1's rules, so "pet turf in Orange County" is not covered by
  * "artificial grass in Orange County"), and the same search key or at least
- * 75% of the significant words shared both ways. Google showing the idea's own
+ * 75% of the words shared both ways (overlapTokens). Google showing the idea's own
  * page for the search in spots 1 to 20 also counts, under the same rule for
  * the idea's main search. `places` adds known places (cities and counties)
  * to the ones found in these texts and URLs.
@@ -131,10 +152,11 @@ export function ideaCoversSearch(
     const known = new Set([...places, ...knownPlaces([group.query, ...texts], [group.page, idea.matchedUrl])]);
     const search = readText(group.query, known, NO_IGNORE);
     const keys = new Set([group.query, ...group.variants].map(query => intentKey(query)));
-    const searchTokens = significantTokens(group.query);
+    const searchTokens = overlapTokens(search);
     for (const text of texts) {
-        if (!sameScope(search, readText(text, known, NO_IGNORE))) continue;
-        if (keys.has(intentKey(text)) || sharesIntent(searchTokens, significantTokens(text))) return true;
+        const own = readText(text, known, NO_IGNORE);
+        if (!sameScope(search, own)) continue;
+        if (keys.has(intentKey(text)) || sharesIntent(searchTokens, overlapTokens(own))) return true;
     }
     const spot = group.pagePosition ?? Number.POSITIVE_INFINITY;
     return Boolean(
