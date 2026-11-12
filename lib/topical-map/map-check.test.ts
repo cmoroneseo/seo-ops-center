@@ -12,6 +12,7 @@ import {
     missedTimes,
     missedWhere,
     mixLine,
+    productionHost,
     readStoredMix,
     repeatsLine,
     repeatsRemoved,
@@ -41,6 +42,46 @@ test('an idea covers a search with the same intent, not just the same words', ()
     assert.equal(ideaCoversSearch(idea('b', { targetQuery: 'pavers temecula' }), group('hardscape contractor', 10)), false);
 });
 
+test('specialty modifiers and places must match before shared words count', () => {
+    const oc = idea('oc', { targetQuery: 'artificial grass installation Orange County', title: 'Artificial Grass Installation in Orange County', action: 'improve', matchedUrl: 'https://www.example.com/orange-county-ca/' });
+    const ocPage = { page: 'https://www.example.com/orange-county-ca/', pagePosition: 12 };
+    // The real false covers from the Ecoworkz review: turf reads as grass, but pet/dog and playground do not.
+    assert.equal(ideaCoversSearch(oc, group('pet turf installation in orange county', 48, ocPage)), false);
+    assert.equal(ideaCoversSearch(oc, group('synthetic turf for dogs orange county', 90, ocPage)), false);
+    assert.equal(ideaCoversSearch(oc, group('playground turf orange county ca', 39, ocPage)), false);
+    assert.equal(ideaCoversSearch(oc, group('artificial turf orange county', 300, ocPage)), true);
+    assert.equal(ideaCoversSearch(oc, group('artificial grass installation', 300)), false);
+    // With modifiers and places agreeing, a close rewording is still covered.
+    assert.equal(ideaCoversSearch(oc, group('synthetic grass landscapes installation orange county', 32)), true);
+    assert.equal(ideaCoversSearch(idea('r', { targetQuery: 'outdoor remodeling Orange County' }), group('exterior remodeling orange county', 38)), true);
+
+    const commercial = group('commercial artificial grass installation', 120);
+    assert.equal(ideaCoversSearch(idea('a', { targetQuery: 'artificial grass installation' }), commercial), false);
+    assert.equal(ideaCoversSearch(idea('b', { targetQuery: 'commercial artificial turf', title: 'Commercial Artificial Turf' }), commercial), true);
+    assert.equal(ideaCoversSearch(idea('c', { targetQuery: 'artificial turf installation' }), group('putting green turf', 50)), false);
+    assert.equal(ideaCoversSearch(idea('d', { targetQuery: 'artificial grass cost' }), group('artificial grass', 50)), false);
+    assert.equal(ideaCoversSearch(idea('e', { targetQuery: 'pavers vs concrete' }), group('pavers', 50)), false);
+});
+
+test('pages on another host, such as a staging copy, are never shown', () => {
+    const check = mapCheck({
+        ideas: [idea('a', { action: 'improve', matchedUrl: 'https://www.example.com/pavers/' })],
+        evidence: evidence([
+            group('outdoor kitchens', 300, { page: 'https://www.example.com/kitchens/', pagePosition: 30 }),
+            group('artificial grass design', 114, { position: 47, page: 'https://staging.example.com/areas/', pagePosition: 47 }),
+            // A staging page in the top 3 does not hide the search either.
+            group('fire pits', 90, { position: 2, page: 'https://staging.example.com/fire-pits/', pagePosition: 2 }),
+        ]),
+    });
+    assert.equal(productionHost(['https://www.example.com/a', 'https://example.com/b', 'https://staging.example.com/c']), 'example.com');
+    assert.deepEqual(check.missed.map(search => [search.query, search.page]), [
+        ['outdoor kitchens', 'https://www.example.com/kitchens/'],
+        ['artificial grass design', null],
+        ['fire pits', null],
+    ]);
+    assert.equal(missedWhere(check.missed[1]), 'Spot 47 in Google');
+});
+
 test('the title, the cited search and the page Google shows also count as covering', () => {
     assert.equal(ideaCoversSearch(idea('a', { title: 'Pet Turf for Dogs', targetQuery: 'dog friendly yard' }), group('pet turf dog', 10)), true);
     assert.equal(ideaCoversSearch(
@@ -66,7 +107,7 @@ test('lists the biggest searches no idea covers, leaving out brand and already-t
             group('artificial grass installation', 1200),
             group('ecoworkz turf', 900),
             group('artificial grass orange county', 816),
-            group('artificial turf temecula', 666, { position: 9, page: 'https://example.com/temecula/', pagePosition: 9 }),
+            group('artificial turf temecula', 666, { position: 9, page: 'https://example.com/temecula-ca/', pagePosition: 9 }),
             group('pet turf', 570),
             group('putting green', 466, { page: 'https://example.com/putting-greens/', pagePosition: 12 }),
             group('synthetic turf corona', 300, { position: 2, page: 'https://example.com/corona/', pagePosition: 2 }),
@@ -84,7 +125,7 @@ test('lists the biggest searches no idea covers, leaving out brand and already-t
     assert.equal(check.missedTotal, 5);
     // Brand, top-3 and no-meaning searches are not checked.
     assert.equal(check.searchesChecked, 7);
-    const capped = mapCheck({ ideas, evidence: evidence([group('pet turf', 5), group('playground turf', 4)]), limit: 1 });
+    const capped = mapCheck({ ideas, evidence: evidence([group('fire pits', 5), group('outdoor kitchens', 4)]), limit: 1 });
     assert.deepEqual([capped.missed.length, capped.missedTotal], [1, 2]);
 });
 

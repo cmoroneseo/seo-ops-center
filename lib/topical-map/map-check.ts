@@ -10,13 +10,20 @@
 
 import { ARTICLE_KINDS, ARTICLE_MAX_SHARE, PAGE_KIND_LABEL, PAGE_KINDS, pageKindOf, type PageKind } from './page-mix';
 import {
+    bareHost,
     brandTokens,
     GSC_MATCH_MAX_POSITION,
     intentKey,
     isHomePath,
+    learnPlaces,
     MATCH_MIN_COVERAGE,
     pageKey,
+    placesInText,
+    readText,
+    sameSet,
     significantTokens,
+    type PlaceSet,
+    type TextFacts,
 } from './page-match';
 import { evidenceFor, formatCount, pagePath, roundedPosition, type ReviewEvidence, type SearchGroup } from './review';
 import type { MapRecordAction, PageType } from '../types';
@@ -84,34 +91,72 @@ export function repeatsRemoved(metadata: unknown): number | null {
     return (mix ?? 0) + (gate ?? 0);
 }
 
-function sharesIntent(searchTokens: readonly string[], text: string): boolean {
-    const tokens = significantTokens(text);
+function sharesIntent(searchTokens: readonly string[], tokens: readonly string[]): boolean {
     if (searchTokens.length === 0 || tokens.length === 0) return false;
     const own = new Set(tokens);
     const shared = searchTokens.filter(token => own.has(token)).length;
     return shared / searchTokens.length >= MATCH_MIN_COVERAGE && shared / tokens.length >= MATCH_MIN_COVERAGE;
 }
 
+const NO_IGNORE: ReadonlySet<string> = new Set();
+
+/** Cities and counties named in the texts or by the URLs' city/county slugs, as PR 1's matcher learns them. */
+export function knownPlaces(texts: ReadonlyArray<string>, urls: ReadonlyArray<string | null | undefined>): Set<string> {
+    const out = learnPlaces(urls.filter((url): url is string => Boolean(url?.trim())).map(url => ({ normalizedUrl: url, h1s: [] })));
+    for (const text of texts) for (const place of placesInText(text, out)) out.add(place);
+    return out;
+}
+
+/** Same modifiers (commercial, pet, cost, DIY, putting green, playground), same "vs", same places. */
+function sameScope(a: TextFacts, b: TextFacts): boolean {
+    return sameSet(a.flags, b.flags) && a.comparison === b.comparison && sameSet(new Set(a.places), new Set(b.places));
+}
+
 /**
  * An idea covers a search when its main search, the search the generator
- * cited for it, or its title has the same intent (same significant words,
- * or at least 75% shared both ways, as the duplicate gate matches pages), or
- * when Google already shows the idea's page for the search in spots 1 to 20.
+ * cited for it, or its title has the same intent: the same modifiers and
+ * places (PR 1's rules, so "pet turf in Orange County" is not covered by
+ * "artificial grass in Orange County"), and the same search key or at least
+ * 75% of the significant words shared both ways. Google showing the idea's own
+ * page for the search in spots 1 to 20 also counts, under the same rule for
+ * the idea's main search. `places` adds known places (cities and counties)
+ * to the ones found in these texts and URLs.
  */
 export function ideaCoversSearch(
     idea: { title: string; targetQuery: string; demandQuery?: string | null; matchedUrl?: string | null },
     group: Pick<SearchGroup, 'query' | 'variants' | 'page' | 'pagePosition'>,
+    places: PlaceSet = new Set(),
 ): boolean {
-    const keys = new Set([group.query, ...group.variants].map(query => intentKey(query)));
     const texts = [idea.targetQuery, idea.demandQuery ?? '', idea.title].filter(text => text.trim());
-    if (texts.some(text => keys.has(intentKey(text)))) return true;
+    const known = new Set([...places, ...knownPlaces([group.query, ...texts], [group.page, idea.matchedUrl])]);
+    const search = readText(group.query, known, NO_IGNORE);
+    const keys = new Set([group.query, ...group.variants].map(query => intentKey(query)));
     const searchTokens = significantTokens(group.query);
-    if (texts.some(text => sharesIntent(searchTokens, text))) return true;
+    for (const text of texts) {
+        if (!sameScope(search, readText(text, known, NO_IGNORE))) continue;
+        if (keys.has(intentKey(text)) || sharesIntent(searchTokens, significantTokens(text))) return true;
+    }
     const spot = group.pagePosition ?? Number.POSITIVE_INFINITY;
     return Boolean(
         idea.matchedUrl?.trim() && group.page && spot <= GSC_MATCH_MAX_POSITION
-        && pageKey(idea.matchedUrl) === pageKey(group.page),
+        && pageKey(idea.matchedUrl) === pageKey(group.page)
+        && sameScope(search, readText(idea.targetQuery, known, NO_IGNORE)),
     );
+}
+
+/**
+ * The site's own host, without "www.": the most common host among the
+ * ideas' matched pages and the searches' pages. The review loads no site URL,
+ * so it is worked out from these. Pages on any other host (a staging copy,
+ * for example) are not shown.
+ */
+export function productionHost(urls: ReadonlyArray<string | null | undefined>): string | null {
+    const counts = new Map<string, number>();
+    for (const url of urls) {
+        const host = url ? bareHost(url) : null;
+        if (host) counts.set(host, (counts.get(host) ?? 0) + 1);
+    }
+    return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
 }
 
 export interface MissedSearch {
@@ -173,14 +218,22 @@ export function mapCheck(input: {
     };
 
     const covering = ideas.map(idea => ({ ...idea, demandQuery: stored.get(idea.id)?.demandQuery ?? null }));
+    const groups = evidence.connected ? evidence.groups ?? [] : [];
+    const host = productionHost([...ideas.map(idea => idea.matchedUrl), ...groups.map(group => group.page)]);
+    const places = knownPlaces(
+        [...groups.map(group => group.query), ...covering.flatMap(idea => [idea.targetQuery, idea.title, idea.demandQuery ?? ''])],
+        [...groups.map(group => group.page), ...ideas.map(idea => idea.matchedUrl)],
+    );
     const missed: MissedSearch[] = [];
     let checked = 0;
-    for (const group of evidence.connected ? evidence.groups ?? [] : []) {
+    for (const raw of groups) {
+        // A page on another host (a staging copy) is not shown and does not count.
+        const group = raw.page && host && bareHost(raw.page) !== host ? { ...raw, page: null, pagePosition: null } : raw;
         if (!(group.impressions > 0) || significantTokens(group.query).length === 0 || isBrandSearch(group.query)) continue;
         const spot = roundedPosition(group.pagePosition);
         if (group.page && !isHomePath(group.page) && spot != null && spot <= ALREADY_TOP_SPOT) continue;
         checked += 1;
-        if (covering.some(idea => ideaCoversSearch(idea, group))) continue;
+        if (covering.some(idea => ideaCoversSearch(idea, group, places))) continue;
         missed.push({ query: group.query, impressions: group.impressions, position: group.position, page: group.page });
     }
     missed.sort((a, b) => b.impressions - a.impressions || a.query.localeCompare(b.query));
