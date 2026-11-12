@@ -379,7 +379,7 @@ export function ideaKind(idea: { targetQuery: string; title: string; pageType?: 
     return 'money';
 }
 
-interface SiteFacts {
+export interface SiteFacts {
     places: Set<string>;
     hosts: Set<string>;
     /** True when the site keeps its service pages under /services/ or /our-services/. */
@@ -388,7 +388,7 @@ interface SiteFacts {
 
 const siteCache = new WeakMap<readonly MatchablePage[], SiteFacts>();
 
-function siteFacts(pages: readonly MatchablePage[]): SiteFacts {
+export function siteFacts(pages: readonly MatchablePage[]): SiteFacts {
     const cached = siteCache.get(pages);
     if (cached) return cached;
     const hosts = new Set<string>();

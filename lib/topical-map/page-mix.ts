@@ -12,7 +12,15 @@
 
 import type { PageType } from '../types';
 import { clusterKey, type ArchitectGscCluster } from './architect-gsc';
-import { dedupeIdeas, intentKey } from './page-match';
+import {
+    dedupeIdeas,
+    intentKey,
+    pageKindOf as sitePageKind,
+    siteFacts,
+    significantTokens,
+    urlPath,
+    type MatchablePage,
+} from './page-match';
 
 export const PAGE_KINDS = [
     'service', 'service_city', 'city', 'sub_service', 'cost', 'comparison', 'faq', 'local_resource',
@@ -23,9 +31,18 @@ export type PageKind = typeof PAGE_KINDS[number];
 export const ARTICLE_KINDS: ReadonlySet<PageKind> = new Set(['cost', 'comparison', 'faq', 'local_resource']);
 export const ARTICLE_MAX_SHARE = 0.3;
 export const SEED_ONLY_MAX_SHARE = 0.2;
+/** A small map still keeps this many articles / seed-only ideas when the share math rounds to 0. */
+export const ARTICLE_MIN_ALLOWED = 2;
+export const SEED_ONLY_MIN_ALLOWED = 1;
 export const SUPPORTING_QUERIES_MAX = 10;
+/** Share of a service name's words an idea must carry to count as that service. */
+export const SERVICE_NAME_MIN_COVERAGE = 0.6;
 
-/** topical_map_records.page_type for each kind (the DB check allows no new values). */
+/**
+ * topical_map_records.page_type for each kind (the DB check allows no new
+ * values). A buyer question is stored as a blog post: PR 1's matcher only
+ * meets page_type 'faq' with the site's FAQ page. See storedPageType.
+ */
 export const STORED_PAGE_TYPE: Record<PageKind, PageType> = {
     service: 'service',
     sub_service: 'service',
@@ -33,9 +50,15 @@ export const STORED_PAGE_TYPE: Record<PageKind, PageType> = {
     city: 'city',
     cost: 'guide',
     comparison: 'comparison',
-    faq: 'faq',
+    faq: 'blog_post',
     local_resource: 'resource_center',
 };
+
+/** The stored page type. A buyer-question idea that is itself an FAQ page ("Artificial Grass FAQ") is stored as 'faq'. */
+export function storedPageType(kind: PageKind, text = ''): PageType {
+    if (kind === 'faq' && /\bfaqs?\b/i.test(text)) return 'faq';
+    return STORED_PAGE_TYPE[kind];
+}
 
 /** Plain-English label, stored in content_category so the kind stays readable on the record. */
 export const PAGE_KIND_LABEL: Record<PageKind, string> = {
@@ -49,8 +72,13 @@ export const PAGE_KIND_LABEL: Record<PageKind, string> = {
     local_resource: 'Local permits and rebates',
 };
 
-/** Older or loose page_type values the model may still return. */
-const KIND_ALIASES: Readonly<Record<string, PageKind>> = {
+/** Older or loose page_type values the model may still return. 'article' is sorted by its words (articleKind). */
+const KIND_ALIASES: Readonly<Record<string, PageKind | 'article'>> = {
+    blog_post: 'article',
+    guide: 'article',
+    article: 'article',
+    knowledge_base: 'article',
+    case_study: 'article',
     pillar: 'service',
     landing: 'service',
     product: 'service',
@@ -69,20 +97,74 @@ const KIND_ALIASES: Readonly<Record<string, PageKind>> = {
     resource: 'local_resource',
 };
 
-/** The fine-grained kind for a raw page_type. Anything unrecognised counts as an article (buyer question), so it is held to the article cap. */
-export function pageKindOf(raw: unknown): PageKind {
+/** The article kind its words point to: X vs Y, permits and rebates, cost, else a buyer question. */
+function articleKind(text: string): PageKind {
+    if (/\b(vs\.?|versus)\b/i.test(text)) return 'comparison';
+    if (/\b(rebates?|permits?|ordinances?|regulations?)\b/i.test(text)) return 'local_resource';
+    if (/\b(costs?|prices?|pricing)\b/i.test(text)) return 'cost';
+    return 'faq';
+}
+
+/**
+ * The fine-grained kind for a raw page_type. blog_post, guide and anything
+ * unrecognised count as articles (held to the article cap) and are sorted by
+ * `text` (title and target search), when given.
+ */
+export function pageKindOf(raw: unknown, text = ''): PageKind {
     const value = typeof raw === 'string' ? raw.trim().toLowerCase().replace(/[\s/-]+/g, '_') : '';
     if ((PAGE_KINDS as readonly string[]).includes(value)) return value as PageKind;
-    return KIND_ALIASES[value] ?? 'faq';
+    const alias = KIND_ALIASES[value] ?? 'article';
+    return alias === 'article' ? articleKind(text) : alias;
+}
+
+/**
+ * Service names from the site's own service pages, as PR 1's matcher reads
+ * them (e.g. /our-services/masonry-contractors/ gives "masonry contractors").
+ * The URL slug is used, not the title, so cities and the brand stay out.
+ */
+export function servicePageNames(pages: readonly MatchablePage[], ignore: ReadonlySet<string> = new Set()): string[] {
+    const site = siteFacts(pages);
+    return pages
+        .filter(page => sitePageKind(page, site, ignore) === 'service')
+        .map(page => (urlPath(page.normalizedUrl).split('/').filter(Boolean).pop() ?? '').replace(/[-_]+/g, ' ').trim())
+        .filter(Boolean);
+}
+
+/** Service names split into word lists ("pavers/hardscape" is two services). */
+function servicePhrases(services: readonly string[], ignore: ReadonlySet<string>): string[][] {
+    return services
+        .flatMap(service => service.split(/[/,;&+]|\band\b/i))
+        .map(part => significantTokens(part, ignore))
+        .filter(tokens => tokens.length > 0);
+}
+
+/** True when the text names one of the services (most of its words, so "outdoor living" is not "outdoor kitchen"). */
+export function namesService(text: string, phrases: readonly string[][], ignore: ReadonlySet<string> = new Set()): boolean {
+    const tokens = new Set(significantTokens(text, ignore));
+    return phrases.some(phrase =>
+        phrase.filter(token => tokens.has(token)).length / phrase.length >= SERVICE_NAME_MIN_COVERAGE - 1e-9);
 }
 
 export interface MixInput {
     pageType?: unknown;
     targetQuery: string;
+    /** Used to sort articles by kind and to recognise the business's services. */
+    title?: string;
     supportingQueries?: readonly string[];
     /** The Search Console search the model cites, if any. */
     demandQuery?: string | null;
     buildPhase?: number;
+    /** Index of the parent idea in the same list, if any. */
+    parentIndex?: number | null;
+}
+
+export interface PageMixOptions {
+    /**
+     * Services the business sells (profile focus topics and the site's own
+     * service pages). A seed-only service page for one of them is kept: the
+     * seed-only cap only trims articles and long-tail ideas.
+     */
+    services?: readonly string[];
 }
 
 export interface MixedIdea {
@@ -97,6 +179,10 @@ export interface MixedIdea {
     demand: { query: string; impressions: number } | null;
     /** De-duplicated, primary search removed, at most SUPPORTING_QUERIES_MAX. */
     supportingQueries: string[];
+    /** A service or specialty page for a service the business sells. Never trimmed by the seed-only cap. */
+    profileService: boolean;
+    /** Nearest kept ancestor (a dropped duplicate's kept twin counts), or null for a top-level idea. */
+    parentIndex: number | null;
 }
 
 export type DropReason = 'duplicate_query' | 'article_cap' | 'seed_only_cap';
@@ -109,6 +195,10 @@ export interface PageMixSummary {
     by_type: Record<PageKind, number>;
     articles: number;
     seed_only: number;
+    /** Kept seed-only ideas that are service pages for a service the business sells (exempt from the cap). */
+    seed_only_profile_services: number;
+    /** Kept ideas whose parent was dropped and that now sit under the nearest kept ancestor (or at the top). */
+    reattached_children: number;
     /** Ideas whose cited search had no Search Console data, re-marked as seed-only. */
     relabeled_seed_only: number;
     dropped_duplicate_query: number;
@@ -125,9 +215,12 @@ export interface PageMixResult {
     summary: PageMixSummary;
 }
 
-/** Most ideas of one group allowed next to `others` ideas so the group stays within `share` of the total. */
-export function maxWithinShare(others: number, share: number): number {
-    return Math.floor((share * others) / (1 - share) + 1e-9);
+/**
+ * Most ideas of one group allowed next to `others` ideas so the group stays
+ * within `share` of the total, and never fewer than `floor`.
+ */
+export function maxWithinShare(others: number, share: number, floor = 0): number {
+    return Math.max(floor, Math.floor((share * others) / (1 - share) + 1e-9));
 }
 
 /**
@@ -138,15 +231,20 @@ export function maxWithinShare(others: number, share: number): number {
  *    impressions, else the idea is seed-only.
  * 3. Articles are trimmed to at most 30% and seed-only ideas to at most 20%,
  *    weakest first (seed-only, then fewer impressions, then later build phase,
- *    then later in the list). A cap is skipped when it would leave nothing to
- *    measure against (no money pages, or no Search Console data).
+ *    then later in the list), never below ARTICLE_MIN_ALLOWED /
+ *    SEED_ONLY_MIN_ALLOWED. Service pages for a service the business sells
+ *    are exempt from the seed-only cap. A cap is skipped when it would leave
+ *    nothing to measure against (no money pages, or no Search Console data).
+ * 4. A kept idea whose parent was dropped moves to the nearest kept ancestor.
  */
 export function validatePageMix(
     ideas: readonly MixInput[],
     clusters: readonly ArchitectGscCluster[],
     ignore: ReadonlySet<string> = new Set(),
+    options: PageMixOptions = {},
 ): PageMixResult {
     const byKey = new Map(clusters.map(cluster => [cluster.key, cluster]));
+    const phrases = servicePhrases(options.services ?? [], ignore);
     const dropped: PageMixResult['dropped'] = [];
     let relabeled = 0;
 
@@ -156,7 +254,8 @@ export function validatePageMix(
     let kept: MixedIdea[] = [];
     ideas.forEach((idea, index) => {
         if (duplicateOf.has(index)) return;
-        const kind = pageKindOf(idea.pageType);
+        const text = `${idea.title ?? ''} ${idea.targetQuery}`;
+        const kind = pageKindOf(idea.pageType, text);
         const primaryKey = intentKey(idea.targetQuery, ignore);
         const supporting: string[] = [];
         const seen = new Set([primaryKey]);
@@ -177,11 +276,13 @@ export function validatePageMix(
         kept.push({
             index,
             kind,
-            storedType: STORED_PAGE_TYPE[kind],
+            storedType: storedPageType(kind, text),
             label: PAGE_KIND_LABEL[kind],
             seedOnly: !found,
             demand: found ? { query: found.query, impressions: found.impressions } : null,
             supportingQueries: supporting,
+            profileService: (kind === 'service' || kind === 'sub_service') && namesService(text, phrases, ignore),
+            parentIndex: null,
         });
     });
 
@@ -205,12 +306,39 @@ export function validatePageMix(
         changed = false;
         const articles = kept.filter(item => ARTICLE_KINDS.has(item.kind));
         const moneyPages = kept.length - articles.length;
-        if (moneyPages > 0) changed = trim(articles, maxWithinShare(moneyPages, ARTICLE_MAX_SHARE), 'article_cap') || changed;
-        if (seedCapApplies) {
-            const seedOnly = kept.filter(item => item.seedOnly);
-            const cited = kept.length - seedOnly.length;
-            if (cited > 0) changed = trim(seedOnly, maxWithinShare(cited, SEED_ONLY_MAX_SHARE), 'seed_only_cap') || changed;
+        if (moneyPages > 0) {
+            changed = trim(articles, maxWithinShare(moneyPages, ARTICLE_MAX_SHARE, ARTICLE_MIN_ALLOWED), 'article_cap') || changed;
         }
+        if (seedCapApplies) {
+            // Seed-only articles and long-tail ideas; service pages for services they sell stay.
+            const seedOnly = kept.filter(item => item.seedOnly && !item.profileService);
+            const others = kept.length - seedOnly.length;
+            if (others > 0) {
+                changed = trim(seedOnly, maxWithinShare(others, SEED_ONLY_MAX_SHARE, SEED_ONLY_MIN_ALLOWED), 'seed_only_cap') || changed;
+            }
+        }
+    }
+
+    // Re-attach children of dropped ideas: a dropped duplicate hands over to
+    // the idea it duplicates, any other dropped idea to its own parent.
+    const keptIndexes = new Set(kept.map(item => item.index));
+    const keptAncestor = (start: number): number | null => {
+        const seen = new Set<number>();
+        let at: number | null | undefined = start;
+        while (at != null && Number.isInteger(at) && at >= 0 && at < ideas.length && !seen.has(at)) {
+            if (keptIndexes.has(at)) return at;
+            seen.add(at);
+            at = duplicateOf.get(at) ?? ideas[at].parentIndex;
+        }
+        return null;
+    };
+    let reattached = 0;
+    for (const item of kept) {
+        const parent = ideas[item.index].parentIndex;
+        if (parent == null || parent === item.index) continue;
+        const resolved = keptAncestor(parent);
+        item.parentIndex = resolved === item.index ? null : resolved;
+        if (item.parentIndex !== parent) reattached += 1;
     }
 
     const byType = Object.fromEntries(PAGE_KINDS.map(kind => [kind, 0])) as Record<PageKind, number>;
@@ -227,6 +355,8 @@ export function validatePageMix(
             by_type: byType,
             articles: kept.filter(item => ARTICLE_KINDS.has(item.kind)).length,
             seed_only: kept.filter(item => item.seedOnly).length,
+            seed_only_profile_services: kept.filter(item => item.seedOnly && item.profileService).length,
+            reattached_children: reattached,
             relabeled_seed_only: relabeled,
             dropped_duplicate_query: count('duplicate_query'),
             dropped_article_cap: count('article_cap'),
