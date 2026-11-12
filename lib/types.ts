@@ -1218,6 +1218,21 @@ export interface TopicalMapSilo {
     sortOrder: number;
 }
 
+export type BriefSchemaType = 'Service' | 'LocalBusiness' | 'FAQPage' | 'Article' | 'HowTo';
+
+/** Stored in topical_map_records.answer_brief (migration 130). The answer itself is answerFirst60. */
+export interface AnswerBrief {
+    /** 2-3 questions people ask AI assistants that the page should answer. */
+    aiPrompts: string[];
+    /** The page's H2 section headings. */
+    headings: string[];
+    schemaType: BriefSchemaType;
+    /** The page needs a dated price table (cost pages, and pages that quote prices). */
+    priceTable: boolean;
+    /** The model's answer ran past 60 words and was shortened. */
+    answerTrimmed: boolean;
+}
+
 export interface TopicalMapRecord {
     id: string;
     siloId: string;
@@ -1241,6 +1256,8 @@ export interface TopicalMapRecord {
     answerFirst60?: string;
     /** What this page covers that sibling pages do not. Empty when unset. */
     uniqueAngle?: string;
+    /** Generator's answer-ready brief. Empty on older rows, manual adds, and before migration 130. */
+    answerBrief?: AnswerBrief;
     /** Production date (YYYY-MM-DD). Empty when unset. */
     scheduledFor?: string;
     /** Completeness of the spec. Separate from approval status. */

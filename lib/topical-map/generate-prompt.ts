@@ -1,4 +1,5 @@
 import type { TopicalMapProfile } from '../types';
+import { SCHEMA_TYPES } from './answer-brief';
 import { PAGE_KINDS } from './page-mix';
 import { normalizeSeedKeywords } from './seed-keywords';
 
@@ -43,18 +44,24 @@ export function buildSystemPrompt(): string {
 8. **Existing pages.** Do not propose a new page for a search an existing page already targets.
 9. **Niche titles.** Use the brand's real services, cities and customers in titles. Never generic titles.
 10. **Structure.** 3-6 silos, usually one per core service. Use parent_title for hierarchy (service to sub_service or service_city, city to service_city) and 0-2 outgoing_links per record to other records by exact title.
+11. **Answer-ready brief.** Keep it short; it is repeated on every record.
+   - answer: the direct answer the page opens with, 40-60 words (aim for 45), plain words, naming the brand's real service and place where it fits.
+   - ai_prompts: 2-3 questions a buyer would type into ChatGPT or Google's AI about this page, each under 12 words.
+   - h2s: 3-5 section headings for the page, each under 7 words.
+   - schema_type: only when the page needs a type other than its default (service, sub_service and service_city are Service; city is LocalBusiness; an FAQ page is FAQPage; other articles are Article). Allowed: Service, LocalBusiness, FAQPage, Article, HowTo.
+   - price_table: true only when a page that is not a cost page quotes prices. Cost pages always get one. Otherwise omit it.
 
 Do not estimate search volume, keyword difficulty, or traffic. Those fields are not part of this map. Omit them.
 
 ## HARD REQUIREMENTS (non-negotiable)
 
 1. 20-40 records. Never more than 40. A short map of real money pages beats a long list of articles.
-2. Every record has page_type, title, target_query, supporting_queries, demand_query (or null), seed_only and build_phase.
+2. Every record has page_type, title, target_query, supporting_queries, demand_query (or null), seed_only, build_phase, answer, ai_prompts and h2s.
 3. Do NOT include search_volume_monthly, keyword_difficulty, or traffic estimates.
 
 ## JSON structure
 
-Respond ONLY with valid JSON, no markdown fencing, no text outside the JSON:
+Respond ONLY with valid JSON, no markdown fencing, no text outside the JSON. Write it compact, with no indentation or line breaks (the example below is spaced out only for reading):
 
 {
   "architecture_summary": "3-4 sentence strategy overview: what silos cover, how they interlink, and the competitive angle",
@@ -79,7 +86,10 @@ Respond ONLY with valid JSON, no markdown fencing, no text outside the JSON:
           "parent_title": null,
           "outgoing_links": [
             {"anchor_text": "turf installation in Temecula", "destination_title": "Artificial Turf Installation in Temecula"}
-          ]
+          ],
+          "answer": "We install artificial turf across the Inland Empire for homes, pets and play areas. Most yards take two to three days: we remove the old lawn, build a compacted base, lay and seam the turf, then add infill. Every job comes with a drainage check and a written warranty.",
+          "ai_prompts": ["Who installs artificial turf in the Inland Empire?", "How long does turf installation take?"],
+          "h2s": ["How we install your turf", "Turf for pets and play", "Areas we serve"]
         },
         {
           "page_type": "service_city",
@@ -93,7 +103,10 @@ Respond ONLY with valid JSON, no markdown fencing, no text outside the JSON:
           "word_count_max": 1400,
           "build_phase": 1,
           "parent_title": "Artificial Turf Installation in the Inland Empire",
-          "outgoing_links": []
+          "outgoing_links": [],
+          "answer": "We install artificial turf in Temecula, from small backyards to full front lawns. A crew finishes most Temecula yards in two to three days, and the turf stays green through summer without watering. We handle removal, base, turf and infill, and every job comes with a written warranty.",
+          "ai_prompts": ["Best artificial turf installer in Temecula?", "Does artificial turf work in Temecula heat?"],
+          "h2s": ["Turf installation in Temecula", "Turf that handles Temecula heat", "What a Temecula install includes"]
         }
       ]
     }
@@ -110,6 +123,11 @@ Respond ONLY with valid JSON, no markdown fencing, no text outside the JSON:
 - build_phase: 1 (launch priority) | 2 (month 2-3) | 3 (month 4+)
 - parent_title: exact title of the parent record in the same silo, or null for top-level pages
 - outgoing_links: array of internal links to other records by their exact title
+- answer: 40-60 words
+- ai_prompts: 2-3 short questions
+- h2s: 3-5 short headings
+- schema_type: Service | LocalBusiness | FAQPage | Article | HowTo, only when not the default
+- price_table: true, only on a page that is not a cost page and quotes prices
 - Do not output search volume, keyword difficulty, or estimated traffic`;
 }
 
@@ -180,8 +198,13 @@ export const GENERATION_SCHEMA = {
                                 word_count_max: { type: 'number' as const },
                                 build_phase: { type: 'number' as const },
                                 suggested_url: { type: 'string' as const },
+                                answer: { type: 'string' as const },
+                                ai_prompts: { type: 'array' as const, items: { type: 'string' as const }, minItems: 2, maxItems: 3 },
+                                h2s: { type: 'array' as const, items: { type: 'string' as const }, minItems: 3, maxItems: 5 },
+                                schema_type: { type: 'string' as const, enum: [...SCHEMA_TYPES] },
+                                price_table: { type: 'boolean' as const },
                             },
-                            required: ['page_type', 'title', 'target_query', 'supporting_queries', 'demand_query', 'seed_only', 'build_phase'],
+                            required: ['page_type', 'title', 'target_query', 'supporting_queries', 'demand_query', 'seed_only', 'build_phase', 'answer', 'ai_prompts', 'h2s'],
                         },
                     },
                 },
