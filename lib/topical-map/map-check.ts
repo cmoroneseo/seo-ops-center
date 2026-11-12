@@ -8,7 +8,7 @@
  * worked out from the ideas and the searches, and say what is missing.
  */
 
-import { ARTICLE_KINDS, ARTICLE_MAX_SHARE, PAGE_KIND_LABEL, PAGE_KINDS, pageKindOf, type PageKind } from './page-mix';
+import { ARTICLE_KINDS, ARTICLE_MAX_SHARE, PAGE_KIND_LABEL, PAGE_KINDS, pageKindOf, SEED_ONLY_MAX_SHARE, type PageKind } from './page-mix';
 import {
     bareHost,
     brandTokens,
@@ -209,7 +209,7 @@ export interface MapCheck {
     /** Ideas matched to a page already on the site (update it, or it is already live). */
     existingPages: number;
     /** 'map': flags saved when the map was made. 'recent': worked out from the review's own window. Null when neither is possible. */
-    seedOnly: { count: number; of: number; source: 'map' | 'recent' } | null;
+    seedOnly: { count: number; of: number; source: 'map' | 'recent'; servicePages?: number | null } | null;
     articles: number;
     mix: PageMixLine[];
 }
@@ -263,7 +263,10 @@ export function mapCheck(input: {
     const flagged = ideas.filter(idea => typeof stored.get(idea.id)?.seedOnly === 'boolean');
     let seedOnly: MapCheck['seedOnly'] = null;
     if (flagged.length > 0) {
-        seedOnly = { count: flagged.filter(idea => stored.get(idea.id)?.seedOnly).length, of: flagged.length, source: 'map' };
+        const seedCount = flagged.filter(idea => stored.get(idea.id)?.seedOnly).length;
+        // Exempt service pages are counted before saving; never show more than the seed-only ideas here.
+        const services = count(object(object(input.generationMetadata)?.page_mix)?.seed_only_profile_services);
+        seedOnly = { count: seedCount, of: flagged.length, source: 'map', ...(services == null ? {} : { servicePages: Math.min(services, seedCount) }) };
     } else if (evidence.connected && evidence.days > 0 && ideas.length > 0) {
         seedOnly = { count: ideas.filter(idea => !evidenceFor(evidence, idea.targetQuery)).length, of: ideas.length, source: 'recent' };
     }
@@ -372,9 +375,16 @@ export function seedOnlyLine(check: MapCheck): CheckLine | null {
     const seed = check.seedOnly;
     if (!seed) return null;
     if (seed.source === 'map') {
+        const services = seed.servicePages ?? 0;
+        const which = services === seed.count
+            ? (services === 1 ? 'It is a page' : 'All of them are pages')
+            : `${formatCount(services)} of them ${services === 1 ? 'is a page' : 'are pages'}`;
+        const exempt = services > 0
+            ? ` ${which} for ${services === 1 ? 'a service' : 'services'} you sell. Pages for services you sell are kept even without searches and do not count toward the ${Math.round(SEED_ONLY_MAX_SHARE * 100)}% limit.`
+            : '';
         return {
             label: `${formatCount(seed.count)} of ${plural(seed.of, 'idea', 'ideas')} ${seed.count === 1 ? 'has' : 'have'} no Google searches behind ${seed.count === 1 ? 'it' : 'them'}`,
-            detail: 'They came only from the starting keywords, not from searches your site already shows up for.',
+            detail: `They came only from the starting keywords, not from searches your site already shows up for.${exempt}`,
         };
     }
     return {

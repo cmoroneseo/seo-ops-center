@@ -241,6 +241,18 @@ test('client-facing copy is plain English with real numbers', () => {
         detail: 'The rest are service and location pages. We aim for no more than 30% articles.',
     });
 
+    assert.equal(
+        seedOnlyLine({ ...check, seedOnly: { count: 15, of: 30, source: 'map', servicePages: 12 } })?.detail,
+        'They came only from the starting keywords, not from searches your site already shows up for. 12 of them are pages for services you sell. Pages for services you sell are kept even without searches and do not count toward the 20% limit.',
+    );
+    assert.match(seedOnlyLine({ ...check, seedOnly: { count: 1, of: 3, source: 'map', servicePages: 1 } })?.detail ?? '', /\. It is a page for a service you sell\./);
+    const saved = mapCheck({
+        ideas: [idea('a'), idea('b')],
+        evidence: evidence([]),
+        generationMetadata: { page_mix: { seed_only_profile_services: 5, records: { a: { seed_only: true }, b: { seed_only: false } } } },
+    });
+    assert.deepEqual(saved.seedOnly, { count: 1, of: 2, source: 'map', servicePages: 1 });
+
     const old = mapCheck({ ideas: [idea('a'), idea('b')], evidence: evidence([]) });
     assert.equal(repeatsLine(old).label, 'Repeat ideas removed: not recorded');
     assert.equal(seedOnlyLine(old)?.label, '2 of 2 ideas got no Google searches in the last 28 days');
