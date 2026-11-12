@@ -99,12 +99,24 @@ export async function POST(req: NextRequest) {
         clientId,
     });
 
-    const { data: pageSnapshots } = await admin
+    // Only the newest completed crawl: older runs still hold pages that were
+    // since removed or renamed. With no completed run, every snapshot is read.
+    const { data: latestRun } = await admin
+        .from('site_crawl_runs')
+        .select('id')
+        .eq('organization_id', organizationId)
+        .eq('client_id', clientId)
+        .eq('status', 'completed')
+        .order('completed_at', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+    let snapshotQuery = admin
         .from('site_page_snapshots')
         .select('site_page_id, requested_url, title, h1s, word_count, observed_at')
         .eq('organization_id', organizationId)
-        .eq('client_id', clientId)
-        .order('observed_at', { ascending: false });
+        .eq('client_id', clientId);
+    if (latestRun?.id) snapshotQuery = snapshotQuery.eq('run_id', String(latestRun.id));
+    const { data: pageSnapshots } = await snapshotQuery.order('observed_at', { ascending: false });
 
     const { data: pageUrls } = await admin
         .from('site_page_urls')
@@ -231,7 +243,11 @@ export async function POST(req: NextRequest) {
     });
     const flat = siloRecords.flat();
     const { duplicateOf } = dedupeIdeas(
-        flat.map(item => ({ targetQuery: String(item.rec.target_query ?? ''), matchedUrl: item.reconciled.matchedUrl })),
+        flat.map(item => ({
+            targetQuery: String(item.rec.target_query ?? ''),
+            matchedUrl: item.reconciled.matchedUrl,
+            pageType: String(item.rec.page_type ?? 'other'),
+        })),
         ignoreTokens,
     );
     const idByIndex = new Map<number, string>();
