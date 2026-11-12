@@ -3,8 +3,9 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import Anthropic from '@anthropic-ai/sdk';
-import { loadArchitectGscQueries } from '@/lib/topical-map/architect-gsc';
+import { loadArchitectGscContext } from '@/lib/topical-map/architect-gsc';
 import { buildSystemPrompt, buildUserMessage } from '@/lib/topical-map/generate-prompt';
+import { selectPromptPages } from '@/lib/topical-map/prompt-pages';
 import { seedKeywordsFromMap } from '@/lib/topical-map/seed-keywords';
 import { architectStoredMetrics } from '@/lib/topical-map/metrics';
 import { reconcileRecord } from '@/lib/topical-map/reconcile';
@@ -84,14 +85,14 @@ export async function POST(req: NextRequest) {
     };
 
     // Re-fetch GSC and pages (fast DB reads). Queries come from gsc_history_facts.
-    const gscQueries = await loadArchitectGscQueries(admin as unknown as SearchReportingAdmin, {
+    const { queries: gscQueries, pageImpressions } = await loadArchitectGscContext(admin as unknown as SearchReportingAdmin, {
         organizationId,
         clientId,
     });
 
     const { data: pageSnapshots } = await admin
         .from('site_page_snapshots')
-        .select('site_page_id, requested_url, title, h1s, word_count')
+        .select('site_page_id, requested_url, title, h1s, word_count, observed_at')
         .eq('organization_id', organizationId)
         .eq('client_id', clientId)
         .order('observed_at', { ascending: false });
@@ -103,21 +104,25 @@ export async function POST(req: NextRequest) {
         .eq('client_id', clientId);
 
     const urlMap = new Map((pageUrls ?? []).map(u => [String(u.site_page_id), String(u.normalized_url)]));
-    const existingPages = (pageSnapshots ?? []).map(s => ({
+    // HTML pages with a title only, one per URL, most Search Console impressions first.
+    const existingPages = selectPromptPages((pageSnapshots ?? []).map(s => ({
         pageId: String(s.site_page_id),
-        normalizedUrl: urlMap.get(String(s.site_page_id)) ?? String(s.requested_url),
         url: urlMap.get(String(s.site_page_id)) ?? String(s.requested_url),
         title: s.title ? String(s.title) : undefined,
         h1s: (s.h1s as string[]) ?? [],
         wordCount: s.word_count != null ? Number(s.word_count) : undefined,
-    }));
+        observedAt: s.observed_at ? String(s.observed_at) : undefined,
+    })), pageImpressions);
 
     // Stage 4: Architect (AI call)
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
         return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
     }
-    const anthropic = new Anthropic({ apiKey, timeout: 120_000 });
+    // One 240s attempt fits inside maxDuration (300s) with ~60s left for the
+    // DB reads before and the record inserts after. No SDK retries: a retry
+    // after a timeout would be a second paid call that cannot finish in time.
+    const anthropic = new Anthropic({ apiKey, timeout: 240_000, maxRetries: 0 });
     const ctx = {
         profile,
         existingPages: existingPages.map(p => ({ url: p.url, title: p.title, h1s: p.h1s, wordCount: p.wordCount })),
