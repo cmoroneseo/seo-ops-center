@@ -97,7 +97,8 @@ test('the architect route reads pages from the newest completed crawl only', () 
     const route = readFileSync(new URL('../../app/api/topical-map/generate-architect/route.ts', import.meta.url), 'utf8');
     assert.match(route, /from\('site_crawl_runs'\)[\s\S]*?\.eq\('status', 'completed'\)[\s\S]*?\.order\('completed_at'/);
     assert.match(route, /snapshotQuery\.eq\('run_id', String\(latestRun\.id\)\)/);
-    assert.match(route, /pageType: String\(item\.rec\.page_type \?\? 'other'\)/);
+    // The duplicate gate compares the page type that is saved (after the page-mix mapping).
+    assert.match(route, /pageType: item\.mix\.storedType/);
 });
 
 test('the prompt keeps the 40-page cap and lists the highest-impression page first', () => {
