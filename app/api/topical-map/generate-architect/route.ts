@@ -7,6 +7,7 @@ import { loadArchitectGscContext, loadArchitectPagePerformance } from '@/lib/top
 import { brandTokens, dedupeIdeas, GSC_MATCH_MAX_POSITION, intentKey } from '@/lib/topical-map/page-match';
 import { queriesByPage, refreshCandidates } from '@/lib/topical-map/page-performance';
 import { buildSystemPrompt, buildUserMessage } from '@/lib/topical-map/generate-prompt';
+import { validatePageMix } from '@/lib/topical-map/page-mix';
 import { selectPromptPages } from '@/lib/topical-map/prompt-pages';
 import { seedKeywordsFromMap } from '@/lib/topical-map/seed-keywords';
 import { architectStoredMetrics } from '@/lib/topical-map/metrics';
@@ -86,12 +87,15 @@ export async function POST(req: NextRequest) {
         rivals: (profileData.rivals as string[]) ?? [],
     };
 
+    // Brand and domain words never make a match or a search group on their own.
+    const ignoreTokens = brandTokens(profile.brandName, String(clientCheck.domain ?? ''));
     // Re-fetch GSC and pages (fast DB reads). Queries come from gsc_history_facts.
     const gscContext = await loadArchitectGscContext(admin as unknown as SearchReportingAdmin, {
         organizationId,
         clientId,
+        ignoreTokens,
     });
-    const { queries: gscQueries, pageImpressions } = gscContext;
+    const { pageImpressions } = gscContext;
     // 180 stored days of page-grain facts for refresh signals. Runs during the
     // AI call and never rejects (a failed read gives no signals).
     const performancePromise = loadArchitectPagePerformance(admin as unknown as SearchReportingAdmin, {
@@ -135,7 +139,8 @@ export async function POST(req: NextRequest) {
     const ctx = {
         profile,
         existingPages: existingPages.map(p => ({ url: p.url, title: p.title, h1s: p.h1s, wordCount: p.wordCount })),
-        gscQueries,
+        gscQueries: gscContext.clusters,
+        gscDays: gscContext.clusterDays,
         clientDomain: String(clientCheck.domain ?? ''),
         seedKeywords: seedKeywordsFromMap(mapRow.seed_input),
     };
@@ -187,9 +192,23 @@ export async function POST(req: NextRequest) {
         },
     }).eq('id', mapId);
 
+    // Page mix: one idea per primary search, demand checked against Search
+    // Console, articles and seed-only ideas trimmed to their caps.
+    const rawRecords = parsed.silos.map(silo =>
+        ((silo as Record<string, unknown>).records ?? (silo as Record<string, unknown>).pages ?? []) as Array<Record<string, unknown>>);
+    const pageMix = validatePageMix(rawRecords.flat().map(rec => ({
+        pageType: rec.page_type,
+        targetQuery: String(rec.target_query ?? ''),
+        supportingQueries: Array.isArray(rec.supporting_queries)
+            ? rec.supporting_queries.filter((q): q is string => typeof q === 'string')
+            : undefined,
+        demandQuery: typeof rec.demand_query === 'string' ? rec.demand_query : null,
+        buildPhase: Number(rec.build_phase ?? 1),
+    })), gscContext.clusters, ignoreTokens);
+    const mixByIndex = new Map(pageMix.kept.map(item => [item.index, item]));
+
     // Stage 5: Reconciliation — match every idea to existing pages, drop
     // duplicates across the whole map, then insert silos and records.
-    const ignoreTokens = brandTokens(profile.brandName, String(clientCheck.domain ?? ''));
     // Only pairs that can match (spot 20 or better), each intent key computed once.
     const gscEvidence = gscContext.queryPages
         .filter(r => r.position <= GSC_MATCH_MAX_POSITION)
@@ -209,26 +228,27 @@ export async function POST(req: NextRequest) {
         gscConnected: gscContext.days > 0 || performance.recentDays > 0,
     };
 
-    const siloRecords = parsed.silos.map(silo => {
-        const records = ((silo as Record<string, unknown>).records ?? (silo as Record<string, unknown>).pages ?? []) as Array<Record<string, unknown>>;
-        return records.map(rec => ({
+    let rawIdx = 0;
+    const siloRecords = rawRecords.map(records => records.flatMap(rec => {
+        const mix = mixByIndex.get(rawIdx++);
+        if (!mix) return [];
+        return [{
             rec,
+            mix,
             reconciled: reconcileRecord(
                 {
                     targetQuery: String(rec.target_query ?? ''),
                     title: String(rec.title ?? ''),
                     suggestedUrl: rec.suggested_url ? String(rec.suggested_url) : undefined,
-                    supportingQueries: Array.isArray(rec.supporting_queries)
-                        ? rec.supporting_queries.filter((q): q is string => typeof q === 'string')
-                        : undefined,
-                    pageType: rec.page_type ? String(rec.page_type) : undefined,
+                    supportingQueries: mix.supportingQueries,
+                    pageType: mix.storedType,
                 },
                 existingPages,
                 gscEvidence,
                 reconcileCtx,
             ),
-        }));
-    });
+        }];
+    }));
     const flat = siloRecords.flat();
     const { duplicateOf } = dedupeIdeas(
         flat.map(item => ({ targetQuery: String(item.rec.target_query ?? ''), matchedUrl: item.reconciled.matchedUrl })),
@@ -236,6 +256,7 @@ export async function POST(req: NextRequest) {
     );
     const idByIndex = new Map<number, string>();
     const refreshReasons: Record<string, { reason: string; signals: string[] }> = {};
+    const mixRecords: Record<string, { page_type: string; seed_only: boolean; demand_query: string | null; demand_impressions: number | null }> = {};
     let flatIdx = 0;
 
     for (let siloIdx = 0; siloIdx < parsed.silos.length; siloIdx++) {
@@ -243,6 +264,8 @@ export async function POST(req: NextRequest) {
         const records = siloRecords[siloIdx];
         const siloStart = flatIdx;
         flatIdx += records.length;
+        // Nothing left to insert: the silo was empty or every idea in it was over a page-mix cap.
+        if (records.length === 0) continue;
 
         const { data: siloRow } = await admin
             .from('topical_map_silos')
@@ -264,7 +287,7 @@ export async function POST(req: NextRequest) {
         const titleToId = new Map<string, string>();
 
         for (let recIdx = 0; recIdx < records.length; recIdx++) {
-            const { rec, reconciled } = records[recIdx];
+            const { rec, mix, reconciled } = records[recIdx];
             const earlier = duplicateOf.get(siloStart + recIdx);
             if (earlier != null) {
                 // Same search or same page as an earlier idea: not inserted.
@@ -285,8 +308,8 @@ export async function POST(req: NextRequest) {
                     map_id: mapId,
                     organization_id: organizationId,
                     parent_record_id: parentRecordId ?? null,
-                    page_type: String(rec.page_type ?? 'other'),
-                    content_category: rec.content_category ? String(rec.content_category) : null,
+                    page_type: mix.storedType,
+                    content_category: mix.label,
                     action: reconciled.action,
                     title: String(rec.title ?? ''),
                     target_query: String(rec.target_query ?? ''),
@@ -312,6 +335,12 @@ export async function POST(req: NextRequest) {
                 titleToId.set(String(rec.title), String(recordRow.id));
                 idByIndex.set(siloStart + recIdx, String(recordRow.id));
                 if (reconciled.refresh) refreshReasons[String(recordRow.id)] = reconciled.refresh;
+                mixRecords[String(recordRow.id)] = {
+                    page_type: mix.kind,
+                    seed_only: mix.seedOnly,
+                    demand_query: mix.demand?.query ?? null,
+                    demand_impressions: mix.demand?.impressions ?? null,
+                };
             }
         }
     }
@@ -387,6 +416,8 @@ export async function POST(req: NextRequest) {
             generated_at: new Date().toISOString(),
             duplicate_gate: duplicateGateSummary(flat.map(item => item.reconciled), duplicateOf.size, refreshAdded),
             refresh_reasons: refreshReasons,
+            // Counts before PR 1's same-page gate; records holds every inserted idea.
+            page_mix: { ...pageMix.summary, gsc_days: gscContext.clusterDays, records: mixRecords },
         },
     }).eq('id', mapId);
 
