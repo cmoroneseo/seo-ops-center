@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Circle, Loader2 } from 'lucide-react';
 
 import { getTopicalMapByClient } from '@/lib/supabase/topical-map';
+import { triggerArchitectOnce } from '@/lib/topical-map/architect-trigger';
 import type { TopicalMap, TopicalMapRecord, TopicalMapSilo } from '@/lib/types';
 
 const STAGES: { key: string; label: string }[] = [
@@ -38,7 +39,6 @@ export function MapProgressCard({ clientId, clientName, onComplete }: MapProgres
     const startedAtRef = useRef(Date.now());
     const onCompleteRef = useRef(onComplete);
     onCompleteRef.current = onComplete;
-    const architectFiredRef = useRef(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -56,21 +56,9 @@ export function MapProgressCard({ clientId, clientName, onComplete }: MapProgres
 
             // Trigger architect stage when data gathering is done
             const stages = stagesOf(result.map);
-            if (result.map && stages.includes('your_pages') && !stages.includes('architect') && !architectFiredRef.current) {
-                architectFiredRef.current = true;
-                fetch('/api/topical-map/generate-architect', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mapId: result.map.id }),
-                }).then(async (res) => {
-                    if (!res.ok) {
-                        const body = await res.json().catch(() => ({}));
-                        console.error('Architect failed:', res.status, body?.error ?? body);
-                        architectFiredRef.current = false;
-                    }
-                }).catch(() => {
-                    architectFiredRef.current = false;
-                });
+            // triggerArchitectOnce holds a per-map in-flight guard that survives remounts.
+            if (result.map && stages.includes('your_pages') && !stages.includes('architect')) {
+                triggerArchitectOnce(result.map.id);
             }
         };
 
