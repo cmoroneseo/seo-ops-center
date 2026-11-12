@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import Anthropic from '@anthropic-ai/sdk';
 import { loadArchitectGscContext, loadArchitectPagePerformance } from '@/lib/topical-map/architect-gsc';
-import { brandTokens, dedupeIdeas, existingPageType, GSC_MATCH_MAX_POSITION, intentKey } from '@/lib/topical-map/page-match';
+import { brandTokens, dedupeIdeas, existingPageType, GSC_MATCH_MAX_POSITION, intentKey, siteSearchFilter } from '@/lib/topical-map/page-match';
 import { queriesByPage, REFRESH_GROUP_NAME, refreshCandidates } from '@/lib/topical-map/page-performance';
 import { buildSystemPrompt, buildUserMessage } from '@/lib/topical-map/generate-prompt';
 import { servicePageNames, validatePageMix } from '@/lib/topical-map/page-mix';
@@ -252,6 +252,8 @@ export async function POST(req: NextRequest) {
         pageQueries: queriesByPage(gscContext.queryPages),
         queryDays: gscContext.days,
         gscConnected: gscContext.days > 0 || performance.recentDays > 0,
+        // Refresh reasons never name a brand search, or a place or side service they do not cover.
+        searchFits: siteSearchFilter(existingPages, { brands: [profile.brandName, String(clientCheck.domain ?? '')], services: profile.focusTopics }),
     };
 
     let rawIdx = 0;

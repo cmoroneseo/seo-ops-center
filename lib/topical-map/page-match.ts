@@ -656,6 +656,68 @@ export function existingPageType(url: string, pages: readonly MatchablePage[], i
     return EXISTING_PAGE_TYPE[kind];
 }
 
+// ─── Searches that fit the site ─────────────────────────────────────────────
+
+/** First words that only ever start a place name ("san luis obispo", "los angeles", "laguna hills"). */
+const PLACE_ONLY_PREFIXES: ReadonlySet<string> = new Set(['san', 'santa', 'los', 'las', 'el', 'del', 'rancho', 'laguna']);
+
+/** Kinds of work many sites in a trade do not sell. A search for one fits only a site whose own pages use the word. */
+const SIDE_SERVICE_TOKENS: ReadonlySet<string> = new Set([
+    'cleaning', 'washing', 'repair', 'sealing', 'maintenance', 'removal', 'restoration', 'rental', 'supply', 'wholesale',
+    'job', 'salary',
+].flatMap(word => significantTokens(word)));
+
+/**
+ * A test for whether a search fits the business, for picking the search a
+ * refresh reason names. A search does not fit when it is:
+ * - a search for the business itself (see isBrandSearch)
+ * - for a city or county the site has no page or text for: the places come
+ *   from its city/county URLs, titles and H1s (learnPlaces) and the services
+ *   it lists. A place is read from "X County", "X, CA", "X CA" (an unfamiliar
+ *   word before a state code), a "San ..." / "Los ..." name, or a known place
+ * - for side work (cleaning, repair, sealing, removal...) that no page title,
+ *   H1, URL or listed service mentions
+ * Places with none of these marks ("outdoor kitchen friendswood") cannot be
+ * told from topic words without a list of every town, so they still fit.
+ */
+export function siteSearchFilter(
+    pages: readonly MatchablePage[],
+    options: { brands?: ReadonlyArray<string | null | undefined>; services?: readonly string[] } = {},
+): (query: string) => boolean {
+    const site = siteFacts(pages);
+    const places = new Set(site.places);
+    for (const service of options.services ?? []) for (const place of placesInText(service, places)) places.add(place);
+    const vocabulary = new Set<string>();
+    const texts = [...pages.flatMap(page => [page.title ?? '', ...page.h1s, urlPath(page.normalizedUrl).replace(/[/_-]+/g, ' ')]), ...(options.services ?? [])];
+    for (const text of texts) for (const token of readText(text, places, new Set()).topic) vocabulary.add(token);
+    const brands = options.brands ?? [];
+
+    const served = (place: string) => places.has(place) || places.has(`${place} county`);
+    const knownAt = (text: string) => [...places].some(place => ` ${text}`.endsWith(` ${place}`) || ` ${text}`.endsWith(` ${place.replace(/ county$/, '')}`));
+    const unfamiliar = (word: string) => {
+        const tokens = significantTokens(word);
+        return /^[a-z]+$/.test(word) && word !== 'county' && tokens.length > 0 && !tokens.some(token => vocabulary.has(token));
+    };
+    const namedPlaces = (query: string): string[] => {
+        const out = new Set([...readText(query, places, new Set()).places, ...placesInText(query, places)]);
+        const list = words(query);
+        const last = list.length - 1;
+        const region = REGION_PHRASES.some(phrase => phrase.length <= list.length && phrase.every((word, k) => list[list.length - phrase.length + k] === word));
+        if (last >= 1 && STATE_CODES.has(list[last]) && !region && unfamiliar(list[last - 1]) && !knownAt(list.slice(0, last).join(' '))) {
+            out.add(list[last - 1]);
+        }
+        list.forEach((word, i) => {
+            if (!PLACE_ONLY_PREFIXES.has(word) || i + 1 >= list.length || !unfamiliar(list[i + 1])) return;
+            const name = `${word} ${list[i + 1]}`;
+            if (![...places].some(place => place === name || place.startsWith(`${name} `))) out.add(name);
+        });
+        return [...out];
+    };
+    return (query: string) => !isBrandSearch(query, ...brands)
+        && !significantTokens(query).some(token => SIDE_SERVICE_TOKENS.has(token) && !vocabulary.has(token))
+        && namedPlaces(query).every(served);
+}
+
 /**
  * Keeps the first idea per search (intentKey) and drops a later idea that
  * matched the same page only when both have the same page type and at least

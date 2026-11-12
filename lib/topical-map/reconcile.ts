@@ -46,6 +46,12 @@ export interface ReconcileContext {
     queryDays?: number;
     /** True when stored Search Console data was read. Without it, page-1 checks are skipped. */
     gscConnected?: boolean;
+    /**
+     * Searches a page's main search may be picked from (see siteSearchFilter):
+     * not the brand, not a place or side service the business does not cover.
+     * With none left, the page's own numbers speak and no search is named.
+     */
+    searchFits?: (query: string) => boolean;
 }
 
 export interface ReconciliationResult {
@@ -63,7 +69,9 @@ export function pageRefreshRead(
     ctx: ReconcileContext,
 ): RefreshRead {
     const performance = ctx.performance ?? EMPTY_PERFORMANCE;
-    const cluster = mainCluster(ctx.pageQueries?.get(pageKey(url)), page.targetQuery);
+    const fits = ctx.searchFits;
+    const searches = ctx.pageQueries?.get(pageKey(url));
+    const cluster = mainCluster(fits ? searches?.filter(row => fits(row.query)) : searches, page.targetQuery);
     return refreshRead({
         url,
         performance: performance.pages.get(pageKey(url)) ?? null,
