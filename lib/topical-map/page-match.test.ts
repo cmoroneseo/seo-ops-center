@@ -13,6 +13,7 @@ import {
     matchIdeaToPage,
     pageKey,
     placesInText,
+    readText,
     significantTokens,
     urlPath,
     type MatchablePage,
@@ -131,6 +132,13 @@ describe('matchIdeaToPage: page type and intent must agree (finding 1)', () => {
         assert.equal(matched(matchIdeaToPage(idea('pet turf corona', 'Pet Turf in Corona', 'service'), pages, [], brand)), null);
         assert.equal(matched(matchIdeaToPage(idea('pavers vs concrete patio', 'Pavers vs Concrete', 'blog_post'), pages, [], brand)), '/pavers-vs-concrete-patio');
         assert.equal(matched(matchIdeaToPage(idea('concrete patio ideas', 'Concrete Patio Ideas', 'blog_post'), pages, [], brand)), null);
+    });
+
+    it('putting greens and playgrounds are modifiers too', () => {
+        assert.deepEqual([...readText('backyard putting greens', new Set(), brand).flags], ['putting_green']);
+        assert.deepEqual([...readText('golf turf', new Set(), brand).flags], ['putting_green']);
+        assert.deepEqual([...readText('playground grass orange county', new Set(['orange county']), brand).flags], ['playground']);
+        assert.deepEqual([...readText('artificial turf orange county', new Set(['orange county']), brand).flags], []);
     });
 
     it('city and county must match when the idea names one', () => {

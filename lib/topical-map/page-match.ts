@@ -13,7 +13,8 @@
  * - place: a city or county in the idea must be on the page, and a page built
  *   for one city never stands in for an idea with no city. Places are learned
  *   from the site's own city/county URLs and "X County" / "X, CA" text
- * - modifiers: commercial, pet, cost and "vs" must be on both or neither
+ * - modifiers: commercial, pet, cost, putting green, playground and "vs" must
+ *   be on both or neither
  *
  * Pure functions. Later topic-map checks reuse them.
  */
@@ -71,6 +72,8 @@ const MODIFIER_FLAGS: ReadonlyMap<string, string> = new Map([
     ['pet', 'pet'], ['dog', 'pet'],
     ['cost', 'cost'], ['price', 'cost'], ['pricing', 'cost'],
     ['diy', 'diy'],
+    ['putting', 'putting_green'], ['golf', 'putting_green'],
+    ['playground', 'playground'],
 ]);
 
 /** Words for an all-round offering, which a city or county page covers. */
@@ -161,7 +164,8 @@ export function urlPath(url: string): string {
     return path || '/';
 }
 
-function bareHost(url: string): string | null {
+/** Lower-case host without "www.", or null for a relative or unreadable URL. */
+export function bareHost(url: string): string | null {
     try {
         return new URL(url).hostname.toLowerCase().replace(/^www\./, '');
     } catch {
@@ -271,7 +275,7 @@ export function learnPlaces(pages: readonly MatchablePage[]): Set<string> {
     return out;
 }
 
-interface TextFacts {
+export interface TextFacts {
     /** Significant tokens with places and regions taken out. */
     topic: string[];
     /** Cities and counties named. */
@@ -281,7 +285,7 @@ interface TextFacts {
 }
 
 /** Split text into topic tokens, places, modifier flags and "vs". */
-function readText(text: string | null | undefined, places: PlaceSet, ignore: ReadonlySet<string>): TextFacts {
+export function readText(text: string | null | undefined, places: PlaceSet, ignore: ReadonlySet<string>): TextFacts {
     const list = words(text);
     const flags = new Set<string>();
     for (const word of list) {
@@ -488,7 +492,7 @@ function readIdea(idea: MatchableIdea, places: PlaceSet, ignore: ReadonlySet<str
     };
 }
 
-function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+export function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
     return a.size === b.size && [...a].every(value => b.has(value));
 }
 
