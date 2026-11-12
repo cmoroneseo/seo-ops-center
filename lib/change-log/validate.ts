@@ -1,6 +1,16 @@
 import { normalizeResultUrl } from '@/lib/search-reporting/result-url';
 
-import { CHANGE_TYPES, KPIS, type ChangePage, type ChangeQuery, type ChangeType, type Kpi } from './types';
+import {
+    CHANGE_TYPES,
+    KPIS,
+    TREATMENTS,
+    type ChangePage,
+    type ChangeQuery,
+    type ChangeType,
+    type Kpi,
+    type TestKind,
+    type Treatment,
+} from './types';
 import { ptDate, ptLocalToIso } from './time';
 
 export interface ChangeInput {
@@ -16,6 +26,10 @@ export interface ChangeInput {
     revertInstructions: string;
     kpi: string;
     compareLastYear: boolean;
+    /** Omitted or anything other than `group` is a single change. */
+    testKind?: string;
+    /** Template slug. Ignored unless this is a group test. */
+    treatment?: string;
     pages: { url: string; label: string; cmsPageId: string; cmsWidgetId: string }[];
     queries: string[];
 }
@@ -33,12 +47,18 @@ export interface NormalizedChange {
     revertInstructions: string;
     kpi: Kpi;
     compareLastYear: boolean;
+    testKind: TestKind;
+    treatment: Treatment | '';
     pages: ChangePage[];
     queries: ChangeQuery[];
 }
 
 const TYPE_SET = new Set<string>(CHANGE_TYPES);
 const KPI_SET = new Set<string>(KPIS);
+const TREATMENT_SET = new Set<string>(TREATMENTS);
+
+export const SINGLE_PAGE_LIMIT = 8;
+export const GROUP_PAGE_LIMIT = 40;
 
 export function normalizeQuery(value: string): string {
     return value.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -53,6 +73,10 @@ export function normalizeChange(input: ChangeInput): NormalizedChange | null {
     if (title.length < 1 || title.length > 160) return null;
     if (!TYPE_SET.has(input.changeType)) return null;
     if (!KPI_SET.has(input.kpi)) return null;
+    const testKind = normalizeKind(input.testKind);
+    if (!testKind) return null;
+    const treatment = testKind === 'group' ? (input.treatment ?? '').trim() : '';
+    if (testKind === 'group' && !TREATMENT_SET.has(treatment)) return null;
     if (input.beforeText.length > 4000 || input.afterText.length > 4000) return null;
     if (input.backupReference.trim().length > 500) return null;
     if (input.revertInstructions.trim().length > 2000) return null;
@@ -82,7 +106,9 @@ export function normalizeChange(input: ChangeInput): NormalizedChange | null {
             cmsWidgetId: cleanId(page.cmsWidgetId),
         });
     }
-    if (pages.length < 1 || pages.length > 8) return null;
+    const pageLimit = testKind === 'group' ? GROUP_PAGE_LIMIT : SINGLE_PAGE_LIMIT;
+    const pageMinimum = testKind === 'group' ? 2 : 1;
+    if (pages.length < pageMinimum || pages.length > pageLimit) return null;
 
     const queries: ChangeQuery[] = [];
     const seenQueries = new Set<string>();
@@ -109,9 +135,17 @@ export function normalizeChange(input: ChangeInput): NormalizedChange | null {
         revertInstructions: input.revertInstructions.trim(),
         kpi: input.kpi as Kpi,
         compareLastYear: input.compareLastYear === true,
+        testKind,
+        treatment: treatment as Treatment | '',
         pages,
         queries,
     };
+}
+
+function normalizeKind(value: string | undefined): TestKind | null {
+    if (value == null || value === '' || value === 'single') return 'single';
+    if (value === 'group') return 'group';
+    return null;
 }
 
 function cleanId(value: string): string | null {
@@ -124,11 +158,20 @@ function invalidReason(input: ChangeInput): string {
     if (input.title.trim().length < 1) return 'Add a short title.';
     if (!TYPE_SET.has(input.changeType)) return 'Pick a change type.';
     if (!KPI_SET.has(input.kpi)) return 'Pick the metric this change should move.';
+    if (input.testKind != null && input.testKind !== '' && input.testKind !== 'single' && input.testKind !== 'group') {
+        return 'Pick one page or a group of pages.';
+    }
+    if (input.testKind === 'group' && !TREATMENT_SET.has((input.treatment ?? '').trim())) {
+        return 'Pick a treatment.';
+    }
     const liveAt = ptLocalToIso(input.liveAtLocal.trim());
     if (!liveAt) return 'Enter when it went live, in Pacific time.';
     if (input.approvedByName.trim().length < 1) return 'Enter who approved it.';
     const pages = input.pages.filter(page => page.url.trim());
+    if (input.testKind === 'group' && pages.length < 2) return 'Add at least two pages for a group test.';
     if (pages.length < 1) return 'Add at least one page.';
+    if (input.testKind === 'group' && pages.length > GROUP_PAGE_LIMIT) return `A group test can include up to ${GROUP_PAGE_LIMIT} pages.`;
+    if (input.testKind !== 'group' && pages.length > SINGLE_PAGE_LIMIT) return `A single change can include up to ${SINGLE_PAGE_LIMIT} pages.`;
     if (pages.some(page => !normalizeResultUrl(page.url))) return 'Page addresses need to start with http:// or https://.';
     return 'Check the form and try again.';
 }

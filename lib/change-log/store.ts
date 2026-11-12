@@ -3,6 +3,7 @@ import { chunkList } from '@/lib/search-reporting/fact-read';
 
 import { impactsFromRows } from './assemble';
 import {
+    isMissingColumn,
     isMissingRelation,
     type Ga4PageRow,
     type Ga4SiteRow,
@@ -14,7 +15,8 @@ import { afterWindow, baselineWindow, finalThrough, ptDate, shiftWindowLastYear 
 import { GSC_LAG_DAYS } from './thresholds';
 import { samePageMarkers, type ChartMarker } from './chart';
 import { findConfounders, timelineItem } from './impact';
-import type { Confounder, ImpactModel, SeoChange, TimelineItem } from './types';
+import { TREATMENTS, type SeoChange, type Treatment } from './types';
+import type { Confounder, ImpactModel, TimelineItem } from './types';
 import type { NormalizedChange } from './validate';
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -44,6 +46,11 @@ function num(value: unknown): number {
     return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
+function treatmentOf(value: unknown): Treatment | '' {
+    const slug = text(value);
+    return (TREATMENTS as readonly string[]).includes(slug) ? slug as Treatment : '';
+}
+
 function nullableNum(value: unknown): number | null {
     if (value == null) return null;
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -71,6 +78,8 @@ export function mapChange(row: Row, pages: Row[], queries: Row[]): SeoChange | n
         revertInstructions: text(row.revert_instructions),
         kpi: kpi as SeoChange['kpi'],
         compareLastYear: row.compare_last_year === true,
+        testKind: text(row.test_kind) === 'group' ? 'group' : 'single',
+        treatment: treatmentOf(row.treatment),
         pages: pages.filter(page => text(page.change_id) === id).map(page => ({
             url: text(page.url),
             urlKey: text(page.url_key),
@@ -305,13 +314,10 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
     };
 }
 
+const CHANGE_COLUMNS = 'id, client_id, change_type, title, before_text, after_text, live_at, approved_by_name, approved_at, backup_reference, revert_instructions, kpi, compare_last_year';
+
 async function loadChanges(db: Admin, organizationId: string, clientId: string): Promise<SeoChange[]> {
-    const changeRows = await rows(db.from('seo_changes')
-        .select('id, client_id, change_type, title, before_text, after_text, live_at, approved_by_name, approved_at, backup_reference, revert_instructions, kpi, compare_last_year')
-        .eq('organization_id', organizationId)
-        .eq('client_id', clientId)
-        .order('live_at', { ascending: false })
-        .limit(100));
+    const changeRows = await loadChangeRows(db, organizationId, clientId);
     const ids = changeRows.map(row => text(row.id)).filter(Boolean);
     if (ids.length === 0) return [];
     const [pageRows, queryRows] = await Promise.all([
@@ -322,6 +328,30 @@ async function loadChanges(db: Admin, organizationId: string, clientId: string):
         const change = mapChange(row, pageRows, queryRows);
         return change ? [change] : [];
     });
+}
+
+/** Reads group columns when migration 129 is present, and falls back when it is not. */
+async function loadChangeRows(db: Admin, organizationId: string, clientId: string): Promise<Row[]> {
+    const query = db.from('seo_changes')
+        .select(`${CHANGE_COLUMNS}, test_kind, treatment`)
+        .eq('organization_id', organizationId)
+        .eq('client_id', clientId)
+        .order('live_at', { ascending: false })
+        .limit(100);
+    const first = await query;
+    if (first.error && isMissingColumn(first.error)) {
+        return rows(db.from('seo_changes')
+            .select(CHANGE_COLUMNS)
+            .eq('organization_id', organizationId)
+            .eq('client_id', clientId)
+            .order('live_at', { ascending: false })
+            .limit(100));
+    }
+    if (first.error) {
+        if (isMissingRelation(first.error)) throw new MissingTable();
+        throw new Error('Unable to read the change log');
+    }
+    return first.data ?? [];
 }
 
 export async function listChanges(organizationId: string, clientId: string, now = new Date()): Promise<ChangeListResult> {
@@ -387,6 +417,13 @@ export async function getChange(organizationId: string, clientId: string, change
     }
 }
 
+export class GroupMigrationRequired extends Error {
+    constructor() {
+        super('Group tests need migration 129, which has not been applied.');
+        this.name = 'GroupMigrationRequired';
+    }
+}
+
 export async function createChange(input: {
     organizationId: string;
     clientId: string;
@@ -396,7 +433,7 @@ export async function createChange(input: {
 }): Promise<{ id: string; baselineStatus: 'captured' | 'partial' | 'missing'; baselineNote: string }> {
     const db = createAdminClient();
     const now = input.now ?? new Date();
-    const { data, error } = await db.from('seo_changes').insert({
+    const payload: Record<string, unknown> = {
         organization_id: input.organizationId,
         client_id: input.clientId,
         change_type: input.change.changeType,
@@ -411,9 +448,16 @@ export async function createChange(input: {
         kpi: input.change.kpi,
         compare_last_year: input.change.compareLastYear,
         created_by: input.userId,
-    }).select('id').single();
+    };
+    // Single changes omit the new columns so a database without migration 129 still saves them.
+    if (input.change.testKind === 'group') {
+        payload.test_kind = 'group';
+        payload.treatment = input.change.treatment;
+    }
+    const { data, error } = await db.from('seo_changes').insert(payload).select('id').single();
     if (error || !data?.id) {
         if (isMissingRelation(error)) throw new MissingTable();
+        if (input.change.testKind === 'group' && isMissingColumn(error)) throw new GroupMigrationRequired();
         throw new Error('Unable to save the change');
     }
     const id = text(data.id);

@@ -4,7 +4,7 @@ import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import { ChangeLogView } from '../../components/change-log/ChangeLogView.tsx';
-import { exampleBoard, exampleConfounders, ecoworkzH1Input } from './fixture.ts';
+import { exampleBoard, exampleConfounders, exampleGroupBoard, ecoworkzH1Input } from './fixture.ts';
 import type { TimelineItem } from './types.ts';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
@@ -140,8 +140,15 @@ test('an estimate or an early row does not repeat the verdict beside the pill', 
 test('the detail uses the plain chart title, the rest of the site, and the honesty line', () => {
     const markup = html('detail');
     assert.match(markup, /Clicks from Google, day by day/);
-    assert.match(markup, /Day by day/);
-    assert.match(markup, /Side by side/);
+    assert.match(markup, /Timeline/);
+    assert.match(markup, /Overlay/);
+    assert.match(markup, /Test progress/);
+    assert.match(markup, /In progress/);
+    assert.match(markup, /Numbers are final through/);
+    assert.match(markup, /data-test-progress="59"/);
+    assert.match(markup, /data-test-progress-window="56"/);
+    assert.equal(markup.includes('>Day by day<'), false);
+    assert.equal(markup.includes('Side by side'), false);
     assert.match(markup, /Compared with the rest of the site/);
     assert.match(markup, /data-chart-tab="daily"/);
     assert.match(markup, /aria-selected="true"/);
@@ -295,4 +302,47 @@ test('the closed chart does not print a No comparison legend', () => {
     }));
     assert.equal(markup.includes('No comparison'), false);
     assert.equal(markup.includes('data-chart-caption'), false);
+});
+
+test('a group test shows the summary, each page, and a finished gauge', () => {
+    const grouped = exampleGroupBoard();
+    const change = grouped.changes[0];
+    const markup = renderToStaticMarkup(createElement(ChangeLogView, {
+        clientName: 'Example',
+        mode: 'detail',
+        example: true,
+        items: grouped.items,
+        detail: {
+            change,
+            impact: grouped.impacts[change.id],
+            confounders: [],
+            baselineNote: 'Example starting point.',
+        },
+        onLog: () => undefined,
+        onOpen: () => undefined,
+        onBack: () => undefined,
+        onSubmit: () => undefined,
+        onRemove: () => undefined,
+    }));
+    assert.match(markup, /Group test/);
+    assert.match(markup, /Title and meta description format/);
+    assert.match(markup, /Control period/);
+    assert.match(markup, /Test period/);
+    assert.match(markup, /Rest of the site clicks per day/);
+    assert.match(markup, /Sitewide clicks minus the pages in this test/);
+    assert.equal(markup.includes('including these pages'), false);
+    assert.equal(markup.includes('Whole site'), false);
+    assert.match(markup, /data-group-metric="site_clicks"/);
+    assert.match(markup, /Hardscape/);
+    assert.match(markup, /Landscape/);
+    assert.match(markup, /Pavers/);
+    assert.match(markup, /data-group-pages="3"/);
+    assert.match(markup, /data-test-progress="100"/);
+    assert.match(markup, /data-test-progress-status="finished"/);
+    assert.match(markup, /Finished/);
+    assert.match(markup, /Timeline/);
+    assert.match(markup, /Overlay/);
+    assert.equal(markup.includes('Split test'), false);
+    const pages = markup.slice(markup.indexOf('data-group-pages'));
+    assert.equal(pages.includes('Improved'), false);
 });

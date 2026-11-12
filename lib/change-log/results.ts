@@ -120,9 +120,10 @@ export function notReadyCopy(notReady: ResultsNotReady | null): string | null {
  * Plain caption for the indexed chart.
  * Null when there is nothing to compare, so the page does not render an empty line.
  */
-export function chartCaption(controlLabel: string): string | null {
+export function chartCaption(controlLabel: string, subject: 'page' | 'group' = 'page'): string | null {
     if (controlLabel === 'No comparison') return null;
-    return "Compared with the rest of the site. 100 = the page's normal level before the change.";
+    const noun = subject === 'group' ? 'group' : 'page';
+    return `Compared with the rest of the site. 100 = the ${noun}'s normal level before the change.`;
 }
 
 export const TERM_NOT_REPORTED = '— not reported yet';

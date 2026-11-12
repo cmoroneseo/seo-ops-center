@@ -165,7 +165,11 @@ test('chart tabs switch the story, and position says higher is better', async ()
         container.querySelector<HTMLButtonElement>('[data-chart-tab-option="aligned"]')?.click();
     });
     assert.match(container.textContent ?? '', /lined up with the 28 days after/);
+    assert.match(container.textContent ?? '', /before and after/);
     assert.equal(container.querySelector('[data-chart-tab]')?.getAttribute('data-chart-tab'), 'aligned');
+    assert.equal(container.querySelector('[data-live-marker="false"]')?.getAttribute('data-live-marker'), 'false');
+    assert.equal((container.querySelector('#change-chart-panel-aligned')?.textContent ?? '').includes('Went live'), false);
+    assert.equal((container.textContent ?? '').includes('Side by side'), false);
 
     await act(async () => {
         container.querySelector<HTMLButtonElement>('[data-chart-tab-option="indexed"]')?.click();

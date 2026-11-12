@@ -15,6 +15,30 @@ export const CHANGE_TYPES = [
 
 export type ChangeType = (typeof CHANGE_TYPES)[number];
 
+/** single is one change. group is the same treatment on many URLs, over time. Not a split. */
+export const TEST_KINDS = ['single', 'group'] as const;
+export type TestKind = (typeof TEST_KINDS)[number];
+
+export const TREATMENTS = ['title_meta', 'title', 'meta', 'h1', 'other'] as const;
+export type Treatment = (typeof TREATMENTS)[number];
+
+export const TREATMENT_LABEL: Record<Treatment, string> = {
+    title_meta: 'Title and meta description format',
+    title: 'Title tag',
+    meta: 'Meta description',
+    h1: 'H1',
+    other: 'Other',
+};
+
+/** Starting change type when someone picks a treatment. The form can still change it. */
+export const TREATMENT_CHANGE_TYPE: Record<Treatment, ChangeType> = {
+    title_meta: 'other',
+    title: 'title',
+    meta: 'meta',
+    h1: 'h1',
+    other: 'other',
+};
+
 export const CHANGE_TYPE_LABEL: Record<ChangeType, string> = {
     title: 'Search result title',
     h1: 'Main page heading',
@@ -116,6 +140,10 @@ export interface SeoChange {
     revertInstructions: string;
     kpi: Kpi;
     compareLastYear: boolean;
+    /** Defaults to a single change. Group is many URLs with one went-live date. */
+    testKind: TestKind;
+    /** Empty on a single change. A group test stores the template slug. */
+    treatment: Treatment | '';
     pages: ChangePage[];
     queries: ChangeQuery[];
 }
@@ -169,6 +197,8 @@ export interface CheckpointRead {
     lift: number | null;
     /** Rest-of-site clicks for this check. Null when the site wasn't measured. Not a stand-in zero. */
     restOfSite: MetricRead | null;
+    /** Sitewide totals for this check. Null when the site wasn't measured. Not the untouched remainder. */
+    sitewide: MetricRead | null;
 }
 
 export interface QueryCompare {
@@ -209,6 +239,16 @@ export interface ChartPoint {
     controlPosition: number | null;
 }
 
+/** Change percent for one URL in a group test. Null means that side was not measured. */
+export interface PageImpactRow {
+    url: string;
+    label: string;
+    clicksChange: number | null;
+    impressionsChange: number | null;
+    positionChange: number | null;
+    ctrChange: number | null;
+}
+
 export interface ImpactModel {
     kpi: Kpi;
     liveOn: string;
@@ -220,6 +260,11 @@ export interface ImpactModel {
      * Null when the site wasn't measured. Never a stand-in zero.
      */
     baselineControl: MetricRead | null;
+    /**
+     * Sitewide clicks and the other metrics over the 28 days before go-live.
+     * Null when the site wasn't measured. Not the untouched remainder.
+     */
+    baselineSite: MetricRead | null;
     baselineReady: boolean;
     yoy: MetricRead | null;
     yoyNote: string | null;
@@ -227,6 +272,8 @@ export interface ImpactModel {
     checkpoints: CheckpointRead[];
     series: ChartPoint[];
     queries: QueryCompare[];
+    /** Empty for a single change. One row per URL for a group test. */
+    pageRows: PageImpactRow[];
     gscConnected: boolean;
     ga4Connected: boolean;
     causation: string;
@@ -254,6 +301,12 @@ export interface TimelineItem {
     /** Date the next check is due. Null when every check is already final. */
     nextCheckOn: string | null;
     nextCheckDays: CheckpointDays | null;
+    /** Logged URLs. A group test uses this for the "3 pages" line. */
+    pageCount?: number;
+    /** Share of the current test window that has final Search Console data. */
+    progressPercent?: number | null;
+    progressStatus?: 'in_progress' | 'finished' | null;
+    progressDays?: CheckpointDays | null;
 }
 
 export interface Confounder {

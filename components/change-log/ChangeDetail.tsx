@@ -40,6 +40,7 @@ import {
     KPI_HINT,
     KPI_LABEL,
     SEARCH_CONSOLE_HINT,
+    TREATMENT_LABEL,
     type ChangePage,
     type CheckpointRead,
     type Confounder,
@@ -51,7 +52,9 @@ import {
 import { ptToday } from '@/lib/sync/months';
 import { cn } from '@/lib/utils';
 
+import { GroupResults } from './GroupResults';
 import { ImpactChart } from './ImpactChart';
+import { TestProgressCard } from './TestProgress';
 import { VerdictPill } from './VerdictPill';
 
 type SortKey = 'query' | 'clicks' | 'impressions' | 'position';
@@ -93,6 +96,7 @@ export function ChangeDetail({
     const [copied, setCopied] = useState(false);
     const [confirmOpen, setConfirmOpen] = useState(false);
     const head = impact.headline;
+    const grouped = change.testKind === 'group';
     const queries = useMemo(() => sortQueries(impact.queries, sort), [impact.queries, sort]);
     const asOf = today && isIsoDay(today) ? today : ptToday(new Date());
     const headlinePct = head.ready ? headlineFields(head).headlinePct : null;
@@ -173,9 +177,16 @@ export function ChangeDetail({
 
             <section className="rounded-lg border border-border bg-card p-5">
                 <p className="text-xs text-muted-foreground">
-                    {CHANGE_TYPE_LABEL[change.changeType]}
-                    {CHANGE_TYPE_HINT[change.changeType] ? <span className="text-zinc-400"> ({CHANGE_TYPE_HINT[change.changeType]})</span> : null}
-                    {change.pages[0]?.label ? ` · ${change.pages[0].label}` : ''}
+                    {grouped && change.treatment
+                        ? <>Group test · {TREATMENT_LABEL[change.treatment]}</>
+                        : (
+                            <>
+                                {CHANGE_TYPE_LABEL[change.changeType]}
+                                {CHANGE_TYPE_HINT[change.changeType] ? <span className="text-zinc-400"> ({CHANGE_TYPE_HINT[change.changeType]})</span> : null}
+                            </>
+                        )}
+                    {!grouped && change.pages[0]?.label ? ` · ${change.pages[0].label}` : ''}
+                    {grouped ? ` · ${change.pages.length} pages` : ''}
                 </p>
                 <h2 className="mt-1 text-xl font-semibold tracking-tight">{change.title}</h2>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -200,8 +211,12 @@ export function ChangeDetail({
                         </dd>
                     </div>
                     <div>
-                        <dt className="text-xs text-muted-foreground">Page</dt>
-                        <dd className="break-all">{change.pages.map(page => pageLine(page)).join(', ') || '—'}</dd>
+                        <dt className="text-xs text-muted-foreground">{grouped ? 'Pages' : 'Page'}</dt>
+                        <dd className="break-all">
+                            {grouped
+                                ? `${change.pages.length} pages, same change`
+                                : change.pages.map(page => pageLine(page)).join(', ') || '—'}
+                        </dd>
                     </div>
                 </dl>
             </section>
@@ -211,8 +226,9 @@ export function ChangeDetail({
                 <WordDiff before={change.beforeText} after={change.afterText} />
             </section>
 
+            <TestProgressCard liveOn={change.liveOn} finalThrough={impact.finalThrough} />
             <CheckStepper change={change} impact={impact} today={asOf} />
-            <ResultsTable impact={impact} />
+            {grouped ? <GroupResults impact={impact} /> : <ResultsTable impact={impact} />}
 
             <section className="rounded-lg border border-border bg-card p-4">
                 <ImpactChart
@@ -223,6 +239,8 @@ export function ChangeDetail({
                     controlLabel={impact.controlLabel}
                     lowData={impact.headline.lowData}
                     markers={markers}
+                    seriesName={grouped ? 'This group' : 'This page'}
+                    subject={grouped ? 'group' : 'page'}
                 />
             </section>
 

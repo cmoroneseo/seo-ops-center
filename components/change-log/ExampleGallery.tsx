@@ -2,20 +2,34 @@
 
 import { useSearchParams } from 'next/navigation';
 
-import { exampleBoard, exampleConfounders, EXAMPLE_BASELINE_NOTE, EXAMPLE_NOTE, EXAMPLE_TODAY, ecoworkzH1Input } from '@/lib/change-log/fixture';
+import {
+    EARLY_AS_OF,
+    EARLY_NOTE,
+    EARLY_TODAY,
+    EXAMPLE_BASELINE_NOTE,
+    EXAMPLE_NOTE,
+    EXAMPLE_TODAY,
+    GROUP_NOTE,
+    ecoworkzH1Input,
+    exampleBoard,
+    exampleConfounders,
+    exampleGroupBoard,
+} from '@/lib/change-log/fixture';
 
 import { ChangeLogView } from './ChangeLogView';
 
-const SCREENS = ['timeline', 'log', 'detail', 'empty', 'loading'] as const;
+const SCREENS = ['timeline', 'log', 'detail', 'early', 'group', 'empty', 'loading'] as const;
 
 export function ExampleGallery() {
     const params = useSearchParams();
     const screen = params.get('screen') ?? 'timeline';
-    const board = exampleBoard();
-    const h1 = board.changes[0];
+    const early = screen === 'early';
+    const grouped = screen === 'group';
+    const board = grouped ? exampleGroupBoard() : exampleBoard(early ? EARLY_AS_OF : undefined);
+    const focus = board.changes[0];
     const mode = screen === 'log'
         ? 'form'
-        : screen === 'detail'
+        : screen === 'detail' || early || grouped
             ? 'detail'
             : screen === 'empty'
                 ? 'empty'
@@ -39,13 +53,13 @@ export function ExampleGallery() {
                 clientName="Ecoworkz"
                 mode={mode}
                 example
-                exampleNote={EXAMPLE_NOTE}
+                exampleNote={grouped ? GROUP_NOTE : early ? EARLY_NOTE : EXAMPLE_NOTE}
                 items={board.items}
                 detail={{
-                    change: h1,
-                    impact: board.impacts[h1.id],
-                    confounders: exampleConfounders(board, h1.id),
-                    baselineNote: EXAMPLE_BASELINE_NOTE,
+                    change: focus,
+                    impact: board.impacts[focus.id],
+                    confounders: exampleConfounders(board, focus.id),
+                    baselineNote: grouped ? GROUP_NOTE : EXAMPLE_BASELINE_NOTE,
                 }}
                 revertOpen={params.get('revert') === '1'}
                 formInitial={ecoworkzH1Input()}
@@ -54,7 +68,7 @@ export function ExampleGallery() {
                 onBack={() => { window.location.href = '/change-log-example?screen=timeline'; }}
                 onSubmit={() => { window.location.href = '/change-log-example?screen=detail'; }}
                 onRemove={() => undefined}
-                today={EXAMPLE_TODAY}
+                today={early ? EARLY_TODAY : EXAMPLE_TODAY}
             />
         </div>
     );
