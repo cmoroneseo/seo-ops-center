@@ -252,6 +252,9 @@ describe('refreshCandidates', () => {
             page('/matched/', 5000, 5000),
             page('/', 9000, 9000),
             page('/contact-us/', 8000, 8000),
+            page('/galleries/', 7000, 7000),
+            page('/galleries/pavers-gallery/', 6000, 6000),
+            page('/book/?rwg_token=abc', 5500, 5500),
             page('/quiet/', 3000, 3000, false),
             ...Array.from({ length: 12 }, (_, i) => page(`/extra-${i}/`, 200 + i, 0)),
         ];
@@ -260,6 +263,7 @@ describe('refreshCandidates', () => {
         assert.deepEqual(result.slice(0, 3).map(c => c.title), ['/a/', '/b/', '/extra-11/']);
         assert.equal(result[0].impressionsAtStake, 2000);
         assert.match(result[0].reason, /fewer searches vs the previous 3 months/);
-        assert.equal(result.some(c => ['/', '/contact-us/', '/matched/', '/quiet/'].includes(c.title ?? '')), false);
+        assert.equal(result.some(c => ['/', '/contact-us/', '/galleries/', '/galleries/pavers-gallery/', '/book/?rwg_token=abc', '/matched/', '/quiet/']
+            .includes(c.title ?? '')), false);
     });
 });
