@@ -11,7 +11,7 @@
  */
 
 import type { PageType } from '../types';
-import type { ArchitectGscCluster } from './architect-gsc';
+import { clusterKey, type ArchitectGscCluster } from './architect-gsc';
 import { dedupeIdeas, intentKey } from './page-match';
 
 export const PAGE_KINDS = [
@@ -168,10 +168,11 @@ export function validatePageMix(
             supporting.push(query);
             if (supporting.length === SUPPORTING_QUERIES_MAX) break;
         }
-        const cited = idea.demandQuery?.trim() ? byKey.get(intentKey(idea.demandQuery, ignore)) : undefined;
+        // Demand is looked up by search group, so "turf installation temecula" finds "turf temecula".
+        const cited = idea.demandQuery?.trim() ? byKey.get(clusterKey(idea.demandQuery, ignore)) : undefined;
         const found = cited
-            ?? byKey.get(primaryKey)
-            ?? supporting.map(query => byKey.get(intentKey(query, ignore))).find(Boolean);
+            ?? byKey.get(clusterKey(idea.targetQuery, ignore))
+            ?? supporting.map(query => byKey.get(clusterKey(query, ignore))).find(Boolean);
         if (idea.demandQuery?.trim() && !found) relabeled += 1;
         kept.push({
             index,

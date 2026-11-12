@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { ArchitectGscCluster } from './architect-gsc.ts';
-import { intentKey } from './page-match.ts';
+import { clusterKey } from './architect-gsc.ts';
 import {
     ARTICLE_KINDS,
     maxWithinShare,
@@ -17,7 +17,7 @@ import {
 const ignore = new Set(['ecoworkz']);
 
 function cluster(query: string, impressions: number): ArchitectGscCluster {
-    return { query, clicks: 0, impressions, position: 20, variants: [], key: intentKey(query, ignore) };
+    return { query, clicks: 0, impressions, position: 20, variants: [], key: clusterKey(query, ignore) };
 }
 
 const clusters = [
@@ -78,7 +78,8 @@ test('share caps', () => {
 test('a repeated primary search keeps only the first idea', () => {
     const result = validatePageMix([
         money('artificial turf temecula'),
-        money('Temecula artificial grass installation', { pageType: 'service_city' }),
+        // Same search reworded. "...installation" would be a different search (PR 1's intentKey).
+        money('Temecula artificial grass near me', { pageType: 'service_city' }),
         money('pet turf'),
     ], clusters, ignore);
     assert.deepEqual(result.kept.map(item => item.index), [0, 2]);
@@ -161,11 +162,11 @@ test('without Search Console data every idea is seed-only and is kept', () => {
 });
 
 test('supporting searches are de-duplicated, exclude the primary search and stop at ten', () => {
-    const supporting = ['pet turf', 'pet turfs', 'dog turf', 'Dog Turf ', 'pet grass', ...WORDS.map(word => `pet turf ${word}`)];
+    const supporting = ['pet turf', 'pet turfs', 'dog turf', 'Dog Turf ', 'artificial pet grass', ...WORDS.map(word => `pet turf ${word}`)];
     const [item] = validatePageMix([money('pet turf', { supportingQueries: supporting })], clusters, ignore).kept;
     assert.equal(item.supportingQueries.length, 10);
     assert.equal(item.supportingQueries[0], 'dog turf');
-    assert.equal(item.supportingQueries.includes('pet grass'), false, '"pet grass" is the same search as "pet turf"');
+    assert.equal(item.supportingQueries.includes('artificial pet grass'), false, '"artificial pet grass" is the same search as "pet turf"');
 });
 
 test('an all-article map is not wiped out', () => {
