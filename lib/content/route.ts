@@ -1,4 +1,4 @@
-import { approvalTaskDescription } from '../topical-map/spec';
+import { approvalTaskDescription, TITLE_CHARS } from '../topical-map/spec';
 import {
     canMarkAlreadyLive,
     productionChoicePatch,
@@ -95,6 +95,15 @@ export function contentChangeRow(
     return { ok: true, row: { ...written.row, ...(planStatus ? { status: planStatus } : {}) } };
 }
 
+/** A page title edit. Undefined when the request does not change the title. */
+export function readTitleChange(value: Record<string, unknown>): { ok: true; title?: string } | { ok: false; error: string } {
+    if (!('title' in value)) return { ok: true };
+    if (typeof value.title !== 'string' || !value.title.trim()) return { ok: false, error: 'Add a title.' };
+    const title = value.title.trim().replace(/\s+/g, ' ');
+    if (title.length > TITLE_CHARS) return { ok: false, error: `Title must be ${TITLE_CHARS} characters or fewer.` };
+    return { ok: true, title };
+}
+
 function productionPatch(value: Record<string, unknown>): Partial<MapProduction> {
     const patch: Partial<MapProduction> = {};
     if ('productionStatus' in value) patch.productionStatus = value.productionStatus as ProductionStatus | null;
@@ -163,10 +172,15 @@ export function createContentHandlers(deps: ContentRouteDeps) {
             if ('response' in gate && gate.response) return gate.response;
             if (!('current' in gate)) return json({ error: 'Could not save this page.' }, 500);
             const { auth, current } = gate;
-            const written = contentChangeRow(current.record, productionPatch(body.value));
+            const title = readTitleChange(body.value);
+            if (!title.ok) return json({ error: title.error }, 400);
+            const patch = productionPatch(body.value);
+            const titleOnly = title.title !== undefined && Object.keys(patch).length === 0;
+            const written = titleOnly ? { ok: true as const, row: {} } : contentChangeRow(current.record, patch);
             if (!written.ok) return json({ error: written.error }, 400);
             const saved = await deps.updateRecord(current.record.id, auth.organizationId, {
                 ...written.row,
+                ...(title.title !== undefined ? { title: title.title } : {}),
                 updated_at: new Date().toISOString(),
             });
             const failure = unavailable(saved);
