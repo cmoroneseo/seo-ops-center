@@ -157,6 +157,50 @@ test('lists the biggest searches no idea covers, leaving out brand and already-t
     assert.deepEqual([capped.missed.length, capped.missedTotal], [1, 2]);
 });
 
+test('a search one of your pages already has in the top 3 is left out, home page included (Ecoworkz near me)', () => {
+    const home = 'https://www.ecoworkz.net/';
+    const ideas = [
+        idea('corona', { targetQuery: 'artificial grass installation corona', title: 'Artificial Grass Installation in Corona, CA', action: 'improve', matchedUrl: 'https://www.ecoworkz.net/corona-ca/' }),
+        idea('ag', { action: 'improve', targetQuery: 'artificial grass installation', matchedUrl: 'https://www.ecoworkz.net/our-services/artificial-grass-installation/' }),
+    ];
+    const check = mapCheck({
+        ideas,
+        brandName: 'Ecoworkz',
+        evidence: evidence([
+            // The audit's false misses: the home page is in spots 1 and 2.
+            group('landscaper near me', 146, { position: 1, page: home, pagePosition: 1 }),
+            group('landscaping contractor near me', 120, { position: 2, page: home, pagePosition: 2.2 }),
+            // The group's spot is an average over its rewordings; the home page's own spot is what counts.
+            group('artificial grass installation near me', 1318, { position: 10.8, page: home, pagePosition: 1.2 }),
+            // A home page that is really in spot 11 is not serving the search, and is no idea's page: still listed.
+            group('patio contractor near me', 91, { position: 11, page: home, pagePosition: 11 }),
+            // Spots 1 to 20 count only for an idea's own page, under the same modifier and place rules.
+            group('artificial turf installers', 60, { position: 11, page: 'https://www.ecoworkz.net/our-services/artificial-grass-installation/', pagePosition: 11 }),
+            group('pet turf installation', 40, { position: 11, page: 'https://www.ecoworkz.net/our-services/artificial-grass-installation/', pagePosition: 11 }),
+            // The modifier rules are unchanged: a pet, playground, putting green or commercial search lower down stays a miss.
+            group('pet turf near me', 48, { position: 5, page: home, pagePosition: 5 }),
+            group('playground turf near me', 39, { position: 6, page: home, pagePosition: 6 }),
+            group('putting green installation near me', 30, { position: 9, page: home, pagePosition: 9 }),
+            group('commercial artificial grass installation', 79, { position: 7, page: home, pagePosition: 7 }),
+        ]),
+    });
+    assert.deepEqual(check.missed.map(search => search.query), [
+        'patio contractor near me',
+        'commercial artificial grass installation',
+        'pet turf near me',
+        'pet turf installation',
+        'playground turf near me',
+        'putting green installation near me',
+    ]);
+    assert.equal(check.searchesChecked, 7);
+    assert.equal(missedWhere(check.missed[0]), 'Spot 11 in Google, mostly your home page');
+    // The intro says exactly what is left out.
+    assert.equal(
+        missedIntro(check),
+        'Searches where your site showed up in Google in the last 28 days that no idea in this map covers, biggest first. Searches for your business name, and searches where one of your pages (your home page too) is already in the top 3, are left out.',
+    );
+});
+
 test('stored page-mix records supply cited searches, seed-only flags and page types', () => {
     const metadata = {
         duplicate_gate: { duplicate_ideas_dropped: 2 },

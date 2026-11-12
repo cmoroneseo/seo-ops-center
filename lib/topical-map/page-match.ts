@@ -152,6 +152,15 @@ export function brandTokens(...values: Array<string | null | undefined>): Set<st
     return out;
 }
 
+/** A search for the business itself: every word of the brand name, or of the domain name, is in it. */
+export function isBrandSearch(query: string, ...brands: Array<string | null | undefined>): boolean {
+    const tokens = new Set(significantTokens(query));
+    return brands.some(brand => {
+        const own = [...brandTokens(brand)];
+        return own.length > 0 && own.every(token => tokens.has(token));
+    });
+}
+
 /** Lower-case path with no trailing slash ("/" for the home page). Works on absolute or relative URLs. */
 export function urlPath(url: string): string {
     let path = url.trim();

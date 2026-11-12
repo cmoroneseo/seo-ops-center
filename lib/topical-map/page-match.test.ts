@@ -8,6 +8,7 @@ import {
     GSC_MATCH_MIN_IMPRESSIONS,
     ideaKind,
     intentKey,
+    isBrandSearch,
     isUtilityPage,
     learnPlaces,
     matchIdeaToPage,
@@ -290,5 +291,17 @@ describe('dedupeIdeas (finding 1: same-page dedupe only within a page type)', ()
         ], brand);
         assert.deepEqual([...result.duplicateOf], [[1, 0]]);
         assert.deepEqual(result.keep, [0, 2, 3]);
+    });
+});
+
+describe('isBrandSearch', () => {
+    it('is a search with every word of the brand name or of the domain name', () => {
+        assert.equal(isBrandSearch('acme', 'Acme'), true);
+        assert.equal(isBrandSearch('acme turf reviews', 'Acme'), true);
+        assert.equal(isBrandSearch('ecoworkz', 'Ecoworkz Inc', 'https://www.ecoworkz.net/'), true);
+        assert.equal(isBrandSearch('artificial turf', 'Acme', 'acme.com'), false);
+        // A brand made of trade words is only matched in full.
+        assert.equal(isBrandSearch('landscaping near me', 'Pacific Landscaping'), false);
+        assert.equal(isBrandSearch('anything', '', null), false);
     });
 });
