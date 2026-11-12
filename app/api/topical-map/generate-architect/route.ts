@@ -252,8 +252,11 @@ export async function POST(req: NextRequest) {
         pageQueries: queriesByPage(gscContext.queryPages),
         queryDays: gscContext.days,
         gscConnected: gscContext.days > 0 || performance.recentDays > 0,
-        // Refresh reasons never name a brand search, or a place or side service they do not cover.
-        searchFits: siteSearchFilter(existingPages, { brands: [profile.brandName, String(clientCheck.domain ?? '')], services: profile.focusTopics }),
+        // Refresh reasons only name searches in the business's own words and places, never its brand.
+        searchFits: siteSearchFilter(existingPages, {
+            brands: [profile.brandName, String(clientCheck.domain ?? '')],
+            texts: [...profile.focusTopics, profile.businessDescription],
+        }),
     };
 
     let rawIdx = 0;

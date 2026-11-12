@@ -356,54 +356,69 @@ describe('existingPageType (refresh rows get real page types)', () => {
 });
 
 describe('siteSearchFilter (the search a refresh reason may name)', () => {
-    it('drops brand searches, places the business has no page for, and side work it never mentions (Ecoworkz-like)', () => {
-        const eco = 'https://www.ecoworkz.net';
-        const ecoPages: MatchablePage[] = [
-            { normalizedUrl: `${eco}/our-services/outdoor-kitchen-installation/`, title: 'Outdoor Kitchen Installation in Southern CA', h1s: ['Expert Outdoor Kitchen Installation'] },
-            { normalizedUrl: `${eco}/our-services/pavers/`, title: 'Paver Installation in Southern California', h1s: [] },
-            { normalizedUrl: `${eco}/yorba-linda-ca/`, title: 'Yorba Linda Hardscape Contractor | Pavers, Patios', h1s: [] },
-            { normalizedUrl: `${eco}/irvine-ca/`, title: 'Irvine Hardscape Contractor', h1s: [] },
-            { normalizedUrl: `${eco}/areas-serviced-southern-california/orange-county-ca/`, title: 'Outdoor Construction in Orange County, CA', h1s: [] },
-            { normalizedUrl: `${eco}/areas-serviced-southern-california/san-bernardino-county/`, title: 'Artificial Grass San Bernardino, CA', h1s: [] },
-            { normalizedUrl: `${eco}/socal-outdoor-living-maintenance-costs/`, title: 'Long-Term Maintenance Costs of Outdoor Living Spaces', h1s: [] },
-            { normalizedUrl: `${eco}/4-factors-to-consider-when-designing-a-fire-pit/`, title: 'Designing a Fire Pit', h1s: [] },
-        ];
-        const fits = siteSearchFilter(ecoPages, { brands: ['Ecoworkz', `${eco}/`], services: ['Riverside County outdoor construction'] });
-        // The real misses from the audit.
-        assert.equal(fits('ecoworkz'), false);
+    const eco = 'https://www.ecoworkz.net';
+    const ecoPages: MatchablePage[] = [
+        { normalizedUrl: `${eco}/our-services/outdoor-kitchen-installation/`, title: 'Outdoor Kitchen Installation in Southern CA', h1s: ['Expert Outdoor Kitchen Installation'] },
+        { normalizedUrl: `${eco}/our-services/pavers/`, title: 'Paver Installation in Southern California', h1s: [] },
+        { normalizedUrl: `${eco}/yorba-linda-ca/`, title: 'Yorba Linda Hardscape Contractor | Pavers, Patios', h1s: [] },
+        { normalizedUrl: `${eco}/irvine-ca/`, title: 'Irvine Hardscape Contractor', h1s: [] },
+        { normalizedUrl: `${eco}/areas-serviced-southern-california/`, title: 'Southern California Landscape Service Areas', h1s: ['Areas Serviced Southern California'] },
+        { normalizedUrl: `${eco}/areas-serviced-southern-california/orange-county-ca/`, title: 'Outdoor Construction in Orange County, CA', h1s: [] },
+        { normalizedUrl: `${eco}/areas-serviced-southern-california/san-bernardino-county/`, title: 'Artificial Grass San Bernardino, CA', h1s: [] },
+        { normalizedUrl: `${eco}/socal-outdoor-living-maintenance-costs/`, title: 'Long-Term Maintenance Costs of Outdoor Living Spaces', h1s: [] },
+        { normalizedUrl: `${eco}/4-factors-to-consider-when-designing-a-fire-pit/`, title: 'Designing a Fire Pit', h1s: [] },
+    ];
+    const fits = siteSearchFilter(ecoPages, { brands: ['Ecoworkz', `${eco}/`], texts: ['Riverside County outdoor construction', 'We build patio covers and shade structures.'] });
+
+    it('never names a town the business does not serve, even one that only appears in the search (Ecoworkz-like)', () => {
+        // The two cases from the review: a neighbourhood and a Texas town with no state or "County" mark.
+        assert.equal(fits('hardscaping contractors rossmoor'), false);
+        assert.equal(fits('install outdoor kitchen friendswood'), false);
+        assert.equal(fits('patio pavers vs concrete which is better for wisconsin winters'), false);
+        assert.equal(fits('hardscaping komandorski village'), false);
+        // Marked places they have no page for.
         assert.equal(fits('outdoor kitchen installation san luis obispo ca'), false);
-        assert.equal(fits('paver cleaning yorba linda ca'), false);
-        assert.equal(fits('paver sealing yorba linda ca'), false);
         assert.equal(fits('outdoor kitchen installation los angeles'), false);
         assert.equal(fits('outdoor kitchen installers menifee ca'), false);
         assert.equal(fits('mulching & rock services in canyon lake, ca'), false);
-        // Places they serve, regions, and their own services still fit.
-        assert.equal(fits('shade structure contractor yorba linda'), true);
-        assert.equal(fits('transform your backyard with an outdoor kitchen, irvine ca'), true);
+        // Places they serve, their regions, and their own services fit.
+        assert.equal(fits('hardscaping services yorba linda'), true);
         assert.equal(fits('outdoor kitchen orange county ca'), true);
         assert.equal(fits('artificial turf san bernardino'), true);
         assert.equal(fits('hardscape contractor riverside county'), true);
-        assert.equal(fits('outdoor kitchen builder southern ca'), true);
         assert.equal(fits('artificial turf southern california'), true);
-        assert.equal(fits('fire pit for covered porch'), true);
-        // Maintenance is on one of their pages, so it is not side work for them.
-        assert.equal(fits('outdoor living maintenance orange county'), true);
-        // Known limit: a town with no state, "County" or "San ..." cannot be told from a topic word.
-        assert.equal(fits('install outdoor kitchen friendswood'), true);
+        assert.equal(fits('outdoor kitchen installation near me'), true);
+        assert.equal(fits('how much does a fire pit cost'), true);
     });
 
-    it('is general: a roofer that sells repair keeps repair searches, one that does not drops them', () => {
+    it('drops the brand and work the business never mentions; its own words come from its pages and profile', () => {
+        assert.equal(fits('ecoworkz'), false);
+        assert.equal(fits('ecoworkz turf reviews'), false);
+        assert.equal(fits('paver cleaning yorba linda ca'), false);
+        assert.equal(fits('paver sealing yorba linda ca'), false);
+        // Maintenance is on one of their pages; shade structures are in their own description.
+        assert.equal(fits('outdoor living maintenance orange county'), true);
+        assert.equal(fits('shade structure contractor yorba linda'), true);
+        // An ordinary word the business never uses is not trusted either: the reason falls back to the page.
+        assert.equal(fits('fire pit for covered porch'), false);
+    });
+
+    it('is general: a roofer in Dallas', () => {
         const roofer = (extra: MatchablePage[] = []) => [
             { normalizedUrl: 'https://roofco.com/roof-replacement/', title: 'Roof Replacement', h1s: [] },
             { normalizedUrl: 'https://roofco.com/dallas-tx/', title: 'Roofing in Dallas, TX', h1s: [] },
             ...extra,
         ];
         const without = siteSearchFilter(roofer(), { brands: ['RoofCo'] });
-        assert.equal(without('roof repair dallas tx'), false);
         assert.equal(without('roof replacement dallas tx'), true);
+        assert.equal(without('roof replacement dallas'), true);
+        assert.equal(without('roof repair dallas tx'), false);
         assert.equal(without('roof replacement austin tx'), false);
+        assert.equal(without('roof replacement highland park'), false);
         assert.equal(without('roofco reviews'), false);
         const withRepair = siteSearchFilter(roofer([{ normalizedUrl: 'https://roofco.com/roof-repair/', title: 'Roof Repair', h1s: [] }]));
         assert.equal(withRepair('roof repair dallas tx'), true);
+        // A place named only in the profile counts as served.
+        assert.equal(siteSearchFilter(roofer(), { texts: ['Serving Collin County'] })('roof replacement collin county'), true);
     });
 });

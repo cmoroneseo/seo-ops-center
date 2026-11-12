@@ -166,15 +166,15 @@ describe('refresh reasons skip brand, out-of-area and side-service searches (Eco
         assert.equal(pageRefreshRead(crawl[1].normalizedUrl, { wordCount: 900 }, yorba).numbers.query, 'hardscaping services yorba linda');
         const kitchen = ctx([
             row('/our-services/outdoor-kitchen-installation/', 'outdoor kitchen installation san luis obispo ca', 80, 26),
-            row('/our-services/outdoor-kitchen-installation/', 'outdoor kitchen builder southern california', 60, 18),
+            row('/our-services/outdoor-kitchen-installation/', 'outdoor kitchen installation near me', 60, 18),
         ]);
         const result = reconcileRecord(
             { targetQuery: 'outdoor kitchen installation southern california', title: 'Outdoor Kitchen Installation', pageType: 'service' },
             crawl, [], kitchen,
         );
         assert.equal(result.action, 'improve');
-        assert.equal(result.refresh?.reason, 'Ranks around spot 18 in Google for “outdoor kitchen builder southern california”');
-        // Without the filter, as before: the out-of-area search is named.
+        assert.equal(result.refresh?.reason, 'Ranks around spot 18 in Google for “outdoor kitchen installation near me”');
+        // Without the filter: the out-of-area search is named.
         const unfiltered = { ...kitchen, searchFits: undefined };
         assert.match(reconcileRecord(
             { targetQuery: 'outdoor kitchen installation southern california', title: 'Outdoor Kitchen Installation', pageType: 'service' },
@@ -193,6 +193,41 @@ describe('refresh reasons skip brand, out-of-area and side-service searches (Eco
 
         const quiet = pageRefreshRead(crawl[0].normalizedUrl, { wordCount: 900 }, ctx(brandOnly));
         assert.deepEqual(refreshCandidates([{ url: crawl[0].normalizedUrl, read: quiet }], new Set()), []);
+    });
+
+    it('#37: a neighbourhood search at spot 81 is never named; the page’s own decline is the reason', () => {
+        const rows = [
+            row('/areas-serviced-southern-california/', 'ecoworkz', 34, 1.5),
+            row('/areas-serviced-southern-california/', 'mulching & rock services in canyon lake, ca', 11, 76),
+            row('/areas-serviced-southern-california/', 'hardscaping contractors rossmoor', 1, 81),
+        ];
+        const read = pageRefreshRead(crawl[0].normalizedUrl, { wordCount: 900 }, ctx(rows, true));
+        assert.equal(read.numbers.query, null);
+        assert.equal(refreshCandidates([{ url: crawl[0].normalizedUrl, read }], new Set())[0].reason, 'Showing up in 63% fewer searches vs the previous 3 months');
+    });
+
+    it('#23: a town that only appears in the search (Friendswood) is never named', () => {
+        const rows = [
+            row('/our-services/outdoor-kitchen-installation/', 'outdoor kitchen installation san luis obispo ca', 8, 26),
+            row('/our-services/outdoor-kitchen-installation/', 'install outdoor kitchen friendswood', 8, 25),
+        ];
+        const result = reconcileRecord(
+            { targetQuery: 'outdoor kitchen installation southern california', title: 'Outdoor Kitchen Installation', pageType: 'service' },
+            crawl, [], { ...ctx(rows), queryDays: 7 },
+        );
+        assert.equal(result.action, 'improve');
+        assert.doesNotMatch(result.refresh?.reason ?? '', /friendswood|san luis obispo/);
+    });
+
+    it('a named search needs real demand and a real ranking, not just a fit', () => {
+        const page = '/yorba-linda-ca/';
+        const pick = (rows: ReturnType<typeof row>[]) => pageRefreshRead(crawl[1].normalizedUrl, { wordCount: 900 }, ctx(rows)).numbers.query;
+        // Spot 31 is past the furthest spot the refresh checks treat as reachable.
+        assert.equal(pick([row(page, 'hardscaping services yorba linda', 200, 31), row(page, 'pavers yorba linda', 12, 9)]), 'pavers yorba linda');
+        // Under 10 searches a month is noise, even for the idea's own search.
+        assert.equal(pick([row(page, 'hardscaping services yorba linda', 9, 9)]), null);
+        assert.equal(pageRefreshRead(crawl[1].normalizedUrl, { wordCount: 900, targetQuery: 'pavers yorba linda' },
+            ctx([row(page, 'pavers yorba linda', 9, 9), row(page, 'hardscaping services yorba linda', 30, 12)])).numbers.query, 'hardscaping services yorba linda');
     });
 });
 

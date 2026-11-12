@@ -25,6 +25,12 @@ export const STRIKING_MIN_POSITION = 8;
 export const STRIKING_MAX_POSITION = 30;
 /** Impressions per 28 days for the main search before spots 8 to 30 count as striking distance. */
 export const STRIKING_MIN_IMPRESSIONS = 50;
+/**
+ * A search a reason names needs real demand (this many impressions per 28
+ * days, about one every three days) and a real ranking (spot
+ * STRIKING_MAX_POSITION or better). Below either, it is noise.
+ */
+export const REASON_MIN_IMPRESSIONS = 10;
 
 /** A fall of 30% or more counts as a decline. */
 export const DECLINE_MIN_DROP = 0.3;
