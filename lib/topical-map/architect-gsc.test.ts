@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     aggregateQueryPageFacts,
     aggregateQueryPagePairs,
+    clusterKey,
     clusterQueryFacts,
     loadArchitectGscContext,
     loadArchitectGscQueries,
@@ -175,8 +176,21 @@ test('searches with the same intent group together, most impressions first', () 
     assert.equal(temecula.key, 'artificial grass temecula');
     assert.ok(Math.abs(temecula.position - (400 * 12 + 200 * 18 + 66 * 30) / 666) < 1e-9);
     assert.equal(clusters[0].impressions, 4500);
-    // The brand word is ignored, so the brand search groups as plain "grass".
-    assert.equal(clusters[2].key, 'grass');
+    // The brand word is ignored, so the brand search groups as plain turf.
+    assert.equal(clusters[2].key, 'artificial grass');
+});
+
+test('grouping drops service-form words but never merges different services', () => {
+    const key = (query: string) => clusterKey(query, new Set(['ecoworkz']));
+    assert.equal(key('artificial turf installation temecula'), key('temecula artificial grass'));
+    assert.equal(key('hardscape contractor'), key('hardscaping services'));
+    assert.notEqual(key('artificial turf installation'), key('paver installation'));
+    assert.notEqual(key('artificial turf'), key('pet turf'));
+    assert.notEqual(key('artificial turf'), key('commercial artificial turf'));
+    assert.notEqual(key('landscaping'), key('business landscaping'));
+    assert.notEqual(key('masonry contractor'), key('hardscape contractor'));
+    // Only service-form words: falls back to the full search key.
+    assert.equal(key('contractor near me'), 'contractor');
 });
 
 test('a group lists at most three other wordings', () => {

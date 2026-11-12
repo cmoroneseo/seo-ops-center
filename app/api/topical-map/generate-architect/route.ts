@@ -7,7 +7,7 @@ import { loadArchitectGscContext, loadArchitectPagePerformance } from '@/lib/top
 import { brandTokens, dedupeIdeas, GSC_MATCH_MAX_POSITION, intentKey } from '@/lib/topical-map/page-match';
 import { queriesByPage, refreshCandidates } from '@/lib/topical-map/page-performance';
 import { buildSystemPrompt, buildUserMessage } from '@/lib/topical-map/generate-prompt';
-import { validatePageMix } from '@/lib/topical-map/page-mix';
+import { servicePageNames, validatePageMix } from '@/lib/topical-map/page-mix';
 import { selectPromptPages } from '@/lib/topical-map/prompt-pages';
 import { seedKeywordsFromMap } from '@/lib/topical-map/seed-keywords';
 import { architectStoredMetrics } from '@/lib/topical-map/metrics';
@@ -103,12 +103,24 @@ export async function POST(req: NextRequest) {
         clientId,
     });
 
-    const { data: pageSnapshots } = await admin
+    // Only the newest completed crawl: older runs still hold pages that were
+    // since removed or renamed. With no completed run, every snapshot is read.
+    const { data: latestRun } = await admin
+        .from('site_crawl_runs')
+        .select('id')
+        .eq('organization_id', organizationId)
+        .eq('client_id', clientId)
+        .eq('status', 'completed')
+        .order('completed_at', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+    let snapshotQuery = admin
         .from('site_page_snapshots')
         .select('site_page_id, requested_url, title, h1s, word_count, observed_at')
         .eq('organization_id', organizationId)
-        .eq('client_id', clientId)
-        .order('observed_at', { ascending: false });
+        .eq('client_id', clientId);
+    if (latestRun?.id) snapshotQuery = snapshotQuery.eq('run_id', String(latestRun.id));
+    const { data: pageSnapshots } = await snapshotQuery.order('observed_at', { ascending: false });
 
     const { data: pageUrls } = await admin
         .from('site_page_urls')
@@ -196,15 +208,29 @@ export async function POST(req: NextRequest) {
     // Console, articles and seed-only ideas trimmed to their caps.
     const rawRecords = parsed.silos.map(silo =>
         ((silo as Record<string, unknown>).records ?? (silo as Record<string, unknown>).pages ?? []) as Array<Record<string, unknown>>);
-    const pageMix = validatePageMix(rawRecords.flat().map(rec => ({
-        pageType: rec.page_type,
-        targetQuery: String(rec.target_query ?? ''),
-        supportingQueries: Array.isArray(rec.supporting_queries)
-            ? rec.supporting_queries.filter((q): q is string => typeof q === 'string')
-            : undefined,
-        demandQuery: typeof rec.demand_query === 'string' ? rec.demand_query : null,
-        buildPhase: Number(rec.build_phase ?? 1),
-    })), gscContext.clusters, ignoreTokens);
+    let siloOffset = 0;
+    const mixInput = rawRecords.flatMap(records => {
+        const offset = siloOffset;
+        siloOffset += records.length;
+        return records.map((rec, i) => {
+            // parent_title names a record in the same silo.
+            const parent = rec.parent_title ? records.findIndex(other => String(other.title ?? '') === String(rec.parent_title)) : -1;
+            return {
+                pageType: rec.page_type,
+                targetQuery: String(rec.target_query ?? ''),
+                title: String(rec.title ?? ''),
+                supportingQueries: Array.isArray(rec.supporting_queries)
+                    ? rec.supporting_queries.filter((q): q is string => typeof q === 'string')
+                    : undefined,
+                demandQuery: typeof rec.demand_query === 'string' ? rec.demand_query : null,
+                buildPhase: Number(rec.build_phase ?? 1),
+                parentIndex: parent >= 0 && parent !== i ? offset + parent : null,
+            };
+        });
+    });
+    // Services they sell: the profile's focus topics plus the site's own service pages.
+    const services = [...profile.focusTopics, ...servicePageNames(existingPages, ignoreTokens)];
+    const pageMix = validatePageMix(mixInput, gscContext.clusters, ignoreTokens, { services });
     const mixByIndex = new Map(pageMix.kept.map(item => [item.index, item]));
 
     // Stage 5: Reconciliation — match every idea to existing pages, drop
@@ -251,10 +277,17 @@ export async function POST(req: NextRequest) {
     }));
     const flat = siloRecords.flat();
     const { duplicateOf } = dedupeIdeas(
-        flat.map(item => ({ targetQuery: String(item.rec.target_query ?? ''), matchedUrl: item.reconciled.matchedUrl })),
+        flat.map(item => ({
+            targetQuery: String(item.rec.target_query ?? ''),
+            matchedUrl: item.reconciled.matchedUrl,
+            // The stored type, so the same-type rule compares what is saved (not the model's raw page_type).
+            pageType: item.mix.storedType,
+        })),
         ignoreTokens,
     );
     const idByIndex = new Map<number, string>();
+    // Record id per idea in the model's list (a dropped duplicate maps to the idea it duplicates).
+    const idByMixIndex = new Map<number, string>();
     const refreshReasons: Record<string, { reason: string; signals: string[] }> = {};
     const mixRecords: Record<string, { page_type: string; seed_only: boolean; demand_query: string | null; demand_impressions: number | null }> = {};
     let flatIdx = 0;
@@ -284,8 +317,6 @@ export async function POST(req: NextRequest) {
         if (!siloRow) continue;
         const siloId = String(siloRow.id);
 
-        const titleToId = new Map<string, string>();
-
         for (let recIdx = 0; recIdx < records.length; recIdx++) {
             const { rec, mix, reconciled } = records[recIdx];
             const earlier = duplicateOf.get(siloStart + recIdx);
@@ -293,12 +324,12 @@ export async function POST(req: NextRequest) {
                 // Same search or same page as an earlier idea: not inserted.
                 // Children that name it as parent attach to the earlier idea.
                 const keptId = idByIndex.get(earlier);
-                if (keptId && rec.title) titleToId.set(String(rec.title), keptId);
+                if (keptId) idByMixIndex.set(mix.index, keptId);
                 continue;
             }
 
-            const parentTitle = rec.parent_title ? String(rec.parent_title) : undefined;
-            const parentRecordId = parentTitle ? titleToId.get(parentTitle) : undefined;
+            // The page mix already moved children of trimmed ideas to the nearest kept ancestor.
+            const parentRecordId = mix.parentIndex != null ? idByMixIndex.get(mix.parentIndex) : undefined;
             const metrics = architectStoredMetrics(rec);
 
             const { data: recordRow } = await admin
@@ -332,8 +363,8 @@ export async function POST(req: NextRequest) {
                 .single();
 
             if (recordRow) {
-                titleToId.set(String(rec.title), String(recordRow.id));
                 idByIndex.set(siloStart + recIdx, String(recordRow.id));
+                idByMixIndex.set(mix.index, String(recordRow.id));
                 if (reconciled.refresh) refreshReasons[String(recordRow.id)] = reconciled.refresh;
                 mixRecords[String(recordRow.id)] = {
                     page_type: mix.kind,

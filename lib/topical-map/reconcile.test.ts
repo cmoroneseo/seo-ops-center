@@ -120,6 +120,12 @@ describe('reconcileRecord with Search Console performance (Ecoworkz-like)', () =
         assert.equal(reconcileRecord(idea, [{ ...corona, wordCount: 200 }], []).action, 'replace');
     });
 
+    it('without Search Console a thin service page is Improve, with only the crawl as the reason', () => {
+        const result = reconcileRecord(idea, [{ ...corona, wordCount: 450 }], [], { ignoreTokens, gscConnected: false });
+        assert.equal(result.action, 'improve');
+        assert.deepEqual(result.refresh, { reason: 'Only 450 words, short for a service page', signals: ['thin'] });
+    });
+
     it('pavers and concrete ideas in the same city stay new pages', () => {
         assert.equal(reconcileRecord({ targetQuery: 'pavers corona', title: 'Pavers in Corona' }, [corona], [], ctx(3, 300)).action, 'create');
         assert.equal(reconcileRecord({ targetQuery: 'concrete corona', title: 'Concrete in Corona' }, [corona], [], ctx(3, 300)).action, 'create');

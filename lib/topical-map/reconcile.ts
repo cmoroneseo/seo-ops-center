@@ -109,7 +109,10 @@ export function reconcileRecord(
             ? { action: 'improve', ...base, refresh: { reason: verdict.reason, signals: verdict.signals } }
             : { action: 'improve', ...base };
     }
-    return { action: 'keep', ...base };
+    if (verdict?.action === 'keep') return { action: 'keep', ...base };
+    // No Search Console: the crawled content decides. A Search Console page
+    // that was never crawled cannot reach here (it needs Search Console).
+    return { action: page ? determineAction(page, 0) : 'improve', ...base };
 }
 
 /** Counts stored in topical_maps.generation_metadata.duplicate_gate. */

@@ -2,14 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { ArchitectGscCluster } from './architect-gsc.ts';
-import { intentKey } from './page-match.ts';
+import { clusterKey } from './architect-gsc.ts';
 import {
     ARTICLE_KINDS,
+    ARTICLE_MIN_ALLOWED,
     maxWithinShare,
+    namesService,
     PAGE_KIND_LABEL,
     PAGE_KINDS,
     pageKindOf,
+    SEED_ONLY_MIN_ALLOWED,
+    servicePageNames,
     STORED_PAGE_TYPE,
+    storedPageType,
     validatePageMix,
     type MixInput,
 } from './page-mix.ts';
@@ -17,7 +22,7 @@ import {
 const ignore = new Set(['ecoworkz']);
 
 function cluster(query: string, impressions: number): ArchitectGscCluster {
-    return { query, clicks: 0, impressions, position: 20, variants: [], key: intentKey(query, ignore) };
+    return { query, clicks: 0, impressions, position: 20, variants: [], key: clusterKey(query, ignore) };
 }
 
 const clusters = [
@@ -51,7 +56,11 @@ test('every page kind maps onto a page type the database accepts', () => {
     assert.equal(STORED_PAGE_TYPE.service_city, 'landing');
     assert.equal(STORED_PAGE_TYPE.city, 'city');
     assert.equal(STORED_PAGE_TYPE.cost, 'guide');
-    assert.equal(STORED_PAGE_TYPE.faq, 'faq');
+    // A buyer question is an article for PR 1's matcher; only an FAQ page is stored as 'faq'.
+    assert.equal(STORED_PAGE_TYPE.faq, 'blog_post');
+    assert.equal(storedPageType('faq', 'Does artificial turf get hot?'), 'blog_post');
+    assert.equal(storedPageType('faq', 'Artificial Grass FAQ: Maintenance, Heat, Pets'), 'faq');
+    assert.equal(storedPageType('cost', 'Artificial Grass FAQ'), 'guide');
     assert.equal(STORED_PAGE_TYPE.local_resource, 'resource_center');
 });
 
@@ -67,18 +76,124 @@ test('loose page types read as the closest kind; unknown ones count as articles'
     assert.ok(ARTICLE_KINDS.has(pageKindOf('guide')));
 });
 
-test('share caps', () => {
+test('blog_post and guide are articles sorted by their words', () => {
+    assert.equal(pageKindOf('guide', 'How Much Does Artificial Grass Cost to Install in Southern California?'), 'cost');
+    assert.equal(pageKindOf('blog_post', 'Pavers vs Concrete Patio in Southern California'), 'comparison');
+    assert.equal(pageKindOf('blog_post', 'Artificial Turf vs Natural Grass Cost'), 'comparison');
+    assert.equal(pageKindOf('blog_post', 'Southern California Water Rebates for Lawn Removal'), 'local_resource');
+    assert.equal(pageKindOf('guide', 'How to Finance a Backyard Remodel'), 'faq');
+    assert.equal(pageKindOf('case_study', 'Corona backyard'), 'faq');
+    // A typed kind is never re-sorted by its words.
+    assert.equal(pageKindOf('service', 'Artificial turf cost'), 'service');
+    assert.equal(pageKindOf('faq', 'Artificial turf cost'), 'faq');
+});
+
+test('share caps never round a small map down to nothing', () => {
     assert.equal(maxWithinShare(7, 0.3), 3);
     assert.equal(maxWithinShare(14, 0.3), 6);
     assert.equal(maxWithinShare(10, 0.3), 4);
     assert.equal(maxWithinShare(12, 0.2), 3);
+    // The raw share math floors to 0; the caps use a minimum.
     assert.equal(maxWithinShare(3, 0.2), 0);
+    assert.equal(maxWithinShare(1, 0.3, ARTICLE_MIN_ALLOWED), 2);
+    assert.equal(maxWithinShare(2, 0.3, ARTICLE_MIN_ALLOWED), 2);
+    assert.equal(maxWithinShare(3, 0.2, SEED_ONLY_MIN_ALLOWED), 1);
+    assert.equal(maxWithinShare(14, 0.3, ARTICLE_MIN_ALLOWED), 6);
+
+    const result = validatePageMix([
+        money('pet turf'),
+        money('putting greens'),
+        article('artificial turf cost', 'cost'),
+        article('turf vs real grass', 'comparison'),
+        article('does turf get hot'),
+    ], clusters, ignore);
+    assert.equal(result.summary.articles, 2, '2 money pages still keep 2 articles');
+    assert.deepEqual(result.dropped, [{ index: 4, reason: 'article_cap' }]);
+});
+
+test('children of a trimmed idea move to the nearest kept ancestor', () => {
+    const ideas: MixInput[] = [
+        money('hardscape contractor'),                                                  // 0 kept
+        money('alpha hardscape', { demandQuery: null, parentIndex: 0, buildPhase: 3 }), // 1 seed-only, trimmed
+        money('pet turf', { parentIndex: 1 }),                                          // 2 kept, parent 1 trimmed -> 0
+        money('putting greens', { parentIndex: 4 }),                                    // 3 kept, parent 4 is a duplicate of 2 -> 2
+        money('Pet turf near me', { parentIndex: 1 }),                                  // 4 duplicate of 2
+        money('bravo hardscape', { demandQuery: null, buildPhase: 3 }),                 // 5 seed-only top level, trimmed
+        money('playground turf', { parentIndex: 5 }),                                   // 6 kept, no kept ancestor -> top level
+        money('artificial turf temecula', { parentIndex: 0 }),                          // 7 kept, parent kept
+        money('charlie hardscape', { demandQuery: null }),                              // 8 seed-only, kept (earlier build phase)
+    ];
+    const result = validatePageMix(ideas, clusters, ignore);
+    const parentOf = (index: number) => result.kept.find(item => item.index === index)?.parentIndex;
+    assert.deepEqual(result.dropped.map(d => d.index), [1, 4, 5]);
+    assert.equal(parentOf(2), 0);
+    assert.equal(parentOf(3), 2);
+    assert.equal(parentOf(6), null);
+    assert.equal(parentOf(7), 0);
+    assert.equal(parentOf(0), null);
+    assert.equal(result.summary.reattached_children, 3);
+});
+
+test('service pages for services the business sells are exempt from the seed-only cap', () => {
+    const services = ['artificial grass/turf installation', 'pavers/hardscape', 'masonry', 'outdoor kitchens', 'fire pits',
+        'outdoor living spaces', 'landscaping/backyard remodel', 'commercial landscaping'];
+    const ideas: MixInput[] = [
+        money('hardscape contractor'),
+        money('pet turf'),
+        money('masonry contractors', { title: 'Masonry & Outdoor Structure Contractors', demandQuery: null }),
+        money('outdoor kitchen installation', { title: 'Outdoor Kitchen & BBQ Island Installation', demandQuery: null }),
+        money('fire pit installation orange county', { title: 'Fire Pit Installation in Orange County', demandQuery: null }),
+        money('outdoor living space contractor', { title: 'Outdoor Living Space Contractor in the Inland Empire', demandQuery: null }),
+        money('commercial landscape contractor', { pageType: 'sub_service', demandQuery: null }),
+        // Not services they sell, or not service pages: still capped.
+        money('pool builder', { demandQuery: null }),
+        money('solar panels', { demandQuery: null }),
+        money('fire pit ideas', { pageType: 'service_city', demandQuery: null }),
+        article('outdoor kitchen layout ideas', 'faq', { demandQuery: null }),
+    ];
+    const result = validatePageMix(ideas, clusters, ignore, { services });
+    const kept = new Set(result.kept.map(item => item.index));
+    for (const index of [2, 3, 4, 5, 6]) {
+        assert.ok(kept.has(index), `#${index} is a service they sell`);
+        assert.equal(result.kept.find(item => item.index === index)?.profileService, true);
+    }
+    assert.equal(result.summary.seed_only_profile_services, 5);
+    // 7 others allow 1 seed-only long-tail idea: the article (later build phase) goes first, then the latest in the list.
+    assert.deepEqual(result.dropped.map(d => [d.index, d.reason]), [[8, 'seed_only_cap'], [9, 'seed_only_cap'], [10, 'seed_only_cap']]);
+    assert.equal(kept.has(7), true);
+
+    // Without a services list nothing is exempt.
+    const plain = validatePageMix(ideas, clusters, ignore);
+    assert.equal(plain.summary.seed_only_profile_services, 0);
+    assert.equal(plain.kept.length < result.kept.length, true);
+});
+
+test('service names come from the site\'s own service pages, read the way PR 1 reads them', () => {
+    const site = 'https://www.ecoworkz.net';
+    const page = (path: string, title = '') => ({ normalizedUrl: `${site}${path}`, title, h1s: [] });
+    const names = servicePageNames([
+        page('/'),
+        page('/our-services/'),
+        page('/our-services/masonry-contractors/', 'Masonry Contractors in Corona | Ecoworkz'),
+        page('/our-services/pet-turf/'),
+        page('/corona-ca/', 'Corona Hardscape Contractor'),
+        page('/pavers-vs-concrete-patio-southern-ca/'),
+        page('/galleries/pavers-gallery/'),
+    ], new Set(['ecoworkz']));
+    assert.deepEqual(names, ['masonry contractors', 'pet turf']);
+});
+
+test('a service name needs most of its words', () => {
+    assert.equal(namesService('Outdoor Kitchen & BBQ Island', [['outdoor', 'kitchen']]), true);
+    assert.equal(namesService('Outdoor lighting', [['outdoor', 'kitchen']]), false);
+    assert.equal(namesService('Masonry walls', [['masonry']]), true);
 });
 
 test('a repeated primary search keeps only the first idea', () => {
     const result = validatePageMix([
         money('artificial turf temecula'),
-        money('Temecula artificial grass installation', { pageType: 'service_city' }),
+        // Same search reworded. "...installation" would be a different search (PR 1's intentKey).
+        money('Temecula artificial grass near me', { pageType: 'service_city' }),
         money('pet turf'),
     ], clusters, ignore);
     assert.deepEqual(result.kept.map(item => item.index), [0, 2]);
@@ -161,11 +276,11 @@ test('without Search Console data every idea is seed-only and is kept', () => {
 });
 
 test('supporting searches are de-duplicated, exclude the primary search and stop at ten', () => {
-    const supporting = ['pet turf', 'pet turfs', 'dog turf', 'Dog Turf ', 'pet grass', ...WORDS.map(word => `pet turf ${word}`)];
+    const supporting = ['pet turf', 'pet turfs', 'dog turf', 'Dog Turf ', 'artificial pet grass', ...WORDS.map(word => `pet turf ${word}`)];
     const [item] = validatePageMix([money('pet turf', { supportingQueries: supporting })], clusters, ignore).kept;
     assert.equal(item.supportingQueries.length, 10);
     assert.equal(item.supportingQueries[0], 'dog turf');
-    assert.equal(item.supportingQueries.includes('pet grass'), false, '"pet grass" is the same search as "pet turf"');
+    assert.equal(item.supportingQueries.includes('artificial pet grass'), false, '"artificial pet grass" is the same search as "pet turf"');
 });
 
 test('an all-article map is not wiped out', () => {

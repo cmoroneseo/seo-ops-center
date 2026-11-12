@@ -42,7 +42,7 @@ export interface ArchitectGscCluster {
     position: number;
     /** Other wordings of the same search, most impressions first (at most CLUSTER_VARIANTS). */
     variants: string[];
-    /** intentKey(query): the join key for demand checks. */
+    /** clusterKey(query): the join key for demand checks. */
     key: string;
 }
 
@@ -85,10 +85,29 @@ export function aggregateQueryPageFacts(rows: readonly Record<string, unknown>[]
     return rollUpQueries(rows).slice(0, QUERY_LIMIT);
 }
 
+/** Words that say how the service is bought, not which service. "business" stays: it means commercial. */
+const SERVICE_FORM_TOKENS: ReadonlySet<string> = new Set([
+    'install', 'installation', 'installer', 'installing', 'installed', 'service', 'company', 'contractor',
+    'professional', 'pro', 'expert', 'specialist',
+].flatMap(word => intentKey(word).split(' ')));
+
 /**
- * Group every query by search intent (intentKey, so word order, plurals,
- * turf/grass and "near me" do not split a search), most impressions first.
- * Uncapped: the prompt shows the top groups, the page-mix check uses all.
+ * The key searches are grouped by: intentKey without the service-form words,
+ * so "artificial turf temecula" and "artificial turf installation in temecula,
+ * ca" are one group, while pavers, masonry, pet or commercial turf stay
+ * separate. intentKey itself (the duplicate-search key) is unchanged.
+ */
+export function clusterKey(query: string | null | undefined, ignore: ReadonlySet<string> = new Set()): string {
+    const key = intentKey(query, ignore);
+    const kept = key.split(' ').filter(token => !SERVICE_FORM_TOKENS.has(token));
+    return kept.length > 0 ? kept.join(' ') : key;
+}
+
+/**
+ * Group every query by search intent (clusterKey, so word order, plurals,
+ * turf/grass, "near me" and "installation" do not split a search), most
+ * impressions first. Uncapped: the prompt shows the top groups, the page-mix
+ * check uses all.
  */
 export function clusterQueryFacts(
     rows: readonly Record<string, unknown>[],
@@ -96,7 +115,7 @@ export function clusterQueryFacts(
 ): ArchitectGscCluster[] {
     const groups = new Map<string, ArchitectGscQuery[]>();
     for (const query of rollUpQueries(rows)) {
-        const key = intentKey(query.query, ignore);
+        const key = clusterKey(query.query, ignore);
         if (!key) continue;
         const list = groups.get(key) ?? [];
         list.push(query);
