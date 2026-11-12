@@ -12,7 +12,7 @@
  * Pure functions. Later topic-map checks reuse them.
  */
 
-import { isHomePath, pageKey } from './page-match';
+import { isHomePath, isUtilityPage, pageKey } from './page-match';
 
 export type RefreshSignal = 'striking_distance' | 'decline' | 'low_ctr' | 'thin';
 
@@ -189,12 +189,8 @@ export function mainCluster(
     return pageQueries[0];
 }
 
-const UTILITY_PATH = /\/(contact|contact-us|about|about-us|privacy|privacy-policy|terms|terms-of-service|terms-and-conditions|careers|jobs|thank-you|thanks|sitemap|login|account|cart|checkout|reviews|testimonials|gallery|portfolio|financing|accessibility)(\/|$)/i;
-
-/** Contact, about, legal, gallery and similar pages: never refresh ideas. */
-export function isUtilityPage(url: string): boolean {
-    return UTILITY_PATH.test(url);
-}
+/** Contact, about, legal, booking, gallery and archive pages: never refresh ideas. See page-match. */
+export { isUtilityPage };
 
 /** Money page: by the idea's page type when known, else anything that is not a blog-style or utility URL. */
 export function isMoneyPage(url: string, pageType?: string | null): boolean {
@@ -353,14 +349,14 @@ export type MatchedPageVerdict =
  * What to do with an existing page an idea matched.
  * Any signal: improve, with the reason. Page 1 with no signals: keep (Already live).
  * Below page 1: improve. No Google data while Search Console is connected: improve.
- * Search Console not connected: null, so the caller falls back to the content check.
+ * Search Console not connected: only the crawl can speak. A thin page is
+ * improve; anything else is null and the caller decides from the crawled
+ * content (determineAction), never from rankings it does not have.
  */
 export function matchedPageVerdict(read: RefreshRead, gscConnected: boolean): MatchedPageVerdict {
     if (!gscConnected) {
-        // Without Google data, only a thin page can be called.
-        return read.signals.includes('thin')
-            ? { action: 'improve', reason: refreshReason(read) ?? '', signals: read.signals }
-            : null;
+        if (!read.signals.includes('thin')) return null;
+        return { action: 'improve', reason: refreshReason(read) ?? '', signals: ['thin'] };
     }
     const reason = refreshReason(read);
     if (read.signals.length > 0) return { action: 'improve', reason: reason ?? '', signals: read.signals };
