@@ -214,6 +214,39 @@ test('without Search Console every idea says it has no Google data, never a numb
     assert.ok(!html.includes('/100'));
 });
 
+test('the map check lists searches no idea covers and the saved counts', () => {
+    const html = render({
+        evidence: {
+            ...evidence,
+            groups: [
+                { query: 'search quick', variants: [], impressions: 420, position: 14, page: null, pagePosition: null },
+                { query: 'uncovered topic', variants: [], impressions: 1234, position: 52, page: 'https://example.com/', pagePosition: 52 },
+            ],
+        },
+        generationMetadata: {
+            duplicate_gate: { duplicate_ideas_dropped: 2 },
+            page_mix: { dropped_duplicate_query: 1, records: { main: { page_type: 'service', seed_only: false }, quick: { page_type: 'faq', seed_only: true } } },
+        },
+    });
+    assert.ok(html.includes('What the map missed'));
+    assert.ok(html.includes('1 search with no idea · 3 repeat ideas removed · 4 of 5 ideas are articles'));
+    assert.ok(html.includes('<span class="font-semibold text-[#18181b] dark:text-foreground">uncovered topic</span>'));
+    assert.ok(html.includes('Showed up 1,234 times in Google · Spot 52 in Google, mostly your home page'));
+    assert.ok(!html.includes('>search quick</span>'));
+    assert.ok(html.includes('3 repeat ideas removed before saving'));
+    assert.ok(html.includes('1 idea matches a page you already have'));
+    assert.ok(html.includes('1 of 2 ideas has no Google searches behind it'));
+    assert.ok(html.includes('4 of 5 ideas are articles (80%)'));
+});
+
+test('the map check on an older map says what was not recorded', () => {
+    const html = render({ evidence: { ...evidence, groups: [] }, generationMetadata: {} });
+    assert.ok(html.includes('Repeat ideas removed: not recorded'));
+    assert.ok(html.includes('3 of 5 ideas got no Google searches in the last 28 days'));
+    assert.ok(html.includes('Your site did not show up for any other searches in the last 28 days.'));
+    for (const banned of ['GSC', 'SERP', 'cluster', 'impressions']) assert.ok(!html.includes(banned), banned);
+});
+
 test('no mockup badges, sample data or keyword-provider labels ship', () => {
     const html = render({ initialSelected: ['quick'] });
     for (const banned of ['Ahrefs', 'Semrush', 'DataForSEO', 'Estimate', 'Mockup', 'Sample data', 'fictional', 'Summit Dental']) {

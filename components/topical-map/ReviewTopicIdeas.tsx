@@ -34,6 +34,22 @@ import {
 } from '@/lib/content/client';
 import { contentMonthChoices, currentWorkMonth } from '@/lib/content/board';
 import { readHttpUrl, workMonthLabel } from '@/lib/topical-map/production';
+import {
+    existingPagesLine,
+    MAP_CHECK_TITLE,
+    mapCheck,
+    mapCheckSummary,
+    missedEmpty,
+    missedIntro,
+    missedMore,
+    missedTimes,
+    missedWhere,
+    mixLine,
+    repeatsLine,
+    seedOnlyLine,
+    type CheckLine,
+    type MapCheck,
+} from '@/lib/topical-map/map-check';
 import { readRefreshReasons } from '@/lib/topical-map/reconcile';
 import {
     approvedMonthsSummary,
@@ -153,6 +169,8 @@ export interface ReviewTopicIdeasViewProps {
     evidenceLoading?: boolean;
     /** Record id → why the existing page needs an update. */
     refreshReasons?: Readonly<Record<string, string>>;
+    /** The map's generation_metadata, for the map check's saved counts. */
+    generationMetadata?: unknown;
     contentPieces: number | null;
     readOnly: boolean;
     /** This month, YYYY-MM, in Los Angeles time. */
@@ -181,6 +199,7 @@ export function ReviewTopicIdeasView({
     evidence,
     evidenceLoading = false,
     refreshReasons,
+    generationMetadata,
     contentPieces,
     readOnly,
     today,
@@ -211,6 +230,10 @@ export function ReviewTopicIdeasView({
 
     const rows = useMemo(() => reviewRows([...records], evidence, refreshReasons), [records, evidence, refreshReasons]);
     const counts = reviewCounts(rows);
+    const check = useMemo(
+        () => mapCheck({ ideas: records, evidence, generationMetadata, brandName: clientName }),
+        [records, evidence, generationMetadata, clientName],
+    );
     const waitingIds = useMemo(() => new Set(rows.filter(row => row.status === 'waiting').map(row => row.idea.id)), [rows]);
     const selectedIds = [...selected].filter(id => waitingIds.has(id));
     const visible = filter === 'all' ? rows : rows.filter(row => row.status === filter);
@@ -318,6 +341,8 @@ export function ReviewTopicIdeasView({
                 <div className={done && filter === 'all' ? 'mt-3' : ''}>
                     <PlanCard plan={plan} showSelected={!done && !readOnly} />
                 </div>
+
+                {counts.all > 0 && <MapCheckPanel check={check} loading={evidenceLoading} />}
 
                 <nav aria-label="Filter ideas" className="mt-1.5 flex flex-wrap items-center gap-1 border-b border-[#e4e4e7] dark:border-border">
                     {REVIEW_FILTERS.map(item => {
@@ -583,6 +608,66 @@ function SourceNote({ evidence, loading }: { evidence: ReviewEvidence; loading: 
                 {text}
             </p>
         </div>
+    );
+}
+
+/** Read-only quality check: searches no idea covers, plus how the ideas were checked. */
+function MapCheckPanel({ check, loading }: { check: MapCheck; loading: boolean }) {
+    const mix = mixLine(check);
+    const lines = [repeatsLine(check), existingPagesLine(check), seedOnlyLine(check), mix].filter((line): line is CheckLine => line != null);
+    const more = missedMore(check);
+    return (
+        <details data-map-check className="group mb-3 rounded-[10px] border border-[#e4e4e7] px-5 py-3 dark:border-border">
+            <summary className={cn('flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 rounded [&::-webkit-details-marker]:hidden', FOCUS)}>
+                <ChevronRight className="h-4 w-4 flex-none transition-transform group-open:rotate-90" aria-hidden />
+                <span className="text-[14.5px] font-bold">{MAP_CHECK_TITLE}</span>
+                <span data-map-check-summary className={cn('text-[12.5px]', MUTED)}>
+                    {loading ? 'Checking Google Search Console…' : mapCheckSummary(check)}
+                </span>
+            </summary>
+            {!loading && (
+                <div className="mt-3 grid gap-5 pb-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+                    <div>
+                        <h3 className="text-[13.5px] font-bold">Searches with no idea in this map</h3>
+                        <p className={cn('mt-0.5 text-[12.5px] leading-normal', MUTED)}>{missedIntro(check)}</p>
+                        {check.connected && check.days > 0 && (check.missed.length === 0
+                            ? <p data-map-check-empty className={cn('mt-2 text-[13px]', STRONG)}>{missedEmpty(check)}</p>
+                            : (
+                                <ol data-map-check-missed className="mt-2 divide-y divide-[#f4f4f5] dark:divide-border">
+                                    {check.missed.map(search => {
+                                        const where = missedWhere(search);
+                                        return (
+                                            <li key={search.query} className="flex flex-wrap items-baseline justify-between gap-x-4 py-1.5 text-[13px]">
+                                                <span className={cn('font-semibold', STRONG)}>{search.query}</span>
+                                                <span className={cn('text-[12.5px]', MUTED)}>
+                                                    {missedTimes(search)}{where ? ` · ${where}` : ''}
+                                                </span>
+                                            </li>
+                                        );
+                                    })}
+                                </ol>
+                            ))}
+                        {more && <p className={cn('mt-1 text-xs', MUTED)}>{more}</p>}
+                    </div>
+                    <div>
+                        <h3 className="text-[13.5px] font-bold">How the ideas were checked</h3>
+                        <ul className="mt-1.5 space-y-2">
+                            {lines.map(line => (
+                                <li key={line.label} className="text-[13px]">
+                                    <p className={cn('font-semibold', STRONG)}>{line.label}</p>
+                                    <p className={cn('text-[12.5px] leading-normal', MUTED)}>{line.detail}</p>
+                                    {line === mix && check.mix.length > 0 && (
+                                        <p data-map-check-mix className={cn('text-[12.5px]', MUTED)}>
+                                            {check.mix.map(item => `${item.label}: ${item.count}`).join(' · ')}
+                                        </p>
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                </div>
+            )}
+        </details>
     );
 }
 
@@ -1109,6 +1194,7 @@ export function ReviewTopicIdeas({
             evidence={evidence}
             evidenceLoading={loading}
             refreshReasons={refreshReasons}
+            generationMetadata={generationMetadata}
             contentPieces={contentPieces}
             readOnly={readOnly}
             today={today}
