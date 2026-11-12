@@ -209,6 +209,7 @@ export function TopicalMapTab({ organizationId, clientId, clientName, contentPie
                 clientName={clientName}
                 silos={silos}
                 records={records}
+                generationMetadata={map.generationMetadata}
                 contentPieces={contentPieces}
                 readOnly={!canEditContent(role)}
                 onRecordsSaved={mergeSaved}

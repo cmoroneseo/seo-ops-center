@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { aggregateQueryPageFacts, loadArchitectGscQueries } from './architect-gsc.ts';
+import {
+    aggregateQueryPageFacts,
+    aggregateQueryPagePairs,
+    loadArchitectGscQueries,
+    loadArchitectPagePerformance,
+} from './architect-gsc.ts';
 import type { SearchReportingAdmin } from '../search-reporting/load.ts';
 
 const org = '11111111-1111-4111-8111-111111111111';
@@ -53,6 +58,7 @@ function fixtureAdmin(options: FixtureOptions) {
     const tables: string[] = [];
     const filters: { table: string; column: string; value: unknown }[] = [];
     const ins: { table: string; column: string; values: readonly unknown[] }[] = [];
+    const ranges: { table: string; from: number; to: number }[] = [];
     const admin: SearchReportingAdmin = {
         from(table: string) {
             tables.push(table);
@@ -63,7 +69,8 @@ function fixtureAdmin(options: FixtureOptions) {
                 lte() { return api; },
                 in(column: string, values: readonly unknown[]) { ins.push({ table, column, values }); return api; },
                 order() { return api; },
-                async range() {
+                async range(from: number, to: number) {
+                    ranges.push({ table, from, to });
                     if (table === 'gsc_history_days') return { data: options.days ?? [], error: options.daysError ?? null };
                     if (table === 'gsc_history_facts') return { data: options.facts ?? [], error: options.factsError ?? null };
                     return { data: [], error: null };
@@ -78,7 +85,7 @@ function fixtureAdmin(options: FixtureOptions) {
             return api;
         },
     };
-    return { admin, tables, filters, ins };
+    return { admin, tables, filters, ins, ranges };
 }
 
 test('the architect read loads query_page rows from gsc_history_facts', async () => {
@@ -128,4 +135,43 @@ test('a failed history read returns no queries', async () => {
     });
     assert.deepEqual(await loadArchitectGscQueries(failedFacts.admin, { organizationId: org, clientId: client }), []);
     assert.equal(JSON.stringify(await loadArchitectGscQueries(failedFacts.admin, { organizationId: org, clientId: client })).includes('statement timeout'), false);
+});
+
+test('every search and page pair is kept, not just the top 50 searches', () => {
+    const pairs = aggregateQueryPagePairs(fixtureFacts);
+    const plumberA = pairs.find(pair => pair.query === 'plumber near me' && pair.page === 'https://example.com/a');
+    assert.equal(pairs.length, 3);
+    assert.equal(plumberA?.impressions, 20);
+    assert.equal(plumberA?.position, 3);
+});
+
+test('the page performance read uses the page grain over at most 180 stored days', async () => {
+    const { admin, ins, ranges } = fixtureAdmin({
+        integration: { site_url: 'sc-domain:example.com' },
+        days: [{ id: 'day-1', data_date: '2026-11-01' }, { id: 'day-2', data_date: '2026-07-01' }],
+        facts: [
+            { day_id: 'day-1', page: 'https://example.com/a', clicks: 1, impressions: 10, position: 5 },
+            { day_id: 'day-2', page: 'https://example.com/a', clicks: 4, impressions: 40, position: 5 },
+        ],
+    });
+    const read = await loadArchitectPagePerformance(admin, { organizationId: org, clientId: client });
+    assert.deepEqual(ranges.filter(r => r.table === 'gsc_history_days').map(r => [r.from, r.to]), [[0, 179]]);
+    const grains = ins.filter(item => item.table === 'gsc_history_facts' && item.column === 'grain');
+    assert.equal(grains.length > 0, true);
+    assert.equal(grains.every(item => item.values.length === 1 && item.values[0] === 'page'), true);
+    assert.equal(read.recentDays, 1);
+    assert.equal(read.priorDays, 1);
+    assert.deepEqual(read.pages.get('example.com/a')?.recent, { clicks: 1, impressions: 10, position: 5 });
+    assert.deepEqual(read.pages.get('example.com/a')?.prior, { clicks: 4, impressions: 40, position: 5 });
+});
+
+test('a failed page performance read gives no signals', async () => {
+    const { admin } = fixtureAdmin({
+        integration: { site_url: 'sc-domain:example.com' },
+        days: [{ id: 'day-1', data_date: '2026-11-01' }],
+        factsError: { message: 'canceling statement due to statement timeout' },
+    });
+    const read = await loadArchitectPagePerformance(admin, { organizationId: org, clientId: client });
+    assert.equal(read.pages.size, 0);
+    assert.equal(read.recentDays, 0);
 });

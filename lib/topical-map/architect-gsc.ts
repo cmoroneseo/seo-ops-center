@@ -7,6 +7,13 @@
 import { readGrainedFacts } from '../search-reporting/fact-read';
 import type { SearchReportingAdmin } from '../search-reporting/load';
 import { normalizeUrl } from '../url/normalize-url';
+import {
+    aggregatePagePerformance,
+    EMPTY_PERFORMANCE,
+    PERIOD_DAYS,
+    type PerformanceRead,
+    type QueryOnPage,
+} from './page-performance';
 
 export interface ArchitectGscQuery {
     query: string;
@@ -111,6 +118,24 @@ export function aggregateQueryPageFacts(rows: readonly Record<string, unknown>[]
     return queries.slice(0, QUERY_LIMIT);
 }
 
+/** One row per search and page, every search kept. Position is impression-weighted. */
+export function aggregateQueryPagePairs(rows: readonly Record<string, unknown>[]): QueryOnPage[] {
+    const grouped = new Map<string, QueryOnPage & { weighted: number }>();
+    for (const row of rows) {
+        const fact = factFromRow(row);
+        if (!fact || !fact.page) continue;
+        const key = `${fact.query}\u0001${fact.page}`;
+        const current = grouped.get(key) ?? { query: fact.query, page: fact.page, clicks: 0, impressions: 0, position: 0, weighted: 0 };
+        current.clicks += fact.clicks;
+        current.impressions += fact.impressions;
+        current.weighted += fact.position * fact.impressions;
+        grouped.set(key, current);
+    }
+    return [...grouped.values()]
+        .filter(row => row.impressions > 0)
+        .map(({ weighted, ...row }) => ({ ...row, position: weighted / row.impressions }));
+}
+
 /** Total impressions per page over the same rows, keyed by normalizeUrl(...).url. */
 export function pageImpressionsFromFacts(rows: readonly Record<string, unknown>[]): Map<string, number> {
     const totals = new Map<string, number>();
@@ -135,6 +160,10 @@ export interface ArchitectGscContext {
     queries: ArchitectGscQuery[];
     /** Impressions per normalized page URL over the same days. */
     pageImpressions: Map<string, number>;
+    /** Every search and page pair over the same days (not capped like `queries`). */
+    queryPages: QueryOnPage[];
+    /** Stored days read. 0 when Search Console is not connected or could not be read. */
+    days: number;
 }
 
 /** Top queries only. See loadArchitectGscContext. */
@@ -155,7 +184,7 @@ export async function loadArchitectGscContext(
     admin: SearchReportingAdmin,
     input: { organizationId: string; clientId: string },
 ): Promise<ArchitectGscContext> {
-    const empty: ArchitectGscContext = { queries: [], pageImpressions: new Map() };
+    const empty: ArchitectGscContext = { queries: [], pageImpressions: new Map(), queryPages: [], days: 0 };
     try {
         const integration = await admin.from('client_integrations')
             .select('site_url:credentials->>site_url')
@@ -190,8 +219,59 @@ export async function loadArchitectGscContext(
         return {
             queries: aggregateQueryPageFacts(facts.rows),
             pageImpressions: pageImpressionsFromFacts(facts.rows),
+            queryPages: aggregateQueryPagePairs(facts.rows),
+            days: dayIds.length,
         };
     } catch {
         return empty;
+    }
+}
+
+/**
+ * Page-grain facts for the last 180 stored days, split into two 90-day
+ * periods (see aggregatePagePerformance). The page grain is one row per page
+ * per day, far lighter than query_page. A missing property or a failed read
+ * yields EMPTY_PERFORMANCE, so generation continues without refresh signals.
+ */
+export async function loadArchitectPagePerformance(
+    admin: SearchReportingAdmin,
+    input: { organizationId: string; clientId: string },
+): Promise<PerformanceRead> {
+    try {
+        const integration = await admin.from('client_integrations')
+            .select('site_url:credentials->>site_url')
+            .eq('organization_id', input.organizationId)
+            .eq('client_id', input.clientId)
+            .eq('service', 'gsc')
+            .maybeSingle();
+        if (integration.error) return EMPTY_PERFORMANCE;
+        const property = siteUrlOf(integration.data);
+        if (!property) return EMPTY_PERFORMANCE;
+
+        const days = await admin.from('gsc_history_days')
+            .select('id, data_date')
+            .eq('organization_id', input.organizationId)
+            .eq('client_id', input.clientId)
+            .eq('property', property)
+            .eq('search_type', 'web')
+            .order('data_date', { ascending: false })
+            .range(0, PERIOD_DAYS * 2 - 1);
+        if (days.error) return EMPTY_PERFORMANCE;
+        const dayRows = (days.data ?? [])
+            .map(row => row as { id?: unknown; data_date?: unknown })
+            .filter((row): row is { id: string; data_date: string } =>
+                typeof row?.id === 'string' && row.id.length > 0 && typeof row.data_date === 'string')
+            .map(row => ({ id: row.id, date: row.data_date }));
+        if (dayRows.length === 0) return EMPTY_PERFORMANCE;
+
+        const facts = await readGrainedFacts(admin, {
+            dayIds: dayRows.map(day => day.id),
+            grains: ['page'],
+            columns: 'day_id, page, clicks, impressions, position',
+        });
+        if (facts.failedGrains.includes('page')) return EMPTY_PERFORMANCE;
+        return aggregatePagePerformance(facts.rows, dayRows);
+    } catch {
+        return EMPTY_PERFORMANCE;
     }
 }

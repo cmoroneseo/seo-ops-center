@@ -93,6 +93,13 @@ test('the architect route filters pages and its AI timeout fits inside maxDurati
     assert.match(route, /maxRetries: 0/);
 });
 
+test('the architect route reads pages from the newest completed crawl only', () => {
+    const route = readFileSync(new URL('../../app/api/topical-map/generate-architect/route.ts', import.meta.url), 'utf8');
+    assert.match(route, /from\('site_crawl_runs'\)[\s\S]*?\.eq\('status', 'completed'\)[\s\S]*?\.order\('completed_at'/);
+    assert.match(route, /snapshotQuery\.eq\('run_id', String\(latestRun\.id\)\)/);
+    assert.match(route, /pageType: String\(item\.rec\.page_type \?\? 'other'\)/);
+});
+
 test('the prompt keeps the 40-page cap and lists the highest-impression page first', () => {
     const raw = Array.from({ length: 60 }, (_, i) => page(`/p${i}`));
     const impressions = new Map([[`${site}/p59`, 1000], [`${site}/p0`, 10]]);

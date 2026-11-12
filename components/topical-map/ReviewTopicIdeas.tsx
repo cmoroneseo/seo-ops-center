@@ -34,6 +34,7 @@ import {
 } from '@/lib/content/client';
 import { contentMonthChoices, currentWorkMonth } from '@/lib/content/board';
 import { readHttpUrl, workMonthLabel } from '@/lib/topical-map/production';
+import { readRefreshReasons } from '@/lib/topical-map/reconcile';
 import {
     approvedMonthsSummary,
     contentBoardHref,
@@ -150,6 +151,8 @@ export interface ReviewTopicIdeasViewProps {
     records: ReadonlyArray<TopicalMapRecord>;
     evidence: ReviewEvidence;
     evidenceLoading?: boolean;
+    /** Record id → why the existing page needs an update. */
+    refreshReasons?: Readonly<Record<string, string>>;
     contentPieces: number | null;
     readOnly: boolean;
     /** This month, YYYY-MM, in Los Angeles time. */
@@ -177,6 +180,7 @@ export function ReviewTopicIdeasView({
     records,
     evidence,
     evidenceLoading = false,
+    refreshReasons,
     contentPieces,
     readOnly,
     today,
@@ -205,7 +209,7 @@ export function ReviewTopicIdeasView({
     const [confirming, setConfirming] = useState<string | null>(readOnly ? null : initialConfirm);
     const [menuOpen, setMenuOpen] = useState(initialMonthMenuOpen);
 
-    const rows = useMemo(() => reviewRows([...records], evidence), [records, evidence]);
+    const rows = useMemo(() => reviewRows([...records], evidence, refreshReasons), [records, evidence, refreshReasons]);
     const counts = reviewCounts(rows);
     const waitingIds = useMemo(() => new Set(rows.filter(row => row.status === 'waiting').map(row => row.idea.id)), [rows]);
     const selectedIds = [...selected].filter(id => waitingIds.has(id));
@@ -882,6 +886,11 @@ function IdeaRow({
                     </div>
                     {live && <p className={cn('mt-1 text-xs leading-snug', MUTED)}>Already on your site, so it can&apos;t be added as new content.</p>}
                     {row.note && !live && <p className={cn('mt-1 text-xs leading-snug', MUTED)} data-existing-page>{row.note}</p>}
+                    {row.refresh && !live && (
+                        <p className={cn('mt-1 text-xs leading-snug', MUTED)} data-refresh-reason>
+                            <span className="font-semibold text-[#3f3f46] dark:text-foreground">Why update it:</span> {row.refresh}
+                        </p>
+                    )}
                     {row.warning && status === 'waiting' && (
                         <p data-duplicate-warning className="mt-1 flex items-start gap-1 text-xs font-semibold leading-snug text-[#92400e] dark:text-amber-300">
                             <TriangleAlert className="mt-px h-3.5 w-3.5 flex-none" aria-hidden />
@@ -1036,6 +1045,7 @@ export function ReviewTopicIdeas({
     clientName,
     silos,
     records,
+    generationMetadata,
     contentPieces,
     readOnly,
     onRecordsSaved,
@@ -1045,6 +1055,8 @@ export function ReviewTopicIdeas({
     clientName: string;
     silos: TopicalMapSilo[];
     records: TopicalMapRecord[];
+    /** The map's generation_metadata; refresh reasons are read from it. */
+    generationMetadata?: unknown;
     contentPieces: number | null;
     readOnly: boolean;
     onRecordsSaved: (records: TopicalMapRecord[]) => void;
@@ -1055,6 +1067,7 @@ export function ReviewTopicIdeas({
     const [busyIds, setBusyIds] = useState<string[]>([]);
     const [error, setError] = useState('');
     const today = useMemo(() => currentWorkMonth(), []);
+    const refreshReasons = useMemo(() => readRefreshReasons(generationMetadata), [generationMetadata]);
 
     useEffect(() => {
         let cancelled = false;
@@ -1095,6 +1108,7 @@ export function ReviewTopicIdeas({
             records={records}
             evidence={evidence}
             evidenceLoading={loading}
+            refreshReasons={refreshReasons}
             contentPieces={contentPieces}
             readOnly={readOnly}
             today={today}
