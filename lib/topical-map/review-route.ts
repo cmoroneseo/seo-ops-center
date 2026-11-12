@@ -12,8 +12,7 @@ import { requireClientOrgMember } from '../security/tenant-authz';
 import { createAdminClient } from '../supabase/admin';
 import type { CannibalFact } from '../keyword-tracking/cannibalization';
 import { normalizeUrl } from '../url/normalize-url';
-import { clusterQueryFacts } from './architect-gsc';
-import { intentKey } from './page-match';
+import { clusterKey, clusterQueryFacts } from './architect-gsc';
 import { buildReviewEvidence, EMPTY_EVIDENCE, factsFromRows, REVIEW_DAY_WINDOW, type SearchGroup } from './review';
 
 export interface ReviewFacts {
@@ -73,7 +72,8 @@ export function searchGroupsFromFacts(facts: readonly CannibalFact[], limit = SE
     const pages = new Map<string, Map<string, { impressions: number; weighted: number }>>();
     for (const fact of rows) {
         if (fact.impressions == null || fact.position == null || fact.impressions <= 0) continue;
-        const key = intentKey(fact.query);
+        // Same key clusterQueryFacts groups by, or the pages never line up with their group.
+        const key = clusterKey(fact.query);
         if (!wanted.has(key)) continue;
         const page = normalizeUrl(fact.page);
         if (!page || page.surface !== 'organic') continue;
