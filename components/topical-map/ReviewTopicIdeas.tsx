@@ -231,8 +231,8 @@ export function ReviewTopicIdeasView({
     const rows = useMemo(() => reviewRows([...records], evidence, refreshReasons), [records, evidence, refreshReasons]);
     const counts = reviewCounts(rows);
     const check = useMemo(
-        () => mapCheck({ ideas: records, evidence, generationMetadata, brandName: clientName }),
-        [records, evidence, generationMetadata, clientName],
+        () => mapCheck({ ideas: records, evidence, generationMetadata, brandName: clientName, silos }),
+        [records, evidence, generationMetadata, clientName, silos],
     );
     const waitingIds = useMemo(() => new Set(rows.filter(row => row.status === 'waiting').map(row => row.idea.id)), [rows]);
     const selectedIds = [...selected].filter(id => waitingIds.has(id));

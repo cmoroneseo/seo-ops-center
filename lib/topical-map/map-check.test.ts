@@ -201,6 +201,43 @@ test('a search one of your pages already has in the top 3 is left out, home page
     );
 });
 
+test('"Pages to refresh" rows are not counted in the article share (Ecoworkz: 4 of 30, not 11 of 37)', () => {
+    const generated = [
+        ...Array.from({ length: 4 }, (_, i) => idea(`article${i}`, { pageType: 'blog_post' })),
+        ...Array.from({ length: 26 }, (_, i) => idea(`money${i}`, { pageType: i % 2 ? 'landing' : 'service' })),
+    ];
+    const metadata = { page_mix: { records: Object.fromEntries(generated.map(item => [item.id, { page_type: item.pageType === 'blog_post' ? 'faq' : 'service_city', seed_only: false }])) } };
+    // Saved before this change: refresh rows typed 'other'.
+    const oldRefresh = Array.from({ length: 7 }, (_, i) => idea(`refresh${i}`, { pageType: 'other', action: 'improve', matchedUrl: `https://www.ecoworkz.net/page-${i}/`, siloId: 'refresh' }));
+    const silos = [{ id: 'main', name: 'Artificial Grass' }, { id: 'refresh', name: 'Pages to refresh' }];
+    const ideas = [...generated.map(item => ({ ...item, siloId: 'main' })), ...oldRefresh];
+
+    for (const check of [
+        mapCheck({ ideas, evidence: evidence([]), generationMetadata: metadata, silos }),
+        // An old map read without its groups: the 'other' improve rows are still known.
+        mapCheck({ ideas, evidence: evidence([]), generationMetadata: metadata }),
+    ]) {
+        assert.deepEqual([check.articles, check.ideas, check.refreshPages], [4, 37, 7]);
+        assert.match(mapCheckSummary(check), /4 of 30 ideas are articles$/);
+        assert.deepEqual(mixLine(check), {
+            label: '4 of 30 ideas are articles (13%)',
+            detail: 'The rest are service and location pages. The 7 pages to refresh are not counted, because they are pages you already have. We aim for no more than 30% articles.',
+        });
+        assert.equal(check.mix.reduce((sum, line) => sum + line.count, 0), 30);
+    }
+
+    // New maps: refresh rows carry real page types (an article among them), and the group decides.
+    const typed = ['blog_post', 'city', 'service'].map((pageType, i) => idea(`r${i}`, { pageType: pageType as MapCheckIdea['pageType'], action: 'improve', matchedUrl: `https://example.com/r${i}/`, siloId: 'refresh' }));
+    const check = mapCheck({ ideas: [idea('a', { pageType: 'blog_post', siloId: 'main' }), idea('b', { siloId: 'main' }), ...typed], evidence: evidence([]), silos });
+    assert.deepEqual([check.articles, check.refreshPages], [1, 3]);
+    assert.equal(mixLine(check)?.label, '1 of 2 ideas is an article (50%)');
+    // With the groups known, an improve idea someone typed 'other' in a normal group still counts.
+    const added = mapCheck({ ideas: [idea('a', { pageType: 'other', action: 'improve', matchedUrl: 'https://example.com/x/', siloId: 'main' })], evidence: evidence([]), silos });
+    assert.deepEqual([added.articles, added.refreshPages], [1, 0]);
+    assert.equal(mixLine(mapCheck({ ideas: typed, evidence: evidence([]), silos })), null);
+    assert.match(mixLine({ ...check, refreshPages: 1, ideas: 3 })?.detail ?? '', /The 1 page to refresh is not counted, because it is a page you already have\./);
+});
+
 test('stored page-mix records supply cited searches, seed-only flags and page types', () => {
     const metadata = {
         duplicate_gate: { duplicate_ideas_dropped: 2 },

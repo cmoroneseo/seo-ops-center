@@ -19,6 +19,8 @@
  * Pure functions. Later topic-map checks reuse them.
  */
 
+import type { PageType } from '../types';
+
 /** Words that never decide a match on their own. */
 export const GENERIC_TOKENS: ReadonlySet<string> = new Set([
     'install', 'installation', 'installer', 'installing', 'installed',
@@ -617,6 +619,41 @@ export function matchIdeaToPage<P extends MatchablePage>(
         if (supporting) return supporting;
     }
     return null;
+}
+
+const EXISTING_PAGE_TYPE: Record<PageKind, PageType> = {
+    home: 'homepage',
+    utility: 'other',
+    faq: 'faq',
+    hub: 'city',
+    service: 'service',
+    article: 'blog_post',
+};
+
+/**
+ * The stored page type of a page already on the site, as the page reader
+ * sees it: a city or county page, a service page, an FAQ page or an article.
+ * A folder page whose own pages are all city or county pages is the areas
+ * page ("/areas-we-serve/"), so a city page; one whose own pages are all
+ * service pages is a service page ("/services/"). 'other' only for utility
+ * pages (contact, about, gallery...), which are never refresh ideas anyway.
+ */
+export function existingPageType(url: string, pages: readonly MatchablePage[], ignore: ReadonlySet<string> = new Set()): PageType {
+    const site = siteFacts(pages);
+    const page = pages.find(other => pageKey(other.normalizedUrl) === pageKey(url)) ?? { normalizedUrl: url, h1s: [] };
+    const kind = pageKindOf(page, site, ignore);
+    const path = urlPath(url);
+    if (kind === 'article' && path !== '/') {
+        const children = pages
+            .filter(other => {
+                const own = urlPath(other.normalizedUrl);
+                return own.startsWith(`${path}/`) && !own.slice(path.length + 1).includes('/');
+            })
+            .map(other => pageKindOf(other, site, ignore));
+        if (children.length > 0 && children.every(child => child === 'hub')) return 'city';
+        if (children.length > 0 && children.every(child => child === 'service')) return 'service';
+    }
+    return EXISTING_PAGE_TYPE[kind];
 }
 
 /**

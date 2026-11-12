@@ -9,6 +9,7 @@
  */
 
 import { ARTICLE_KINDS, ARTICLE_MAX_SHARE, PAGE_KIND_LABEL, PAGE_KINDS, pageKindOf, SEED_ONLY_MAX_SHARE, type PageKind } from './page-mix';
+import { REFRESH_GROUP_NAME } from './page-performance';
 import {
     bareHost,
     GSC_MATCH_MAX_POSITION,
@@ -47,6 +48,7 @@ export interface MapCheckIdea {
     matchedUrl?: string | null;
     pageType: PageType;
     contentCategory?: string;
+    siloId?: string;
 }
 
 interface StoredMix {
@@ -216,8 +218,23 @@ export interface MapCheck {
     existingPages: number;
     /** 'map': flags saved when the map was made. 'recent': worked out from the review's own window. Null when neither is possible. */
     seedOnly: { count: number; of: number; source: 'map' | 'recent'; servicePages?: number | null } | null;
+    /** Rows in "Pages to refresh": existing pages, not new ideas, so not in the mix. */
+    refreshPages: number;
+    /** Articles among the ideas outside "Pages to refresh". */
     articles: number;
+    /** Page types of the ideas outside "Pages to refresh". */
     mix: PageMixLine[];
+}
+
+/**
+ * A row of "Pages to refresh". With the map's groups known, a row in that
+ * group (older maps used the same name). Without them, an existing page typed
+ * 'other' with no saved page type: how those rows were saved before they were
+ * given real page types.
+ */
+function isRefreshRow(idea: MapCheckIdea, refreshSilos: ReadonlySet<string> | null, stored: StoredMix | undefined): boolean {
+    if (refreshSilos) return Boolean(idea.siloId && refreshSilos.has(idea.siloId));
+    return idea.pageType === 'other' && idea.action !== 'create' && !stored?.kind;
 }
 
 /** Article or not for every idea; a fine label only when the map saved one. */
@@ -234,10 +251,15 @@ export function mapCheck(input: {
     evidence: ReviewEvidence;
     generationMetadata?: unknown;
     brandName?: string;
+    /** The map's groups, to tell which rows are "Pages to refresh". */
+    silos?: ReadonlyArray<{ id: string; name: string }>;
     limit?: number;
 }): MapCheck {
     const { ideas, evidence } = input;
     const stored = readStoredMix(input.generationMetadata);
+    const refreshSilos = input.silos
+        ? new Set(input.silos.filter(silo => silo.name.trim() === REFRESH_GROUP_NAME).map(silo => silo.id))
+        : null;
 
     const covering = ideas.map(idea => ({ ...idea, demandQuery: stored.get(idea.id)?.demandQuery ?? null }));
     const groups = evidence.connected ? evidence.groups ?? [] : [];
@@ -273,7 +295,12 @@ export function mapCheck(input: {
 
     const lines = new Map<string, number>();
     let articles = 0;
+    let refreshPages = 0;
     for (const idea of ideas) {
+        if (isRefreshRow(idea, refreshSilos, stored.get(idea.id))) {
+            refreshPages += 1;
+            continue;
+        }
         const kind = ideaKind(idea, stored.get(idea.id));
         if (kind.article) articles += 1;
         lines.set(kind.label, (lines.get(kind.label) ?? 0) + 1);
@@ -289,6 +316,7 @@ export function mapCheck(input: {
         repeatsRemoved: repeatsRemoved(input.generationMetadata),
         existingPages: ideas.filter(idea => idea.action !== 'create' && Boolean(idea.matchedUrl?.trim())).length,
         seedOnly,
+        refreshPages,
         articles,
         mix: [...lines].map(([label, value]) => ({ label, count: value }))
             .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
@@ -312,7 +340,8 @@ export function mapCheckSummary(check: MapCheck): string {
     const parts: string[] = [];
     if (check.connected && check.days > 0) parts.push(`${plural(check.missedTotal, 'search', 'searches')} with no idea`);
     if (check.repeatsRemoved != null) parts.push(`${plural(check.repeatsRemoved, 'repeat idea', 'repeat ideas')} removed`);
-    if (check.ideas > 0) parts.push(`${formatCount(check.articles)} of ${formatCount(check.ideas)} ideas are articles`);
+    const mixed = check.ideas - check.refreshPages;
+    if (mixed > 0) parts.push(`${formatCount(check.articles)} of ${formatCount(mixed)} ideas are articles`);
     return parts.join(' · ');
 }
 
@@ -394,10 +423,14 @@ export function seedOnlyLine(check: MapCheck): CheckLine | null {
 }
 
 export function mixLine(check: MapCheck): CheckLine | null {
-    if (check.ideas === 0) return null;
-    const share = Math.round((check.articles / check.ideas) * 100);
+    const mixed = check.ideas - check.refreshPages;
+    if (mixed <= 0) return null;
+    const share = Math.round((check.articles / mixed) * 100);
+    const refresh = check.refreshPages > 0
+        ? ` The ${plural(check.refreshPages, 'page', 'pages')} to refresh ${check.refreshPages === 1 ? 'is' : 'are'} not counted, because ${check.refreshPages === 1 ? 'it is a page' : 'they are pages'} you already have.`
+        : '';
     return {
-        label: `${formatCount(check.articles)} of ${plural(check.ideas, 'idea', 'ideas')} ${check.articles === 1 ? 'is an article' : 'are articles'} (${share}%)`,
-        detail: `The rest are service and location pages. We aim for no more than ${Math.round(ARTICLE_MAX_SHARE * 100)}% articles.`,
+        label: `${formatCount(check.articles)} of ${plural(mixed, 'idea', 'ideas')} ${check.articles === 1 ? 'is an article' : 'are articles'} (${share}%)`,
+        detail: `The rest are service and location pages.${refresh} We aim for no more than ${Math.round(ARTICLE_MAX_SHARE * 100)}% articles.`,
     };
 }

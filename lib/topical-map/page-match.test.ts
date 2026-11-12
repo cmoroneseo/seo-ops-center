@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     brandTokens,
     dedupeIdeas,
+    existingPageType,
     GSC_MATCH_MAX_POSITION,
     GSC_MATCH_MIN_IMPRESSIONS,
     ideaKind,
@@ -303,5 +304,52 @@ describe('isBrandSearch', () => {
         // A brand made of trade words is only matched in full.
         assert.equal(isBrandSearch('landscaping near me', 'Pacific Landscaping'), false);
         assert.equal(isBrandSearch('anything', '', null), false);
+    });
+});
+
+describe('existingPageType (refresh rows get real page types)', () => {
+    it('reads city, service, article and FAQ pages the way the matcher does', () => {
+        const type = (path: string) => existingPageType(`${site}${path}`, pages, brand);
+        assert.equal(type('/corona-ca/'), 'city');
+        assert.equal(type('/areas/riverside-county/'), 'city');
+        assert.equal(type('/services/pavers/'), 'service');
+        assert.equal(type('/services/pavers/driveway-pavers/'), 'service');
+        assert.equal(type('/pavers-vs-concrete-patio/'), 'blog_post');
+        assert.equal(type('/artificial-grass-backyard-worth-it/'), 'blog_post');
+        assert.equal(type('/about-us/faqs/'), 'faq');
+        assert.equal(type('/'), 'homepage');
+        // Only a page that really cannot be told apart stays 'other'.
+        assert.equal(type('/galleries/pavers-gallery/'), 'other');
+    });
+
+    it('a folder page over city pages is a city page, one over service pages a service page (Ecoworkz-like)', () => {
+        const eco = 'https://www.ecoworkz.net';
+        const ecoPages: MatchablePage[] = [
+            { normalizedUrl: `${eco}/areas-serviced-southern-california/`, title: 'Southern California Landscape Service Areas | Ecoworkz', h1s: ['Areas Serviced Southern California'] },
+            { normalizedUrl: `${eco}/areas-serviced-southern-california/orange-county-ca/`, title: 'Outdoor Construction in Orange County, CA', h1s: [] },
+            { normalizedUrl: `${eco}/areas-serviced-southern-california/riverside-county/`, title: 'Riverside Hardscape Contractor', h1s: [] },
+            { normalizedUrl: `${eco}/our-services/`, title: 'Landscape & Outdoor Living Services', h1s: [] },
+            { normalizedUrl: `${eco}/our-services/pavers/`, title: 'Paver Installation in Southern California', h1s: [] },
+            { normalizedUrl: `${eco}/yorba-linda-ca/`, title: 'Yorba Linda Hardscape Contractor | Pavers, Patios', h1s: [] },
+            { normalizedUrl: `${eco}/financing-outdoor-renovations-socal/`, title: 'Outdoor Renovation Financing Options in SoCal', h1s: [] },
+        ];
+        const ignore = brandTokens('Ecoworkz', eco);
+        assert.equal(existingPageType(`${eco}/areas-serviced-southern-california/`, ecoPages, ignore), 'city');
+        assert.equal(existingPageType(`${eco}/our-services/`, ecoPages, ignore), 'service');
+        assert.equal(existingPageType(`${eco}/yorba-linda-ca/`, ecoPages, ignore), 'city');
+        assert.equal(existingPageType(`${eco}/financing-outdoor-renovations-socal/`, ecoPages, ignore), 'blog_post');
+        // A page the crawl does not hold is read from its URL alone.
+        assert.equal(existingPageType(`${eco}/our-services/pet-turf/`, ecoPages, ignore), 'service');
+    });
+
+    it('works on a site with no services folder', () => {
+        const flat: MatchablePage[] = [
+            { normalizedUrl: 'https://roofco.com/roof-replacement/', title: 'Roof Replacement', h1s: [] },
+            { normalizedUrl: 'https://roofco.com/how-long-does-a-roof-last/', title: 'How Long Does a Roof Last?', h1s: [] },
+            { normalizedUrl: 'https://roofco.com/dallas-tx/', title: 'Roofing in Dallas, TX', h1s: [] },
+        ];
+        assert.equal(existingPageType('https://roofco.com/roof-replacement/', flat), 'service');
+        assert.equal(existingPageType('https://roofco.com/how-long-does-a-roof-last/', flat), 'blog_post');
+        assert.equal(existingPageType('https://roofco.com/dallas-tx/', flat), 'city');
     });
 });

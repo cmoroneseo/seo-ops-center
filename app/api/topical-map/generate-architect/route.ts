@@ -4,8 +4,8 @@ import { cookies } from 'next/headers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import Anthropic from '@anthropic-ai/sdk';
 import { loadArchitectGscContext, loadArchitectPagePerformance } from '@/lib/topical-map/architect-gsc';
-import { brandTokens, dedupeIdeas, GSC_MATCH_MAX_POSITION, intentKey } from '@/lib/topical-map/page-match';
-import { queriesByPage, refreshCandidates } from '@/lib/topical-map/page-performance';
+import { brandTokens, dedupeIdeas, existingPageType, GSC_MATCH_MAX_POSITION, intentKey } from '@/lib/topical-map/page-match';
+import { queriesByPage, REFRESH_GROUP_NAME, refreshCandidates } from '@/lib/topical-map/page-performance';
 import { buildSystemPrompt, buildUserMessage } from '@/lib/topical-map/generate-prompt';
 import { servicePageNames, validatePageMix } from '@/lib/topical-map/page-mix';
 import { selectPromptPages } from '@/lib/topical-map/prompt-pages';
@@ -400,7 +400,7 @@ export async function POST(req: NextRequest) {
             .insert({
                 map_id: mapId,
                 organization_id: organizationId,
-                name: 'Pages to refresh',
+                name: REFRESH_GROUP_NAME,
                 description: 'Pages already on your site that are slipping in Google or could rank higher with an update.',
                 hub_url: null,
                 search_intent: 'commercial',
@@ -417,7 +417,7 @@ export async function POST(req: NextRequest) {
                         silo_id: String(refreshSilo.id),
                         map_id: mapId,
                         organization_id: organizationId,
-                        page_type: 'other',
+                        page_type: existingPageType(candidate.url, existingPages, ignoreTokens),
                         action: 'improve',
                         title: candidate.title ?? candidate.url,
                         target_query: candidate.read.numbers.query ?? '',

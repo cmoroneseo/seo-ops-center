@@ -54,6 +54,8 @@ export const PAGE_ONE_MAX_POSITION = 10;
 
 /** Pages with signals but no matching idea added to the map, at most. */
 export const REFRESH_IDEAS_MAX = 10;
+/** The group those pages are saved in. The Review's article count leaves it out. */
+export const REFRESH_GROUP_NAME = 'Pages to refresh';
 
 export function expectedCtr(position: number | null | undefined): number | null {
     if (position == null || !Number.isFinite(position) || position <= 0) return null;
