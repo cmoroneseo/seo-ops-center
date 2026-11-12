@@ -30,12 +30,26 @@ export interface QueryEvidence {
     competing: boolean;
 }
 
+/** Every wording of one search intent over the stored window, for the map check. */
+export interface SearchGroup {
+    /** The wording with the most impressions. */
+    query: string;
+    variants: string[];
+    impressions: number;
+    position: number | null;
+    /** The page Google showed most for this search, and its spot. */
+    page: string | null;
+    pagePosition: number | null;
+}
+
 export interface ReviewEvidence {
     /** False when Search Console is not connected or could not be read. */
     connected: boolean;
     /** Stored days the numbers cover. */
     days: number;
     queries: QueryEvidence[];
+    /** All searches grouped by intent, most impressions first (capped). Absent on older responses. */
+    groups?: SearchGroup[];
 }
 
 export const EMPTY_EVIDENCE: ReviewEvidence = { connected: false, days: 0, queries: [] };

@@ -11,7 +11,10 @@ import type { SearchReportingAdmin } from '../search-reporting/load';
 import { requireClientOrgMember } from '../security/tenant-authz';
 import { createAdminClient } from '../supabase/admin';
 import type { CannibalFact } from '../keyword-tracking/cannibalization';
-import { buildReviewEvidence, EMPTY_EVIDENCE, factsFromRows, REVIEW_DAY_WINDOW } from './review';
+import { normalizeUrl } from '../url/normalize-url';
+import { clusterQueryFacts } from './architect-gsc';
+import { intentKey } from './page-match';
+import { buildReviewEvidence, EMPTY_EVIDENCE, factsFromRows, REVIEW_DAY_WINDOW, type SearchGroup } from './review';
 
 export interface ReviewFacts {
     connected: boolean;
@@ -42,16 +45,57 @@ export function createReviewHandlers(deps: ReviewRouteDeps) {
             const targetQueries = await deps.loadTargetQueries(auth.organizationId, auth.clientId);
             if (targetQueries.length === 0) return json({ evidence: EMPTY_EVIDENCE });
             const facts = await deps.loadFacts(auth.organizationId, auth.clientId);
+            const evidence = buildReviewEvidence({
+                targetQueries,
+                facts: facts.facts,
+                days: facts.days,
+                connected: facts.connected,
+            });
             return json({
-                evidence: buildReviewEvidence({
-                    targetQueries,
-                    facts: facts.facts,
-                    days: facts.days,
-                    connected: facts.connected,
-                }),
+                evidence: evidence.connected ? { ...evidence, groups: searchGroupsFromFacts(facts.facts) } : evidence,
             });
         },
     };
+}
+
+/** Search groups sent to the review, enough to leave a top 10 after covered ones are removed. */
+export const SEARCH_GROUP_LIMIT = 60;
+
+/**
+ * Every search in the loaded facts grouped by intent (the topic map's own
+ * clusterQueryFacts), most impressions first, each with the page Google
+ * showed most for it.
+ */
+export function searchGroupsFromFacts(facts: readonly CannibalFact[], limit = SEARCH_GROUP_LIMIT): SearchGroup[] {
+    const rows = facts.filter(fact => fact.grain == null || fact.grain === 'query_page');
+    const top = clusterQueryFacts(rows as unknown as Record<string, unknown>[]).slice(0, limit);
+    const wanted = new Set(top.map(group => group.key));
+    const pages = new Map<string, Map<string, { impressions: number; weighted: number }>>();
+    for (const fact of rows) {
+        if (fact.impressions == null || fact.position == null || fact.impressions <= 0) continue;
+        const key = intentKey(fact.query);
+        if (!wanted.has(key)) continue;
+        const page = normalizeUrl(fact.page);
+        if (!page || page.surface !== 'organic') continue;
+        const byPage = pages.get(key) ?? new Map<string, { impressions: number; weighted: number }>();
+        const stats = byPage.get(page.url) ?? { impressions: 0, weighted: 0 };
+        stats.impressions += fact.impressions;
+        stats.weighted += fact.position * fact.impressions;
+        byPage.set(page.url, stats);
+        pages.set(key, byPage);
+    }
+    return top.map(group => {
+        const best = [...(pages.get(group.key) ?? new Map()).entries()]
+            .sort((a, b) => b[1].impressions - a[1].impressions || a[0].localeCompare(b[0]))[0];
+        return {
+            query: group.query,
+            variants: group.variants,
+            impressions: group.impressions,
+            position: Number.isFinite(group.position) ? group.position : null,
+            page: best ? best[0] : null,
+            pagePosition: best ? best[1].weighted / best[1].impressions : null,
+        };
+    });
 }
 
 function siteUrlOf(value: unknown): string | null {
