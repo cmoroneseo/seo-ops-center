@@ -37,7 +37,7 @@ test('follows a Yoast-style sitemap index from robots.txt and keeps only same-si
     assert.equal(result.sitemapsRead, 3);
     assert.ok(!result.pages.some(url => url.includes('/wp-content/')), 'image:loc and /wp-content/ entries are not pages');
     assert.ok(!site.requested.some(url => /attachment|image/.test(url)), 'media sub-sitemaps are never fetched');
-    assert.ok(!site.requested.some(url => url.includes('other-site.com')), 'off-site sitemaps are never fetched');
+    assert.ok(!site.requested.some(url => { const host = new URL(url).hostname; return host === 'other-site.com' || host.endsWith('.other-site.com'); }), 'off-site sitemaps are never fetched');
     assert.ok(site.requested.includes('https://example.com/sitemap.xml'), '/sitemap.xml is always checked too');
 });
 
