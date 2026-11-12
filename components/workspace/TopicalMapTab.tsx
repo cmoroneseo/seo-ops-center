@@ -16,6 +16,9 @@ import { SiloAccordion } from '@/components/topical-map/SiloAccordion';
 import { RecordDetailPanel } from '@/components/topical-map/RecordDetailPanel';
 import { ReconciliationSummary } from '@/components/topical-map/ReconciliationSummary';
 import { canEditContent } from '@/lib/content/access';
+import { ReviewIdeasPrompt } from '@/components/topical-map/ReviewIdeasPrompt';
+import { ReviewTopicIdeas } from '@/components/topical-map/ReviewTopicIdeas';
+import { reviewStatus } from '@/lib/topical-map/review';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import type { TopicalMap, TopicalMapRecord, TopicalMapSilo } from '@/lib/types';
 
@@ -57,6 +60,24 @@ export function TopicalMapTab({ organizationId, clientId, clientName, contentPie
     const [selectedRecord, setSelectedRecord] = useState<TopicalMapRecord | null>(null);
     const [detailOpen, setDetailOpen] = useState(false);
     const [awaitingMapRow, setAwaitingMapRow] = useState(false);
+    const [reviewing, setReviewing] = useState(() => searchParams.get('view') === 'review');
+
+    const openReview = (open: boolean) => {
+        setReviewing(open);
+        if (typeof window === 'undefined') return;
+        const url = new URL(window.location.href);
+        if (open) url.searchParams.set('view', 'review');
+        else url.searchParams.delete('view');
+        window.history.replaceState(window.history.state, '', url.toString());
+    };
+
+    const mergeSaved = useCallback((saved: TopicalMapRecord[]) => {
+        const byId = new globalThis.Map(saved.map(record => [record.id, record] as const));
+        setLoaded(current => ({
+            ...current,
+            records: current.records.map(record => byId.get(record.id) ?? record),
+        }));
+    }, []);
 
     const load = useCallback(async () => {
         try {
@@ -172,7 +193,26 @@ export function TopicalMapTab({ organizationId, clientId, clientName, contentPie
             <MapProgressCard
                 clientId={clientId}
                 clientName={clientName}
-                onComplete={() => { void load(); }}
+                onComplete={() => {
+                    // A freshly built map goes straight to Review topic ideas.
+                    openReview(true);
+                    void load();
+                }}
+            />
+        );
+    }
+
+    if (reviewing) {
+        return (
+            <ReviewTopicIdeas
+                clientId={clientId}
+                clientName={clientName}
+                silos={silos}
+                records={records}
+                contentPieces={contentPieces}
+                readOnly={!canEditContent(role)}
+                onRecordsSaved={mergeSaved}
+                onBack={() => openReview(false)}
             />
         );
     }
@@ -199,6 +239,7 @@ export function TopicalMapTab({ organizationId, clientId, clientName, contentPie
             setDetailOpen={setDetailOpen}
             openWizard={openWizard}
             setLoaded={setLoaded}
+            onReview={() => openReview(true)}
         />
     );
 }
@@ -223,6 +264,7 @@ interface TopicalMapReadyProps {
     setDetailOpen: (open: boolean) => void;
     openWizard: (step: WizardSetupStep) => void;
     setLoaded: Dispatch<SetStateAction<LoadedMap>>;
+    onReview: () => void;
 }
 
 function TopicalMapReady({
@@ -230,8 +272,9 @@ function TopicalMapReady({
     contentReadOnly = false, contentPieces = null,
     activeSiloId, setActiveSiloId, filters, setFilters,
     selectedRecord, setSelectedRecord, detailOpen, setDetailOpen,
-    openWizard, setLoaded,
+    openWizard, setLoaded, onReview,
 }: TopicalMapReadyProps) {
+    const waitingCount = records.filter(record => reviewStatus(record) === 'waiting').length;
     const [specEnabled, setSpecEnabled] = useState(false);
 
     useEffect(() => {
@@ -309,6 +352,8 @@ function TopicalMapReady({
                 onEditProfile={() => openWizard('profile')}
                 onRegenerate={() => openWizard('profile')}
             />
+
+            <ReviewIdeasPrompt waiting={waitingCount} total={records.length} onReview={onReview} />
 
             <SiloTabBar
                 silos={silos}
