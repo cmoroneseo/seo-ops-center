@@ -29,7 +29,7 @@ export const SOURCE_TITLE: Record<RecordSource, string> = {
 const WORD_LIMIT = 60;
 const ANSWER_CHARS = 2000;
 const ANGLE_CHARS = 4000;
-const TITLE_CHARS = 300;
+export const TITLE_CHARS = 300;
 const QUERY_CHARS = 300;
 const LIST_LIMIT = 30;
 
