@@ -3,12 +3,14 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import Anthropic from '@anthropic-ai/sdk';
-import { loadArchitectGscContext } from '@/lib/topical-map/architect-gsc';
+import { loadArchitectGscContext, loadArchitectPagePerformance } from '@/lib/topical-map/architect-gsc';
+import { brandTokens, dedupeIdeas, GSC_MATCH_MAX_POSITION, intentKey } from '@/lib/topical-map/page-match';
+import { queriesByPage, refreshCandidates } from '@/lib/topical-map/page-performance';
 import { buildSystemPrompt, buildUserMessage } from '@/lib/topical-map/generate-prompt';
 import { selectPromptPages } from '@/lib/topical-map/prompt-pages';
 import { seedKeywordsFromMap } from '@/lib/topical-map/seed-keywords';
 import { architectStoredMetrics } from '@/lib/topical-map/metrics';
-import { reconcileRecord } from '@/lib/topical-map/reconcile';
+import { duplicateGateSummary, pageRefreshRead, reconcileRecord, type ReconcileContext } from '@/lib/topical-map/reconcile';
 import type { SearchReportingAdmin } from '@/lib/search-reporting/load';
 import type { TopicalMapProfile } from '@/lib/types';
 
@@ -85,7 +87,14 @@ export async function POST(req: NextRequest) {
     };
 
     // Re-fetch GSC and pages (fast DB reads). Queries come from gsc_history_facts.
-    const { queries: gscQueries, pageImpressions } = await loadArchitectGscContext(admin as unknown as SearchReportingAdmin, {
+    const gscContext = await loadArchitectGscContext(admin as unknown as SearchReportingAdmin, {
+        organizationId,
+        clientId,
+    });
+    const { queries: gscQueries, pageImpressions } = gscContext;
+    // 180 stored days of page-grain facts for refresh signals. Runs during the
+    // AI call and never rejects (a failed read gives no signals).
+    const performancePromise = loadArchitectPagePerformance(admin as unknown as SearchReportingAdmin, {
         organizationId,
         clientId,
     });
@@ -178,12 +187,62 @@ export async function POST(req: NextRequest) {
         },
     }).eq('id', mapId);
 
-    // Stage 5: Reconciliation — insert silos and records
-    const gscEvidence = gscQueries.map(r => ({ query: r.query, pageUrl: r.page }));
+    // Stage 5: Reconciliation — match every idea to existing pages, drop
+    // duplicates across the whole map, then insert silos and records.
+    const ignoreTokens = brandTokens(profile.brandName, String(clientCheck.domain ?? ''));
+    // Only pairs that can match (spot 20 or better), each intent key computed once.
+    const gscEvidence = gscContext.queryPages
+        .filter(r => r.position <= GSC_MATCH_MAX_POSITION)
+        .map(r => ({
+            query: r.query,
+            pageUrl: r.page,
+            position: r.position,
+            impressions: r.impressions,
+            key: intentKey(r.query, ignoreTokens),
+        }));
+    const performance = await performancePromise;
+    const reconcileCtx: ReconcileContext = {
+        ignoreTokens,
+        performance,
+        pageQueries: queriesByPage(gscContext.queryPages),
+        queryDays: gscContext.days,
+        gscConnected: gscContext.days > 0 || performance.recentDays > 0,
+    };
+
+    const siloRecords = parsed.silos.map(silo => {
+        const records = ((silo as Record<string, unknown>).records ?? (silo as Record<string, unknown>).pages ?? []) as Array<Record<string, unknown>>;
+        return records.map(rec => ({
+            rec,
+            reconciled: reconcileRecord(
+                {
+                    targetQuery: String(rec.target_query ?? ''),
+                    title: String(rec.title ?? ''),
+                    suggestedUrl: rec.suggested_url ? String(rec.suggested_url) : undefined,
+                    supportingQueries: Array.isArray(rec.supporting_queries)
+                        ? rec.supporting_queries.filter((q): q is string => typeof q === 'string')
+                        : undefined,
+                    pageType: rec.page_type ? String(rec.page_type) : undefined,
+                },
+                existingPages,
+                gscEvidence,
+                reconcileCtx,
+            ),
+        }));
+    });
+    const flat = siloRecords.flat();
+    const { duplicateOf } = dedupeIdeas(
+        flat.map(item => ({ targetQuery: String(item.rec.target_query ?? ''), matchedUrl: item.reconciled.matchedUrl })),
+        ignoreTokens,
+    );
+    const idByIndex = new Map<number, string>();
+    const refreshReasons: Record<string, { reason: string; signals: string[] }> = {};
+    let flatIdx = 0;
 
     for (let siloIdx = 0; siloIdx < parsed.silos.length; siloIdx++) {
         const silo = parsed.silos[siloIdx] as Record<string, unknown>;
-        const records = (silo.records ?? silo.pages ?? []) as Array<Record<string, unknown>>;
+        const records = siloRecords[siloIdx];
+        const siloStart = flatIdx;
+        flatIdx += records.length;
 
         const { data: siloRow } = await admin
             .from('topical_map_silos')
@@ -205,16 +264,15 @@ export async function POST(req: NextRequest) {
         const titleToId = new Map<string, string>();
 
         for (let recIdx = 0; recIdx < records.length; recIdx++) {
-            const rec = records[recIdx];
-            const reconciled = reconcileRecord(
-                {
-                    targetQuery: String(rec.target_query ?? ''),
-                    title: String(rec.title ?? ''),
-                    suggestedUrl: rec.suggested_url ? String(rec.suggested_url) : undefined,
-                },
-                existingPages,
-                gscEvidence,
-            );
+            const { rec, reconciled } = records[recIdx];
+            const earlier = duplicateOf.get(siloStart + recIdx);
+            if (earlier != null) {
+                // Same search or same page as an earlier idea: not inserted.
+                // Children that name it as parent attach to the earlier idea.
+                const keptId = idByIndex.get(earlier);
+                if (keptId && rec.title) titleToId.set(String(rec.title), keptId);
+                continue;
+            }
 
             const parentTitle = rec.parent_title ? String(rec.parent_title) : undefined;
             const parentRecordId = parentTitle ? titleToId.get(parentTitle) : undefined;
@@ -250,7 +308,71 @@ export async function POST(req: NextRequest) {
                 .select('id')
                 .single();
 
-            if (recordRow) titleToId.set(String(rec.title), String(recordRow.id));
+            if (recordRow) {
+                titleToId.set(String(rec.title), String(recordRow.id));
+                idByIndex.set(siloStart + recIdx, String(recordRow.id));
+                if (reconciled.refresh) refreshReasons[String(recordRow.id)] = reconciled.refresh;
+            }
+        }
+    }
+
+    // Existing pages with refresh signals that no idea matched, as Refresh
+    // ideas in their own group. A page whose main search an idea already
+    // targets is left to that idea.
+    const kept = flat.filter((_, index) => !duplicateOf.has(index));
+    const matchedUrls = new Set(kept.map(item => item.reconciled.matchedUrl).filter((url): url is string => Boolean(url)));
+    const keptIntents = new Set(kept.map(item => intentKey(String(item.rec.target_query ?? ''), ignoreTokens)).filter(Boolean));
+    const candidates = refreshCandidates(
+        existingPages
+            .map(page => ({
+                url: page.normalizedUrl,
+                pageId: page.pageId,
+                title: page.title,
+                read: pageRefreshRead(page.normalizedUrl, { wordCount: page.wordCount }, reconcileCtx),
+            }))
+            .filter(page => !page.read.numbers.query || !keptIntents.has(intentKey(page.read.numbers.query, ignoreTokens))),
+        matchedUrls,
+    );
+    let refreshAdded = 0;
+    if (candidates.length > 0) {
+        const { data: refreshSilo } = await admin
+            .from('topical_map_silos')
+            .insert({
+                map_id: mapId,
+                organization_id: organizationId,
+                name: 'Pages to refresh',
+                description: 'Pages already on your site that are slipping in Google or could rank higher with an update.',
+                hub_url: null,
+                search_intent: 'commercial',
+                sort_order: parsed.silos.length,
+            })
+            .select('id')
+            .single();
+        if (refreshSilo) {
+            for (let i = 0; i < candidates.length; i++) {
+                const candidate = candidates[i];
+                const { data: recordRow } = await admin
+                    .from('topical_map_records')
+                    .insert({
+                        silo_id: String(refreshSilo.id),
+                        map_id: mapId,
+                        organization_id: organizationId,
+                        page_type: 'other',
+                        action: 'improve',
+                        title: candidate.title ?? candidate.url,
+                        target_query: candidate.read.numbers.query ?? '',
+                        build_phase: 1,
+                        site_page_id: candidate.pageId ?? null,
+                        matched_url: candidate.url,
+                        sort_order: i,
+                    })
+                    .select('id')
+                    .single();
+                if (recordRow) {
+                    refreshAdded += 1;
+                    refreshReasons[String(recordRow.id)] = { reason: candidate.reason, signals: candidate.read.signals };
+                }
+            }
         }
     }
 
@@ -263,6 +385,8 @@ export async function POST(req: NextRequest) {
             tokens_used: (aiResponse.usage?.input_tokens ?? 0) + (aiResponse.usage?.output_tokens ?? 0),
             duration_ms: durationMs,
             generated_at: new Date().toISOString(),
+            duplicate_gate: duplicateGateSummary(flat.map(item => item.reconciled), duplicateOf.size, refreshAdded),
+            refresh_reasons: refreshReasons,
         },
     }).eq('id', mapId);
 
