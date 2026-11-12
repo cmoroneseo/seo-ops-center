@@ -83,6 +83,11 @@ test('the architect route runs the page-mix check and stores mapped types and co
     assert.match(route, /content_category: mix\.label/);
     assert.match(route, /page_mix: \{/);
     assert.equal(route.includes('String(rec.page_type'), false, 'the raw model page type is never stored');
+    assert.equal(route.includes('String(item.rec.page_type'), false, 'the duplicate gate compares stored page types');
+    assert.match(route, /pageType: item\.mix\.storedType/);
+    assert.match(route, /servicePageNames\(existingPages/);
+    assert.match(route, /\{ services \}/);
+    assert.match(route, /mix\.parentIndex/);
     assert.match(route, /max_tokens: 16384/);
 });
 
