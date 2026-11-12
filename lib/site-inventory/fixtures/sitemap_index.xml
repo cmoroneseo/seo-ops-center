@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?><?xml-stylesheet type="text/xsl" href="//example.com/wp-content/plugins/wordpress-seo/css/main-sitemap.xsl"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+	<sitemap>
+		<loc>https://example.com/post-sitemap.xml</loc>
+		<lastmod>2026-10-01T12:00:00+00:00</lastmod>
+	</sitemap>
+	<sitemap>
+		<loc>https://example.com/page-sitemap.xml</loc>
+		<lastmod>2026-10-02T12:00:00+00:00</lastmod>
+	</sitemap>
+	<sitemap>
+		<loc>https://example.com/attachment-sitemap.xml</loc>
+	</sitemap>
+	<sitemap>
+		<loc>https://example.com/sitemap-images.xml</loc>
+	</sitemap>
+	<sitemap>
+		<loc>https://cdn.other-site.com/post-sitemap.xml</loc>
+	</sitemap>
+</sitemapindex>

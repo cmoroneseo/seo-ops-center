@@ -38,7 +38,7 @@ export function normalizeSiteUrl(input: string) {
 export function isKnownNonPageAssetUrl(input: string) {
     try {
         const pathname = decodeURIComponent(parseAbsoluteHttpUrl(input).pathname);
-        return NON_PAGE_ASSET_EXTENSION.test(pathname);
+        return NON_PAGE_ASSET_EXTENSION.test(pathname) || /^\/wp-content\//i.test(pathname);
     } catch {
         return false;
     }

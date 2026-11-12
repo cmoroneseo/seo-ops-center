@@ -72,6 +72,8 @@ test('known static assets are excluded without hiding potentially indexable docu
         'https://example.com/video.mp4',
         'https://example.com/archive.zip',
         'https://example.com/image%2Epng',
+        'https://example.com/wp-content/uploads/2024/05/hero-1024x768',
+        'https://example.com/wp-content/plugins/forms/download.php?id=3',
     ]) {
         assert.equal(isKnownNonPageAssetUrl(url), true, url);
     }
