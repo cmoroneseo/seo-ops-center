@@ -328,7 +328,10 @@ test('a group test shows the summary, each page, and a finished gauge', () => {
     assert.match(markup, /Title and meta description format/);
     assert.match(markup, /Control period/);
     assert.match(markup, /Test period/);
-    assert.match(markup, /Site clicks per day/);
+    assert.match(markup, /Rest of the site clicks per day/);
+    assert.match(markup, /Sitewide clicks minus the pages in this test/);
+    assert.equal(markup.includes('including these pages'), false);
+    assert.equal(markup.includes('Whole site'), false);
     assert.match(markup, /data-group-metric="site_clicks"/);
     assert.match(markup, /Hardscape/);
     assert.match(markup, /Landscape/);

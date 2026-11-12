@@ -108,7 +108,7 @@ Test progress is the share of the current window that already has final Search C
 
 `seo_changes.test_kind` is `single` or `group`. `treatment` is empty on a single change, and one of `title_meta`, `title`, `meta`, `h1`, `other` on a group. Existing rows stay single. A later split test would be a new `test_kind` value. This migration is not applied. Do not run it against production.
 
-The group is the logged pages added together. Site clicks per day are the sitewide series already used for the control, so a group lift can be read next to the whole site. Per-URL rows are change percents, not a second set of verdict badges. The one verdict on the change still uses the 10-point control band, the 15% page band, the checkpoints, and the low-data estimate.
+The group is the logged pages added together. Rest-of-site clicks per day are the untouched remainder: the sitewide property total minus the URLs in the test, the same subtraction the control already uses. Per-URL rows are change percents, not a second set of verdict badges. The one verdict on the change still uses the 10-point control band, the 15% page band, the checkpoints, and the low-data estimate.
 
 ## API needs that already exist
 

@@ -19,20 +19,26 @@ test('a group test needs a treatment and at least two pages', () => {
     assert.equal(normalizeChange({ ...input, testKind: 'single' })?.treatment, '');
 });
 
-test('the group summary uses sitewide clicks, and each URL keeps its own change', () => {
+test('the group summary uses the untouched remainder, and each URL keeps its own change', () => {
     const board = exampleGroupBoard();
     const impact = board.impacts['example-group-title-meta'];
     assert.equal(impact.headline.ready, true);
     assert.equal(impact.headline.days, 56);
+    assert.equal(impact.headline.controlMode, 'untouched');
     const summary = buildGroupSummary(impact);
     const clicks = summary.rows.find(row => row.id === 'clicks');
     const site = summary.rows.find(row => row.id === 'site_clicks');
     const position = summary.rows.find(row => row.id === 'avg_position');
     assert.equal(clicks?.before, 14);
     assert.equal(clicks?.after, 16);
-    assert.equal(site?.before, 80);
-    assert.equal(site?.after, 84);
-    assert.notEqual(site?.before, impact.baselineControl?.clicks);
+    // Sitewide 80 and 84 per day, minus the group (14 and 16). Not the whole site.
+    assert.equal(site?.before, 66);
+    assert.equal(site?.after, 68);
+    assert.equal(site?.label, 'Rest of the site clicks per day');
+    assert.equal(site?.note, 'Sitewide clicks minus the pages in this test.');
+    assert.equal(site?.note?.includes('including these pages'), false);
+    assert.equal(impact.baselineControl?.clicks, 66 * 28);
+    assert.equal(impact.headline.restOfSite?.clicks, 68 * 56);
     assert.ok(position?.before != null && position.before > 0);
     assert.equal(summary.rows.find(row => row.id === 'ctr')?.before != null, true);
 

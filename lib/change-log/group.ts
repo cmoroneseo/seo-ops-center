@@ -34,7 +34,7 @@ const SUMMARY: Array<{
     daily: boolean;
 }> = [
     { id: 'clicks', label: 'Clicks per day', note: null, kind: 'daily', lowerIsBetter: false, site: false, daily: true },
-    { id: 'site_clicks', label: 'Site clicks per day', note: 'Whole site, including these pages.', kind: 'daily', lowerIsBetter: false, site: true, daily: true },
+    { id: 'site_clicks', label: 'Rest of the site clicks per day', note: 'Sitewide clicks minus the pages in this test.', kind: 'daily', lowerIsBetter: false, site: true, daily: true },
     { id: 'impressions', label: 'Impressions per day', note: null, kind: 'daily', lowerIsBetter: false, site: false, daily: true },
     { id: 'avg_position', label: 'Average position', note: 'Lower is better', kind: 'position', lowerIsBetter: true, site: false, daily: false },
     { id: 'ctr', label: 'Click rate', note: null, kind: 'rate', lowerIsBetter: false, site: false, daily: false },
@@ -42,8 +42,10 @@ const SUMMARY: Array<{
 
 /**
  * Group summary. Page rows are the changed URLs added together.
- * Site clicks are the sitewide series already used to build the control,
- * not a new comparison and not the untouched remainder.
+ * The rest-of-site row is the untouched remainder already on the impact:
+ * sitewide clicks minus those URLs (`baselineControl` before, `restOfSite`
+ * on the latest finished check). It is null when that subtraction cannot be
+ * formed, rather than the whole site.
  */
 export function buildGroupSummary(impact: ImpactModel): GroupSummary {
     const ready = impact.headline.ready;
@@ -51,9 +53,9 @@ export function buildGroupSummary(impact: ImpactModel): GroupSummary {
         ready,
         days: ready ? impact.headline.days : null,
         rows: SUMMARY.map(spec => {
-            const beforeRead = spec.site ? impact.baselineSite : impact.baseline;
+            const beforeRead = spec.site ? impact.baselineControl : impact.baseline;
             const afterRead = ready
-                ? (spec.site ? impact.headline.sitewide : impact.headline.page)
+                ? (spec.site ? impact.headline.restOfSite : impact.headline.page)
                 : null;
             const before = readMetric(spec, beforeRead);
             const after = readMetric(spec, afterRead);
