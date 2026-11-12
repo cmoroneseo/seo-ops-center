@@ -92,8 +92,6 @@ export const FAQ_MIN_COVERAGE = 0.5;
 export const GSC_MATCH_MAX_POSITION = 20;
 /** ...and with at least this many impressions in the window. */
 export const GSC_MATCH_MIN_IMPRESSIONS = 20;
-/** Two ideas on the same page with the same page type are duplicates when this share of their words overlap. */
-export const DEDUPE_MIN_OVERLAP = 0.5;
 
 function singular(word: string): string {
     if (word.length > 4 && word.endsWith('ies')) return `${word.slice(0, -3)}y`;
@@ -129,7 +127,7 @@ function tokenize(text: string | null | undefined, ignore: ReadonlySet<string>, 
     return out;
 }
 
-const BROAD_TOKENS: ReadonlySet<string> = new Set(BROAD_WORDS.flatMap(word => tokenize(word, new Set(), false)));
+export const BROAD_TOKENS: ReadonlySet<string> = new Set(BROAD_WORDS.flatMap(word => tokenize(word, new Set(), false)));
 
 /** Significant tokens, de-duplicated, in first-seen order. */
 export function significantTokens(text: string | null | undefined, ignore: ReadonlySet<string> = new Set()): string[] {
@@ -496,6 +494,26 @@ export function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean
     return a.size === b.size && [...a].every(value => b.has(value));
 }
 
+/**
+ * How well a city/county page fits the places an idea names, or null when it
+ * does not. Every place in the page's URL must be one the idea names. A county
+ * URL ("san-bernardino-county") also stands for the city of the same name
+ * when the page's title or H1 names that city ("Artificial Grass San
+ * Bernardino, CA"), but scores below a page built for that exact place.
+ */
+function hubFit(page: PageFacts, places: readonly string[]): number | null {
+    if (places.length === 0) return null;
+    let exact = 0;
+    for (const place of page.pathPlaces) {
+        if (places.includes(place)) exact += 1;
+        else {
+            const city = place.replace(/ county$/, '');
+            if (city === place || !page.titlePlaces.has(city) || !places.includes(city)) return null;
+        }
+    }
+    return 1 + exact;
+}
+
 /** Kind, place and modifier agreement. Token overlap is checked separately. */
 function compatible(idea: IdeaFacts, page: PageFacts): boolean {
     const kindOk = idea.kind === 'money'
@@ -503,7 +521,7 @@ function compatible(idea: IdeaFacts, page: PageFacts): boolean {
         : idea.kind === 'article' ? page.kind === 'article' : page.kind === 'faq';
     if (!kindOk) return false;
     if (!sameSet(idea.flags, page.flags) || idea.comparison !== page.comparison) return false;
-    if (page.kind === 'hub') return idea.places.length > 0 && [...page.pathPlaces].every(place => idea.places.includes(place));
+    if (page.kind === 'hub') return hubFit(page, idea.places) != null;
     if (!idea.places.every(place => page.places.has(place))) return false;
     // A page built for one city never stands in for an idea with no city: a
     // service page with the city in its URL, or an article with it in its title.
@@ -521,7 +539,7 @@ function tokenScore(idea: IdeaFacts, page: PageFacts): number | null {
         let score: number | null = null;
         if (page.kind === 'hub') {
             // A city/county page covers all-round work there, plus whatever it names.
-            if (tokens.every(token => BROAD_TOKENS.has(token) || page.topic.has(token))) score = 1 + page.pathPlaces.size;
+            if (tokens.every(token => BROAD_TOKENS.has(token) || page.topic.has(token))) score = hubFit(page, idea.places);
         } else if (page.kind === 'faq') {
             const coverage = tokens.filter(token => page.topic.has(token)).length / tokens.length;
             if (coverage >= FAQ_MIN_COVERAGE) score = coverage;
@@ -611,41 +629,51 @@ export function matchIdeaToPage<P extends MatchablePage>(
 }
 
 /**
- * Keeps the first idea per search (intentKey) and drops a later idea that
- * matched the same page only when both have the same page type and at least
- * half their words overlap. Two different articles that both point at one
- * existing post are both kept.
- * Returns the index of the earlier idea each dropped idea duplicates.
+ * The site's own city or county page for the place a text names ("paver
+ * installation orange county" gives /orange-county-ca/), or null when the
+ * text names no place or the site has no page for it.
+ */
+export function placePageFor<P extends MatchablePage>(
+    text: string,
+    pages: readonly P[],
+    ignore: ReadonlySet<string> = new Set(),
+): P | null {
+    const site = siteFacts(pages);
+    const named = readText(text, new Set([...site.places, ...placesInText(text, site.places)]), ignore).places;
+    const view = { places: site.places, serviceDir: site.serviceDir };
+    let best: P | null = null;
+    let bestFit = 0;
+    for (const page of pages) {
+        const read = cachedPage(page, view, ignore);
+        const fit = read.kind === 'hub' ? hubFit(read, named) : null;
+        if (fit != null && fit > bestFit) {
+            best = page;
+            bestFit = fit;
+        }
+    }
+    return best;
+}
+
+/**
+ * Keeps the first idea per search (intentKey). Returns the index of the
+ * earlier idea each dropped idea repeats. Ideas that land on the same
+ * existing page are merged later, by planPages (one page, one idea).
  */
 export function dedupeIdeas(
-    ideas: ReadonlyArray<{ targetQuery: string; matchedUrl?: string | null; pageType?: string | null }>,
+    ideas: ReadonlyArray<{ targetQuery: string }>,
     ignore: ReadonlySet<string> = new Set(),
 ): { keep: number[]; duplicateOf: Map<number, number> } {
     const byIntent = new Map<string, number>();
-    const byPage = new Map<string, number[]>();
     const keep: number[] = [];
     const duplicateOf = new Map<number, number>();
-    const tokensOf = (index: number) => new Set(significantTokens(ideas[index].targetQuery, ignore));
     ideas.forEach((idea, index) => {
         const intent = intentKey(idea.targetQuery, ignore);
-        const page = idea.matchedUrl?.trim() ? pageKey(idea.matchedUrl) : '';
-        let earlier = intent ? byIntent.get(intent) : undefined;
-        if (earlier == null && page) {
-            const mine = tokensOf(index);
-            earlier = (byPage.get(page) ?? []).find(other => {
-                if ((ideas[other].pageType ?? '') !== (idea.pageType ?? '')) return false;
-                const theirs = tokensOf(other);
-                const shared = [...mine].filter(token => theirs.has(token)).length;
-                const union = new Set([...mine, ...theirs]).size;
-                return union > 0 && shared / union >= DEDUPE_MIN_OVERLAP;
-            });
-        }
+        const earlier = intent ? byIntent.get(intent) : undefined;
         if (earlier != null) {
             duplicateOf.set(index, earlier);
             return;
         }
         if (intent) byIntent.set(intent, index);
-        if (page) byPage.set(page, [...(byPage.get(page) ?? []), index]);
         keep.push(index);
     });
     return { keep, duplicateOf };

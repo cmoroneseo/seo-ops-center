@@ -4,14 +4,15 @@ import { cookies } from 'next/headers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import Anthropic from '@anthropic-ai/sdk';
 import { loadArchitectGscContext, loadArchitectPagePerformance } from '@/lib/topical-map/architect-gsc';
-import { brandTokens, dedupeIdeas, GSC_MATCH_MAX_POSITION, intentKey } from '@/lib/topical-map/page-match';
+import { brandTokens, GSC_MATCH_MAX_POSITION, intentKey } from '@/lib/topical-map/page-match';
 import { queriesByPage, refreshCandidates } from '@/lib/topical-map/page-performance';
 import { buildSystemPrompt, buildUserMessage } from '@/lib/topical-map/generate-prompt';
 import { servicePageNames, validatePageMix } from '@/lib/topical-map/page-mix';
+import { planPages } from '@/lib/topical-map/page-plan';
 import { selectPromptPages } from '@/lib/topical-map/prompt-pages';
 import { seedKeywordsFromMap } from '@/lib/topical-map/seed-keywords';
 import { architectStoredMetrics } from '@/lib/topical-map/metrics';
-import { duplicateGateSummary, pageRefreshRead, reconcileRecord, type ReconcileContext } from '@/lib/topical-map/reconcile';
+import { duplicateGateSummary, pageRefreshRead, type ReconcileContext } from '@/lib/topical-map/reconcile';
 import type { SearchReportingAdmin } from '@/lib/search-reporting/load';
 import type { TopicalMapProfile } from '@/lib/types';
 
@@ -254,50 +255,37 @@ export async function POST(req: NextRequest) {
         gscConnected: gscContext.days > 0 || performance.recentDays > 0,
     };
 
+    // One idea per existing page, live service pages first, new city pages
+    // only with their own demand (see planPages).
     let rawIdx = 0;
-    const siloRecords = rawRecords.map(records => records.flatMap(rec => {
-        const mix = mixByIndex.get(rawIdx++);
-        if (!mix) return [];
-        return [{
-            rec,
-            mix,
-            reconciled: reconcileRecord(
-                {
-                    targetQuery: String(rec.target_query ?? ''),
-                    title: String(rec.title ?? ''),
-                    suggestedUrl: rec.suggested_url ? String(rec.suggested_url) : undefined,
-                    supportingQueries: mix.supportingQueries,
-                    pageType: mix.storedType,
-                },
-                existingPages,
-                gscEvidence,
-                reconcileCtx,
-            ),
-        }];
-    }));
-    const flat = siloRecords.flat();
-    const { duplicateOf } = dedupeIdeas(
-        flat.map(item => ({
-            targetQuery: String(item.rec.target_query ?? ''),
-            matchedUrl: item.reconciled.matchedUrl,
-            // The stored type, so the same-type rule compares what is saved (not the model's raw page_type).
-            pageType: item.mix.storedType,
+    const plan = planPages({
+        ideas: rawRecords.flatMap((records, silo) => records.flatMap(rec => {
+            const mix = mixByIndex.get(rawIdx++);
+            return mix ? [{
+                rec,
+                mix,
+                silo,
+                title: String(rec.title ?? ''),
+                buildPhase: Number(rec.build_phase ?? 1),
+                suggestedUrl: rec.suggested_url ? String(rec.suggested_url) : undefined,
+            }] : [];
         })),
-        ignoreTokens,
-    );
+        pages: existingPages,
+        gscEvidence,
+        clusters: gscContext.clusters,
+        siloNames: parsed.silos.map(silo => String(silo.name ?? '')),
+        ctx: reconcileCtx,
+    });
+    // Record id per planned idea (mix.index). A child saved before its parent is linked after the inserts.
     const idByIndex = new Map<number, string>();
-    // Record id per idea in the model's list (a dropped duplicate maps to the idea it duplicates).
-    const idByMixIndex = new Map<number, string>();
+    const pendingParents: Array<{ id: string; parentIndex: number }> = [];
     const refreshReasons: Record<string, { reason: string; signals: string[] }> = {};
-    const mixRecords: Record<string, { page_type: string; seed_only: boolean; demand_query: string | null; demand_impressions: number | null }> = {};
-    let flatIdx = 0;
+    const mixRecords: Record<string, { page_type: string; seed_only: boolean; demand_query: string | null; demand_impressions: number | null; supporting_queries: string[] }> = {};
 
     for (let siloIdx = 0; siloIdx < parsed.silos.length; siloIdx++) {
         const silo = parsed.silos[siloIdx] as Record<string, unknown>;
-        const records = siloRecords[siloIdx];
-        const siloStart = flatIdx;
-        flatIdx += records.length;
-        // Nothing left to insert: the silo was empty or every idea in it was over a page-mix cap.
+        const records = plan.silos[siloIdx];
+        // Nothing left to insert: the silo was empty or every idea in it was dropped or merged.
         if (records.length === 0) continue;
 
         const { data: siloRow } = await admin
@@ -318,18 +306,11 @@ export async function POST(req: NextRequest) {
         const siloId = String(siloRow.id);
 
         for (let recIdx = 0; recIdx < records.length; recIdx++) {
-            const { rec, mix, reconciled } = records[recIdx];
-            const earlier = duplicateOf.get(siloStart + recIdx);
-            if (earlier != null) {
-                // Same search or same page as an earlier idea: not inserted.
-                // Children that name it as parent attach to the earlier idea.
-                const keptId = idByIndex.get(earlier);
-                if (keptId) idByMixIndex.set(mix.index, keptId);
-                continue;
-            }
-
-            // The page mix already moved children of trimmed ideas to the nearest kept ancestor.
-            const parentRecordId = mix.parentIndex != null ? idByMixIndex.get(mix.parentIndex) : undefined;
+            const { mix, reconciled, title, buildPhase } = records[recIdx];
+            // A service page added by the plan has no model record.
+            const rec = records[recIdx].rec ?? {};
+            // The plan already moved children of dropped or merged ideas to the idea they belong under.
+            const parentRecordId = mix.parentIndex != null ? idByIndex.get(mix.parentIndex) : undefined;
             const metrics = architectStoredMetrics(rec);
 
             const { data: recordRow } = await admin
@@ -342,11 +323,11 @@ export async function POST(req: NextRequest) {
                     page_type: mix.storedType,
                     content_category: mix.label,
                     action: reconciled.action,
-                    title: String(rec.title ?? ''),
-                    target_query: String(rec.target_query ?? ''),
+                    title,
+                    target_query: mix.targetQuery,
                     word_count_min: Number(rec.word_count_min ?? 0),
                     word_count_max: Number(rec.word_count_max ?? 0),
-                    build_phase: Number(rec.build_phase ?? 1),
+                    build_phase: buildPhase,
                     search_volume_monthly: metrics.search_volume_monthly,
                     keyword_difficulty: metrics.keyword_difficulty,
                     scope_exclusions: rec.scope_exclusions ?? [],
@@ -363,25 +344,31 @@ export async function POST(req: NextRequest) {
                 .single();
 
             if (recordRow) {
-                idByIndex.set(siloStart + recIdx, String(recordRow.id));
-                idByMixIndex.set(mix.index, String(recordRow.id));
+                idByIndex.set(mix.index, String(recordRow.id));
+                if (mix.parentIndex != null && !parentRecordId) pendingParents.push({ id: String(recordRow.id), parentIndex: mix.parentIndex });
                 if (reconciled.refresh) refreshReasons[String(recordRow.id)] = reconciled.refresh;
                 mixRecords[String(recordRow.id)] = {
                     page_type: mix.kind,
                     seed_only: mix.seedOnly,
                     demand_query: mix.demand?.query ?? null,
                     demand_impressions: mix.demand?.impressions ?? null,
+                    // No column for these: merged ideas' searches are kept here.
+                    supporting_queries: mix.supportingQueries,
                 };
             }
         }
+    }
+    for (const pending of pendingParents) {
+        const parentId = idByIndex.get(pending.parentIndex);
+        if (parentId) await admin.from('topical_map_records').update({ parent_record_id: parentId }).eq('id', pending.id);
     }
 
     // Existing pages with refresh signals that no idea matched, as Refresh
     // ideas in their own group. A page whose main search an idea already
     // targets is left to that idea.
-    const kept = flat.filter((_, index) => !duplicateOf.has(index));
+    const kept = plan.silos.flat();
     const matchedUrls = new Set(kept.map(item => item.reconciled.matchedUrl).filter((url): url is string => Boolean(url)));
-    const keptIntents = new Set(kept.map(item => intentKey(String(item.rec.target_query ?? ''), ignoreTokens)).filter(Boolean));
+    const keptIntents = new Set(kept.map(item => intentKey(item.mix.targetQuery, ignoreTokens)).filter(Boolean));
     const candidates = refreshCandidates(
         existingPages
             .map(page => ({
@@ -445,10 +432,11 @@ export async function POST(req: NextRequest) {
             tokens_used: (aiResponse.usage?.input_tokens ?? 0) + (aiResponse.usage?.output_tokens ?? 0),
             duration_ms: durationMs,
             generated_at: new Date().toISOString(),
-            duplicate_gate: duplicateGateSummary(flat.map(item => item.reconciled), duplicateOf.size, refreshAdded),
+            duplicate_gate: duplicateGateSummary(plan.reconciled, plan.summary.merged_same_page + plan.summary.folded_local, refreshAdded),
             refresh_reasons: refreshReasons,
-            // Counts before PR 1's same-page gate; records holds every inserted idea.
+            // Counts before the page plan; records holds every inserted idea.
             page_mix: { ...pageMix.summary, gsc_days: gscContext.clusterDays, records: mixRecords },
+            page_plan: plan.summary,
         },
     }).eq('id', mapId);
 
