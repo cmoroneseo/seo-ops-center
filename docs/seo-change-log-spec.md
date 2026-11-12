@@ -32,6 +32,8 @@ Staff-authored. Every row has `organization_id` and `client_id`. RLS: `organizat
 
 Change types: `title`, `h1`, `meta`, `content_refresh`, `internal_links`, `schema`, `new_page`, `redirect`, `cro_block`, `other`.
 
+Migration 129 (not applied) adds `test_kind` (`single` or `group`) and `treatment` on `seo_changes`. See Group tests below.
+
 KPIs: `clicks`, `impressions`, `ctr`, `avg_position`, `organic_sessions`, `key_events`.
 
 A trigger rejects a page or query whose client does not match the change.
@@ -42,7 +44,9 @@ Client workspace → **Changes**.
 
 1. **Timeline.** Date, type, page, verdict badge, primary delta. Filters: page, change type, date range. The client is the open workspace client (the switcher changes client).
 2. **Log a change.** The fields in the goal. Live date and time are Pacific. Example mode does not save.
-3. **Detail.** KPI cards at 7, 14, 28, and 56 days. Trend chart with a marker on the live date. Page vs control. Sortable query table. Other changes in the window. Revert opens the stored instructions and does not edit the site. Next-test line. CSV download. Print / Save PDF uses the print stylesheet.
+3. **Detail.** KPI cards at 7, 14, 28, and 56 days. A test-progress gauge sits next to the check stepper. The chart has three views: **Timeline** (calendar, went-live marker), **Overlay** (28 days before lined up with 28 days after, no went-live line), and **Compared with the rest of the site**. Sortable query table. Other changes in the window. Revert opens the stored instructions and does not edit the site. Next-test line. CSV download. Print / Save PDF uses the print stylesheet.
+
+A group test is the same treatment on many URLs, one went-live date, measured together. It is not a split and has no holdout group. The detail adds a summary (control period, test period, change) and a per-URL table. Single-page changes stay as they are.
 
 Empty, loading, and “migration not applied” states are real screens. Example data is labeled on the page.
 
@@ -96,7 +100,15 @@ Copy never says the change caused the move. The detail line is: “Lines up with
 
 Ecoworkz homepage H1, page 7901, widget `47eaa58`. Before: “Hardscape, Landscape & Outdoor Living Contractors in Corona, CA”. After: “Hardscape & Landscape Contractors in Corona, CA”. Live Nov 10, 2026, 2:04 PM PT. Approved by Carlos. Backup: Elementor template 11115. Revert: set the widget back to the long H1. Queries: hardscape contractors corona, landscape contractors corona, corona landscaping. A same-day CRO example (El Niño promo, 1:28 PM PT) is included so the overlap shows up. Performance numbers in the example are synthetic so the chart, control, and badges can be reviewed before any final Search Console days exist. The page says that.
 
-On the real clock (Nov 10, 2026) this change is too early: Search Console is still about 3 days behind, and the after window has not started.
+On the real clock (Nov 12, 2026) the live Ecoworkz homepage H1 (logged Nov 10) is still early. Search Console is final through Nov 9, which is before go-live, so test progress is 0%. This spec does not invent live numbers for that page.
+
+Test progress is the share of the current window that already has final Search Console data. The default window is the 28-day check. After that window's last day is final, the gauge moves to the 56-day check. It does not use raw calendar time, and it does not add a second lag on top of `finalThrough`.
+
+## Group tests (migration 129, not applied)
+
+`seo_changes.test_kind` is `single` or `group`. `treatment` is empty on a single change, and one of `title_meta`, `title`, `meta`, `h1`, `other` on a group. Existing rows stay single. A later split test would be a new `test_kind` value. This migration is not applied. Do not run it against production.
+
+The group is the logged pages added together. Site clicks per day are the sitewide series already used for the control, so a group lift can be read next to the whole site. Per-URL rows are change percents, not a second set of verdict badges. The one verdict on the change still uses the 10-point control band, the 15% page band, the checkpoints, and the low-data estimate.
 
 ## API needs that already exist
 
@@ -121,3 +133,7 @@ No new Google scope. No new cron. Nightly GSC and GA4 syncs keep filling history
 3. Should viewers be able to log a change? This draft lets members, admins, and owners log, and viewers read.
 4. Do you want an agency-wide timeline, or is the client page enough?
 5. Apply migration 125 only after review. It creates the four tables, RLS, and the scope trigger. It does not insert the Ecoworkz row.
+6. Should Finished on the test-progress gauge mean the 28-day window, or keep going to the 56-day check once 28 is final?
+7. Should the change list keep the small progress bar on each row?
+8. Any other group-test treatments? Is 40 pages enough for one group?
+9. Apply migration 129 only after review, and only after 125. It adds `test_kind` and `treatment`. It does not insert a group.

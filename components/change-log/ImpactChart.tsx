@@ -23,6 +23,7 @@ import {
     buildSideBySide,
     chartDomain,
     dailyChartTitle,
+    overlayChartTitle,
     dayTime,
     indexToBaseline,
     lagWindow,
@@ -36,6 +37,7 @@ import type { ChartPoint, Kpi } from '@/lib/change-log/types';
 import { cn } from '@/lib/utils';
 
 const PAGE = '#18181b';
+const BEFORE = '#71717a';
 const MUTED = '#a1a1aa';
 const LIVE = '#b45309';
 const GRID = 'var(--border)';
@@ -44,8 +46,8 @@ const TICK = 'var(--muted-foreground)';
 type ChartTab = 'daily' | 'aligned' | 'indexed';
 
 const TABS: Array<{ id: ChartTab; label: string }> = [
-    { id: 'daily', label: 'Day by day' },
-    { id: 'aligned', label: 'Side by side' },
+    { id: 'daily', label: 'Timeline' },
+    { id: 'aligned', label: 'Overlay' },
     { id: 'indexed', label: 'Compared with the rest of the site' },
 ];
 
@@ -57,6 +59,8 @@ export function ImpactChart({
     controlLabel,
     lowData,
     markers,
+    seriesName = 'This page',
+    subject = 'page',
 }: {
     points: ChartPoint[];
     kpi: Kpi;
@@ -65,6 +69,9 @@ export function ImpactChart({
     controlLabel: string;
     lowData: boolean;
     markers: ChartMarker[];
+    /** Line name. A group test says "This group". */
+    seriesName?: string;
+    subject?: 'page' | 'group';
 }) {
     const [tab, setTab] = useState<ChartTab>('daily');
     const [metric, setMetric] = useState<ChartMetric>(chartMetric(kpi));
@@ -76,11 +83,11 @@ export function ImpactChart({
         page: point.preliminary ? null : pageValue(point, metric),
         control: point.preliminary ? null : controlValue(point, metric),
     })), liveOn);
-    const caption = indexed.hasControl ? chartCaption(controlLabel) : null;
+    const caption = indexed.hasControl ? chartCaption(controlLabel, subject) : null;
     const title = tab === 'daily'
         ? daily.title
         : tab === 'aligned'
-            ? dailyChartTitle(metric, lowData).replace(lowData ? 'week by week' : 'day by day', 'side by side')
+            ? overlayChartTitle(metric, aligned.weekly)
             : dailyChartTitle(metric, false).replace(', day by day', '');
 
     function onTabKey(event: ReactKeyboardEvent<HTMLDivElement>) {
@@ -113,48 +120,38 @@ export function ImpactChart({
                     </button>
                 ))}
             </div>
-            <div className="change-log-no-print mb-3 flex flex-wrap gap-1 border-b border-border" role="tablist" aria-label="Chart view" onKeyDown={onTabKey}>
-                {TABS.map(item => (
-                    <button
-                        key={item.id}
-                        type="button"
-                        role="tab"
-                        id={`change-chart-tab-${item.id}`}
-                        aria-selected={tab === item.id}
-                        aria-controls={`change-chart-panel-${item.id}`}
-                        data-chart-tab-option={item.id}
-                        className={cn(
-                            'px-3 py-2 text-sm',
-                            tab === item.id ? 'border-b-2 border-zinc-900 font-medium text-foreground' : 'text-muted-foreground',
-                        )}
-                        onClick={() => setTab(item.id)}
-                    >
-                        {item.label}
-                    </button>
+            <div className="change-log-no-print mb-3 flex flex-wrap items-center gap-2" role="tablist" aria-label="Chart view" onKeyDown={onTabKey}>
+                <div className="inline-flex rounded-md border border-border p-0.5" role="presentation">
+                    {TABS.filter(item => item.id !== 'indexed').map(item => (
+                        <ChartTabButton key={item.id} item={item} selected={tab === item.id} onSelect={setTab} segmented />
+                    ))}
+                </div>
+                {TABS.filter(item => item.id === 'indexed').map(item => (
+                    <ChartTabButton key={item.id} item={item} selected={tab === item.id} onSelect={setTab} />
                 ))}
             </div>
             <h3 className="text-sm font-medium">{title}</h3>
             {tab === 'daily' && (
-                <div role="tabpanel" id="change-chart-panel-daily" aria-labelledby="change-chart-tab-daily" className="mt-3">
-                    <DailyView model={daily} metric={metric} />
+                <div role="tabpanel" id="change-chart-panel-daily" aria-labelledby="change-chart-tab-daily" data-live-marker="true" className="mt-3">
+                    <DailyView model={daily} metric={metric} seriesName={seriesName} />
                 </div>
             )}
             {tab === 'aligned' && (
-                <div role="tabpanel" id="change-chart-panel-aligned" aria-labelledby="change-chart-tab-aligned" className="mt-3">
+                <div role="tabpanel" id="change-chart-panel-aligned" aria-labelledby="change-chart-tab-aligned" data-live-marker="false" className="mt-3">
                     <p className="mb-3 text-xs text-muted-foreground" data-chart-note="aligned">{aligned.note || ALIGNED_NOTE}</p>
                     <Legend items={[
-                        { label: 'Before', color: MUTED },
+                        { label: 'Before', color: BEFORE, dashed: true },
                         { label: 'After', color: PAGE },
                     ]} />
                     <ChartFrame label={aligned.note}>
                         {width => (
                             <LineChart width={width} height={224} data={aligned.points} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
                                 <CartesianGrid stroke={GRID} vertical={false} />
-                                <XAxis dataKey="day" type="number" domain={['dataMin', 'dataMax']} allowDecimals={false} stroke={TICK} fontSize={11} />
+                                <XAxis dataKey="day" type="number" domain={['dataMin', 'dataMax']} allowDecimals={false} stroke={TICK} fontSize={11} tickFormatter={value => `${aligned.weekly ? 'Week' : 'Day'} ${value}`} />
                                 <YAxis stroke={TICK} fontSize={11} width={48} reversed={aligned.reversed} tickFormatter={value => formatMetric(metric, Number(value))} />
                                 <Tooltip content={<AlignedTip metric={metric} weekly={aligned.weekly} />} />
-                                <Line type="linear" dataKey="before" name="Before" stroke={MUTED} strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />
-                                <Line type="linear" dataKey="after" name="After" stroke={PAGE} strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+                                <Line type="linear" dataKey="before" name="Before" stroke={BEFORE} strokeDasharray="6 4" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+                                <Line type="linear" dataKey="after" name="After" stroke={PAGE} strokeWidth={2.5} dot={false} connectNulls={false} isAnimationActive={false} />
                             </LineChart>
                         )}
                     </ChartFrame>
@@ -162,7 +159,7 @@ export function ImpactChart({
                 </div>
             )}
             {tab === 'indexed' && (
-                <div role="tabpanel" id="change-chart-panel-indexed" aria-labelledby="change-chart-tab-indexed" className="mt-3">
+                <div role="tabpanel" id="change-chart-panel-indexed" aria-labelledby="change-chart-tab-indexed" data-live-marker="true" className="mt-3">
                     {caption && <p className="mb-3 text-xs text-muted-foreground" data-chart-caption>{caption}</p>}
                     <IndexedView
                         points={indexed.points}
@@ -170,6 +167,8 @@ export function ImpactChart({
                         finalThrough={finalThrough}
                         controlLabel={controlLabel}
                         hasControl={indexed.hasControl}
+                        seriesName={seriesName}
+                        caption={caption ?? 'Compared with the rest of the site.'}
                     />
                 </div>
             )}
@@ -177,21 +176,58 @@ export function ImpactChart({
     );
 }
 
+function ChartTabButton({
+    item,
+    selected,
+    onSelect,
+    segmented = false,
+}: {
+    item: { id: ChartTab; label: string };
+    selected: boolean;
+    onSelect: (id: ChartTab) => void;
+    segmented?: boolean;
+}) {
+    return (
+        <button
+            type="button"
+            role="tab"
+            id={`change-chart-tab-${item.id}`}
+            aria-selected={selected}
+            aria-controls={`change-chart-panel-${item.id}`}
+            data-chart-tab-option={item.id}
+            className={cn(
+                'text-sm',
+                segmented ? 'rounded px-3 py-1' : 'border-b-2 border-transparent px-3 py-2',
+                selected
+                    ? segmented
+                        ? 'bg-zinc-900 font-medium text-white'
+                        : 'border-zinc-900 font-medium text-foreground'
+                    : 'text-muted-foreground',
+            )}
+            onClick={() => onSelect(item.id)}
+        >
+            {item.label}
+        </button>
+    );
+}
+
 function DailyView({
     model,
     metric,
+    seriesName,
 }: {
     model: ReturnType<typeof buildDailyChart>;
     metric: ChartMetric;
+    seriesName: string;
 }) {
     const hasValue = model.points.some(point => point.value != null);
     const legend = [
-        { label: 'This page', color: PAGE },
+        { label: seriesName, color: PAGE },
         ...(model.beforeAverage != null ? [{ label: 'Average before', color: MUTED, dashed: true }] : []),
         ...(model.afterAverage != null ? [{ label: 'Average after', color: PAGE, dashed: true }] : []),
         { label: `Went live ${formatDay(model.wentLive)}`, color: LIVE, dashed: true },
         ...(model.lagStart ? [{ label: LAG_LABEL, color: '#e4e4e7', shade: true }] : []),
-        ...(model.markers.length > 0 ? [{ label: 'Other changes on this page', color: LIVE, dot: true }] : []),
+        ...(model.markers.length > 0 ? [{ label: seriesName === 'This group' ? 'Other changes on these pages' : 'Other changes on this page', color: LIVE, dot: true }] : []),
     ];
     return (
         <>
@@ -202,25 +238,26 @@ function DailyView({
                     {width => (
                         <ComposedChart width={width} height={224} data={model.points} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
                             <CartesianGrid stroke={GRID} vertical={false} />
+                            {/* Explicit span. dataMin/dataMax collapses to the went-live line in recharts 3. */}
                             <XAxis
                                 dataKey="time"
                                 type="number"
-                                scale="time"
-                                domain={['dataMin', 'dataMax']}
+                                scale="linear"
+                                domain={timeDomain(model.points)}
                                 tickFormatter={value => formatDay(isoFromTime(Number(value)))}
                                 stroke={TICK}
                                 fontSize={11}
                                 minTickGap={28}
                             />
                             <YAxis stroke={TICK} fontSize={11} width={48} reversed={model.reversed} tickFormatter={value => formatMetric(metric, Number(value))} />
-                            <Tooltip content={<DailyTip metric={metric} />} />
+                            <Tooltip content={<DailyTip metric={metric} seriesName={seriesName} />} />
                             {model.lagStart && model.lagEnd && (
                                 <ReferenceArea x1={dayTime(model.lagStart)} x2={dayTime(model.lagEnd)} fill="#f4f4f5" strokeOpacity={0} />
                             )}
                             <ReferenceLine x={model.wentLiveTime} stroke={LIVE} strokeDasharray="3 3" />
                             <Line type="linear" dataKey="beforeAverage" name="Average before" stroke={MUTED} strokeDasharray="4 4" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />
                             <Line type="linear" dataKey="afterAverage" name="Average after" stroke={PAGE} strokeDasharray="4 4" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />
-                            <Line type="linear" dataKey="value" name="This page" stroke={PAGE} strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+                            <Line type="linear" dataKey="value" name={seriesName} stroke={PAGE} strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
                             {model.markers.length > 0 && (
                                 <Scatter data={model.markers} dataKey="value" name="Other change" fill={LIVE} isAnimationActive={false} />
                             )}
@@ -243,42 +280,46 @@ function IndexedView({
     finalThrough,
     controlLabel,
     hasControl,
+    seriesName,
+    caption,
 }: {
     points: ReturnType<typeof indexToBaseline>['points'];
     liveOn: string;
     finalThrough: string;
     controlLabel: string;
     hasControl: boolean;
+    seriesName: string;
+    caption: string;
 }) {
     const showControl = hasControl && controlLabel !== 'No comparison';
     const lag = lagWindow(finalThrough, chartDomain(liveOn, finalThrough));
     const legend = [
-        { label: 'This page', color: PAGE },
+        { label: seriesName, color: PAGE },
         ...(showControl ? [{ label: controlLabel, color: MUTED }] : []),
         { label: `Went live ${formatDay(liveOn)}`, color: LIVE, dashed: true },
     ];
     return (
         <>
             <Legend items={legend} />
-            <ChartFrame label={`Compared with the rest of the site. 100 is the page's normal level before the change. Went live ${formatDay(liveOn)}.`}>
+            <ChartFrame label={`${caption} Went live ${formatDay(liveOn)}.`}>
                 {width => (
                     <LineChart width={width} height={224} data={points} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
                         <CartesianGrid stroke={GRID} vertical={false} />
                         <XAxis
                             dataKey="time"
                             type="number"
-                            scale="time"
-                            domain={['dataMin', 'dataMax']}
+                            scale="linear"
+                            domain={timeDomain(points)}
                             tickFormatter={value => formatDay(isoFromTime(Number(value)))}
                             stroke={TICK}
                             fontSize={11}
                             minTickGap={28}
                         />
                         <YAxis stroke={TICK} fontSize={11} width={40} />
-                        <Tooltip content={<IndexedTip showControl={showControl} controlLabel={controlLabel} />} />
+                        <Tooltip content={<IndexedTip showControl={showControl} controlLabel={controlLabel} seriesName={seriesName} />} />
                         {lag && <ReferenceArea x1={dayTime(lag.start)} x2={dayTime(lag.end)} fill="#f4f4f5" strokeOpacity={0} />}
                         <ReferenceLine x={dayTime(liveOn)} stroke={LIVE} strokeDasharray="3 3" />
-                        <Line type="linear" dataKey="page" name="This page" stroke={PAGE} strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+                        <Line type="linear" dataKey="page" name={seriesName} stroke={PAGE} strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
                         {showControl && (
                             <Line type="linear" dataKey="control" name={controlLabel} stroke={MUTED} strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />
                         )}
@@ -334,9 +375,9 @@ function TipFrame({ children }: { children: ReactNode }) {
     return <div className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-800">{children}</div>;
 }
 
-function DailyTip({ active, payload, metric }: { active?: boolean; payload?: TipRow[]; metric: ChartMetric }) {
+function DailyTip({ active, payload, metric, seriesName }: { active?: boolean; payload?: TipRow[]; metric: ChartMetric; seriesName: string }) {
     if (!active || !payload?.length) return null;
-    const page = payload.find(item => item.name === 'This page')?.payload;
+    const page = payload.find(item => item.name === seriesName)?.payload;
     const marker = payload.find(item => item.name === 'Other change')?.payload;
     const date = page?.date ?? marker?.date;
     if (!date) return null;
@@ -377,11 +418,13 @@ function IndexedTip({
     payload,
     showControl,
     controlLabel,
+    seriesName,
 }: {
     active?: boolean;
     payload?: TipRow[];
     showControl: boolean;
     controlLabel: string;
+    seriesName: string;
 }) {
     if (!active || !payload?.length) return null;
     const row = payload[0]?.payload;
@@ -389,7 +432,7 @@ function IndexedTip({
     return (
         <TipFrame>
             <p>{formatDay(row.date)}</p>
-            <p>This page: {row.page == null ? 'Not reported yet' : Math.round(row.page)}</p>
+            <p>{seriesName}: {row.page == null ? 'Not reported yet' : Math.round(row.page)}</p>
             {showControl && <p>{controlLabel}: {row.control == null ? 'Not reported yet' : Math.round(row.control)}</p>}
         </TipFrame>
     );
@@ -436,6 +479,17 @@ function formatMetric(metric: ChartMetric, value: number): string {
     return Number.isInteger(rounded)
         ? new Intl.NumberFormat('en-US').format(rounded)
         : rounded.toFixed(1);
+}
+
+function timeDomain(points: readonly { time: number }[]): [number, number] | ['dataMin', 'dataMax'] {
+    if (points.length === 0) return ['dataMin', 'dataMax'];
+    let min = points[0].time;
+    let max = points[0].time;
+    for (const point of points) {
+        if (point.time < min) min = point.time;
+        if (point.time > max) max = point.time;
+    }
+    return min === max ? [min - 1, max + 1] : [min, max];
 }
 
 function isoFromTime(time: number): string {

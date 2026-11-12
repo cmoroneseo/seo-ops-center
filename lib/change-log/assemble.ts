@@ -1,3 +1,4 @@
+import { buildPageImpactRows } from './group';
 import { buildImpact } from './impact';
 import {
     mergeGa4,
@@ -34,7 +35,7 @@ export function impactsFromRows(input: {
             return path ? [path] : [];
         });
         const pageDays = mergeGa4(pageDaysFromFacts(input.historyDays, input.pageFacts, urls), input.ga4Pages, paths);
-        impacts[change.id] = buildImpact({
+        const impact = buildImpact({
             liveOn: change.liveOn,
             kpi: change.kpi,
             now: input.now,
@@ -50,6 +51,24 @@ export function impactsFromRows(input: {
                 days: queryDaysFromFacts(input.historyDays, input.queryFacts, urls, query.normalized),
             })),
         });
+        if (change.testKind === 'group') {
+            const series = change.pages.map(page => {
+                const path = ga4PathFor(page.url);
+                return mergeGa4(
+                    pageDaysFromFacts(input.historyDays, input.pageFacts, [page.url]),
+                    input.ga4Pages,
+                    path ? [path] : [],
+                );
+            });
+            impact.pageRows = buildPageImpactRows({
+                pages: change.pages,
+                series,
+                liveOn: change.liveOn,
+                finalThrough: impact.finalThrough,
+                afterDays: impact.headline.ready ? impact.headline.days : null,
+            });
+        }
+        impacts[change.id] = impact;
     }
     return impacts;
 }

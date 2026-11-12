@@ -47,6 +47,8 @@ function sample(liveOn: string, id = 'sample'): SeoChange {
         revertInstructions: '',
         kpi: 'clicks',
         compareLastYear: false,
+        testKind: 'single',
+        treatment: '',
         pages: [{
             url: 'https://summitdental.example/emergency-dentist',
             urlKey: '/emergency-dentist',

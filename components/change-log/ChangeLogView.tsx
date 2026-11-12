@@ -48,6 +48,7 @@ import { cn } from '@/lib/utils';
 
 import { ChangeDetail } from './ChangeDetail';
 import { ChangeForm } from './ChangeForm';
+import { ProgressMark } from './TestProgress';
 import { VerdictPill } from './VerdictPill';
 import { WentLiveFilter } from './WentLiveFilter';
 
@@ -268,7 +269,10 @@ export function ChangeLogView({
                                                 >
                                                     {item.title}
                                                 </button>
-                                                <span className="mt-0.5 block text-xs text-muted-foreground">{pagePath(item.url, item.pageLabel)}</span>
+                                                <span className="mt-0.5 block text-xs text-muted-foreground">
+                                                    {(item.pageCount ?? 0) > 1 ? `${item.pageCount} pages` : pagePath(item.url, item.pageLabel)}
+                                                </span>
+                                                <ProgressMark percent={item.progressPercent} status={item.progressStatus} />
                                             </TableCell>
                                             <TableCell className="whitespace-normal text-sm">{CHANGE_TYPE_LABEL[item.changeType]}</TableCell>
                                             <TableCell className="whitespace-nowrap text-sm">{formatDayWithYear(item.liveOn)}</TableCell>

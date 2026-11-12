@@ -186,5 +186,13 @@ export function isMissingRelation(error: { code?: string; message?: string } | n
     if (!error) return false;
     if (error.code === '42P01' || error.code === 'PGRST205') return true;
     const message = error.message ?? '';
-    return /seo_change/i.test(message) && /does not exist|schema cache/i.test(message);
+    return /seo_change/i.test(message) && /does not exist|schema cache/i.test(message) && !/test_kind|treatment/i.test(message);
+}
+
+/** Migration 129 has not been applied, so test_kind / treatment are not columns yet. */
+export function isMissingColumn(error: { code?: string; message?: string } | null | undefined): boolean {
+    if (!error) return false;
+    const message = error.message ?? '';
+    if (!/test_kind|treatment/i.test(message)) return false;
+    return error.code === '42703' || error.code === 'PGRST204' || /does not exist|schema cache|could not find/i.test(message);
 }

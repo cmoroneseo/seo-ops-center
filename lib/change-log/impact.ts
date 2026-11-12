@@ -26,6 +26,7 @@ import {
     type Verdict,
 } from './types';
 import { headlineFields, nextCheck } from './list';
+import { testProgress } from './progress';
 import { classifyCheckpoint, isLowData } from './verdict';
 
 export interface ImpactSource {
@@ -85,6 +86,7 @@ export function buildImpact(source: ImpactSource): ImpactModel {
         lagDays: GSC_LAG_DAYS,
         baseline,
         baselineControl,
+        baselineSite: siteBaseline.measured ? siteBaseline : null,
         baselineReady,
         yoy: yoy?.read ?? null,
         yoyNote: source.compareLastYear
@@ -94,6 +96,7 @@ export function buildImpact(source: ImpactSource): ImpactModel {
         checkpoints,
         series,
         queries: queryRows(source, through, headline),
+        pageRows: [],
         gscConnected: source.gscConnected,
         ga4Connected: source.ga4Connected,
         causation: CAUSATION,
@@ -160,6 +163,7 @@ function readCheckpoint(input: {
         controlMove,
         lift: classified.lift,
         restOfSite,
+        sitewide: site.measured ? site : null,
     };
 }
 
@@ -325,6 +329,7 @@ export function timelineItem(change: SeoChange, impact: ImpactModel): TimelineIt
     const page = change.pages[0];
     const headline = headlineFields(head);
     const upcoming = nextCheck(change.liveOn, impact.finalThrough);
+    const progress = testProgress(change.liveOn, impact.finalThrough);
     return {
         id: change.id,
         title: change.title,
@@ -342,6 +347,10 @@ export function timelineItem(change: SeoChange, impact: ImpactModel): TimelineIt
         headlinePct: headline.headlinePct,
         nextCheckOn: upcoming.nextCheckOn,
         nextCheckDays: upcoming.nextCheckDays,
+        pageCount: change.pages.length,
+        progressPercent: progress?.percent ?? null,
+        progressStatus: progress?.status ?? null,
+        progressDays: progress?.targetDays ?? null,
     };
 }
 

@@ -90,6 +90,11 @@ export interface AlignedChartModel {
     note: string;
     reversed: boolean;
     reversedNote: string | null;
+    /**
+     * Overlay lines both start at day 1. There is no went-live marker.
+     * Timeline keeps that marker; this view does not.
+     */
+    wentLiveMarker: false;
 }
 
 export interface IndexedPoint {
@@ -97,6 +102,12 @@ export interface IndexedPoint {
     time: number;
     page: number | null;
     control: number | null;
+}
+
+/** Overlay heading. The two windows share a day number, so this is not a calendar timeline. */
+export function overlayChartTitle(metric: ChartMetric, weekly = false): string {
+    const base = dailyChartTitle(metric, false).replace(', day by day', '');
+    return weekly ? `${base}, weekly` : `${base}, before and after`;
 }
 
 export function dailyChartTitle(metric: ChartMetric, weekly = false): string {
@@ -307,6 +318,7 @@ export function buildSideBySide(input: {
             note: ALIGNED_WEEKLY_NOTE,
             reversed,
             reversedNote,
+            wentLiveMarker: false,
         };
     }
     return {
@@ -324,6 +336,7 @@ export function buildSideBySide(input: {
         note: ALIGNED_NOTE,
         reversed,
         reversedNote,
+        wentLiveMarker: false,
     };
 }
 

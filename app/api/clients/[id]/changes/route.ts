@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { CHANGE_LOG_READ_ONLY, canEditChangeLog } from '@/lib/change-log/access';
-import { createChange, listChanges, missingTable } from '@/lib/change-log/store';
+import { GroupMigrationRequired, createChange, listChanges, missingTable } from '@/lib/change-log/store';
 import { normalizeChange, validateChange, type ChangeInput } from '@/lib/change-log/validate';
 import { requireClientOrgMember } from '@/lib/security/tenant-authz';
 
@@ -46,6 +46,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         return json(saved, 201);
     } catch (error) {
         if (missingTable(error)) return json({ error: 'The change log table is not in the database yet.' }, 409);
+        if (error instanceof GroupMigrationRequired) return json({ error: error.message }, 409);
         return json({ error: 'Unable to save the change.' }, 500);
     }
 }

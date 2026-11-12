@@ -3,8 +3,8 @@
 import { useState, type FormEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { CHANGE_TYPES, CHANGE_TYPE_LABEL, KPI_LABEL, KPIS } from '@/lib/change-log/types';
-import { validateChange, type ChangeInput } from '@/lib/change-log/validate';
+import { CHANGE_TYPES, CHANGE_TYPE_LABEL, KPI_LABEL, KPIS, TREATMENTS, TREATMENT_CHANGE_TYPE, TREATMENT_LABEL } from '@/lib/change-log/types';
+import { GROUP_PAGE_LIMIT, SINGLE_PAGE_LIMIT, validateChange, type ChangeInput } from '@/lib/change-log/validate';
 
 const EMPTY: ChangeInput = {
     title: '',
@@ -18,6 +18,8 @@ const EMPTY: ChangeInput = {
     revertInstructions: '',
     kpi: 'clicks',
     compareLastYear: false,
+    testKind: 'single',
+    treatment: '',
     pages: [{ url: '', label: '', cmsPageId: '', cmsWidgetId: '' }],
     queries: [''],
 };
@@ -37,12 +39,30 @@ export function ChangeForm({
 }) {
     const [input, setInput] = useState<ChangeInput>(initial ?? EMPTY);
     const [error, setError] = useState<string | null>(null);
+    const [paste, setPaste] = useState('');
+    const grouped = input.testKind === 'group';
+    const pageLimit = grouped ? GROUP_PAGE_LIMIT : SINGLE_PAGE_LIMIT;
 
     function setPage(index: number, patch: Partial<ChangeInput['pages'][number]>) {
         setInput(current => ({
             ...current,
             pages: current.pages.map((page, pageIndex) => pageIndex === index ? { ...page, ...patch } : page),
         }));
+    }
+
+    function addPasted() {
+        const urls = paste.split(/\s+/).map(line => line.trim()).filter(line => /^https?:\/\//i.test(line));
+        if (urls.length === 0) return;
+        setInput(current => {
+            const pages = current.pages.filter(page => page.url.trim());
+            for (const url of urls) {
+                if (pages.length >= pageLimit) break;
+                if (pages.some(page => page.url.trim() === url)) continue;
+                pages.push({ url, label: '', cmsPageId: '', cmsWidgetId: '' });
+            }
+            return { ...current, pages: pages.length > 0 ? pages : current.pages };
+        });
+        setPaste('');
     }
 
     function submit(event: FormEvent) {
@@ -72,7 +92,58 @@ export function ChangeForm({
                 </div>
             </div>
             {error && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
+            <fieldset>
+                <legend className="text-sm font-medium">Pages in this test</legend>
+                <div className="mt-2 flex flex-wrap gap-4 text-sm">
+                    <label className="inline-flex items-center gap-2">
+                        <input
+                            type="radio"
+                            name="testKind"
+                            value="single"
+                            checked={!grouped}
+                            onChange={() => setInput({ ...input, testKind: 'single', treatment: '' })}
+                        />
+                        One page
+                    </label>
+                    <label className="inline-flex items-center gap-2">
+                        <input
+                            type="radio"
+                            name="testKind"
+                            value="group"
+                            checked={grouped}
+                            onChange={() => setInput({
+                                ...input,
+                                testKind: 'group',
+                                treatment: input.treatment || 'title_meta',
+                                changeType: input.treatment ? input.changeType : TREATMENT_CHANGE_TYPE.title_meta,
+                            })}
+                        />
+                        Group of pages
+                    </label>
+                </div>
+                {grouped && <p className="mt-1 text-xs text-muted-foreground">Same change on every page. One went-live date. Not a split test.</p>}
+            </fieldset>
             <div className="grid gap-3 sm:grid-cols-2">
+                {grouped && (
+                    <label className="block text-sm sm:col-span-2">
+                        <span className="mb-1 block font-medium">Treatment</span>
+                        <select
+                            className="field"
+                            value={input.treatment || 'title_meta'}
+                            onChange={event => {
+                                const treatment = event.target.value;
+                                const known = TREATMENTS.find(item => item === treatment);
+                                setInput({
+                                    ...input,
+                                    treatment,
+                                    changeType: known ? TREATMENT_CHANGE_TYPE[known] : input.changeType,
+                                });
+                            }}
+                        >
+                            {TREATMENTS.map(item => <option key={item} value={item}>{TREATMENT_LABEL[item]}</option>)}
+                        </select>
+                    </label>
+                )}
                 <label className="block text-sm">
                     <span className="mb-1 block font-medium">Title</span>
                     <input className="field" value={input.title} onChange={event => setInput({ ...input, title: event.target.value })} />
@@ -130,10 +201,34 @@ export function ChangeForm({
                         </div>
                     </div>
                 ))}
-                {input.pages.length < 8 && (
+                {input.pages.length < pageLimit && (
                     <button type="button" className="text-sm text-primary" onClick={() => setInput({ ...input, pages: [...input.pages, { url: '', label: '', cmsPageId: '', cmsWidgetId: '' }] })}>
                         Add another page
                     </button>
+                )}
+                {input.pages.length > 1 && (
+                    <button
+                        type="button"
+                        className="text-sm text-muted-foreground"
+                        onClick={() => setInput({ ...input, pages: input.pages.slice(0, -1) })}
+                    >
+                        Remove last page
+                    </button>
+                )}
+                {grouped && (
+                    <div className="space-y-2 pt-2">
+                        <label className="block text-sm">
+                            <span className="mb-1 block font-medium">Add several addresses</span>
+                            <textarea
+                                className="field min-h-16"
+                                aria-label="Paste page addresses"
+                                placeholder="One https:// address per line"
+                                value={paste}
+                                onChange={event => setPaste(event.target.value)}
+                            />
+                        </label>
+                        <button type="button" className="text-sm text-primary" onClick={addPasted}>Add these pages</button>
+                    </div>
                 )}
             </fieldset>
             <label className="block text-sm">

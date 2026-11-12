@@ -217,7 +217,7 @@ test('a marker with no measured day and no average is left off', () => {
     assert.deepEqual(model.markers, []);
 });
 
-test('side by side lines up the windows by day number and does not invent later days', () => {
+test('overlay lines up the windows by day number and does not invent later days', () => {
     const beforeStart = dateOffset(LIVE, -28);
     const model = buildSideBySide({
         metric: 'clicks',
@@ -238,6 +238,7 @@ test('side by side lines up the windows by day number and does not invent later 
     assert.equal(model.points[1].before, 0);
     assert.equal(model.points[1].after, null);
     assert.equal(model.note, ALIGNED_NOTE);
+    assert.equal(model.wentLiveMarker, false);
     const lastFinalAfter = model.points.find(point => point.day === 8);
     assert.equal(lastFinalAfter?.after, null);
     assert.ok(model.points.slice(8).every(point => point.after == null));
