@@ -8,7 +8,7 @@
  * worked out from the ideas and the searches, and say what is missing.
  */
 
-import { ARTICLE_KINDS, ARTICLE_MAX_SHARE, PAGE_KIND_LABEL, PAGE_KINDS, pageKindOf, SEED_ONLY_MAX_SHARE, type PageKind } from './page-mix';
+import { ARTICLE_KINDS, ARTICLE_MAX_SHARE, PAGE_KIND_LABEL, PAGE_KINDS, pageKindOf, type PageKind } from './page-mix';
 import {
     bareHost,
     brandTokens,
@@ -47,6 +47,8 @@ interface StoredMix {
     kind: PageKind | null;
     seedOnly: boolean | null;
     demandQuery: string | null;
+    /** Other searches the idea's page answers, including those of ideas merged into it. */
+    supportingQueries: string[];
 }
 
 function object(value: unknown): Record<string, unknown> | null {
@@ -57,7 +59,7 @@ function count(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : null;
 }
 
-/** Per-idea page type, seed-only flag and cited search from generation_metadata.page_mix.records. */
+/** Per-idea page type, seed-only flag, cited search and supporting searches from generation_metadata.page_mix.records. */
 export function readStoredMix(metadata: unknown): Map<string, StoredMix> {
     const out = new Map<string, StoredMix>();
     const records = object(object(object(metadata)?.page_mix)?.records);
@@ -72,6 +74,9 @@ export function readStoredMix(metadata: unknown): Map<string, StoredMix> {
             kind,
             seedOnly: typeof entry.seed_only === 'boolean' ? entry.seed_only : null,
             demandQuery: typeof entry.demand_query === 'string' && entry.demand_query.trim() ? entry.demand_query.trim() : null,
+            supportingQueries: Array.isArray(entry.supporting_queries)
+                ? entry.supporting_queries.filter((query): query is string => typeof query === 'string' && query.trim().length > 0)
+                : [],
         });
     }
     return out;
@@ -135,7 +140,8 @@ function sameScope(a: TextFacts, b: TextFacts): boolean {
 
 /**
  * An idea covers a search when its main search, the search the generator
- * cited for it, or its title has the same intent: the same modifiers and
+ * cited for it, one of its supporting searches (merged ideas' searches land
+ * there), or its title has the same intent: the same modifiers and
  * places (PR 1's rules, so "pet turf in Orange County" is not covered by
  * "artificial grass in Orange County"), and the same search key or at least
  * 75% of the words shared both ways (overlapTokens). Google showing the idea's own
@@ -144,11 +150,11 @@ function sameScope(a: TextFacts, b: TextFacts): boolean {
  * to the ones found in these texts and URLs.
  */
 export function ideaCoversSearch(
-    idea: { title: string; targetQuery: string; demandQuery?: string | null; matchedUrl?: string | null },
+    idea: { title: string; targetQuery: string; demandQuery?: string | null; supportingQueries?: readonly string[]; matchedUrl?: string | null },
     group: Pick<SearchGroup, 'query' | 'variants' | 'page' | 'pagePosition'>,
     places: PlaceSet = new Set(),
 ): boolean {
-    const texts = [idea.targetQuery, idea.demandQuery ?? '', idea.title].filter(text => text.trim());
+    const texts = [idea.targetQuery, idea.demandQuery ?? '', ...(idea.supportingQueries ?? []), idea.title].filter(text => text.trim());
     const known = new Set([...places, ...knownPlaces([group.query, ...texts], [group.page, idea.matchedUrl])]);
     const search = readText(group.query, known, NO_IGNORE);
     const keys = new Set([group.query, ...group.variants].map(query => intentKey(query)));
@@ -239,7 +245,11 @@ export function mapCheck(input: {
         return brand.every(token => tokens.has(token));
     };
 
-    const covering = ideas.map(idea => ({ ...idea, demandQuery: stored.get(idea.id)?.demandQuery ?? null }));
+    const covering = ideas.map(idea => ({
+        ...idea,
+        demandQuery: stored.get(idea.id)?.demandQuery ?? null,
+        supportingQueries: stored.get(idea.id)?.supportingQueries ?? [],
+    }));
     const groups = evidence.connected ? evidence.groups ?? [] : [];
     const host = productionHost([...ideas.map(idea => idea.matchedUrl), ...groups.map(group => group.page)]);
     const places = knownPlaces(
@@ -380,7 +390,7 @@ export function seedOnlyLine(check: MapCheck): CheckLine | null {
             ? (services === 1 ? 'It is a page' : 'All of them are pages')
             : `${formatCount(services)} of them ${services === 1 ? 'is a page' : 'are pages'}`;
         const exempt = services > 0
-            ? ` ${which} for ${services === 1 ? 'a service' : 'services'} you sell. Pages for services you sell are kept even without searches and do not count toward the ${Math.round(SEED_ONLY_MAX_SHARE * 100)}% limit.`
+            ? ` ${which} for ${services === 1 ? 'a service' : 'services'} you sell. Pages for services you sell are kept even without searches.`
             : '';
         return {
             label: `${formatCount(seed.count)} of ${plural(seed.of, 'idea', 'ideas')} ${seed.count === 1 ? 'has' : 'have'} no Google searches behind ${seed.count === 1 ? 'it' : 'them'}`,
