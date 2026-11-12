@@ -107,6 +107,22 @@ test('a new page for a search an existing page covers is flagged before approvin
     assert.ok(confirm.includes('Approve anyway for November'));
 });
 
+test('a refresh idea shows why the existing page needs an update, with the numbers', () => {
+    const reason = 'Ranks around spot 14 in Google for “artificial grass corona”; showing up in 42% fewer searches vs the previous 3 months';
+    const html = render({
+        records: [
+            idea('refresh', { action: 'improve', matchedUrl: 'https://example.com/corona-ca/' }),
+            idea('fresh'),
+            idea('live', { action: 'keep', matchedUrl: 'https://example.com/live-page' }),
+        ],
+        refreshReasons: { refresh: reason, fresh: 'not shown on a new page', live: 'not shown on a live page' },
+    });
+    assert.ok(html.includes('Improves your page /corona-ca/ instead of adding a new one.'));
+    assert.equal((html.match(/data-refresh-reason/g) ?? []).length, 1);
+    assert.ok(html.includes(`Why update it:</span> ${reason}`));
+    assert.equal(html.includes('not shown on'), false);
+});
+
 test('selecting ideas shows the action bar and bulk buttons; warned picks ask first', () => {
     const html = render({ initialSelected: ['quick', 'dup'] });
     assert.ok(html.includes('2 selected'));

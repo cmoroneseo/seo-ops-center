@@ -401,9 +401,19 @@ export interface ReviewRow<T extends ReviewIdeaInput = ReviewIdeaInput> {
     reason: string;
     warning: string | null;
     note: string | null;
+    /** Why an existing page needs an update, with the numbers. Null when there is none. */
+    refresh: string | null;
 }
 
-export function reviewRows<T extends ReviewIdeaInput>(ideas: ReadonlyArray<T>, evidence: ReviewEvidence): ReviewRow<T>[] {
+/**
+ * `refreshReasons` is record id → reason, from the map's generation_metadata
+ * (see readRefreshReasons). Shown only on ideas that change an existing page.
+ */
+export function reviewRows<T extends ReviewIdeaInput>(
+    ideas: ReadonlyArray<T>,
+    evidence: ReviewEvidence,
+    refreshReasons: Readonly<Record<string, string>> = {},
+): ReviewRow<T>[] {
     return ideas.map(idea => {
         const match = evidenceFor(evidence, idea.targetQuery);
         const status = reviewStatus(idea);
@@ -418,6 +428,7 @@ export function reviewRows<T extends ReviewIdeaInput>(ideas: ReadonlyArray<T>, e
             reason: priorityReason(match, evidence.days),
             warning: status === 'live' ? null : duplicateWarning(idea, match, ideas),
             note: existingPageNote(idea),
+            refresh: idea.action === 'improve' || idea.action === 'replace' ? refreshReasons[idea.id] ?? null : null,
         };
     });
 }
