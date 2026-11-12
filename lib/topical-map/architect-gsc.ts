@@ -6,6 +6,7 @@
 
 import { readGrainedFacts } from '../search-reporting/fact-read';
 import type { SearchReportingAdmin } from '../search-reporting/load';
+import { normalizeUrl } from '../url/normalize-url';
 
 export interface ArchitectGscQuery {
     query: string;
@@ -110,6 +111,18 @@ export function aggregateQueryPageFacts(rows: readonly Record<string, unknown>[]
     return queries.slice(0, QUERY_LIMIT);
 }
 
+/** Total impressions per page over the same rows, keyed by normalizeUrl(...).url. */
+export function pageImpressionsFromFacts(rows: readonly Record<string, unknown>[]): Map<string, number> {
+    const totals = new Map<string, number>();
+    for (const row of rows) {
+        const impressions = finiteNumber(row.impressions);
+        const page = normalizeUrl(typeof row.page === 'string' ? row.page : null);
+        if (impressions == null || !page) continue;
+        totals.set(page.url, (totals.get(page.url) ?? 0) + impressions);
+    }
+    return totals;
+}
+
 function siteUrlOf(value: unknown): string | null {
     if (!value || typeof value !== 'object') return null;
     const siteUrl = (value as { site_url?: unknown }).site_url;
@@ -118,15 +131,31 @@ function siteUrlOf(value: unknown): string | null {
     return trimmed.length > 0 ? trimmed : null;
 }
 
-/**
- * Top queries for one client from gsc_history_facts (query_page), scoped to the
- * connected Search Console property. A missing property or a failed read yields
- * an empty list so map generation can continue without invented demand.
- */
+export interface ArchitectGscContext {
+    queries: ArchitectGscQuery[];
+    /** Impressions per normalized page URL over the same days. */
+    pageImpressions: Map<string, number>;
+}
+
+/** Top queries only. See loadArchitectGscContext. */
 export async function loadArchitectGscQueries(
     admin: SearchReportingAdmin,
     input: { organizationId: string; clientId: string },
 ): Promise<ArchitectGscQuery[]> {
+    return (await loadArchitectGscContext(admin, input)).queries;
+}
+
+/**
+ * Top queries and per-page impressions for one client from gsc_history_facts
+ * (query_page), scoped to the connected Search Console property. A missing
+ * property or a failed read yields empty results so map generation can
+ * continue without invented demand.
+ */
+export async function loadArchitectGscContext(
+    admin: SearchReportingAdmin,
+    input: { organizationId: string; clientId: string },
+): Promise<ArchitectGscContext> {
+    const empty: ArchitectGscContext = { queries: [], pageImpressions: new Map() };
     try {
         const integration = await admin.from('client_integrations')
             .select('site_url:credentials->>site_url')
@@ -134,9 +163,9 @@ export async function loadArchitectGscQueries(
             .eq('client_id', input.clientId)
             .eq('service', 'gsc')
             .maybeSingle();
-        if (integration.error) return [];
+        if (integration.error) return empty;
         const property = siteUrlOf(integration.data);
-        if (!property) return [];
+        if (!property) return empty;
 
         const days = await admin.from('gsc_history_days')
             .select('id')
@@ -146,20 +175,23 @@ export async function loadArchitectGscQueries(
             .eq('search_type', 'web')
             .order('data_date', { ascending: false })
             .range(0, DAY_WINDOW - 1);
-        if (days.error) return [];
+        if (days.error) return empty;
         const dayIds = (days.data ?? [])
             .map(row => (row && typeof row === 'object' ? (row as { id?: unknown }).id : null))
             .filter((id): id is string => typeof id === 'string' && id.length > 0);
-        if (dayIds.length === 0) return [];
+        if (dayIds.length === 0) return empty;
 
         const facts = await readGrainedFacts(admin, {
             dayIds,
             grains: ['query_page'],
             columns: 'query, page, clicks, impressions, position',
         });
-        if (facts.failedGrains.includes('query_page')) return [];
-        return aggregateQueryPageFacts(facts.rows);
+        if (facts.failedGrains.includes('query_page')) return empty;
+        return {
+            queries: aggregateQueryPageFacts(facts.rows),
+            pageImpressions: pageImpressionsFromFacts(facts.rows),
+        };
     } catch {
-        return [];
+        return empty;
     }
 }
