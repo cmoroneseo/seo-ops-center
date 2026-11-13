@@ -98,11 +98,11 @@ Any bot key. The task must already exist. This route never creates a task.
 
 A bot has one **running** timer. A paused timer does not use that slot.
 
-- Starting the **same** task while that timer is still under two hours of running time returns the running timer (`timer.alreadyRunning: true`). It does not reset the clock.
-- Starting a **different** task while a timer is under two hours is **409** `timer_already_running`. The body includes the running timer. Pause or stop it, then start the other task.
-- Starting anything while the running timer is **already past two hours of running time** closes that timer at the cap (see below) and then starts the new one. The response includes `cappedTimer`.
+- Starting the **same** task while that timer is running returns the running timer (`timer.alreadyRunning: true`). It does not reset the clock. Length does not matter.
+- Starting a **different** task while a timer is running is **409** `timer_already_running`. The body includes the running timer. Pause or stop it, then start the other task. A long timer is not closed just so another task can start.
 - Starting the **same** task that already has a paused timer is **409** `timer_paused`. Call resume. The body includes the paused timer.
 - Starting a **different** task while this bot has paused timers is allowed. Those paused entries stay paused. Two bots can each have a running timer at the same time.
+- When `BOT_TIMER_MAX_SECONDS` is set and the running timer is already past that cap, start closes it at the cap (see Length cap) and then starts the new one. The response includes `cappedTimer`. With no cap configured, start never does this.
 
 The running row is an `in_progress` time log with `bot_key_id` set and `user_id` Carlos. It does not insert an open `time_log_segments` row, so it does not take his `one_open_time_segment_per_user` slot and his own timer keeps working. The floating timer does not show it. `description` on a running row is the note for the open stretch, when start sent one. The task title is not stored as a stretch note.
 
@@ -130,9 +130,9 @@ Ends the running stretch and keeps the **same** time entry open with `status: "p
 | `taskId` | no | When sent, it must be the task the timer is on. A mismatch is **409** `timer_task_mismatch`. |
 | `description` | no | Note for the stretch being closed. Kept after the note from start or resume. |
 
-The response `timer.status` is `paused`. `timer.stretches` lists every closed stretch with `startedAt`, `endedAt`, and `note`. `timer.hours` is the running time so far.
+The response `timer.status` is `paused`. `timer.stretches` lists every closed stretch with `startedAt`, `endedAt`, and `note`. `timer.hours` and `timer.elapsedSeconds` are the true running time so far, however long the stretch ran. A pause does not flag the entry `needs_review` because it is long.
 
-Pausing a timer that is already past two hours of running time does not pause it. The entry is capped (`needs_review`) and is not sent to Basecamp. The response has `capped: true`.
+When `BOT_TIMER_MAX_SECONDS` is set and the running time is already past that cap, pause does not pause. The entry is capped (`needs_review`) and is not sent to Basecamp. The response has `capped: true`. With no cap configured, pause records the true running time and stays paused.
 
 There is no running timer is **404** `timer_not_running`. A failure while reading the timer is **500** `timer_lookup_failed`. That is not a missing timer. The same request can be retried.
 
@@ -160,7 +160,7 @@ Opens a new stretch on the paused entry for `taskId`. The entry goes back to `in
 
 - No paused timer on that task is **404** `timer_not_paused`.
 - This bot already has a running timer is **409** `timer_already_running`.
-- The paused entry already has two hours of running time is **409** `timer_cap_reached`. Stop it instead of resuming.
+- A configured cap that the paused entry has already reached is **409** `timer_cap_reached`. Stop it instead of resuming. With no cap configured, resume never returns this code, however long the paused entry already is.
 
 ```bash
 curl -X POST https://seo-ops-center.vercel.app/api/bots/timer/resume \
@@ -194,23 +194,27 @@ A normal stop is sent to Basecamp with `createIfMissing: true`, the same call th
 
 Omit `taskId` and a running timer is stopped. Omit `taskId` with nothing running and exactly one paused timer, and that paused timer is stopped. Several paused timers and no `taskId` is **409** `timer_ambiguous`. `taskId` of a paused timer stops that one and leaves a different running timer alone. A `taskId` that matches neither is **409** `timer_task_mismatch` when something is running, and **404** `timer_not_running` when nothing is.
 
-There is nothing running or paused to stop (including when the sweep already capped the running timer) is **404** `timer_not_running`.
+There is nothing running or paused to stop (including when a configured cap sweep already closed the running timer) is **404** `timer_not_running`.
 
 `complete: true` still marks the task done. It works from running or paused.
 
-## Two-hour cap
+## Length cap
 
-Running time **longer than two hours** is stopped at exactly two hours. The two hours are the sum of the stretches. Time spent paused does not count, and a paused timer is not capped. The entry's `status` is `needs_review`. It is not sent to Basecamp.
+There is **no maximum length** unless `BOT_TIMER_MAX_SECONDS` is set to a positive integer (whole seconds). Unset, blank, zero, and any other value mean unlimited. Pause, resume, and stop then record the true running time. A long timer is `logged` on stop, not `needs_review`, and it is sent to Basecamp the same way a short one is. Resume does not return `timer_cap_reached`.
 
-The owner sees it in two places:
+`BOT_TIMER_MAX_SECONDS=7200` is the old two-hour cap. With a cap set, running time **longer than that many seconds** is stopped at exactly the cap. The cap is the sum of the stretches. Time spent paused does not count, and a paused timer is not capped by the sweep. A pause or stop exactly at the cap is not past it. One millisecond past it is. The entry's `status` is `needs_review`. It is not sent to Basecamp. Resume of a paused entry that has already reached the cap is **409** `timer_cap_reached`.
+
+The owner sees a capped entry in two places:
 
 - Timesheets, in a **Bot timer review** group. Those hours are not SEO budget time until they are accepted.
-- The client activity feed, with the label "Review — stopped at 2 hours". Saving the entry, or sending it to Basecamp from the edit sheet, accepts it (`status` becomes `logged`).
+- The client activity feed, with a review label. Saving the entry, or sending it to Basecamp from the edit sheet, accepts it (`status` becomes `logged`).
 
-The cap does not wait for the bot to call stop.
+There is no separate soft warning for a long timer. `needs_review` is only the configured cap.
+
+When a cap is set, it does not wait for the bot to call stop.
 
 - Every bot call except pause and stop closes an overdue **running** timer first. Pause and stop apply the cap in that response.
-- `GET` or `POST /api/cron/cap-bot-timers` closes every running bot timer past the cap. It does not close paused timers. A paused timer whose latest stretch ended at least seven days ago is returned as `stalePaused` for review and is left paused. The sweep runs once a day (05:30 UTC). A bot that never calls back waits for that run. The saved duration is still two hours of running time, not the time until the sweep noticed.
+- `GET` or `POST /api/cron/cap-bot-timers` closes every running bot timer past the cap. It does not close paused timers. With no cap configured, that sweep caps nothing and does not read running timers. A paused timer whose latest stretch ended at least seven days ago is still returned as `stalePaused` for review and is left paused. The sweep runs once a day (05:30 UTC). A bot that never calls back waits for that run. The saved duration is the configured cap of running time, not the time until the sweep noticed.
 
 `basecamp.status` on a capped stop is `not_sent`.
 
@@ -225,7 +229,7 @@ join bot_api_keys on bot_api_keys.id = time_logs.bot_key_id
 where bot_api_keys.name = 'seo-manager';
 ```
 
-The same column on `tasks` marks tasks the bot created. A running timer is `time_logs.status = 'in_progress'` and `bot_key_id` set. A paused timer is `status = 'paused'` on that same row. A capped entry is `status = 'needs_review'`.
+The same column on `tasks` marks tasks the bot created. A running timer is `time_logs.status = 'in_progress'` and `bot_key_id` set. A paused timer is `status = 'paused'` on that same row. A capped entry, only when `BOT_TIMER_MAX_SECONDS` is set, is `status = 'needs_review'`.
 
 Paused and capped bot timers show in Timesheets. A paused entry is in **Paused bot timers** and is not SEO budget time until stop. Each stretch, with its start, end, and note, shows on the task. A human pause is unchanged: the row stays `in_progress`, the open segment is closed, and no `paused` status is written.
 
@@ -260,7 +264,7 @@ A new start key, while the same task's timer is still running, is not a replay. 
 | 409 | `ambiguous_task` | More than one task has that title, or the ids and titles disagree. |
 | 409 | `timer_already_running` | This bot is already timing a different task, or resume was called while a timer is running. |
 | 409 | `timer_paused` | Start targeted a task that already has a paused timer. Resume it. |
-| 409 | `timer_cap_reached` | Resume targeted a paused timer that already has two hours. Stop it. |
+| 409 | `timer_cap_reached` | Resume targeted a paused timer that already reached `BOT_TIMER_MAX_SECONDS`. Stop it. Not returned when that variable is unset. |
 | 409 | `timer_task_mismatch` | Pause or stop sent a `taskId` that is not the timer being closed. |
 | 409 | `timer_ambiguous` | Stop omitted `taskId` and this bot has more than one paused timer. |
 | 409 | `idempotency_conflict` | This key was already used with a different body. |

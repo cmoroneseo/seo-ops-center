@@ -181,7 +181,7 @@ function TimeLogRow({ log, onEdit, loggerName }: { log: TimeLog; onEdit: (log: T
                         {log.status === 'needs_review' && (
                             <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-500 ml-1.5 align-middle">
                                 <AlertTriangle className="h-2.5 w-2.5" />
-                                Review — stopped at 2 hours
+                                Review — stopped at the timer cap
                             </span>
                         )}
                         {log.status === 'paused' && (

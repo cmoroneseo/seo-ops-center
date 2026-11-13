@@ -260,7 +260,7 @@ export function TeamTimesheetView({ organizationId, weekStart }: TeamTimesheetVi
                                         <span className="flex items-center justify-between gap-2 text-sm text-foreground">
                                             <span className="flex items-center gap-2">
                                                 <AlertTriangle className="h-4 w-4 text-amber-500" aria-hidden />
-                                                {capped ? 'Bot timer stopped at 2 hours' : 'Unmapped entry'}
+                                                {capped ? 'Bot timer stopped at its cap' : 'Unmapped entry'}
                                             </span>
                                             <span className="tabular-nums">
                                                 {formatDuration(exception.minutes, { zero: '0m' })}

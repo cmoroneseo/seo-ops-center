@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-    BOT_TIMER_CAP_MS,
     botStretchSegmentId,
     botTimerBasecampSummary,
     botTimerCloseOpen,
     botTimerDaySlices,
     botTimerDaySlicesFromStretches,
+    botTimerMaxMs,
     botTimerPauseIsStale,
     botTimerStop,
     closedRunningMs,
@@ -17,9 +17,10 @@ import {
 
 const START = '2026-11-03T18:00:00.000Z';
 const ZONE = 'America/Los_Angeles';
+const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 
 test('a timer that runs exactly two hours is not capped', () => {
-    const stop = botTimerStop(START, new Date('2026-11-03T20:00:00.000Z'));
+    const stop = botTimerStop(START, new Date('2026-11-03T20:00:00.000Z'), TWO_HOURS_MS);
     assert.equal(stop.capped, false);
     assert.equal(stop.stoppedAt, '2026-11-03T20:00:00.000Z');
     const slices = botTimerDaySlices(START, stop.stoppedAt, ZONE);
@@ -28,13 +29,46 @@ test('a timer that runs exactly two hours is not capped', () => {
     assert.equal(slices[0].date, '2026-11-03');
 });
 
-test('a timer longer than two hours stops at the cap', () => {
-    const stop = botTimerStop(START, new Date('2026-11-03T21:30:00.000Z'));
+test('a timer longer than two hours keeps the true end when no cap is configured', () => {
+    const now = new Date('2026-11-03T21:30:00.000Z');
+    const stop = botTimerStop(START, now, null);
+    assert.equal(stop.capped, false);
+    assert.equal(stop.stoppedAt, now.toISOString());
+    const slices = botTimerDaySlices(START, stop.stoppedAt, ZONE);
+    assert.equal(slices[0].seconds, 3.5 * 60 * 60);
+    assert.equal(slices[0].hours, 3.5);
+});
+
+test('a configured cap stops a longer timer at the cap', () => {
+    const stop = botTimerStop(START, new Date('2026-11-03T21:30:00.000Z'), TWO_HOURS_MS);
     assert.equal(stop.capped, true);
     assert.equal(stop.stoppedAt, '2026-11-03T20:00:00.000Z');
     const slices = botTimerDaySlices(START, stop.stoppedAt, ZONE);
     assert.equal(slices[0].seconds, 2 * 60 * 60);
     assert.equal(slices[0].hours, 2);
+});
+
+test('BOT_TIMER_MAX_SECONDS is optional and only a positive integer enables a cap', () => {
+    assert.equal(botTimerMaxMs({}), null);
+    assert.equal(botTimerMaxMs({ BOT_TIMER_MAX_SECONDS: undefined }), null);
+    assert.equal(botTimerMaxMs({ BOT_TIMER_MAX_SECONDS: '' }), null);
+    assert.equal(botTimerMaxMs({ BOT_TIMER_MAX_SECONDS: '   ' }), null);
+    assert.equal(botTimerMaxMs({ BOT_TIMER_MAX_SECONDS: '0' }), null);
+    assert.equal(botTimerMaxMs({ BOT_TIMER_MAX_SECONDS: '-1' }), null);
+    assert.equal(botTimerMaxMs({ BOT_TIMER_MAX_SECONDS: '7200.5' }), null);
+    assert.equal(botTimerMaxMs({ BOT_TIMER_MAX_SECONDS: '2 hours' }), null);
+    assert.equal(botTimerMaxMs({ BOT_TIMER_MAX_SECONDS: '7200' }), TWO_HOURS_MS);
+    assert.equal(botTimerMaxMs({ BOT_TIMER_MAX_SECONDS: ' 10800 ' }), 3 * 60 * 60 * 1000);
+    const previous = process.env.BOT_TIMER_MAX_SECONDS;
+    delete process.env.BOT_TIMER_MAX_SECONDS;
+    try {
+        assert.equal(botTimerMaxMs(), null);
+        process.env.BOT_TIMER_MAX_SECONDS = '7200';
+        assert.equal(botTimerMaxMs(), TWO_HOURS_MS);
+    } finally {
+        if (previous === undefined) delete process.env.BOT_TIMER_MAX_SECONDS;
+        else process.env.BOT_TIMER_MAX_SECONDS = previous;
+    }
 });
 
 test('thirty minutes is half an hour and a midnight crossing splits like a human stop', () => {
@@ -53,11 +87,12 @@ test('thirty minutes is half an hour and a midnight crossing splits like a human
     assert.equal(hoursFromSeconds(36), 0.01);
 });
 
-test('the cap is cumulative running time and ignores time spent paused', () => {
+test('a configured cap is cumulative running time and ignores time spent paused', () => {
     const first = botTimerCloseOpen({
         openStartedAt: START,
         closedMs: 0,
         now: new Date('2026-11-03T19:00:00.000Z'),
+        maxMs: TWO_HOURS_MS,
     });
     assert.equal(first.capped, false);
     assert.equal(first.runningMs, 60 * 60 * 1000);
@@ -68,6 +103,7 @@ test('the cap is cumulative running time and ignores time spent paused', () => {
         openStartedAt: '2026-11-03T20:30:00.000Z',
         closedMs,
         now: new Date('2026-11-03T21:00:00.000Z'),
+        maxMs: TWO_HOURS_MS,
     });
     assert.equal(resumed.capped, false);
     assert.equal(resumed.runningMs, 90 * 60 * 1000);
@@ -76,9 +112,10 @@ test('the cap is cumulative running time and ignores time spent paused', () => {
         openStartedAt: '2026-11-03T20:30:00.000Z',
         closedMs,
         now: new Date('2026-11-03T22:00:00.000Z'),
+        maxMs: TWO_HOURS_MS,
     });
     assert.equal(over.capped, true);
-    assert.equal(over.runningMs, BOT_TIMER_CAP_MS);
+    assert.equal(over.runningMs, TWO_HOURS_MS);
     assert.equal(over.openEndedAt, '2026-11-03T21:30:00.000Z');
 
     const slices = botTimerDaySlicesFromStretches([
@@ -87,6 +124,16 @@ test('the cap is cumulative running time and ignores time spent paused', () => {
     ], ZONE);
     assert.equal(slices.length, 1);
     assert.equal(slices[0].hours, 2);
+
+    const unlimited = botTimerCloseOpen({
+        openStartedAt: '2026-11-03T20:30:00.000Z',
+        closedMs,
+        now: new Date('2026-11-03T22:00:00.000Z'),
+        maxMs: null,
+    });
+    assert.equal(unlimited.capped, false);
+    assert.equal(unlimited.runningMs, (60 + 90) * 60 * 1000);
+    assert.equal(unlimited.openEndedAt, '2026-11-03T22:00:00.000Z');
 });
 
 test('a pause at exactly two hours is not a cap', () => {
@@ -94,9 +141,10 @@ test('a pause at exactly two hours is not a cap', () => {
         openStartedAt: START,
         closedMs: 90 * 60 * 1000,
         now: new Date(Date.parse(START) + 30 * 60 * 1000),
+        maxMs: TWO_HOURS_MS,
     });
     assert.equal(closed.capped, false);
-    assert.equal(closed.runningMs, BOT_TIMER_CAP_MS);
+    assert.equal(closed.runningMs, TWO_HOURS_MS);
 });
 
 test('stretch notes stay in order and the Basecamp summary never carries the clock', () => {

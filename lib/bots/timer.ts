@@ -3,28 +3,47 @@ import { createHash } from 'node:crypto';
 import type { TimeLogSegment } from '../types.ts';
 import { splitSegmentsByLocalDate } from '../timer/segments.ts';
 
-/** A bot timer is closed at this age of running time. Paused time does not count. */
-export const BOT_TIMER_CAP_MS = 2 * 60 * 60 * 1000;
-
 /**
  * A paused bot timer older than this is listed for review. The sweep does not
  * close it and does not send it to Basecamp.
  */
 export const BOT_TIMER_STALE_PAUSED_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * Running-time cap in milliseconds, or null when a bot timer is unlimited.
+ *
+ * `BOT_TIMER_MAX_SECONDS` is optional. Unset, blank, zero, or anything that is
+ * not a positive integer means no cap. A configured cap counts running time
+ * only. Time spent paused does not count.
+ */
+export function botTimerMaxMs(
+    source?: { BOT_TIMER_MAX_SECONDS?: string | undefined },
+): number | null {
+    const raw = source ? source.BOT_TIMER_MAX_SECONDS : process.env.BOT_TIMER_MAX_SECONDS;
+    if (typeof raw !== 'string') return null;
+    const trimmed = raw.trim();
+    if (!/^[1-9]\d*$/.test(trimmed)) return null;
+    const seconds = Number(trimmed);
+    if (!Number.isSafeInteger(seconds)) return null;
+    const ms = seconds * 1000;
+    if (!Number.isSafeInteger(ms)) return null;
+    return ms;
+}
+
 export interface BotTimerStop {
     stoppedAt: string;
-    /** True when the clock ran past the cap. The entry stops at the cap, not at now. */
+    /** True when the clock ran past a configured cap. The entry stops at the cap, not at now. */
     capped: boolean;
 }
 
 /**
  * Where a running bot timer ends.
- * Longer than the cap stops at the cap. A stop in the same instant as the start
- * moves one millisecond forward so the closed segment is a real interval.
+ * With no cap, it ends at now. Longer than a configured cap stops at the cap.
+ * A stop in the same instant as the start moves one millisecond forward so the
+ * closed segment is a real interval.
  */
-export function botTimerStop(startedAt: string, now: Date): BotTimerStop {
-    const closed = botTimerCloseOpen({ openStartedAt: startedAt, closedMs: 0, now });
+export function botTimerStop(startedAt: string, now: Date, maxMs?: number | null): BotTimerStop {
+    const closed = botTimerCloseOpen({ openStartedAt: startedAt, closedMs: 0, now, maxMs });
     if (!closed.openEndedAt) {
         throw new RangeError('Bot timer instants must be real timestamps.');
     }
@@ -37,7 +56,7 @@ export interface BotTimerStretchInterval {
 }
 
 export interface BotTimerOpenClose {
-    /** True when running time is already past the cap. Exactly two hours is not past it. */
+    /** True when running time is already past a configured cap. Exactly at the cap is not past it. */
     capped: boolean;
     /** End of the open stretch. Null when nothing is open. */
     openEndedAt: string | null;
@@ -66,13 +85,15 @@ export function closedRunningMs(stretches: readonly BotTimerStretchInterval[]): 
 
 /**
  * Where the open stretch ends, using cumulative running time.
- * Time spent paused is not in `closedMs` and does not move the cap.
- * A pause or stop at exactly two hours is not a cap. One millisecond past it is.
+ * Time spent paused is not in `closedMs`.
+ * Omit `maxMs` to read `BOT_TIMER_MAX_SECONDS`. Null means no cap.
+ * A pause or stop exactly at a configured cap is not a cap. One millisecond past it is.
  */
 export function botTimerCloseOpen(input: {
     openStartedAt: string | null;
     closedMs: number;
     now: Date;
+    maxMs?: number | null;
 }): BotTimerOpenClose {
     const closedMs = input.closedMs;
     if (!Number.isFinite(closedMs) || closedMs < 0) {
@@ -80,11 +101,27 @@ export function botTimerCloseOpen(input: {
     }
     const nowMs = input.now.getTime();
     if (!Number.isFinite(nowMs)) throw new RangeError('Bot timer instants must be real timestamps.');
+    const maxMs = input.maxMs === undefined ? botTimerMaxMs() : input.maxMs;
+    if (maxMs == null) {
+        if (!input.openStartedAt) {
+            return { capped: false, openEndedAt: null, runningMs: closedMs };
+        }
+        const startMs = instantMs(input.openStartedAt, nowMs);
+        const elapsed = Math.max(nowMs - startMs, 1);
+        return {
+            capped: false,
+            openEndedAt: new Date(startMs + elapsed).toISOString(),
+            runningMs: closedMs + elapsed,
+        };
+    }
+    if (!Number.isFinite(maxMs) || maxMs <= 0) {
+        throw new RangeError('Bot timer cap must be a positive number of milliseconds.');
+    }
     if (!input.openStartedAt) {
-        return { capped: closedMs > BOT_TIMER_CAP_MS, openEndedAt: null, runningMs: closedMs };
+        return { capped: closedMs > maxMs, openEndedAt: null, runningMs: closedMs };
     }
     const startMs = instantMs(input.openStartedAt, nowMs);
-    const remaining = BOT_TIMER_CAP_MS - closedMs;
+    const remaining = maxMs - closedMs;
     if (remaining <= 0) {
         return {
             capped: true,
@@ -97,7 +134,7 @@ export function botTimerCloseOpen(input: {
         return {
             capped: true,
             openEndedAt: new Date(startMs + remaining).toISOString(),
-            runningMs: BOT_TIMER_CAP_MS,
+            runningMs: maxMs,
         };
     }
     return {
@@ -165,8 +202,8 @@ export function botTimerBasecampSummary(input: {
     ) ?? '';
 }
 
-export function botTimerIsOverdue(startedAt: string, now: Date): boolean {
-    return botTimerStop(startedAt, now).capped;
+export function botTimerIsOverdue(startedAt: string, now: Date, maxMs?: number | null): boolean {
+    return botTimerStop(startedAt, now, maxMs).capped;
 }
 
 /** Hundredths of an hour, the same rounding `finalize_time_attempt` stores. */

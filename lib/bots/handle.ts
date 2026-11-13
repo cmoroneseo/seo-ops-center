@@ -21,6 +21,7 @@ import {
     botTimerBasecampSummary,
     botTimerCloseOpen,
     botTimerDaySlicesFromStretches,
+    botTimerMaxMs,
     botTimerPauseIsStale,
     closedRunningMs,
     combineStretchNote,
@@ -30,7 +31,40 @@ import {
 
 const LOCK_MS = 60_000;
 
-const CAP_NOTE = 'Stopped automatically at the 2 hour cap.';
+const TWO_HOUR_CAP_MS = 2 * 60 * 60 * 1000;
+
+/** The historical two-hour strings stay exact. Any other configured cap is named from its length. */
+function capPhrase(maxMs: number): string {
+    if (maxMs % (60 * 60 * 1000) === 0) {
+        const hours = maxMs / (60 * 60 * 1000);
+        return hours === 1 ? '1 hour' : `${hours} hours`;
+    }
+    if (maxMs % (60 * 1000) === 0) {
+        const minutes = maxMs / (60 * 1000);
+        return minutes === 1 ? '1 minute' : `${minutes} minutes`;
+    }
+    const seconds = Math.round(maxMs / 1000);
+    return seconds === 1 ? '1 second' : `${seconds} seconds`;
+}
+
+function capNote(maxMs: number): string {
+    if (maxMs === TWO_HOUR_CAP_MS) return 'Stopped automatically at the 2 hour cap.';
+    return `Stopped automatically at the ${capPhrase(maxMs)} cap.`;
+}
+
+function capReason(maxMs: number): string {
+    if (maxMs === TWO_HOUR_CAP_MS) {
+        return 'Stopped at the 2 hour cap. Review it in SEO Ops before sending to Basecamp.';
+    }
+    return `Stopped at the ${capPhrase(maxMs)} cap. Review it in SEO Ops before sending to Basecamp.`;
+}
+
+function resumeCapMessage(maxMs: number): string {
+    if (maxMs === TWO_HOUR_CAP_MS) {
+        return 'This timer already has 2 hours of running time. Stop it instead of resuming.';
+    }
+    return `This timer already has ${capPhrase(maxMs)} of running time. Stop it instead of resuming.`;
+}
 
 export interface BotKeyRecord {
     id: string;
@@ -173,7 +207,7 @@ export interface BotDeps {
     listPausedTimers(botKeyId: string): Promise<RunningBotTimer[]>;
     /** Every paused bot timer, for the stale-review sweep. */
     listAllPausedTimers(): Promise<RunningBotTimer[]>;
-    /** Every running bot timer. The caller decides which ones are past the cap. */
+    /** Every running bot timer. The caller applies the configured cap, if any. */
     listOverdueTimers(now: Date): Promise<RunningBotTimer[]>;
     getTimer(id: string): Promise<RunningBotTimer | null>;
     insertRunningTimer(input: {
@@ -571,7 +605,12 @@ async function resolveExistingTask(
     return { clientId: client.id, task: found };
 }
 
-function closedStretches(timer: RunningBotTimer, now: Date, pauseNote: string | null): {
+function closedStretches(
+    timer: RunningBotTimer,
+    now: Date,
+    pauseNote: string | null,
+    maxMs: number | null,
+): {
     stretches: BotTimerStretch[];
     capped: boolean;
     stoppedAt: string;
@@ -580,6 +619,7 @@ function closedStretches(timer: RunningBotTimer, now: Date, pauseNote: string | 
         openStartedAt: isRunningTimer(timer) ? timer.startedAt : null,
         closedMs: closedRunningMs(timer.stretches),
         now,
+        maxMs,
     });
     if (!isRunningTimer(timer) || !timer.startedAt || !decision.openEndedAt) {
         const ended = timer.stretches[timer.stretches.length - 1]?.endedAt ?? now.toISOString();
@@ -606,6 +646,7 @@ async function closeTimer(
         stretches: BotTimerStretch[];
         stoppedAt: string;
         capped: boolean;
+        maxMs: number | null;
         description: string;
         billable: boolean;
         countsTowardBudget: boolean;
@@ -627,18 +668,19 @@ async function closeTimer(
         slices,
         operationId: randomUUID(),
         botOperationId: input.botOperationId,
-        note: input.capped ? CAP_NOTE : null,
+        note: input.capped && input.maxMs != null ? capNote(input.maxMs) : null,
     });
     if (!logs || logs.length === 0) return { status: 500, body: errorBody('internal', 'Timer could not be stopped.') };
     return { logs, capped: input.capped };
 }
 
-async function capTimer(timer: RunningBotTimer, deps: BotDeps): Promise<FinalizedBotLog | null> {
-    const closed = closedStretches(timer, deps.now(), null);
+async function capTimer(timer: RunningBotTimer, deps: BotDeps, maxMs: number): Promise<FinalizedBotLog | null> {
+    const closed = closedStretches(timer, deps.now(), null, maxMs);
     if (!closed.capped) return null;
+    const seconds = Math.round(closedRunningMs(closed.stretches) / 1000);
     const summary = botTimerBasecampSummary({
         stretchNotes: closed.stretches.map(stretch => stretch.note),
-        hours: 2,
+        hours: hoursFromSeconds(seconds),
         startedAt: closed.stretches[0]?.startedAt,
         stoppedAt: closed.stoppedAt,
     });
@@ -646,6 +688,7 @@ async function capTimer(timer: RunningBotTimer, deps: BotDeps): Promise<Finalize
         stretches: closed.stretches,
         stoppedAt: closed.stoppedAt,
         capped: true,
+        maxMs,
         description: summary || timer.taskTitle,
         billable: timer.billable,
         countsTowardBudget: timer.countsTowardBudget,
@@ -837,11 +880,13 @@ async function executePause(
         };
     }
     await deps.saveOperation(operation.id, { timeLogId: running.id, taskId: running.taskId });
-    const closed = closedStretches(running, deps.now(), command.description ?? null);
-    if (closed.capped) {
+    const maxMs = botTimerMaxMs();
+    const closed = closedStretches(running, deps.now(), command.description ?? null, maxMs);
+    if (closed.capped && maxMs != null) {
+        const seconds = Math.round(closedRunningMs(closed.stretches) / 1000);
         const summary = botTimerBasecampSummary({
             stretchNotes: closed.stretches.map(stretch => stretch.note),
-            hours: 2,
+            hours: hoursFromSeconds(seconds),
             startedAt: closed.stretches[0]?.startedAt,
             stoppedAt: closed.stoppedAt,
         });
@@ -849,6 +894,7 @@ async function executePause(
             stretches: closed.stretches,
             stoppedAt: closed.stoppedAt,
             capped: true,
+            maxMs,
             description: summary || running.taskTitle,
             billable: running.billable,
             countsTowardBudget: running.countsTowardBudget,
@@ -873,7 +919,7 @@ async function executePause(
                     description: finalized.logs[0].description,
                     basecamp: {
                         status: 'not_sent' as const,
-                        reason: 'Stopped at the 2 hour cap. Review it in SEO Ops before sending to Basecamp.',
+                        reason: capReason(maxMs),
                     },
                 },
             },
@@ -939,12 +985,13 @@ async function executeResume(
     if (!paused || paused.organizationId !== key.organizationId) {
         return { status: 404, body: errorBody('timer_not_paused', 'This bot does not have a paused timer on that task.') };
     }
-    if (closedRunningMs(paused.stretches) >= 2 * 60 * 60 * 1000) {
+    const maxMs = botTimerMaxMs();
+    if (maxMs != null && closedRunningMs(paused.stretches) >= maxMs) {
         return {
             status: 409,
             body: errorBody(
                 'timer_cap_reached',
-                'This timer already has 2 hours of running time. Stop it instead of resuming.',
+                resumeCapMessage(maxMs),
                 { timer: pausedBody(paused) },
             ),
         };
@@ -989,7 +1036,8 @@ async function executeStop(
     const target = await resolveStopTarget(key, command, deps);
     if ('status' in target) return target;
     const timer = target.timer;
-    const closed = closedStretches(timer, deps.now(), null);
+    const maxMs = botTimerMaxMs();
+    const closed = closedStretches(timer, deps.now(), null, maxMs);
     const summary = botTimerBasecampSummary({
         stretchNotes: closed.stretches.map(stretch => stretch.note),
         stopNote: command.description,
@@ -1002,6 +1050,7 @@ async function executeStop(
         stretches: closed.stretches,
         stoppedAt: closed.stoppedAt,
         capped: closed.capped,
+        maxMs,
         description: summary || timer.taskTitle,
         billable: command.billable ?? timer.billable,
         countsTowardBudget: command.countsTowardBudget ?? timer.countsTowardBudget,
@@ -1042,8 +1091,8 @@ async function executeStop(
             : { status: 'skipped', reason: 'Task has no Basecamp to-do.' };
     }
     await deps.saveOperation(operation.id, { timeLogId: primary.id, taskId: timer.taskId });
-    const timesheet = closed.capped
-        ? { status: 'not_sent' as const, reason: 'Stopped at the 2 hour cap. Review it in SEO Ops before sending to Basecamp.' }
+    const timesheet = closed.capped && maxMs != null
+        ? { status: 'not_sent' as const, reason: capReason(maxMs) }
         : (steps[0] ?? { status: 'skipped' as const, reason: 'No timesheet step ran.' });
     return {
         status: 200,
@@ -1078,19 +1127,21 @@ async function refreshLog(log: FinalizedBotLog, deps: BotDeps, step: BasecampSte
     return { ...log, basecampEntryId: step.providerId };
 }
 
-function runningPastCap(timer: RunningBotTimer, now: Date): boolean {
-    if (!isRunningTimer(timer)) return false;
+function runningPastCap(timer: RunningBotTimer, now: Date, maxMs: number | null): boolean {
+    if (maxMs == null || !isRunningTimer(timer)) return false;
     return botTimerCloseOpen({
         openStartedAt: timer.startedAt,
         closedMs: closedRunningMs(timer.stretches),
         now,
+        maxMs,
     }).capped;
 }
 
 async function capThisBot(keyId: string, deps: BotDeps): Promise<FinalizedBotLog | null> {
     const running = await deps.findRunningTimer(keyId);
-    if (!running || !runningPastCap(running, deps.now())) return null;
-    return capTimer(running, deps);
+    const maxMs = botTimerMaxMs();
+    if (!running || maxMs == null || !runningPastCap(running, deps.now(), maxMs)) return null;
+    return capTimer(running, deps, maxMs);
 }
 
 export interface StalePausedBotTimer {
@@ -1101,7 +1152,8 @@ export interface StalePausedBotTimer {
 }
 
 /**
- * Close every running bot timer whose cumulative running time is past two hours.
+ * Close running bot timers past `BOT_TIMER_MAX_SECONDS`.
+ * Unset means this caps nothing: no running timer is read or closed.
  * Paused timers stay paused. Ones paused for seven days are listed for review
  * and are not closed or sent to Basecamp.
  */
@@ -1110,11 +1162,16 @@ export async function capOverdueBotTimers(deps: BotDeps): Promise<{
     capped: number;
     stalePaused: StalePausedBotTimer[];
 }> {
-    const overdue = (await deps.listOverdueTimers(deps.now())).filter(timer => runningPastCap(timer, deps.now()));
+    const maxMs = botTimerMaxMs();
+    let checked = 0;
     let capped = 0;
-    for (const timer of overdue) {
-        const log = await capTimer(timer, deps);
-        if (log) capped += 1;
+    if (maxMs != null) {
+        const overdue = (await deps.listOverdueTimers(deps.now())).filter(timer => runningPastCap(timer, deps.now(), maxMs));
+        checked = overdue.length;
+        for (const timer of overdue) {
+            const log = await capTimer(timer, deps, maxMs);
+            if (log) capped += 1;
+        }
     }
     const now = deps.now();
     const stalePaused = (await deps.listAllPausedTimers())
@@ -1125,7 +1182,7 @@ export async function capOverdueBotTimers(deps: BotDeps): Promise<{
             taskTitle: timer.taskTitle,
             pausedAt: timer.pausedAt ?? '',
         }));
-    return { checked: overdue.length, capped, stalePaused };
+    return { checked, capped, stalePaused };
 }
 
 export async function handleBotRequest(request: Request, deps: BotDeps): Promise<Response> {
@@ -1155,8 +1212,8 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
         return json(errorBody('actor_not_found', 'Carlos Morones is not a member of this organization, so the entry cannot be attributed.'), 409);
     }
 
-    // Stop applies the cap itself so the response is the stop, not a 404 after a silent close.
-    // Pause and stop apply the cap themselves so the response is that call, not a 404 after a silent close.
+    // Pause and stop apply a configured cap in their own response.
+    // With no cap, a long running timer stays open until pause or stop.
     let cappedJustNow: FinalizedBotLog | null = null;
     if (command.kind !== 'stop' && command.kind !== 'pause') {
         try {

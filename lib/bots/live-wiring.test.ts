@@ -34,6 +34,7 @@ test('bot routes use the shared Basecamp handlers and do not log minutes', () =>
     assert.match(taskRoute, /handleBotRequest/);
     assert.match(startRoute, /liveBotDeps/);
     assert.match(cron, /capOverdueBotTimers/);
+    assert.match(cron, /BOT_TIMER_MAX_SECONDS/);
     assert.doesNotMatch(botLive, /command\.hours|command\.minutes/);
     assert.throws(() => readFileSync(new URL('../../app/api/bots/time/route.ts', import.meta.url), 'utf8'));
 });
