@@ -116,7 +116,6 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, init
     const [keywordVisit, setKeywordVisit] = useState(0);
     const [keywordLoading, setKeywordLoading] = useState(false);
     const [keywordNotice, setKeywordNotice] = useState<string | null>(null);
-    const [ahrefs, setAhrefs] = useState<MetricSource>('missing');
     const [searchConsole, setSearchConsole] = useState<MetricSource>('missing');
     const selectionTouched = useRef(false);
     const savedKeywords = useRef<string[]>([]);
@@ -173,7 +172,6 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, init
         }).then(result => {
             if (request !== keywordRequest.current) return;
             setKeywordRows(result.rows);
-            setAhrefs(result.ahrefs);
             setSearchConsole(result.searchConsole);
             setKeywordNotice(result.notice);
             setKeywordLoading(false);
@@ -489,7 +487,6 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, init
                                     clientId={clientId}
                                     clientName={clientName}
                                     rows={keywordRows}
-                                    ahrefs={ahrefs}
                                     searchConsole={searchConsole}
                                     loading={keywordLoading}
                                     notice={keywordNotice}
@@ -530,7 +527,7 @@ export function MapGenerationWizard({ organizationId, clientId, clientName, init
                     <button type="button" onClick={goBack} className={SECONDARY_LG}>
                         {step === 'profile' ? 'Cancel' : <><ArrowLeft className="h-4 w-4" aria-hidden="true" />Back</>}
                     </button>
-                    {step === 'keywords' && <span className="text-[12.5px] text-[#52525b]">{keywordStepHint(ahrefs, searchConsole)}</span>}
+                    {step === 'keywords' && <span className="text-[12.5px] text-[#52525b]">{keywordStepHint(searchConsole)}</span>}
                     <button type="button" onClick={goForward} disabled={continueDisabled || loadingProfile} className={cn(PRIMARY_LG, 'ml-auto')}>
                         {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
                         {savingKeywords ? 'Saving…' : submitting ? 'Starting…' : continueLabel(step, selectedCount)}
