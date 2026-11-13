@@ -13,8 +13,10 @@ import {
  *
  * The receiver's contract is docs/campaign-desk-sync-v2.md in Campaign Desk.
  * Minutes are an integer from 1 to 1440. Hours are minutes ÷ 60, half away
- * from zero, two decimal places. An item's source matches the week basis.
- * weekStart is the Monday. itemKey is stable `kind:id:date`.
+ * from zero, two decimal places. weekStart is the Monday. itemKey is stable
+ * `kind:id:date`. An item source is `actual` or `estimate` on its own. The
+ * current week can carry both. Later weeks stay estimates. Earlier weeks stay
+ * logged time.
  */
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -198,7 +200,7 @@ function parseSourceIds(value: unknown, at: string): ForecastItemSourceIds {
     return { taskId, timeLogIds, plannerEventId };
 }
 
-function parseItem(value: unknown, at: string, basis: 'actual' | 'estimate'): ForecastItem {
+function parseItem(value: unknown, at: string): ForecastItem {
     if (!isRecord(value)) throw new ForecastPayloadError(`${at} must be an object`);
     const extra = unknownKey(value, ITEM_KEYS);
     if (extra) throw new ForecastPayloadError(`${at}.${extra} is not allowed`);
@@ -227,7 +229,8 @@ function parseItem(value: unknown, at: string, basis: 'actual' | 'estimate'): Fo
     if (typeof value.title !== 'string' || !value.title.trim() || value.title.trim().length > MAX_TITLE) {
         throw new ForecastPayloadError(`${at}.title must be the item title`);
     }
-    if (value.source !== basis) throw new ForecastPayloadError(`${at}.source must match basis`);
+    const source = value.source === 'actual' || value.source === 'estimate' ? value.source : null;
+    if (!source) throw new ForecastPayloadError(`${at}.source must be actual or estimate`);
     if (
         typeof value.minutes !== 'number'
         || !Number.isInteger(value.minutes)
@@ -248,7 +251,7 @@ function parseItem(value: unknown, at: string, basis: 'actual' | 'estimate'): Fo
         bucket: value.bucket,
         client,
         title: value.title.trim(),
-        source: basis,
+        source,
         minutes: value.minutes,
         hours: value.hours,
         startTime: value.startTime,
@@ -334,7 +337,7 @@ export function parseForecastPayloadV2(value: unknown): ForecastPayloadV2 {
                     if (itemCount > MAX_ITEMS) {
                         throw new ForecastPayloadError(`a run can include at most ${MAX_ITEMS} items`);
                     }
-                    const item = parseItem(day.items[itemIndex], `${dayAt}.items[${itemIndex}]`, basis);
+                    const item = parseItem(day.items[itemIndex], `${dayAt}.items[${itemIndex}]`);
                     if (seenKeys.has(item.itemKey)) {
                         throw new ForecastPayloadError(`${dayAt}.items[${itemIndex}].itemKey is repeated`);
                     }

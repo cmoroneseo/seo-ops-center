@@ -1,3 +1,4 @@
+import { nudgeForecastSync } from '../forecast/nudge';
 import { createClient } from './client';
 import { PlannerEvent, PlannerEventKind, PlannerEventVisibility } from '../types';
 
@@ -117,7 +118,9 @@ export async function createPlannerEvent(params: PlannerEventInsert): Promise<Pl
             .select('*')
             .single();
         if (error) throw error;
-        return rowToPlannerEvent(data);
+        const created = rowToPlannerEvent(data);
+        nudgeForecastSync({ organizationId: created.organizationId, instants: [created.startsAt] });
+        return created;
     } catch (err) {
         console.error('[planner-events] create error:', err);
         return null;
@@ -131,6 +134,15 @@ export async function updatePlannerEvent(
     const supabase = createClient();
     if (!supabase) return null;
     try {
+        let previousStart: string | null = null;
+        if (patch.startsAt !== undefined) {
+            const { data: before } = await supabase
+                .from('planner_events')
+                .select('starts_at')
+                .eq('id', id)
+                .maybeSingle();
+            previousStart = typeof before?.starts_at === 'string' ? before.starts_at : null;
+        }
         const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
         if (patch.title !== undefined) row.title = patch.title;
         if (patch.description !== undefined) row.description = patch.description;
@@ -152,7 +164,12 @@ export async function updatePlannerEvent(
             .select('*')
             .single();
         if (error) throw error;
-        return rowToPlannerEvent(data);
+        const updated = rowToPlannerEvent(data);
+        nudgeForecastSync({
+            organizationId: updated.organizationId,
+            instants: [updated.startsAt, previousStart],
+        });
+        return updated;
     } catch (err) {
         console.error('[planner-events] update error:', err);
         return null;
@@ -163,8 +180,17 @@ export async function deletePlannerEvent(id: string): Promise<boolean> {
     const supabase = createClient();
     if (!supabase) return false;
     try {
+        const { data: existing } = await supabase
+            .from('planner_events')
+            .select('organization_id, starts_at')
+            .eq('id', id)
+            .maybeSingle();
         const { error } = await supabase.from('planner_events').delete().eq('id', id);
         if (error) throw error;
+        nudgeForecastSync({
+            organizationId: typeof existing?.organization_id === 'string' ? existing.organization_id : undefined,
+            instants: [typeof existing?.starts_at === 'string' ? existing.starts_at : null],
+        });
         return true;
     } catch (err) {
         console.error('[planner-events] delete error:', err);

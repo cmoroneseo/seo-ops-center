@@ -1,3 +1,4 @@
+import { nudgeForecastSync } from '../forecast/nudge';
 import { createClient } from './client';
 import { setupBudgetMonth } from '../client-setup';
 import { TimeLog, SessionNote, TimerAttempt } from '../types';
@@ -341,9 +342,11 @@ export async function createTimeLog(
         if (!recorded.success || !recorded.data) {
             return noteTimeLogSaved({ success: false as const, error: recorded.error ?? 'Time entry was not saved' });
         }
+        const saved = rowToTimeLog(recorded.data);
+        nudgeForecastSync({ organizationId: saved.organizationId, instants: [saved.date] });
         return noteTimeLogSaved({
             success: true as const,
-            data: rowToTimeLog(recorded.data),
+            data: saved,
             ...(recorded.segmentWarning ? { segmentWarning: recorded.segmentWarning } : {}),
             ...(recorded.basecampSync ? { basecampSync: recorded.basecampSync } : {}),
         });
@@ -423,6 +426,15 @@ export async function logTaskCompletionTime(input: {
         const row = Array.isArray(data) ? data[0] : data;
         const timeLogId = row?.time_log_id as string | undefined;
         if (!timeLogId) return noteTimeLogSaved({ success: false, error: 'Time entry was not returned' });
+        const { data: savedLog } = await supabase
+            .from('time_logs')
+            .select('organization_id, date')
+            .eq('id', timeLogId)
+            .maybeSingle();
+        nudgeForecastSync({
+            organizationId: typeof savedLog?.organization_id === 'string' ? savedLog.organization_id : undefined,
+            instants: [typeof savedLog?.date === 'string' ? savedLog.date : null],
+        });
         if (input.syncToBasecamp) pushTimeLogToBasecamp(timeLogId, true);
         return noteTimeLogSaved({ success: true, timeLogId });
     } catch (error: any) {
@@ -468,6 +480,11 @@ export async function reconcilePlannerEventTimeLog(
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
+        const { data: before } = await supabase
+            .from('time_logs')
+            .select('organization_id, date')
+            .eq('id', id)
+            .maybeSingle();
         const { data, error } = await supabase
             .from('time_logs')
             .update({
@@ -486,7 +503,12 @@ export async function reconcilePlannerEventTimeLog(
             .select('*, clients(name), tasks(title)')
             .single();
         if (error) throw error;
-        return noteTimeLogSaved({ success: true, data: rowToTimeLog(data) });
+        const saved = rowToTimeLog(data);
+        nudgeForecastSync({
+            organizationId: saved.organizationId,
+            instants: [saved.date, typeof before?.date === 'string' ? before.date : null],
+        });
+        return noteTimeLogSaved({ success: true, data: saved });
     } catch (error: any) {
         console.error('[time-logs] planner event reconcile error:', error);
         return { success: false, error: error.message };
@@ -504,11 +526,20 @@ export async function updateTimeLog(
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
         // Map camelCase sessionNotes → snake_case session_notes for Supabase
+        const { data: before } = await supabase
+            .from('time_logs')
+            .select('organization_id, date')
+            .eq('id', id)
+            .maybeSingle();
         const { sessionNotes, ...rest } = patch;
         const dbPatch: Record<string, unknown> = { ...rest };
         if (sessionNotes !== undefined) dbPatch.session_notes = sessionNotes;
         const { error } = await supabase.from('time_logs').update(dbPatch).eq('id', id);
         if (error) throw error;
+        nudgeForecastSync({
+            organizationId: typeof before?.organization_id === 'string' ? before.organization_id : undefined,
+            instants: [typeof before?.date === 'string' ? before.date : null, patch.date],
+        });
         // Keep an already-synced Basecamp entry in step (no-op otherwise)
         pushTimeLogToBasecamp(id, false);
         return noteTimeLogSaved({ success: true });
@@ -525,12 +556,12 @@ export async function deleteTimeLog(id: string): Promise<{ success: boolean; err
         // Grab the Basecamp entry ID before the row disappears
         const { data: existing, error: lookupError } = await supabase
             .from('time_logs')
-            .select('basecamp_entry_id')
+            .select('basecamp_entry_id, organization_id, date')
             .eq('id', id)
             .maybeSingle();
         if (lookupError) throw lookupError;
 
-        return noteTimeLogSaved(await deleteTimeLogAcrossSystems({
+        const removed = await deleteTimeLogAcrossSystems({
             basecampEntryId: existing?.basecamp_entry_id,
             removeBasecampEntry: () => fetch('/api/integrations/basecamp/timesheet', {
                 method: 'POST',
@@ -545,7 +576,14 @@ export async function deleteTimeLog(id: string): Promise<{ success: boolean; err
                 const { error } = await supabase.from('time_logs').delete().eq('id', id);
                 if (error) throw error;
             },
-        }));
+        });
+        if (removed.success) {
+            nudgeForecastSync({
+                organizationId: typeof existing?.organization_id === 'string' ? existing.organization_id : undefined,
+                instants: [typeof existing?.date === 'string' ? existing.date : null],
+            });
+        }
+        return noteTimeLogSaved(removed);
     } catch (err: any) {
         console.error('Error deleting time log:', err);
         return { success: false, error: err.message };

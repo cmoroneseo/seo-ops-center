@@ -7,6 +7,7 @@ import {
     campaignDeskAllowlist,
     campaignDeskBaseUrl,
     campaignDeskReady,
+    campaignDeskHybridWeek,
     campaignDeskSyncV2,
     campaignDeskToken,
 } from './flags.ts';
@@ -79,7 +80,11 @@ test('the example env does not allowlist the production org', () => {
     assert.match(example, /^CAMPAIGN_DESK_API_BASE_URL=$/m);
     assert.match(example, /^CAMPAIGN_DESK_API_TOKEN=$/m);
     assert.match(example, /^CAMPAIGN_DESK_SYNC_V2=$/m);
+    assert.match(example, /^CAMPAIGN_DESK_HYBRID_WEEK=$/m);
     assert.equal(campaignDeskSyncV2(env({})), false);
+    assert.equal(campaignDeskHybridWeek(env({})), false);
+    assert.equal(campaignDeskHybridWeek(env({ CAMPAIGN_DESK_HYBRID_WEEK: 'TRUE' })), false);
+    assert.equal(campaignDeskHybridWeek(env({ CAMPAIGN_DESK_HYBRID_WEEK: 'true' })), true);
     assert.equal(campaignDeskSyncV2(env({ CAMPAIGN_DESK_SYNC_V2: 'TRUE' })), false);
     assert.equal(campaignDeskSyncV2(env({ CAMPAIGN_DESK_SYNC_V2: 'true' })), true);
     assert.equal(example.includes(CAMPAIGN_DESK_MEG_ORG_ID), false);

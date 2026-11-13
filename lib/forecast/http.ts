@@ -20,7 +20,7 @@ import {
     normalizeEmail,
 } from './contract.ts';
 import { parseStoredForecastPayload } from './contract-v2.ts';
-import type { ForecastReadiness } from './flags.ts';
+import { campaignDeskHybridWeek, type ForecastReadiness } from './flags.ts';
 import { EMPTY_FORECAST_SYNC_REASON, forecastSendableCount, forecastStatusLabel, formatLastSynced, forecastWeekChip, presentForecast } from './present.ts';
 import { coveringRun, latestRun, memberForecastStatus, personForecastDigest } from './status.ts';
 import { ForecastClientMapUnavailable, ForecastStoreUnavailable, type ForecastRunStore, type ForecastSyncRunRecord } from './store.ts';
@@ -62,6 +62,8 @@ export interface ForecastHttpDependencies {
     newRunId(): string;
     /** 2 only when CAMPAIGN_DESK_SYNC_V2 is exactly true. */
     payloadVersion(): 1 | 2;
+    /** True only when CAMPAIGN_DESK_HYBRID_WEEK is exactly true. */
+    hybridWeek?: () => boolean;
     listClients(): Promise<ForecastDeskClient[]>;
     loadClientLinks(organizationId: string): Promise<ForecastClientLink[]>;
     rememberNameMatches(
@@ -213,6 +215,7 @@ export function createForecastStatusGet(deps: ForecastHttpDependencies) {
         const { built } = await buildChosen(deps, {
             organizationId: auth.organizationId,
             today: todayResult.today,
+            now: deps.now().toISOString(),
             timeZone: zone.timeZone,
             selectedWeekStarts: [weekStart],
             ...source,
@@ -328,6 +331,7 @@ async function buildChosen(
     return {
         built: buildForecastV2({
             ...rest,
+            hybridWeek: deps.hybridWeek?.() ?? campaignDeskHybridWeek(),
             clientLinks,
             deskClients: desk.clients,
             basecampProjects,
@@ -350,6 +354,7 @@ async function previewPayload(
     const { built, clientsError } = await buildChosen(deps, {
         organizationId,
         today,
+        now: deps.now().toISOString(),
         timeZone,
         selectedWeekStarts: weeks,
         ...source,
@@ -358,7 +363,10 @@ async function previewPayload(
         connectionEnabled: connection.enabled,
     });
     const allowed = selectableWeekStarts(today);
-    const preview = presentForecast(built, connection, directory.error);
+    const preview = presentForecast(built, connection, directory.error, {
+        today,
+        hybridWeek: deps.hybridWeek?.() ?? campaignDeskHybridWeek(),
+    });
     if (clientsError) preview.warnings.push({ message: clientsError });
     return {
         connection,
@@ -371,13 +379,176 @@ async function previewPayload(
     };
 }
 
+export interface ForecastSyncCommand {
+    organizationId: string;
+    userId: string;
+    actorName: string;
+    today: string;
+    timeZone: string;
+    weekStarts: string[];
+    /**
+     * The manual button refuses an empty week so it cannot wipe Campaign Desk
+     * by accident. An automatic push after a delete must be allowed to clear one.
+     */
+    allowEmpty: boolean;
+    /** Clock for the current-week split. The sync record uses a fresh timestamp. */
+    now?: string;
+    /** True when a newer edit for this week arrived while this send was loading. */
+    isStale?: () => boolean;
+}
+
+export type ForecastSyncOutcome =
+    | {
+        ok: true;
+        runId: string;
+        idempotent: boolean;
+        weekCount: number;
+        syncedAt: string;
+        syncedBy: string;
+    }
+    | { ok: false; status: number; error: string };
+
+/** One send of the existing forecast body. The same hours reuse the stored run. */
+export async function executeForecastSync(
+    deps: ForecastHttpDependencies,
+    command: ForecastSyncCommand,
+): Promise<ForecastSyncOutcome> {
+    const connection = deps.readiness(command.organizationId);
+    if (!connection.enabled) {
+        return { ok: false, status: 409, error: connection.reason ?? 'Campaign Desk sync is turned off.' };
+    }
+
+    let directory: ForecastDeskPerson[];
+    try {
+        directory = await deps.listPeople();
+    } catch (error) {
+        const message = directoryFailure(error);
+        if (message) return { ok: false, status: 502, error: message };
+        throw error;
+    }
+
+    const source = await deps.load({ organizationId: command.organizationId, ...loadWindow(command.weekStarts) });
+    const { built } = await buildChosen(deps, {
+        organizationId: command.organizationId,
+        today: command.today,
+        now: command.now,
+        timeZone: command.timeZone,
+        selectedWeekStarts: command.weekStarts,
+        ...source,
+        directory,
+        connectionEnabled: true,
+    });
+    if ((built.itemCount ?? 0) > 500) {
+        return { ok: false, status: 422, error: 'This sync has more than 500 items. Choose fewer weeks.' };
+    }
+    if (!command.allowEmpty && forecastSendableCount(built) === 0) {
+        return { ok: false, status: 422, error: EMPTY_FORECAST_SYNC_REASON };
+    }
+    if ('nameMatches' in built && built.nameMatches.length > 0) {
+        try {
+            await deps.rememberNameMatches(command.organizationId, command.userId, built.nameMatches);
+        } catch (error) {
+            if (!(error instanceof ForecastClientMapUnavailable)) {
+                console.warn(JSON.stringify({ event: 'campaign_desk_client_map_write_failed' }));
+            }
+        }
+    }
+    const payloadBody = built.payloadBody;
+    const payloadHash = forecastPayloadHash(payloadBody);
+
+    let existing: ForecastSyncRunRecord | null = null;
+    try {
+        existing = await deps.store.findSucceededByHash(command.organizationId, payloadHash);
+    } catch (error) {
+        if (error instanceof ForecastStoreUnavailable) {
+            return { ok: false, status: 503, error: 'Forecast sync storage is not set up.' };
+        }
+        throw error;
+    }
+    if (existing) return syncOutcome(existing, true);
+
+    if (command.isStale?.()) {
+        return {
+            ok: true,
+            runId: '',
+            idempotent: true,
+            weekCount: command.weekStarts.length,
+            syncedAt: command.now ?? '',
+            syncedBy: command.actorName,
+        };
+    }
+    const runId = deps.newRunId();
+    let payload;
+    try {
+        payload = parseStoredForecastPayload({ ...payloadBody, runId });
+    } catch (error) {
+        if (error instanceof ForecastPayloadError) {
+            return { ok: false, status: 500, error: 'The forecast body is not valid to send.' };
+        }
+        throw error;
+    }
+    let upsert: { runId: string; idempotent: boolean };
+    try {
+        upsert = await deps.client.upsertRun(payload);
+    } catch (error) {
+        if (error instanceof CampaignDeskRequestError) return { ok: false, status: 502, error: error.message };
+        throw error;
+    }
+
+    const record: ForecastSyncRunRecord = {
+        id: runId,
+        organizationId: command.organizationId,
+        createdBy: command.userId,
+        createdByName: command.actorName.trim() || 'A teammate',
+        createdAt: deps.now().toISOString(),
+        weekStarts: command.weekStarts,
+        payloadHash,
+        payload,
+        status: 'succeeded',
+        externalId: upsert.runId,
+        undoneAt: null,
+        undoneBy: null,
+    };
+    try {
+        const inserted = await deps.store.insertSucceeded(record);
+        if (!inserted.ok) {
+            const winner = await deps.store.findSucceededByHash(command.organizationId, payloadHash);
+            if (winner && winner.id !== runId) {
+                try {
+                    await deps.client.deleteRun(runId);
+                } catch (error) {
+                    if (!(error instanceof CampaignDeskRequestError)) throw error;
+                }
+            }
+            if (winner) return syncOutcome(winner, true);
+            return {
+                ok: false,
+                status: 500,
+                error: 'The sync was sent but could not be recorded. Undo it in Campaign Desk before trying again.',
+            };
+        }
+        return syncOutcome(inserted.run, false);
+    } catch (error) {
+        if (error instanceof ForecastStoreUnavailable) {
+            try {
+                await deps.client.deleteRun(runId);
+            } catch (undoError) {
+                if (!(undoError instanceof CampaignDeskRequestError)) throw undoError;
+            }
+            return { ok: false, status: 503, error: 'Forecast sync storage is not set up.' };
+        }
+        throw error;
+    }
+}
+
 export function createForecastSyncPost(deps: ForecastHttpDependencies) {
     return async function postForecastSync(request: Request): Promise<Response> {
         const body = await readJson(request);
         if (!body) return json({ error: 'Invalid JSON' }, 400);
         const gate = await authorize(deps, stringField(body.organizationId));
         if ('error' in gate && gate.error) return gate.error;
-        const todayResult = readToday(stringField(body.today) || null, deps.now());
+        const now = deps.now();
+        const todayResult = readToday(stringField(body.today) || null, now);
         if ('error' in todayResult && todayResult.error) return todayResult.error;
         const zone = readZone(stringField(body.timeZone) || null);
         if ('error' in zone && zone.error) return zone.error;
@@ -386,119 +557,29 @@ export function createForecastSyncPost(deps: ForecastHttpDependencies) {
         if (!Array.isArray(weeks)) return json({ error: weeks.error }, 400);
 
         const { auth } = gate as { auth: ForecastAdminAuth };
-        const connection = deps.readiness(auth.organizationId);
-        if (!connection.enabled) return json({ error: connection.reason }, 409);
-
-        let directory: ForecastDeskPerson[];
-        try {
-            directory = await deps.listPeople();
-        } catch (error) {
-            const message = directoryFailure(error);
-            if (message) return json({ error: message }, 502);
-            throw error;
-        }
-
-        const source = await deps.load({ organizationId: auth.organizationId, ...loadWindow(weeks) });
-        const { built } = await buildChosen(deps, {
+        const outcome = await executeForecastSync(deps, {
             organizationId: auth.organizationId,
+            userId: auth.userId,
+            actorName: auth.actorName,
             today: todayResult.today,
             timeZone: zone.timeZone,
-            selectedWeekStarts: weeks,
-            ...source,
-            directory,
-            connectionEnabled: true,
-        });
-        if ((built.itemCount ?? 0) > 500) {
-            return json({ error: 'This sync has more than 500 items. Choose fewer weeks.' }, 422);
-        }
-        if (forecastSendableCount(built) === 0) {
-            return json({ error: EMPTY_FORECAST_SYNC_REASON }, 422);
-        }
-        if ('nameMatches' in built && built.nameMatches.length > 0) {
-            try {
-                await deps.rememberNameMatches(auth.organizationId, auth.userId, built.nameMatches);
-            } catch (error) {
-                if (!(error instanceof ForecastClientMapUnavailable)) {
-                    console.warn(JSON.stringify({ event: 'campaign_desk_client_map_write_failed' }));
-                }
-            }
-        }
-        const payloadBody = built.payloadBody;
-        const payloadHash = forecastPayloadHash(payloadBody);
-
-        let existing: ForecastSyncRunRecord | null = null;
-        try {
-            existing = await deps.store.findSucceededByHash(auth.organizationId, payloadHash);
-        } catch (error) {
-            if (error instanceof ForecastStoreUnavailable) {
-                return json({ error: 'Forecast sync storage is not set up.' }, 503);
-            }
-            throw error;
-        }
-        if (existing) return json(syncResult(existing, true));
-
-        const runId = deps.newRunId();
-        let payload;
-        try {
-            payload = parseStoredForecastPayload({ ...payloadBody, runId });
-        } catch (error) {
-            if (error instanceof ForecastPayloadError) {
-                return json({ error: 'The forecast body is not valid to send.' }, 500);
-            }
-            throw error;
-        }
-        let upsert: { runId: string; idempotent: boolean };
-        try {
-            upsert = await deps.client.upsertRun(payload);
-        } catch (error) {
-            if (error instanceof CampaignDeskRequestError) return json({ error: error.message }, 502);
-            throw error;
-        }
-
-        const record: ForecastSyncRunRecord = {
-            id: runId,
-            organizationId: auth.organizationId,
-            createdBy: auth.userId,
-            createdByName: auth.actorName.trim() || 'A teammate',
-            createdAt: deps.now().toISOString(),
             weekStarts: weeks,
-            payloadHash,
-            payload,
-            status: 'succeeded',
-            externalId: upsert.runId,
-            undoneAt: null,
-            undoneBy: null,
-        };
-        try {
-            const inserted = await deps.store.insertSucceeded(record);
-            if (!inserted.ok) {
-                const winner = await deps.store.findSucceededByHash(auth.organizationId, payloadHash);
-                if (winner && winner.id !== runId) {
-                    try {
-                        await deps.client.deleteRun(runId);
-                    } catch (error) {
-                        if (!(error instanceof CampaignDeskRequestError)) throw error;
-                    }
-                }
-                if (winner) return json(syncResult(winner, true));
-                return json({ error: 'The sync was sent but could not be recorded. Undo it in Campaign Desk before trying again.' }, 500);
-            }
-            return json(syncResult(inserted.run, false));
-        } catch (error) {
-            if (error instanceof ForecastStoreUnavailable) {
-                try {
-                    await deps.client.deleteRun(runId);
-                } catch (undoError) {
-                    if (!(undoError instanceof CampaignDeskRequestError)) throw undoError;
-                }
-                return json({ error: 'Forecast sync storage is not set up.' }, 503);
-            }
-            throw error;
-        }
+            allowEmpty: false,
+            now: now.toISOString(),
+        });
+        if (!outcome.ok) return json({ error: outcome.error }, outcome.status);
+        return json({
+            ok: true,
+            runId: outcome.runId,
+            idempotent: outcome.idempotent,
+            weekCount: outcome.weekCount,
+            syncedAt: outcome.syncedAt,
+            syncedBy: outcome.syncedBy,
+        });
     };
 }
 
-function syncResult(run: ForecastSyncRunRecord, idempotent: boolean) {
+function syncOutcome(run: ForecastSyncRunRecord, idempotent: boolean): ForecastSyncOutcome {
     return {
         ok: true,
         runId: run.id,
