@@ -4,8 +4,9 @@
  * generator's output before anything is saved.
  *
  * The check never fails a map. It drops repeated primary searches, re-marks
- * ideas whose cited demand is not in Search Console as seed-only, and trims
- * the weakest articles and seed-only ideas until both caps hold.
+ * ideas whose cited demand is not in Search Console as seed-only, drops
+ * seed-only ideas (service pages for services the business sells stay), and
+ * trims the weakest articles until the article cap holds.
  *
  * Pure functions.
  */
@@ -30,10 +31,8 @@ export type PageKind = typeof PAGE_KINDS[number];
 /** Articles: everything that is not a money page. */
 export const ARTICLE_KINDS: ReadonlySet<PageKind> = new Set(['cost', 'comparison', 'faq', 'local_resource']);
 export const ARTICLE_MAX_SHARE = 0.3;
-export const SEED_ONLY_MAX_SHARE = 0.2;
-/** A small map still keeps this many articles / seed-only ideas when the share math rounds to 0. */
+/** A small map still keeps this many articles when the share math rounds to 0. */
 export const ARTICLE_MIN_ALLOWED = 2;
-export const SEED_ONLY_MIN_ALLOWED = 1;
 export const SUPPORTING_QUERIES_MAX = 10;
 /** Share of a service name's words an idea must carry to count as that service. */
 export const SERVICE_NAME_MIN_COVERAGE = 0.6;
@@ -126,8 +125,13 @@ export function servicePageNames(pages: readonly MatchablePage[], ignore: Readon
     const site = siteFacts(pages);
     return pages
         .filter(page => sitePageKind(page, site, ignore) === 'service')
-        .map(page => (urlPath(page.normalizedUrl).split('/').filter(Boolean).pop() ?? '').replace(/[-_]+/g, ' ').trim())
+        .map(servicePageName)
         .filter(Boolean);
+}
+
+/** The service a service page is for, from its URL slug ("/our-services/pet-turf/" gives "pet turf"). */
+export function servicePageName(page: MatchablePage): string {
+    return (urlPath(page.normalizedUrl).split('/').filter(Boolean).pop() ?? '').replace(/[-_]+/g, ' ').trim();
 }
 
 /** Service names split into word lists ("pavers/hardscape" is two services). */
@@ -161,8 +165,8 @@ export interface MixInput {
 export interface PageMixOptions {
     /**
      * Services the business sells (profile focus topics and the site's own
-     * service pages). A seed-only service page for one of them is kept: the
-     * seed-only cap only trims articles and long-tail ideas.
+     * service pages). A seed-only service page for one of them is kept; every
+     * other seed-only idea is dropped.
      */
     services?: readonly string[];
 }
@@ -170,6 +174,12 @@ export interface PageMixOptions {
 export interface MixedIdea {
     /** Position in the input list. */
     index: number;
+    /**
+     * The primary search to save. The model's, except for a service page aimed
+     * at a search with no Search Console group of its own: that one takes the
+     * search its demand comes from, and its old aim becomes a supporting search.
+     */
+    targetQuery: string;
     kind: PageKind;
     storedType: PageType;
     label: string;
@@ -177,15 +187,15 @@ export interface MixedIdea {
     seedOnly: boolean;
     /** Measured demand, from the grouped Search Console searches (never the model's numbers). */
     demand: { query: string; impressions: number } | null;
-    /** De-duplicated, primary search removed, at most SUPPORTING_QUERIES_MAX. */
+    /** De-duplicated, primary search removed, at most SUPPORTING_QUERIES_MAX (plus the old aim of a re-aimed idea). */
     supportingQueries: string[];
-    /** A service or specialty page for a service the business sells. Never trimmed by the seed-only cap. */
+    /** A service or specialty page for a service the business sells. Kept even without Search Console demand. */
     profileService: boolean;
     /** Nearest kept ancestor (a dropped duplicate's kept twin counts), or null for a top-level idea. */
     parentIndex: number | null;
 }
 
-export type DropReason = 'duplicate_query' | 'article_cap' | 'seed_only_cap';
+export type DropReason = 'duplicate_query' | 'article_cap' | 'no_demand';
 
 /** Counts stored in topical_maps.generation_metadata.page_mix. */
 export interface PageMixSummary {
@@ -195,17 +205,20 @@ export interface PageMixSummary {
     by_type: Record<PageKind, number>;
     articles: number;
     seed_only: number;
-    /** Kept seed-only ideas that are service pages for a service the business sells (exempt from the cap). */
+    /** Kept seed-only ideas that are service pages for a service the business sells (kept without demand). */
     seed_only_profile_services: number;
     /** Kept ideas whose parent was dropped and that now sit under the nearest kept ancestor (or at the top). */
     reattached_children: number;
     /** Ideas whose cited search had no Search Console data, re-marked as seed-only. */
     relabeled_seed_only: number;
+    /** Service pages re-aimed at the search their demand comes from (see MixedIdea.targetQuery). */
+    retargeted_to_demand: number;
     dropped_duplicate_query: number;
     dropped_article_cap: number;
-    dropped_seed_only_cap: number;
-    /** False when there was no Search Console data, so every idea is seed-only and the cap cannot apply. */
-    seed_only_cap_applied: boolean;
+    /** Seed-only ideas dropped: no Search Console search behind them and not a service the business sells. */
+    dropped_no_demand: number;
+    /** False when there was no Search Console data, so every idea is seed-only and none is dropped for it. */
+    demand_required: boolean;
 }
 
 export interface PageMixResult {
@@ -228,14 +241,14 @@ export function maxWithinShare(others: number, share: number, floor = 0): number
  * 1. A primary search (by intent) appears once; the first idea keeps it.
  * 2. Demand is checked against Search Console: the cited search, the primary
  *    search or a supporting search must match a grouped search with
- *    impressions, else the idea is seed-only.
- * 3. Articles are trimmed to at most 30% and seed-only ideas to at most 20%,
- *    weakest first (seed-only, then fewer impressions, then later build phase,
- *    then later in the list), never below ARTICLE_MIN_ALLOWED /
- *    SEED_ONLY_MIN_ALLOWED. Service pages for a service the business sells
- *    are exempt from the seed-only cap. A cap is skipped when it would leave
- *    nothing to measure against (no money pages, or no Search Console data).
- * 4. A kept idea whose parent was dropped moves to the nearest kept ancestor.
+ *    impressions, else the idea is seed-only. A service page whose own search
+ *    has no group is re-aimed at the search its demand comes from.
+ * 3. Seed-only ideas are dropped, except service pages for a service the
+ *    business sells. Skipped when there is no Search Console data at all.
+ * 4. Articles are trimmed to at most 30%, weakest first (seed-only, then
+ *    fewer impressions, then later build phase, then later in the list), never
+ *    below ARTICLE_MIN_ALLOWED, and only when there are money pages.
+ * 5. A kept idea whose parent was dropped moves to the nearest kept ancestor.
  */
 export function validatePageMix(
     ideas: readonly MixInput[],
@@ -275,6 +288,7 @@ export function validatePageMix(
         if (idea.demandQuery?.trim() && !found) relabeled += 1;
         kept.push({
             index,
+            targetQuery: idea.targetQuery,
             kind,
             storedType: storedPageType(kind, text),
             label: PAGE_KIND_LABEL[kind],
@@ -286,6 +300,32 @@ export function validatePageMix(
         });
     });
 
+    // A service page aimed at a search with no group of its own takes the search
+    // its demand comes from, unless another idea already has that search.
+    const taken = new Set(kept.map(item => intentKey(item.targetQuery, ignore)));
+    let retargeted = 0;
+    for (const item of kept) {
+        if ((item.kind !== 'service' && item.kind !== 'sub_service') || !item.demand) continue;
+        if (byKey.has(clusterKey(item.targetQuery, ignore))) continue;
+        const key = intentKey(item.demand.query, ignore);
+        if (taken.has(key)) continue;
+        taken.add(key);
+        item.supportingQueries = [item.targetQuery, ...item.supportingQueries.filter(query => intentKey(query, ignore) !== key)];
+        item.targetQuery = item.demand.query;
+        retargeted += 1;
+    }
+
+    const drop = (items: Iterable<MixedIdea>, reason: DropReason) => {
+        const set = new Set(items);
+        kept = kept.filter(item => !set.has(item));
+        for (const item of set) dropped.push({ index: item.index, reason });
+    };
+
+    // No Search Console search behind it and not a service they sell: dropped.
+    // Without any Search Console data every idea is seed-only, so none is.
+    const demandRequired = clusters.length > 0;
+    if (demandRequired) drop(kept.filter(item => item.seedOnly && !item.profileService), 'no_demand');
+
     const phase = (item: MixedIdea) => Number(ideas[item.index].buildPhase) || 1;
     // Weakest first.
     const weakest = (a: MixedIdea, b: MixedIdea) =>
@@ -293,30 +333,11 @@ export function validatePageMix(
         || (a.demand?.impressions ?? 0) - (b.demand?.impressions ?? 0)
         || phase(b) - phase(a)
         || b.index - a.index;
-    const trim = (group: MixedIdea[], allowed: number, reason: DropReason): boolean => {
-        if (group.length <= allowed) return false;
-        const drop = new Set([...group].sort(weakest).slice(0, group.length - allowed));
-        kept = kept.filter(item => !drop.has(item));
-        for (const item of drop) dropped.push({ index: item.index, reason });
-        return true;
-    };
-
-    const seedCapApplies = clusters.length > 0;
-    for (let changed = true; changed;) {
-        changed = false;
-        const articles = kept.filter(item => ARTICLE_KINDS.has(item.kind));
-        const moneyPages = kept.length - articles.length;
-        if (moneyPages > 0) {
-            changed = trim(articles, maxWithinShare(moneyPages, ARTICLE_MAX_SHARE, ARTICLE_MIN_ALLOWED), 'article_cap') || changed;
-        }
-        if (seedCapApplies) {
-            // Seed-only articles and long-tail ideas; service pages for services they sell stay.
-            const seedOnly = kept.filter(item => item.seedOnly && !item.profileService);
-            const others = kept.length - seedOnly.length;
-            if (others > 0) {
-                changed = trim(seedOnly, maxWithinShare(others, SEED_ONLY_MAX_SHARE, SEED_ONLY_MIN_ALLOWED), 'seed_only_cap') || changed;
-            }
-        }
+    const articles = kept.filter(item => ARTICLE_KINDS.has(item.kind));
+    const moneyPages = kept.length - articles.length;
+    const allowed = maxWithinShare(moneyPages, ARTICLE_MAX_SHARE, ARTICLE_MIN_ALLOWED);
+    if (moneyPages > 0 && articles.length > allowed) {
+        drop([...articles].sort(weakest).slice(0, articles.length - allowed), 'article_cap');
     }
 
     // Re-attach children of dropped ideas: a dropped duplicate hands over to
@@ -358,10 +379,11 @@ export function validatePageMix(
             seed_only_profile_services: kept.filter(item => item.seedOnly && item.profileService).length,
             reattached_children: reattached,
             relabeled_seed_only: relabeled,
+            retargeted_to_demand: retargeted,
             dropped_duplicate_query: count('duplicate_query'),
             dropped_article_cap: count('article_cap'),
-            dropped_seed_only_cap: count('seed_only_cap'),
-            seed_only_cap_applied: seedCapApplies,
+            dropped_no_demand: count('no_demand'),
+            demand_required: demandRequired,
         },
     };
 }

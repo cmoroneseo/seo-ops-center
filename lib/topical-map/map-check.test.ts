@@ -157,6 +157,18 @@ test('lists the biggest searches no idea covers, leaving out brand and already-t
     assert.deepEqual([capped.missed.length, capped.missedTotal], [1, 2]);
 });
 
+test('a merged idea\'s searches, saved as supporting searches, count as covered', () => {
+    // Riverside: the pavers idea was merged into the hardscape idea for the same city page.
+    const metadata = { page_mix: { records: { r: { page_type: 'service_city', seed_only: false, demand_query: 'hardscape contractor riverside ca', supporting_queries: ['paver contractors riverside', 7, ''] } } } };
+    assert.deepEqual(readStoredMix(metadata).get('r')?.supportingQueries, ['paver contractors riverside']);
+    const riverside = idea('r', { targetQuery: 'hardscape contractor riverside ca', title: 'Hardscape Contractor in Riverside, CA', action: 'improve', matchedUrl: 'https://www.example.com/riverside-ca/' });
+    const pavers = group('paver contractors riverside', 73, { page: 'https://www.example.com/areas/riverside-county/', pagePosition: 13 });
+    assert.equal(mapCheck({ ideas: [riverside], evidence: evidence([pavers]) }).missedTotal, 1, 'without the saved searches it looks missed');
+    assert.equal(mapCheck({ ideas: [riverside], evidence: evidence([pavers]), generationMetadata: metadata }).missedTotal, 0);
+    // A different place in a supporting search does not stretch the idea to another city.
+    assert.equal(ideaCoversSearch({ ...riverside, supportingQueries: ['paver contractors riverside'] }, group('paver contractors corona', 40)), false);
+});
+
 test('stored page-mix records supply cited searches, seed-only flags and page types', () => {
     const metadata = {
         duplicate_gate: { duplicate_ideas_dropped: 2 },
@@ -170,8 +182,8 @@ test('stored page-mix records supply cited searches, seed-only flags and page ty
         },
     };
     const stored = readStoredMix(metadata);
-    assert.deepEqual(stored.get('a'), { kind: 'service_city', seedOnly: false, demandQuery: 'temecula artificial grass' });
-    assert.deepEqual(stored.get('c'), { kind: null, seedOnly: null, demandQuery: null });
+    assert.deepEqual(stored.get('a'), { kind: 'service_city', seedOnly: false, demandQuery: 'temecula artificial grass', supportingQueries: [] });
+    assert.deepEqual(stored.get('c'), { kind: null, seedOnly: null, demandQuery: null, supportingQueries: [] });
     assert.equal(repeatsRemoved(metadata), 5);
 
     const check = mapCheck({
@@ -243,7 +255,7 @@ test('client-facing copy is plain English with real numbers', () => {
 
     assert.equal(
         seedOnlyLine({ ...check, seedOnly: { count: 15, of: 30, source: 'map', servicePages: 12 } })?.detail,
-        'They came only from the starting keywords, not from searches your site already shows up for. 12 of them are pages for services you sell. Pages for services you sell are kept even without searches and do not count toward the 20% limit.',
+        'They came only from the starting keywords, not from searches your site already shows up for. 12 of them are pages for services you sell. Pages for services you sell are kept even without searches.',
     );
     assert.match(seedOnlyLine({ ...check, seedOnly: { count: 1, of: 3, source: 'map', servicePages: 1 } })?.detail ?? '', /\. It is a page for a service you sell\./);
     const saved = mapCheck({
