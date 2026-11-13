@@ -1,5 +1,6 @@
 import { createClient } from './client';
 import type {
+    AnswerBrief,
     TopicalMap,
     TopicalMapSilo,
     TopicalMapRecord,
@@ -22,6 +23,7 @@ import {
     type ManualRecordDraft,
     type SpecFieldPatch,
 } from '../topical-map/spec';
+import { briefFromRow } from '../topical-map/answer-brief';
 import { planRecordApproval } from '../content/approve';
 import { approveRecordPatch, productionFromRow, productionUpdates, readWorkMonth } from '../topical-map/production';
 import { profileFromStored, profileToStored } from '../topical-map/profile';
@@ -69,6 +71,11 @@ export function rowToSilo(row: Record<string, unknown>): TopicalMapSilo {
     };
 }
 
+function briefField(value: unknown): { answerBrief?: AnswerBrief } {
+    const brief = briefFromRow(value);
+    return brief ? { answerBrief: brief } : {};
+}
+
 export function rowToRecord(row: Record<string, unknown>): TopicalMapRecord {
     return {
         id: String(row.id),
@@ -91,6 +98,7 @@ export function rowToRecord(row: Record<string, unknown>): TopicalMapRecord {
         outgoingLinks: normalizeOutgoingLinks(row.outgoing_links),
         answerFirst60: cleanOptionalText(row.answer_first_60),
         uniqueAngle: cleanOptionalText(row.unique_angle),
+        ...briefField(row.answer_brief),
         scheduledFor: scheduledForValue(row.scheduled_for),
         specStatus: isSpecStatus(row.spec_status) ? row.spec_status : undefined,
         source: isRecordSource(row.source) ? row.source : undefined,

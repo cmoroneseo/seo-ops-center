@@ -107,6 +107,34 @@ test('approve and decline stay available when the spec flag is off', () => {
     assert.equal(buttonDisabled(declined, declinedLabel), false);
 });
 
+test('a generated brief shows in the drawer with or without the spec flag', () => {
+    const brief = {
+        aiPrompts: ['How much does artificial turf cost?', 'Is turf cheaper than sod?'],
+        headings: ['Price per square foot', 'What changes the price'],
+        schemaType: 'Article' as const,
+        priceTable: true,
+        answerTrimmed: true,
+    };
+    const answer = 'Artificial turf in the Inland Empire costs about twelve dollars a square foot installed.';
+    const off = panel(false, { answerBrief: brief, answerFirst60: answer });
+    assert.match(off, /Answer-ready brief/);
+    assert.ok(off.includes(answer), 'the answer shows when the spec section is off');
+    assert.match(off, /Shortened to 14 words\./);
+    assert.match(off, /Questions people ask AI assistants/);
+    assert.match(off, /Is turf cheaper than sod\?/);
+    assert.match(off, /Section headings/);
+    assert.match(off, /What changes the price/);
+    assert.match(off, />Article</);
+    assert.match(off, /Yes, with the date prices were checked/);
+
+    const on = panel(true, { answerBrief: { ...brief, answerTrimmed: false, priceTable: false }, answerFirst60: answer });
+    assert.equal(on.split(answer).length, 2, 'with the spec on, the answer appears once, in the editable field');
+    assert.match(on, /14 words\. Aim for 40 to 60\./);
+    assert.match(on, />Not needed</);
+
+    assert.equal(panel(false).includes('Answer-ready brief'), false, 'older records show no brief');
+});
+
 test('a manual record shows a manual badge and each silo can add one', () => {
     const row = renderToStaticMarkup(createElement(RecordRow, {
         record: record({ source: 'manual', targetQuery: 'marketing roi formula' }),

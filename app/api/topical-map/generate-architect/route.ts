@@ -10,6 +10,7 @@ import { buildSystemPrompt, buildUserMessage } from '@/lib/topical-map/generate-
 import { servicePageNames, validatePageMix } from '@/lib/topical-map/page-mix';
 import { planPages } from '@/lib/topical-map/page-plan';
 import { selectPromptPages } from '@/lib/topical-map/prompt-pages';
+import { answerBriefFor, BRIEF_COLUMNS, briefToRow, insertSkippingMissingColumns } from '@/lib/topical-map/answer-brief';
 import { seedKeywordsFromMap } from '@/lib/topical-map/seed-keywords';
 import { architectStoredMetrics } from '@/lib/topical-map/metrics';
 import { duplicateGateSummary, pageRefreshRead, type ReconcileContext } from '@/lib/topical-map/reconcile';
@@ -286,6 +287,9 @@ export async function POST(req: NextRequest) {
     const pendingParents: Array<{ id: string; parentIndex: number }> = [];
     const refreshReasons: Record<string, { reason: string; signals: string[] }> = {};
     const mixRecords: Record<string, { page_type: string; seed_only: boolean; demand_query: string | null; demand_impressions: number | null; supporting_queries: string[] }> = {};
+    // Columns whose migration is not applied yet (083, 130): ideas save without them.
+    const missingBriefColumns = new Set<string>();
+    const briefCounts = { answers: 0, trimmed: 0, price_tables: 0 };
 
     for (let siloIdx = 0; siloIdx < parsed.silos.length; siloIdx++) {
         const silo = parsed.silos[siloIdx] as Record<string, unknown>;
@@ -317,10 +321,14 @@ export async function POST(req: NextRequest) {
             // The plan already moved children of dropped or merged ideas to the idea they belong under.
             const parentRecordId = mix.parentIndex != null ? idByIndex.get(mix.parentIndex) : undefined;
             const metrics = architectStoredMetrics(rec);
+            // Schema type and price table come from the page kind; the model only refines them.
+            const { answerFirst60, brief } = answerBriefFor(rec, { kind: mix.kind, storedType: mix.storedType }, `${title} ${String(rec.target_query ?? mix.targetQuery)}`);
+            briefCounts.answers += answerFirst60 ? 1 : 0;
+            briefCounts.trimmed += brief.answerTrimmed ? 1 : 0;
+            briefCounts.price_tables += brief.priceTable ? 1 : 0;
 
-            const { data: recordRow } = await admin
-                .from('topical_map_records')
-                .insert({
+            const { data: recordRow } = await insertSkippingMissingColumns<{ id: string }>(
+                {
                     silo_id: siloId,
                     map_id: mapId,
                     organization_id: organizationId,
@@ -344,9 +352,13 @@ export async function POST(req: NextRequest) {
                     site_page_id: reconciled.sitePageId ?? null,
                     matched_url: reconciled.matchedUrl ?? null,
                     sort_order: recIdx,
-                })
-                .select('id')
-                .single();
+                    answer_first_60: answerFirst60,
+                    answer_brief: briefToRow(brief),
+                },
+                BRIEF_COLUMNS,
+                missingBriefColumns,
+                row => admin.from('topical_map_records').insert(row).select('id').single(),
+            );
 
             if (recordRow) {
                 idByIndex.set(mix.index, String(recordRow.id));
@@ -441,6 +453,7 @@ export async function POST(req: NextRequest) {
             refresh_reasons: refreshReasons,
             // Counts before the page plan; records holds every inserted idea.
             page_mix: { ...pageMix.summary, gsc_days: gscContext.clusterDays, records: mixRecords },
+            answer_briefs: { ...briefCounts, columns_missing: [...missingBriefColumns] },
             page_plan: plan.summary,
         },
     }).eq('id', mapId);

@@ -83,6 +83,19 @@ test('the output schema asks for the new page types and demand fields', () => {
     assert.ok(record.required.includes('supporting_queries'));
     assert.ok(record.required.includes('demand_query'));
     assert.ok(record.required.includes('seed_only'));
+    for (const field of ['answer', 'ai_prompts', 'h2s']) assert.ok(record.required.includes(field), field);
+    assert.equal(record.required.includes('schema_type'), false, 'derived in code when omitted');
+    assert.equal(record.required.includes('price_table'), false, 'derived in code when omitted');
+    assert.deepEqual(record.properties.schema_type.enum, ['Service', 'LocalBusiness', 'FAQPage', 'Article', 'HowTo']);
+});
+
+test('the architect route saves the brief and survives a missing brief column', () => {
+    const route = readFileSync(new URL('../../app/api/topical-map/generate-architect/route.ts', import.meta.url), 'utf8');
+    assert.match(route, /answerBriefFor\(rec, \{ kind: mix\.kind, storedType: mix\.storedType \}/);
+    assert.match(route, /answer_first_60: answerFirst60/);
+    assert.match(route, /answer_brief: briefToRow\(brief\)/);
+    assert.match(route, /insertSkippingMissingColumns<\{ id: string \}>\(/);
+    assert.match(route, /answer_briefs: \{/);
 });
 
 test('the architect route runs the page-mix check and stores mapped types and counts', () => {

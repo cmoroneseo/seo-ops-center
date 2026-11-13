@@ -1,4 +1,6 @@
+import { SCHEMA_TYPE_LABEL } from './answer-brief';
 import type {
+    AnswerBrief,
     MapOutgoingLink,
     MapScopeExclusion,
     PageType,
@@ -463,9 +465,20 @@ export function approvalTaskDescription(record: TopicalMapRecord): string {
             ? `**Links out:** ${record.outgoingLinks.map(link => `${link.anchorText} → ${link.destinationUrl}`).join(', ')}`
             : '',
         record.answerFirst60?.trim() ? `**Answer in the first 60 words:** ${record.answerFirst60.trim()}` : '',
+        ...briefLines(record.answerBrief),
         record.uniqueAngle?.trim() ? `**Unique angle:** ${record.uniqueAngle.trim()}` : '',
         record.scheduledFor ? `**Scheduled for:** ${record.scheduledFor}` : '',
     ].filter(Boolean).join('\n');
+}
+
+function briefLines(brief: AnswerBrief | undefined): string[] {
+    if (!brief) return [];
+    return [
+        brief.aiPrompts.length > 0 ? `**Questions people ask AI assistants:** ${brief.aiPrompts.join(' / ')}` : '',
+        brief.headings.length > 0 ? `**Section headings:** ${brief.headings.join(' / ')}` : '',
+        `**Page markup for search engines:** ${SCHEMA_TYPE_LABEL[brief.schemaType]}`,
+        brief.priceTable ? '**Price table:** Include a price table with the date the prices were checked.' : '',
+    ];
 }
 
 function taskWordCount(min: number, max: number): string {

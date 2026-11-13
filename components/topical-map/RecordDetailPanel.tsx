@@ -41,6 +41,7 @@ import {
 } from '@/lib/topical-map/spec-save';
 import { AI_ESTIMATE_LABEL, hasAiSearchEstimate } from '@/lib/topical-map/metrics';
 import { ACTION_LABEL, PAGE_TYPE_LABEL, PILL_CLASS, PRODUCTION_STATUS_STYLES, SPEC_STATUS_STYLES } from './constants';
+import { AnswerBriefSection } from './AnswerBriefSection';
 import { SpecSection } from './SpecSection';
 import { useOverlayA11y } from './useOverlayA11y';
 
@@ -551,6 +552,10 @@ export function RecordDetailPanel({
                                 />
                             </div>
                         </fieldset>
+                    )}
+
+                    {record.answerBrief && (
+                        <AnswerBriefSection brief={record.answerBrief} answer={draft.answerFirst60} showAnswer={!specEnabled} />
                     )}
 
                     {specEnabled && (
