@@ -1,19 +1,16 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { BarChart3, CheckCircle2, Info, Loader2, Minus, Check, Plug, Plus, Search, Sparkles } from 'lucide-react';
+import { CheckCircle2, Info, Loader2, Minus, Check, Plug, Plus, Search, Sparkles } from 'lucide-react';
 
 import {
-    NEEDS_AHREFS,
     NEEDS_SEARCH_CONSOLE,
     addKeywordRow,
-    difficultyBand,
     hasKeywordReasons,
-    keywordMetricCell,
+    keywordPositionCell,
     keywordReasonText,
     rankParts,
     type KeywordRow,
-    type MetricKind,
     type MetricSource,
 } from '@/lib/onboarding/keyword-metrics';
 import { cn } from '@/lib/utils';
@@ -26,8 +23,8 @@ const SECONDARY_BUTTON = cn(
 const TH = 'h-[38px] border-b border-[#e4e4e7] bg-[#fafafa] px-[14px] text-left align-middle text-[11.5px] font-bold uppercase leading-[1.25] tracking-[.05em] text-[#52525b]';
 const TD = 'h-[52px] border-b border-[#f0f0f2] px-[14px] align-middle text-[13.5px]';
 
-function integrationsHref(clientId: string, setup: 'ahrefs' | 'search-console'): string {
-    return `/workspace/${encodeURIComponent(clientId)}?tab=integrations&setup=${setup}`;
+function searchConsoleSetupHref(clientId: string): string {
+    return `/workspace/${encodeURIComponent(clientId)}?tab=integrations&setup=search-console`;
 }
 
 function Checkbox({ state }: { state: 'on' | 'off' | 'mixed' }) {
@@ -80,35 +77,11 @@ function HeaderNote({ children }: { children: ReactNode }) {
     return <span className="mt-px block text-[11px] font-medium normal-case tracking-normal text-[#52525b]">{children}</span>;
 }
 
-function Dash({ label, metric }: { label: string | null; metric: MetricKind }) {
-    return <span data-metric={metric} className="text-[#52525b]" aria-label={label ?? undefined} title={label ?? undefined}>—</span>;
-}
-
-function VolumeCell({ row, source }: { row: KeywordRow; source: MetricSource }) {
-    const shown = keywordMetricCell(row.volume, source, 'volume');
-    if (shown.note) return <Dash label={shown.note} metric="volume" />;
-    return <span data-metric="volume">{shown.text}</span>;
-}
-
-function DifficultyCell({ row, source }: { row: KeywordRow; source: MetricSource }) {
-    const shown = keywordMetricCell(row.difficulty, source, 'difficulty');
-    if (shown.note || row.difficulty == null) return <Dash label={shown.note} metric="difficulty" />;
-    const { band, level, score } = difficultyBand(row.difficulty);
-    return (
-        <span data-metric="difficulty" className="inline-flex items-center gap-[7px] font-semibold">
-            <span className="inline-flex items-end gap-0.5" aria-hidden="true">
-                {[6, 10, 14].map((height, index) => (
-                    <i key={height} className={cn('block w-1 rounded-[1px]', index < level ? 'bg-[#3f3f46]' : 'bg-[#d4d4d8]')} style={{ height }} />
-                ))}
-            </span>
-            {band} <small className="text-xs font-medium text-[#52525b]">{score}/100</small>
-        </span>
-    );
-}
-
 function RankCell({ row, source }: { row: KeywordRow; source: MetricSource }) {
-    const shown = keywordMetricCell(row.position, source, 'position');
-    if (shown.note) return <Dash label={shown.note} metric="position" />;
+    const shown = keywordPositionCell(row.position, source);
+    if (shown.note) {
+        return <span data-metric="position" className="text-[#52525b]" aria-label={shown.note} title={shown.note}>—</span>;
+    }
     if (row.position == null || row.position <= 0) {
         return <span data-metric="position" className="text-[#52525b]">{shown.text}</span>;
     }
@@ -124,7 +97,6 @@ export function KeywordSeedStep({
     clientId,
     clientName,
     rows,
-    ahrefs,
     searchConsole,
     loading,
     notice,
@@ -135,7 +107,6 @@ export function KeywordSeedStep({
     clientId: string;
     clientName: string;
     rows: KeywordRow[];
-    ahrefs: MetricSource;
     searchConsole: MetricSource;
     loading: boolean;
     notice: string | null;
@@ -149,7 +120,6 @@ export function KeywordSeedStep({
     const selected = rows.filter(row => row.selected).length;
     const allState = rows.length > 0 && selected === rows.length ? 'on' : selected === 0 ? 'off' : 'mixed';
     const showReasons = hasKeywordReasons(rows);
-    const ahrefsMissing = ahrefs === 'missing';
     const gscMissing = searchConsole === 'missing';
 
     const add = () => {
@@ -190,44 +160,23 @@ export function KeywordSeedStep({
                 )}
             </div>
 
-            {(ahrefsMissing || gscMissing) && (
-                <div className="my-4 grid gap-2">
-                    {ahrefsMissing && (
-                        <ConnectBanner
-                            title="Connect Ahrefs to see searches and difficulty"
-                            body="Ahrefs is the keyword tool that estimates how often people search and how hard each keyword is."
-                            button="Connect Ahrefs"
-                            href={integrationsHref(clientId, 'ahrefs')}
-                        />
-                    )}
-                    {gscMissing && (
-                        <ConnectBanner
-                            title="Connect Google Search Console to see where you rank"
-                            body="Google Search Console is Google's free tool that shows where this website appears in search."
-                            button="Connect Google Search Console"
-                            href={integrationsHref(clientId, 'search-console')}
-                        />
-                    )}
+            {gscMissing ? (
+                <div className="my-4">
+                    <ConnectBanner
+                        title="Connect Google Search Console to see where you rank"
+                        body="Google Search Console is Google's free tool that shows where this website appears in search."
+                        button="Connect Google Search Console"
+                        href={searchConsoleSetupHref(clientId)}
+                    />
                 </div>
-            )}
-            {(!ahrefsMissing || !gscMissing) && (
+            ) : (
                 <div className="my-4 flex flex-wrap items-center gap-2.5">
-                    {!ahrefsMissing && (
-                        <SourceChip
-                            icon={<BarChart3 className="h-[15px] w-[15px]" aria-hidden="true" />}
-                            label="Searches and difficulty from"
-                            tool="Ahrefs"
-                            source={ahrefs}
-                        />
-                    )}
-                    {!gscMissing && (
-                        <SourceChip
-                            icon={<Search className="h-[15px] w-[15px]" aria-hidden="true" />}
-                            label="Where you rank from"
-                            tool="Google Search Console"
-                            source={searchConsole}
-                        />
-                    )}
+                    <SourceChip
+                        icon={<Search className="h-[15px] w-[15px]" aria-hidden="true" />}
+                        label="Where you rank from"
+                        tool="Google Search Console"
+                        source={searchConsole}
+                    />
                 </div>
             )}
             {notice && (
@@ -278,22 +227,14 @@ export function KeywordSeedStep({
                 <table className="w-full min-w-[760px] table-fixed border-collapse">
                     <colgroup>
                         <col style={{ width: 52 }} />
-                        <col style={{ width: showReasons ? '25%' : '32%' }} />
-                        <col style={{ width: '16%' }} />
-                        <col style={{ width: showReasons ? '15%' : '20%' }} />
-                        <col style={{ width: showReasons ? '19%' : undefined }} />
+                        <col style={{ width: showReasons ? '40%' : '55%' }} />
+                        <col style={{ width: showReasons ? '30%' : undefined }} />
                         {showReasons && <col />}
                     </colgroup>
                     <thead>
                         <tr>
                             <th className={cn(TH, 'pr-0')} scope="col"><span className="sr-only">Use</span></th>
                             <th className={TH} scope="col">Keyword</th>
-                            <th className={cn(TH, 'h-12 text-right')} scope="col">
-                                Monthly searches{ahrefsMissing && <HeaderNote>{NEEDS_AHREFS}</HeaderNote>}
-                            </th>
-                            <th className={cn(TH, 'h-12')} scope="col">
-                                Difficulty{ahrefsMissing && <HeaderNote>{NEEDS_AHREFS}</HeaderNote>}
-                            </th>
                             <th className={cn(TH, 'h-12')} scope="col">
                                 Where you rank now{gscMissing && <HeaderNote>{NEEDS_SEARCH_CONSOLE}</HeaderNote>}
                             </th>
@@ -303,7 +244,7 @@ export function KeywordSeedStep({
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={showReasons ? 6 : 5} className={cn(TD, 'h-24 border-b-0 text-center text-[#52525b]')}>
+                                <td colSpan={showReasons ? 4 : 3} className={cn(TD, 'h-24 border-b-0 text-center text-[#52525b]')}>
                                     <span role="status" className="inline-flex items-center gap-2">
                                         <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Looking up keywords…
                                     </span>
@@ -311,7 +252,7 @@ export function KeywordSeedStep({
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={showReasons ? 6 : 5} className={cn(TD, 'h-24 border-b-0 text-center text-[#52525b]')}>
+                                <td colSpan={showReasons ? 4 : 3} className={cn(TD, 'h-24 border-b-0 text-center text-[#52525b]')}>
                                     No keyword ideas yet. Add your own above.
                                 </td>
                             </tr>
@@ -337,19 +278,10 @@ export function KeywordSeedStep({
                                         </span>
                                     )}
                                 </td>
-                                <td className={cn(TD, 'text-right tabular-nums')}><VolumeCell row={row} source={ahrefs} /></td>
-                                <td className={TD}><DifficultyCell row={row} source={ahrefs} /></td>
                                 <td className={TD}><RankCell row={row} source={searchConsole} /></td>
                                 {showReasons && (
                                     <td className={cn(TD, 'text-[12.5px] text-[#52525b]')}>
-                                        {row.reason ? (
-                                            <>
-                                                {keywordReasonText(row.reason)}
-                                                {row.reason === 'competitor' && row.competitor && (
-                                                    <span className="block truncate text-[11.5px]">{row.competitor}</span>
-                                                )}
-                                            </>
-                                        ) : null}
+                                        {row.reason ? keywordReasonText(row.reason) : null}
                                     </td>
                                 )}
                             </tr>
@@ -358,16 +290,9 @@ export function KeywordSeedStep({
                 </table>
             </div>
 
-            {ahrefsMissing ? (
-                <div className="mt-3 text-[12.5px] leading-normal text-[#52525b]">
-                    <b className="text-[#18181b]">Difficulty</b> will show as Easy, Medium or Hard with a 0–100 score once Ahrefs is connected.
-                </div>
-            ) : (
-                <div className="mt-3 flex flex-wrap gap-x-7 gap-y-1 text-[12.5px] leading-normal text-[#52525b]">
-                    <div className="min-w-[240px] flex-1"><b className="text-[#18181b]">Monthly searches:</b> about how many times a month people search for this.</div>
-                    <div className="min-w-[240px] flex-1"><b className="text-[#18181b]">Difficulty:</b> how hard it is to reach Google&apos;s first page, from 0 to 100. Easy 0–29 · Medium 30–59 · Hard 60–100.</div>
-                </div>
-            )}
+            <p className="mt-3 text-[12.5px] leading-normal text-[#52525b]">
+                <b className="text-[#18181b]">How we measure demand:</b> the topic map uses Google Search Console, which shows the searches where this website already appears in Google and how often people see it.
+            </p>
         </div>
     );
 }

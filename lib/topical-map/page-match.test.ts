@@ -14,6 +14,7 @@ import {
     learnPlaces,
     matchIdeaToPage,
     pageKey,
+    placePageFor,
     placesInText,
     readText,
     significantTokens,
@@ -256,43 +257,48 @@ describe('urlPath and pageKey', () => {
     });
 });
 
-describe('dedupeIdeas (finding 1: same-page dedupe only within a page type)', () => {
-    const corona = `${site}/corona-ca/`;
-
+describe('dedupeIdeas: one idea per search', () => {
     it('drops a later idea with the same search', () => {
         const result = dedupeIdeas([
-            { targetQuery: 'artificial grass corona ca', pageType: 'service' },
-            { targetQuery: 'Corona artificial turf near me', pageType: 'blog_post' },
+            { targetQuery: 'artificial grass corona ca' },
+            { targetQuery: 'Corona artificial turf near me' },
+            { targetQuery: 'landscape contractors corona' },
         ], brand);
         assert.deepEqual([...result.duplicateOf], [[1, 0]]);
+        assert.deepEqual(result.keep, [0, 2]);
+    });
+    // Ideas on the same existing page are merged by planPages (one page, one idea): see page-plan.test.ts.
+});
+
+describe('city and county pages', () => {
+    const areaPages = [
+        page('/services/artificial-grass/', 'Artificial Grass Installation | Acme'),
+        page('/areas/san-bernardino-county/', 'Artificial Grass San Bernardino, CA | Pavers | Acme', 'Turf Installation in San Bernardino County'),
+        page('/areas/riverside-county/', 'Riverside County Outdoor Living Contractor | Acme'),
+        page('/riverside-ca/', 'Riverside Hardscape Contractor | Pavers & Turf | Acme'),
+        page('/areas/orange-county-ca/', 'Outdoor Construction in Orange County, CA | Acme'),
+    ];
+
+    it('a county page titled for its city covers that city, below the city\'s own page', () => {
+        const sb = idea('artificial turf san bernardino', 'Artificial Grass Installation in San Bernardino', 'landing');
+        assert.equal(matched(matchIdeaToPage(sb, areaPages, [], brand)), '/areas/san-bernardino-county');
+        const withCityPage = [...areaPages, page('/san-bernardino-ca/', 'San Bernardino Turf & Pavers | Acme')];
+        assert.equal(matched(matchIdeaToPage(sb, withCityPage, [], brand)), '/san-bernardino-ca');
     });
 
-    it('keeps ideas of a different page type that point at the same page', () => {
-        const result = dedupeIdeas([
-            { targetQuery: 'artificial grass installation', matchedUrl: `${site}/services/artificial-grass/`, pageType: 'service' },
-            { targetQuery: 'artificial grass installation cost', matchedUrl: `${site}/services/artificial-grass/`, pageType: 'guide' },
-            { targetQuery: 'artificial grass installation process', matchedUrl: `${site}/services/artificial-grass/`, pageType: 'pillar' },
-        ], brand);
-        assert.equal(result.duplicateOf.size, 0);
+    it('a county page not titled for the city does not cover it', () => {
+        const remodel = idea('backyard remodel riverside', 'Backyard Remodel in Riverside, CA', 'landing');
+        assert.equal(matched(matchIdeaToPage(remodel, areaPages, [], brand)), '/riverside-ca');
+        const noCityPage = areaPages.filter(p => p.pageId !== '/riverside-ca/');
+        assert.equal(matched(matchIdeaToPage(remodel, noCityPage, [], brand)), null);
     });
 
-    it('keeps two different articles that point at one post', () => {
-        const result = dedupeIdeas([
-            { targetQuery: 'fire pit design ideas', matchedUrl: `${site}/fire-pit-design/`, pageType: 'blog_post' },
-            { targetQuery: 'fire pit for covered patio', matchedUrl: `${site}/fire-pit-design/`, pageType: 'blog_post' },
-        ], brand);
-        assert.equal(result.duplicateOf.size, 0);
-    });
-
-    it('drops a same-type idea on the same page when most of its words overlap', () => {
-        const result = dedupeIdeas([
-            { targetQuery: 'backyard remodel orange county', matchedUrl: `${site}/orange-county-ca/`, pageType: 'service' },
-            { targetQuery: 'outdoor remodeling orange county', matchedUrl: `${site}/orange-county-ca`, pageType: 'service' },
-            { targetQuery: 'turf installation corona', matchedUrl: corona, pageType: 'service' },
-            { targetQuery: 'landscape contractors corona', matchedUrl: corona, pageType: 'service' },
-        ], brand);
-        assert.deepEqual([...result.duplicateOf], [[1, 0]]);
-        assert.deepEqual(result.keep, [0, 2, 3]);
+    it('placePageFor finds the site\'s page for the place a search names', () => {
+        assert.equal(urlPath(placePageFor('paver installation orange county', areaPages, brand)?.normalizedUrl ?? ''), '/areas/orange-county-ca');
+        assert.equal(urlPath(placePageFor('bbq island in San Bernardino, CA', areaPages, brand)?.normalizedUrl ?? ''), '/areas/san-bernardino-county');
+        assert.equal(urlPath(placePageFor('fire pits riverside', areaPages, brand)?.normalizedUrl ?? ''), '/riverside-ca');
+        assert.equal(placePageFor('pavers in Fontana, CA', areaPages, brand), null);
+        assert.equal(placePageFor('paver installation', areaPages, brand), null);
     });
 });
 

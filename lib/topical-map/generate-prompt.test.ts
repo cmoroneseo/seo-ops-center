@@ -39,7 +39,7 @@ test('the prompt asks for money pages first with capped articles and cited deman
     assert.equal(/long-tail/i.test(prompt), false);
     for (const kind of PAGE_KINDS) assert.ok(prompt.includes(`- ${kind}:`), kind);
     assert.match(prompt, /Articles at most 30%/);
-    assert.match(prompt, /At most 20% of records may be seed_only/);
+    assert.match(prompt, /removes seed_only records, except service pages for services the business sells/);
     assert.match(prompt, /top 3-5 cities by impressions times the top 2-3 services, never the full city-by-service matrix/);
     assert.match(prompt, /A city page only when the map has 2 or more service_city pages/);
     assert.match(prompt, /3-10 supporting_queries/);
@@ -48,6 +48,16 @@ test('the prompt asks for money pages first with capped articles and cited deman
     assert.match(prompt, /"supporting_queries": \[/);
     assert.match(prompt, /"demand_query":/);
     assert.match(prompt, /"seed_only": false/);
+});
+
+test('the prompt asks for one idea per page, service pages first and city pages only with their own demand', () => {
+    const prompt = buildSystemPrompt();
+    assert.match(prompt, /Never make two records for the same existing page/);
+    assert.match(prompt, /put the other searches in its supporting_queries/);
+    assert.match(prompt, /Every existing service page whose service has searches in the Search Console list gets its own record/);
+    assert.match(prompt, /listed before any service_city page for that service/);
+    assert.match(prompt, /that exact service-and-city search has its own line in the Search Console list/);
+    assert.match(prompt, /target_query should be that search/);
 });
 
 test('the user message lists grouped searches with their wordings, capped for prompt size', () => {
@@ -83,8 +93,10 @@ test('the architect route runs the page-mix check and stores mapped types and co
     assert.match(route, /content_category: mix\.label/);
     assert.match(route, /page_mix: \{/);
     assert.equal(route.includes('String(rec.page_type'), false, 'the raw model page type is never stored');
-    assert.equal(route.includes('String(item.rec.page_type'), false, 'the duplicate gate compares stored page types');
-    assert.match(route, /pageType: item\.mix\.storedType/);
+    // Matching, one-idea-per-page and service pages run in planPages on the stored page types.
+    assert.match(route, /planPages\(\{/);
+    assert.match(route, /target_query: mix\.targetQuery/);
+    assert.match(route, /supporting_queries: mix\.supportingQueries/);
     assert.match(route, /servicePageNames\(existingPages/);
     assert.match(route, /\{ services \}/);
     assert.match(route, /mix\.parentIndex/);
