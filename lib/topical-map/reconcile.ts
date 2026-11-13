@@ -5,7 +5,9 @@ import {
     mainCluster,
     matchedPageVerdict,
     refreshRead,
+    REASON_MIN_IMPRESSIONS,
     refreshReason,
+    STRIKING_MAX_POSITION,
     type PerformanceRead,
     type QueryOnPage,
     type RefreshRead,
@@ -46,6 +48,13 @@ export interface ReconcileContext {
     queryDays?: number;
     /** True when stored Search Console data was read. Without it, page-1 checks are skipped. */
     gscConnected?: boolean;
+    /**
+     * Searches a page's main search may be picked from (see siteSearchFilter):
+     * not the brand, and only places and words the business itself uses. The
+     * search also needs REASON_MIN_IMPRESSIONS a month and spot 30 or better.
+     * With none left, the page's own numbers speak and no search is named.
+     */
+    searchFits?: (query: string) => boolean;
 }
 
 export interface ReconciliationResult {
@@ -63,7 +72,12 @@ export function pageRefreshRead(
     ctx: ReconcileContext,
 ): RefreshRead {
     const performance = ctx.performance ?? EMPTY_PERFORMANCE;
-    const cluster = mainCluster(ctx.pageQueries?.get(pageKey(url)), page.targetQuery);
+    const perMonth = 28 / Math.max(1, ctx.queryDays ?? 28);
+    // Only a search with real demand and a real ranking that fits the business can be named.
+    const searches = ctx.pageQueries?.get(pageKey(url))?.filter(row => row.position <= STRIKING_MAX_POSITION
+        && row.impressions * perMonth >= REASON_MIN_IMPRESSIONS
+        && (ctx.searchFits?.(row.query) ?? true));
+    const cluster = mainCluster(searches, page.targetQuery);
     return refreshRead({
         url,
         performance: performance.pages.get(pageKey(url)) ?? null,

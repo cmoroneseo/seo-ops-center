@@ -9,11 +9,12 @@
  */
 
 import { ARTICLE_KINDS, ARTICLE_MAX_SHARE, PAGE_KIND_LABEL, PAGE_KINDS, pageKindOf, type PageKind } from './page-mix';
+import { REFRESH_GROUP_NAME } from './page-performance';
 import {
     bareHost,
-    brandTokens,
     GSC_MATCH_MAX_POSITION,
     intentKey,
+    isBrandSearch,
     isHomePath,
     learnPlaces,
     MATCH_MIN_COVERAGE,
@@ -30,7 +31,13 @@ import type { MapRecordAction, PageType } from '../types';
 
 /** Missed searches shown. */
 export const MISSED_LIMIT = 10;
-/** A search where one of your pages is already in spots 1 to 3 is not a gap. */
+/**
+ * A search where one of your pages, the home page included, is already in
+ * spots 1 to 3 is not a gap, whether or not an idea is about it. Lower down,
+ * only an idea's own page counts (see ideaCoversSearch): a home page in spot
+ * 11 for "artificial grass installation near me" is not serving that search,
+ * and the home page is never an idea's page, so the search stays listed.
+ */
 export const ALREADY_TOP_SPOT = 3;
 
 export interface MapCheckIdea {
@@ -41,6 +48,7 @@ export interface MapCheckIdea {
     matchedUrl?: string | null;
     pageType: PageType;
     contentCategory?: string;
+    siloId?: string;
 }
 
 interface StoredMix {
@@ -216,8 +224,23 @@ export interface MapCheck {
     existingPages: number;
     /** 'map': flags saved when the map was made. 'recent': worked out from the review's own window. Null when neither is possible. */
     seedOnly: { count: number; of: number; source: 'map' | 'recent'; servicePages?: number | null } | null;
+    /** Rows in "Pages to refresh": existing pages, not new ideas, so not in the mix. */
+    refreshPages: number;
+    /** Articles among the ideas outside "Pages to refresh". */
     articles: number;
+    /** Page types of the ideas outside "Pages to refresh". */
     mix: PageMixLine[];
+}
+
+/**
+ * A row of "Pages to refresh". With the map's groups known, a row in that
+ * group (older maps used the same name). Without them, an existing page typed
+ * 'other' with no saved page type: how those rows were saved before they were
+ * given real page types.
+ */
+function isRefreshRow(idea: MapCheckIdea, refreshSilos: ReadonlySet<string> | null, stored: StoredMix | undefined): boolean {
+    if (refreshSilos) return Boolean(idea.siloId && refreshSilos.has(idea.siloId));
+    return idea.pageType === 'other' && idea.action !== 'create' && !stored?.kind;
 }
 
 /** Article or not for every idea; a fine label only when the map saved one. */
@@ -234,16 +257,15 @@ export function mapCheck(input: {
     evidence: ReviewEvidence;
     generationMetadata?: unknown;
     brandName?: string;
+    /** The map's groups, to tell which rows are "Pages to refresh". */
+    silos?: ReadonlyArray<{ id: string; name: string }>;
     limit?: number;
 }): MapCheck {
     const { ideas, evidence } = input;
     const stored = readStoredMix(input.generationMetadata);
-    const brand = [...brandTokens(input.brandName)];
-    const isBrandSearch = (query: string) => {
-        if (brand.length === 0) return false;
-        const tokens = new Set(significantTokens(query));
-        return brand.every(token => tokens.has(token));
-    };
+    const refreshSilos = input.silos
+        ? new Set(input.silos.filter(silo => silo.name.trim() === REFRESH_GROUP_NAME).map(silo => silo.id))
+        : null;
 
     const covering = ideas.map(idea => ({
         ...idea,
@@ -261,9 +283,9 @@ export function mapCheck(input: {
     for (const raw of groups) {
         // A page on another host (a staging copy) is not shown and does not count.
         const group = raw.page && host && bareHost(raw.page) !== host ? { ...raw, page: null, pagePosition: null } : raw;
-        if (!(group.impressions > 0) || significantTokens(group.query).length === 0 || isBrandSearch(group.query)) continue;
+        if (!(group.impressions > 0) || significantTokens(group.query).length === 0 || isBrandSearch(group.query, input.brandName)) continue;
         const spot = roundedPosition(group.pagePosition);
-        if (group.page && !isHomePath(group.page) && spot != null && spot <= ALREADY_TOP_SPOT) continue;
+        if (group.page && spot != null && spot <= ALREADY_TOP_SPOT) continue;
         checked += 1;
         if (covering.some(idea => ideaCoversSearch(idea, group, places))) continue;
         missed.push({ query: group.query, impressions: group.impressions, position: group.position, page: group.page });
@@ -283,7 +305,12 @@ export function mapCheck(input: {
 
     const lines = new Map<string, number>();
     let articles = 0;
+    let refreshPages = 0;
     for (const idea of ideas) {
+        if (isRefreshRow(idea, refreshSilos, stored.get(idea.id))) {
+            refreshPages += 1;
+            continue;
+        }
         const kind = ideaKind(idea, stored.get(idea.id));
         if (kind.article) articles += 1;
         lines.set(kind.label, (lines.get(kind.label) ?? 0) + 1);
@@ -299,6 +326,7 @@ export function mapCheck(input: {
         repeatsRemoved: repeatsRemoved(input.generationMetadata),
         existingPages: ideas.filter(idea => idea.action !== 'create' && Boolean(idea.matchedUrl?.trim())).length,
         seedOnly,
+        refreshPages,
         articles,
         mix: [...lines].map(([label, value]) => ({ label, count: value }))
             .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
@@ -322,14 +350,15 @@ export function mapCheckSummary(check: MapCheck): string {
     const parts: string[] = [];
     if (check.connected && check.days > 0) parts.push(`${plural(check.missedTotal, 'search', 'searches')} with no idea`);
     if (check.repeatsRemoved != null) parts.push(`${plural(check.repeatsRemoved, 'repeat idea', 'repeat ideas')} removed`);
-    if (check.ideas > 0) parts.push(`${formatCount(check.articles)} of ${formatCount(check.ideas)} ideas are articles`);
+    const mixed = check.ideas - check.refreshPages;
+    if (mixed > 0) parts.push(`${formatCount(check.articles)} of ${formatCount(mixed)} ideas are articles`);
     return parts.join(' · ');
 }
 
 export function missedIntro(check: MapCheck): string {
     if (!check.connected) return 'Google Search Console is not connected, so we cannot check which searches the map missed.';
     if (check.days === 0) return 'Google Search Console has no stored days yet, so we cannot check which searches the map missed.';
-    return `Searches where your site showed up in Google ${lastDays(check.days)} that no idea in this map covers, biggest first. Searches for your business name, and searches where one of your pages is already in the top 3, are left out.`;
+    return `Searches where your site showed up in Google ${lastDays(check.days)} that no idea in this map covers, biggest first. Searches for your business name, and searches where one of your pages (your home page too) is already in the top 3, are left out.`;
 }
 
 export function missedEmpty(check: MapCheck): string {
@@ -404,10 +433,14 @@ export function seedOnlyLine(check: MapCheck): CheckLine | null {
 }
 
 export function mixLine(check: MapCheck): CheckLine | null {
-    if (check.ideas === 0) return null;
-    const share = Math.round((check.articles / check.ideas) * 100);
+    const mixed = check.ideas - check.refreshPages;
+    if (mixed <= 0) return null;
+    const share = Math.round((check.articles / mixed) * 100);
+    const refresh = check.refreshPages > 0
+        ? ` The ${plural(check.refreshPages, 'page', 'pages')} to refresh ${check.refreshPages === 1 ? 'is' : 'are'} not counted, because ${check.refreshPages === 1 ? 'it is a page' : 'they are pages'} you already have.`
+        : '';
     return {
-        label: `${formatCount(check.articles)} of ${plural(check.ideas, 'idea', 'ideas')} ${check.articles === 1 ? 'is an article' : 'are articles'} (${share}%)`,
-        detail: `The rest are service and location pages. We aim for no more than ${Math.round(ARTICLE_MAX_SHARE * 100)}% articles.`,
+        label: `${formatCount(check.articles)} of ${plural(mixed, 'idea', 'ideas')} ${check.articles === 1 ? 'is an article' : 'are articles'} (${share}%)`,
+        detail: `The rest are service and location pages.${refresh} We aim for no more than ${Math.round(ARTICLE_MAX_SHARE * 100)}% articles.`,
     };
 }

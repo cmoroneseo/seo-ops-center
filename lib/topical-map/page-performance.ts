@@ -25,6 +25,12 @@ export const STRIKING_MIN_POSITION = 8;
 export const STRIKING_MAX_POSITION = 30;
 /** Impressions per 28 days for the main search before spots 8 to 30 count as striking distance. */
 export const STRIKING_MIN_IMPRESSIONS = 50;
+/**
+ * A search a reason names needs real demand (this many impressions per 28
+ * days, about one every three days) and a real ranking (spot
+ * STRIKING_MAX_POSITION or better). Below either, it is noise.
+ */
+export const REASON_MIN_IMPRESSIONS = 10;
 
 /** A fall of 30% or more counts as a decline. */
 export const DECLINE_MIN_DROP = 0.3;
@@ -54,6 +60,8 @@ export const PAGE_ONE_MAX_POSITION = 10;
 
 /** Pages with signals but no matching idea added to the map, at most. */
 export const REFRESH_IDEAS_MAX = 10;
+/** The group those pages are saved in. The Review's article count leaves it out. */
+export const REFRESH_GROUP_NAME = 'Pages to refresh';
 
 export function expectedCtr(position: number | null | undefined): number | null {
     if (position == null || !Number.isFinite(position) || position <= 0) return null;

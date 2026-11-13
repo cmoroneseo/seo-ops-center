@@ -19,6 +19,8 @@
  * Pure functions. Later topic-map checks reuse them.
  */
 
+import type { PageType } from '../types';
+
 /** Words that never decide a match on their own. */
 export const GENERIC_TOKENS: ReadonlySet<string> = new Set([
     'install', 'installation', 'installer', 'installing', 'installed',
@@ -148,6 +150,15 @@ export function brandTokens(...values: Array<string | null | undefined>): Set<st
         for (const token of significantTokens(text)) out.add(token);
     }
     return out;
+}
+
+/** A search for the business itself: every word of the brand name, or of the domain name, is in it. */
+export function isBrandSearch(query: string, ...brands: Array<string | null | undefined>): boolean {
+    const tokens = new Set(significantTokens(query));
+    return brands.some(brand => {
+        const own = [...brandTokens(brand)];
+        return own.length > 0 && own.every(token => tokens.has(token));
+    });
 }
 
 /** Lower-case path with no trailing slash ("/" for the home page). Works on absolute or relative URLs. */
@@ -626,6 +637,103 @@ export function matchIdeaToPage<P extends MatchablePage>(
         if (supporting) return supporting;
     }
     return null;
+}
+
+const EXISTING_PAGE_TYPE: Record<PageKind, PageType> = {
+    home: 'homepage',
+    utility: 'other',
+    faq: 'faq',
+    hub: 'city',
+    service: 'service',
+    article: 'blog_post',
+};
+
+/**
+ * The stored page type of a page already on the site, as the page reader
+ * sees it: a city or county page, a service page, an FAQ page or an article.
+ * A folder page whose own pages are all city or county pages is the areas
+ * page ("/areas-we-serve/"), so a city page; one whose own pages are all
+ * service pages is a service page ("/services/"). 'other' only for utility
+ * pages (contact, about, gallery...), which are never refresh ideas anyway.
+ */
+export function existingPageType(url: string, pages: readonly MatchablePage[], ignore: ReadonlySet<string> = new Set()): PageType {
+    const site = siteFacts(pages);
+    const page = pages.find(other => pageKey(other.normalizedUrl) === pageKey(url)) ?? { normalizedUrl: url, h1s: [] };
+    const kind = pageKindOf(page, site, ignore);
+    const path = urlPath(url);
+    if (kind === 'article' && path !== '/') {
+        const children = pages
+            .filter(other => {
+                const own = urlPath(other.normalizedUrl);
+                return own.startsWith(`${path}/`) && !own.slice(path.length + 1).includes('/');
+            })
+            .map(other => pageKindOf(other, site, ignore));
+        if (children.length > 0 && children.every(child => child === 'hub')) return 'city';
+        if (children.length > 0 && children.every(child => child === 'service')) return 'service';
+    }
+    return EXISTING_PAGE_TYPE[kind];
+}
+
+// ─── Searches that fit the site ─────────────────────────────────────────────
+
+/**
+ * The significant words of a text with its regions and its known cities and
+ * counties taken out ("hardscaping services yorba linda" -> hardscape).
+ * Unlike readText, stop words are dropped before plurals are folded, so
+ * "does" and "this" are not read as words.
+ */
+function ownWords(text: string | null | undefined, places: PlaceSet): string[] {
+    const raw = (text ?? '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const list = raw.map(singular);
+    const phrases = [...places].map(place => place.split(' ')).sort((a, b) => b.length - a.length);
+    const rest: string[] = [];
+    for (let i = 0; i < list.length;) {
+        const skip = REGION_PHRASES.find(phrase => phrase.every((word, k) => list[i + k] === word))
+            ?? phrases.find(phrase => phrase.every((word, k) => list[i + k] === word));
+        if (skip) {
+            i += skip.length;
+            continue;
+        }
+        rest.push(raw[i]);
+        i += 1;
+    }
+    return significantTokens(rest.join(' ')).filter(token => token !== 'county' && !STATE_CODES.has(token));
+}
+
+/**
+ * A test for whether a search is one a refresh reason may name, built only
+ * from what the business says about itself: its pages' titles, H1s and URLs,
+ * plus its own listed topics and description (`texts`). A search fits when:
+ * - it is not a search for the business itself (see isBrandSearch)
+ * - any city or county it names in "X County" or "X, CA" form is one the
+ *   business has a page or text for (learnPlaces, plus places in `texts`)
+ * - every other word in it is a word the business itself uses. A town or
+ *   neighbourhood looks like any other word ("rossmoor", "friendswood"), so
+ *   a word the business never uses is never trusted: the search is skipped,
+ *   and the same goes for side work it never mentions (cleaning, sealing).
+ * Searches with an ordinary word the site does not use are skipped too
+ * ("fire pit for covered porch"); the reason then falls back to the page's
+ * own numbers, which is safe, where naming a search in another town is not.
+ */
+export function siteSearchFilter(
+    pages: readonly MatchablePage[],
+    options: { brands?: ReadonlyArray<string | null | undefined>; texts?: readonly string[] } = {},
+): (query: string) => boolean {
+    const places = new Set(siteFacts(pages).places);
+    const texts = options.texts ?? [];
+    for (const text of texts) for (const place of placesInText(text, places)) places.add(place);
+    const vocabulary = new Set<string>();
+    for (const page of pages) {
+        for (const text of [page.title ?? '', ...page.h1s, urlPath(page.normalizedUrl).replace(/[/_-]+/g, ' ')]) {
+            for (const token of ownWords(text, places)) vocabulary.add(token);
+        }
+    }
+    for (const text of texts) for (const token of ownWords(text, places)) vocabulary.add(token);
+    const brands = options.brands ?? [];
+    const served = (place: string) => places.has(place) || places.has(`${place} county`);
+    return (query: string) => !isBrandSearch(query, ...brands)
+        && placesInText(query, places).every(served)
+        && ownWords(query, places).every(token => vocabulary.has(token));
 }
 
 /**
