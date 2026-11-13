@@ -157,6 +157,99 @@ test('lists the biggest searches no idea covers, leaving out brand and already-t
     assert.deepEqual([capped.missed.length, capped.missedTotal], [1, 2]);
 });
 
+test('a search one of your pages already has in the top 3 is left out, home page included (Ecoworkz near me)', () => {
+    const home = 'https://www.ecoworkz.net/';
+    const ideas = [
+        idea('corona', { targetQuery: 'artificial grass installation corona', title: 'Artificial Grass Installation in Corona, CA', action: 'improve', matchedUrl: 'https://www.ecoworkz.net/corona-ca/' }),
+        idea('ag', { action: 'improve', targetQuery: 'artificial grass installation', matchedUrl: 'https://www.ecoworkz.net/our-services/artificial-grass-installation/' }),
+    ];
+    const check = mapCheck({
+        ideas,
+        brandName: 'Ecoworkz',
+        evidence: evidence([
+            // The audit's false misses: the home page is in spots 1 and 2.
+            group('landscaper near me', 146, { position: 1, page: home, pagePosition: 1 }),
+            group('landscaping contractor near me', 120, { position: 2, page: home, pagePosition: 2.2 }),
+            // The group's spot is an average over its rewordings; the home page's own spot is what counts.
+            group('artificial grass installation near me', 1318, { position: 10.8, page: home, pagePosition: 1.2 }),
+            // A home page that is really in spot 11 is not serving the search, and is no idea's page: still listed.
+            group('patio contractor near me', 91, { position: 11, page: home, pagePosition: 11 }),
+            // Spots 1 to 20 count only for an idea's own page, under the same modifier and place rules.
+            group('artificial turf installers', 60, { position: 11, page: 'https://www.ecoworkz.net/our-services/artificial-grass-installation/', pagePosition: 11 }),
+            group('pet turf installation', 40, { position: 11, page: 'https://www.ecoworkz.net/our-services/artificial-grass-installation/', pagePosition: 11 }),
+            // The modifier rules are unchanged: a pet, playground, putting green or commercial search lower down stays a miss.
+            group('pet turf near me', 48, { position: 5, page: home, pagePosition: 5 }),
+            group('playground turf near me', 39, { position: 6, page: home, pagePosition: 6 }),
+            group('putting green installation near me', 30, { position: 9, page: home, pagePosition: 9 }),
+            group('commercial artificial grass installation', 79, { position: 7, page: home, pagePosition: 7 }),
+        ]),
+    });
+    assert.deepEqual(check.missed.map(search => search.query), [
+        'patio contractor near me',
+        'commercial artificial grass installation',
+        'pet turf near me',
+        'pet turf installation',
+        'playground turf near me',
+        'putting green installation near me',
+    ]);
+    assert.equal(check.searchesChecked, 7);
+    assert.equal(missedWhere(check.missed[0]), 'Spot 11 in Google, mostly your home page');
+    // The intro says exactly what is left out.
+    assert.equal(
+        missedIntro(check),
+        'Searches where your site showed up in Google in the last 28 days that no idea in this map covers, biggest first. Searches for your business name, and searches where one of your pages (your home page too) is already in the top 3, are left out.',
+    );
+});
+
+test('"Pages to refresh" rows are not counted in the article share (Ecoworkz: 4 of 30, not 11 of 37)', () => {
+    const generated = [
+        ...Array.from({ length: 4 }, (_, i) => idea(`article${i}`, { pageType: 'blog_post' })),
+        ...Array.from({ length: 26 }, (_, i) => idea(`money${i}`, { pageType: i % 2 ? 'landing' : 'service' })),
+    ];
+    const metadata = { page_mix: { records: Object.fromEntries(generated.map(item => [item.id, { page_type: item.pageType === 'blog_post' ? 'faq' : 'service_city', seed_only: false }])) } };
+    // Saved before this change: refresh rows typed 'other'.
+    const oldRefresh = Array.from({ length: 7 }, (_, i) => idea(`refresh${i}`, { pageType: 'other', action: 'improve', matchedUrl: `https://www.ecoworkz.net/page-${i}/`, siloId: 'refresh' }));
+    const silos = [{ id: 'main', name: 'Artificial Grass' }, { id: 'refresh', name: 'Pages to refresh' }];
+    const ideas = [...generated.map(item => ({ ...item, siloId: 'main' })), ...oldRefresh];
+
+    for (const check of [
+        mapCheck({ ideas, evidence: evidence([]), generationMetadata: metadata, silos }),
+        // An old map read without its groups: the 'other' improve rows are still known.
+        mapCheck({ ideas, evidence: evidence([]), generationMetadata: metadata }),
+    ]) {
+        assert.deepEqual([check.articles, check.ideas, check.refreshPages], [4, 37, 7]);
+        assert.match(mapCheckSummary(check), /4 of 30 ideas are articles$/);
+        assert.deepEqual(mixLine(check), {
+            label: '4 of 30 ideas are articles (13%)',
+            detail: 'The rest are service and location pages. The 7 pages to refresh are not counted, because they are pages you already have. We aim for no more than 30% articles.',
+        });
+        assert.equal(check.mix.reduce((sum, line) => sum + line.count, 0), 30);
+    }
+
+    // New maps: refresh rows carry real page types (an article among them), and the group decides.
+    const typed = ['blog_post', 'city', 'service'].map((pageType, i) => idea(`r${i}`, { pageType: pageType as MapCheckIdea['pageType'], action: 'improve', matchedUrl: `https://example.com/r${i}/`, siloId: 'refresh' }));
+    const check = mapCheck({ ideas: [idea('a', { pageType: 'blog_post', siloId: 'main' }), idea('b', { siloId: 'main' }), ...typed], evidence: evidence([]), silos });
+    assert.deepEqual([check.articles, check.refreshPages], [1, 3]);
+    assert.equal(mixLine(check)?.label, '1 of 2 ideas is an article (50%)');
+    // With the groups known, an improve idea someone typed 'other' in a normal group still counts.
+    const added = mapCheck({ ideas: [idea('a', { pageType: 'other', action: 'improve', matchedUrl: 'https://example.com/x/', siloId: 'main' })], evidence: evidence([]), silos });
+    assert.deepEqual([added.articles, added.refreshPages], [1, 0]);
+    assert.equal(mixLine(mapCheck({ ideas: typed, evidence: evidence([]), silos })), null);
+    assert.match(mixLine({ ...check, refreshPages: 1, ideas: 3 })?.detail ?? '', /The 1 page to refresh is not counted, because it is a page you already have\./);
+});
+
+test('a merged idea\'s searches, saved as supporting searches, count as covered', () => {
+    // Riverside: the pavers idea was merged into the hardscape idea for the same city page.
+    const metadata = { page_mix: { records: { r: { page_type: 'service_city', seed_only: false, demand_query: 'hardscape contractor riverside ca', supporting_queries: ['paver contractors riverside', 7, ''] } } } };
+    assert.deepEqual(readStoredMix(metadata).get('r')?.supportingQueries, ['paver contractors riverside']);
+    const riverside = idea('r', { targetQuery: 'hardscape contractor riverside ca', title: 'Hardscape Contractor in Riverside, CA', action: 'improve', matchedUrl: 'https://www.example.com/riverside-ca/' });
+    const pavers = group('paver contractors riverside', 73, { page: 'https://www.example.com/areas/riverside-county/', pagePosition: 13 });
+    assert.equal(mapCheck({ ideas: [riverside], evidence: evidence([pavers]) }).missedTotal, 1, 'without the saved searches it looks missed');
+    assert.equal(mapCheck({ ideas: [riverside], evidence: evidence([pavers]), generationMetadata: metadata }).missedTotal, 0);
+    // A different place in a supporting search does not stretch the idea to another city.
+    assert.equal(ideaCoversSearch({ ...riverside, supportingQueries: ['paver contractors riverside'] }, group('paver contractors corona', 40)), false);
+});
+
 test('stored page-mix records supply cited searches, seed-only flags and page types', () => {
     const metadata = {
         duplicate_gate: { duplicate_ideas_dropped: 2 },
@@ -170,8 +263,8 @@ test('stored page-mix records supply cited searches, seed-only flags and page ty
         },
     };
     const stored = readStoredMix(metadata);
-    assert.deepEqual(stored.get('a'), { kind: 'service_city', seedOnly: false, demandQuery: 'temecula artificial grass' });
-    assert.deepEqual(stored.get('c'), { kind: null, seedOnly: null, demandQuery: null });
+    assert.deepEqual(stored.get('a'), { kind: 'service_city', seedOnly: false, demandQuery: 'temecula artificial grass', supportingQueries: [] });
+    assert.deepEqual(stored.get('c'), { kind: null, seedOnly: null, demandQuery: null, supportingQueries: [] });
     assert.equal(repeatsRemoved(metadata), 5);
 
     const check = mapCheck({
@@ -243,7 +336,7 @@ test('client-facing copy is plain English with real numbers', () => {
 
     assert.equal(
         seedOnlyLine({ ...check, seedOnly: { count: 15, of: 30, source: 'map', servicePages: 12 } })?.detail,
-        'They came only from the starting keywords, not from searches your site already shows up for. 12 of them are pages for services you sell. Pages for services you sell are kept even without searches and do not count toward the 20% limit.',
+        'They came only from the starting keywords, not from searches your site already shows up for. 12 of them are pages for services you sell. Pages for services you sell are kept even without searches.',
     );
     assert.match(seedOnlyLine({ ...check, seedOnly: { count: 1, of: 3, source: 'map', servicePages: 1 } })?.detail ?? '', /\. It is a page for a service you sell\./);
     const saved = mapCheck({

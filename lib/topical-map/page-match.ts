@@ -19,6 +19,8 @@
  * Pure functions. Later topic-map checks reuse them.
  */
 
+import type { PageType } from '../types';
+
 /** Words that never decide a match on their own. */
 export const GENERIC_TOKENS: ReadonlySet<string> = new Set([
     'install', 'installation', 'installer', 'installing', 'installed',
@@ -92,8 +94,6 @@ export const FAQ_MIN_COVERAGE = 0.5;
 export const GSC_MATCH_MAX_POSITION = 20;
 /** ...and with at least this many impressions in the window. */
 export const GSC_MATCH_MIN_IMPRESSIONS = 20;
-/** Two ideas on the same page with the same page type are duplicates when this share of their words overlap. */
-export const DEDUPE_MIN_OVERLAP = 0.5;
 
 function singular(word: string): string {
     if (word.length > 4 && word.endsWith('ies')) return `${word.slice(0, -3)}y`;
@@ -129,7 +129,7 @@ function tokenize(text: string | null | undefined, ignore: ReadonlySet<string>, 
     return out;
 }
 
-const BROAD_TOKENS: ReadonlySet<string> = new Set(BROAD_WORDS.flatMap(word => tokenize(word, new Set(), false)));
+export const BROAD_TOKENS: ReadonlySet<string> = new Set(BROAD_WORDS.flatMap(word => tokenize(word, new Set(), false)));
 
 /** Significant tokens, de-duplicated, in first-seen order. */
 export function significantTokens(text: string | null | undefined, ignore: ReadonlySet<string> = new Set()): string[] {
@@ -150,6 +150,15 @@ export function brandTokens(...values: Array<string | null | undefined>): Set<st
         for (const token of significantTokens(text)) out.add(token);
     }
     return out;
+}
+
+/** A search for the business itself: every word of the brand name, or of the domain name, is in it. */
+export function isBrandSearch(query: string, ...brands: Array<string | null | undefined>): boolean {
+    const tokens = new Set(significantTokens(query));
+    return brands.some(brand => {
+        const own = [...brandTokens(brand)];
+        return own.length > 0 && own.every(token => tokens.has(token));
+    });
 }
 
 /** Lower-case path with no trailing slash ("/" for the home page). Works on absolute or relative URLs. */
@@ -496,6 +505,26 @@ export function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean
     return a.size === b.size && [...a].every(value => b.has(value));
 }
 
+/**
+ * How well a city/county page fits the places an idea names, or null when it
+ * does not. Every place in the page's URL must be one the idea names. A county
+ * URL ("san-bernardino-county") also stands for the city of the same name
+ * when the page's title or H1 names that city ("Artificial Grass San
+ * Bernardino, CA"), but scores below a page built for that exact place.
+ */
+function hubFit(page: PageFacts, places: readonly string[]): number | null {
+    if (places.length === 0) return null;
+    let exact = 0;
+    for (const place of page.pathPlaces) {
+        if (places.includes(place)) exact += 1;
+        else {
+            const city = place.replace(/ county$/, '');
+            if (city === place || !page.titlePlaces.has(city) || !places.includes(city)) return null;
+        }
+    }
+    return 1 + exact;
+}
+
 /** Kind, place and modifier agreement. Token overlap is checked separately. */
 function compatible(idea: IdeaFacts, page: PageFacts): boolean {
     const kindOk = idea.kind === 'money'
@@ -503,7 +532,7 @@ function compatible(idea: IdeaFacts, page: PageFacts): boolean {
         : idea.kind === 'article' ? page.kind === 'article' : page.kind === 'faq';
     if (!kindOk) return false;
     if (!sameSet(idea.flags, page.flags) || idea.comparison !== page.comparison) return false;
-    if (page.kind === 'hub') return idea.places.length > 0 && [...page.pathPlaces].every(place => idea.places.includes(place));
+    if (page.kind === 'hub') return hubFit(page, idea.places) != null;
     if (!idea.places.every(place => page.places.has(place))) return false;
     // A page built for one city never stands in for an idea with no city: a
     // service page with the city in its URL, or an article with it in its title.
@@ -521,7 +550,7 @@ function tokenScore(idea: IdeaFacts, page: PageFacts): number | null {
         let score: number | null = null;
         if (page.kind === 'hub') {
             // A city/county page covers all-round work there, plus whatever it names.
-            if (tokens.every(token => BROAD_TOKENS.has(token) || page.topic.has(token))) score = 1 + page.pathPlaces.size;
+            if (tokens.every(token => BROAD_TOKENS.has(token) || page.topic.has(token))) score = hubFit(page, idea.places);
         } else if (page.kind === 'faq') {
             const coverage = tokens.filter(token => page.topic.has(token)).length / tokens.length;
             if (coverage >= FAQ_MIN_COVERAGE) score = coverage;
@@ -610,42 +639,149 @@ export function matchIdeaToPage<P extends MatchablePage>(
     return null;
 }
 
+const EXISTING_PAGE_TYPE: Record<PageKind, PageType> = {
+    home: 'homepage',
+    utility: 'other',
+    faq: 'faq',
+    hub: 'city',
+    service: 'service',
+    article: 'blog_post',
+};
+
 /**
- * Keeps the first idea per search (intentKey) and drops a later idea that
- * matched the same page only when both have the same page type and at least
- * half their words overlap. Two different articles that both point at one
- * existing post are both kept.
- * Returns the index of the earlier idea each dropped idea duplicates.
+ * The stored page type of a page already on the site, as the page reader
+ * sees it: a city or county page, a service page, an FAQ page or an article.
+ * A folder page whose own pages are all city or county pages is the areas
+ * page ("/areas-we-serve/"), so a city page; one whose own pages are all
+ * service pages is a service page ("/services/"). 'other' only for utility
+ * pages (contact, about, gallery...), which are never refresh ideas anyway.
+ */
+export function existingPageType(url: string, pages: readonly MatchablePage[], ignore: ReadonlySet<string> = new Set()): PageType {
+    const site = siteFacts(pages);
+    const page = pages.find(other => pageKey(other.normalizedUrl) === pageKey(url)) ?? { normalizedUrl: url, h1s: [] };
+    const kind = pageKindOf(page, site, ignore);
+    const path = urlPath(url);
+    if (kind === 'article' && path !== '/') {
+        const children = pages
+            .filter(other => {
+                const own = urlPath(other.normalizedUrl);
+                return own.startsWith(`${path}/`) && !own.slice(path.length + 1).includes('/');
+            })
+            .map(other => pageKindOf(other, site, ignore));
+        if (children.length > 0 && children.every(child => child === 'hub')) return 'city';
+        if (children.length > 0 && children.every(child => child === 'service')) return 'service';
+    }
+    return EXISTING_PAGE_TYPE[kind];
+}
+
+// ─── Searches that fit the site ─────────────────────────────────────────────
+
+/**
+ * The significant words of a text with its regions and its known cities and
+ * counties taken out ("hardscaping services yorba linda" -> hardscape).
+ * Unlike readText, stop words are dropped before plurals are folded, so
+ * "does" and "this" are not read as words.
+ */
+function ownWords(text: string | null | undefined, places: PlaceSet): string[] {
+    const raw = (text ?? '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const list = raw.map(singular);
+    const phrases = [...places].map(place => place.split(' ')).sort((a, b) => b.length - a.length);
+    const rest: string[] = [];
+    for (let i = 0; i < list.length;) {
+        const skip = REGION_PHRASES.find(phrase => phrase.every((word, k) => list[i + k] === word))
+            ?? phrases.find(phrase => phrase.every((word, k) => list[i + k] === word));
+        if (skip) {
+            i += skip.length;
+            continue;
+        }
+        rest.push(raw[i]);
+        i += 1;
+    }
+    return significantTokens(rest.join(' ')).filter(token => token !== 'county' && !STATE_CODES.has(token));
+}
+
+/**
+ * A test for whether a search is one a refresh reason may name, built only
+ * from what the business says about itself: its pages' titles, H1s and URLs,
+ * plus its own listed topics and description (`texts`). A search fits when:
+ * - it is not a search for the business itself (see isBrandSearch)
+ * - any city or county it names in "X County" or "X, CA" form is one the
+ *   business has a page or text for (learnPlaces, plus places in `texts`)
+ * - every other word in it is a word the business itself uses. A town or
+ *   neighbourhood looks like any other word ("rossmoor", "friendswood"), so
+ *   a word the business never uses is never trusted: the search is skipped,
+ *   and the same goes for side work it never mentions (cleaning, sealing).
+ * Searches with an ordinary word the site does not use are skipped too
+ * ("fire pit for covered porch"); the reason then falls back to the page's
+ * own numbers, which is safe, where naming a search in another town is not.
+ */
+export function siteSearchFilter(
+    pages: readonly MatchablePage[],
+    options: { brands?: ReadonlyArray<string | null | undefined>; texts?: readonly string[] } = {},
+): (query: string) => boolean {
+    const places = new Set(siteFacts(pages).places);
+    const texts = options.texts ?? [];
+    for (const text of texts) for (const place of placesInText(text, places)) places.add(place);
+    const vocabulary = new Set<string>();
+    for (const page of pages) {
+        for (const text of [page.title ?? '', ...page.h1s, urlPath(page.normalizedUrl).replace(/[/_-]+/g, ' ')]) {
+            for (const token of ownWords(text, places)) vocabulary.add(token);
+        }
+    }
+    for (const text of texts) for (const token of ownWords(text, places)) vocabulary.add(token);
+    const brands = options.brands ?? [];
+    const served = (place: string) => places.has(place) || places.has(`${place} county`);
+    return (query: string) => !isBrandSearch(query, ...brands)
+        && placesInText(query, places).every(served)
+        && ownWords(query, places).every(token => vocabulary.has(token));
+}
+
+/**
+ * The site's own city or county page for the place a text names ("paver
+ * installation orange county" gives /orange-county-ca/), or null when the
+ * text names no place or the site has no page for it.
+ */
+export function placePageFor<P extends MatchablePage>(
+    text: string,
+    pages: readonly P[],
+    ignore: ReadonlySet<string> = new Set(),
+): P | null {
+    const site = siteFacts(pages);
+    const named = readText(text, new Set([...site.places, ...placesInText(text, site.places)]), ignore).places;
+    const view = { places: site.places, serviceDir: site.serviceDir };
+    let best: P | null = null;
+    let bestFit = 0;
+    for (const page of pages) {
+        const read = cachedPage(page, view, ignore);
+        const fit = read.kind === 'hub' ? hubFit(read, named) : null;
+        if (fit != null && fit > bestFit) {
+            best = page;
+            bestFit = fit;
+        }
+    }
+    return best;
+}
+
+/**
+ * Keeps the first idea per search (intentKey). Returns the index of the
+ * earlier idea each dropped idea repeats. Ideas that land on the same
+ * existing page are merged later, by planPages (one page, one idea).
  */
 export function dedupeIdeas(
-    ideas: ReadonlyArray<{ targetQuery: string; matchedUrl?: string | null; pageType?: string | null }>,
+    ideas: ReadonlyArray<{ targetQuery: string }>,
     ignore: ReadonlySet<string> = new Set(),
 ): { keep: number[]; duplicateOf: Map<number, number> } {
     const byIntent = new Map<string, number>();
-    const byPage = new Map<string, number[]>();
     const keep: number[] = [];
     const duplicateOf = new Map<number, number>();
-    const tokensOf = (index: number) => new Set(significantTokens(ideas[index].targetQuery, ignore));
     ideas.forEach((idea, index) => {
         const intent = intentKey(idea.targetQuery, ignore);
-        const page = idea.matchedUrl?.trim() ? pageKey(idea.matchedUrl) : '';
-        let earlier = intent ? byIntent.get(intent) : undefined;
-        if (earlier == null && page) {
-            const mine = tokensOf(index);
-            earlier = (byPage.get(page) ?? []).find(other => {
-                if ((ideas[other].pageType ?? '') !== (idea.pageType ?? '')) return false;
-                const theirs = tokensOf(other);
-                const shared = [...mine].filter(token => theirs.has(token)).length;
-                const union = new Set([...mine, ...theirs]).size;
-                return union > 0 && shared / union >= DEDUPE_MIN_OVERLAP;
-            });
-        }
+        const earlier = intent ? byIntent.get(intent) : undefined;
         if (earlier != null) {
             duplicateOf.set(index, earlier);
             return;
         }
         if (intent) byIntent.set(intent, index);
-        if (page) byPage.set(page, [...(byPage.get(page) ?? []), index]);
         keep.push(index);
     });
     return { keep, duplicateOf };

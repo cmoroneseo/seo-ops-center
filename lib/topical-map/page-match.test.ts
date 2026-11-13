@@ -4,17 +4,21 @@ import assert from 'node:assert/strict';
 import {
     brandTokens,
     dedupeIdeas,
+    existingPageType,
     GSC_MATCH_MAX_POSITION,
     GSC_MATCH_MIN_IMPRESSIONS,
     ideaKind,
     intentKey,
+    isBrandSearch,
     isUtilityPage,
     learnPlaces,
     matchIdeaToPage,
     pageKey,
+    placePageFor,
     placesInText,
     readText,
     significantTokens,
+    siteSearchFilter,
     urlPath,
     type MatchablePage,
 } from './page-match.ts';
@@ -253,42 +257,174 @@ describe('urlPath and pageKey', () => {
     });
 });
 
-describe('dedupeIdeas (finding 1: same-page dedupe only within a page type)', () => {
-    const corona = `${site}/corona-ca/`;
-
+describe('dedupeIdeas: one idea per search', () => {
     it('drops a later idea with the same search', () => {
         const result = dedupeIdeas([
-            { targetQuery: 'artificial grass corona ca', pageType: 'service' },
-            { targetQuery: 'Corona artificial turf near me', pageType: 'blog_post' },
+            { targetQuery: 'artificial grass corona ca' },
+            { targetQuery: 'Corona artificial turf near me' },
+            { targetQuery: 'landscape contractors corona' },
         ], brand);
         assert.deepEqual([...result.duplicateOf], [[1, 0]]);
+        assert.deepEqual(result.keep, [0, 2]);
+    });
+    // Ideas on the same existing page are merged by planPages (one page, one idea): see page-plan.test.ts.
+});
+
+describe('city and county pages', () => {
+    const areaPages = [
+        page('/services/artificial-grass/', 'Artificial Grass Installation | Acme'),
+        page('/areas/san-bernardino-county/', 'Artificial Grass San Bernardino, CA | Pavers | Acme', 'Turf Installation in San Bernardino County'),
+        page('/areas/riverside-county/', 'Riverside County Outdoor Living Contractor | Acme'),
+        page('/riverside-ca/', 'Riverside Hardscape Contractor | Pavers & Turf | Acme'),
+        page('/areas/orange-county-ca/', 'Outdoor Construction in Orange County, CA | Acme'),
+    ];
+
+    it('a county page titled for its city covers that city, below the city\'s own page', () => {
+        const sb = idea('artificial turf san bernardino', 'Artificial Grass Installation in San Bernardino', 'landing');
+        assert.equal(matched(matchIdeaToPage(sb, areaPages, [], brand)), '/areas/san-bernardino-county');
+        const withCityPage = [...areaPages, page('/san-bernardino-ca/', 'San Bernardino Turf & Pavers | Acme')];
+        assert.equal(matched(matchIdeaToPage(sb, withCityPage, [], brand)), '/san-bernardino-ca');
     });
 
-    it('keeps ideas of a different page type that point at the same page', () => {
-        const result = dedupeIdeas([
-            { targetQuery: 'artificial grass installation', matchedUrl: `${site}/services/artificial-grass/`, pageType: 'service' },
-            { targetQuery: 'artificial grass installation cost', matchedUrl: `${site}/services/artificial-grass/`, pageType: 'guide' },
-            { targetQuery: 'artificial grass installation process', matchedUrl: `${site}/services/artificial-grass/`, pageType: 'pillar' },
-        ], brand);
-        assert.equal(result.duplicateOf.size, 0);
+    it('a county page not titled for the city does not cover it', () => {
+        const remodel = idea('backyard remodel riverside', 'Backyard Remodel in Riverside, CA', 'landing');
+        assert.equal(matched(matchIdeaToPage(remodel, areaPages, [], brand)), '/riverside-ca');
+        const noCityPage = areaPages.filter(p => p.pageId !== '/riverside-ca/');
+        assert.equal(matched(matchIdeaToPage(remodel, noCityPage, [], brand)), null);
     });
 
-    it('keeps two different articles that point at one post', () => {
-        const result = dedupeIdeas([
-            { targetQuery: 'fire pit design ideas', matchedUrl: `${site}/fire-pit-design/`, pageType: 'blog_post' },
-            { targetQuery: 'fire pit for covered patio', matchedUrl: `${site}/fire-pit-design/`, pageType: 'blog_post' },
-        ], brand);
-        assert.equal(result.duplicateOf.size, 0);
+    it('placePageFor finds the site\'s page for the place a search names', () => {
+        assert.equal(urlPath(placePageFor('paver installation orange county', areaPages, brand)?.normalizedUrl ?? ''), '/areas/orange-county-ca');
+        assert.equal(urlPath(placePageFor('bbq island in San Bernardino, CA', areaPages, brand)?.normalizedUrl ?? ''), '/areas/san-bernardino-county');
+        assert.equal(urlPath(placePageFor('fire pits riverside', areaPages, brand)?.normalizedUrl ?? ''), '/riverside-ca');
+        assert.equal(placePageFor('pavers in Fontana, CA', areaPages, brand), null);
+        assert.equal(placePageFor('paver installation', areaPages, brand), null);
+    });
+});
+
+describe('isBrandSearch', () => {
+    it('is a search with every word of the brand name or of the domain name', () => {
+        assert.equal(isBrandSearch('acme', 'Acme'), true);
+        assert.equal(isBrandSearch('acme turf reviews', 'Acme'), true);
+        assert.equal(isBrandSearch('ecoworkz', 'Ecoworkz Inc', 'https://www.ecoworkz.net/'), true);
+        assert.equal(isBrandSearch('artificial turf', 'Acme', 'acme.com'), false);
+        // A brand made of trade words is only matched in full.
+        assert.equal(isBrandSearch('landscaping near me', 'Pacific Landscaping'), false);
+        assert.equal(isBrandSearch('anything', '', null), false);
+    });
+});
+
+describe('existingPageType (refresh rows get real page types)', () => {
+    it('reads city, service, article and FAQ pages the way the matcher does', () => {
+        const type = (path: string) => existingPageType(`${site}${path}`, pages, brand);
+        assert.equal(type('/corona-ca/'), 'city');
+        assert.equal(type('/areas/riverside-county/'), 'city');
+        assert.equal(type('/services/pavers/'), 'service');
+        assert.equal(type('/services/pavers/driveway-pavers/'), 'service');
+        assert.equal(type('/pavers-vs-concrete-patio/'), 'blog_post');
+        assert.equal(type('/artificial-grass-backyard-worth-it/'), 'blog_post');
+        assert.equal(type('/about-us/faqs/'), 'faq');
+        assert.equal(type('/'), 'homepage');
+        // Only a page that really cannot be told apart stays 'other'.
+        assert.equal(type('/galleries/pavers-gallery/'), 'other');
     });
 
-    it('drops a same-type idea on the same page when most of its words overlap', () => {
-        const result = dedupeIdeas([
-            { targetQuery: 'backyard remodel orange county', matchedUrl: `${site}/orange-county-ca/`, pageType: 'service' },
-            { targetQuery: 'outdoor remodeling orange county', matchedUrl: `${site}/orange-county-ca`, pageType: 'service' },
-            { targetQuery: 'turf installation corona', matchedUrl: corona, pageType: 'service' },
-            { targetQuery: 'landscape contractors corona', matchedUrl: corona, pageType: 'service' },
-        ], brand);
-        assert.deepEqual([...result.duplicateOf], [[1, 0]]);
-        assert.deepEqual(result.keep, [0, 2, 3]);
+    it('a folder page over city pages is a city page, one over service pages a service page (Ecoworkz-like)', () => {
+        const eco = 'https://www.ecoworkz.net';
+        const ecoPages: MatchablePage[] = [
+            { normalizedUrl: `${eco}/areas-serviced-southern-california/`, title: 'Southern California Landscape Service Areas | Ecoworkz', h1s: ['Areas Serviced Southern California'] },
+            { normalizedUrl: `${eco}/areas-serviced-southern-california/orange-county-ca/`, title: 'Outdoor Construction in Orange County, CA', h1s: [] },
+            { normalizedUrl: `${eco}/areas-serviced-southern-california/riverside-county/`, title: 'Riverside Hardscape Contractor', h1s: [] },
+            { normalizedUrl: `${eco}/our-services/`, title: 'Landscape & Outdoor Living Services', h1s: [] },
+            { normalizedUrl: `${eco}/our-services/pavers/`, title: 'Paver Installation in Southern California', h1s: [] },
+            { normalizedUrl: `${eco}/yorba-linda-ca/`, title: 'Yorba Linda Hardscape Contractor | Pavers, Patios', h1s: [] },
+            { normalizedUrl: `${eco}/financing-outdoor-renovations-socal/`, title: 'Outdoor Renovation Financing Options in SoCal', h1s: [] },
+        ];
+        const ignore = brandTokens('Ecoworkz', eco);
+        assert.equal(existingPageType(`${eco}/areas-serviced-southern-california/`, ecoPages, ignore), 'city');
+        assert.equal(existingPageType(`${eco}/our-services/`, ecoPages, ignore), 'service');
+        assert.equal(existingPageType(`${eco}/yorba-linda-ca/`, ecoPages, ignore), 'city');
+        assert.equal(existingPageType(`${eco}/financing-outdoor-renovations-socal/`, ecoPages, ignore), 'blog_post');
+        // A page the crawl does not hold is read from its URL alone.
+        assert.equal(existingPageType(`${eco}/our-services/pet-turf/`, ecoPages, ignore), 'service');
+    });
+
+    it('works on a site with no services folder', () => {
+        const flat: MatchablePage[] = [
+            { normalizedUrl: 'https://roofco.com/roof-replacement/', title: 'Roof Replacement', h1s: [] },
+            { normalizedUrl: 'https://roofco.com/how-long-does-a-roof-last/', title: 'How Long Does a Roof Last?', h1s: [] },
+            { normalizedUrl: 'https://roofco.com/dallas-tx/', title: 'Roofing in Dallas, TX', h1s: [] },
+        ];
+        assert.equal(existingPageType('https://roofco.com/roof-replacement/', flat), 'service');
+        assert.equal(existingPageType('https://roofco.com/how-long-does-a-roof-last/', flat), 'blog_post');
+        assert.equal(existingPageType('https://roofco.com/dallas-tx/', flat), 'city');
+    });
+});
+
+describe('siteSearchFilter (the search a refresh reason may name)', () => {
+    const eco = 'https://www.ecoworkz.net';
+    const ecoPages: MatchablePage[] = [
+        { normalizedUrl: `${eco}/our-services/outdoor-kitchen-installation/`, title: 'Outdoor Kitchen Installation in Southern CA', h1s: ['Expert Outdoor Kitchen Installation'] },
+        { normalizedUrl: `${eco}/our-services/pavers/`, title: 'Paver Installation in Southern California', h1s: [] },
+        { normalizedUrl: `${eco}/yorba-linda-ca/`, title: 'Yorba Linda Hardscape Contractor | Pavers, Patios', h1s: [] },
+        { normalizedUrl: `${eco}/irvine-ca/`, title: 'Irvine Hardscape Contractor', h1s: [] },
+        { normalizedUrl: `${eco}/areas-serviced-southern-california/`, title: 'Southern California Landscape Service Areas', h1s: ['Areas Serviced Southern California'] },
+        { normalizedUrl: `${eco}/areas-serviced-southern-california/orange-county-ca/`, title: 'Outdoor Construction in Orange County, CA', h1s: [] },
+        { normalizedUrl: `${eco}/areas-serviced-southern-california/san-bernardino-county/`, title: 'Artificial Grass San Bernardino, CA', h1s: [] },
+        { normalizedUrl: `${eco}/socal-outdoor-living-maintenance-costs/`, title: 'Long-Term Maintenance Costs of Outdoor Living Spaces', h1s: [] },
+        { normalizedUrl: `${eco}/4-factors-to-consider-when-designing-a-fire-pit/`, title: 'Designing a Fire Pit', h1s: [] },
+    ];
+    const fits = siteSearchFilter(ecoPages, { brands: ['Ecoworkz', `${eco}/`], texts: ['Riverside County outdoor construction', 'We build patio covers and shade structures.'] });
+
+    it('never names a town the business does not serve, even one that only appears in the search (Ecoworkz-like)', () => {
+        // The two cases from the review: a neighbourhood and a Texas town with no state or "County" mark.
+        assert.equal(fits('hardscaping contractors rossmoor'), false);
+        assert.equal(fits('install outdoor kitchen friendswood'), false);
+        assert.equal(fits('patio pavers vs concrete which is better for wisconsin winters'), false);
+        assert.equal(fits('hardscaping komandorski village'), false);
+        // Marked places they have no page for.
+        assert.equal(fits('outdoor kitchen installation san luis obispo ca'), false);
+        assert.equal(fits('outdoor kitchen installation los angeles'), false);
+        assert.equal(fits('outdoor kitchen installers menifee ca'), false);
+        assert.equal(fits('mulching & rock services in canyon lake, ca'), false);
+        // Places they serve, their regions, and their own services fit.
+        assert.equal(fits('hardscaping services yorba linda'), true);
+        assert.equal(fits('outdoor kitchen orange county ca'), true);
+        assert.equal(fits('artificial turf san bernardino'), true);
+        assert.equal(fits('hardscape contractor riverside county'), true);
+        assert.equal(fits('artificial turf southern california'), true);
+        assert.equal(fits('outdoor kitchen installation near me'), true);
+        assert.equal(fits('how much does a fire pit cost'), true);
+    });
+
+    it('drops the brand and work the business never mentions; its own words come from its pages and profile', () => {
+        assert.equal(fits('ecoworkz'), false);
+        assert.equal(fits('ecoworkz turf reviews'), false);
+        assert.equal(fits('paver cleaning yorba linda ca'), false);
+        assert.equal(fits('paver sealing yorba linda ca'), false);
+        // Maintenance is on one of their pages; shade structures are in their own description.
+        assert.equal(fits('outdoor living maintenance orange county'), true);
+        assert.equal(fits('shade structure contractor yorba linda'), true);
+        // An ordinary word the business never uses is not trusted either: the reason falls back to the page.
+        assert.equal(fits('fire pit for covered porch'), false);
+    });
+
+    it('is general: a roofer in Dallas', () => {
+        const roofer = (extra: MatchablePage[] = []) => [
+            { normalizedUrl: 'https://roofco.com/roof-replacement/', title: 'Roof Replacement', h1s: [] },
+            { normalizedUrl: 'https://roofco.com/dallas-tx/', title: 'Roofing in Dallas, TX', h1s: [] },
+            ...extra,
+        ];
+        const without = siteSearchFilter(roofer(), { brands: ['RoofCo'] });
+        assert.equal(without('roof replacement dallas tx'), true);
+        assert.equal(without('roof replacement dallas'), true);
+        assert.equal(without('roof repair dallas tx'), false);
+        assert.equal(without('roof replacement austin tx'), false);
+        assert.equal(without('roof replacement highland park'), false);
+        assert.equal(without('roofco reviews'), false);
+        const withRepair = siteSearchFilter(roofer([{ normalizedUrl: 'https://roofco.com/roof-repair/', title: 'Roof Repair', h1s: [] }]));
+        assert.equal(withRepair('roof repair dallas tx'), true);
+        // A place named only in the profile counts as served.
+        assert.equal(siteSearchFilter(roofer(), { texts: ['Serving Collin County'] })('roof replacement collin county'), true);
     });
 });
