@@ -51,9 +51,6 @@ function RetainerTrayRow({ item }: { item: RetainerTrayItem }) {
 }
 
 function buildUrl(n: AppNotification): string {
-  if (n.entityId && (n.entityType === 'approval_request' || n.entityType === 'gbp_approval_request')) {
-    return `/approvals/${n.entityId}`;
-  }
   if (n.clientId && (n.type === 'vault_proposal_accepted' || n.type === 'vault_proposal_dismissed')) {
     return `/workspace/${n.clientId}?tab=vault`;
   }

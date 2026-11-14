@@ -18756,7 +18756,7 @@ alter table public.approval_item_versions
   add constraint approval_item_versions_payload_check check (jsonb_typeof(payload) = 'object' and pg_column_size(payload) <= 1048576),
   drop constraint approval_item_versions_photo_check,
   add constraint approval_item_versions_photo_check check (photo_path is null or (char_length(photo_path) <= 500 and (
-    photo_path ~ '^https://\S+$' or photo_path ~ '^(gbp-approvals|approval-assets)/[0-9a-f-]{36}/[0-9a-f-]{36}$'))),
+    photo_path ~ '^https://\S+$' or photo_path ~ '^(gbp-approvals|approval-assets)/[0-9a-f-]{36}/[0-9a-f-]{36}(\.preview\.jpg)?$'))),
   drop constraint approval_item_versions_source_check,
   add constraint approval_item_versions_source_check check (source in ('create','manual','accepted_suggestion','import'));
 alter table public.approval_responses add column suggestion jsonb
@@ -18793,7 +18793,7 @@ create table public.approval_assets (
  id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id),
  request_id uuid not null references public.approval_requests(id), item_id uuid references public.approval_items(id) on delete set null,
  object_key text not null unique, content_type text not null check (content_type in ('image/jpeg','image/png','image/webp','image/gif')),
- byte_size integer not null check (byte_size between 1 and 10485760), kind text not null check (kind in ('mockup','doc_image')),
+ byte_size integer not null check (byte_size between 1 and 10485760), kind text not null check (kind in ('mockup','doc_image','client_replacement')),
  created_by uuid not null references public.users(id), created_at timestamptz not null default now(),
  check (object_key = 'approval-assets/' || request_id::text || '/' || id::text)
 );
@@ -18811,7 +18811,14 @@ create table public.approval_comments (
  range_start integer, range_end integer,
  quote text check (char_length(quote) between 1 and 500), quote_hash text check (quote_hash ~ '^[0-9a-f]{64}$'),
  quote_prefix text check (char_length(quote_prefix) <= 64), quote_suffix text check (char_length(quote_suffix) <= 64),
- body text not null check (char_length(btrim(body)) >= 1 and char_length(body) <= 4000), suggested_text text check (char_length(suggested_text) <= 4000),
+ body text check (char_length(body) <= 4000),
+ suggested_image_key text,
+ suggestion_status text check (suggestion_status in ('pending','accepted','declined','superseded')),
+ suggestion_decided_at timestamptz, suggestion_decided_by uuid references public.users(id),
+ suggestion_reply text check (char_length(suggestion_reply)<=2000),
+ check (suggested_image_key is not null or (body is not null and char_length(btrim(body))>=1)),
+ check (suggested_image_key is null or (anchor_kind='pin' and parent_id is null and suggested_text is null)),
+ check ((suggestion_status is null) = (suggested_text is null and suggested_image_key is null)), suggested_text text check (char_length(suggested_text) <= 4000),
  resolved_at timestamptz, resolved_by uuid references public.users(id), resolved_in_version_id uuid references public.approval_item_versions(id),
  created_at timestamptz not null default now(),
  constraint approval_comments_anchor_shape check (case
@@ -18832,6 +18839,7 @@ create table public.approval_comments (
    and range_start is null and range_end is null and quote is null and quote_hash is null and quote_prefix is null and quote_suffix is null
  else false end)
 );
+create unique index approval_comments_pending_image_idx on public.approval_comments(request_id,item_id,coalesce(block_id,'mockup')) where suggestion_status='pending' and suggested_image_key is not null;
 create index approval_comments_version_idx on public.approval_comments(item_id,version_id,created_at);
 create index approval_comments_request_idx on public.approval_comments(request_id,resolved_at);
 create index approval_comments_block_idx on public.approval_comments(item_id,block_id);
@@ -18839,7 +18847,7 @@ create index approval_comments_block_idx on public.approval_comments(item_id,blo
 alter table public.approval_events drop constraint approval_events_kind_check;
 alter table public.approval_events add constraint approval_events_kind_check check (kind in (
  'link_issued','link_extended','link_revoked','link_rotated','item_marked_final','task_advanced',
- 'request_created','request_sent','draft_edited','request_archived','request_unarchived','owner_changed','comment_resolved','comment_reopened','comment_replied'));
+ 'request_created','request_sent','draft_edited','request_archived','request_unarchived','owner_changed','comment_resolved','comment_reopened','comment_replied','suggestion_accepted','suggestion_declined','revision_released'));
 alter table public.notifications drop constraint notifications_type_check;
 alter table public.notifications add constraint notifications_type_check check (type in (
  'task_assigned','task_mentioned','note_mentioned','deliverable_assigned','deliverable_overdue','deliverable_at_risk','deliverable_status',
@@ -18849,6 +18857,25 @@ alter table public.notifications drop constraint notifications_entity_type_check
 alter table public.notifications add constraint notifications_entity_type_check check (entity_type in (
  'task','task_comment','client_note','deliverable','reminder','content_approval_batch','content_approval_doc','client_portal_feedback',
  'client_vault_suggestion','gbp_approval_request','approval_request'));
+
+alter table public.approval_upload_reservations
+ add column purpose text not null default 'gbp_photo' check (purpose in ('gbp_photo','image_replacement')),
+ add column item_id uuid references public.approval_items(id),
+ add column version_id uuid references public.approval_item_versions(id),
+ add column preview_key text check (preview_key=object_key || '.preview.jpg'),
+ drop constraint approval_upload_reservations_type_check,
+ drop constraint approval_upload_reservations_size_check,
+ add constraint approval_upload_reservations_type_check check (
+ (purpose='gbp_photo' and content_type in ('image/jpeg','image/png','image/webp','image/gif')) or
+ (purpose='image_replacement' and content_type in ('image/jpeg','image/png','image/webp','image/heic','image/heif'))),
+ add constraint approval_upload_reservations_size_check check (byte_size between 1 and case when purpose='gbp_photo' then 10485760 else 15728640 end),
+ add constraint approval_upload_image_scope_check check (purpose<>'image_replacement' or (item_id is not null and version_id is not null));
+
+create or replace function public.approval_replacement_key(p_key text,p_request uuid) returns boolean
+language sql security definer set search_path = pg_catalog, public as $$
+ select exists(select 1 from public.approval_upload_reservations where purpose='image_replacement' and status='attached'
+ and (p_request is null or request_id=p_request) and (object_key=p_key or preview_key=p_key));
+$$;
 
 -- Canonical JSON ignores only anchor identity attrs. Hashes are computed in SQL,
 -- never trusted from a caller; structure/marks/URLs remain part of visible content.
@@ -18868,7 +18895,7 @@ create or replace function public.approval_clean_item(p_type text,p_payload json
 language plpgsql security definer set search_path = pg_catalog, public as $$
 declare k text; lim integer; img jsonb; clean jsonb;
 begin
- if p_asset is not null and (char_length(p_asset)>500 or (p_asset !~ '^https://\S+$' and p_asset !~ '^(approval-assets|gbp-approvals)/[0-9a-f-]{36}/[0-9a-f-]{36}$')) then return null; end if;
+ if p_asset is not null and (char_length(p_asset)>500 or (p_asset !~ '^https://\S+$' and p_asset !~ '^(approval-assets|gbp-approvals)/[0-9a-f-]{36}/[0-9a-f-]{36}(\.preview\.jpg)?$')) then return null; end if;
  if p_type = 'gbp_post' then
    clean := public.gbp_approval_clean_post(p_payload,case when p_asset like 'approval-assets/%' then null else p_asset end);
    if clean is not null and p_asset like 'approval-assets/%' then clean := jsonb_set(clean,'{photo}',to_jsonb(p_asset)); end if;
@@ -18888,7 +18915,7 @@ begin
  or (p_payload->>'slug') !~ '^[a-z0-9]+(-[a-z0-9]+)*(/[a-z0-9]+(-[a-z0-9]+)*)*$'
  or (p_payload ? 'plannedDate' and public.gbp_approval_calendar_date(p_payload->>'plannedDate') is null) then return null; end if;
  for img in select * from jsonb_path_query(p_payload->'body','strict $.** ? (@.type == "image")') loop
-   if not exists (select 1 from public.approval_assets where object_key = img#>>'{attrs,src}') then return null; end if;
+   if not exists (select 1 from public.approval_assets where object_key = img#>>'{attrs,src}') and not public.approval_replacement_key(img#>>'{attrs,src}',null) then return null; end if;
  end loop;
  return jsonb_build_object('payload',p_payload,'photo',p_asset);
 end $$;
@@ -18940,8 +18967,9 @@ begin
  if new.photo_path like 'approval-assets/%' and not exists (select 1 from public.approval_assets where object_key=new.photo_path and request_id=new.request_id and organization_id=new.organization_id and (item_id is null or item_id=new.item_id)) then
  raise exception 'asset outside request' using errcode = '23514'; end if;
  if t='page' then
+   if new.photo_path like 'gbp-approvals/%' and not public.approval_replacement_key(new.photo_path,new.request_id) then raise exception 'image outside request' using errcode='23514'; end if;
    for img in select * from jsonb_path_query(new.payload->'body','strict $.** ? (@.type == "image")') loop
-     if not exists (select 1 from public.approval_assets where object_key=img#>>'{attrs,src}' and request_id=new.request_id and organization_id=new.organization_id and (item_id is null or item_id=new.item_id)) then raise exception 'image outside request' using errcode='23514'; end if;
+     if not exists (select 1 from public.approval_assets where object_key=img#>>'{attrs,src}' and request_id=new.request_id and organization_id=new.organization_id and (item_id is null or item_id=new.item_id)) and not public.approval_replacement_key(img#>>'{attrs,src}',new.request_id) then raise exception 'image outside request' using errcode='23514'; end if;
    end loop;
    new.body_hash := encode(sha256(convert_to(public.approval_canonical_json(new.payload->'body'),'UTF8')),'hex');
    for s in select value from jsonb_array_elements(coalesce(new.outline,'[]')) loop
@@ -18971,8 +18999,9 @@ create or replace function public.approval_comment_scope() returns trigger
 language plpgsql security definer set search_path = pg_catalog, public as $$
 declare v public.approval_item_versions%rowtype;
 begin
+ if tg_op='INSERT' and (new.suggested_text is not null or new.suggested_image_key is not null) then new.suggestion_status := coalesce(new.suggestion_status,'pending'); end if;
  if tg_op='DELETE' then raise exception 'comments cannot be deleted' using errcode='42501'; end if;
- if tg_op='UPDATE' and (to_jsonb(new)-array['resolved_at','resolved_by','resolved_in_version_id']) is distinct from (to_jsonb(old)-array['resolved_at','resolved_by','resolved_in_version_id']) then raise exception 'comment is immutable' using errcode='42501'; end if;
+ if tg_op='UPDATE' and (to_jsonb(new)-array['resolved_at','resolved_by','resolved_in_version_id','suggestion_status','suggestion_decided_at','suggestion_decided_by','suggestion_reply']) is distinct from (to_jsonb(old)-array['resolved_at','resolved_by','resolved_in_version_id','suggestion_status','suggestion_decided_at','suggestion_decided_by','suggestion_reply']) then raise exception 'comment is immutable' using errcode='42501'; end if;
  select ver.* into v from public.approval_item_versions ver join public.approval_items i on i.id=ver.item_id
  where ver.id=new.version_id and i.id=new.item_id and i.request_id=new.request_id and i.organization_id=new.organization_id and (i.item_type='page' or new.anchor_kind='page')
  and ver.request_id=new.request_id and ver.organization_id=new.organization_id;
@@ -18985,6 +19014,7 @@ begin
  elsif new.anchor_kind='highlight' or (new.anchor_kind='pin' and new.pin_target='block') then
    if not exists (select 1 from jsonb_array_elements(v.outline) s, jsonb_array_elements(s->'blocks') b
      where s->>'sectionId'=new.section_id and b->>'blockId'=new.block_id and b->>'hash'=new.target_hash
+     and (new.suggested_image_key is null or b->>'kind'='image')
      and (new.anchor_kind<>'highlight' or new.range_end <= (b->>'len')::integer)) then raise exception 'invalid block anchor' using errcode='23514'; end if;
    if new.anchor_kind='highlight' and new.quote_hash is distinct from encode(sha256(convert_to(new.quote,'UTF8')),'hex') then raise exception 'invalid quote hash' using errcode='23514'; end if;
  elsif new.anchor_kind='pin' and new.pin_target='mockup' then
@@ -19662,10 +19692,10 @@ begin
   if jsonb_typeof(coalesce(p_payload->'comments','[]')) is distinct from 'array' or jsonb_array_length(coalesce(p_payload->'comments','[]'))>100 then return public.gbp_approval_fail('invalid_request'); end if;
   for v_c in select value from jsonb_array_elements(coalesce(p_payload->'comments','[]')) loop
     if jsonb_typeof(v_c) is distinct from 'object' then return public.gbp_approval_fail('invalid_request'); end if;
-    if exists (select 1 from jsonb_object_keys(v_c) k where k <> all(array['itemId','versionId','anchorKind','pinTarget','sectionId','blockId','targetHash','rangeStart','rangeEnd','quote','quotePrefix','quoteSuffix','body','suggestedText']))
+    if exists (select 1 from jsonb_object_keys(v_c) k where k <> all(array['itemId','versionId','anchorKind','pinTarget','sectionId','blockId','targetHash','rangeStart','rangeEnd','quote','quotePrefix','quoteSuffix','body','suggestedText','suggestedImageReservationId']))
       or exists (select 1 from jsonb_each(v_c) e where case when e.key in ('rangeStart','rangeEnd') then
         jsonb_typeof(e.value) is distinct from 'number' or (e.value#>>'{}') !~ '^(0|[1-9][0-9]*)$'
-        else jsonb_typeof(e.value) is distinct from 'string' end)
+        else jsonb_typeof(e.value) is distinct from 'string' and not (e.key='body' and e.value='null'::jsonb and v_c ? 'suggestedImageReservationId') end)
       or coalesce(v_c->>'anchorKind','') not in ('highlight','pin','page')
       or (v_request.item_type='gbp_post' and v_c->>'anchorKind'<>'page') then return public.gbp_approval_fail('invalid_request'); end if;
     if not exists(select 1 from public.approval_items where id=public.gbp_approval_uuid_or_null(v_c->>'itemId') and request_id=v_request.id and released_version_id=public.gbp_approval_uuid_or_null(v_c->>'versionId')) then return public.gbp_approval_fail('out_of_scope'); end if;
@@ -19729,6 +19759,7 @@ begin
       where id = v_reservation_id
         and request_id = v_request.id
         and link_id = v_link.id
+        and purpose = 'gbp_photo'
         and status = 'reserved'
         and expires_at > p_now
       for update;
@@ -19837,10 +19868,22 @@ begin
   end loop;
 
   for v_c in select value from jsonb_array_elements(coalesce(p_payload->'comments','[]')) loop
+    v_reservation_id := null;
+    if v_c ? 'suggestedImageReservationId' then
+      v_reservation_id := public.gbp_approval_uuid_or_null(v_c->>'suggestedImageReservationId');
+      select * into v_reservation from public.approval_upload_reservations where id=v_reservation_id
+        and purpose='image_replacement' and request_id=v_request.id and item_id=(v_c->>'itemId')::uuid
+        and version_id=(v_c->>'versionId')::uuid and status='reserved' and expires_at>p_now for update;
+      if not found then raise exception 'invalid image reservation' using errcode='23514'; end if;
+      update public.approval_upload_reservations set status='attached', response_id=(select id from public.approval_responses where submission_id=v_submission_id and item_id=v_reservation.item_id limit 1) where id=v_reservation_id;
+      update public.approval_comments set suggestion_status='superseded' where request_id=v_request.id
+        and item_id=(v_c->>'itemId')::uuid and coalesce(block_id,'mockup')=coalesce(v_c->>'blockId','mockup')
+        and suggestion_status='pending' and suggested_image_key is not null;
+    end if;
     insert into public.approval_comments(organization_id,request_id,item_id,version_id,submission_id,author_kind,author_name,
-      anchor_kind,pin_target,section_id,block_id,target_hash,range_start,range_end,body,suggested_text,quote,quote_hash,quote_prefix,quote_suffix,created_at)
+      anchor_kind,pin_target,section_id,block_id,target_hash,range_start,range_end,body,suggested_text,suggested_image_key,quote,quote_hash,quote_prefix,quote_suffix,created_at)
     values(v_request.organization_id,v_request.id,(v_c->>'itemId')::uuid,(v_c->>'versionId')::uuid,v_submission_id,'client',v_name,
-      v_c->>'anchorKind',v_c->>'pinTarget',v_c->>'sectionId',v_c->>'blockId',v_c->>'targetHash',(v_c->>'rangeStart')::integer,(v_c->>'rangeEnd')::integer,v_c->>'body',v_c->>'suggestedText',v_c->>'quote',encode(sha256(convert_to(v_c->>'quote','UTF8')),'hex'),v_c->>'quotePrefix',v_c->>'quoteSuffix',p_now);
+      v_c->>'anchorKind',v_c->>'pinTarget',v_c->>'sectionId',v_c->>'blockId',v_c->>'targetHash',(v_c->>'rangeStart')::integer,(v_c->>'rangeEnd')::integer,v_c->>'body',v_c->>'suggestedText',case when v_reservation_id is not null then v_reservation.object_key end,v_c->>'quote',encode(sha256(convert_to(v_c->>'quote','UTF8')),'hex'),v_c->>'quotePrefix',v_c->>'quoteSuffix',p_now);
   end loop;
 
   for v_answer in select value from jsonb_array_elements(coalesce(p_payload->'answers', '[]'::jsonb))
@@ -19937,7 +19980,7 @@ begin
     'taskAdvanced', v_advanced is not null
   );
 exception
-  when invalid_text_representation or numeric_value_out_of_range or check_violation or not_null_violation then
+  when invalid_text_representation or numeric_value_out_of_range or check_violation or not_null_violation or unique_violation then
     return public.gbp_approval_fail('invalid_request');
 end;
 $fn$;
@@ -19972,10 +20015,10 @@ begin
     where ip_hash is not null
       and created_at < p_now - interval '12 months';
   get diagnostics v_ips = row_count;
-  select coalesce(array_agg(object_key), '{}'::text[]) into v_keys
-    from public.approval_upload_reservations
-    where status = 'reserved' and expires_at <= p_now
-      and created_at < p_now - interval '24 hours';
+  select coalesce(array_agg(k), '{}'::text[]) into v_keys
+ from public.approval_upload_reservations u cross join lateral unnest(array[u.object_key,u.preview_key]) k
+ where k is not null and ((u.status='reserved' and u.expires_at<=p_now and u.created_at<p_now-case when u.purpose='image_replacement' then interval '48 hours' else interval '24 hours' end)
+ or (u.status='attached' and exists(select 1 from public.approval_requests r where r.id=u.request_id and r.created_at<p_now-interval '12 months')));
   select coalesce(array_agg(a.object_key),'{}') into v_assets from public.approval_assets a
   where a.created_at < p_now-interval '7 days' and not exists(select 1 from public.approval_item_versions v
     where v.photo_path=a.object_key or v.payload::text like '%' || a.object_key || '%');
@@ -19984,9 +20027,7 @@ begin
   v_keys := v_keys || v_assets;
   -- The caller removes these objects through Storage before acknowledging keys.
   delete from public.approval_upload_reservations
-    where status = 'reserved' and expires_at <= p_now
-      and created_at < p_now - interval '24 hours'
-      and object_key = any(p_removed_keys);
+    where object_key=any(v_keys) and object_key=any(p_removed_keys) and (preview_key is null or preview_key=any(p_removed_keys));
   get diagnostics v_orphans = row_count;
   delete from public.approval_public_hits
     where created_at < p_now - interval '48 hours';
@@ -20183,7 +20224,7 @@ begin
  select * into c from public.approval_comments where id=p_comment_id for update;
  if not found then return public.gbp_approval_fail('not_found'); end if;
  if not public.gbp_approval_writer(p_actor,c.organization_id) or exists(select 1 from public.approval_bot_actors where user_id=p_actor) then return public.gbp_approval_fail('forbidden'); end if;
- update public.approval_comments set resolved_at=null,resolved_by=null,resolved_in_version_id=null where id=c.id;
+ update public.approval_comments set resolved_at=null,resolved_by=null,resolved_in_version_id=null, suggestion_status=case when suggestion_status in ('accepted','declined') then 'pending' else suggestion_status end,suggestion_decided_at=null,suggestion_decided_by=null,suggestion_reply=null where id=c.id;
  insert into public.approval_events(organization_id,request_id,actor_id,kind,detail,created_at)
  values(c.organization_id,c.request_id,p_actor,'comment_reopened',jsonb_build_object('commentId',c.id),p_now);
  return jsonb_build_object('ok',true);
@@ -20216,6 +20257,174 @@ begin
  'previous',case when pv.id is null then null else jsonb_build_object('id',pv.id,'versionNo',pv.version_no,'payload',pv.payload-'targetKeyword','photoPath',pv.photo_path,'outline',pv.outline) end,'comments',cs);
 end $$;
 
+create or replace function public.approval_upload_guard() returns trigger
+language plpgsql security definer set search_path = pg_catalog, public as $$
+begin
+ if tg_op='DELETE' then
+  if current_setting('gbp_approval.purge',true)='on' then return old; end if;
+ elsif (to_jsonb(new)-array['status','response_id','preview_key'])=(to_jsonb(old)-array['status','response_id','preview_key'])
+ and ((old.status='reserved' and new.status='attached' and new.preview_key is not distinct from old.preview_key)
+ or (new.status=old.status and new.response_id is not distinct from old.response_id and old.purpose='image_replacement')) then return new;
+ end if;
+ raise exception 'approval uploads cannot be edited' using errcode='42501';
+end $$;
+create or replace function public.approval_image_reservation_scope() returns trigger
+language plpgsql security definer set search_path = pg_catalog, public as $$
+begin
+ if new.purpose='image_replacement' and not exists(select 1 from public.approval_items i
+ where i.id=new.item_id and i.request_id=new.request_id and i.organization_id=new.organization_id
+ and i.item_type='page' and i.released_version_id=new.version_id) then raise exception 'invalid image reservation' using errcode='23514'; end if;
+ return new;
+end $$;
+create trigger approval_image_reservation_scope before insert on public.approval_upload_reservations for each row execute function public.approval_image_reservation_scope();
+
+create or replace function public.set_approval_upload_preview(p_reservation_id uuid,p_preview_key text) returns jsonb
+language plpgsql security definer set search_path = pg_catalog, public as $$
+begin
+ update public.approval_upload_reservations set preview_key=p_preview_key where id=p_reservation_id and purpose='image_replacement' and p_preview_key=object_key || '.preview.jpg';
+ if not found then return public.gbp_approval_fail('invalid_request'); end if;
+ return jsonb_build_object('ok',true);
+end $$;
+
+create or replace function public.accept_approval_suggestion(p_actor uuid,p_comment_id uuid,p_payload jsonb,p_photo text,p_now timestamptz) returns jsonb
+language plpgsql security definer set search_path = pg_catalog, public as $$
+declare c public.approval_comments%rowtype; i public.approval_items%rowtype; v public.approval_item_versions%rowtype; clean jsonb; vid uuid;
+begin
+ select * into c from public.approval_comments where id=p_comment_id;
+ if not found then return public.gbp_approval_fail('not_found'); end if;
+ perform 1 from public.approval_requests where id=c.request_id for update;
+ select * into c from public.approval_comments where id=p_comment_id for update;
+ if not public.gbp_approval_writer(p_actor,c.organization_id) or exists(select 1 from public.approval_bot_actors where user_id=p_actor) then return public.gbp_approval_fail('forbidden'); end if;
+ if c.suggestion_status is distinct from 'pending' then return public.gbp_approval_fail('invalid_request'); end if;
+ select * into i from public.approval_items where id=c.item_id for update;
+ select * into v from public.approval_item_versions where id=i.current_version_id;
+ clean := public.approval_clean_item(i.item_type,p_payload,p_photo);
+ if clean is null then return public.gbp_approval_fail('invalid_request'); end if;
+ insert into public.approval_item_versions(organization_id,request_id,item_id,version_no,schema_version,payload,photo_path,source,created_by,outline,change_note)
+ values(c.organization_id,c.request_id,c.item_id,v.version_no+1,1,clean->'payload',clean->>'photo','accepted_suggestion',p_actor,v.outline,'Accepted suggestion') returning id into vid;
+ update public.approval_items set current_version_id=vid where id=i.id;
+ update public.approval_comments set suggestion_status='accepted',suggestion_decided_at=p_now,suggestion_decided_by=p_actor,
+ resolved_at=p_now,resolved_by=p_actor,resolved_in_version_id=vid where id=c.id;
+ insert into public.approval_events(organization_id,request_id,item_id,kind,actor_id,created_at) values(c.organization_id,c.request_id,c.item_id,'suggestion_accepted',p_actor,p_now);
+ return jsonb_build_object('ok',true,'versionId',vid);
+exception when check_violation or not_null_violation then return public.gbp_approval_fail('invalid_request');
+end $$;
+create or replace function public.decline_approval_suggestion(p_actor uuid,p_comment_id uuid,p_reply text,p_now timestamptz) returns jsonb
+language plpgsql security definer set search_path = pg_catalog, public as $$
+declare c public.approval_comments%rowtype;
+begin
+ select * into c from public.approval_comments where id=p_comment_id for update;
+ if not found then return public.gbp_approval_fail('not_found'); end if;
+ if not public.gbp_approval_writer(p_actor,c.organization_id) or exists(select 1 from public.approval_bot_actors where user_id=p_actor) then return public.gbp_approval_fail('forbidden'); end if;
+ if c.suggestion_status is distinct from 'pending' or char_length(p_reply)>2000 then return public.gbp_approval_fail('invalid_request'); end if;
+ update public.approval_comments set suggestion_status='declined',suggestion_reply=p_reply,suggestion_decided_at=p_now,suggestion_decided_by=p_actor where id=c.id;
+ insert into public.approval_events(organization_id,request_id,item_id,kind,actor_id,created_at) values(c.organization_id,c.request_id,c.item_id,'suggestion_declined',p_actor,p_now);
+ return jsonb_build_object('ok',true);
+end $$;
+create or replace function public.release_approval_revision(p_actor uuid,p_request_id uuid,p_now timestamptz) returns jsonb
+language plpgsql security definer set search_path = pg_catalog, public as $$
+declare r public.approval_requests%rowtype; i public.approval_items%rowtype; changed boolean;
+begin
+ select * into r from public.approval_requests where id=p_request_id for update;
+ if not found then return public.gbp_approval_fail('not_found'); end if;
+ if not public.gbp_approval_writer(p_actor,r.organization_id) or exists(select 1 from public.approval_bot_actors where user_id=p_actor) then return public.gbp_approval_fail('forbidden'); end if;
+ if r.stage<>'sent' or r.archived_at is not null then return public.gbp_approval_fail('invalid_request'); end if;
+ if not exists(select 1 from public.approval_items where request_id=r.id and current_version_id<>released_version_id) then return public.gbp_approval_fail('nothing_to_release'); end if;
+ for i in select * from public.approval_items where request_id=r.id and current_version_id<>released_version_id for update loop
+ select public.approval_visible(i.item_type,a.payload,a.photo_path) is distinct from public.approval_visible(i.item_type,b.payload,b.photo_path) into changed
+ from public.approval_item_versions a,public.approval_item_versions b where a.id=i.current_version_id and b.id=i.released_version_id;
+ update public.approval_items set previous_released_version_id=released_version_id,released_version_id=current_version_id,
+ status=case when changed then 'pending' else status end,
+ decision_locked_at=case when changed then null when status in ('approved','changes_requested') then p_now else decision_locked_at end,
+ decision_lock_reason=case when changed then null when status in ('approved','changes_requested') then 'agency_version' else decision_lock_reason end where id=i.id;
+ end loop;
+ update public.approval_requests set round=round+1,updated_at=p_now where id=r.id;
+ insert into public.approval_events(organization_id,request_id,kind,actor_id,created_at) values(r.organization_id,r.id,'revision_released',p_actor,p_now);
+ return jsonb_build_object('ok',true);
+end $$;
+create or replace function public.reserve_approval_image_upload(
+  p_token_hash text,
+  p_item_id uuid,
+  p_version_id uuid,
+  p_content_type text,
+  p_size integer,
+  p_now timestamptz
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $fn$
+declare
+  v_link public.approval_links%rowtype;
+  v_request public.approval_requests%rowtype;
+  v_id uuid := gen_random_uuid();
+  v_key text;
+begin
+  if p_token_hash is null or p_token_hash !~ '^[0-9a-f]{64}$' then
+    return public.gbp_approval_fail('not_found');
+  end if;
+  select * into v_link from public.approval_links where token_hash = p_token_hash;
+  if not found then
+    return public.gbp_approval_fail('not_found');
+  end if;
+  select * into v_request from public.approval_requests where id = v_link.request_id for update;
+  select * into v_link from public.approval_links where id = v_link.id and token_hash = p_token_hash for update;
+  if not found then
+    return public.gbp_approval_fail('not_found');
+  end if;
+  if v_link.revoked_at is not null then
+    return public.gbp_approval_fail('revoked');
+  end if;
+  if v_link.expires_at <= p_now then
+    return public.gbp_approval_fail('expired');
+  end if;
+  if p_content_type is null or p_content_type not in ('image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif')
+     or p_size is null or p_size < 1 or p_size > 15728640 then
+    return public.gbp_approval_fail('invalid_request');
+  end if;
+  if not exists(select 1 from public.approval_items where id=p_item_id and request_id=v_request.id and item_type='page' and released_version_id=p_version_id) then return public.gbp_approval_fail('invalid_request'); end if;
+  if public.gbp_approval_hit_count(p_token_hash, 'upload', p_now) >= 20 then
+    return public.gbp_approval_fail('rate_limited');
+  end if;
+  v_key := 'gbp-approvals/' || v_request.id::text || '/' || v_id::text;
+  insert into public.approval_upload_reservations (
+    id, organization_id, request_id, link_id, object_key, content_type, byte_size, expires_at, purpose, item_id, version_id, created_at
+  ) values (
+    v_id, v_request.organization_id, v_request.id, v_link.id, v_key,
+    p_content_type, p_size, p_now + interval '15 minutes', 'image_replacement', p_item_id, p_version_id, p_now
+  );
+  insert into public.approval_public_hits (token_hash, action, created_at)
+  values (p_token_hash, 'upload', p_now);
+  return jsonb_build_object(
+    'ok', true,
+    'reservationId', v_id,
+    'objectKey', v_key,
+    'expiresAt', p_now + interval '15 minutes', 'image_replacement', p_item_id, p_version_id, p_now
+  );
+end;
+$fn$;
+
+do $bucket$
+begin
+  if to_regclass('storage.buckets') is not null then
+    insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+    values (
+      'gbp-approval-uploads',
+      'gbp-approval-uploads',
+      false,
+      15728640,
+      array['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif']
+    )
+    on conflict (id) do update
+      set public = false,
+          file_size_limit = 15728640,
+          allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'];
+  end if;
+end;
+$bucket$;
+
+
 alter table public.approval_comments enable row level security;
 alter table public.approval_assets enable row level security;
 alter table public.approval_bot_actors enable row level security;
@@ -20230,7 +20439,7 @@ do $privileges$
 declare signature regprocedure;
 begin
  for signature in select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid=p.pronamespace
- where n.nspname='public' and p.proname=any(array['resolve_approval_comment','reopen_approval_comment','approval_canonical_json','approval_clean_item','approval_visible','approval_item_matches_request','approval_item_identity','approval_version_scope','approval_asset_scope','approval_comment_scope','create_approval_request','create_gbp_approval_request','issue_gbp_approval_link','post_approval_version','post_gbp_approval_version','get_gbp_approval_by_token','submit_approval','submit_gbp_approval','purge_gbp_approval_retention','send_approval_request','update_approval_draft','reserve_approval_asset','archive_approval_request','unarchive_approval_request','set_approval_owner','get_approval_by_token','get_approval_item_by_token']) loop
+ where n.nspname='public' and p.proname=any(array['approval_upload_guard','approval_image_reservation_scope','approval_replacement_key','reserve_approval_image_upload','set_approval_upload_preview','accept_approval_suggestion','decline_approval_suggestion','release_approval_revision','resolve_approval_comment','reopen_approval_comment','approval_canonical_json','approval_clean_item','approval_visible','approval_item_matches_request','approval_item_identity','approval_version_scope','approval_asset_scope','approval_comment_scope','create_approval_request','create_gbp_approval_request','issue_gbp_approval_link','post_approval_version','post_gbp_approval_version','get_gbp_approval_by_token','submit_approval','submit_gbp_approval','purge_gbp_approval_retention','send_approval_request','update_approval_draft','reserve_approval_asset','archive_approval_request','unarchive_approval_request','set_approval_owner','get_approval_by_token','get_approval_item_by_token']) loop
  execute format('revoke all on function %s from public,anon,authenticated',signature);
  execute format('grant execute on function %s to service_role',signature);
  end loop;

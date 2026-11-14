@@ -368,3 +368,135 @@ test('schema mirror includes exactly migration 132 and the removed field hash is
         assert.equal((await db.query(`select oid from pg_proc where proname='approval_field_hash'`)).rows.length, 0);
     } finally { await db.close(); }
 });
+
+async function imageFixture(db: Awaited<ReturnType<typeof database>>) {
+    const imageOutline = [{ ...outline[0], blocks: [...outline[0].blocks, { blockId: 'image', kind: 'image', hash: hash('image'), len: 0 }] }];
+    const r = await create(db, 'page', [{ position: 1, payload: page, outline: imageOutline, photoPath: 'https://example.com/mockup.jpg' }]);
+    assert.equal(r.ok, true);
+    await send(db, r.requestId);
+    const i = (await db.query<{ id: string; released_version_id: string }>(`select * from approval_items where request_id=$1`, [r.requestId])).rows[0];
+    const token = hash(String(r.requestId));
+    const reserve = (type = 'image/png', size = 100, version = i.released_version_id, item = i.id, at = now) => call(db, `select reserve_approval_image_upload($1,$2,$3,$4,$5,$6) result`, [token, item, version, type, size, at]);
+    let n = 0;
+    const submit = (reservation: unknown, extra: Record<string, unknown> = {}, more: unknown[] = []) => call(db, `select submit_approval($1,$2::jsonb,null,$3) result`, [token, JSON.stringify({
+        idempotencyKey: `image-submit-${++n}`, requestHash: hash(String(n)), respondentName: 'Casey', displayedVersionIds: [i.released_version_id], decisions: [],
+        comments: [{ itemId: i.id, versionId: i.released_version_id, anchorKind: 'pin', pinTarget: 'block', sectionId: '_intro', blockId: 'image', targetHash: hash('image'), body: '', suggestedImageReservationId: reservation, ...extra }, ...more],
+    }), now]);
+    return { r, i, token, reserve, submit };
+}
+
+test('image reservations enforce purpose, released page scope, link state, type and size limits', async () => {
+    const db = await database();
+    try {
+        const f = await imageFixture(db);
+        assert.equal((await f.reserve()).ok, true);
+        assert.equal((await f.reserve('image/heic', 15728640)).ok, true);
+        assert.equal((await f.reserve('image/heif', 15728640)).ok, true);
+        for (const [type, size] of [['image/heic', 15728641], ['image/gif', 100], ['image/png', 0]] as const) assert.equal((await f.reserve(type, size)).code, 'invalid_request');
+        assert.equal((await f.reserve('image/png', 100, owner)).code, 'invalid_request');
+        const gbp = await create(db, 'gbp_post', [post('GBP')]); await send(db, gbp.requestId);
+        const g = (await db.query<{ id: string; released_version_id: string }>(`select * from approval_items where request_id=$1`, [gbp.requestId])).rows[0];
+        assert.equal((await call(db, `select reserve_approval_image_upload($1,$2,$3,'image/png',100,$4) result`, [hash(String(gbp.requestId)), g.id, g.released_version_id, now])).code, 'invalid_request');
+        assert.equal((await call(db, `select reserve_gbp_approval_upload($1,'image/png',10485761,$2) result`, [f.token, now])).code, 'invalid_request');
+        assert.equal((await call(db, `select reserve_gbp_approval_upload($1,'image/gif',10485760,$2) result`, [f.token, now])).ok, true);
+        assert.equal((await f.reserve('image/png', 100, f.i.released_version_id, f.i.id, '2026-12-01')).code, 'expired');
+        await call(db, `select revoke_gbp_approval_link($1,$2,$3) result`, [owner, f.r.requestId, now]);
+        assert.equal((await f.reserve()).code, 'revoked');
+    } finally { await db.close(); }
+});
+
+test('image suggestions validate pins atomically, attach once and supersede the same target', async () => {
+    const db = await database();
+    try {
+        const f = await imageFixture(db), other = await imageFixture(db);
+        const a = await f.reserve(), foreign = await other.reserve();
+        for (const extra of [
+            { blockId: 'b_1', targetHash: hash('block') },
+            { anchorKind: 'highlight', pinTarget: undefined, blockId: 'b_1', targetHash: hash('block'), rangeStart: 0, rangeEnd: 5, quote: 'Hello' },
+            { suggestedText: 'Also text' },
+        ]) assert.equal((await f.submit(a.reservationId, extra)).code, 'invalid_request');
+        assert.equal((await f.submit(foreign.reservationId)).code, 'invalid_request');
+        assert.equal((await f.submit(a.reservationId, {}, [{ itemId: f.i.id, versionId: f.i.released_version_id, anchorKind: 'page', body: '' }])).code, 'invalid_request');
+        assert.equal((await db.query(`select id from approval_submissions`)).rows.length, 0);
+        assert.equal((await f.submit(a.reservationId)).ok, true);
+        assert.equal((await f.submit(a.reservationId)).code, 'invalid_request');
+        const b = await f.reserve(); assert.equal((await f.submit(b.reservationId)).ok, true);
+        assert.deepEqual((await db.query<{ suggestion_status: string }>(`select suggestion_status from approval_comments order by created_at,id`)).rows.map(x => x.suggestion_status).sort(), ['pending', 'superseded']);
+        const c = await f.reserve();
+        assert.equal((await f.submit(c.reservationId, { pinTarget: 'mockup', sectionId: undefined, blockId: undefined, targetHash: hash('https://example.com/mockup.jpg') })).ok, true);
+        assert.equal((await db.query(`select id from approval_upload_reservations where status='attached'`)).rows.length, 3);
+    } finally { await db.close(); }
+});
+
+test('accept stages only current, decline replies, reopen resets, release publishes and bots are excluded', async () => {
+    const db = await database();
+    try {
+        const f = await imageFixture(db), upload = await f.reserve();
+        await f.submit(upload.reservationId);
+        const c = (await db.query<{ id: string }>(`select id from approval_comments`)).rows[0];
+        const accept = (actor = owner, photo: unknown = upload.objectKey) => call(db, `select accept_approval_suggestion($1,$2,$3::jsonb,$4,$5) result`, [actor, c.id, JSON.stringify(page), photo, now]);
+        const decline = (actor = owner, reply = 'Use the original') => call(db, `select decline_approval_suggestion($1,$2,$3,$4) result`, [actor, c.id, reply, now]);
+        const release = (actor = owner) => call(db, `select release_approval_revision($1,$2,$3) result`, [actor, f.r.requestId, now]);
+        await db.query(`insert into approval_bot_actors(user_id,label) values($1,'Bot')`, [member]);
+        for (const actor of [member, viewer]) {
+            assert.equal((await accept(actor)).code, 'forbidden'); assert.equal((await decline(actor)).code, 'forbidden'); assert.equal((await release(actor)).code, 'forbidden');
+        }
+        const before = await call(db, `select get_approval_by_token($1,$2) result`, [f.token, now]);
+        assert.equal((await accept()).ok, true);
+        assert.deepEqual(await call(db, `select get_approval_by_token($1,$2) result`, [f.token, now]), before);
+        const state = (await db.query<{ current_version_id: string; released_version_id: string; round: number }>(`select i.*,r.round from approval_items i join approval_requests r on r.id=i.request_id`)).rows[0];
+        assert.notEqual(state.current_version_id, f.i.released_version_id); assert.equal(state.released_version_id, f.i.released_version_id); assert.equal(state.round, 1);
+        assert.deepEqual((await db.query(`select suggestion_status,resolved_in_version_id,resolved_by from approval_comments`)).rows[0], { suggestion_status: 'accepted', resolved_in_version_id: state.current_version_id, resolved_by: owner });
+        const reopen = () => call(db, `select reopen_approval_comment($1,$2,$3) result`, [owner, c.id, now]);
+        assert.equal((await reopen()).ok, true);
+        assert.equal((await decline()).ok, true);
+        assert.equal((await db.query(`select suggestion_reply from approval_comments`)).rows[0].suggestion_reply, 'Use the original');
+        await reopen();
+        assert.deepEqual((await db.query(`select suggestion_status,suggestion_decided_at,suggestion_decided_by,suggestion_reply,resolved_at from approval_comments`)).rows[0], { suggestion_status: 'pending', suggestion_decided_at: null, suggestion_decided_by: null, suggestion_reply: null, resolved_at: null });
+        assert.equal((await release()).ok, true);
+        assert.deepEqual((await db.query(`select i.released_version_id,i.previous_released_version_id,i.status,r.round from approval_items i join approval_requests r on r.id=i.request_id`)).rows[0], { released_version_id: state.current_version_id, previous_released_version_id: f.i.released_version_id, status: 'pending', round: 2 });
+        assert.equal((await db.query(`select id from approval_events where kind='revision_released'`)).rows.length, 1);
+    } finally { await db.close(); }
+});
+
+test('preview keys are constrained and retention returns original plus preview with full acknowledgement', async () => {
+    const db = await database();
+    try {
+        const f = await imageFixture(db), orphan = await f.reserve(), attached = await f.reserve();
+        const preview = (r: Record<string, unknown>) => call(db, `select set_approval_upload_preview($1,$2) result`, [r.reservationId, `${r.objectKey}.preview.jpg`]);
+        assert.equal((await preview(orphan)).ok, true); assert.equal((await preview(attached)).ok, true);
+        assert.equal((await call(db, `select set_approval_upload_preview($1,'wrong') result`, [orphan.reservationId])).code, 'invalid_request');
+        await f.submit(attached.reservationId);
+        const purge = (at: string, keys: unknown[] | null = null) => call(db, `select purge_gbp_approval_retention($1,$2::text[]) result`, [at, keys]);
+        const keys = [orphan.objectKey, `${orphan.objectKey}.preview.jpg`];
+        assert.deepEqual((await purge('2026-11-17')).objectKeys, keys);
+        assert.equal((await purge('2026-11-17', [orphan.objectKey])).orphansDeleted, 0);
+        assert.equal((await purge('2026-11-17', keys)).orphansDeleted, 1);
+        const old = await purge('2028-01-01');
+        assert.deepEqual(old.objectKeys, [attached.objectKey, `${attached.objectKey}.preview.jpg`]);
+        assert.equal((await purge('2028-01-01', old.objectKeys as unknown[])).orphansDeleted, 1);
+    } finally { await db.close(); }
+});
+
+test('attached replacement originals and previews work only in their request and comment identity stays immutable', async () => {
+    const db = await database();
+    try {
+        const f = await imageFixture(db), other = await imageFixture(db), upload = await f.reserve();
+        assert.equal((await f.submit(upload.reservationId, { body: null })).ok, true);
+        const c = (await db.query<{ id: string }>(`select id from approval_comments`)).rows[0];
+        const key = `${upload.objectKey}.preview.jpg`;
+        assert.equal((await call(db, `select set_approval_upload_preview($1,$2) result`, [upload.reservationId, key])).ok, true);
+        const acceptImage = (id: string, src: unknown, photo: unknown) => call(db, `select accept_approval_suggestion($1,$2,$3::jsonb,$4,$5) result`, [owner, id, JSON.stringify({ ...page, body: { type: 'doc', content: [{ type: 'image', attrs: { src } }] } }), photo, now]);
+        assert.equal((await acceptImage(c.id, upload.objectKey, key)).ok, true);
+        const foreign = await other.reserve(); assert.equal((await other.submit(foreign.reservationId)).ok, true);
+        const foreignComment = (await db.query<{ id: string }>(`select id from approval_comments where request_id=$1`, [other.r.requestId])).rows[0];
+        assert.equal((await acceptImage(foreignComment.id, upload.objectKey, null)).code, 'invalid_request');
+        assert.equal((await acceptImage(foreignComment.id, foreign.objectKey, key)).code, 'invalid_request');
+        const pending = await f.reserve();
+        assert.equal((await acceptImage(foreignComment.id, pending.objectKey, null)).code, 'invalid_request');
+        for (const column of ['body', 'suggested_image_key', 'suggested_text']) await assert.rejects(db.query(`update approval_comments set ${column}='changed' where id=$1`, [c.id]));
+        assert.equal((await call(db, `select reserve_approval_asset($1,$2,$3,'client_replacement','image/jpeg',100) result`, [owner, f.r.requestId, f.i.id])).ok, true);
+        await db.query(`insert into approval_public_hits(token_hash,action,created_at) select $1,'upload',$2::timestamptz from generate_series(1,20)`, [f.token, now]);
+        assert.equal((await f.reserve()).code, 'rate_limited');
+    } finally { await db.close(); }
+});
