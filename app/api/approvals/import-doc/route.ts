@@ -1,3 +1,4 @@
+import { frozenApprovalWrite } from '@/lib/approvals-v2/frozen';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -22,7 +23,7 @@ export const maxDuration = 120;
 /** Public bucket holding re-hosted Doc images. Create it alongside campaign-screenshots. */
 const IMAGE_BUCKET = 'approval-content';
 
-export async function POST(req: NextRequest) {
+async function frozenLegacyPOST(req: NextRequest) {
     const cookieStore = await cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -177,3 +178,6 @@ export async function POST(req: NextRequest) {
         revisionId: doc.revisionId ?? null,
     });
 }
+
+export const POST = frozenApprovalWrite;
+void frozenLegacyPOST;

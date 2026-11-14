@@ -7,6 +7,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9:_.-]{7,199}$/;
 
 const FORBIDDEN = new Set([
+    'send', 'stage', 'status', 'sentAt', 'released',
     'expiresAt',
     'link',
     'organizationId',
@@ -70,6 +71,8 @@ export function parseBotApproval(body: unknown): BotApprovalParse {
     for (const key of Object.keys(record)) {
         if (FORBIDDEN.has(key)) return fail(403, 'forbidden', 'A bot cannot create or share a review link.');
     }
+    if (record.itemType === 'page') return fail(400, 'page_type_not_enabled', 'Page drafts arrive in the next update.');
+    if (record.itemType !== undefined && record.itemType !== 'gbp_post') return fail(400, 'invalid_request', 'Unknown item type.');
     const idempotencyKey = record.idempotencyKey;
     if (typeof idempotencyKey !== 'string' || !IDEMPOTENCY_KEY.test(idempotencyKey)) {
         return fail(400, 'invalid_request', 'Send an idempotencyKey of 8 to 200 letters, numbers, colon, underscore, dot, or dash.');

@@ -1,5 +1,4 @@
 import { agencyActor } from '@/lib/gbp-approvals/agency-auth';
-import { generateToken, hashToken } from '@/lib/approvals/token';
 import { parseGbpPostPayload } from '@/lib/gbp-approvals/registry';
 import { createAdminClient } from '@/lib/supabase/admin';
 
@@ -9,6 +8,7 @@ export async function POST(request: Request) {
     const actor = await agencyActor(request);
     if (!actor) return Response.json({ error: 'Unauthorized' }, { status: 401 });
     const body = await request.json().catch(() => null) as { taskId?: string; title?: string; dueAt?: string | null; items?: unknown[]; questions?: unknown[] } | null;
+    if (body && ['send', 'stage', 'sentAt'].some(key => key in body)) return Response.json({ error: 'Requests must be created as drafts.', code: 'invalid_request' }, { status: 400 });
     if (!body?.taskId || !body.title || !Array.isArray(body.items)) {
         return Response.json({ error: 'Add a title and at least one post.' }, { status: 400 });
     }
@@ -39,18 +39,5 @@ export async function POST(request: Request) {
         return Response.json({ error: 'The approval could not be saved.' }, { status: 400 });
     }
     const requestId = (created.data as { requestId: string }).requestId;
-    const token = generateToken();
-    const expires = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-    const link = await admin.rpc('issue_gbp_approval_link', {
-        p_actor: actor,
-        p_request_id: requestId,
-        p_token_hash: hashToken(token),
-        p_expires_at: expires,
-        p_now: new Date().toISOString(),
-    });
-    if (link.error || !link.data || (link.data as { ok?: boolean }).ok === false) {
-        return Response.json({ requestId, error: 'The request was saved, but the link was not.' }, { status: 500 });
-    }
-    const origin = new URL(request.url).origin;
-    return Response.json({ requestId, url: `${origin}/r/${token}`, expiresAt: expires });
+    return Response.json({ requestId, stage: 'draft', linked: false, reviewUrl: `/approvals/${requestId}` }, { status: 201 });
 }

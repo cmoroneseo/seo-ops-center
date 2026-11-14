@@ -215,7 +215,6 @@ function legacySections(options: { keywordTracking: boolean; vault: boolean; cam
     if (options.keywordTracking) search.push(workspaceLink('rankings', 'Rankings', 'rankings'));
     const overflow: StaffLink[] = [
         workspaceLink('inventory', 'Site pages', 'inventory'),
-        workspaceLink('approvals', 'Approvals', 'approvals'),
         workspaceLink('portal', 'Client portal', 'portal'),
         workspaceLink('integrations', 'Integrations', 'integrations'),
     ];

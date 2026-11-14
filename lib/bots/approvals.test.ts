@@ -59,3 +59,24 @@ test('normalized bot commands pass stable retry identity to SQL', () => {
     assert.equal(args.p_request_hash, first.command.requestHash);
     assert.equal(args.p_organization_id, 'org');
 });
+
+test('v2 GBP normalization pins the v1 request hash, including explicit default itemType', () => {
+    const fixture = { idempotencyKey: 'bot-retry-001', clientName: 'Client', taskTitle: 'Task', title: 'Posts', items: [{ position: 1, payload }] };
+    const implicit = parseBotApproval(fixture);
+    const explicit = parseBotApproval({ ...fixture, itemType: 'gbp_post' });
+    assert.ok(implicit.ok && explicit.ok);
+    assert.equal(implicit.command.requestHash, '7d43e3b60b29a9ef1ed4e3667441cc89b952a0d254f6cbd3758db19510d88590');
+    assert.equal(explicit.command.requestHash, implicit.command.requestHash);
+    assert.equal('itemType' in explicit.command, false);
+});
+
+test('v2 rejects all release controls and explicitly defers page normalization', () => {
+    for (const key of ['send', 'stage', 'status', 'sentAt', 'released']) {
+        const parsed = parseBotApproval({ [key]: false });
+        assert.ok(!parsed.ok); assert.equal(parsed.status, 403); assert.equal(parsed.code, 'forbidden');
+    }
+    const page = parseBotApproval({ itemType: 'page' });
+    assert.ok(!page.ok); assert.equal(page.status, 400); assert.equal(page.code, 'page_type_not_enabled');
+    const unknown = parseBotApproval({ itemType: 'video' });
+    assert.ok(!unknown.ok); assert.equal(unknown.status, 400);
+});

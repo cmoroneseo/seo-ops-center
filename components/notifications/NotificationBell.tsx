@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { useNotifications } from '@/lib/hooks/useNotifications';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
+import { approvalNotificationUrl } from '@/lib/supabase/notifications';
 import type { AppNotification, NotificationType } from '@/lib/supabase/notifications';
 import { markRetainerTrayAllRead, markRetainerTrayRead, retainerTraySnapshot, subscribeRetainerTray, type RetainerTrayItem } from '@/lib/toasts/retainer-tray';
 
@@ -51,6 +52,8 @@ function RetainerTrayRow({ item }: { item: RetainerTrayItem }) {
 }
 
 function buildUrl(n: AppNotification): string {
+  const approvalUrl = approvalNotificationUrl(n);
+  if (approvalUrl) return approvalUrl;
   if (n.clientId && (n.type === 'vault_proposal_accepted' || n.type === 'vault_proposal_dismissed')) {
     return `/workspace/${n.clientId}?tab=vault`;
   }

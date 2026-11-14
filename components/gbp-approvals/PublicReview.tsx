@@ -384,19 +384,7 @@ function PostCard({
             <div className="ri-body">
                 <div className="ri-grid">
                     <div>
-                        <article className="gbp">
-                            <div className={post.photo ? 'g-photo' : 'g-photo g-photo-missing'}>
-                                {post.photo ? <img src={post.photo} alt="" /> : <div className="miss"><strong>Photo needed</strong><span>We need a photo of a finished remodel for this post.</span></div>}
-                            </div>
-                            <div className="g-body">
-                                <div className="g-head"><span className="g-av">{logoSrc ? <img src={logoSrc} alt="" /> : <span className="g-av-initial" aria-hidden="true">{clientName.charAt(0).toUpperCase()}</span>}</span><span className="g-meta"><span className="g-biz">{clientName}</span><span className="g-age">Planned for {weekday(post.scheduled)}</span></span></div>
-                                <div className="g-offer">{post.postType ?? 'Offer'}</div>
-                                <h3 className="g-title">{post.title}</h3>
-                                <div className="g-date">{monthDay(post.offerStart)} – {monthDay(post.offerEnd)}</div>
-                                <p className="g-desc">{showFull ? post.body : `${post.body.slice(0, 140)}…`} <span className="g-more">More</span></p>
-                                <div className="g-cta"><span className="g-btn">{post.ctaLabel ?? 'View offer'}</span></div>
-                            </div>
-                        </article>
+                        <GbpPostPreview post={post} clientName={clientName} logoSrc={logoSrc} showFull={showFull} />
                         <button className="btn btn-ghost" type="button" style={{ marginTop: 8, paddingLeft: 0 }} onClick={onToggleFull}>{showFull ? 'Show the short preview' : 'Show full post and terms'}</button>
                         {showFull && <p className="hint">{post.terms}</p>}
                     </div>
@@ -441,4 +429,20 @@ function PostCard({
             )}
         </article>
     );
+}
+
+export function GbpPostPreview({ post, clientName, logoSrc, showFull = true }: { post: ReviewPost; clientName: string; logoSrc?: string; showFull?: boolean }) {
+ return (<article className="gbp">
+                            <div className={post.photo ? 'g-photo' : 'g-photo g-photo-missing'}>
+                                {post.photo ? <img src={post.photo} alt="" /> : <div className="miss"><strong>Photo needed</strong><span>We need a photo of a finished remodel for this post.</span></div>}
+                            </div>
+                            <div className="g-body">
+                                <div className="g-head"><span className="g-av">{logoSrc ? <img src={logoSrc} alt="" /> : <span className="g-av-initial" aria-hidden="true">{clientName.charAt(0).toUpperCase()}</span>}</span><span className="g-meta"><span className="g-biz">{clientName}</span><span className="g-age">Planned for {weekday(post.scheduled)}</span></span></div>
+                                <div className="g-offer">{post.postType ?? 'Offer'}</div>
+                                <h3 className="g-title">{post.title}</h3>
+                                <div className="g-date">{monthDay(post.offerStart)} – {monthDay(post.offerEnd)}</div>
+                                <p className="g-desc">{showFull ? post.body : `${post.body.slice(0, 140)}…`} <span className="g-more">More</span></p>
+                                <div className="g-cta"><span className="g-btn">{post.ctaLabel ?? 'View offer'}</span></div>
+                            </div>
+                        </article>);
 }

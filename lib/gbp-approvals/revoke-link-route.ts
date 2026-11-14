@@ -14,7 +14,7 @@ export function createRevokeLink(dependencies: { agencyActor: typeof agencyActor
         });
         const value = result.data as { ok?: boolean; code?: string } | null;
         if (result.error || !value || value.ok === false) {
-            return Response.json({ error: 'The link could not be updated.', code: value?.code }, { status: value?.code === 'forbidden' ? 403 : 400 });
+            return Response.json({ error: 'The link could not be updated.', code: value?.code }, { status: value?.code === 'forbidden' ? 403 : value?.code === 'not_found' ? 404 : ['already_sent', 'archived', 'link_exists', 'not_draft'].includes(value?.code ?? '') ? 409 : 400 });
         }
         return Response.json(value, { headers: { 'Cache-Control': 'no-store' } });
     };

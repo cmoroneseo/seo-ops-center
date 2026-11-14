@@ -150,7 +150,6 @@ export function clientSections(
 
     const overflow: StaffLink[] = [
         link('inventory', 'Site pages', 'inventory'),
-        link('approvals', 'Approvals', 'approvals'),
         link('portal', 'Client portal', 'portal'),
         link('integrations', 'Integrations', 'integrations'),
     ];
@@ -252,6 +251,7 @@ export function agencyLinks(options: { agencyDashboard: boolean }): AgencyLink[]
     links.push(
         { id: 'clients', label: 'All clients', href: ALL_CLIENTS_HREF, dividerAfter: true },
         { id: 'tasks', label: 'Tasks', href: '/tasks' },
+        { id: 'approvals', label: 'Approvals', href: '/approvals' },
         { id: 'deliverables', label: 'Deliverables', href: '/deliverables' },
         { id: 'time', label: 'Time', href: '/timesheets' },
         { id: 'planner', label: 'Planner', href: '/planner' },

@@ -46,6 +46,8 @@ export async function POST(request: Request) {
         taskId = found.data[0].id;
     }
     if (!clientId || !taskId) return json({ error: 'Name the client and the task.', code: 'invalid_request' }, 400);
+    const previous = await admin.from('approval_requests').select('id, request_hash').eq('organization_id', key.data.organization_id).eq('idempotency_key', command.idempotencyKey).maybeSingle();
+    if (previous.error) return json({ error: 'Retry identity could not be checked.', code: 'unavailable' }, 503);
     const created = await admin.rpc('create_approval_request', {
         ...botApprovalRpcArgs(command, actor.data.id, key.data.organization_id, clientId, taskId),
         p_item_type: 'gbp_post',
@@ -53,7 +55,7 @@ export async function POST(request: Request) {
         p_bot_key_id: key.data.id,
     });
     if (created.error || !created.data) return json({ error: 'The approval could not be saved.', code: 'invalid_request' }, 400);
-    const result = created.data as { ok?: boolean; code?: string; requestId?: string };
+    const result = created.data as { ok?: boolean; code?: string; requestId?: string; idempotent?: boolean; reused?: boolean };
     if (result.ok === false) return json({ error: 'The approval could not be saved.', code: result.code ?? 'invalid_request' }, result.code === 'forbidden' ? 403 : result.code === 'idempotency_conflict' ? 409 : 400);
-    return json({ requestId: result.requestId, linked: false }, 201);
+    return json({ requestId: result.requestId, stage: 'draft', linked: false, reviewUrl: `/approvals/${result.requestId}`, ...((previous.data || result.idempotent || result.reused) ? { idempotent: true } : {}) }, 201);
 }

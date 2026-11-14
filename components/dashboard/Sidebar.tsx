@@ -50,6 +50,7 @@ import {
 } from '@/lib/nav/staff-shell';
 import { ClientSwitcher, type SwitcherClient } from '@/components/dashboard/ClientSwitcher';
 import { useSelectedClient } from '@/components/dashboard/use-selected-client';
+import { ApprovalBadge } from '@/components/approvals-v2/Badge';
 import { OrganizationSwitcher } from '@/components/organization-switcher';
 
 const ICONS: Record<string, LucideIcon> = {
@@ -215,6 +216,10 @@ export function Sidebar() {
                         <span className="hidden flex-1 truncate text-left xl:inline">Agency</span>
                         <ChevronDown className={cn('hidden h-3.5 w-3.5 shrink-0 xl:block', menu === 'agency' && 'rotate-180')} />
                     </button>
+                    <Link href="/approvals" title="Approvals" className={navClass(selected.pathname.startsWith('/approvals'))}>
+                        <FileCheck2 className="h-4 w-4 shrink-0" aria-hidden />
+                        <span className="hidden xl:inline">Approvals</span><ApprovalBadge />
+                    </Link>
                     {menu === 'agency' && (
                         <div role="menu" className="absolute left-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg xl:right-0 xl:w-auto">
                             {agency.map(link => (
@@ -233,6 +238,7 @@ export function Sidebar() {
                                     >
                                         <RowIcon id={link.id} />
                                         {link.label}
+                                        {link.id === 'approvals' && <ApprovalBadge />}
                                     </Link>
                                     {link.dividerAfter && <div className="my-1 h-px bg-border" />}
                                 </span>

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import {
-    Menu, X, Search, LogOut, Check,
+    Menu, X, Search, LogOut, Check, FileCheck2,
     LayoutDashboard, Briefcase, CheckSquare, PackageCheck, MoreHorizontal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -35,6 +35,7 @@ const primaryTabs = [
     { name: 'Home', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Clients', href: '/workspace', icon: Briefcase },
     { name: 'Tasks', href: '/tasks', icon: CheckSquare },
+    { name: 'Approvals', href: '/approvals', icon: FileCheck2 },
     { name: 'Deliver', href: '/deliverables', icon: PackageCheck },
 ];
 

@@ -166,3 +166,7 @@ export async function markAllNotificationsRead(
     console.error('[notifications] markAllNotificationsRead error:', error.message);
   }
 }
+
+export function approvalNotificationUrl(n: Pick<AppNotification, 'entityType' | 'entityId'>): string | null {
+  return n.entityId && (n.entityType === 'approval_request' || n.entityType === 'gbp_approval_request') ? `/approvals/${encodeURIComponent(n.entityId)}` : null;
+}

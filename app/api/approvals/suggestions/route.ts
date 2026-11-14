@@ -1,3 +1,4 @@
+import { frozenApprovalWrite } from '@/lib/approvals-v2/frozen';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -15,7 +16,7 @@ export const dynamic = 'force-dynamic';
  * suggestions for a document are applied in one pass so they can be ordered back to
  * front; applying them one at a time would invalidate the anchors of the rest.
  */
-export async function POST(req: NextRequest) {
+async function frozenLegacyPOST(req: NextRequest) {
     const cookieStore = await cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -109,3 +110,6 @@ export async function POST(req: NextRequest) {
         skipped: result.skipped,
     });
 }
+
+export const POST = frozenApprovalWrite;
+void frozenLegacyPOST;
