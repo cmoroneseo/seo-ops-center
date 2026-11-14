@@ -98,9 +98,28 @@ export function sanitizeDoc(input: unknown): PageNode & {
 }
 function inline(text: string): PageNode[] {
   const result: PageNode[] = [];
-  const pattern = /!\[([^\]]*)\]\(([^\s)]+)\)|\[([^\]]+)\]\(([^\s)]+)\)|\*\*(.+?)\*\*|\*(.+?)\*|`([^`]+)`/g;
+  const pattern = /!\[([^\]]*)\]\(()|\[([^\]]+)\]\(()|\*\*(.+?)\*\*|\*(.+?)\*|`([^`]+)`/g;
   let offset = 0;
-  for (const match of text.matchAll(pattern)) {
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text))) {
+    if (match[1] !== undefined || match[3] !== undefined) {
+      const start = pattern.lastIndex;
+      let end = start;
+      let depth = 1;
+      for (; end < text.length; end++) {
+        const char = text[end];
+        if (/\s/.test(char)) break;
+        if (char === '\\' && /[()\\]/.test(text[end + 1] ?? '')) {
+          end++;
+          continue;
+        }
+        if (char === '(') depth++;
+        if (char === ')' && --depth === 0) break;
+      }
+      if (depth !== 0) continue;
+      match[match[1] !== undefined ? 2 : 4] = text.slice(start, end).replace(/\\([()\\])/g, '$1');
+      pattern.lastIndex = end + 1;
+    }
     if (match.index! > offset) result.push({
       type: 'text',
       text: text.slice(offset, match.index)
@@ -123,7 +142,7 @@ function inline(text: string): PageNode[] {
         } : {})
       }]
     });
-    offset = match.index! + match[0].length;
+    offset = pattern.lastIndex;
   }
   if (offset < text.length) result.push({
     type: 'text',

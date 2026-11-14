@@ -142,6 +142,17 @@ test('Markdown converts headings, marks, lists, quotes, rules, tables and images
     }
   }).ok, true);
 });
+test('Markdown consumes balanced link destinations before sanitizing unsafe schemes', () => {
+  const unsafe = markdownDoc('[bad link](javascript:alert(1))');
+  assert.equal(nodeText(unsafe), 'bad link');
+  assert.deepEqual(unsafe.content?.[0].content, [{ type: 'text', text: 'bad link' }]);
+  for (const destination of ['https://example.com/a(b(c))', 'https://example.com/a\\(b\\)']) {
+    const doc = markdownDoc(`[good link](${destination}) after`);
+    assert.equal(nodeText(doc), 'good link after');
+    assert.equal(doc.content?.[0].content?.[0].marks?.[0].attrs?.href, destination.replace(/\\([()])/g, '$1'));
+  }
+  assert.equal(nodeText(markdownDoc('[unfinished](https://example.com/a(b)')), '[unfinished](https://example.com/a(b)');
+});
 test('block ids survive text edits and reordering; duplicate pasted identities are replaced', () => {
   const first = normalizePageBody(pageFixture.body);
   const edit = structuredClone(first.body);

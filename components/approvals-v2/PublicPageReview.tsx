@@ -2,6 +2,7 @@
 
 import './page-review.css';
 
+import { Check, Clock, Pencil } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { PagePreview } from './PagePreview';
 import { TypeChip } from './Shared';
@@ -197,18 +198,27 @@ export function PublicPageReview({
           <h2 className="text-xl font-bold">Pages to review</h2>
           <p>{Object.keys(decisions).length} of {view.items.length} pages reviewed</p>
           <ul className="divide-y">
-            {view.items.map(page => <li key={page.id} className="py-4">
-              <button className="w-full text-left" onClick={() => setSelected(page.id)}>
+            {view.items.map(page => {
+              const status = decisions[page.id]?.decision ?? page.status;
+              const Icon = status === 'approved' ? Check : status === 'changes_requested' ? Pencil : Clock;
+              const label = status === 'approved' ? 'Approved' : status === 'changes_requested' ? 'Changes requested' : 'Not reviewed yet';
+              return <li key={page.id} className="py-4">
+              <button className="flex min-h-12 w-full flex-col items-start gap-2 text-left" onClick={() => setSelected(page.id)}>
                 <TypeChip row={{
                   itemType: 'page',
                   pageKinds: [page.version.payload.pageKind]
                 }} />
-                <strong>
+                <strong className="[overflow-wrap:anywhere]">
                   {page.version.payload.title}
                 </strong>
-                <span className="block break-all text-[#545A61]">/{page.version.payload.slug} · {(decisions[page.id]?.decision ?? page.status).replaceAll('_', ' ')}</span>
+                <span className="block break-all text-[#545A61]">/{page.version.payload.slug}</span>
+                <span className={`inline-flex items-center gap-2 text-sm ${status === 'approved' ? 'text-[#1B6B34]' : 'text-[#545A61]'}`}>
+                  <Icon size={16} className="shrink-0" aria-hidden="true" />
+                  {label}
+                </span>
               </button>
-            </li>)}
+            </li>;
+            })}
           </ul>
         </section>}
         {item && <>
