@@ -161,6 +161,7 @@ export function mutation(action: string, dependencies = {
       error: 'Choose an item.',
       code: 'invalid_request'
     }, 400);
+    if (action === 'versions' && Buffer.byteLength(JSON.stringify(body)) > 4194304) return json({ error: 'Request exceeds 4 MB.', code: 'invalid_request' }, 400);
     if (action === 'versions') {
       if (!Array.isArray(body.items) || !body.items.length || body.items.length > 30) return json({
         error: 'Choose items to revise.',

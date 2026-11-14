@@ -36,7 +36,7 @@ export function createStaffDetail(dependencies = {
       actor,
       members
     } = ctx;
-    const result = await admin.from('approval_requests').select('*,clients!approval_requests_client_id_fkey(id,name,account_manager_id),owner:users!approval_requests_owner_id_fkey(id,full_name),bot_api_keys!approval_requests_bot_key_id_fkey(name)').eq('id', id).in('organization_id', members.map(m => m.organization_id)).maybeSingle();
+    const result = await admin.from('approval_requests').select('*,clients!approval_requests_client_id_fkey(id,name,domain,account_manager_id),owner:users!approval_requests_owner_id_fkey(id,full_name),bot_api_keys!approval_requests_bot_key_id_fkey(name)').eq('id', id).in('organization_id', members.map(m => m.organization_id)).maybeSingle();
     if (result.error) return json({
       error: 'Approvals could not be loaded.'
     }, 503);

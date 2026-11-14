@@ -8,9 +8,11 @@ import type { GbpPostPayload } from '@/lib/gbp-approvals/registry';
 import type { PagePayload } from '@/lib/approvals-v2/registry';
 import { PagePreview } from './PagePreview';
 export function PreviewDialog({
+  domain,
   clientName,
   items
 }: {
+  domain?: string;
   clientName: string;
   items: {
     id: string;
@@ -32,7 +34,7 @@ export function PreviewDialog({
         photoUrl,
         images
       }, index) => <article key={id} className="space-y-3 rounded-lg border p-4">
-          {'pageKind' in payload ? <PagePreview payload={payload} photoUrl={photoUrl} images={images} /> : <div className="gbp-public" style={{
+          {'pageKind' in payload ? <PagePreview domain={domain} payload={payload} photoUrl={photoUrl} images={images} /> : <div className="gbp-public" style={{
             minHeight: 0
           }}>
             <GbpPostPreview clientName={clientName} post={{

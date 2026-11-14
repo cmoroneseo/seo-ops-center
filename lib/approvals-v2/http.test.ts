@@ -285,7 +285,7 @@ test('new send and compatibility link aliases reject bots with 403 before any RP
     assert.equal(response.status, 403);
   }
 });
-test('detail returns released/current versions, decisions, link facts and only signs GBP photos after membership scoping', async () => {
+test('detail returns released/current versions, decisions, link facts and signs request-scoped photos for both types after membership scoping', async () => {
   const {
     createStaffDetail
   } = await import('./detail');
@@ -372,5 +372,5 @@ test('detail returns released/current versions, decisions, link facts and only s
   }).item_type = 'page';
   signed.length = 0;
   await handler(new Request('https://local.test'), context);
-  assert.equal(signed.length, 0);
+  assert.equal(signed.length, 2);
 });

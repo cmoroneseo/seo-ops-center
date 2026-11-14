@@ -1,20 +1,29 @@
+import { cache } from 'react';
 import { hashToken } from '@/lib/approvals/token';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { signApprovalPhoto } from '@/lib/gbp-approvals/live';
-import { PUBLIC_REVIEW_HEADERS, projectPublicReview } from '@/lib/gbp-approvals/public-view';
+import { PUBLIC_REVIEW_HEADERS, projectPublicReview, publicStatus } from '@/lib/gbp-approvals/public-view';
 import { uuid } from './list';
 import { imagePaths } from './page-body';
 import { sanitizeDoc } from './page-doc';
 import type { PagePayload } from './registry';
 import type { OutlineSection } from './page-body';
-
 export interface PublicPageItem {
   id: string;
   position: number;
   status: 'pending' | 'approved' | 'changes_requested';
   locked: boolean;
-  version: { id: string; versionNo: number; payload: PagePayload; outline: OutlineSection[]; photoPath: string | null };
-  decision?: { decision: string; comment: string | null } | null;
+  version: {
+    id: string;
+    versionNo: number;
+    payload: PagePayload;
+    outline: OutlineSection[];
+    photoPath: string | null;
+  };
+  decision?: {
+    decision: string;
+    comment: string | null;
+  } | null;
 }
 export interface PublicPageView {
   itemType: 'page';
@@ -23,8 +32,13 @@ export interface PublicPageView {
   title: string;
   expiresAt: string | null;
   sentAt?: string;
+  domain?: string;
   items: PublicPageItem[];
-  questions: { id: string; prompt: string; answer?: string | null }[];
+  questions: {
+    id: string;
+    prompt: string;
+    answer?: string | null;
+  }[];
 }
 
 /** A caller may only sign assets under the request proved by its token or staff query. */
@@ -33,12 +47,29 @@ export async function signRequestAsset(requestId: string, path: string, signer =
   if (!uuid.test(requestId) || !['approval-assets', 'gbp-approvals'].some(prefix => path.startsWith(`${prefix}/${requestId}/`))) return null;
   return signer(path);
 }
-
-export async function loadApprovalReview(token: string) {
+export const loadApprovalReview = cache(async (token: string) => {
   if (token.length < 20 || token.length > 500) return null;
-  const { data, error } = await createAdminClient().rpc('get_approval_by_token', { p_token_hash: hashToken(token), p_now: new Date().toISOString() });
+  const {
+    data,
+    error
+  } = await createAdminClient().rpc('get_approval_by_token', {
+    p_token_hash: hashToken(token),
+    p_now: new Date().toISOString()
+  });
   if (error || !data || data.ok === false) return null;
-  if (data.itemType === 'page') return data as PublicPageView;
+  if (data.itemType === 'page') {
+    const link = await createAdminClient().from('approval_links').select('request_id').eq('token_hash', hashToken(token)).maybeSingle();
+    if (link.error || !link.data) return null;
+    const request = await createAdminClient().from('approval_requests').select('sent_at,clients!approval_requests_client_id_fkey(domain)').eq('id', link.data.request_id).maybeSingle();
+    const client = request.data?.clients as {
+      domain?: string;
+    } | null;
+    return {
+      ...data,
+      sentAt: request.data?.sent_at ?? undefined,
+      domain: client?.domain ?? undefined
+    } as PublicPageView;
+  }
   // Keep the GBP projection and renderer unchanged.
   const paths = new Map<string, string | null>();
   for (const item of data.items ?? []) {
@@ -47,29 +78,79 @@ export async function loadApprovalReview(token: string) {
     }
   }
   return projectPublicReview(data, path => paths.get(path) ?? null);
-}
-
-export function createPublicItem(dependencies = { createAdminClient, signApprovalPhoto }) {
-  return async function GET(_request: Request, context: { params: Promise<{ token: string; itemId: string }> }) {
-    const { token, itemId } = await context.params;
-    const json = (body: unknown, status = 200) => Response.json(body, { status, headers: PUBLIC_REVIEW_HEADERS });
-    if (!uuid.test(itemId) || token.length < 20 || token.length > 500) return json({ error: 'Page not found.' }, 404);
+});
+export function createPublicItem(dependencies = {
+  createAdminClient,
+  signApprovalPhoto
+}) {
+  return async function GET(_request: Request, context: {
+    params: Promise<{
+      token: string;
+      itemId: string;
+    }>;
+  }) {
+    const {
+      token,
+      itemId
+    } = await context.params;
+    const json = (body: unknown, status = 200) => Response.json(body, {
+      status,
+      headers: PUBLIC_REVIEW_HEADERS
+    });
+    if (!uuid.test(itemId) || token.length < 20 || token.length > 500) return json({
+      error: 'Page not found.'
+    }, 404);
     try {
       const admin = dependencies.createAdminClient();
-      const { data, error } = await admin.rpc('get_approval_item_by_token', { p_token_hash: hashToken(token), p_item_id: itemId, p_now: new Date().toISOString() });
-      if (error || !data || data.ok === false || data.itemType !== 'page' || !data.version?.id) return json({ error: 'Page not found.' }, 404);
+      const {
+        data,
+        error
+      } = await admin.rpc('get_approval_item_by_token', {
+        p_token_hash: hashToken(token),
+        p_item_id: itemId,
+        p_now: new Date().toISOString()
+      });
+      if (data?.code === 'rate_limited') return json({
+        error: 'Too many requests. Please try again shortly.'
+      }, 429);
+      if (data?.state === 'expired' || data?.state === 'revoked') return json({
+        error: 'This review link is no longer available.'
+      }, publicStatus(data.state));
+      if (error || !data || data.ok === false || data.itemType !== 'page' || !data.version?.id) return json({
+        error: 'Page not found.'
+      }, 404);
       // Resolve request identity through this token, never through caller input.
       const link = await admin.from('approval_links').select('request_id').eq('token_hash', hashToken(token)).maybeSingle();
-      if (link.error || !link.data) return json({ error: 'Page not found.' }, 404);
-      const { targetKeyword: _internal, ...payload } = data.version.payload as PagePayload;
+      if (link.error || !link.data) return json({
+        error: 'Page not found.'
+      }, 404);
+      const requestId = link.data.request_id;
+      const {
+        targetKeyword: _internal,
+        ...payload
+      } = data.version.payload as PagePayload;
       void _internal;
-      payload.body = sanitizeDoc(payload.body);
+      payload.body = {
+        ...sanitizeDoc(payload.body)
+      };
       const paths = [...new Set([...imagePaths(payload.body), data.version.photoPath].filter((path): path is string => typeof path === 'string'))];
-      const images = Object.fromEntries(await Promise.all(paths.map(async path => [path, await signRequestAsset(link.data.request_id, path, dependencies.signApprovalPhoto)])));
+      const images = Object.fromEntries(await Promise.all(paths.map(async path => [path, await signRequestAsset(requestId, path, dependencies.signApprovalPhoto)])));
       // No draft versions, internal fields, or future comment UI data in this response.
-      return json({ itemId, version: { id: data.version.id, versionNo: data.version.versionNo, payload, outline: data.version.outline }, photoUrl: images[data.version.photoPath] ?? null, images });
+      return json({
+        itemId,
+        version: {
+          id: data.version.id,
+          versionNo: data.version.versionNo,
+          payload,
+          outline: data.version.outline
+        },
+        photoUrl: images[data.version.photoPath] ?? null,
+        images
+      });
     } catch {
-      return json({ error: 'Page not found.' }, 404);
+      return json({
+        error: 'Page not found.'
+      }, 404);
     }
   };
 }

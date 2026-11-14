@@ -1,5 +1,7 @@
 'use client';
 
+import '@/components/approvals-v2/page-review.css';
+
 import { use, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowDown, ArrowUp, CheckCircle, Copy, Lock, Send, Trash2 } from 'lucide-react';
@@ -56,6 +58,7 @@ interface Data {
     created_at: string;
     clients: {
       name: string;
+      domain?: string;
     };
     item_type: string;
   };
@@ -240,15 +243,16 @@ export default function Page({
       </h1>
       <p className="my-2 text-sm text-muted-foreground">{data.request.clients?.name} · Created {new Date(data.request.created_at).toLocaleDateString()}{data.botName ? ` by ${data.botName}` : ''}</p>
       <StatusChip group={approvalGroup(data.request.stage, data.items)} />
+      <span className="ml-2"><TypeChip row={{ itemType: data.request.item_type, pageKinds: [...new Set(data.items.map(item => item.page_kind).filter((kind): kind is string => !!kind))] }} /></span>
       {data.request.archived_at && <span className="ml-2">Archived</span>}
       <div className="mt-3">
-        <PreviewDialog clientName={data.request.clients?.name ?? 'Client'} items={data.items.flatMap(item => {
+        <PreviewDialog domain={data.request.clients?.domain} clientName={data.request.clients?.name ?? 'Client'} items={data.items.flatMap(item => {
           const version = (draft ? item.version : item.releasedVersion) ?? item.version;
           return version ? [{
             id: item.id,
             payload: version.payload,
             images: data.photos,
-        photoUrl: data.photos[version.photo_path ?? ''] ?? null
+            photoUrl: data.photos[version.photo_path ?? ''] ?? null
           }] : [];
         })} />
       </div>
@@ -337,9 +341,10 @@ export default function Page({
               </div>}
             </header>
             {'pageKind' in p ? <>
-              <PagePreview payload={p} photoUrl={data.photos[version.photo_path ?? '']} images={data.photos} />
+              <PagePreview domain={data.request.clients?.domain} payload={p} photoUrl={data.photos[version.photo_path ?? '']} images={data.photos} />
               {editable && item.version && <PageEditor
                 key={item.version.id}
+                domain={data.request.clients?.domain}
                 requestId={id}
                 itemId={item.id}
                 payload={item.version.payload as PagePayload}

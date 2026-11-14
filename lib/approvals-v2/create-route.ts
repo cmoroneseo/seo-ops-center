@@ -30,6 +30,7 @@ export function createStaffApproval(dependencies = {
     }, {
       status: 400
     });
+    if (Buffer.byteLength(JSON.stringify(body)) > 4194304) return Response.json({ error: 'Request exceeds 4 MB.', code: 'invalid_request' }, { status: 400 });
     if ('itemType' in body && body.itemType !== 'page' && body.itemType !== 'gbp_post') return Response.json({
       error: 'Unknown item type.',
       code: 'invalid_request'

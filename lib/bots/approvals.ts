@@ -64,6 +64,7 @@ export function parseBotApproval(body: unknown): BotApprovalParse {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return fail(400, 'invalid_request', 'Request body must be a JSON object.');
   }
+  if (Buffer.byteLength(JSON.stringify(body)) > 4194304) return fail(400, 'invalid_request', 'Request exceeds 4 MB.');
   const record = body as Record<string, unknown>;
   for (const key of Object.keys(record)) {
     if (['send', 'stage', 'status', 'sentAt'].includes(key) || key.startsWith('released')) return fail(400, 'forbidden', 'Bots can only create drafts.');
@@ -153,7 +154,14 @@ export function parseBotApproval(body: unknown): BotApprovalParse {
     items,
     questions
   };
-  command.requestHash = createHash('sha256').update((command.itemType === 'page' ? canonicalJson({ ...command, items: command.items.map(({ outline: _outline, ...item }) => { void _outline; return item; }) }) : stable(command))).digest('hex');
+  const hashInput = command.itemType === 'page' ? canonicalJson({
+    ...command,
+    items: command.items.map(({ outline: _outline, ...item }) => {
+      void _outline;
+      return item;
+    })
+  }) : stable(command);
+  command.requestHash = createHash('sha256').update(hashInput).digest('hex');
   return {
     ok: true,
     command
