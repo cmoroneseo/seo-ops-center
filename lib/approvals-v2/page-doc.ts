@@ -26,13 +26,33 @@ export function nodeText(node: PageNode): string {
   return node.text ?? (node.content ?? []).map(nodeText).join(node.type === 'doc' ? '\n' : '');
 }
 function stripTags(text: string): string {
-  let previous: string;
-  do {
-    previous = text;
-    text = text.replace(/<(script|style|iframe)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '').replace(/<[^>]*>/g, '');
-  } while (text !== previous);
-  // Remove incomplete tag openers; retain '>' for Markdown blockquotes.
-  return text.replace(/</g, '');
+  // Character scanner instead of regex replaces: drops every tag and the contents of
+  // script/style/iframe elements, and never leaves a '<' behind.
+  let out = '';
+  let i = 0;
+  const lower = text.toLowerCase();
+  while (i < text.length) {
+    const open = text.indexOf('<', i);
+    if (open === -1) {
+      out += text.slice(i);
+      break;
+    }
+    out += text.slice(i, open);
+    const close = text.indexOf('>', open);
+    if (close === -1) {
+      out += text.slice(open);
+      break;
+    }
+    const name = /^<\s*(script|style|iframe)\b/.exec(lower.slice(open, close + 1))?.[1];
+    if (name) {
+      const end = lower.indexOf(`</${name}`, close);
+      const endClose = end === -1 ? -1 : text.indexOf('>', end);
+      i = endClose === -1 ? text.length : endClose + 1;
+    } else {
+      i = close + 1;
+    }
+  }
+  return out.split('<').join('');
 }
 
 /** This is also run at render time: historical documents never bypass the allowlist. */
