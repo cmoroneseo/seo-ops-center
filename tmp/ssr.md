@@ -1,0 +1,160 @@
+# Static Security Review
+
+Mode: advisory
+
+- [HIGH] app/api/agency-dashboard/queries/route.ts:24 (client-supplied-tenant-id) - Route appears to accept org/client identifiers from the client. Verify tenant access server-side before reads/writes.
+- [HIGH] app/api/approvals/import-doc/route.ts:5 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/approvals/share-link/route.ts:5 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/bots/approvals/route.ts:4 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/bots/keys/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/client-portal/staff/route.ts:11 (client-supplied-tenant-id) - Route appears to accept org/client identifiers from the client. Verify tenant access server-side before reads/writes.
+- [HIGH] app/api/client-portal/visit/route.ts:3 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/clients/[id]/basecamp-config/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/cron/check-doc-drift/route.ts:3 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/cron/fire-reminders/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/cron/gbp-approval-retention/route.ts:1 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/cron/generate-deliverables/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/cron/generate-deliverables/route.ts:64 (client-supplied-tenant-id) - Route appears to accept org/client identifiers from the client. Verify tenant access server-side before reads/writes.
+- [HIGH] app/api/cron/recurring-tasks/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/gbp-approvals/requests/[id]/final/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/gbp-approvals/requests/[id]/link/extend/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/gbp-approvals/requests/[id]/link/issue/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/gbp-approvals/requests/[id]/link/revoke/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/gbp-approvals/requests/[id]/versions/route.ts:3 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/gbp-approvals/requests/route.ts:4 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/gbp-approvals/tasks/[taskId]/route.ts:3 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/ahrefs/route.ts:77 (client-supplied-tenant-id) - Route appears to accept org/client identifiers from the client. Verify tenant access server-side before reads/writes.
+- [HIGH] app/api/integrations/basecamp/callback/route.ts:8 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/basecamp/connect/route.ts:10 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/basecamp/import-tasks/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/basecamp/imported-ids/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/basecamp/projects/route.ts:4 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/basecamp/timesheet/route.ts:3 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/basecamp/todolists/route.ts:4 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/basecamp/todos/route.ts:4 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/basecamp/webhook/route.ts:1 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/bing/sync/route.ts:11 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/google/callback/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/google/configure/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/google/connect/route.ts:15 (client-supplied-tenant-id) - Route appears to accept org/client identifiers from the client. Verify tenant access server-side before reads/writes.
+- [HIGH] app/api/integrations/google/disconnect/route.ts:16 (client-supplied-tenant-id) - Route appears to accept org/client identifiers from the client. Verify tenant access server-side before reads/writes.
+- [HIGH] app/api/integrations/google/ga4/key-events/route.ts:36 (client-supplied-tenant-id) - Route appears to accept org/client identifiers from the client. Verify tenant access server-side before reads/writes.
+- [HIGH] app/api/integrations/google/ga4/key-events/route.ts:4 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/google/gsc/history/route.ts:3 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/google/gsc/insights/route.ts:8 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/google/gsc/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/google/properties/route.ts:4 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/google/properties/route.ts:55 (client-supplied-tenant-id) - Route appears to accept org/client identifiers from the client. Verify tenant access server-side before reads/writes.
+- [HIGH] app/api/integrations/status/route.ts:3 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/integrations/status/route.ts:7 (client-supplied-tenant-id) - Route appears to accept org/client identifiers from the client. Verify tenant access server-side before reads/writes.
+- [HIGH] app/api/invite/route.ts:6 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/portal/[token]/route.ts:3 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/public/approvals/[token]/photo-upload-url/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/public/approvals/[token]/submit/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/reports/[id]/route.ts:10 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/search/bing/route.ts:5 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/seo-plan/basecamp-sync/route.ts:5 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/site-crawl/runs/[runId]/process/route.ts:3 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/site-crawl/runs/route.ts:3 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/site-inventory/identity/decisions/route.ts:3 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/site-inventory/identity/route.ts:3 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/site-inventory/route.ts:2 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/site-inventory/route.ts:8 (client-supplied-tenant-id) - Route appears to accept org/client identifiers from the client. Verify tenant access server-side before reads/writes.
+- [HIGH] app/api/time-tracking/route.ts:6 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/timesheets/imports/suggestions/route.ts:3 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/timesheets/imports/tasks/basecamp/route.ts:17 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/timesheets/imports/tasks/route.ts:18 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/timesheets/reconcile/route.ts:3 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/timesheets/team/route.ts:1 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/topical-map/generate-architect/route.ts:4 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/topical-map/generate-profile/route.ts:26 (client-supplied-tenant-id) - Route appears to accept org/client identifiers from the client. Verify tenant access server-side before reads/writes.
+- [HIGH] app/api/topical-map/generate/route.ts:4 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/topical-map/keyword-positions/route.ts:11 (client-supplied-tenant-id) - Route appears to accept org/client identifiers from the client. Verify tenant access server-side before reads/writes.
+- [HIGH] app/api/topical-map/keyword-positions/route.ts:4 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/webhooks/stripe/route.ts:9 (admin-client-api-route) - API route imports or creates a Supabase admin client. Verify auth, tenant authorization, and least-privilege writes.
+- [HIGH] app/api/webhooks/stripe/route.ts:9 (service-role-fallback) - Service-role or backend secret has a placeholder/fallback value. Production code should fail closed.
+- [HIGH] lib/stripe.ts:3 (service-role-fallback) - Service-role or backend secret has a placeholder/fallback value. Production code should fail closed.
+- [MEDIUM] app/api/campaign/draft-overview/route.ts:51 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] app/api/campaign/extract-intake/route.ts:142 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] app/api/cron/cap-bot-timers/route.ts:40 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] app/api/cron/fire-reminders/route.ts:84 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] app/api/cron/generate-deliverables/route.ts:112 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] app/api/cron/recurring-tasks/route.ts:69 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] app/api/marketing-plan/suggest-items/route.ts:54 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] app/api/topical-map/generate-architect/route.ts:177 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] components/campaign/sections/ScreenshotUpload.tsx:48 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] components/planner/EventDetailPanel.tsx:290 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] components/planner/QuickCreatePopover.tsx:299 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] components/providers/organization-provider.tsx:83 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] components/search-dashboard/SearchDashboard.tsx:76 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] docs/superpowers/plans/2026-07-02-seo-marketing-plan-checklist.md:669 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] docs/superpowers/plans/2026-07-22-notepad.md:165 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] docs/superpowers/plans/2026-07-22-personal-reminders.md:447 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] docs/superpowers/plans/2026-07-27-weekly-planner.md:632 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] docs/superpowers/plans/2026-08-25-timesheet-import-foundation.md:1405 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/approvals/notify.ts:79 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/basecamp/api.ts:79 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/basecamp/timesheet-perform.ts:154 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/basecamp/timesheet-push-identity.ts:41 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/campaign/suggest-keywords-route.ts:84 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/gsc/schedule.ts:15 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/bonus.ts:47 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/campaign-initiatives.ts:126 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/campaign-plans.ts:152 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/change-log.ts:97 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/client-activity.ts:48 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/client-assignments.ts:34 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/client-notes.ts:29 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/clients.ts:126 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/commitments.ts:78 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/dashboard.ts:59 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/deliverables.ts:119 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/integrations.ts:30 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/monthly-plans.ts:45 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/notifications.ts:105 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/organizations.ts:36 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/personal-notes.ts:47 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/personal-reminders.ts:60 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/planner-events.ts:90 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/planner-priorities.ts:41 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/seed-demo.ts:91 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/tasks.ts:280 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/supabase/time-logs.ts:184 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/timer/manual-segment.ts:334 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] lib/topical-map/architect-trigger.ts:26 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] middleware.ts:64 (mock-auth-bypass) - Mock-mode auth bypass exists. Ensure it cannot run in production or preview with real data.
+- [MEDIUM] migrations/001_init_seo_ops_schema.sql:197 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/002_fix_rls_policies.sql:30 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/003_seo_ops_domain.sql:196 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/006_client_logo.sql:21 (broad-storage-policy) - Storage policy is bucket-wide. Prefer object-path constraints tied to org/client ownership.
+- [MEDIUM] migrations/015_deliverable_commitments.sql:188 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/031_protect_basecamp_authorization_state.sql:15 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/032_close_identity_and_provider_provenance.sql:17 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/033_planner_time_segments.sql:97 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/034_start_timer_without_project.sql:22 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/035_merge_client_custom_fields.sql:21 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/036_task_completion_time.sql:24 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/038_timesheet_ledger.sql:66 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/052_search_investigation_workflow.sql:12 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/059_marketing_plan_task_sync.sql:29 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/060_client_portal.sql:91 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/068_planner_task_sessions.sql:11 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/073_metrics_integrity_and_sync_outcomes.sql:42 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/074_gsc_history_v2.sql:337 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/079_report_version_cascade.sql:43 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/084_client_agreements.sql:74 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/086_client_vault_entries.sql:192 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/101_pillar_time_target.sql:22 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/102_client_archive_permissions.sql:11 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/110_simplify_task_status.sql:36 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/111_plan_basecamp_sync_state.sql:80 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/112_resume_open_task_timer.sql:58 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/113_bot_time_api.sql:107 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/115_keyword_tracking.sql:174 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/116_campaign_initiatives.sql:23 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/117_report_tracking_snapshots.sql:40 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/125_seo_change_log.sql:88 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] migrations/131_gbp_approval_requests.sql:774 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] schema.sql:441 (security-definer-function) - SECURITY DEFINER function needs fixed search_path and minimal behavior review.
+- [MEDIUM] scripts/backfill-commitments.ts:126 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.
+- [MEDIUM] scripts/set-user-password.mjs:40 (sensitive-console-log) - Console logging may expose sensitive data. Redact emails, tokens, provider errors, cookies, and payloads.

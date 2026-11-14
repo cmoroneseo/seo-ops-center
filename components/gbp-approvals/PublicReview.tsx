@@ -81,7 +81,7 @@ export function PublicReview({
                     <h1 className="title">{mode === 'expired' ? 'This review link has expired' : 'This review link was turned off'}</h1>
                     <p className="lead">
                         {mode === 'expired'
-                            ? `${expiresAt ? `It expired on ${new Date(expiresAt).toLocaleDateString('en-US', { dateStyle: 'long', timeZone: 'UTC' })}. ` : 'This link has expired. '}Contact your account manager at Marketing Empire Group for a new one.`
+                            ? `${expiresAt ? `It expired on ${new Date(expiresAt).toLocaleDateString('en-US', { dateStyle: 'long', timeZone: 'America/Los_Angeles' })}. ` : 'This link has expired. '}Contact your account manager at Marketing Empire Group for a new one.`
                             : 'Marketing Empire Group turned this link off. Contact your account manager if you still need to review these posts.'}
                     </p>
                 </section>
@@ -183,7 +183,7 @@ export function PublicReview({
                 <div>
                     {mode === 'revision' && (
                         <div className="notice" role="status">
-                            <span><b>Revision ready.</b> {updated.length} posts were updated for you. Nothing new was sent. You are on the same link.</span>
+                            <span><b>Revision ready.</b> {updated.length === 1 ? '1 post was' : `${updated.length} posts were`} updated for you. Nothing new was sent. You are on the same link.</span>
                         </div>
                     )}
                     {mode === 'review' && (
@@ -193,7 +193,7 @@ export function PublicReview({
                             <div className="facts">
                                 <span>{posts.length} posts</span>
                                 <span>{questions.length} questions</span>
-                                {dueAt && <span>Please review by {new Date(dueAt).toLocaleDateString('en-US', { timeZone: 'UTC' })}</span>}
+                                {dueAt && <span>Please review by {new Date(dueAt).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' })}</span>}
                             </div>
                             <ol className="steps">
                                 <li>Read each post as it will look on Google</li>

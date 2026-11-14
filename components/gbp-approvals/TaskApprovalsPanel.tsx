@@ -81,7 +81,10 @@ export function TaskApprovalsPanel({ taskId, taskTitle }: { taskId: string; task
             if (!response.ok) throw new Error(result.error ?? 'The change could not be saved.');
             if (result.url) setUrl(result.url);
             if (path === 'link/revoke') { setUrl(''); setConfirmRevoke(false); }
-            setNotice('Saved. Share the review link yourself; nothing is sent automatically.');
+            setNotice(path === 'link/revoke' ? 'Link revoked. The client can no longer open it.'
+                : path === 'link/extend' ? 'Extended 14 days on the same link.'
+                : path === 'link/issue' ? 'Link ready. Share it yourself; nothing is sent automatically.'
+                : 'Saved. Nothing is sent automatically.');
             setData(await load());
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : 'The change could not be saved.');
@@ -100,7 +103,7 @@ export function TaskApprovalsPanel({ taskId, taskTitle }: { taskId: string; task
             {data?.request && <>
                 <p className="text-sm font-medium">{data.request.title} · Round {data.request.round}</p>
                 <p className="text-sm text-muted-foreground">{data.items?.filter(item => item.status === 'approved').length} approved · {data.items?.filter(item => item.status === 'changes_requested').length} changes requested · {data.items?.filter(item => item.status === 'pending').length} pending</p>
-                <p className="text-sm text-muted-foreground">{!link ? 'No share link issued.' : `${link.revokedAt ? 'Link revoked' : Date.parse(link.expiresAt) <= Date.now() ? 'Link expired' : 'Link active'} · expires ${new Date(link.expiresAt).toLocaleDateString()} · ${link.viewCount} views`}</p>
+                <p className="text-sm text-muted-foreground">{!link ? 'No share link issued.' : `${link.revokedAt ? `Link revoked ${new Date(link.revokedAt).toLocaleDateString()}` : `${Date.parse(link.expiresAt) <= Date.now() ? 'Link expired' : 'Link active'} · expires ${new Date(link.expiresAt).toLocaleDateString()}`} · ${link.viewCount} views`}</p>
                 {writer && <div className="flex flex-wrap gap-2">
                     {(!link || link.revokedAt) && <Button type="button" variant="outline" disabled={busy} onClick={() => void act('link/issue')}>Issue share link</Button>}
                     {link && !link.revokedAt && <>
@@ -119,7 +122,7 @@ export function TaskApprovalsPanel({ taskId, taskTitle }: { taskId: string; task
                     </label>
                     <Button type="button" variant="outline" onClick={() => { void navigator.clipboard.writeText(url).then(() => setNotice('Link copied.')).catch(() => setError('Select and copy the link above.')); }}>Copy link</Button>
                 </div>}
-                {writer && link && !url && <p className="text-xs text-muted-foreground">The original URL cannot be retrieved. Extend keeps the same link. To replace a lost link, revoke it and issue a new one.</p>}
+                {writer && link && !link.revokedAt && !url && <p className="text-xs text-muted-foreground">The original URL cannot be retrieved. Extend keeps the same link. To replace a lost link, revoke it and issue a new one.</p>}
                 <ul className="divide-y divide-border">
                     {data.items?.map(item => <li key={item.id} className="space-y-2 py-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">

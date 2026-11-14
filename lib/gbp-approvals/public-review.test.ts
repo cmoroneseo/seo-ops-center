@@ -36,9 +36,9 @@ test('revision review includes untouched pending and unrevised changes-requested
 
 test('expired page uses actual expiry and has no form', () => {
     const html = renderToStaticMarkup(createElement(PublicReview, {
-        mode: 'expired', posts: [], questions: [], expiresAt: '2027-02-02T00:00:00Z',
+        mode: 'expired', posts: [], questions: [], expiresAt: '2027-02-02T06:00:00Z',
     }));
-    assert.match(html, /February 2, 2027/);
+    assert.match(html, /February 1, 2027/);
     assert.match(html, /Contact your account manager/);
     assert.doesNotMatch(html, /<form/);
 });
