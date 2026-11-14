@@ -1,3 +1,4 @@
+import { parsePagePayload } from './page-body';
 import { uuid } from './list';
 import { sqlStatus } from './staff';
 import { agencyActor } from '@/lib/gbp-approvals/agency-auth';
@@ -35,19 +36,13 @@ export function createStaffApproval(dependencies = {
     }, {
       status: 400
     });
-    if ('itemType' in body && body.itemType === 'page') return Response.json({
-      error: 'Page drafts arrive in the next update.',
-      code: 'page_type_not_enabled'
-    }, {
-      status: 400
-    });
     if (body && ['send', 'stage', 'sentAt'].some(key => key in body)) return Response.json({
       error: 'Requests must be created as drafts.',
       code: 'invalid_request'
     }, {
       status: 400
     });
-    if (!body?.taskId || typeof body.taskId !== 'string' || !uuid.test(body.taskId) || typeof body.title !== 'string' || !body.title.trim() || !Array.isArray(body.items) || !body.items.length || body.items.length > 30) {
+    if (!body?.taskId || typeof body.taskId !== 'string' || !uuid.test(body.taskId) || typeof body.title !== 'string' || !body.title.trim() || !Array.isArray(body.items) || !body.items.length || body.items.length > (body.itemType === 'page' ? 20 : 30)) {
       return Response.json({
         error: 'Add a title and at least one post.',
         code: 'invalid_request'
@@ -83,7 +78,7 @@ export function createStaffApproval(dependencies = {
         payload?: unknown;
         photoPath?: string | null;
       };
-      const parsed = parseGbpPostPayload(item.payload);
+      const parsed = body.itemType === 'page' ? parsePagePayload(item.payload) : parseGbpPostPayload(item.payload);
       if (!parsed.ok) return Response.json({
         error: parsed.error,
         code: 'invalid_request'
@@ -93,10 +88,12 @@ export function createStaffApproval(dependencies = {
       items.push({
         position: item.position,
         payload: parsed.payload,
+        ...('outline' in parsed ? { outline: parsed.outline } : {}),
         photoPath: item.photoPath ?? null
       });
     }
-    const created = await admin.rpc('create_gbp_approval_request', {
+    const created = await admin.rpc('create_approval_request', {
+      p_item_type: body.itemType ?? 'gbp_post',
       p_actor: actor,
       p_organization_id: task.data.organization_id,
       p_client_id: task.data.client_id,

@@ -1,3 +1,4 @@
+import { parsePagePayload } from './page-body';
 import { agencyActor } from '@/lib/gbp-approvals/agency-auth';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { generateToken, hashToken } from '@/lib/approvals/token';
@@ -171,18 +172,15 @@ export function mutation(action: string, dependencies = {
           error: 'Invalid item.',
           code: 'invalid_request'
         }, 400);
-        if (item.payload?.pageKind) return json({
-          error: 'Editing pages arrives in the next update.',
-          code: 'page_type_not_enabled'
-        }, 400);
-        const parsed = parseGbpPostPayload(item.payload);
+        const parsed = item.payload?.pageKind ? parsePagePayload(item.payload) : parseGbpPostPayload(item.payload);
         if (!parsed.ok) return json({
           error: parsed.error,
           code: 'invalid_request'
         }, 400);
         items.push({
           ...item,
-          payload: parsed.payload
+          payload: parsed.payload,
+          ...('outline' in parsed ? { outline: parsed.outline } : {})
         });
       }
       body.items = items;

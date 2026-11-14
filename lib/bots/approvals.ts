@@ -1,12 +1,17 @@
 import { createHash } from 'node:crypto';
 import { parseGbpPostPayload, type GbpPostPayload } from '../gbp-approvals/registry.ts';
+import { canonicalJson } from '../approvals-v2/registry.ts';
+import { parsePagePayload } from '../approvals-v2/page-body.ts';
+import type { PagePayload } from '../approvals-v2/registry.ts';
+import type { OutlineSection } from '../approvals-v2/page-body.ts';
 import { bearerToken, isBotKeyToken } from './scope.ts';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9:_.-]{7,199}$/;
 const FORBIDDEN = new Set(['send', 'stage', 'status', 'sentAt', 'released', 'expiresAt', 'link', 'organizationId', 'revoke', 'role', 'share', 'token', 'tokenHash', 'userId']);
 export interface BotApprovalItem {
   position: number;
-  payload: GbpPostPayload;
+  payload: GbpPostPayload | PagePayload;
+  outline?: OutlineSection[];
   photoPath: string | null;
 }
 export interface BotApprovalQuestion {
@@ -14,6 +19,7 @@ export interface BotApprovalQuestion {
   itemPosition: number | null;
 }
 export interface BotApprovalCommand {
+  itemType?: 'page';
   idempotencyKey: string;
   requestHash: string;
   clientId?: string;
@@ -63,8 +69,7 @@ export function parseBotApproval(body: unknown): BotApprovalParse {
     if (['send', 'stage', 'status', 'sentAt'].includes(key) || key.startsWith('released')) return fail(400, 'forbidden', 'Bots can only create drafts.');
     if (FORBIDDEN.has(key)) return fail(403, 'forbidden', 'A bot cannot create or share a review link.');
   }
-  if (record.itemType === 'page') return fail(400, 'page_type_not_enabled', 'Page drafts arrive in the next update.');
-  if (record.itemType !== undefined && record.itemType !== 'gbp_post') return fail(400, 'invalid_request', 'Unknown item type.');
+  if (record.itemType !== undefined && record.itemType !== 'gbp_post' && record.itemType !== 'page') return fail(400, 'invalid_request', 'Unknown item type.');
   const idempotencyKey = record.idempotencyKey;
   if (typeof idempotencyKey !== 'string' || !IDEMPOTENCY_KEY.test(idempotencyKey)) {
     return fail(400, 'invalid_request', 'Send an idempotencyKey of 8 to 200 letters, numbers, colon, underscore, dot, or dash.');
@@ -79,7 +84,7 @@ export function parseBotApproval(body: unknown): BotApprovalParse {
   if (taskId && !UUID.test(taskId)) return fail(400, 'invalid_request', 'taskId must be a UUID.');
   if (!clientId && !clientName) return fail(400, 'invalid_request', 'Name the client.');
   if (!taskId && !taskTitle) return fail(400, 'invalid_request', 'Name the task.');
-  if (!Array.isArray(record.items) || record.items.length < 1 || record.items.length > 30) {
+  if (!Array.isArray(record.items) || record.items.length < 1 || record.items.length > (record.itemType === 'page' ? 20 : 30)) {
     return fail(400, 'invalid_request', 'Add between 1 and 30 posts.');
   }
   const items: BotApprovalItem[] = [];
@@ -91,15 +96,16 @@ export function parseBotApproval(body: unknown): BotApprovalParse {
       return fail(400, 'invalid_request', 'Each post needs its own position.');
     }
     seen.add(item.position);
-    const parsed = parseGbpPostPayload(item.payload);
+    const parsed = record.itemType === 'page' ? parsePagePayload(item.payload) : parseGbpPostPayload(item.payload);
     if (!parsed.ok) return fail(400, 'invalid_request', parsed.error);
-    const photoPath = item.photoPath == null ? null : item.photoPath;
+    const photoPath = item.mockupUrl ?? item.photoPath ?? null;
     if (photoPath !== null && (typeof photoPath !== 'string' || !/^https:\/\/\S+$/.test(photoPath))) {
       return fail(400, 'invalid_request', 'A post photo must be an https URL.');
     }
     items.push({
       position: item.position,
       payload: parsed.payload,
+      ...('outline' in parsed ? { outline: parsed.outline } : {}),
       photoPath
     });
   }
@@ -127,6 +133,7 @@ export function parseBotApproval(body: unknown): BotApprovalParse {
     return fail(400, 'invalid_request', 'dueAt must be a timestamp.');
   }
   const command: BotApprovalCommand = {
+    ...(record.itemType === 'page' ? { itemType: 'page' as const } : {}),
     idempotencyKey,
     requestHash: '',
     ...(clientId ? {
@@ -146,7 +153,7 @@ export function parseBotApproval(body: unknown): BotApprovalParse {
     items,
     questions
   };
-  command.requestHash = createHash('sha256').update(stable(command)).digest('hex');
+  command.requestHash = createHash('sha256').update((command.itemType === 'page' ? canonicalJson({ ...command, items: command.items.map(({ outline: _outline, ...item }) => { void _outline; return item; }) }) : stable(command))).digest('hex');
   return {
     ok: true,
     command
