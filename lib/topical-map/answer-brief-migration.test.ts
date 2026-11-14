@@ -11,7 +11,10 @@ function executable(sql: string): string {
 }
 
 test('migration 130 adds one nullable jsonb column with no default, backfill, or policy change', () => {
-    for (const sql of [executable(migration), executable(schema.slice(schema.indexOf('-- 130_topical_map_record_answer_brief.sql')))]) {
+    const mirrored = schema.slice(schema.indexOf('-- 130_topical_map_record_answer_brief.sql'));
+    const nextMigration = mirrored.indexOf('-- Migration 131:', 10);
+    const section = nextMigration === -1 ? mirrored : mirrored.slice(0, nextMigration);
+    for (const sql of [executable(migration), executable(section)]) {
         assert.match(sql, /add column if not exists answer_brief jsonb;/);
         assert.doesNotMatch(sql, /\bupdate\b/i);
         assert.doesNotMatch(sql, /\binsert\b/i);

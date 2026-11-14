@@ -6,12 +6,22 @@ import { botRequestDecision } from './scope.ts';
 
 const token = 'Bearer seo_bot_example';
 
-test('a bot key may POST task create and timer start/stop only', () => {
+test('a bot key may POST task create, approvals, and timer start/stop only', () => {
     assert.equal(botRequestDecision({
         pathname: '/api/bots/tasks',
         method: 'POST',
         authorization: token,
     }), 'allow');
+    assert.equal(botRequestDecision({
+        pathname: '/api/bots/approvals',
+        method: 'POST',
+        authorization: token,
+    }), 'allow');
+    assert.equal(botRequestDecision({
+        pathname: '/api/gbp-approvals/requests/00000000-0000-4000-8000-000000000001/link',
+        method: 'POST',
+        authorization: token,
+    }), 'forbid');
     assert.equal(botRequestDecision({
         pathname: '/api/bots/timer/start',
         method: 'POST',

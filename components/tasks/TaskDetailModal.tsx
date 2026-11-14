@@ -41,6 +41,7 @@ import { StopConfirmSheet } from '@/components/timer/StopConfirmSheet';
 import { localTimeZone, workedWindowForEdit } from '@/lib/timer/manual-segment';
 import { basecampSendHint, manualTimeDefaults, manualTimeWrite } from '@/lib/timer/manual-entry';
 import { ReviewToggle } from '@/components/timer/ReviewToggle';
+import { TaskApprovalsPanel } from '@/components/gbp-approvals/TaskApprovalsPanel';
 
 interface TaskDetailModalProps {
     task: Task | null;
@@ -1297,6 +1298,8 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                                 </div>
                             </div>
                         </div>
+
+                        {task.clientId && <TaskApprovalsPanel taskId={task.id} taskTitle={task.title} />}
 
                         {/* Subtasks */}
                         <div className="space-y-2">
