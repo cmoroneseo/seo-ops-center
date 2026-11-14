@@ -220,7 +220,11 @@ test('public body route returns the released version only, removes internal fiel
               }
             },
             comments: [{
-              body: 'Not in 1C'
+              id: foreign,
+              anchor_kind: 'page',
+              version_id: client,
+              parent_id: null,
+              body: 'Client note'
             }]
           },
           error: null
@@ -243,7 +247,9 @@ test('public body route returns the released version only, removes internal fiel
   assert.equal(body.version.id, client);
   assert.equal(body.version.payload.targetKeyword, undefined);
   assert.equal(body.previous, undefined);
-  assert.equal(body.comments, undefined);
+  assert.equal(body.comments[0].body, 'Client note');
+  assert.equal(body.comments[0].state, 'same');
+  assert.equal(body.comments[0].organization_id, undefined);
   assert.deepEqual(signed, [own]);
   assert.equal(response.headers.get('Cache-Control'), 'no-store');
   assert.equal(response.headers.get('X-Robots-Tag'), 'noindex, nofollow');
@@ -262,14 +268,14 @@ test('page submit maps the required change note to a page anchor and preserves e
   const handler = createSubmit({
     clientIpHash: () => null,
     createAdminClient: () => ({
-      from: () => query({
+      from: (table: string) => query(table === 'approval_items' ? { released_version_id: client } : table === 'approval_item_versions' ? { payload: { body: { type: 'doc', content: [] } }, outline: [] } : {
         id,
         request_id: id,
         revoked_at: null,
         expires_at: '2099-01-01'
       }),
       rpc: async (name: string, args: Record<string, unknown>) => {
-        assert.equal(name, 'submit_gbp_approval');
+        assert.equal(name, 'submit_approval');
         const body = args.p_payload as {
           comments: unknown[];
           displayedVersionIds: string[];

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { carryAnchor, type CommentAnchor } from './carry';
 import { cache } from 'react';
 import { hashToken } from '@/lib/approvals/token';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -134,10 +136,44 @@ export function createPublicItem(dependencies = {
         ...sanitizeDoc(payload.body)
       };
       const paths = [...new Set([...imagePaths(payload.body), data.version.photoPath].filter((path): path is string => typeof path === 'string'))];
-      const images = Object.fromEntries(await Promise.all(paths.map(async path => [path, await signRequestAsset(requestId, path, dependencies.signApprovalPhoto)])));
-      // No draft versions, internal fields, or future comment UI data in this response.
+      const images = Object.fromEntries(await Promise.all(paths.map(async path => {
+        let preview = path;
+        if (path.startsWith(`gbp-approvals/${requestId}/`)) {
+          const upload = await admin.from('approval_upload_reservations').select('preview_key').eq('object_key', path).eq('request_id', requestId).maybeSingle();
+          if (upload.data?.preview_key) preview = upload.data.preview_key;
+        }
+        return [path, await signRequestAsset(requestId, preview, dependencies.signApprovalPhoto)];
+      })));
+      const photoHash = data.version.photoPath ? createHash('sha256').update(data.version.photoPath).digest('hex') : undefined;
+      const comments = await Promise.all((data.comments ?? []).filter((comment: { parent_id: string | null }) => !comment.parent_id).map(async (comment: Record<string, unknown>) => {
+        const anchor: CommentAnchor = {
+          anchorKind: comment.anchor_kind as CommentAnchor['anchorKind'],
+          pinTarget: comment.pin_target as CommentAnchor['pinTarget'],
+          sectionId: comment.section_id as string,
+          blockId: comment.block_id as string,
+          targetHash: comment.target_hash as string,
+          rangeStart: comment.range_start as number,
+          rangeEnd: comment.range_end as number,
+          quote: comment.quote as string,
+          quotePrefix: comment.quote_prefix as string,
+          quoteSuffix: comment.quote_suffix as string
+        };
+        const carried = carryAnchor(anchor, sanitizeDoc(payload.body), data.version.outline, photoHash);
+        const reply = (data.comments ?? []).filter((reply: { parent_id: unknown }) => reply.parent_id === comment.id).map((reply: { body: string }) => reply.body).join('\n');
+        const source = await admin.from('approval_item_versions').select('version_no').eq('id', comment.version_id).eq('item_id', itemId).maybeSingle();
+        // Do not expose draft version numbers or draft payloads to clients.
+        const resolution = comment.resolved_in_version_id ? await admin.from('approval_item_versions').select('version_no').eq('id', comment.resolved_in_version_id).eq('item_id', itemId).maybeSingle() : null;
+        let suggestedImageUrl = null;
+        if (typeof comment.suggested_image_key === 'string') {
+          const upload = await admin.from('approval_upload_reservations').select('preview_key').eq('object_key', comment.suggested_image_key).eq('request_id', requestId).maybeSingle();
+          if (upload.data?.preview_key) suggestedImageUrl = await signRequestAsset(requestId, upload.data.preview_key, dependencies.signApprovalPhoto);
+        }
+        return { id: comment.id, anchor: carried, state: carried.state, body: comment.body, quote: comment.quote, versionNo: source.data?.version_no ?? 1, reply: reply || comment.suggestion_reply, addressedVersion: resolution?.data?.version_no <= data.version.versionNo ? resolution?.data?.version_no : null, suggestedImageUrl };
+      }));
       return json({
         itemId,
+        comments,
+        photoHash,
         version: {
           id: data.version.id,
           versionNo: data.version.versionNo,

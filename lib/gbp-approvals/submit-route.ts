@@ -30,7 +30,7 @@ export function createSubmit(dependencies: { createAdminClient: typeof createAdm
         const answers = Array.isArray(body.answers) ? body.answers : [];
         const comments = body.itemType === 'page' ? [...(Array.isArray(body.comments) ? body.comments : []), ...decisions.flatMap(value => {
             const decision = value as { itemId?: string; versionId?: string; decision?: string; comment?: string };
-            return decision?.decision === 'changes_requested' ? [{ itemId: decision.itemId, versionId: decision.versionId, anchorKind: 'page', body: decision.comment }] : [];
+            return decision?.decision === 'changes_requested' && typeof decision.comment === 'string' && decision.comment.trim() ? [{ itemId: decision.itemId, versionId: decision.versionId, anchorKind: 'page', body: decision.comment }] : [];
         })] : [];
 
         const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : '';
@@ -59,7 +59,7 @@ export function createSubmit(dependencies: { createAdminClient: typeof createAdm
             const verified: string[] = [];
             for (const reservationId of requested) {
                 const { data } = await admin.from('approval_upload_reservations').select('id, object_key, content_type, byte_size, purpose, preview_key').eq('id', reservationId)
-                    .eq('request_id', link.request_id).eq('link_id', link.id).eq('status', 'reserved').gt('expires_at', now).maybeSingle();
+                    .eq('request_id', link.request_id).eq('link_id', link.id).in('status', ['reserved', 'attached']).maybeSingle();
                 if (!data?.object_key) continue;
                 const downloaded = await admin.storage.from('gbp-approval-uploads').download(data.object_key);
                 if (downloaded.error || !downloaded.data) continue;

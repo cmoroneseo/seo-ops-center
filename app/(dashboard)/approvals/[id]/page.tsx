@@ -8,6 +8,8 @@ import { ArrowDown, ArrowUp, CheckCircle, Copy, Lock, Send, Trash2 } from 'lucid
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { PreviewDialog } from '@/components/approvals-v2/PreviewDialog';
 import { PagePreview } from '@/components/approvals-v2/PagePreview';
+import { AgencyComments, type AgencyComment } from '@/components/approvals-v2/AgencyComments';
+import { sanitizeDoc } from '@/lib/approvals-v2/page-doc';
 import { PageEditor } from '@/components/approvals-v2/PageEditor';
 import type { PagePayload } from '@/lib/approvals-v2/registry';
 import { Button } from '@/components/ui/button';
@@ -63,6 +65,7 @@ interface Data {
     item_type: string;
   };
   items: Item[];
+  comments?: AgencyComment[];
   versions: Version[];
   questions: {
     id: string;
@@ -341,6 +344,11 @@ export default function Page({
               </div>}
             </header>
             {'pageKind' in p ? <>
+              {data.comments && <AgencyComments requestId={id} comments={data.comments.filter(comment => comment.item_id === item.id)} currentImages={Object.fromEntries([
+                ['mockup', data.photos[version.photo_path ?? ''] ?? null],
+                ...sanitizeDoc(p.body).content.filter(block => block.type === 'image').map(block => [String(block.attrs?.blockId), data.photos[String(block.attrs?.src)] ?? String(block.attrs?.src)])
+              ])} canWrite={editable} refresh={() => { void load(); }} />}
+              {editable && item.current_version_id !== item.released_version_id && !draft && <Button disabled={busy} onClick={() => void act('release')}>Release revision to client</Button>}
               <PagePreview domain={data.request.clients?.domain} payload={p} photoUrl={data.photos[version.photo_path ?? '']} images={data.photos} />
               {editable && item.version && <PageEditor
                 key={item.version.id}

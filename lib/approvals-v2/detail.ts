@@ -45,7 +45,7 @@ export function createStaffDetail(dependencies = {
       code: 'not_found'
     }, 404);
     const r = result.data;
-    const [items, versions, responses, questions, events, link] = await Promise.all([
+    const [items, versions, responses, questions, events, link, comments, uploads] = await Promise.all([
       admin.from('approval_items').select('*').eq('request_id', id).order('position'),
       admin.from('approval_item_versions').select('*').eq('request_id', id)
         .order('version_no', { ascending: false }),
@@ -57,8 +57,10 @@ export function createStaffDetail(dependencies = {
       admin.from('approval_links')
         .select('created_at,expires_at,revoked_at,last_viewed_at,view_count')
         .eq('request_id', id).maybeSingle(),
+      admin.from('approval_comments').select('*').eq('request_id', id).order('created_at'),
+      admin.from('approval_upload_reservations').select('object_key,preview_key').eq('request_id', id).eq('purpose', 'image_replacement'),
     ]);
-    if ([items, versions, responses, questions, events, link].some(v => v.error)) return json({
+    if ([items, versions, responses, questions, events, link, comments, uploads].some(v => v.error)) return json({
       error: 'Approvals could not be loaded.'
     }, 503);
     const paths = [...new Set([...(versions.data ?? []).map(v => v.photo_path), ...(responses.data ?? []).map(response => response.replacement_photo_path)].filter((path): path is string => Boolean(path)))];
@@ -71,8 +73,11 @@ export function createStaffDetail(dependencies = {
         }
       }
     }
+    for (const upload of uploads.data ?? []) {
+      if (upload.preview_key) paths.push(upload.preview_key);
+    }
     const scopedPaths = [...new Set(paths)].filter(path => path.startsWith('https://') || ['approval-assets', 'gbp-approvals'].some(prefix => path.startsWith(`${prefix}/${id}/`)));
-    const photos = Object.fromEntries(await Promise.all(scopedPaths.map(async path => [path, await dependencies.signApprovalPhoto(path)])));
+    const photos = Object.fromEntries(await Promise.all(scopedPaths.map(async path => [path, await dependencies.signApprovalPhoto(uploads.data?.find(upload => upload.object_key === path)?.preview_key ?? path)])));
     const role = members.find(m => m.organization_id === r.organization_id)?.role;
     const client = r.clients as {
       account_manager_id?: string;
@@ -87,6 +92,7 @@ export function createStaffDetail(dependencies = {
         releasedVersion: versions.data?.find(v => v.id === item.released_version_id) ?? null,
         response: responses.data?.find(v => v.item_id === item.id && v.version_id === (r.stage === 'sent' ? item.released_version_id : item.current_version_id)) ?? null
       })),
+      comments: (comments.data ?? []).map(comment => ({ ...comment, previewUrl: photos[uploads.data?.find(upload => upload.object_key === comment.suggested_image_key)?.preview_key ?? ''] ?? null })),
       versions: versions.data,
       responses: responses.data,
       questions: questions.data,

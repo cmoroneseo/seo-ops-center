@@ -196,7 +196,8 @@ export function mutation(action: string, dependencies = {
       unarchive: 'unarchive_approval_request',
       owner: 'set_approval_owner',
       versions: 'post_approval_version',
-      final: 'mark_gbp_approval_final'
+      final: 'mark_gbp_approval_final',
+      release: 'release_approval_revision'
     };
     if (action === 'draft' && Object.keys(body).some(k => !['title', 'dueAt', 'questions', 'removeItemIds', 'itemOrder'].includes(k))) return json({
       error: 'Invalid draft patch.',
