@@ -1,3 +1,5 @@
+import sharp from 'sharp';
+
 const MAX_BYTES = 10 * 1024 * 1024;
 
 export type ImageKind = 'jpeg' | 'png' | 'webp' | 'gif';
@@ -32,4 +34,20 @@ const KEY = /^gbp-approvals\/([0-9a-f-]{36})\/([0-9a-f-]{36})$/;
 export function uploadKeyMatches(requestId: string, objectKey: string): boolean {
     const match = KEY.exec(objectKey);
     return Boolean(match && match[1] === requestId);
+}
+
+/** Decode within bounded resources and verify the server-issued reservation. */
+export async function verifyReservedImage(bytes: Uint8Array, contentType: string, byteSize: number): Promise<boolean> {
+    if (bytes.byteLength !== byteSize || !sniffImage(bytes)) return false;
+    try {
+        const image = sharp(bytes, { limitInputPixels: 40_000_000, animated: true });
+        const metadata = await image.metadata();
+        const kind = metadata.format as ImageKind;
+        if (!metadata.width || !metadata.height || metadata.width > 10000 || metadata.height > 10000
+            || metadata.width * metadata.height > 40_000_000 || TYPES[kind] !== contentType) return false;
+        await image.stats();
+        return true;
+    } catch {
+        return false;
+    }
 }

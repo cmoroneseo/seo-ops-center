@@ -1,5 +1,5 @@
 import { hashToken } from '@/lib/approvals/token';
-import { sniffImage } from '@/lib/gbp-approvals/images';
+import { verifyReservedImage } from '@/lib/gbp-approvals/images';
 import { clientIpHash } from '@/lib/gbp-approvals/live';
 import { PUBLIC_REVIEW_HEADERS, publicMessage, publicStatus, submissionHash } from '@/lib/gbp-approvals/public-view';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -27,21 +27,29 @@ export async function POST(request: Request, context: { params: Promise<{ token:
     const decisions = Array.isArray(body.decisions) ? body.decisions : [];
     const answers = Array.isArray(body.answers) ? body.answers : [];
     const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : '';
-    const requested = decisions.flatMap(decision => {
+    const requested = [...new Set(decisions.flatMap(decision => {
         if (!decision || typeof decision !== 'object') return [];
         const reservationId = (decision as { reservationId?: unknown }).reservationId;
         return typeof reservationId === 'string' ? [reservationId] : [];
-    });
+    }))];
+    if (requested.length > 20) return json({ error: publicMessage('invalid_request') }, 400);
     try {
         const admin = createAdminClient();
+        const now = new Date().toISOString();
+        const { data: link, error: linkError } = await admin.from('approval_links')
+            .select('id, request_id, revoked_at, expires_at').eq('token_hash', hashToken(token)).maybeSingle();
+        if (linkError || !link) return json({ error: publicMessage('not_found') }, 404);
+        if (link.revoked_at) return json({ error: publicMessage('revoked') }, 410);
+        if (link.expires_at <= now) return json({ error: publicMessage('expired') }, 410);
         const verified: string[] = [];
         for (const reservationId of requested) {
-            const { data } = await admin.from('approval_upload_reservations').select('id, object_key, request_id').eq('id', reservationId).maybeSingle();
+            const { data } = await admin.from('approval_upload_reservations').select('id, object_key, content_type, byte_size').eq('id', reservationId)
+                .eq('request_id', link.request_id).eq('link_id', link.id).eq('status', 'reserved').gt('expires_at', now).maybeSingle();
             if (!data?.object_key) continue;
             const downloaded = await admin.storage.from('gbp-approval-uploads').download(data.object_key);
             if (downloaded.error || !downloaded.data) continue;
             const bytes = new Uint8Array(await downloaded.data.arrayBuffer());
-            if (!sniffImage(bytes)) continue;
+            if (!await verifyReservedImage(bytes, data.content_type, data.byte_size)) continue;
             verified.push(reservationId);
         }
         const payload = {

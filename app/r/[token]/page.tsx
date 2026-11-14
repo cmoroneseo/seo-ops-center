@@ -1,9 +1,8 @@
 import type { Metadata } from 'next';
 
-import { PublicReview } from '@/components/gbp-approvals/PublicReview';
+import { PublicReview, type ReviewPost } from '@/components/gbp-approvals/PublicReview';
 import { loadPublicReview, signApprovalPhoto } from '@/lib/gbp-approvals/live';
 import type { PublicReviewView } from '@/lib/gbp-approvals/public-view';
-import type { SamplePost } from '@/components/gbp-approvals/sample';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +22,15 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
     if (!view || 'code' in view) {
         return <PublicReview mode="missing" posts={[]} questions={[]} />;
     }
-    const posts: SamplePost[] = view.posts.map(post => ({
+    const posts: ReviewPost[] = view.posts.map(post => ({
+        itemId: post.id,
+        versionId: post.versionId,
+        locked: post.locked,
+        terms: post.terms,
+        postType: post.postType,
+        ctaUrl: post.ctaUrl,
+        ctaLabel: post.ctaLabel,
+        changeNote: post.changeNote,
         position: post.position,
         title: post.title,
         scheduled: post.scheduledDate,
@@ -41,6 +48,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
         : view.state === 'expired' ? 'expired' : 'revoked';
     return (
         <PublicReview
+            token={token}
+            expiresAt={view.expiresAt}
+            dueAt={view.dueAt}
             mode={mode}
             posts={posts}
             clientName={view.clientName}

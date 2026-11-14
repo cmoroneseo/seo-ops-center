@@ -20,3 +20,18 @@ test('an upload key cannot point at another request', () => {
     assert.equal(uploadKeyMatches(requestId, `gbp-approvals/${requestId}/../secret`), false);
     assert.equal(uploadKeyMatches(requestId, 'https://allinone-const.com/photo.jpg'), false);
 });
+
+test('reserved images must decode and match type, size, and pixel limits', async () => {
+    const { default: sharp } = await import('sharp');
+    const { verifyReservedImage } = await import('./images.ts');
+    const png = await sharp({ create: { width: 2, height: 2, channels: 3, background: 'white' } }).png().toBuffer();
+    assert.equal(await verifyReservedImage(png, 'image/png', png.length), true);
+    assert.equal(await verifyReservedImage(png, 'image/jpeg', png.length), false);
+    assert.equal(await verifyReservedImage(png, 'image/png', png.length + 1), false);
+    assert.equal(await verifyReservedImage(png.subarray(0, 24), 'image/png', 24), false);
+    const fake = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert.equal(await verifyReservedImage(fake, 'image/png', fake.length), false);
+    const wide = await sharp({ create: { width: 10001, height: 1, channels: 3, background: 'white' } }).png().toBuffer();
+    assert.equal(await verifyReservedImage(wide, 'image/png', wide.length), false);
+    assert.equal(await verifyReservedImage(new Uint8Array(10 * 1024 * 1024 + 1), 'image/png', 10 * 1024 * 1024 + 1), false);
+});

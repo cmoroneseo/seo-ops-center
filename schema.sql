@@ -17933,6 +17933,10 @@ begin
     return public.gbp_approval_fail('not_found');
   end if;
   select * into v_request from public.approval_requests where id = v_link.request_id for update;
+  select * into v_link from public.approval_links where id = v_link.id and token_hash = p_token_hash for update;
+  if not found then
+    return public.gbp_approval_fail('not_found');
+  end if;
   if v_link.revoked_at is not null then
     return public.gbp_approval_fail('revoked');
   end if;
@@ -18028,7 +18032,10 @@ begin
     return public.gbp_approval_fail('not_found');
   end if;
   select * into v_request from public.approval_requests where id = v_link.request_id for update;
-  select * into v_link from public.approval_links where id = v_link.id for update;
+  select * into v_link from public.approval_links where id = v_link.id and token_hash = p_token_hash for update;
+  if not found then
+    return public.gbp_approval_fail('not_found');
+  end if;
   if v_link.revoked_at is not null then
     return public.gbp_approval_fail('revoked');
   end if;
@@ -18197,7 +18204,10 @@ begin
     return public.gbp_approval_fail('nothing_to_send');
   end if;
 
-  select * into v_link from public.approval_links where id = v_link.id for update;
+  select * into v_link from public.approval_links where id = v_link.id and token_hash = p_token_hash for update;
+  if not found then
+    return public.gbp_approval_fail('not_found');
+  end if;
   if v_link.revoked_at is not null then
     return public.gbp_approval_fail('revoked');
   end if;

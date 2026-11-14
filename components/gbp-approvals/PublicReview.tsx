@@ -1,17 +1,28 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { diffWords } from '@/lib/gbp-approvals/diff';
 
 import './public-review.css';
-import { LOGO, SAMPLE_QUESTIONS, SAMPLE_TERMS, monthDay, weekday, type SamplePost } from './sample';
+import { LOGO, SAMPLE_QUESTIONS, monthDay, weekday, type SamplePost } from './sample';
 
 export interface ReviewQuestion {
     id: string;
     prompt: string;
     about: string;
     answer: string | null;
+}
+
+export interface ReviewPost extends SamplePost {
+    itemId?: string;
+    versionId?: string;
+    locked?: boolean;
+    terms?: string;
+    ctaUrl?: string;
+    ctaLabel?: string;
+    changeNote?: string | null;
+    postType?: string;
 }
 
 type Mode = 'review' | 'revision' | 'expired' | 'revoked' | 'missing';
@@ -25,11 +36,15 @@ export function PublicReview({
     posts,
     questions = SAMPLE_QUESTIONS,
     clientName = 'ALL-IN-1 Construction',
+    token, expiresAt, dueAt,
 }: {
     mode: Mode;
-    posts: SamplePost[];
+    posts: ReviewPost[];
     questions?: ReviewQuestion[];
     clientName?: string;
+    token?: string;
+    expiresAt?: string | null;
+    dueAt?: string | null;
 }) {
     const [choices, setChoices] = useState<Record<number, 'approved' | 'changes_requested' | undefined>>({});
     const [openChanges, setOpenChanges] = useState<number | null>(null);
@@ -40,6 +55,12 @@ export function PublicReview({
     const [name, setName] = useState('');
     const [nameError, setNameError] = useState(false);
     const [sent, setSent] = useState(false);
+    const [email, setEmail] = useState('');
+    const [error, setError] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [uploads, setUploads] = useState<Record<number, string>>({});
+    const [uploading, setUploading] = useState(false);
+    const attempt = useRef<{ key: string; payload: string } | null>(null);
 
     const counts = useMemo(() => {
         const approved = posts.filter(post => (choices[post.position] ?? (mode === 'revision' ? post.status : undefined)) === 'approved').length;
@@ -59,7 +80,7 @@ export function PublicReview({
                     <h1 className="title">{mode === 'expired' ? 'This review link has expired' : 'This review link was turned off'}</h1>
                     <p className="lead">
                         {mode === 'expired'
-                            ? 'It expired on Fri, Nov 27. Contact your account manager and ask for a new link. Anything you already sent was saved.'
+                            ? `${expiresAt ? `It expired on ${new Date(expiresAt).toLocaleDateString('en-US', { dateStyle: 'long', timeZone: 'UTC' })}. ` : 'This link has expired. '}Contact your account manager at Marketing Empire Group for a new one.`
                             : 'Marketing Empire Group turned this link off. Contact your account manager if you still need to review these posts.'}
                     </p>
                 </section>
@@ -73,33 +94,84 @@ export function PublicReview({
                 <section className="panel">
                     <div className="done-ic" aria-hidden="true"><Check /></div>
                     <h1 className="title">Thanks, {name.trim()}. We have your review.</h1>
-                    <p className="lead">Approved posts stay on their planned dates. If we update a post, it shows up on this same link. Nothing else is sent. You can reopen this page until the link expires.</p>
+                    <p className="lead">Your account manager will schedule the approved posts and follow up on any changes. You can reopen this page until the link expires.</p>
                 </section>
             </Shell>
         );
     }
 
     const updated = mode === 'revision' ? posts.filter(post => post.previousBody || post.replacementPhoto) : [];
-    const waiting = mode === 'revision' ? posts.filter(post => post.status === 'pending') : [];
+
     const kept = mode === 'revision' ? posts.filter(post => post.status === 'approved' && !post.previousBody) : [];
 
     function approveAll() {
         const next: Record<number, 'approved'> = {};
-        for (const post of posts) next[post.position] = 'approved';
+        for (const post of posts) if (!post.locked) next[post.position] = 'approved';
         setChoices(next);
     }
 
-    function send() {
+    async function upload(post: ReviewPost, file: File) {
+        if (!token || uploading || busy) return;
+        setUploading(true);
+        setError('');
+        try {
+            const response = await fetch(`/api/public/approvals/${encodeURIComponent(token)}/photo-upload-url`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contentType: file.type, byteSize: file.size }),
+            });
+            const result = await response.json();
+            if (response.status !== 200) throw new Error(result.error || 'Photo upload could not be started.');
+            const uploaded = await fetch(result.signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+            if (!uploaded.ok) throw new Error('Photo upload failed. Please try again.');
+            setUploads(current => ({ ...current, [post.position]: result.reservationId }));
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Photo upload failed. Please try again.');
+        } finally {
+            setUploading(false);
+        }
+    }
+
+    async function send() {
+        if (busy || uploading) return;
         if (!name.trim()) {
             setNameError(true);
             return;
         }
-        setSent(true);
-        setAskName(false);
+        setError('');
+        setBusy(true);
+        try {
+            if (!token) throw new Error('This preview cannot save a review. Open your review link.');
+            const payload = {
+                respondentName: name.trim(), respondentEmail: email.trim() || null,
+                displayedVersionIds: posts.map(post => post.versionId),
+                decisions: posts.filter(post => !post.locked && choices[post.position]).map(post => ({
+                    itemId: post.itemId, versionId: post.versionId, decision: choices[post.position],
+                    comment: comments[post.position] ?? '',
+                    reservationId: choices[post.position] === 'changes_requested' ? uploads[post.position] : undefined,
+                })),
+                answers: Object.entries(answers).map(([questionId, answer]) => ({ questionId, answer })),
+            };
+            const serialized = JSON.stringify(payload);
+            if (!attempt.current || attempt.current.payload !== serialized) attempt.current = { key: crypto.randomUUID(), payload: serialized };
+            const response = await fetch(`/api/public/approvals/${encodeURIComponent(token)}/submit`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...payload, idempotencyKey: attempt.current.key }),
+            });
+            const result = await response.json();
+            if (response.status !== 200) throw new Error(result.error || 'Your review could not be saved. Please try again.');
+            attempt.current = null;
+            setSent(true);
+            setAskName(false);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Your review could not be saved. Please try again.');
+        } finally {
+            setBusy(false);
+        }
     }
 
     return (
         <Shell clientName={clientName}>
+            {error && <p className="errmsg" role="alert">{error}</p>}
             <div className="wrap">
                 <div>
                     {mode === 'revision' && (
@@ -114,7 +186,7 @@ export function PublicReview({
                             <div className="facts">
                                 <span>{posts.length} posts</span>
                                 <span>{questions.length} questions</span>
-                                <span>Please review by Sun, Nov 15</span>
+                                {dueAt && <span>Please review by {new Date(dueAt).toLocaleDateString('en-US', { timeZone: 'UTC' })}</span>}
                             </div>
                             <ol className="steps">
                                 <li>Read each post as it will look on Google</li>
@@ -122,7 +194,7 @@ export function PublicReview({
                                 <li>Answer the questions</li>
                                 <li>Add your name and send</li>
                             </ol>
-                            <div className="notice"><span><b>Happy with all of them?</b> Approve all {posts.length} at once. You can still change any post before you send. Post 5 still needs a photo.</span></div>
+                            <div className="notice"><span><b>Happy with all of them?</b> Approve all {posts.length} at once. You can still change any post before you send. Posts without a photo still need one.</span></div>
                             <button className="btn btn-secondary" style={{ marginTop: 12 }} type="button" onClick={approveAll}><Check />Approve all {posts.length} posts</button>
                         </section>
                     )}
@@ -136,18 +208,22 @@ export function PublicReview({
                                     <div className="about">About: {question.about}</div>
                                     <div className="field">
                                         <label className="label" htmlFor={question.id}>Your answer <span className="lopt">(optional)</span></label>
-                                        <textarea className="input ta" id={question.id} value={answers[question.id] ?? ''} onChange={event => setAnswers(current => ({ ...current, [question.id]: event.target.value }))} />
+                                        <textarea className="input ta" id={question.id} value={answers[question.id] ?? question.answer ?? ''} onChange={event => setAnswers(current => ({ ...current, [question.id]: event.target.value }))} />
                                     </div>
                                 </div>
                             ))}
                         </section>
                     )}
                     <div className="sec-h"><h2>{mode === 'revision' ? 'Updated posts' : `Your ${posts.length} posts`}</h2></div>
-                    {(mode === 'revision' ? updated : posts).map(post => (
+                    {(mode === 'revision' ? posts.filter(post => !kept.includes(post)) : posts).map(post => (
                         <PostCard
                             key={post.position}
                             post={post}
                             total={posts.length}
+                            clientName={clientName}
+                            onUpload={file => upload(post, file)}
+                            uploading={uploading || busy}
+                            uploaded={Boolean(uploads[post.position])}
                             choice={choices[post.position]}
                             open={openChanges === post.position}
                             comment={comments[post.position] ?? ''}
@@ -157,9 +233,6 @@ export function PublicReview({
                             onComment={value => setComments(current => ({ ...current, [post.position]: value }))}
                             onToggleFull={() => setFull(current => ({ ...current, [post.position]: !current[post.position] }))}
                         />
-                    ))}
-                    {mode === 'revision' && waiting.map(post => (
-                        <article className="ritem" key={post.position}><div className="collapsed"><div className="t">Post {post.position} <span>{post.title}</span></div><span className="chip chip-pending">Not reviewed</span></div></article>
                     ))}
                     {mode === 'revision' && kept.length > 0 && <h2 style={{ marginTop: 28 }}>Already approved</h2>}
                     {kept.map(post => (
@@ -198,9 +271,10 @@ export function PublicReview({
                         </div>
                         <div className="field">
                             <label className="label" htmlFor="reviewer-email">Email <span className="lopt">(optional)</span></label>
-                            <input id="reviewer-email" className="input" type="email" />
+                            <input id="reviewer-email" className="input" type="email" value={email} onChange={event => setEmail(event.target.value)} />
                         </div>
-                        <button className="btn btn-primary full" type="submit">Send review</button>
+                        {error && <p className="errmsg" role="alert">{error}</p>}
+                        <button className="btn btn-primary full" type="submit" disabled={busy || uploading}>{busy ? 'Sending…' : 'Send review'}</button>
                     </form>
                 </div>
             )}
@@ -230,9 +304,13 @@ function Shell({ children, clientName }: { children: ReactNode; clientName: stri
 }
 
 function PostCard({
-    post, total, choice, open, comment, showFull, onApprove, onRequest, onComment, onToggleFull,
+    post, total, choice, open, comment, showFull, onApprove, onRequest, onComment, onToggleFull, clientName, onUpload, uploading, uploaded,
 }: {
-    post: SamplePost;
+    post: ReviewPost;
+    clientName: string;
+    onUpload: (file: File) => void;
+    uploading: boolean;
+    uploaded: boolean;
     total: number;
     choice?: 'approved' | 'changes_requested';
     open: boolean;
@@ -244,7 +322,7 @@ function PostCard({
     onToggleFull: () => void;
 }) {
     const status = choice ?? post.status;
-    const parts = post.previousBody && post.suggestedBody ? diffWords(post.previousBody, post.suggestedBody) : [];
+    const parts = post.previousBody ? diffWords(post.previousBody, post.body) : [];
     return (
         <article className={open ? 'ritem sel' : 'ritem'} aria-label={`Post ${post.position}`}>
             <div className="ri-head">
@@ -256,7 +334,7 @@ function PostCard({
             {post.previousBody && (
                 <div className="ch-panel">
                     <h3>What changed</h3>
-                    <p>Removed the leftovers line, as you suggested.</p>
+                    {post.changeNote && <p>{post.changeNote}</p>}
                     <div className="diff">
                         {parts.map((part, index) => part.kind === 'same'
                             ? <span key={index}>{part.text}</span>
@@ -281,33 +359,37 @@ function PostCard({
                                 {post.photo ? <img src={post.photo} alt="" /> : <div className="miss"><strong>Photo needed</strong><span>We need a photo of a finished remodel for this post.</span></div>}
                             </div>
                             <div className="g-body">
-                                <div className="g-head"><span className="g-av"><img src={LOGO} alt="" /></span><span className="g-meta"><span className="g-biz">ALL-IN-1 Construction</span><span className="g-age">Planned for {weekday(post.scheduled)}</span></span></div>
-                                <div className="g-offer">Offer</div>
+                                <div className="g-head"><span className="g-av"><img src={LOGO} alt="" /></span><span className="g-meta"><span className="g-biz">{clientName}</span><span className="g-age">Planned for {weekday(post.scheduled)}</span></span></div>
+                                <div className="g-offer">{post.postType ?? 'Offer'}</div>
                                 <h3 className="g-title">{post.title}</h3>
                                 <div className="g-date">{monthDay(post.offerStart)} – {monthDay(post.offerEnd)}</div>
                                 <p className="g-desc">{showFull ? post.body : `${post.body.slice(0, 140)}…`} <span className="g-more">More</span></p>
-                                <div className="g-cta"><span className="g-btn">View offer</span></div>
+                                <div className="g-cta"><span className="g-btn">{post.ctaLabel ?? 'View offer'}</span></div>
                             </div>
                         </article>
                         <button className="btn btn-ghost" type="button" style={{ marginTop: 8, paddingLeft: 0 }} onClick={onToggleFull}>{showFull ? 'Show the short preview' : 'Show full post and terms'}</button>
-                        {showFull && <p className="hint">{SAMPLE_TERMS}</p>}
+                        {showFull && <p className="hint">{post.terms}</p>}
                     </div>
                     <dl className="det">
                         <dt>Planned for</dt><dd>{weekday(post.scheduled)}</dd>
                         <dt>Offer runs</dt><dd>{monthDay(post.offerStart)} – {monthDay(post.offerEnd)}</dd>
-                        <dt>Button</dt><dd>View offer</dd>
-                        <dt>Opens</dt><dd>allinone-const.com/contact/</dd>
+                        <dt>Button</dt><dd>{post.ctaLabel ?? 'View offer'}</dd>
+                        <dt>Opens</dt><dd>{post.ctaUrl}</dd>
                         <dt>Photo</dt><dd>{post.photo ? 'Included' : 'Needed'}</dd>
                     </dl>
                 </div>
             </div>
             <div className="actions">
-                <button className={status === 'approved' ? 'btn btn-primary sel-ok' : 'btn btn-primary'} type="button" onClick={onApprove}><Check />{post.previousBody ? 'Approve v2' : 'Approve'}</button>
-                <button className={status === 'changes_requested' ? 'btn btn-secondary sel-ch' : 'btn btn-secondary'} type="button" onClick={onRequest}>Request changes</button>
+                {post.locked && <p className="hint">The agency has acted on this post. Its decision is locked.</p>}
+                <button className={status === 'approved' ? 'btn btn-primary sel-ok' : 'btn btn-primary'} type="button" disabled={post.locked} onClick={onApprove}><Check />{post.previousBody ? 'Approve v2' : 'Approve'}</button>
+                <button className={status === 'changes_requested' ? 'btn btn-secondary sel-ch' : 'btn btn-secondary'} type="button" disabled={post.locked} onClick={onRequest}>Request changes</button>
             </div>
-            {open && (
+            {open && !post.locked && (
                 <div className="ch-panel">
                     <h3>What should we change?</h3>
+                    <label className="label" htmlFor={`photo-${post.position}`}>Replacement photo (optional)</label>
+                    <input id={`photo-${post.position}`} type="file" accept="image/jpeg,image/png,image/webp,image/gif" disabled={uploading} onChange={event => { const file = event.target.files?.[0]; if (file) onUpload(file); }} />
+                    {uploaded && <p className="hint">Photo uploaded. Send your review to share it.</p>}
                     <label className="label" htmlFor={`comment-${post.position}`}>Comment</label>
                     <textarea id={`comment-${post.position}`} className="input ta" value={comment} onChange={event => onComment(event.target.value)} />
                     <p className="hint">A comment is required to request changes. A suggested edit is optional and stays a suggestion until we accept it.</p>
