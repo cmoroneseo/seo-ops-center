@@ -25,6 +25,15 @@ export function safeUrl(value: unknown, image = false): string | null {
 export function nodeText(node: PageNode): string {
   return node.text ?? (node.content ?? []).map(nodeText).join(node.type === 'doc' ? '\n' : '');
 }
+function stripTags(text: string): string {
+  let previous: string;
+  do {
+    previous = text;
+    text = text.replace(/<(script|style|iframe)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '').replace(/<[^>]*>/g, '');
+  } while (text !== previous);
+  // Remove incomplete tag openers; retain '>' for Markdown blockquotes.
+  return text.replace(/</g, '');
+}
 
 /** This is also run at render time: historical documents never bypass the allowlist. */
 export function sanitizeDoc(input: unknown): PageNode & {
@@ -40,7 +49,7 @@ export function sanitizeDoc(input: unknown): PageNode & {
     const content = Array.isArray(n.content) ? n.content.flatMap(child => clean(child, depth + 1)) : [];
     if (!nodes.has(n.type)) return content.length ? content : typeof n.text === 'string' ? [{
       type: 'text',
-      text: n.text.replace(/<[^>]*>/g, '')
+      text: stripTags(n.text)
     }] : [];
     const result: PageNode = {
       type: n.type
@@ -154,7 +163,7 @@ export function markdownDoc(markdown: string, depth = 0): PageNode {
   if (depth > 32) throw new Error('Markdown is too deeply nested.');
   if (new TextEncoder().encode(markdown).length > 1048576) throw new Error('Markdown exceeds 1 MB.');
   // Raw HTML is never interpreted, including the contents of active HTML elements.
-  const text = markdown.replace(/<(script|style|iframe)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '').replace(/<[^>]*>/g, '');
+  const text = stripTags(markdown);
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const content: PageNode[] = [];
   for (let i = 0; i < lines.length; i++) {

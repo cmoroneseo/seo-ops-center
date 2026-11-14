@@ -142,6 +142,21 @@ test('Markdown converts headings, marks, lists, quotes, rules, tables and images
     }
   }).ok, true);
 });
+test('Markdown and unknown nodes strip nested HTML and incomplete tag openers', () => {
+  for (const [input, expected] of [
+    ['<scr<script>ipt>alert(1)</script>', 'scr'],
+    ['<<script>script>', 'script>'],
+    ['<style>hidden</style><IFRAME>hidden</IFRAME><b>Keep</b>', 'Keep'],
+    ['<scr<script></script>ipt>alert(1)</script>', 'alert(1)'],
+    ['Keep <script', 'Keep script']
+  ]) {
+    assert.equal(nodeText(markdownDoc(input)), expected, input);
+    assert.equal(nodeText(sanitizeDoc({
+      type: 'doc',
+      content: [{ type: 'unknown', text: input }]
+    })), expected, input);
+  }
+});
 test('Markdown consumes balanced link destinations before sanitizing unsafe schemes', () => {
   const unsafe = markdownDoc('[bad link](javascript:alert(1))');
   assert.equal(nodeText(unsafe), 'bad link');
