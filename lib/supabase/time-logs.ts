@@ -141,7 +141,7 @@ export async function getTimeLogs(
         /** Review surfaces that deliberately show unapproved imports. */
         includeUnreviewedImports?: boolean;
         /**
-         * Include bot timers stopped at the two-hour cap. They stay out of
+         * Include bot timers stopped at a configured length cap. They stay out of
          * budget reads. The client activity feed is where the owner reviews them.
          */
         includeNeedsReview?: boolean;

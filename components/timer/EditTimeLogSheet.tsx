@@ -347,7 +347,7 @@ export function EditTimeLogSheet({ log, onClose, onSaved }: EditTimeLogSheetProp
                         {log.status === 'needs_review' && (
                             <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-500">
                                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                                <span>This bot timer was stopped at 2 hours. Saving accepts the hours. Send to Basecamp when the amount is right.</span>
+                                <span>This bot timer was stopped at its length cap. Saving accepts the hours. Send to Basecamp when the amount is right.</span>
                             </div>
                         )}
 

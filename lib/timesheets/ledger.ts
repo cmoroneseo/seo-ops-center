@@ -157,8 +157,8 @@ function emptyDays(): number[] {
 
 /**
  * A row that no longer reflects real, resolved, finalized work.
- * `needs_review` is a bot timer stopped at the two-hour cap. It is visible
- * and it is not confirmed client time until the owner accepts it.
+ * `needs_review` is a bot timer stopped because it passed BOT_TIMER_MAX_SECONDS.
+ * It is visible and it is not confirmed client time until the owner accepts it.
  * `paused` is a bot timer waiting for more work. It is visible and it is not
  * budget time until stop.
  */

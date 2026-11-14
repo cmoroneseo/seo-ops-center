@@ -146,7 +146,7 @@ export function LedgerInspector({
                                     <p className="mt-2 flex items-start gap-2 text-sm text-amber-500">
                                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
                                         <span>
-                                            Stopped at 2 hours.
+                                            Stopped at the timer cap.
                                             {entry.clientName ? ` ${entry.clientName}.` : ''}
                                             {' '}Review it in the client activity feed before it counts.
                                         </span>

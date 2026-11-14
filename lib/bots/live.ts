@@ -512,8 +512,8 @@ export function liveBotDeps(): BotDeps {
             return (data ?? []).map(pausedRecord).filter((row): row is RunningBotTimer => row !== null);
         },
         async listOverdueTimers() {
-            // Every running bot timer. Cumulative running time, not the open
-            // stretch's wall clock, decides the cap. Paused rows are not here.
+            // Every running bot timer. The caller applies BOT_TIMER_MAX_SECONDS.
+            // Cumulative running time decides a configured cap. Paused rows are not here.
             const { data, error } = await admin()
                 .from('time_logs')
                 .select(TIMER_COLUMNS)

@@ -49,6 +49,9 @@ interface Mem {
     pushed: string[];
     completed: string[];
     now: Date;
+    pauseWrites: Array<{ elapsedSeconds: number; hours: number }>;
+    stopNotes: Array<string | null>;
+    stoppedAt: string[];
 }
 
 function task(patch: Partial<BotTaskRecord> & Pick<BotTaskRecord, 'id' | 'title'>): BotTaskRecord {
@@ -84,6 +87,9 @@ function world(patch: Partial<Mem> = {}): { mem: Mem; deps: BotDeps } {
         pushed: [],
         completed: [],
         now: new Date(NOW),
+        pauseWrites: [],
+        stopNotes: [],
+        stoppedAt: [],
         ...patch,
     };
     const deps: BotDeps = {
@@ -222,6 +228,7 @@ function world(patch: Partial<Mem> = {}): { mem: Mem; deps: BotDeps } {
             return timer;
         },
         async pauseTimer(input) {
+            mem.pauseWrites.push({ elapsedSeconds: input.elapsedSeconds, hours: input.hours });
             const timer = mem.timers.find(item => item.id === input.timer.id);
             if (!timer) return null;
             if (!timer.stretches.some(stretch => stretch.startedAt === input.stretch.startedAt)) {
@@ -255,6 +262,8 @@ function world(patch: Partial<Mem> = {}): { mem: Mem; deps: BotDeps } {
                 }
             }
             mem.timers.splice(index, 1);
+            mem.stopNotes.push(input.note);
+            mem.stoppedAt.push(input.stoppedAt);
             const logs = input.slices.map((slice, sliceIndex) => {
                 const log: FinalizedBotLog = {
                     id: sliceIndex === 0 ? input.timer.id : randomUUID(),
@@ -457,7 +466,7 @@ test('stopping a timer logs the elapsed time and sends it to Basecamp', async ()
     assert.equal(mem.synced.length, 1);
 });
 
-test('a timer longer than two hours stops at the cap, is flagged, and is not sent to Basecamp', async () => {
+test('a timer longer than two hours records the real time and is sent to Basecamp', async () => {
     const existing = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Brief' });
     const { mem, deps } = world({ tasks: [existing] });
     await handleBotRequest(request(BOT_TIMER_START_PATH, {
@@ -465,7 +474,8 @@ test('a timer longer than two hours stops at the cap, is flagged, and is not sen
         clientId: CLIENT,
         taskId: existing.id,
     }), deps);
-    mem.now = new Date(NOW.getTime() + (2 * 60 + 15) * 60 * 1000);
+    const stoppedAt = new Date(NOW.getTime() + (2 * 60 + 15) * 60 * 1000);
+    mem.now = stoppedAt;
     const stopped = await handleBotRequest(request(BOT_TIMER_STOP_PATH, {
         idempotencyKey: 'stop-brief',
     }), deps);
@@ -474,15 +484,18 @@ test('a timer longer than two hours stops at the cap, is flagged, and is not sen
         review: boolean;
         timeLog: { hours: number; status: string; basecamp: { status: string } };
     };
-    assert.equal(body.capped, true);
-    assert.equal(body.review, true);
-    assert.equal(body.timeLog.hours, 2);
-    assert.equal(body.timeLog.status, 'needs_review');
-    assert.equal(body.timeLog.basecamp.status, 'not_sent');
-    assert.equal(mem.synced.length, 0);
+    assert.equal(body.capped, false);
+    assert.equal(body.review, false);
+    assert.equal(body.timeLog.hours, 2.25);
+    assert.equal(body.timeLog.status, 'logged');
+    assert.equal(body.timeLog.basecamp.status, 'pushed');
+    assert.equal(mem.logs[0].status, 'logged');
+    assert.equal(mem.stopNotes[0], null);
+    assert.equal(mem.stoppedAt[0], stoppedAt.toISOString());
+    assert.deepEqual(mem.synced, [mem.logs[0].id]);
 });
 
-test('the next start caps an overdue timer before starting the new one', async () => {
+test('a long running timer stays open when another task is started', async () => {
     const brief = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Brief' });
     const draft = task({ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', title: 'Draft' });
     const { mem, deps } = world({ tasks: [brief, draft] });
@@ -497,23 +510,26 @@ test('the next start caps an overdue timer before starting the new one', async (
         clientId: CLIENT,
         taskId: draft.id,
     }), deps);
-    assert.equal(started.status, 200);
-    const body = await started.json() as {
-        timer: { taskId: string };
-        cappedTimer: { hours: number; status: string; review: boolean };
-    };
-    assert.equal(body.timer.taskId, draft.id);
-    assert.equal(body.cappedTimer.hours, 2);
-    assert.equal(body.cappedTimer.status, 'needs_review');
-    assert.equal(body.cappedTimer.review, true);
-    assert.equal(mem.synced.length, 0);
-    assert.equal(mem.logs[0].taskId, brief.id);
-    assert.equal(mem.timers[0].taskId, draft.id);
+    assert.equal(started.status, 409);
+    const body = await started.json() as { code: string; cappedTimer?: unknown; timer: { taskId: string } };
+    assert.equal(body.code, 'timer_already_running');
+    assert.equal(body.cappedTimer, undefined);
+    assert.equal(body.timer.taskId, brief.id);
+    assert.equal(mem.logs.length, 0);
+    assert.equal(mem.timers.length, 1);
+    assert.equal(mem.timers[0].taskId, brief.id);
+    assert.equal(mem.timers[0].startedAt, NOW.toISOString());
 });
 
-test('the sweep stops a forgotten timer at two hours without a bot calling back', async () => {
+test('the sweep does not stop a forgotten timer when no cap is configured', async () => {
     const existing = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Brief' });
     const { mem, deps } = world({ tasks: [existing] });
+    let listedRunning = 0;
+    const listOverdueTimers = deps.listOverdueTimers;
+    deps.listOverdueTimers = async now => {
+        listedRunning += 1;
+        return listOverdueTimers(now);
+    };
     await handleBotRequest(request(BOT_TIMER_START_PATH, {
         idempotencyKey: 'start-brief',
         clientId: CLIENT,
@@ -521,13 +537,87 @@ test('the sweep stops a forgotten timer at two hours without a bot calling back'
     }), deps);
     mem.now = new Date(NOW.getTime() + 5 * 60 * 60 * 1000);
     const result = await capOverdueBotTimers(deps);
-    assert.deepEqual(result, { checked: 1, capped: 1, stalePaused: [] });
-    assert.equal(mem.timers.length, 0);
-    assert.equal(mem.logs[0].hours, 2);
-    assert.equal(mem.logs[0].status, 'needs_review');
-    assert.equal(mem.synced.length, 0);
+    assert.deepEqual(result, { checked: 0, capped: 0, stalePaused: [] });
+    assert.equal(listedRunning, 0);
+    assert.equal(mem.timers.length, 1);
+    assert.equal(mem.timers[0].startedAt, NOW.toISOString());
+    assert.equal(mem.logs.length, 0);
     const again = await capOverdueBotTimers(deps);
     assert.deepEqual(again, { checked: 0, capped: 0, stalePaused: [] });
+    assert.equal(listedRunning, 0);
+});
+
+test('a bot timer can run past three hours through pause, resume, stop, and the sweep', async () => {
+    const existing = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Brief' });
+    const { mem, deps } = world({ tasks: [existing] });
+    const started = await handleBotRequest(request(BOT_TIMER_START_PATH, {
+        idempotencyKey: 'start-brief',
+        clientId: CLIENT,
+        taskId: existing.id,
+    }), deps);
+    assert.equal(started.status, 200);
+
+    const pauseAt = new Date(NOW.getTime() + (3 * 60 + 15) * 60 * 1000);
+    mem.now = pauseAt;
+    const swept = await capOverdueBotTimers(deps);
+    assert.deepEqual(swept, { checked: 0, capped: 0, stalePaused: [] });
+    assert.equal(mem.timers.length, 1);
+    assert.equal(mem.timers[0].pausedAt, null);
+    assert.equal(mem.logs.length, 0);
+
+    const paused = await handleBotRequest(request(BOT_TIMER_PAUSE_PATH, {
+        idempotencyKey: 'pause-brief',
+        description: 'Still writing',
+    }), deps);
+    assert.equal(paused.status, 200);
+    const pausedBody = await paused.json() as {
+        capped?: boolean;
+        review?: boolean;
+        timer: { status: string; elapsedSeconds: number; hours: number; stretches: Array<{ endedAt: string }> };
+    };
+    assert.equal(pausedBody.capped, undefined);
+    assert.equal(pausedBody.review, undefined);
+    assert.equal(pausedBody.timer.status, 'paused');
+    assert.equal(pausedBody.timer.elapsedSeconds > 7200, true);
+    assert.equal(pausedBody.timer.elapsedSeconds, (3 * 60 + 15) * 60);
+    assert.equal(pausedBody.timer.hours, 3.25);
+    assert.equal(pausedBody.timer.stretches[0].endedAt, pauseAt.toISOString());
+    assert.equal(mem.pauseWrites[0].elapsedSeconds, (3 * 60 + 15) * 60);
+    assert.equal(mem.pauseWrites[0].hours, 3.25);
+    assert.equal(mem.logs.length, 0);
+    assert.equal(mem.timers[0].pausedAt, pauseAt.toISOString());
+
+    const resumed = await handleBotRequest(request(BOT_TIMER_RESUME_PATH, {
+        idempotencyKey: 'resume-brief',
+        taskId: existing.id,
+    }), deps);
+    assert.equal(resumed.status, 200);
+    const resumedBody = await resumed.json() as { code?: string; timer: { status: string } };
+    assert.equal(resumedBody.code, undefined);
+    assert.equal(resumedBody.timer.status, 'running');
+
+    const stopAt = new Date(pauseAt.getTime() + 30 * 60 * 1000);
+    mem.now = stopAt;
+    const stopped = await handleBotRequest(request(BOT_TIMER_STOP_PATH, {
+        idempotencyKey: 'stop-brief',
+    }), deps);
+    assert.equal(stopped.status, 200);
+    const stoppedBody = await stopped.json() as {
+        capped: boolean;
+        review: boolean;
+        timeLog: { hours: number; status: string; basecamp: { status: string } };
+    };
+    assert.equal(stoppedBody.capped, false);
+    assert.equal(stoppedBody.review, false);
+    assert.equal(stoppedBody.timeLog.hours > 2, true);
+    assert.equal(stoppedBody.timeLog.hours, 3.75);
+    assert.equal(stoppedBody.timeLog.status, 'logged');
+    assert.notEqual(stoppedBody.timeLog.status, 'needs_review');
+    assert.equal(stoppedBody.timeLog.basecamp.status, 'pushed');
+    assert.equal(mem.logs[0].status, 'logged');
+    assert.equal(mem.stopNotes[0], null);
+    assert.equal(mem.stoppedAt[0], stopAt.toISOString());
+    assert.equal(mem.synced.length, 1);
 });
 
 test('time on a subtask is posted to the parent to-do', async () => {
@@ -890,7 +980,7 @@ test('stop finishes a paused timer, and two paused timers need a task id', async
     assert.equal(mem.synced.length, 1);
 });
 
-test('the cap counts every stretch, and the sweep leaves a paused timer alone', async () => {
+test('running time sums every stretch, and the sweep leaves a paused timer alone', async () => {
     const brief = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Brief' });
     const { mem, deps } = world({ tasks: [brief] });
     await handleBotRequest(request(BOT_TIMER_START_PATH, {
@@ -924,14 +1014,14 @@ test('the cap counts every stretch, and the sweep leaves a paused timer alone', 
     mem.now = new Date(NOW.getTime() + 140 * 60 * 1000);
     const stopped = await handleBotRequest(request(BOT_TIMER_STOP_PATH, { idempotencyKey: 'stop-brief' }), deps);
     const body = await stopped.json() as { capped: boolean; timeLog: { hours: number; status: string; basecamp: { status: string } } };
-    assert.equal(body.capped, true);
-    assert.equal(body.timeLog.hours, 2);
-    assert.equal(body.timeLog.status, 'needs_review');
-    assert.equal(body.timeLog.basecamp.status, 'not_sent');
-    assert.equal(mem.synced.length, 0);
+    assert.equal(body.capped, false);
+    assert.equal(body.timeLog.hours, 2.32);
+    assert.equal(body.timeLog.status, 'logged');
+    assert.equal(body.timeLog.basecamp.status, 'pushed');
+    assert.equal(mem.synced.length, 1);
 });
 
-test('resume at two hours is rejected, and two bots can run at the same time', async () => {
+test('resume at two hours is allowed, and two bots can run at the same time', async () => {
     const brief = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Brief' });
     const draft = task({ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', title: 'Draft' });
     const { mem, deps } = world({ tasks: [brief, draft] });
@@ -942,14 +1032,6 @@ test('resume at two hours is rejected, and two bots can run at the same time', a
     }), deps);
     mem.now = new Date(NOW.getTime() + 2 * 60 * 60 * 1000);
     await handleBotRequest(request(BOT_TIMER_PAUSE_PATH, { idempotencyKey: 'pause-brief' }), deps);
-    const blocked = await handleBotRequest(request(BOT_TIMER_RESUME_PATH, {
-        idempotencyKey: 'resume-brief',
-        taskId: brief.id,
-    }), deps);
-    assert.equal(blocked.status, 409);
-    const blockedBody = await blocked.json() as { code: string };
-    assert.equal(blockedBody.code, 'timer_cap_reached');
-    assert.equal(mem.timers[0].pausedAt != null, true);
     const restart = await handleBotRequest(request(BOT_TIMER_START_PATH, {
         idempotencyKey: 'start-brief-paused',
         clientId: CLIENT,
@@ -958,6 +1040,14 @@ test('resume at two hours is rejected, and two bots can run at the same time', a
     assert.equal(restart.status, 409);
     const restartBody = await restart.json() as { code: string };
     assert.equal(restartBody.code, 'timer_paused');
+    const resumed = await handleBotRequest(request(BOT_TIMER_RESUME_PATH, {
+        idempotencyKey: 'resume-brief',
+        taskId: brief.id,
+    }), deps);
+    assert.equal(resumed.status, 200);
+    const resumedBody = await resumed.json() as { code?: string; timer: { status: string } };
+    assert.equal(resumedBody.code, undefined);
+    assert.equal(resumedBody.timer.status, 'running');
 
     const otherToken = 'seo_bot_secondtokenvalue';
     const otherKey = '77777777-7777-4777-8777-777777777777';
@@ -974,8 +1064,184 @@ test('resume at two hours is rejected, and two bots can run at the same time', a
         taskId: draft.id,
     }, otherToken), deps);
     assert.equal(other.status, 200);
-    assert.equal(mem.timers.filter(item => item.pausedAt == null).length, 1);
-    assert.equal(mem.timers.filter(item => item.pausedAt != null).length, 1);
+    assert.equal(mem.timers.filter(item => item.pausedAt == null).length, 2);
+    assert.equal(mem.timers.filter(item => item.pausedAt != null).length, 0);
+});
+
+async function withBotTimerCap(seconds: string | undefined, run: () => Promise<void>) {
+    const previous = process.env.BOT_TIMER_MAX_SECONDS;
+    if (seconds === undefined) delete process.env.BOT_TIMER_MAX_SECONDS;
+    else process.env.BOT_TIMER_MAX_SECONDS = seconds;
+    try {
+        await run();
+    } finally {
+        if (previous === undefined) delete process.env.BOT_TIMER_MAX_SECONDS;
+        else process.env.BOT_TIMER_MAX_SECONDS = previous;
+    }
+}
+
+test('BOT_TIMER_MAX_SECONDS=7200 keeps the two hour cap on stop, pause, resume, and the sweep', async () => {
+    await withBotTimerCap('7200', async () => {
+        const brief = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Brief' });
+        const draft = task({ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', title: 'Draft' });
+        const { mem, deps } = world({ tasks: [brief, draft] });
+        await handleBotRequest(request(BOT_TIMER_START_PATH, {
+            idempotencyKey: 'start-brief',
+            clientId: CLIENT,
+            taskId: brief.id,
+        }), deps);
+        const over = new Date(NOW.getTime() + (2 * 60 + 15) * 60 * 1000);
+        mem.now = over;
+        const paused = await handleBotRequest(request(BOT_TIMER_PAUSE_PATH, {
+            idempotencyKey: 'pause-over',
+        }), deps);
+        assert.equal(paused.status, 200);
+        const pausedBody = await paused.json() as {
+            capped: boolean;
+            review: boolean;
+            timeLog: { hours: number; status: string; basecamp: { status: string } };
+        };
+        assert.equal(pausedBody.capped, true);
+        assert.equal(pausedBody.review, true);
+        assert.equal(pausedBody.timeLog.hours, 2);
+        assert.equal(pausedBody.timeLog.status, 'needs_review');
+        assert.equal(pausedBody.timeLog.basecamp.status, 'not_sent');
+        assert.equal(mem.pauseWrites.length, 0);
+        assert.equal(mem.logs[0].status, 'needs_review');
+        assert.equal(mem.logs[0].hours, 2);
+        assert.equal(mem.stopNotes[0], 'Stopped automatically at the 2 hour cap.');
+        assert.equal(mem.stoppedAt[0], new Date(NOW.getTime() + 2 * 60 * 60 * 1000).toISOString());
+        assert.equal(mem.synced.length, 0);
+
+        await handleBotRequest(request(BOT_TIMER_START_PATH, {
+            idempotencyKey: 'start-exact',
+            clientId: CLIENT,
+            taskId: draft.id,
+        }), deps);
+        const exactPauseAt = new Date(over.getTime() + 2 * 60 * 60 * 1000);
+        mem.now = exactPauseAt;
+        await handleBotRequest(request(BOT_TIMER_PAUSE_PATH, { idempotencyKey: 'pause-exact' }), deps);
+        assert.equal(mem.logs.length, 1);
+        const blocked = await handleBotRequest(request(BOT_TIMER_RESUME_PATH, {
+            idempotencyKey: 'resume-exact',
+            taskId: draft.id,
+        }), deps);
+        assert.equal(blocked.status, 409);
+        const blockedBody = await blocked.json() as { code: string; error: string };
+        assert.equal(blockedBody.code, 'timer_cap_reached');
+        assert.equal(blockedBody.error, 'This timer already has 2 hours of running time. Stop it instead of resuming.');
+        assert.equal(mem.timers.find(item => item.taskId === draft.id)?.pausedAt, exactPauseAt.toISOString());
+
+        const stoppedWorld = world({ tasks: [brief] });
+        await handleBotRequest(request(BOT_TIMER_START_PATH, {
+            idempotencyKey: 'start-stop',
+            clientId: CLIENT,
+            taskId: brief.id,
+        }), stoppedWorld.deps);
+        stoppedWorld.mem.now = new Date(NOW.getTime() + (3 * 60 * 60 * 1000));
+        const stopped = await handleBotRequest(request(BOT_TIMER_STOP_PATH, {
+            idempotencyKey: 'stop-capped',
+        }), stoppedWorld.deps);
+        const stoppedBody = await stopped.json() as {
+            capped: boolean;
+            review: boolean;
+            timeLog: { hours: number; status: string; basecamp: { status: string } };
+        };
+        assert.equal(stoppedBody.capped, true);
+        assert.equal(stoppedBody.review, true);
+        assert.equal(stoppedBody.timeLog.hours, 2);
+        assert.equal(stoppedBody.timeLog.status, 'needs_review');
+        assert.equal(stoppedBody.timeLog.basecamp.status, 'not_sent');
+        assert.equal(stoppedWorld.mem.synced.length, 0);
+        assert.equal(stoppedWorld.mem.stoppedAt[0], new Date(NOW.getTime() + 2 * 60 * 60 * 1000).toISOString());
+    });
+});
+
+test('a configured two hour cap still closes a forgotten timer from the sweep and from the next start', async () => {
+    await withBotTimerCap('7200', async () => {
+        const brief = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Brief' });
+        const draft = task({ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', title: 'Draft' });
+        const { mem, deps } = world({ tasks: [brief, draft] });
+        await handleBotRequest(request(BOT_TIMER_START_PATH, {
+            idempotencyKey: 'start-brief',
+            clientId: CLIENT,
+            taskId: brief.id,
+        }), deps);
+        mem.now = new Date(NOW.getTime() + 5 * 60 * 60 * 1000);
+        const result = await capOverdueBotTimers(deps);
+        assert.deepEqual(result, { checked: 1, capped: 1, stalePaused: [] });
+        assert.equal(mem.timers.length, 0);
+        assert.equal(mem.logs[0].hours, 2);
+        assert.equal(mem.logs[0].status, 'needs_review');
+        assert.equal(mem.stopNotes[0], 'Stopped automatically at the 2 hour cap.');
+        assert.equal(mem.synced.length, 0);
+        const again = await capOverdueBotTimers(deps);
+        assert.deepEqual(again, { checked: 0, capped: 0, stalePaused: [] });
+
+        await handleBotRequest(request(BOT_TIMER_START_PATH, {
+            idempotencyKey: 'start-draft',
+            clientId: CLIENT,
+            taskId: draft.id,
+        }), deps);
+        mem.now = new Date(NOW.getTime() + 9 * 60 * 60 * 1000);
+        const started = await handleBotRequest(request(BOT_TIMER_START_PATH, {
+            idempotencyKey: 'start-brief-again',
+            clientId: CLIENT,
+            taskId: brief.id,
+        }), deps);
+        assert.equal(started.status, 200);
+        const body = await started.json() as {
+            timer: { taskId: string };
+            cappedTimer: { hours: number; status: string; review: boolean };
+        };
+        assert.equal(body.timer.taskId, brief.id);
+        assert.equal(body.cappedTimer.hours, 2);
+        assert.equal(body.cappedTimer.status, 'needs_review');
+        assert.equal(body.cappedTimer.review, true);
+        assert.equal(mem.synced.length, 0);
+    });
+});
+
+test('a cap other than two hours, and a bad value, follow the env var', async () => {
+    await withBotTimerCap('10800', async () => {
+        const existing = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Brief' });
+        const { mem, deps } = world({ tasks: [existing] });
+        await handleBotRequest(request(BOT_TIMER_START_PATH, {
+            idempotencyKey: 'start-brief',
+            clientId: CLIENT,
+            taskId: existing.id,
+        }), deps);
+        mem.now = new Date(NOW.getTime() + (3 * 60 + 30) * 60 * 1000);
+        const stopped = await handleBotRequest(request(BOT_TIMER_STOP_PATH, {
+            idempotencyKey: 'stop-brief',
+        }), deps);
+        const body = await stopped.json() as { capped: boolean; timeLog: { hours: number; status: string } };
+        assert.equal(body.capped, true);
+        assert.equal(body.timeLog.hours, 3);
+        assert.equal(body.timeLog.status, 'needs_review');
+        assert.equal(mem.stopNotes[0], 'Stopped automatically at the 3 hours cap.');
+        assert.equal(mem.stoppedAt[0], new Date(NOW.getTime() + 3 * 60 * 60 * 1000).toISOString());
+        assert.equal(mem.synced.length, 0);
+    });
+
+    await withBotTimerCap('nope', async () => {
+        const existing = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Brief' });
+        const { mem, deps } = world({ tasks: [existing] });
+        await handleBotRequest(request(BOT_TIMER_START_PATH, {
+            idempotencyKey: 'start-brief',
+            clientId: CLIENT,
+            taskId: existing.id,
+        }), deps);
+        mem.now = new Date(NOW.getTime() + 4 * 60 * 60 * 1000);
+        const stopped = await handleBotRequest(request(BOT_TIMER_STOP_PATH, {
+            idempotencyKey: 'stop-brief',
+        }), deps);
+        const body = await stopped.json() as { capped: boolean; timeLog: { hours: number; status: string } };
+        assert.equal(body.capped, false);
+        assert.equal(body.timeLog.hours, 4);
+        assert.equal(body.timeLog.status, 'logged');
+        assert.equal(mem.synced.length, 1);
+    });
 });
 
 async function withErrorLog(run: (logs: unknown[][]) => Promise<void>) {
