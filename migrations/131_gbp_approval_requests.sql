@@ -981,9 +981,6 @@ declare
   v_request public.approval_requests%rowtype;
   v_link public.approval_links%rowtype;
 begin
-  if p_expires_at is null or p_expires_at <= p_now or p_expires_at > p_now + interval '90 days' then
-    return public.gbp_approval_fail('invalid_request');
-  end if;
   select * into v_request from public.approval_requests where id = p_request_id for update;
   if not found then
     return public.gbp_approval_fail('not_found');
@@ -997,6 +994,10 @@ begin
   end if;
   if v_link.revoked_at is not null then
     return public.gbp_approval_fail('revoked');
+  end if;
+  p_expires_at := coalesce(p_expires_at, greatest(v_link.expires_at, p_now) + interval '14 days');
+  if p_expires_at is null or p_expires_at <= p_now or p_expires_at > p_now + interval '90 days' then
+    return public.gbp_approval_fail('invalid_request');
   end if;
   update public.approval_links
     set expires_at = p_expires_at, extended_at = p_now
@@ -1168,6 +1169,7 @@ $fn$;
 
 create or replace function public.mark_gbp_approval_final(
   p_actor uuid,
+  p_request_id uuid,
   p_item_id uuid,
   p_now timestamptz
 )
@@ -1179,11 +1181,12 @@ as $fn$
 declare
   v_item public.approval_items%rowtype;
 begin
-  select * into v_item from public.approval_items where id = p_item_id for update;
+  perform 1 from public.approval_requests where id = p_request_id for update;
+  select * into v_item from public.approval_items
+  where id = p_item_id and request_id = p_request_id for update;
   if not found then
     return public.gbp_approval_fail('not_found');
   end if;
-  perform 1 from public.approval_requests where id = v_item.request_id for update;
   if not public.gbp_approval_writer(p_actor, v_item.organization_id) then
     return public.gbp_approval_fail('forbidden');
   end if;
@@ -1956,7 +1959,7 @@ begin
     'public.extend_gbp_approval_link(uuid, uuid, timestamptz, timestamptz)',
     'public.revoke_gbp_approval_link(uuid, uuid, timestamptz)',
     'public.post_gbp_approval_version(uuid, uuid, jsonb, timestamptz)',
-    'public.mark_gbp_approval_final(uuid, uuid, timestamptz)',
+    'public.mark_gbp_approval_final(uuid, uuid, uuid, timestamptz)',
     'public.reserve_gbp_approval_upload(text, text, integer, timestamptz)',
     'public.submit_gbp_approval(text, jsonb, text, timestamptz)',
     'public.get_gbp_approval_by_token(text, timestamptz)',
@@ -1974,7 +1977,7 @@ grant execute on function
   public.extend_gbp_approval_link(uuid, uuid, timestamptz, timestamptz),
   public.revoke_gbp_approval_link(uuid, uuid, timestamptz),
   public.post_gbp_approval_version(uuid, uuid, jsonb, timestamptz),
-  public.mark_gbp_approval_final(uuid, uuid, timestamptz),
+  public.mark_gbp_approval_final(uuid, uuid, uuid, timestamptz),
   public.reserve_gbp_approval_upload(text, text, integer, timestamptz),
   public.submit_gbp_approval(text, jsonb, text, timestamptz),
   public.get_gbp_approval_by_token(text, timestamptz),

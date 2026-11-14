@@ -82,3 +82,9 @@ test('middleware rejects every other route before the session redirect', () => {
     assert.equal(session > decision, true);
     assert.match(middleware, /status: 403/);
 });
+
+test('all staff approval operations reject bot keys', () => {
+    for (const operation of ['link/issue', 'link/extend', 'link/revoke', 'versions', 'final']) {
+        assert.equal(botRequestDecision({ pathname: `/api/gbp-approvals/requests/request-id/${operation}`, method: 'POST', authorization: token }), 'forbid');
+    }
+});

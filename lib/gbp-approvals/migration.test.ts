@@ -609,3 +609,30 @@ test('upload keys are bound to the request and old hashes are purged', async () 
     );
     assert.equal(names.rows.every(row => row.name === null || row.name.length > 0), true);
 });
+
+test('agency final is request-scoped and writer-only; same-link extension adds fourteen days', async () => {
+    const db = await database();
+    try {
+        const created = await call(db,
+            `select public.create_gbp_approval_request($1,$2,$3,$4,$5,null,'[]'::jsonb,$6::jsonb) as result`,
+            [owner, org, client, task, 'Agency flow', JSON.stringify([post('Agency post')])]);
+        const requestId = created.requestId;
+        const rows = await db.query<{ id: string }>(`select id from public.approval_items where request_id = $1`, [requestId]);
+        const itemId = rows.rows[0].id;
+        const final = (actor: string, scope: unknown) => call(db,
+            `select public.mark_gbp_approval_final($1,$2,$3,$4::timestamptz) as result`, [actor, scope, itemId, now]);
+        assert.equal((await final(owner, otherTask)).code, 'not_found');
+        assert.equal((await final(viewer, requestId)).code, 'forbidden');
+        assert.equal((await final(owner, requestId)).code, 'not_ready');
+        await db.query(`update public.approval_items set status = 'approved' where id = $1`, [itemId]);
+        assert.equal((await final(owner, requestId)).ok, true);
+        const locked = await db.query<{ decision_lock_reason: string }>(`select decision_lock_reason from public.approval_items where id = $1`, [itemId]);
+        assert.equal(locked.rows[0].decision_lock_reason, 'marked_final');
+        assert.equal((await call(db, `select public.issue_gbp_approval_link($1,$2,$3,$4,$5::timestamptz) as result`,
+            [owner, requestId, hash('agency-link'), expiry, now])).ok, true);
+        const extended = await call(db, `select public.extend_gbp_approval_link($1,$2,null,$3::timestamptz) as result`, [owner, requestId, now]);
+        assert.equal(Date.parse(String(extended.expiresAt)), Date.parse(expiry) + 14 * 86400000);
+        assert.equal((await call(db, `select public.revoke_gbp_approval_link($1,$2,$3::timestamptz) as result`, [owner, requestId, now])).ok, true);
+        assert.equal((await call(db, `select public.extend_gbp_approval_link($1,$2,null,$3::timestamptz) as result`, [owner, requestId, now])).code, 'revoked');
+    } finally { await db.close(); }
+});

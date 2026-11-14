@@ -208,7 +208,7 @@ function Thumb({ post }: { post: SamplePost }) {
     );
 }
 
-function ItemStatus({ status }: { status: SamplePost['status'] }) {
+export function ItemStatus({ status }: { status: SamplePost['status'] }) {
     if (status === 'approved') return <StatusChip kind="approved"><Check className="h-3.5 w-3.5" aria-hidden="true" />Approved</StatusChip>;
     if (status === 'changes_requested') return <StatusChip kind="changes"><Pencil className="h-3.5 w-3.5" aria-hidden="true" />Changes requested</StatusChip>;
     return <StatusChip kind="pending">Pending</StatusChip>;
