@@ -1,7 +1,5 @@
 import sharp from 'sharp';
 import { Worker } from 'node:worker_threads';
-import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
 export const replacementTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 export function replacementMagic(bytes: Uint8Array): string | null {
   if (bytes.length < 12 || bytes.length > 15728640)
@@ -30,16 +28,17 @@ export async function replacementPreview(bytes: Uint8Array, type: string, size: 
   if (detected === 'image/heic' || detected === 'image/heif') {
     // Keep the dependency in Next's server trace; decoding runs off the request thread.
     await import('heic-convert');
-    const moduleUrl = pathToFileURL(createRequire(`${process.cwd()}/package.json`).resolve('heic-convert')).href;
+    // Resolve inside the worker: the bundler rewrites require.resolve in this module.
+    const resolveFrom = `${process.cwd()}/package.json`;
     input = await new Promise<Buffer>((resolve, reject) => {
       const worker = new Worker(`
     const { parentPort, workerData } = require('node:worker_threads');
     (async () => {
-     const convert = (await import(workerData.moduleUrl)).default;
+     const convert = require('node:module').createRequire(workerData.resolveFrom)('heic-convert');
      const result = await convert({ buffer: Buffer.from(workerData.bytes), format: 'JPEG', quality: 0.85 });
      parentPort.postMessage(result);
     })().catch(error => { throw error; });
-   `, { eval: true, workerData: { bytes: input, moduleUrl }, resourceLimits: { maxOldGenerationSizeMb: 256 } });
+   `, { eval: true, workerData: { bytes: input, resolveFrom }, resourceLimits: { maxOldGenerationSizeMb: 256 } });
       const timeout = setTimeout(() => {
         void worker.terminate();
         reject(new Error('Image conversion timed out. Please choose a smaller image.'));

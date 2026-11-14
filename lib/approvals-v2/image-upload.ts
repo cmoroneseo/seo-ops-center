@@ -69,7 +69,8 @@ export function createImageUpload(complete = false, dependencies = { createAdmin
         return json({ error: 'Preview unavailable.' }, 400);
       return json({ previewUrl: signed.data.signedUrl });
     }
-    catch {
+    catch (error) {
+      console.error('approval image upload failed', error instanceof Error ? error.message : error);
       return json({ error: 'This image could not be processed. Choose a JPG, PNG, WebP or HEIC, up to 15 MB.' }, 400);
     }
   };
