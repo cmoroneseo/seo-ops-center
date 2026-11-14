@@ -1,162 +1,234 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
+import { Check, ImageIcon, Pencil } from 'lucide-react';
 
+import { Button } from '@/components/ui/button';
 import { diffWords } from '@/lib/gbp-approvals/diff';
+import { cn } from '@/lib/utils';
 
-import './agency-review.css';
 import { LOGO, SAMPLE_POSTS, SAMPLE_QUESTIONS, monthDay, weekday, type SamplePost } from './sample';
 
-export function AgencyStatus({ embedded = false }: { embedded?: boolean }) {
+export type AgencyView = 'status' | 'share' | 'revision' | 'history';
+
+/**
+ * Agency approvals on the staff canvas: white cards on the light page,
+ * inside the black sidebar. Status colors are the same emerald, amber,
+ * and zinc badges used on other staff pages, darkened so the text clears
+ * AA on the tinted chip.
+ */
+export function AgencyStatus({ view = 'status' }: { view?: AgencyView }) {
     const [selected, setSelected] = useState(2);
     const [accepted, setAccepted] = useState(false);
     const [note, setNote] = useState('Removed the leftovers line, as you suggested.');
     const [toast, setToast] = useState<string | null>(null);
     const post = SAMPLE_POSTS.find(item => item.position === selected) ?? SAMPLE_POSTS[1];
-    const before = post.previousBody ?? '';
-    const after = accepted ? (post.suggestedBody ?? post.body) : before;
-    const parts = before && post.suggestedBody ? diffWords(before, post.suggestedBody) : [];
 
     return (
-        <div className={embedded ? 'gbp-agency embedded' : 'gbp-agency'}>
-            <div className="page">
-                <div className="crumbs"><span>Tasks</span><span>/</span><span>ALL-IN-1 Construction</span><span>/</span><span>GBP holiday posts</span></div>
-                <div className="task-head">
-                    <div>
-                        <h1>GBP holiday posts: free walkthrough offer (7 posts)</h1>
-                        <div className="meta"><span>ALL-IN-1 Construction</span><span>Due Sun, Nov 15</span><span className="chip chip-changes">Changes requested</span></div>
-                    </div>
-                    <button className="btn btn-secondary" type="button">Open as client</button>
-                </div>
-                <div className="tabs"><a className="on" href="#items">Items</a><a href="#share">Share link</a><a href="#history">History</a></div>
-                <div className="tiles">
-                    <div className="tile"><b>4</b><span>Approved</span></div>
-                    <div className="tile"><b>2</b><span>Changes requested</span></div>
-                    <div className="tile"><b>1</b><span>Pending</span></div>
-                    <div className="tile"><b>1 / 3</b><span>Questions answered</span></div>
-                </div>
-                <div className="row" style={{ marginBottom: 16 }}>
-                    <p className="notice" style={{ flex: 1 }}>Link active · expires Fri, Nov 27 · 3 views · last opened Sat Nov 14, 9:12 AM PT. This is the same link.</p>
-                    <button className="btn btn-secondary" type="button" onClick={() => setToast('Extended 14 days on the same link.')}>Extend 14 days</button>
-                </div>
-                <div className="grid" style={{ marginTop: 16 }}>
-                    <section className="card items">
-                        {SAMPLE_POSTS.map(item => (
-                            <button className={item.position === selected ? 'item' : 'item'} key={item.position} type="button" onClick={() => setSelected(item.position)} style={item.position === selected ? { borderColor: '#3DD0E0' } : undefined}>
-                                <span className={item.photo ? 'thumb' : 'thumb missing'}>
-                                    {item.photo ? <img src={item.photo} alt="" /> : (
-                                        <svg className="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2" /><circle cx="9" cy="10" r="1.6" /><path d="M4 17l5-5 4 4 2.5-2.5L20 17" /></svg>
-                                    )}
-                                </span>
-                                <span className="dmeta">
-                                    <b>Post {item.position} · Planned for {weekday(item.scheduled)}</b>
-                                    <span className="k">{item.title}</span>
-                                    {!item.photo && <span className="chip chip-photo">Photo needed</span>}
-                                </span>
-                                {item.status === 'approved' && <span className="chip chip-approved">Approved</span>}
-                                {item.status === 'changes_requested' && <span className="chip chip-changes">Changes requested</span>}
-                                {item.status === 'pending' && <span className="chip chip-pending">Pending</span>}
-                            </button>
-                        ))}
-                    </section>
-                    <div>
-                        <Detail post={post} parts={parts} after={after} accepted={accepted} note={note} onNote={setNote} onAccept={() => { setAccepted(true); setToast('Suggestion accepted into v2. Nothing was sent.'); }} />
-                        {post.position === 5 && post.replacementPhoto && (
-                            <section className="card" style={{ marginTop: 16 }}>
-                                <div className="card-head"><h2>Replacement photo from client</h2><span className="chip chip-changes">Changes requested</span></div>
-                                <div className="photo-cmp">
-                                    <figure><div className="box" style={{ minHeight: 120, display: 'grid', placeItems: 'center' }}>Photo needed</div><figcaption>v1 · no photo</figcaption></figure>
-                                    <figure><img src={post.replacementPhoto} alt="Sample stand-in uploaded by the client" /><figcaption>Uploaded Sat Nov 14 · sample stand-in</figcaption></figure>
-                                </div>
-                                <button className="btn btn-primary" type="button" onClick={() => setToast('Photo accepted into v2. The planned date did not change.')}>Use in v2</button>
-                            </section>
-                        )}
+        <div className="mx-auto max-w-6xl space-y-6 text-foreground">
+            <header className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <p className="text-sm text-muted-foreground">Tasks / ALL-IN-1 Construction / GBP holiday posts</p>
+                    <h1 className="mt-1 text-2xl font-semibold tracking-tight">GBP holiday posts: free walkthrough offer (7 posts)</h1>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                        <span>ALL-IN-1 Construction</span>
+                        <span>Due Sun, Nov 15</span>
+                        <StatusChip kind="changes">Changes requested</StatusChip>
                     </div>
                 </div>
-                <div className="grid" style={{ marginTop: 16 }}>
-                    <section className="card">
-                        <h2>Questions</h2>
-                        <p className="sub">1 of 3 answered</p>
-                        {SAMPLE_QUESTIONS.map(question => (
-                            <div className="qa" key={question.id}>
-                                <p>{question.prompt}</p>
-                                <p className="sub">{question.answer ?? 'Not answered'}</p>
-                            </div>
-                        ))}
-                    </section>
-                    <section className="card" id="history">
-                        <h2>Revision history</h2>
-                        <ul className="tl">
-                            <li><b>v1 sent</b><span className="s">7 posts, 3 questions · Fri Nov 13, 7:05 PM PT</span></li>
-                            <li><b>Client feedback</b><span className="s">4 approved, 2 changes, 1 not reviewed · Sat Nov 14, 9:41 AM PT</span></li>
-                            <li><b>v2</b><span className="s">{accepted ? 'Post 2 suggestion accepted. Send the revision when the note is ready.' : 'Not posted yet. Accept the suggestion or edit by hand.'}</span></li>
+                <Button variant="outline" type="button">Open as client</Button>
+            </header>
+
+            {view === 'share' && <SharePanel onExtend={() => setToast('Extended 14 days on the same link.')} />}
+            {view === 'history' && <HistoryPanel accepted={accepted} />}
+            {view === 'revision' && (
+                <RevisionPanel
+                    accepted={accepted}
+                    note={note}
+                    onNote={setNote}
+                    onAccept={() => { setAccepted(true); setToast('Suggestion accepted into v2. Nothing was sent.'); }}
+                />
+            )}
+            {view === 'status' && (
+                <>
+                    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                        <Count label="Approved" value="4" />
+                        <Count label="Changes requested" value="2" />
+                        <Count label="Pending" value="1" />
+                        <Count label="Questions answered" value="1 / 3" />
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-sm">
+                        <p className="text-muted-foreground">Link active · expires Fri, Nov 27 · 3 views · last opened Sat Nov 14, 9:12 AM PT. This is the same link.</p>
+                        <Button variant="outline" type="button" onClick={() => setToast('Extended 14 days on the same link.')}>Extend 14 days</Button>
+                    </div>
+                    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
+                        <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+                            {SAMPLE_POSTS.map(item => (
+                                <li key={item.position}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelected(item.position)}
+                                        className={cn(
+                                            'flex w-full items-start gap-3 px-3 py-3 text-left hover:bg-muted',
+                                            item.position === selected && 'bg-muted',
+                                        )}
+                                    >
+                                        <Thumb post={item} />
+                                        <span className="min-w-0 flex-1">
+                                            <span className="block text-sm font-semibold">Post {item.position} · Planned for {weekday(item.scheduled)}</span>
+                                            <span className="mt-0.5 block text-sm text-muted-foreground">{item.title}</span>
+                                            {!item.photo && <StatusChip kind="photo" className="mt-2">Photo needed</StatusChip>}
+                                        </span>
+                                        <ItemStatus status={item.status} />
+                                    </button>
+                                </li>
+                            ))}
                         </ul>
-                        <p className="hint">Approval does not change the planned date. When every post is approved, the task moves to In Progress.</p>
-                    </section>
-                </div>
-                {toast && <p className="toast" role="status" style={{ position: 'fixed', bottom: 24, right: 24 }}>{toast}</p>}
-            </div>
+                        <PostSummary post={post} />
+                    </div>
+                </>
+            )}
+            {toast && <p className="fixed bottom-24 right-4 z-50 rounded-lg border border-border bg-card px-4 py-3 text-sm font-medium text-foreground shadow-lg lg:bottom-6" role="status">{toast}</p>}
         </div>
     );
 }
 
-function Detail({
-    post, parts, after, accepted, note, onNote, onAccept,
+function SharePanel({ onExtend }: { onExtend: () => void }) {
+    return (
+        <section className="max-w-2xl space-y-4 rounded-xl border border-border bg-card p-5">
+            <h2 className="text-lg font-semibold">Share link</h2>
+            <p className="text-sm text-muted-foreground">Nothing is sent. The client opens this same link. Extend keeps the link they already have.</p>
+            <label className="block text-sm font-medium" htmlFor="share-url">Review link</label>
+            <input id="share-url" readOnly className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm" value="https://seo-ops-center.vercel.app/r/sample-link" />
+            <div className="flex flex-wrap gap-2">
+                <Button type="button" onClick={onExtend}>Extend 14 days</Button>
+                <Button type="button" variant="outline">Copy link</Button>
+                <Button type="button" variant="outline">Revoke</Button>
+            </div>
+            <dl className="grid gap-2 text-sm sm:grid-cols-3">
+                <div><dt className="text-muted-foreground">Status</dt><dd className="font-medium">Active</dd></div>
+                <div><dt className="text-muted-foreground">Expires</dt><dd className="font-medium">Fri, Nov 27</dd></div>
+                <div><dt className="text-muted-foreground">Opened</dt><dd className="font-medium">3 views</dd></div>
+            </dl>
+        </section>
+    );
+}
+
+function HistoryPanel({ accepted }: { accepted: boolean }) {
+    const rows = [
+        ['v1 sent', '7 posts, 3 questions · Fri Nov 13, 7:05 PM PT'],
+        ['Client feedback', '4 approved, 2 changes, 1 not reviewed · Sat Nov 14, 9:41 AM PT'],
+        ['v2', accepted ? 'Post 2 suggestion accepted. Send the revision when the note is ready.' : 'Not posted yet. Accept the suggestion or edit by hand.'],
+    ];
+    return (
+        <section className="max-w-2xl rounded-xl border border-border bg-card p-5">
+            <h2 className="text-lg font-semibold">Revision history</h2>
+            <ol className="mt-4 space-y-4 border-l border-border pl-4">
+                {rows.map(([label, detail]) => (
+                    <li key={label}>
+                        <p className="text-sm font-semibold">{label}</p>
+                        <p className="mt-1 block text-sm text-muted-foreground">{detail}</p>
+                    </li>
+                ))}
+            </ol>
+            <p className="mt-4 text-sm text-muted-foreground">Approval does not change the planned date. When every post is approved, the task moves to In Progress.</p>
+        </section>
+    );
+}
+
+function RevisionPanel({
+    accepted, note, onNote, onAccept,
 }: {
-    post: SamplePost;
-    parts: { kind: 'same' | 'removed' | 'added'; text: string }[];
-    after: string;
     accepted: boolean;
     note: string;
     onNote: (value: string) => void;
     onAccept: () => void;
 }) {
+    const post = SAMPLE_POSTS[1];
+    const parts = diffWords(post.previousBody ?? '', post.suggestedBody ?? '');
     return (
-        <section className="card">
-            <div className="card-head">
-                <h2>Post {post.position} · Planned for {weekday(post.scheduled)}</h2>
-                {post.status === 'changes_requested' && <span className="chip chip-changes">Changes requested</span>}
+        <section className="max-w-3xl space-y-4 rounded-xl border border-border bg-card p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold">Post 2 · Planned for {weekday(post.scheduled)}</h2>
+                <StatusChip kind="changes">Changes requested</StatusChip>
             </div>
-            <article className="gbp">
-                <div className={post.photo ? 'g-photo' : 'g-photo g-photo-missing'}>
-                    {post.photo ? <img src={post.photo} alt="" /> : <div style={{ padding: 24 }}><b>Photo needed</b></div>}
-                </div>
-                <div className="g-body">
-                    <div className="g-head"><span className="g-av"><img src={LOGO} alt="" /></span><span className="g-meta"><span className="g-biz">ALL-IN-1 Construction</span></span></div>
-                    <h3 className="g-title">{post.title}</h3>
-                    <div className="g-date">{monthDay(post.offerStart)} – {monthDay(post.offerEnd)}</div>
-                    <p className="g-desc">{after || post.body}</p>
-                </div>
-            </article>
-            {post.comment && (
-                <div className="thread" style={{ marginTop: 16 }}>
-                    <div className="msg">
-                        <span className="avatar">CR</span>
-                        <div className="bubble">
-                            <div className="who">Client reviewer <span className="chip chip-sample">Sample</span></div>
-                            <p>{post.comment}</p>
+            <p className="text-sm text-muted-foreground">Client reviewer · Sample</p>
+            <p>{post.comment}</p>
+            <h3 className="text-sm font-semibold">Suggested edit</h3>
+            <p className="rounded-lg border border-border bg-muted p-3 text-sm leading-7">
+                {parts.map((part, index) => part.kind === 'same'
+                    ? <span key={index}>{part.text}</span>
+                    : <span key={index} className={part.kind === 'removed' ? 'rounded bg-red-50 text-red-900 line-through' : 'rounded bg-emerald-50 text-emerald-950 underline'}>{part.text}</span>)}
+            </p>
+            <div className="flex flex-wrap gap-2">
+                <Button type="button" onClick={onAccept} disabled={accepted}>{accepted ? 'Accepted into v2' : 'Accept into v2'}</Button>
+                <Button type="button" variant="outline">Dismiss suggestion</Button>
+            </div>
+            <label className="block text-sm font-medium" htmlFor="change-note">Change note the client will see</label>
+            <textarea id="change-note" className="min-h-24 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm" value={note} onChange={event => onNote(event.target.value)} />
+            <p className="text-sm text-muted-foreground">Sending the revision updates this same link. Nothing is emailed or posted to Basecamp.</p>
+        </section>
+    );
+}
+
+function PostSummary({ post }: { post: SamplePost }) {
+    return (
+        <section className="rounded-xl border border-border bg-card p-4">
+            <h2 className="text-base font-semibold">Post {post.position} · Planned for {weekday(post.scheduled)}</h2>
+            <div className="mt-3 overflow-hidden rounded-lg border border-border bg-card">
+                {post.photo ? <img src={post.photo} alt="" className="aspect-[4/3] w-full object-cover" /> : (
+                    <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 bg-muted text-amber-950">
+                        <ImageIcon className="h-8 w-8" aria-hidden="true" />
+                        <span className="text-sm font-semibold">Photo needed</span>
+                    </div>
+                )}
+                <div className="space-y-1 p-3">
+                    <div className="flex items-center gap-2">
+                        <img src={LOGO} alt="" className="h-8 w-8 rounded-full object-contain" />
+                        <div>
+                            <p className="text-sm font-semibold">ALL-IN-1 Construction</p>
+                            <p className="text-xs text-muted-foreground">Planned for {weekday(post.scheduled)}</p>
                         </div>
                     </div>
+                    <p className="font-semibold">{post.title}</p>
+                    <p className="text-sm text-muted-foreground">{monthDay(post.offerStart)} – {monthDay(post.offerEnd)}</p>
+                    <p className="text-sm">{post.body}</p>
                 </div>
-            )}
-            {parts.length > 0 && (
-                <>
-                    <h3 style={{ marginTop: 16 }}>Suggested edit</h3>
-                    <div className="diff">
-                        {parts.map((part, index) => part.kind === 'same'
-                            ? <span key={index}>{part.text}</span>
-                            : <span key={index} className={part.kind === 'removed' ? 'del' : 'ins'}><span className="dl">{part.kind === 'removed' ? 'Removed' : 'Added'}</span>{part.text}</span>)}
-                    </div>
-                    <div className="legend"><span>Removed</span><span>Added</span></div>
-                    <div className="row" style={{ marginTop: 12 }}>
-                        <button className="btn btn-primary" type="button" onClick={onAccept} disabled={accepted}>{accepted ? 'Accepted into v2' : 'Accept into v2'}</button>
-                        <button className="btn btn-secondary" type="button">Dismiss suggestion</button>
-                    </div>
-                    <label className="label" htmlFor="change-note" style={{ display: 'block', marginTop: 16 }}>Change note the client will see</label>
-                    <textarea id="change-note" className="input" style={{ minHeight: 88 }} value={note} onChange={event => onNote(event.target.value)} />
-                    <p className="hint">Sending the revision updates this same link. Nothing is emailed or posted to Basecamp.</p>
-                </>
-            )}
+            </div>
         </section>
+    );
+}
+
+function Thumb({ post }: { post: SamplePost }) {
+    if (post.photo) return <img src={post.photo} alt="" className="h-14 w-[4.5rem] shrink-0 rounded-md border border-border object-cover" />;
+    return (
+        <span className="flex h-14 w-[4.5rem] shrink-0 items-center justify-center rounded-md border border-dashed border-amber-800 bg-amber-50 text-amber-950" aria-hidden="true">
+            <ImageIcon className="h-5 w-5" />
+        </span>
+    );
+}
+
+function ItemStatus({ status }: { status: SamplePost['status'] }) {
+    if (status === 'approved') return <StatusChip kind="approved"><Check className="h-3.5 w-3.5" aria-hidden="true" />Approved</StatusChip>;
+    if (status === 'changes_requested') return <StatusChip kind="changes"><Pencil className="h-3.5 w-3.5" aria-hidden="true" />Changes requested</StatusChip>;
+    return <StatusChip kind="pending">Pending</StatusChip>;
+}
+
+function StatusChip({ kind, className, children }: { kind: 'approved' | 'changes' | 'pending' | 'photo'; className?: string; children: ReactNode }) {
+    const tone = {
+        approved: 'border-emerald-800 bg-emerald-50 text-emerald-950',
+        changes: 'border-amber-900 bg-amber-50 text-amber-950',
+        pending: 'border-zinc-600 bg-zinc-100 text-zinc-900',
+        photo: 'border-amber-900 bg-amber-50 text-amber-950',
+    }[kind];
+    return <span className={cn('inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-semibold', tone, className)}>{children}</span>;
+}
+
+function Count({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="rounded-xl border border-border bg-card px-4 py-3">
+            <p className="text-2xl font-semibold">{value}</p>
+            <p className="text-sm text-muted-foreground">{label}</p>
+        </div>
     );
 }

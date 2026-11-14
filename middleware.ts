@@ -28,7 +28,10 @@ export async function middleware(request: NextRequest) {
         review.headers.set('X-Robots-Tag', 'noindex, nofollow')
         return review
     }
-    if (pathname === '/dev/gbp-approvals' && process.env.NODE_ENV !== 'production') {
+    if (
+        (pathname === '/dev/gbp-approvals' || pathname === '/dev/agency-approvals')
+        && process.env.NODE_ENV !== 'production'
+    ) {
         return NextResponse.next()
     }
 
