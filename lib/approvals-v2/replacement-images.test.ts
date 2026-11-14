@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import sharp from 'sharp';
 import { replacementMagic, replacementPreview } from './replacement-images.ts';
 test('magic bytes and actual decode reject spoofed, unsupported, oversized, and mismatched files', async () => {
@@ -16,15 +17,12 @@ test('magic bytes and actual decode reject spoofed, unsupported, oversized, and 
   forged.set([255, 216, 255]);
   await assert.rejects(replacementPreview(forged, 'image/jpeg', forged.length));
 });
-test('HEIC preview conversion with offline generated fixture', async (t) => {
-  let fixture: Buffer;
-  try {
-    fixture = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#123456' } }).heif({ compression: 'hevc' }).toBuffer();
-  }
-  catch {
-    t.skip('The offline sharp/libvips build has no HEVC encoder; no HEIC fixture can be generated without downloading one.');
-    return;
-  }
+test('HEIC preview conversion with a committed fixture', async () => {
+  // 16x12 HEIC generated with libheif (pillow-heif); sharp's prebuilt libvips cannot encode HEVC.
+  const fixture = readFileSync(new URL('./fixtures/tiny.heic', import.meta.url));
+  assert.equal(replacementMagic(fixture), 'image/heic');
   const converted = await replacementPreview(fixture, 'image/heic', fixture.length);
-  assert.equal((await sharp(converted).metadata()).format, 'jpeg');
+  const metadata = await sharp(converted).metadata();
+  assert.equal(metadata.format, 'jpeg');
+  assert.equal(metadata.width, 16);
 });
