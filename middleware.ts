@@ -18,6 +18,23 @@ export async function middleware(request: NextRequest) {
     }
     if (botDecision === 'allow') return NextResponse.next()
 
+    const { pathname } = request.nextUrl
+    // Client GBP review. The share token is the credential. Do not attach a session,
+    // and do not cache or send a referrer that could leak the token.
+    if (pathname.startsWith('/r/') || pathname.startsWith('/api/public/approvals')) {
+        const review = NextResponse.next()
+        review.headers.set('Cache-Control', 'no-store')
+        review.headers.set('Referrer-Policy', 'no-referrer')
+        review.headers.set('X-Robots-Tag', 'noindex, nofollow')
+        return review
+    }
+    if (
+        (pathname === '/dev/gbp-approvals' || pathname === '/dev/agency-approvals')
+        && process.env.NODE_ENV !== 'production'
+    ) {
+        return NextResponse.next()
+    }
+
     // Fixture screen for the paused bot timer. Dev only. It renders labeled
     // sample rows and does not read or write the database.
     if (
@@ -102,7 +119,6 @@ export async function middleware(request: NextRequest) {
     )
 
     const { data: { user } } = await supabase.auth.getUser()
-    const { pathname } = request.nextUrl
 
     // Public routes that anyone can access
     const isPublicRoute = pathname === '/' ||
