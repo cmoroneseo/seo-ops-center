@@ -57,8 +57,9 @@
   --card-foreground: oklch(0.2 0.02 260);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.2 0.02 260);
-  --primary: oklch(0.63 0.26 352);
-  --primary-foreground: oklch(0.98 0 0);
+  --primary: #db0a8b;
+  --primary-on-dark: #ff0080;
+  --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.92 0.02 260);
   --secondary-foreground: oklch(0.2 0.02 260);
   --muted: oklch(0.92 0.02 260);
@@ -80,8 +81,8 @@
 
   --sidebar: oklch(0.98 0.01 260);
   --sidebar-foreground: oklch(0.2 0.02 260);
-  --sidebar-primary: oklch(0.63 0.26 352);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-primary: #db0a8b;
+  --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.92 0.02 260);
   --sidebar-accent-foreground: oklch(0.2 0.02 260);
   --sidebar-border: oklch(0.9 0.02 260);
@@ -185,9 +186,9 @@
   --popover: oklch(0.12 0 0);
   --popover-foreground: oklch(0.985 0 0);
 
-  /* Neon Pink Primary #FF0080 -> oklch(0.606 0.25 345.92) approx, but visually tuning for vibrant neon */
-  /* Using exact hex #FF0080 converted to oklch is approx 0.63 0.26 352 */
-  --primary: oklch(0.63 0.26 352);
+  /* White button text clears normal-text WCAG AA on the default pink. */
+  --primary: #db0a8b;
+  --primary-on-dark: #ff0080;
   --primary-foreground: oklch(0.985 0 0);
 
   --secondary: oklch(0.2 0 0);
@@ -212,7 +213,7 @@
 
   --sidebar: oklch(0.08 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.63 0.26 352);
+  --sidebar-primary: #db0a8b;
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.2 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
@@ -483,4 +484,17 @@
   body:has(.change-log-sheet) details.change-log-record > :not(summary) {
     display: block !important;
   }
+}
+
+/* Primary button fills and primary text on dark surfaces have different contrast needs. */
+@layer utilities {
+  .dark .text-primary,
+  .staff-sidebar .text-primary {
+    color: var(--primary-on-dark);
+  }
+}
+
+.dark .notepad-editor .ProseMirror a,
+.dark .approval-doc .ProseMirror a {
+  color: var(--primary-on-dark);
 }

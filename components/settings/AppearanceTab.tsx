@@ -26,7 +26,7 @@ const sameTheme = (a: OrganizationTheme, b: OrganizationTheme) =>
 
 /** The hex the custom field should show for a given theme. */
 const hexFor = (theme: OrganizationTheme) =>
-    theme.preset === 'custom' ? theme.hex ?? '#ff0080' : '#ff0080';
+    theme.preset === 'custom' ? theme.hex ?? '#db0a8b' : '#db0a8b';
 
 const LEVEL_STYLES: Record<string, string> = {
     AA: 'bg-green-500/10 text-green-500 border-green-500/20',

@@ -51,10 +51,9 @@ test('contrast ratio matches known WCAG values', () => {
     assert.equal(Math.round(contrastRatio(white, white)), 1);
 });
 
-test('the default preset reproduces the shipped tokens exactly', () => {
-    // Guards against a silent rebrand of every existing organization.
+test('the default preset uses the accessible pink and keeps theme tokens aligned', () => {
     const tokens = buildTokens(DEFAULT_THEME, 'dark');
-    assert.equal(tokens['--primary'], 'oklch(0.63 0.26 352)');
+    assert.equal(oklchToHex(resolveBaseColors(DEFAULT_THEME).primary), '#db0a8b');
     assert.equal(tokens['--accent'], 'oklch(0.7 0.18 20)');
     assert.equal(tokens['--ring'], tokens['--primary']);
     assert.equal(tokens['--sidebar-primary'], tokens['--primary']);
@@ -75,10 +74,8 @@ test('every preset clears the large-text floor against its own foreground', () =
     }
 });
 
-test('every preset except the legacy default clears AA for normal text', () => {
-    // neon-pink is grandfathered: it reproduces the colour the app already
-    // shipped, which lands at ~3.85:1. Every preset added since must do better.
-    for (const preset of THEME_PRESETS.filter((p) => p.id !== 'neon-pink')) {
+test('every preset clears AA for normal text', () => {
+    for (const preset of THEME_PRESETS) {
         for (const mode of ['light', 'dark'] as const) {
             const ratio = surfaceContrast(clampToBand(preset.primary, mode));
             assert.ok(
@@ -203,7 +200,46 @@ test('previewHex returns distinct primary and accent swatches per preset', () =>
 
 test('themeContrast reports the level the picker will display', () => {
     assert.equal(themeContrast({ preset: 'indigo' }).level, 'AA');
-    assert.equal(themeContrast(DEFAULT_THEME).level, 'AA Large');
+    assert.equal(themeContrast(DEFAULT_THEME).level, 'AA');
     assert.ok(themeContrast(DEFAULT_THEME).lightText);
     assert.ok(!themeContrast({ preset: 'amber' }).lightText);
+});
+
+test('default primary buttons and primary text on dark surfaces pass normal-text AA', () => {
+    const primary = resolveBaseColors(DEFAULT_THEME).primary;
+    const rgb = oklchToRgb(primary);
+    assert.ok(contrastRatio(rgb, hexToRgb('#ffffff')!) >= 4.5);
+    assert.ok(surfaceContrast(primary) >= 4.5);
+    const css = buildTokens(DEFAULT_THEME, 'dark')['--primary-on-dark'];
+    const [l, c, h] = css.match(/[\d.]+/g)!.map(Number);
+    const text = oklchToRgb({ l, c, h });
+    for (const background of ['#000000', '#0a0a0a', '#141414']) {
+        assert.ok(contrastRatio(text, hexToRgb(background)!) >= 4.5, background);
+    }
+});
+
+test('default sidebar active tint preserves text contrast', () => {
+    const tokens = buildTokens(DEFAULT_THEME, 'dark');
+    const parse = (css: string) => {
+        const [l, c, h] = css.match(/[\d.]+/g)!.map(Number);
+        return oklchToRgb({ l, c, h });
+    };
+    const text = parse(tokens['--primary-on-dark']);
+    const fill = parse(tokens['--primary']);
+    const sidebar = oklchToRgb({ l: 0.08, c: 0, h: 0 });
+    const active = { r: fill.r * 0.15 + sidebar.r * 0.85, g: fill.g * 0.15 + sidebar.g * 0.85, b: fill.b * 0.15 + sidebar.b * 0.85 };
+    assert.ok(contrastRatio(text, active) >= 4.5);
+});
+
+test('authored light and dark primary button tokens pass AA before organization theming loads', async () => {
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync(new URL('../../app/globals.css', import.meta.url), 'utf8');
+    for (const selector of [':root', '.dark']) {
+        const block = css.slice(css.indexOf(`${selector} {`)).split('}')[0];
+        for (const name of ['primary', 'sidebar-primary']) {
+            const background = hexToRgb(block.match(new RegExp(`--${name}: (#[0-9a-f]+);`))![1])!;
+            const [, l, c, h] = block.match(new RegExp(`--${name}-foreground: oklch\\(([\\d.]+) ([\\d.]+) ([\\d.]+)\\);`))!;
+            assert.ok(contrastRatio(background, oklchToRgb({ l: Number(l), c: Number(c), h: Number(h) })) >= 4.5, `${selector} ${name}`);
+        }
+    }
 });
