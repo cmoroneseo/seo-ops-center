@@ -376,9 +376,14 @@ async function imageFixture(db: Awaited<ReturnType<typeof database>>) {
     await send(db, r.requestId);
     const i = (await db.query<{ id: string; released_version_id: string }>(`select * from approval_items where request_id=$1`, [r.requestId])).rows[0];
     const token = hash(String(r.requestId));
-    const reserve = (type = 'image/png', size = 100, version = i.released_version_id, item = i.id, at = now) => call(db, `select reserve_approval_image_upload($1,$2,$3,$4,$5,$6) result`, [token, item, version, type, size, at]);
+    const reserve = async (type = 'image/png', size = 100, version = i.released_version_id, item = i.id, at = now) => {
+        const reserved = await call(db, `select reserve_approval_image_upload($1,$2,$3,$4,$5,$6) result`, [token, item, version, type, size, at]);
+        if (reserved.ok) await call(db, `select set_approval_upload_preview($1,$2) result`, [reserved.reservationId, `${reserved.objectKey}.preview.jpg`]);
+        return reserved;
+    };
     let n = 0;
     const submit = (reservation: unknown, extra: Record<string, unknown> = {}, more: unknown[] = []) => call(db, `select submit_approval($1,$2::jsonb,null,$3) result`, [token, JSON.stringify({
+        verifiedReservationIds: [reservation],
         idempotencyKey: `image-submit-${++n}`, requestHash: hash(String(n)), respondentName: 'Casey', displayedVersionIds: [i.released_version_id], decisions: [],
         comments: [{ itemId: i.id, versionId: i.released_version_id, anchorKind: 'pin', pinTarget: 'block', sectionId: '_intro', blockId: 'image', targetHash: hash('image'), body: '', suggestedImageReservationId: reservation, ...extra }, ...more],
     }), now]);

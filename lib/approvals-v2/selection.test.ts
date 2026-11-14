@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { JSDOM } from 'jsdom';
+import { selectionAnchor } from './selection.ts';
+import { normalizePageBody } from './page-body.ts';
+test('DOM selection converts UTF-16 emoji offsets and snaps cross-block ranges to the first block', () => {
+  const dom = new JSDOM('<div id="one">Hello <strong>😀</strong> world</div><p id="two">Second block</p>');
+  const document = dom.window.document;
+  const normalized = normalizePageBody({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello 😀 world' }] }] });
+  const block = normalized.body.content[0];
+  const hash = normalized.outline[0].blocks[0].hash;
+  const range = document.createRange();
+  const emoji = document.querySelector('strong')!.firstChild!;
+  range.setStart(emoji, 0);
+  range.setEnd(emoji, 2);
+  const exact = selectionAnchor(range, document.getElementById('one')!, block, hash);
+  assert.equal(exact.quote, '😀');
+  assert.equal(exact.rangeStart, 6);
+  assert.equal(exact.rangeEnd, 7);
+  range.setEnd(document.getElementById('two')!.firstChild!, 6);
+  const snapped = selectionAnchor(range, document.getElementById('one')!, block, hash);
+  assert.equal(snapped.quote, '😀 world');
+  assert.equal(snapped.rangeEnd, 13);
+  dom.window.close();
+});

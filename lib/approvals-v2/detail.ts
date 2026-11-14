@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import { carryAnchor } from './carry';
+import { rowAnchor } from './comment-row';
+import { sanitizeDoc } from './page-doc';
 import { imagePaths } from './page-body';
 import { staffContext, json } from './staff';
 import { linkState, uuid } from './list';
@@ -92,7 +96,18 @@ export function createStaffDetail(dependencies = {
         releasedVersion: versions.data?.find(v => v.id === item.released_version_id) ?? null,
         response: responses.data?.find(v => v.item_id === item.id && v.version_id === (r.stage === 'sent' ? item.released_version_id : item.current_version_id)) ?? null
       })),
-      comments: (comments.data ?? []).map(comment => ({ ...comment, previewUrl: photos[uploads.data?.find(upload => upload.object_key === comment.suggested_image_key)?.preview_key ?? ''] ?? null })),
+      comments: (comments.data ?? []).map(comment => {
+        const item = items.data?.find(item => item.id === comment.item_id);
+        const version = versions.data?.find(version => version.id === item?.released_version_id);
+        let state = 'same';
+        let carryBlockId = comment.block_id;
+        if (r.item_type === 'page' && version && !comment.parent_id) {
+          const carried = carryAnchor(rowAnchor(comment), sanitizeDoc(version.payload.body), version.outline ?? [], version.photo_path ? createHash('sha256').update(version.photo_path).digest('hex') : undefined, versions.data?.find(version => version.id === comment.version_id)?.outline ?? []);
+          state = carried.state;
+          carryBlockId = carried.blockId;
+        }
+        return { ...comment, state, carryBlockId, versionNo: versions.data?.find(version => version.id === comment.version_id)?.version_no, addressedVersion: versions.data?.find(version => version.id === comment.resolved_in_version_id)?.version_no, previewUrl: photos[uploads.data?.find(upload => upload.object_key === comment.suggested_image_key)?.preview_key ?? ''] ?? null };
+      }),
       versions: versions.data,
       responses: responses.data,
       questions: questions.data,

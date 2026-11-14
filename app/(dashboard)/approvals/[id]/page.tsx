@@ -344,7 +344,7 @@ export default function Page({
               </div>}
             </header>
             {'pageKind' in p ? <>
-              {data.comments && <AgencyComments requestId={id} comments={data.comments.filter(comment => comment.item_id === item.id)} currentImages={Object.fromEntries([
+              {data.comments && <AgencyComments anchorOrder={sanitizeDoc(p.body).content.map(block => String(block.attrs?.blockId))} requestId={id} comments={data.comments.filter(comment => comment.item_id === item.id)} currentImages={Object.fromEntries([
                 ['mockup', data.photos[version.photo_path ?? ''] ?? null],
                 ...sanitizeDoc(p.body).content.filter(block => block.type === 'image').map(block => [String(block.attrs?.blockId), data.photos[String(block.attrs?.src)] ?? String(block.attrs?.src)])
               ])} canWrite={editable} refresh={() => { void load(); }} />}

@@ -4,7 +4,6 @@ import { normalizePageBody } from './page-body.ts';
 import { carryAnchor, highlightAnchor } from './carry.ts';
 import { validCommentAnchor } from './comment-validation.ts';
 import { applyCommentSuggestion } from './apply-comment.ts';
-
 const paragraph = (text: string, id = 'b1') => ({ type: 'paragraph', attrs: { blockId: id }, content: [{ type: 'text', text }] });
 const doc = (...content: ReturnType<typeof paragraph>[]) => normalizePageBody({ type: 'doc', content });
 const original = doc(paragraph('Hello 😀 world!'));
@@ -56,4 +55,12 @@ test('wording acceptance preserves source and formatting outside selection and r
   assert.equal(original.body.content[0].content?.[0].text, 'Hello 😀 world!');
   assert.notEqual(edited.outline[0].blocks[0].hash, anchor.targetHash);
   assert.throws(() => applyCommentSuggestion(doc(paragraph('Rewritten')).body, doc(paragraph('Rewritten')).outline, anchor, 'new'));
+});
+test('removed blocks attach to the nearest surviving paragraph in the original section order', () => {
+  const original = doc(paragraph('Far', 'far'), paragraph('Closer', 'close'), paragraph('Target quote', 'target'), paragraph('Nearest', 'near'));
+  const selected = highlightAnchor(original.body.content[2], original.outline[0].blocks[2].hash, 0, 6);
+  const next = doc(paragraph('Far', 'far'), paragraph('Nearest', 'near'));
+  const carried = carryAnchor(selected, next.body, next.outline, undefined, original.outline);
+  assert.equal(carried.state, 'text_changed');
+  assert.equal(carried.blockId, 'near');
 });

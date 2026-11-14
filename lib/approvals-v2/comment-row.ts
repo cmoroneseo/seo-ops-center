@@ -1,5 +1,4 @@
 import type { CommentAnchor } from './carry';
-
 export function rowAnchor(comment: Record<string, unknown>): CommentAnchor {
   return {
     anchorKind: comment.anchor_kind as CommentAnchor['anchorKind'],

@@ -248,9 +248,9 @@ export function PublicPageReview({
           {error && <p role="alert" className="mb-4 text-[#B3261E]">
             {error}
           </p>}
-          {!loaded ? <p role="status">Loading page…</p> : loaded.version.id !== item.version.id ? <p role="alert">This page was updated. Refresh before reviewing it.</p> : <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_260px]">
-            <PageComments token={token} itemId={item.id} versionId={loaded.version.id} versionNo={loaded.version.versionNo} domain={view.domain} payload={loaded.version.payload} outline={loaded.version.outline} photoUrl={loaded.photoUrl} photoHash={loaded.photoHash} images={loaded.images} drafts={drafts} onChange={setDrafts} comments={loaded.comments} locked={item.locked} />
-            <aside className="space-y-5 lg:sticky lg:top-5">
+          {!loaded ? <p role="status">Loading page…</p> : loaded.version.id !== item.version.id ? <p role="alert">This page was updated. Refresh before reviewing it.</p> : <div className="min-w-0">
+            <PageComments token={token} itemId={item.id} versionId={loaded.version.id} versionNo={loaded.version.versionNo} domain={view.domain} payload={loaded.version.payload} outline={loaded.version.outline} photoUrl={loaded.photoUrl} photoHash={loaded.photoHash} images={loaded.images} drafts={drafts} onChange={setDrafts} comments={loaded.comments} locked={item.locked}>
+            <div className="space-y-5">
               <nav className="rounded-xl border bg-white p-5" aria-label="Page sections">
                 <h2 className="mb-3 font-bold">On this page</h2>
                 <select aria-label="Jump to section" className="w-full rounded border p-2 lg:hidden" defaultValue="" onChange={event => document.getElementById(event.target.value)?.scrollIntoView({
@@ -275,7 +275,7 @@ export function PublicPageReview({
                 {item.locked ? <p>This decision is locked because the agency already acted on it.</p> : <>
                   <button className={`${button} w-full ${decisions[item.id]?.decision === 'approved' ? 'bg-[#1B6B34] !text-white' : ''}`} aria-pressed={decisions[item.id]?.decision === 'approved'} onClick={() => choose(item, 'approved')}>Approve page</button>
                   <button className={`${button} w-full ${decisions[item.id]?.decision === 'changes_requested' ? 'bg-[#FFF3E0]' : ''}`} aria-pressed={decisions[item.id]?.decision === 'changes_requested'} onClick={() => choose(item, 'changes_requested')}>Request changes</button>
-                  {decisions[item.id]?.decision === 'changes_requested' && <label className="block font-semibold">What needs to change? (required)<textarea maxLength={4000} value={decisions[item.id].comment} onChange={event => setDecisions(previous => ({
+                  {decisions[item.id]?.decision === 'changes_requested' && <label className="block font-semibold">What needs to change? ({drafts.some(comment => comment.itemId === item.id) ? 'optional page note' : 'required'})<textarea maxLength={4000} value={decisions[item.id].comment} onChange={event => setDecisions(previous => ({
                     ...previous,
                     [item.id]: {
                       ...previous[item.id],
@@ -285,7 +285,8 @@ export function PublicPageReview({
                   <p className="text-sm text-[#545A61]">Your choice won’t be sent until you press Send review.</p>
                 </>}
               </section>
-            </aside>
+            </div>
+            </PageComments>
           </div>}
         </>}
         {view.questions.length > 0 && <section className="mt-6 space-y-4 rounded-xl border bg-white p-5">

@@ -158,9 +158,9 @@ export function createPublicItem(dependencies = {
           quotePrefix: comment.quote_prefix as string,
           quoteSuffix: comment.quote_suffix as string
         };
-        const carried = carryAnchor(anchor, sanitizeDoc(payload.body), data.version.outline, photoHash);
+        const source = await admin.from('approval_item_versions').select('version_no,outline').eq('id', comment.version_id).eq('item_id', itemId).maybeSingle();
+        const carried = carryAnchor(anchor, sanitizeDoc(payload.body), data.version.outline, photoHash, source.data?.outline ?? []);
         const reply = (data.comments ?? []).filter((reply: { parent_id: unknown }) => reply.parent_id === comment.id).map((reply: { body: string }) => reply.body).join('\n');
-        const source = await admin.from('approval_item_versions').select('version_no').eq('id', comment.version_id).eq('item_id', itemId).maybeSingle();
         // Do not expose draft version numbers or draft payloads to clients.
         const resolution = comment.resolved_in_version_id ? await admin.from('approval_item_versions').select('version_no').eq('id', comment.resolved_in_version_id).eq('item_id', itemId).maybeSingle() : null;
         let suggestedImageUrl = null;
@@ -168,7 +168,7 @@ export function createPublicItem(dependencies = {
           const upload = await admin.from('approval_upload_reservations').select('preview_key').eq('object_key', comment.suggested_image_key).eq('request_id', requestId).maybeSingle();
           if (upload.data?.preview_key) suggestedImageUrl = await signRequestAsset(requestId, upload.data.preview_key, dependencies.signApprovalPhoto);
         }
-        return { id: comment.id, anchor: carried, state: carried.state, body: comment.body, quote: comment.quote, versionNo: source.data?.version_no ?? 1, reply: reply || comment.suggestion_reply, addressedVersion: resolution?.data?.version_no <= data.version.versionNo ? resolution?.data?.version_no : null, suggestedImageUrl };
+        return { id: comment.id, anchor: carried, state: carried.state, body: comment.body, addressed: !!comment.resolved_at, quote: comment.quote, versionNo: source.data?.version_no ?? 1, reply: reply || comment.suggestion_reply, addressedVersion: resolution?.data?.version_no <= data.version.versionNo ? resolution?.data?.version_no : null, suggestedImageUrl };
       }));
       return json({
         itemId,

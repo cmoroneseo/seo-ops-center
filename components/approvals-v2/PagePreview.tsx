@@ -82,6 +82,7 @@ export function PagePreview({
   images,
   decorateBlock,
   mockupTools,
+  onMockupPin,
   domain = 'Your website'
 }: {
   payload: PagePayload;
@@ -90,6 +91,7 @@ export function PagePreview({
   domain?: string;
   decorateBlock?: (node: PageNode, children: ReactNode) => ReactNode;
   mockupTools?: ReactNode;
+  onMockupPin?: () => void;
 }) {
   return <div className="page-review-content space-y-5">
     <section aria-label="Search preview" className="rounded-xl border border-[#E2E3DF] bg-white p-5 text-[#1A1A1A]">
@@ -107,7 +109,7 @@ export function PagePreview({
     {photoUrl && <figure className="overflow-hidden rounded-xl border bg-white">
       <figcaption className="border-b p-3 text-sm">Mockup image{mockupTools}</figcaption>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={photoUrl} alt={payload.mockupAlt ?? ''} className="max-h-[600px] w-full object-contain" />
+      <img src={photoUrl} alt={payload.mockupAlt ?? ''} className="max-h-[600px] w-full object-contain" onClick={onMockupPin} />
     </figure>}
     <section className="rounded-xl border border-[#E2E3DF] bg-white p-5 text-[#1A1A1A] sm:p-8" aria-label="Page content">
       <h1 className="mb-4 text-3xl font-bold">

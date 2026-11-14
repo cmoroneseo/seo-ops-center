@@ -51,6 +51,7 @@ export function createSubmit(dependencies: { createAdminClient: typeof createAdm
             if (comments.length > 100) return json({ error: publicMessage('invalid_request') }, 400);
             for (const comment of comments) {
                 if (!comment || typeof comment !== 'object' || Object.keys(comment).some(key => !['itemId', 'versionId', 'anchorKind', 'pinTarget', 'sectionId', 'blockId', 'targetHash', 'rangeStart', 'rangeEnd', 'quote', 'quotePrefix', 'quoteSuffix', 'body', 'suggestedText', 'suggestedImageReservationId'].includes(key))) return json({ error: publicMessage('invalid_request') }, 400);
+                if (comment.suggestedText && comment.anchorKind !== 'highlight') return json({ error: publicMessage('invalid_request') }, 400);
                 const { data: item } = await admin.from('approval_items').select('released_version_id').eq('id', comment.itemId).eq('request_id', link.request_id).maybeSingle();
                 if (!item || item.released_version_id !== comment.versionId) return json({ error: publicMessage('out_of_scope') }, 400);
                 const { data: version } = await admin.from('approval_item_versions').select('payload,outline').eq('id', item.released_version_id).maybeSingle();
