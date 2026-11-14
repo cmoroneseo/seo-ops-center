@@ -30,7 +30,7 @@ test('revision review includes untouched pending and unrevised changes-requested
     assert.match(html, /Actual change note/);
     assert.match(html, /Current/);
     assert.doesNotMatch(html, /Unaccepted suggestion/);
-    assert.ok(html.includes('href="https://example.com/offer"'));
+    assert.ok(html.includes('<dd>https://example.com/offer</dd>'));
     assert.match(html, /Learn more/);
 });
 
