@@ -160,12 +160,14 @@ test('migration 131 applies, stays private, and rejects anon and viewers', async
     );
     assert.equal(policies.rows.length, 0);
     const anonPolicies = await db.query<{ polname: string; roles: string }>(
-        `select pol.polname, pol.polroles::text as roles
+        `select pol.polname, coalesce(string_agg(roles.rolname, ','), 'PUBLIC') as roles
          from pg_policy pol
          join pg_class cls on cls.oid = pol.polrelid
-         where cls.relname like 'approval_%'`,
+         left join pg_roles roles on roles.oid = any(pol.polroles)
+         where cls.relname like 'approval_%'
+         group by pol.polname, pol.oid`,
     );
-    assert.equal(anonPolicies.rows.every(row => !row.roles.includes('anon')), true);
+    assert.equal(anonPolicies.rows.every(row => !row.roles.includes('anon') && !row.roles.includes('PUBLIC')), true);
     assert.equal(anonPolicies.rows.length > 0, true);
 
     await asRole(db, 'anon');
@@ -594,20 +596,7 @@ test('upload keys are bound to the request and old hashes are purged', async () 
     assert.equal(stolen.code, 'out_of_scope');
     assert.equal(item.version.id.length > 0, true);
 
-    await db.query(
-        `update public.approval_submissions set created_at = $1::timestamptz where request_hash = $2`,
-        ['2025-01-01T00:00:00Z', hash('approve-all')],
-    );
-    const purged = await call(
-        db,
-        `select public.purge_gbp_approval_retention($1::timestamptz) as result`,
-        ['2026-11-14T17:00:00Z'],
-    );
-    assert.equal(typeof purged.orphansDeleted, 'number');
-    const names = await db.query<{ name: string | null; ip: string | null }>(
-        `select respondent_name as name, ip_hash as ip from public.approval_submissions`,
-    );
-    assert.equal(names.rows.every(row => row.name === null || row.name.length > 0), true);
+
 });
 
 test('agency final is request-scoped and writer-only; same-link extension adds fourteen days', async () => {
@@ -634,5 +623,100 @@ test('agency final is request-scoped and writer-only; same-link extension adds f
         assert.equal(Date.parse(String(extended.expiresAt)), Date.parse(expiry) + 14 * 86400000);
         assert.equal((await call(db, `select public.revoke_gbp_approval_link($1,$2,$3::timestamptz) as result`, [owner, requestId, now])).ok, true);
         assert.equal((await call(db, `select public.extend_gbp_approval_link($1,$2,null,$3::timestamptz) as result`, [owner, requestId, now])).code, 'revoked');
+    } finally { await db.close(); }
+});
+
+
+test('retention selects its own expired orphan keys, then deletes only acknowledged objects', async () => {
+    const db = await database();
+    try {
+        const created = await call(db,
+            `select public.create_gbp_approval_request($1,$2,$3,$4,$5,null,'[]'::jsonb,$6::jsonb) as result`,
+            [owner, org, client, task, 'Retention', JSON.stringify([post('Retention post')])]);
+        await call(db, `select public.issue_gbp_approval_link($1,$2,$3,$4,$5::timestamptz) as result`,
+            [owner, created.requestId, hash('retention-token'), expiry, now]);
+        const links = await db.query<{ id: string }>(`select id from public.approval_links where request_id = $1`, [created.requestId]);
+        const linkId = links.rows[0].id;
+        const keys: string[] = [];
+        for (const [age, status] of [['2026-11-10', 'reserved'], ['2026-11-14', 'reserved'], ['2026-11-10', 'attached']]) {
+            const id = crypto.randomUUID();
+            const key = `gbp-approvals/${created.requestId}/${id}`;
+            keys.push(key);
+            await db.query(`insert into public.approval_upload_reservations
+                (id, organization_id, request_id, link_id, object_key, content_type, byte_size, status, created_at, expires_at)
+                values ($1,$2,$3,$4,$5,'image/png',100,$6,$7::timestamptz,$8::timestamptz)`,
+                [id, org, created.requestId, linkId, key, status, age, age]);
+        }
+        for (const [key, date] of [['old-ip-key', '2025-01-01'], ['new-ip-key', '2026-11-14']]) {
+            await db.query(`insert into public.approval_submissions
+                (organization_id, request_id, link_id, idempotency_key, request_hash, respondent_name, ip_hash, created_at)
+                values ($1,$2,$3,$4,$5,'Casey',$5,$6::timestamptz)`,
+                [org, created.requestId, linkId, key, hash(key), date]);
+        }
+        const selected = await call(db, `select public.purge_gbp_approval_retention($1::timestamptz) as result`, [now]);
+        assert.deepEqual(selected.objectKeys, [keys[0]]);
+        assert.equal(selected.orphansDeleted, 0);
+        assert.equal(selected.ipHashesCleared, 1);
+        const before = await db.query(`select id from public.approval_upload_reservations`);
+        assert.equal(before.rows.length, 3);
+        const purged = await call(db,
+            `select public.purge_gbp_approval_retention($1::timestamptz,$2::text[]) as result`, [now, [keys[0]]]);
+        assert.equal(purged.orphansDeleted, 1);
+        const remaining = await db.query<{ object_key: string }>(`select object_key from public.approval_upload_reservations`);
+        assert.deepEqual(remaining.rows.map(row => row.object_key).sort(), keys.slice(1).sort());
+        const ips = await db.query<{ idempotency_key: string; ip_hash: string | null; respondent_name: string }>(
+            `select idempotency_key, ip_hash, respondent_name from public.approval_submissions order by created_at`);
+        assert.equal(ips.rows[0].ip_hash, null);
+        assert.equal(ips.rows[1].ip_hash, hash('new-ip-key'));
+        assert.equal(ips.rows.every(row => row.respondent_name === 'Casey'), true);
+    } finally { await db.close(); }
+});
+
+test('bot create retries are org-scoped and reject changed payload hashes', async () => {
+    const db = await database();
+    try {
+        const create = (organization: string, clientId: string, taskId: string, requestHash: string) => call(db,
+            `select public.create_gbp_approval_request($1,$2,$3,$4,$5,null,'[]'::jsonb,$6::jsonb,$7,$8) as result`,
+            [owner, organization, clientId, taskId, 'Bot request', JSON.stringify([post('Bot post')]), 'bot-retry-1', requestHash]);
+        const first = await create(org, client, task, hash('original'));
+        assert.equal(first.ok, true);
+        assert.equal((await create(org, client, task, hash('original'))).requestId, first.requestId);
+        assert.equal((await create(org, client, task, hash('changed'))).code, 'idempotency_conflict');
+        const other = await create(otherOrg, otherClient, otherTask, hash('original'));
+        assert.equal(other.ok, true);
+        assert.notEqual(other.requestId, first.requestId);
+        const rows = await db.query(`select id from public.approval_requests`);
+        assert.equal(rows.rows.length, 2);
+    } finally { await db.close(); }
+});
+
+test('queued version creation wins a race with submit bound to the previously displayed version', async () => {
+    // PGlite has one connection: enqueue competing calls directly (not the role-switching helper).
+    // This exercises the version-wins lock ordering deterministically.
+    const db = await database();
+    try {
+        const created = await call(db,
+            `select public.create_gbp_approval_request($1,$2,$3,$4,$5,null,'[]'::jsonb,$6::jsonb) as result`,
+            [owner, org, client, task, 'Race', JSON.stringify([post('Original')])]);
+        await call(db, `select public.issue_gbp_approval_link($1,$2,$3,$4,$5::timestamptz) as result`,
+            [owner, created.requestId, hash('race-token'), expiry, now]);
+        const view = await call(db, `select public.get_gbp_approval_by_token($1,$2::timestamptz) as result`, [hash('race-token'), now]);
+        const item = (view.items as Array<{ id: string; version: { id: string } }>)[0];
+        const payload = { idempotencyKey: 'race-submit-1', requestHash: hash('race'), respondentName: 'Casey',
+            displayedVersionIds: [item.version.id],
+            decisions: [{ itemId: item.id, versionId: item.version.id, decision: 'approved' }],
+            answers: [], verifiedReservationIds: [] };
+        await asRole(db, 'service_role');
+        const [version, submit] = await Promise.all([
+            db.query<{ result: { ok: boolean } }>(`select public.post_gbp_approval_version($1,$2,$3::jsonb,$4::timestamptz) as result`,
+                [owner, created.requestId, JSON.stringify([{ itemId: item.id, payload: post('Revised').payload, photoPath: post('Revised').photoPath, source: 'manual', changeNote: 'Revised' }]), now]),
+            db.query<{ result: { code: string } }>(`select public.submit_gbp_approval($1,$2::jsonb,$3,$4::timestamptz) as result`,
+                [hash('race-token'), JSON.stringify(payload), null, now]),
+        ]);
+        assert.equal(version.rows[0].result.ok, true);
+        assert.equal(submit.rows[0].result.code, 'refresh_required');
+        await reset(db);
+        assert.equal((await db.query(`select id from public.approval_submissions`)).rows.length, 0);
+        assert.equal((await db.query(`select id from public.approval_responses`)).rows.length, 0);
     } finally { await db.close(); }
 });

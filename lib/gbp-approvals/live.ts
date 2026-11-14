@@ -5,8 +5,8 @@ import { hashIp, projectPublicReview, type PublicReviewView } from './public-vie
 
 const PEPPER = process.env.APPROVAL_IP_PEPPER || 'seo-ops-gbp-approval-ip';
 
-export async function loadPublicReview(token: string, photoSrcFor?: (path: string) => Promise<string | null>): Promise<PublicReviewView | { code: string } | null> {
-    const admin = createAdminClient();
+export async function loadPublicReview(token: string, photoSrcFor?: (path: string) => Promise<string | null>, adminFactory = createAdminClient): Promise<PublicReviewView | { code: string } | null> {
+    const admin = adminFactory();
     const { data, error } = await admin.rpc('get_gbp_approval_by_token', {
         p_token_hash: hashToken(token),
         p_now: new Date().toISOString(),

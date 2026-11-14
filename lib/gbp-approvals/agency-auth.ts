@@ -2,8 +2,7 @@ import { cookies } from 'next/headers';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { bearerToken, isBotKeyToken } from '@/lib/bots/scope';
 
-export async function agencyActor(request: Request) {
-    if (isBotKeyToken(bearerToken(request.headers.get('authorization')))) return null;
+async function sessionActor() {
     const cookieStore = await cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,3 +19,12 @@ export async function agencyActor(request: Request) {
     return data.user?.id ?? null;
 }
 
+
+export function createAgencyActor(resolveSession: () => Promise<string | null>) {
+    return async (request: Request) => {
+        if (isBotKeyToken(bearerToken(request.headers.get('authorization')))) return null;
+        return resolveSession();
+    };
+}
+
+export const agencyActor = createAgencyActor(sessionActor);

@@ -21,6 +21,14 @@ create table if not exists public.approval_requests (
   client_id uuid not null references public.clients(id) on delete cascade,
   task_id uuid not null references public.tasks(id) on delete cascade,
   title text not null,
+  idempotency_key text,
+  request_hash text,
+  constraint approval_requests_idempotency_unique unique (organization_id, idempotency_key),
+  constraint approval_requests_idempotency_check check (
+    (idempotency_key is null and request_hash is null) or
+    (idempotency_key is not null and request_hash is not null
+      and idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9:_.-]{7,199}$' and request_hash ~ '^[0-9a-f]{64}$')
+  ),
   due_at timestamptz,
   round integer not null default 1,
   created_by uuid,
@@ -796,7 +804,9 @@ create or replace function public.create_gbp_approval_request(
   p_title text,
   p_due_at timestamptz,
   p_questions jsonb,
-  p_items jsonb
+  p_items jsonb,
+  p_idempotency_key text default null,
+  p_request_hash text default null
 )
 returns jsonb
 language plpgsql
@@ -818,9 +828,22 @@ declare
   v_prompt text;
   v_item_position integer;
   v_question_item uuid;
+  v_existing public.approval_requests%rowtype;
 begin
   if p_actor is null or not public.gbp_approval_writer(p_actor, p_organization_id) then
     return public.gbp_approval_fail('forbidden');
+  end if;
+  if p_idempotency_key is not null then
+    -- Serialize retries before inspecting or creating the org-scoped key.
+    perform pg_advisory_xact_lock(hashtextextended(p_organization_id::text || ':' || p_idempotency_key, 0));
+    select * into v_existing from public.approval_requests
+      where organization_id = p_organization_id and idempotency_key = p_idempotency_key;
+    if found then
+      if v_existing.request_hash is distinct from p_request_hash then
+        return public.gbp_approval_fail('idempotency_conflict');
+      end if;
+      return jsonb_build_object('ok', true, 'requestId', v_existing.id, 'round', v_existing.round);
+    end if;
   end if;
   if p_title is null or char_length(btrim(p_title)) < 1 or char_length(btrim(p_title)) > 200 then
     return public.gbp_approval_fail('invalid_request');
@@ -836,9 +859,9 @@ begin
   end if;
 
   insert into public.approval_requests (
-    organization_id, client_id, task_id, title, due_at, created_by
+    organization_id, client_id, task_id, title, due_at, created_by, idempotency_key, request_hash
   ) values (
-    p_organization_id, p_client_id, p_task_id, btrim(p_title), p_due_at, p_actor
+    p_organization_id, p_client_id, p_task_id, btrim(p_title), p_due_at, p_actor, p_idempotency_key, p_request_hash
   ) returning id into v_request_id;
 
   for v_item in select value from jsonb_array_elements(p_items)
@@ -1851,7 +1874,7 @@ begin
 end;
 $fn$;
 
-create or replace function public.purge_gbp_approval_retention(p_now timestamptz)
+create or replace function public.purge_gbp_approval_retention(p_now timestamptz, p_removed_keys text[] default null)
 returns jsonb
 language plpgsql
 security definer
@@ -1861,6 +1884,7 @@ declare
   v_ips integer;
   v_orphans integer;
   v_hits integer;
+  v_keys text[];
 begin
   perform set_config('gbp_approval.purge', 'on', true);
   update public.approval_submissions
@@ -1868,14 +1892,20 @@ begin
     where ip_hash is not null
       and created_at < p_now - interval '12 months';
   get diagnostics v_ips = row_count;
-  delete from public.approval_upload_reservations
-    where status = 'reserved'
+  select coalesce(array_agg(object_key), '{}'::text[]) into v_keys
+    from public.approval_upload_reservations
+    where status = 'reserved' and expires_at <= p_now
       and created_at < p_now - interval '24 hours';
+  -- The caller removes these objects through Storage before acknowledging keys.
+  delete from public.approval_upload_reservations
+    where status = 'reserved' and expires_at <= p_now
+      and created_at < p_now - interval '24 hours'
+      and object_key = any(p_removed_keys);
   get diagnostics v_orphans = row_count;
   delete from public.approval_public_hits
     where created_at < p_now - interval '48 hours';
   get diagnostics v_hits = row_count;
-  return jsonb_build_object('ok', true, 'ipHashesCleared', v_ips, 'orphansDeleted', v_orphans, 'hitsDeleted', v_hits);
+  return jsonb_build_object('ok', true, 'ipHashesCleared', v_ips, 'orphansDeleted', v_orphans, 'objectKeys', to_jsonb(v_keys), 'hitsDeleted', v_hits);
 end;
 $fn$;
 
@@ -1954,7 +1984,7 @@ begin
     'public.gbp_approval_fail(text)',
     'public.gbp_approval_hit_count(text, text, timestamptz)',
     'public.gbp_approval_uuid_or_null(text)',
-    'public.create_gbp_approval_request(uuid, uuid, uuid, uuid, text, timestamptz, jsonb, jsonb)',
+    'public.create_gbp_approval_request(uuid, uuid, uuid, uuid, text, timestamptz, jsonb, jsonb, text, text)',
     'public.issue_gbp_approval_link(uuid, uuid, text, timestamptz, timestamptz)',
     'public.extend_gbp_approval_link(uuid, uuid, timestamptz, timestamptz)',
     'public.revoke_gbp_approval_link(uuid, uuid, timestamptz)',
@@ -1963,7 +1993,7 @@ begin
     'public.reserve_gbp_approval_upload(text, text, integer, timestamptz)',
     'public.submit_gbp_approval(text, jsonb, text, timestamptz)',
     'public.get_gbp_approval_by_token(text, timestamptz)',
-    'public.purge_gbp_approval_retention(timestamptz)'
+    'public.purge_gbp_approval_retention(timestamptz, text[])'
   ]
   loop
     execute format('revoke all on function %s from public, anon, authenticated', signature);
@@ -1972,7 +2002,7 @@ end;
 $exec$;
 
 grant execute on function
-  public.create_gbp_approval_request(uuid, uuid, uuid, uuid, text, timestamptz, jsonb, jsonb),
+  public.create_gbp_approval_request(uuid, uuid, uuid, uuid, text, timestamptz, jsonb, jsonb, text, text),
   public.issue_gbp_approval_link(uuid, uuid, text, timestamptz, timestamptz),
   public.extend_gbp_approval_link(uuid, uuid, timestamptz, timestamptz),
   public.revoke_gbp_approval_link(uuid, uuid, timestamptz),
@@ -1981,7 +2011,7 @@ grant execute on function
   public.reserve_gbp_approval_upload(text, text, integer, timestamptz),
   public.submit_gbp_approval(text, jsonb, text, timestamptz),
   public.get_gbp_approval_by_token(text, timestamptz),
-  public.purge_gbp_approval_retention(timestamptz)
+  public.purge_gbp_approval_retention(timestamptz, text[])
 to service_role;
 
 -- ---------------------------------------------------------------------------

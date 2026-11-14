@@ -146,3 +146,19 @@ export function botApprovalUnauthorized(authorization: string | null): { status:
     if (!isBotKeyToken(token)) return { status: 401, code: 'invalid_api_key', error: 'Invalid API key.' };
     return null;
 }
+
+/** Keep retry identity attached to the normalized command at the SQL boundary. */
+export function botApprovalRpcArgs(command: BotApprovalCommand, actorId: string, organizationId: string, clientId: string, taskId: string) {
+    return {
+        p_actor: actorId,
+        p_organization_id: organizationId,
+        p_client_id: clientId,
+        p_task_id: taskId,
+        p_title: command.title,
+        p_due_at: command.dueAt,
+        p_questions: command.questions,
+        p_items: command.items,
+        p_idempotency_key: command.idempotencyKey,
+        p_request_hash: command.requestHash,
+    };
+}

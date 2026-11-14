@@ -1,4 +1,4 @@
-import { parseBotApproval, botApprovalUnauthorized } from '@/lib/bots/approvals';
+import { parseBotApproval, botApprovalUnauthorized, botApprovalRpcArgs } from '@/lib/bots/approvals';
 import { BOT_ACTOR_EMAIL, hashBotKey } from '@/lib/bots/keys';
 import { bearerToken } from '@/lib/bots/scope';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -42,18 +42,10 @@ export async function POST(request: Request) {
         taskId = found.data[0].id;
     }
     if (!clientId || !taskId) return json({ error: 'Name the client and the task.', code: 'invalid_request' }, 400);
-    const created = await admin.rpc('create_gbp_approval_request', {
-        p_actor: actor.data.id,
-        p_organization_id: key.data.organization_id,
-        p_client_id: clientId,
-        p_task_id: taskId,
-        p_title: command.title,
-        p_due_at: command.dueAt,
-        p_questions: command.questions,
-        p_items: command.items,
-    });
+    const created = await admin.rpc('create_gbp_approval_request',
+        botApprovalRpcArgs(command, actor.data.id, key.data.organization_id, clientId, taskId));
     if (created.error || !created.data) return json({ error: 'The approval could not be saved.', code: 'invalid_request' }, 400);
     const result = created.data as { ok?: boolean; code?: string; requestId?: string };
-    if (result.ok === false) return json({ error: 'The approval could not be saved.', code: result.code ?? 'invalid_request' }, result.code === 'forbidden' ? 403 : 400);
+    if (result.ok === false) return json({ error: 'The approval could not be saved.', code: result.code ?? 'invalid_request' }, result.code === 'forbidden' ? 403 : result.code === 'idempotency_conflict' ? 409 : 400);
     return json({ requestId: result.requestId, linked: false }, 201);
 }

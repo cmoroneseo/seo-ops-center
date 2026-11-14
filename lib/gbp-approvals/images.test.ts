@@ -5,9 +5,12 @@ import { sniffImage, uploadKeyMatches } from './images.ts';
 
 const requestId = '11111111-1111-4111-8111-111111111111';
 
-test('image bytes must match a photo signature', () => {
-    assert.equal(sniffImage(Uint8Array.from([0xff, 0xd8, 0xff, 0x00, 0, 0, 0, 0, 0, 0, 0, 0])), 'jpeg');
-    assert.equal(sniffImage(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0, 0, 0, 0, 0])), 'png');
+test('image bytes must match a photo signature', async () => {
+    const { default: sharp } = await import('sharp');
+    for (const format of ['jpeg', 'png', 'webp', 'gif'] as const) {
+        const bytes = await sharp({ create: { width: 2, height: 2, channels: 3, background: 'white' } }).toFormat(format).toBuffer();
+        assert.equal(sniffImage(bytes), format);
+    }
     const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
     assert.equal(sniffImage(svg), null);
     assert.equal(sniffImage(new TextEncoder().encode('<script>alert(1)</script>')), null);
