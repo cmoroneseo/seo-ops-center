@@ -43,6 +43,32 @@ test('expired page uses actual expiry and has no form', () => {
     assert.doesNotMatch(html, /<form/);
 });
 
+for (const mode of ['missing', 'expired', 'revoked'] as const) {
+    test(`${mode} page shows no client name, logo, sample data, or expiry note`, () => {
+        const html = renderToStaticMarkup(createElement(PublicReview, { mode, posts: [] }));
+        assert.doesNotMatch(html, /ALL-IN-1/);
+        assert.doesNotMatch(html, /Prepared for/);
+        assert.doesNotMatch(html, /works until/);
+        assert.doesNotMatch(html, /<img/);
+        assert.doesNotMatch(html, /<form/);
+        if (mode === 'missing') assert.match(html, /This link isn\u2019t available/);
+    });
+}
+
+test('missing page ignores a client name even if one is passed', () => {
+    const html = renderToStaticMarkup(createElement(PublicReview, { mode: 'missing', posts: [], clientName: 'Real client', logoSrc: '/logo.webp' }));
+    assert.doesNotMatch(html, /Real client/);
+    assert.doesNotMatch(html, /logo\.webp/);
+});
+
+test('active review without a logo uses no sample logo or sample questions', () => {
+    const html = renderToStaticMarkup(createElement(PublicReview, { mode: 'review', clientName: 'Real client', posts: [post] }));
+    assert.match(html, /Prepared for/);
+    assert.match(html, /Real client/);
+    assert.doesNotMatch(html, /ALL-IN-1|gbp-approvals\/logo/);
+    assert.doesNotMatch(html, /Dec 31 deadline/);
+});
+
 test('calendar dates use the approvals weekday format', async () => {
     const { weekday } = await import('../../components/gbp-approvals/sample');
     assert.equal(weekday('2026-11-16'), 'Mon, Nov 16');
