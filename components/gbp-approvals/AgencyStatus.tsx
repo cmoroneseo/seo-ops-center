@@ -43,10 +43,15 @@ export function AgencyStatus({ embedded = false }: { embedded?: boolean }) {
                     <section className="card items">
                         {SAMPLE_POSTS.map(item => (
                             <button className={item.position === selected ? 'item' : 'item'} key={item.position} type="button" onClick={() => setSelected(item.position)} style={item.position === selected ? { borderColor: '#3DD0E0' } : undefined}>
-                                <span className="thumb">{item.photo ? <img src={item.photo} alt="" /> : <span className="chip chip-photo">Photo needed</span>}</span>
+                                <span className={item.photo ? 'thumb' : 'thumb missing'}>
+                                    {item.photo ? <img src={item.photo} alt="" /> : (
+                                        <svg className="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2" /><circle cx="9" cy="10" r="1.6" /><path d="M4 17l5-5 4 4 2.5-2.5L20 17" /></svg>
+                                    )}
+                                </span>
                                 <span className="dmeta">
                                     <b>Post {item.position} · Planned for {weekday(item.scheduled)}</b>
                                     <span className="k">{item.title}</span>
+                                    {!item.photo && <span className="chip chip-photo">Photo needed</span>}
                                 </span>
                                 {item.status === 'approved' && <span className="chip chip-approved">Approved</span>}
                                 {item.status === 'changes_requested' && <span className="chip chip-changes">Changes requested</span>}

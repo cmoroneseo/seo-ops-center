@@ -18,4 +18,8 @@ test('client and agency copy follows the locked wording', () => {
     const expired = publicReview.slice(publicReview.indexOf("mode === 'expired'"), publicReview.indexOf('if (sent)'));
     assert.doesNotMatch(expired, /<form/);
     assert.match(expired, /Contact your account manager/);
+    assert.match(agency, /thumb missing/);
+    assert.match(agency, />Photo needed</);
+    const css = readFileSync(new URL('../../components/gbp-approvals/agency-review.css', import.meta.url), 'utf8');
+    assert.match(css, /\.gbp-agency \.tl \.s\{display:block/);
 });
