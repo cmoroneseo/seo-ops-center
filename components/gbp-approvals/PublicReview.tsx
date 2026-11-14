@@ -49,6 +49,7 @@ export function PublicReview({
     const [choices, setChoices] = useState<Record<number, 'approved' | 'changes_requested' | undefined>>({});
     const [openChanges, setOpenChanges] = useState<number | null>(null);
     const [comments, setComments] = useState<Record<number, string>>({});
+    const [suggestions, setSuggestions] = useState<Record<number, { title?: string; body?: string }>>({});
     const [answers, setAnswers] = useState<Record<string, string>>({});
     const [full, setFull] = useState<Record<number, boolean>>({});
     const [askName, setAskName] = useState(false);
@@ -137,6 +138,10 @@ export function PublicReview({
             setNameError(true);
             return;
         }
+        if (posts.some(post => !post.locked && choices[post.position] === 'changes_requested' && !comments[post.position]?.trim())) {
+            setError('A comment is required for each post requesting changes.');
+            return;
+        }
         setError('');
         setBusy(true);
         try {
@@ -146,7 +151,9 @@ export function PublicReview({
                 displayedVersionIds: posts.map(post => post.versionId),
                 decisions: posts.filter(post => !post.locked && choices[post.position]).map(post => ({
                     itemId: post.itemId, versionId: post.versionId, decision: choices[post.position],
-                    comment: comments[post.position] ?? '',
+                    comment: choices[post.position] === 'changes_requested' ? comments[post.position] ?? '' : '',
+                    suggestedTitle: choices[post.position] === 'changes_requested' && suggestions[post.position]?.title !== undefined && suggestions[post.position].title !== post.title ? suggestions[post.position].title : undefined,
+                    suggestedBody: choices[post.position] === 'changes_requested' && suggestions[post.position]?.body !== undefined && suggestions[post.position].body !== post.body ? suggestions[post.position].body : undefined,
                     reservationId: choices[post.position] === 'changes_requested' ? uploads[post.position] : undefined,
                 })),
                 answers: Object.entries(answers).map(([questionId, answer]) => ({ questionId, answer })),
@@ -227,6 +234,9 @@ export function PublicReview({
                             choice={choices[post.position]}
                             open={openChanges === post.position}
                             comment={comments[post.position] ?? ''}
+                            suggestedTitle={suggestions[post.position]?.title ?? post.title}
+                            suggestedBody={suggestions[post.position]?.body ?? post.body}
+                            onSuggest={(field, value) => setSuggestions(current => ({ ...current, [post.position]: { ...current[post.position], [field]: value } }))}
                             showFull={full[post.position] === true}
                             onApprove={() => setChoices(current => ({ ...current, [post.position]: 'approved' }))}
                             onRequest={() => { setOpenChanges(post.position); setChoices(current => ({ ...current, [post.position]: 'changes_requested' })); }}
@@ -304,7 +314,7 @@ function Shell({ children, clientName }: { children: ReactNode; clientName: stri
 }
 
 function PostCard({
-    post, total, choice, open, comment, showFull, onApprove, onRequest, onComment, onToggleFull, clientName, onUpload, uploading, uploaded,
+    post, total, choice, open, comment, suggestedTitle, suggestedBody, onSuggest, showFull, onApprove, onRequest, onComment, onToggleFull, clientName, onUpload, uploading, uploaded,
 }: {
     post: ReviewPost;
     clientName: string;
@@ -315,12 +325,16 @@ function PostCard({
     choice?: 'approved' | 'changes_requested';
     open: boolean;
     comment: string;
+    suggestedTitle: string;
+    suggestedBody: string;
+    onSuggest: (field: 'title' | 'body', value: string) => void;
     showFull: boolean;
     onApprove: () => void;
     onRequest: () => void;
     onComment: (value: string) => void;
     onToggleFull: () => void;
 }) {
+    const [suggestOpen, setSuggestOpen] = useState(false);
     const status = choice ?? post.status;
     const parts = post.previousBody ? diffWords(post.previousBody, post.body) : [];
     return (
@@ -392,6 +406,20 @@ function PostCard({
                     {uploaded && <p className="hint">Photo uploaded. Send your review to share it.</p>}
                     <label className="label" htmlFor={`comment-${post.position}`}>Comment</label>
                     <textarea id={`comment-${post.position}`} className="input ta" value={comment} onChange={event => onComment(event.target.value)} />
+                    <button className="disc" type="button" aria-expanded={suggestOpen} aria-controls={`suggest-${post.position}`} onClick={() => setSuggestOpen(current => !current)}>
+                        Suggest an edit (optional)
+                        <svg className="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+                    </button>
+                    <div id={`suggest-${post.position}`} hidden={!suggestOpen}>
+                        <div className="field">
+                            <label className="label" htmlFor={`suggest-title-${post.position}`}>Suggested title</label>
+                            <input id={`suggest-title-${post.position}`} className="input" maxLength={80} value={suggestedTitle} onChange={event => onSuggest('title', event.target.value)} />
+                        </div>
+                        <div className="field">
+                            <label className="label" htmlFor={`suggest-body-${post.position}`}>Suggested text</label>
+                            <textarea id={`suggest-body-${post.position}`} className="input ta" maxLength={2000} value={suggestedBody} onChange={event => onSuggest('body', event.target.value)} />
+                        </div>
+                    </div>
                     <p className="hint">A comment is required to request changes. A suggested edit is optional and stays a suggestion until we accept it.</p>
                 </div>
             )}

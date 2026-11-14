@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { applySuggestion, type GbpPostPayload } from '@/lib/gbp-approvals/registry';
+import { weekday } from './sample';
 import { ItemStatus } from './AgencyStatus';
 
 interface Version {
@@ -125,7 +126,7 @@ export function TaskApprovalsPanel({ taskId, taskTitle }: { taskId: string; task
                             <p className="text-sm font-medium">Post {item.position} · v{item.version?.version_no} · {item.version?.payload.title}</p>
                             <ItemStatus status={item.status} />
                         </div>
-                        <p className="text-sm text-muted-foreground">Planned for {item.version?.payload.scheduledDate}</p>
+                        <p className="text-sm text-muted-foreground">Planned for {item.version ? weekday(item.version.payload.scheduledDate) : '—'}</p>
                         {item.decision_lock_reason && <p className="text-sm">Decision locked · {item.decision_lock_reason === 'marked_final' ? 'Marked final' : 'Agency revision'}</p>}
                         {item.response?.comment && <p className="whitespace-pre-wrap text-sm">Client note: {item.response.comment}</p>}
                         {item.response?.suggested_title && <p className="text-sm">Suggested title: {item.response.suggested_title}</p>}
