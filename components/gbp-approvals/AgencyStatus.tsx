@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { diffWords } from '@/lib/gbp-approvals/diff';
 import { cn } from '@/lib/utils';
 
-import { LOGO, SAMPLE_POSTS, SAMPLE_QUESTIONS, monthDay, weekday, type SamplePost } from './sample';
+import { LOGO, SAMPLE_POSTS, monthDay, weekday, type SamplePost } from './sample';
 
 export type AgencyView = 'status' | 'share' | 'revision' | 'history';
 

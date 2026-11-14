@@ -72,7 +72,14 @@ export function PublicReview({
     }, [answers, choices, mode, posts, questions]);
 
     if (mode === 'missing') {
-        return <Shell clientName={clientName}><section className="panel"><h1 className="title">This link isn't available</h1><p className="lead">Check the link you were given, or contact your account manager.</p></section></Shell>;
+        return (
+            <Shell clientName={clientName}>
+                <section className="panel">
+                    <h1 className="title">{'This link isn\u2019t available'}</h1>
+                    <p className="lead">Check the link you were given, or contact your account manager.</p>
+                </section>
+            </Shell>
+        );
     }
     if (mode === 'expired' || mode === 'revoked') {
         return (
