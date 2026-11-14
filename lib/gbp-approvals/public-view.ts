@@ -212,6 +212,7 @@ export function submissionHash(body: {
     displayedVersionIds: string[];
     decisions: unknown[];
     answers: unknown[];
+    comments?: unknown[];
 }): string {
     const stable = JSON.stringify({
         name: body.respondentName.trim(),
@@ -219,6 +220,7 @@ export function submissionHash(body: {
         versions: [...body.displayedVersionIds].sort(),
         decisions: body.decisions,
         answers: body.answers,
+        ...(body.comments?.length ? { comments: body.comments } : {}),
     });
     return createHash('sha256').update(stable).digest('hex');
 }
