@@ -1,5 +1,5 @@
 import { parseBotApproval, botApprovalUnauthorized, botApprovalRpcArgs } from '@/lib/bots/approvals';
-import { BOT_ACTOR_EMAIL, hashBotKey } from '@/lib/bots/keys';
+import { resolveBotActorLookup, hashBotKey } from '@/lib/bots/keys';
 import { bearerToken } from '@/lib/bots/scope';
 import { createAdminClient } from '@/lib/supabase/admin';
 
@@ -26,7 +26,11 @@ export async function POST(request: Request) {
     const admin = createAdminClient();
     const key = await admin.from('bot_api_keys').select('id, organization_id, revoked_at').eq('key_hash', hashBotKey(token)).maybeSingle();
     if (key.error || !key.data || key.data.revoked_at) return json({ error: 'Invalid API key.', code: 'invalid_api_key' }, 401);
-    const actor = await admin.from('users').select('id').eq('email', BOT_ACTOR_EMAIL).maybeSingle();
+    let lookup: ReturnType<typeof resolveBotActorLookup>;
+    try { lookup = resolveBotActorLookup(); } catch {
+        return json({ error: 'The approval could not be attributed.', code: 'actor_not_found' }, 409);
+    }
+    const actor = await admin.from('users').select('id').eq(lookup.kind, lookup.value).maybeSingle();
     if (actor.error || !actor.data) return json({ error: 'The approval could not be attributed.', code: 'actor_not_found' }, 409);
     const command = parsed.command;
     let clientId = command.clientId ?? null;
@@ -42,8 +46,12 @@ export async function POST(request: Request) {
         taskId = found.data[0].id;
     }
     if (!clientId || !taskId) return json({ error: 'Name the client and the task.', code: 'invalid_request' }, 400);
-    const created = await admin.rpc('create_gbp_approval_request',
-        botApprovalRpcArgs(command, actor.data.id, key.data.organization_id, clientId, taskId));
+    const created = await admin.rpc('create_approval_request', {
+        ...botApprovalRpcArgs(command, actor.data.id, key.data.organization_id, clientId, taskId),
+        p_item_type: 'gbp_post',
+        p_created_via: 'bot',
+        p_bot_key_id: key.data.id,
+    });
     if (created.error || !created.data) return json({ error: 'The approval could not be saved.', code: 'invalid_request' }, 400);
     const result = created.data as { ok?: boolean; code?: string; requestId?: string };
     if (result.ok === false) return json({ error: 'The approval could not be saved.', code: result.code ?? 'invalid_request' }, result.code === 'forbidden' ? 403 : result.code === 'idempotency_conflict' ? 409 : 400);

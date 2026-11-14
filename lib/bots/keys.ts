@@ -50,3 +50,15 @@ export function normalizeBotName(value: unknown): string | null {
     if (!NAME.test(name)) return null;
     return name;
 }
+
+/** Approvals only; timer/task attribution deliberately keeps BOT_ACTOR_EMAIL. */
+export function resolveBotActorLookup(env: NodeJS.ProcessEnv = process.env): { kind: 'id' | 'email'; value: string } {
+    const id = env.BOT_ACTOR_USER_ID?.trim();
+    if (id) {
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+            throw new Error('BOT_ACTOR_USER_ID must be a UUID.');
+        }
+        return { kind: 'id', value: id };
+    }
+    return { kind: 'email', value: env.BOT_ACTOR_EMAIL?.trim() || BOT_ACTOR_EMAIL };
+}

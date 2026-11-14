@@ -22,7 +22,9 @@ export type NotificationType =
   | 'portal_feedback'
   | 'vault_proposal_accepted'
   | 'vault_proposal_dismissed'
-  | 'gbp_approval_response';
+  | 'gbp_approval_response'
+  | 'approval_request_response'
+  | 'approval_draft_ready';
 export type EntityType =
   | 'task'
   | 'task_comment'
@@ -33,7 +35,8 @@ export type EntityType =
   | 'content_approval_doc'
   | 'client_portal_feedback'
   | 'client_vault_suggestion'
-  | 'gbp_approval_request';
+  | 'gbp_approval_request'
+  | 'approval_request';
 
 export interface AppNotification {
   id: string;
