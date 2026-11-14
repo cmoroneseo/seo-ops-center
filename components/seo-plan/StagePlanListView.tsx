@@ -1102,10 +1102,15 @@ function PlanRow({
             : null;
         const logged = hours ? hours.total : (loggedHours[task.id] ?? 0);
         const tracked = timerTargetById.get(task.id) ?? { taskId: task.id, label: null as string | null, parentTitle: null as string | null };
-        const timer = timerByTaskId?.[tracked.taskId] ?? { phase: 'idle' as const, seconds: 0 };
+        const ownTimer = timerByTaskId?.[task.id];
+        const trackedTimer = timerByTaskId?.[tracked.taskId] ?? { phase: 'idle' as const, seconds: 0 };
+        // A bot timer stays on the task it was started on, including a subtask.
+        const timer = ownTimer?.owner === 'bot' ? ownTimer : trackedTimer;
+        const controlTaskId = timer.owner === 'bot' ? task.id : tracked.taskId;
         const loggedLabel = options.pillar ? `Σ ${formatPlanHours(logged)}` : formatPlanHours(logged);
-        const timeText = onRowTimer ? planRowTimeText(timer, loggedLabel) : loggedLabel;
-        const timerPending = Boolean(onRowTimer) && pendingTimerTaskId === tracked.taskId;
+        const botReadOnly = timer.owner === 'bot' && timer.botControls === false;
+        const timeText = (onRowTimer || botReadOnly) ? planRowTimeText(timer, loggedLabel) : loggedLabel;
+        const timerPending = Boolean(onRowTimer) && !botReadOnly && pendingTimerTaskId === controlTaskId;
         const stopOnCheck = timer.phase === 'running' && Boolean(onCheckRunning) && !locked && !timerPending;
         const childResults = options.pillar
             ? group.children.flatMap(child => {
@@ -1135,7 +1140,7 @@ function PlanRow({
                 data-plan-focused={focusedId === task.id ? 'true' : undefined}
                 data-late={due.late ? 'true' : undefined}
                 data-plan-status={task.status}
-                data-plan-timer={onRowTimer ? (timerPending ? 'pending' : timer.phase) : undefined}
+                data-plan-timer={(onRowTimer || botReadOnly) ? (timerPending ? 'pending' : timer.phase) : undefined}
                 draggable={draggable || undefined}
                 onDragStart={event => {
                     if (!draggable) return;
@@ -1322,7 +1327,23 @@ function PlanRow({
                 >
                     <AssigneeStack ids={assigneeIds} people={people} />
                 </button>
-                {onRowTimer ? (
+                {botReadOnly ? (
+                    <span
+                        data-plan-time={timeText}
+                        data-bot-controls="hidden"
+                        aria-label={timer.phase === 'paused' ? `Timer paused for ${task.title}` : `Timer running for ${task.title}`}
+                        className={cn(
+                            'inline-flex w-full items-center justify-end gap-1 text-right text-[12px] tabular-nums',
+                            timer.phase === 'running' && 'rounded-full bg-[#ec4899]/15 px-1.5 py-0.5 font-mono text-[#ec4899]',
+                            timer.phase === 'paused' && 'text-amber-400',
+                        )}
+                    >
+                        {timer.phase === 'running' && (
+                            <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ec4899] animate-pulse" />
+                        )}
+                        <span>{timeText}</span>
+                    </span>
+                ) : onRowTimer ? (
                     <button
                         type="button"
                         disabled={locked || timerPending || timer.phase === 'reviewing'}
@@ -1337,7 +1358,7 @@ function PlanRow({
                         data-plan-tracks={tracked.label ?? undefined}
                         onClick={event => {
                             event.stopPropagation();
-                            if (!locked && !timerPending) onRowTimer(tracked.taskId);
+                            if (!locked && !timerPending) onRowTimer(controlTaskId);
                         }}
                         className={cn(
                             'inline-flex w-full items-center justify-end gap-1 text-right text-[12px] tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-70',

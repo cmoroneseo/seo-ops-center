@@ -4,7 +4,7 @@ import { Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Play, Pause, ChevronDown, ChevronRight, Calendar, MoreVertical } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { planRowTimerLabel, planRowTimerView } from '@/lib/seo-plan/row-timer';
+import { formatPlanClock, planRowTimerLabel } from '@/lib/seo-plan/row-timer';
 import { useTaskTimerClick } from './use-task-timer-click';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
@@ -25,7 +25,7 @@ interface TaskListViewProps {
 }
 
 export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListViewProps) {
-    const { pendingTaskId, notice, onTimer, runningTimer, pausedTimers, getElapsedSeconds } = useTaskTimerClick();
+    const { pendingTaskId, notice, onTimer, viewFor } = useTaskTimerClick();
     const { organization } = useOrganization();
     const [memberMap, setMemberMap] = useState<Record<string, string>>({});
 
@@ -109,7 +109,7 @@ export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListView
                                     </td>
                                 </tr>
                                 {expandedClients.has(clientName) && clientTasks.map((task) => {
-                                    const timer = planRowTimerView(task.id, runningTimer, pausedTimers, getElapsedSeconds);
+                                    const timer = viewFor(task.id);
                                     const timerPending = pendingTaskId === task.id;
                                     const isOverdue = task.dueDate && task.dueDate < today && task.status !== 'done';
                                     const assignees = task.assigneeIds ?? task.assignees ?? [];
@@ -232,7 +232,20 @@ export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListView
                                             </td>
                                             <td className="px-4 py-4">
                                                 <div className="flex items-center gap-2">
-                                                    {canTimer && (
+                                                    {canTimer && timer.owner === 'bot' && timer.botControls === false ? (
+                                                        <span
+                                                            data-task-timer={timer.phase}
+                                                            data-bot-controls="hidden"
+                                                            aria-label={timer.phase === 'paused' ? `Timer paused for ${task.title}` : `Timer running for ${task.title}`}
+                                                            className={cn(
+                                                                'inline-flex items-center gap-1 rounded-full p-1.5 text-xs font-mono tabular-nums',
+                                                                timer.phase === 'running' ? 'bg-[#ec4899]/15 text-[#ec4899]' : 'bg-amber-500/15 text-amber-500',
+                                                            )}
+                                                        >
+                                                            {timer.phase === 'running' && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[#ec4899] animate-pulse" />}
+                                                            {formatPlanClock(timer.seconds)}
+                                                        </span>
+                                                    ) : canTimer && (
                                                         <button
                                                             type="button"
                                                             disabled={timerPending || timer.phase === 'reviewing'}
@@ -256,6 +269,9 @@ export function TaskListView({ tasks, onTaskClick, onTaskUpdated }: TaskListView
                                                                     : timer.phase === 'paused'
                                                                         ? 'Resume'
                                                                         : <Play className="h-3 w-3 fill-current" />}
+                                                            {timer.phase !== 'idle' && !timerPending && (
+                                                                <span className="font-mono tabular-nums">{formatPlanClock(timer.seconds)}</span>
+                                                            )}
                                                         </button>
                                                     )}
                                                     <button className="p-1.5 rounded-full hover:bg-muted text-muted-foreground opacity-0 group-hover:opacity-100 transition-all">

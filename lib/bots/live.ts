@@ -238,7 +238,9 @@ async function push(actor: BotActor, taskId: string, action: 'create_todo' | 'co
     return basecampStepFromResponse(response);
 }
 
-export function liveBotDeps(): BotDeps {
+export function liveBotDeps(): BotDeps & {
+    getBotKey(id: string): Promise<BotKeyRecord | null>;
+} {
     return {
         now: () => new Date(),
         async authenticate(token) {
@@ -275,6 +277,20 @@ export function liveBotDeps(): BotDeps {
                 name: user.full_name || 'Carlos Morones',
                 email: user.email,
                 organizationId,
+            };
+        },
+        async getBotKey(id) {
+            const { data, error } = await admin()
+                .from('bot_api_keys')
+                .select('id, organization_id, name, revoked_at')
+                .eq('id', id)
+                .maybeSingle();
+            if (error || !data) return null;
+            return {
+                id: String(data.id),
+                organizationId: String(data.organization_id),
+                name: String(data.name),
+                revokedAt: typeof data.revoked_at === 'string' ? data.revoked_at : null,
             };
         },
         async findOperation(botKeyId, idempotencyKey) {
@@ -689,7 +705,7 @@ export function liveBotDeps(): BotDeps {
                     .eq('id', input.timer.id)
                     .maybeSingle();
                 if (readError || !existing || existing.status === 'in_progress' || existing.status === 'paused') return null;
-                return [logRecord(existing)];
+                return { logs: [logRecord(existing)], transitioned: false };
             }
             const logs = [logRecord(data)];
             for (const slice of input.slices.slice(1)) {
@@ -718,7 +734,7 @@ export function liveBotDeps(): BotDeps {
                 if (extraError || !extra) throw extraError ?? new Error('split day insert failed');
                 logs.push(logRecord(extra));
             }
-            return logs;
+            return { logs, transitioned: true };
         },
         pushTodo: (taskId, actor) => push(actor, taskId, 'create_todo'),
         completeTodo: (taskId, actor) => push(actor, taskId, 'complete_todo'),

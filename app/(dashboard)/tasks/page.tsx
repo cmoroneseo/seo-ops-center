@@ -300,6 +300,7 @@ export default function TasksPage() {
             <TaskDetailModal
                 task={selectedTask}
                 isOpen={isDetailOpen}
+                canControlBotTimers={member?.role === 'owner'}
                 onClose={() => setIsDetailOpen(false)}
                 onUpdate={handleTaskUpdated}
                 onDelete={(id) => setTasks(prev => prev.filter(t => t.id !== id))}
