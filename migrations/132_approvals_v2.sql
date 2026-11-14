@@ -70,19 +70,34 @@ create table public.approval_comments (
  version_id uuid not null references public.approval_item_versions(id), submission_id uuid references public.approval_submissions(id),
  parent_id uuid references public.approval_comments(id), author_kind text not null check (author_kind in ('client','staff')),
  author_user_id uuid references public.users(id), author_name text not null check (char_length(author_name) between 1 and 120),
- anchor_kind text not null check (anchor_kind in ('block','field','page')),
- section_id text check (char_length(section_id) <= 80 and section_id ~ '^[A-Za-z0-9._:-]+$'),
- block_id text check (char_length(block_id) <= 80 and block_id ~ '^[A-Za-z0-9._:-]+$'),
- block_hash text check (block_hash ~ '^[0-9a-f]{64}$'), field_key text, field_hash text check (field_hash ~ '^[0-9a-f]{64}$'),
- quote text check (char_length(quote) <= 500), quote_prefix text check (char_length(quote_prefix) <= 60), quote_suffix text check (char_length(quote_suffix) <= 60),
- body text not null check (char_length(btrim(body)) between 1 and 4000), suggested_text text check (char_length(suggested_text) <= 4000),
+ anchor_kind text not null check (anchor_kind in ('highlight','pin','page')),
+ pin_target text check (pin_target in ('block','mockup')),
+ section_id text check (section_id ~ '^[A-Za-z0-9._:-]{1,80}$'),
+ block_id text check (block_id ~ '^[A-Za-z0-9._:-]{1,80}$'),
+ target_hash text check (target_hash ~ '^[0-9a-f]{64}$'),
+ range_start integer, range_end integer,
+ quote text check (char_length(quote) between 1 and 500), quote_hash text check (quote_hash ~ '^[0-9a-f]{64}$'),
+ quote_prefix text check (char_length(quote_prefix) <= 64), quote_suffix text check (char_length(quote_suffix) <= 64),
+ body text not null check (char_length(btrim(body)) >= 1 and char_length(body) <= 4000), suggested_text text check (char_length(suggested_text) <= 4000),
  resolved_at timestamptz, resolved_by uuid references public.users(id), resolved_in_version_id uuid references public.approval_item_versions(id),
  created_at timestamptz not null default now(),
- constraint approval_comments_anchor_shape check (
- (anchor_kind = 'block' and section_id is not null and block_id is not null and block_hash is not null and field_key is null)
- or (anchor_kind = 'field' and field_key is not null and field_hash is not null and section_id is null and block_id is null)
- or (anchor_kind = 'page' and section_id is null and block_id is null and field_key is null) or parent_id is not null),
- constraint approval_comments_field_key check (field_key is null or field_key in ('title','metaTitle','metaDescription','slug','mockup'))
+ constraint approval_comments_anchor_shape check (case
+ when parent_id is not null then
+   pin_target is null and section_id is null and block_id is null and target_hash is null
+   and range_start is null and range_end is null and quote is null and quote_hash is null and quote_prefix is null and quote_suffix is null
+ when anchor_kind='highlight' then
+   pin_target is null and section_id is not null and block_id is not null and target_hash is not null
+   and range_start is not null and range_end is not null and range_start >= 0 and range_end > range_start
+   and quote is not null and quote_hash is not null and range_end-range_start=char_length(quote)
+ when anchor_kind='pin' then
+   pin_target is not null and target_hash is not null and range_start is null and range_end is null
+   and quote is null and quote_hash is null and quote_prefix is null and quote_suffix is null
+   and ((pin_target='block' and section_id is not null and block_id is not null)
+     or (pin_target='mockup' and section_id is null and block_id is null))
+ when anchor_kind='page' then
+   pin_target is null and section_id is null and block_id is null and target_hash is null
+   and range_start is null and range_end is null and quote is null and quote_hash is null and quote_prefix is null and quote_suffix is null
+ else false end)
 );
 create index approval_comments_version_idx on public.approval_comments(item_id,version_id,created_at);
 create index approval_comments_request_idx on public.approval_comments(request_id,resolved_at);
@@ -91,7 +106,7 @@ create index approval_comments_block_idx on public.approval_comments(item_id,blo
 alter table public.approval_events drop constraint approval_events_kind_check;
 alter table public.approval_events add constraint approval_events_kind_check check (kind in (
  'link_issued','link_extended','link_revoked','link_rotated','item_marked_final','task_advanced',
- 'request_created','request_sent','draft_edited','request_archived','request_unarchived','owner_changed','comment_resolved','comment_replied'));
+ 'request_created','request_sent','draft_edited','request_archived','request_unarchived','owner_changed','comment_resolved','comment_reopened','comment_replied'));
 alter table public.notifications drop constraint notifications_type_check;
 alter table public.notifications add constraint notifications_type_check check (type in (
  'task_assigned','task_mentioned','note_mentioned','deliverable_assigned','deliverable_overdue','deliverable_at_risk','deliverable_status',
@@ -101,11 +116,6 @@ alter table public.notifications drop constraint notifications_entity_type_check
 alter table public.notifications add constraint notifications_entity_type_check check (entity_type in (
  'task','task_comment','client_note','deliverable','reminder','content_approval_batch','content_approval_doc','client_portal_feedback',
  'client_vault_suggestion','gbp_approval_request','approval_request'));
-
-create or replace function public.approval_field_hash(p_payload jsonb,p_photo text,p_key text) returns text
-language sql immutable security definer set search_path = pg_catalog, public as $$
- select encode(sha256(convert_to(coalesce(case when p_key = 'mockup' then p_photo else p_payload->>p_key end,''),'UTF8')),'hex');
-$$;
 
 -- Canonical JSON ignores only anchor identity attrs. Hashes are computed in SQL,
 -- never trusted from a caller; structure/marks/URLs remain part of visible content.
@@ -207,6 +217,8 @@ begin
      sections := sections || (s->>'sectionId');
      for b in select value from jsonb_array_elements(s->'blocks') loop
        if coalesce(b->>'blockId','') !~ '^[A-Za-z0-9._:-]{1,80}$' or (b->>'blockId')=any(blocks)
+       or jsonb_typeof(b->'len') is distinct from 'number' or coalesce(b->>'len','') !~ '^(0|[1-9][0-9]*)$'
+       or (b->>'len')::numeric > 2147483647
        or coalesce(b->>'kind','') not in ('heading','paragraph','list','table','image','quote') or coalesce(b->>'hash','') !~ '^[0-9a-f]{64}$' then raise exception 'invalid outline block' using errcode='23514'; end if;
        blocks := blocks || (b->>'blockId');
      end loop;
@@ -229,7 +241,7 @@ begin
  if tg_op='DELETE' then raise exception 'comments cannot be deleted' using errcode='42501'; end if;
  if tg_op='UPDATE' and (to_jsonb(new)-array['resolved_at','resolved_by','resolved_in_version_id']) is distinct from (to_jsonb(old)-array['resolved_at','resolved_by','resolved_in_version_id']) then raise exception 'comment is immutable' using errcode='42501'; end if;
  select ver.* into v from public.approval_item_versions ver join public.approval_items i on i.id=ver.item_id
- where ver.id=new.version_id and i.id=new.item_id and i.request_id=new.request_id and i.organization_id=new.organization_id and i.item_type='page'
+ where ver.id=new.version_id and i.id=new.item_id and i.request_id=new.request_id and i.organization_id=new.organization_id and (i.item_type='page' or new.anchor_kind='page')
  and ver.request_id=new.request_id and ver.organization_id=new.organization_id;
  if not found then raise exception 'comment outside request' using errcode='23514'; end if;
  if tg_op='INSERT' and new.author_kind='client' and not exists(select 1 from public.approval_items where id=new.item_id and released_version_id=new.version_id) then raise exception 'comment version is not released' using errcode='23514'; end if;
@@ -237,9 +249,14 @@ begin
  if new.resolved_in_version_id is not null and not exists (select 1 from public.approval_item_versions where id=new.resolved_in_version_id and item_id=new.item_id) then raise exception 'resolution outside item' using errcode='23514'; end if;
  if new.parent_id is not null then
    if not exists (select 1 from public.approval_comments where id=new.parent_id and parent_id is null and request_id=new.request_id and item_id=new.item_id and version_id=new.version_id and organization_id=new.organization_id) then raise exception 'invalid reply parent' using errcode='23514'; end if;
- elsif new.anchor_kind='block' then
-   if not exists (select 1 from jsonb_array_elements(v.outline) s, jsonb_array_elements(s->'blocks') b where s->>'sectionId'=new.section_id and b->>'blockId'=new.block_id and b->>'hash'=new.block_hash) then raise exception 'invalid block anchor' using errcode='23514'; end if;
- elsif new.anchor_kind='field' and new.field_hash is distinct from public.approval_field_hash(v.payload,v.photo_path,new.field_key) then raise exception 'invalid field anchor' using errcode='23514'; end if;
+ elsif new.anchor_kind='highlight' or (new.anchor_kind='pin' and new.pin_target='block') then
+   if not exists (select 1 from jsonb_array_elements(v.outline) s, jsonb_array_elements(s->'blocks') b
+     where s->>'sectionId'=new.section_id and b->>'blockId'=new.block_id and b->>'hash'=new.target_hash
+     and (new.anchor_kind<>'highlight' or new.range_end <= (b->>'len')::integer)) then raise exception 'invalid block anchor' using errcode='23514'; end if;
+   if new.anchor_kind='highlight' and new.quote_hash is distinct from encode(sha256(convert_to(new.quote,'UTF8')),'hex') then raise exception 'invalid quote hash' using errcode='23514'; end if;
+ elsif new.anchor_kind='pin' and new.pin_target='mockup' then
+   if v.photo_path is null or new.target_hash is distinct from encode(sha256(convert_to(v.photo_path,'UTF8')),'hex') then raise exception 'invalid mockup anchor' using errcode='23514'; end if;
+ end if;
  return new;
 end $$;
 create trigger approval_comment_scope before insert or update or delete on public.approval_comments for each row execute function public.approval_comment_scope();
@@ -911,7 +928,13 @@ begin
 
   if jsonb_typeof(coalesce(p_payload->'comments','[]')) is distinct from 'array' or jsonb_array_length(coalesce(p_payload->'comments','[]'))>100 then return public.gbp_approval_fail('invalid_request'); end if;
   for v_c in select value from jsonb_array_elements(coalesce(p_payload->'comments','[]')) loop
-    if v_request.item_type <> 'page' then return public.gbp_approval_fail('invalid_request'); end if;
+    if jsonb_typeof(v_c) is distinct from 'object' then return public.gbp_approval_fail('invalid_request'); end if;
+    if exists (select 1 from jsonb_object_keys(v_c) k where k <> all(array['itemId','versionId','anchorKind','pinTarget','sectionId','blockId','targetHash','rangeStart','rangeEnd','quote','quotePrefix','quoteSuffix','body','suggestedText']))
+      or exists (select 1 from jsonb_each(v_c) e where case when e.key in ('rangeStart','rangeEnd') then
+        jsonb_typeof(e.value) is distinct from 'number' or (e.value#>>'{}') !~ '^(0|[1-9][0-9]*)$'
+        else jsonb_typeof(e.value) is distinct from 'string' end)
+      or coalesce(v_c->>'anchorKind','') not in ('highlight','pin','page')
+      or (v_request.item_type='gbp_post' and v_c->>'anchorKind'<>'page') then return public.gbp_approval_fail('invalid_request'); end if;
     if not exists(select 1 from public.approval_items where id=public.gbp_approval_uuid_or_null(v_c->>'itemId') and request_id=v_request.id and released_version_id=public.gbp_approval_uuid_or_null(v_c->>'versionId')) then return public.gbp_approval_fail('out_of_scope'); end if;
     v_has_work := true;
   end loop;
@@ -958,7 +981,7 @@ begin
     if v_suggestion is not null then
       if jsonb_typeof(v_suggestion)<>'object' or pg_column_size(v_suggestion)>8192 then return public.gbp_approval_fail('invalid_request'); end if;
       for v_k,v_val in select * from jsonb_each(v_suggestion) loop
-        if jsonb_typeof(v_val)<>'string' or not(v_k=any(case when v_request.item_type='page' then array['title','metaTitle','metaDescription','slug'] else array['title','body'] end)) then return public.gbp_approval_fail('invalid_request'); end if;
+        if jsonb_typeof(v_val)<>'string' or not(v_k=any(case when v_request.item_type='page' then array[]::text[] else array['title','body'] end)) then return public.gbp_approval_fail('invalid_request'); end if;
         if char_length(v_val#>>'{}')>(case v_k when 'body' then 2000 when 'metaDescription' then 320 when 'metaTitle' then 120 when 'slug' then 200 else case when v_request.item_type='page' then 200 else 80 end end)
         or (v_k<>'metaDescription' and char_length(v_val#>>'{}')=0)
         or (v_k='slug' and (v_val#>>'{}') !~ '^[a-z0-9]+(-[a-z0-9]+)*(/[a-z0-9]+(-[a-z0-9]+)*)*$') then return public.gbp_approval_fail('invalid_request'); end if;
@@ -1082,9 +1105,9 @@ begin
 
   for v_c in select value from jsonb_array_elements(coalesce(p_payload->'comments','[]')) loop
     insert into public.approval_comments(organization_id,request_id,item_id,version_id,submission_id,author_kind,author_name,
-      anchor_kind,section_id,block_id,block_hash,field_key,field_hash,body,suggested_text,quote,quote_prefix,quote_suffix,created_at)
+      anchor_kind,pin_target,section_id,block_id,target_hash,range_start,range_end,body,suggested_text,quote,quote_hash,quote_prefix,quote_suffix,created_at)
     values(v_request.organization_id,v_request.id,(v_c->>'itemId')::uuid,(v_c->>'versionId')::uuid,v_submission_id,'client',v_name,
-      v_c->>'anchorKind',v_c->>'sectionId',v_c->>'blockId',v_c->>'blockHash',v_c->>'fieldKey',v_c->>'fieldHash',v_c->>'body',v_c->>'suggestedText',v_c->>'quote',v_c->>'quotePrefix',v_c->>'quoteSuffix',p_now);
+      v_c->>'anchorKind',v_c->>'pinTarget',v_c->>'sectionId',v_c->>'blockId',v_c->>'targetHash',(v_c->>'rangeStart')::integer,(v_c->>'rangeEnd')::integer,v_c->>'body',v_c->>'suggestedText',v_c->>'quote',encode(sha256(convert_to(v_c->>'quote','UTF8')),'hex'),v_c->>'quotePrefix',v_c->>'quoteSuffix',p_now);
   end loop;
 
   for v_answer in select value from jsonb_array_elements(coalesce(p_payload->'answers', '[]'::jsonb))
@@ -1181,7 +1204,7 @@ begin
     'taskAdvanced', v_advanced is not null
   );
 exception
-  when invalid_text_representation or check_violation or not_null_violation then
+  when invalid_text_representation or numeric_value_out_of_range or check_violation or not_null_violation then
     return public.gbp_approval_fail('invalid_request');
 end;
 $fn$;
@@ -1406,7 +1429,34 @@ begin
  return result || jsonb_build_object('itemType',t,'items',items);
 end $$;
 
--- Carry state is computed, never stored or used to silently re-point a comment.
+create or replace function public.resolve_approval_comment(p_actor uuid,p_comment_id uuid,p_resolved_in_version_id uuid default null,p_now timestamptz default now())
+returns jsonb language plpgsql security definer set search_path = pg_catalog, public as $$
+declare c public.approval_comments%rowtype;
+begin
+ select * into c from public.approval_comments where id=p_comment_id for update;
+ if not found then return public.gbp_approval_fail('not_found'); end if;
+ if not public.gbp_approval_writer(p_actor,c.organization_id) or exists(select 1 from public.approval_bot_actors where user_id=p_actor) then return public.gbp_approval_fail('forbidden'); end if;
+ if p_resolved_in_version_id is not null and not exists(select 1 from public.approval_item_versions where id=p_resolved_in_version_id and item_id=c.item_id and request_id=c.request_id and organization_id=c.organization_id) then return public.gbp_approval_fail('out_of_scope'); end if;
+ update public.approval_comments set resolved_at=p_now,resolved_by=p_actor,resolved_in_version_id=p_resolved_in_version_id where id=c.id;
+ insert into public.approval_events(organization_id,request_id,actor_id,kind,detail,created_at)
+ values(c.organization_id,c.request_id,p_actor,'comment_resolved',jsonb_build_object('commentId',c.id),p_now);
+ return jsonb_build_object('ok',true);
+end $$;
+
+create or replace function public.reopen_approval_comment(p_actor uuid,p_comment_id uuid,p_now timestamptz)
+returns jsonb language plpgsql security definer set search_path = pg_catalog, public as $$
+declare c public.approval_comments%rowtype;
+begin
+ select * into c from public.approval_comments where id=p_comment_id for update;
+ if not found then return public.gbp_approval_fail('not_found'); end if;
+ if not public.gbp_approval_writer(p_actor,c.organization_id) or exists(select 1 from public.approval_bot_actors where user_id=p_actor) then return public.gbp_approval_fail('forbidden'); end if;
+ update public.approval_comments set resolved_at=null,resolved_by=null,resolved_in_version_id=null where id=c.id;
+ insert into public.approval_events(organization_id,request_id,actor_id,kind,detail,created_at)
+ values(c.organization_id,c.request_id,p_actor,'comment_reopened',jsonb_build_object('commentId',c.id),p_now);
+ return jsonb_build_object('ok',true);
+end $$;
+
+-- Carry state is computed without re-pointing the original comment.
 -- Exact identity/hash and section fallbacks are available here; fuzzy text matching
 -- belongs to the 1D carry.ts layer once the normalizer supplies block text.
 create or replace function public.get_approval_item_by_token(p_token_hash text,p_item_id uuid,p_now timestamptz)
@@ -1420,13 +1470,14 @@ begin
  select * into v from public.approval_item_versions where id=i.released_version_id;
  select * into pv from public.approval_item_versions where id=i.previous_released_version_id;
  select coalesce(jsonb_agg(to_jsonb(c) || jsonb_build_object('carryState',case
- when c.anchor_kind='page' then 'unchanged'
- when c.anchor_kind='field' then case when c.field_hash=public.approval_field_hash(v.payload,v.photo_path,c.field_key) then 'unchanged' else 'updated' end
- when exists(select 1 from jsonb_array_elements(v.outline) s,jsonb_array_elements(s->'blocks') b where b->>'blockId'=c.block_id and b->>'hash'=c.block_hash) then 'unchanged'
- when exists(select 1 from jsonb_array_elements(v.outline) s,jsonb_array_elements(s->'blocks') b where b->>'blockId'=c.block_id) then 'updated'
- when exists(select 1 from jsonb_array_elements(v.outline) s,jsonb_array_elements(s->'blocks') b where b->>'hash'=c.block_hash) then 'moved'
- when exists(select 1 from jsonb_array_elements(v.outline) s where s->>'sectionId'=c.section_id) then 'section_updated'
- else 'orphaned' end) order by c.created_at),'[]') into cs from public.approval_comments c where c.item_id=i.id;
+ when coalesce(root.anchor_kind,c.anchor_kind)='page' then 'unchanged'
+ when coalesce(root.pin_target,c.pin_target)='mockup' then case when coalesce(root.target_hash,c.target_hash)=encode(sha256(convert_to(v.photo_path,'UTF8')),'hex') then 'unchanged' else 'image_changed' end
+ when exists(select 1 from jsonb_array_elements(v.outline) s,jsonb_array_elements(s->'blocks') b where b->>'blockId'=coalesce(root.block_id,c.block_id) and b->>'hash'=coalesce(root.target_hash,c.target_hash)) then 'unchanged'
+ when exists(select 1 from jsonb_array_elements(v.outline) s,jsonb_array_elements(s->'blocks') b where b->>'blockId'=coalesce(root.block_id,c.block_id)) then 'text_changed'
+ when exists(select 1 from jsonb_array_elements(v.outline) s where s->>'sectionId'=coalesce(root.section_id,c.section_id)) then 'text_changed'
+ else 'earlier'  end, 'carrySectionId',coalesce(
+ (select s->>'sectionId' from jsonb_array_elements(v.outline) s,jsonb_array_elements(s->'blocks') b where b->>'blockId'=coalesce(root.block_id,c.block_id) limit 1),
+ (select s->>'sectionId' from jsonb_array_elements(v.outline) s where s->>'sectionId'=coalesce(root.section_id,c.section_id) limit 1))) order by c.created_at),'[]') into cs from public.approval_comments c left join public.approval_comments root on root.id=c.parent_id where c.item_id=i.id;
  return jsonb_build_object('ok',true,'itemId',i.id,'itemType',i.item_type,'pageKind',i.page_kind,
  'version',jsonb_build_object('id',v.id,'versionNo',v.version_no,'payload',v.payload-'targetKeyword','photoPath',v.photo_path,'outline',v.outline,'bodyHash',v.body_hash),
  'previous',case when pv.id is null then null else jsonb_build_object('id',pv.id,'versionNo',pv.version_no,'payload',pv.payload-'targetKeyword','photoPath',pv.photo_path,'outline',pv.outline) end,'comments',cs);
@@ -1446,7 +1497,7 @@ do $privileges$
 declare signature regprocedure;
 begin
  for signature in select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid=p.pronamespace
- where n.nspname='public' and p.proname=any(array['approval_field_hash','approval_canonical_json','approval_clean_item','approval_visible','approval_item_matches_request','approval_item_identity','approval_version_scope','approval_asset_scope','approval_comment_scope','create_approval_request','create_gbp_approval_request','issue_gbp_approval_link','post_approval_version','post_gbp_approval_version','get_gbp_approval_by_token','submit_approval','submit_gbp_approval','purge_gbp_approval_retention','send_approval_request','update_approval_draft','reserve_approval_asset','archive_approval_request','unarchive_approval_request','set_approval_owner','get_approval_by_token','get_approval_item_by_token']) loop
+ where n.nspname='public' and p.proname=any(array['resolve_approval_comment','reopen_approval_comment','approval_canonical_json','approval_clean_item','approval_visible','approval_item_matches_request','approval_item_identity','approval_version_scope','approval_asset_scope','approval_comment_scope','create_approval_request','create_gbp_approval_request','issue_gbp_approval_link','post_approval_version','post_gbp_approval_version','get_gbp_approval_by_token','submit_approval','submit_gbp_approval','purge_gbp_approval_retention','send_approval_request','update_approval_draft','reserve_approval_asset','archive_approval_request','unarchive_approval_request','set_approval_owner','get_approval_by_token','get_approval_item_by_token']) loop
  execute format('revoke all on function %s from public,anon,authenticated',signature);
  execute format('grant execute on function %s to service_role',signature);
  end loop;

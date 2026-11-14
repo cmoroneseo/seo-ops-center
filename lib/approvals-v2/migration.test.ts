@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { database, call, post, hash, org, owner, viewer, member, client, task, now, later, expiry } from './test-database.ts';
-import { fieldHash, canonicalJson } from './registry.ts';
+import { canonicalJson } from './registry.ts';
 
 const migration = readFileSync(new URL('../../migrations/132_approvals_v2.sql', import.meta.url), 'utf8');
 const page = {
     schemaVersion: 1, pageKind: 'city', title: 'Mesa ☀', metaTitle: 'Mesa', metaDescription: '', slug: 'services/mesa',
     body: { type: 'doc', content: [{ type: 'paragraph', attrs: { blockId: 'b_1' }, content: [{ type: 'text', text: 'Hello' }] }] },
 };
-const outline = [{ sectionId: '_intro', slug: '', level: 0, title: '', hash: hash('section'), blocks: [{ blockId: 'b_1', kind: 'paragraph', hash: hash('block') }] }];
+const outline = [{ sectionId: '_intro', slug: '', level: 0, title: '', hash: hash('section'), blocks: [{ blockId: 'b_1', kind: 'paragraph', hash: hash('block'), len: 5 }] }];
 async function create(db: Awaited<ReturnType<typeof database>>, type = 'page', items: unknown[] = [{ position: 1, payload: page, outline }]) {
     return call(db, `select public.create_approval_request($1,$2,$3,$4,$5,'Review',null,'[]',$6::jsonb) result`, [owner, org, client, task, type, JSON.stringify(items)]);
 }
@@ -61,7 +61,7 @@ test('draft edits do not release, reset, lock or bump; Send permissions and bot 
     } finally { await db.close(); }
 });
 
-test('page type, limits, SQL hash parity and outline uniqueness are enforced', async () => {
+test('page type, limits, canonical hash parity and outline validation are enforced', async () => {
     const db = await database();
     try {
         assert.equal((await create(db, 'gbp_post')).ok, false);
@@ -69,12 +69,12 @@ test('page type, limits, SQL hash parity and outline uniqueness are enforced', a
         assert.equal((await create(db, 'page', [{ position: 1, payload: post('Wrong').payload }])).ok, false);
         assert.equal((await create(db, 'page', [{ position: 1, payload: { ...page, body: { type: 'doc', content: [{ text: 'a'.repeat(1048577) }] } } }])).ok, false);
         assert.equal((await create(db, 'page', [{ position: 1, payload: page, outline: [outline[0], outline[0]] }])).ok, false);
+        for (const len of [undefined, -1, 1.5, '5', null, 2147483648]) {
+            const invalidOutline = [{ ...outline[0], blocks: [{ ...outline[0].blocks[0], len }] }];
+            assert.equal((await create(db, 'page', [{ position: 1, payload: page, outline: invalidOutline }])).ok, false, String(len));
+        }
         const r = await create(db); assert.equal(r.ok, true);
         await assert.rejects(db.query(`insert into approval_items(organization_id,request_id,item_type,position) values($1,$2,'gbp_post',2)`, [org, r.requestId]));
-        for (const key of ['title', 'metaTitle', 'metaDescription', 'slug', 'mockup', 'missing']) {
-            const row = (await db.query<{ hash: string }>(`select approval_field_hash($1::jsonb,$2,$3) hash`, [JSON.stringify(page), 'approval-assets/☀', key])).rows[0];
-            assert.equal(row.hash, fieldHash(page, 'approval-assets/☀', key));
-        }
         const canonical = (await db.query<{ value: string }>(`select approval_canonical_json($1) value`, [JSON.stringify(page.body)])).rows[0].value;
         assert.equal(canonical, canonicalJson(page.body));
         const stored = (await db.query<{ body_hash: string }>(`select body_hash from approval_item_versions`)).rows[0];
@@ -82,39 +82,84 @@ test('page type, limits, SQL hash parity and outline uniqueness are enforced', a
     } finally { await db.close(); }
 });
 
-test('submit binds all page anchors to released version and rejects forged comments atomically', async () => {
+test('submit validates highlight, overlapping highlights, block/image pins, mockups and page comments atomically', async () => {
+    const db = await database();
+    try {
+        const imageOutline = [{ ...outline[0], blocks: [...outline[0].blocks, { blockId: 'image', kind: 'image', hash: hash('image'), len: 0 }] }];
+        const r = await create(db, 'page', [{ position: 1, payload: page, outline: imageOutline }]);
+        const i = (await db.query<{ id: string; current_version_id: string }>(`select * from approval_items`)).rows[0];
+        const asset = await call(db, `select reserve_approval_asset($1,$2,$3,'mockup','image/png',100) result`, [owner, r.requestId, i.id]);
+        await call(db, `select post_approval_version($1,$2,$3::jsonb,$4) result`, [owner, r.requestId, JSON.stringify([{ itemId: i.id, payload: page, outline: imageOutline, photoPath: asset.objectKey }]), now]);
+        await send(db, r.requestId);
+        const versionId = (await db.query<{ released_version_id: string }>(`select released_version_id from approval_items where id=$1`, [i.id])).rows[0].released_version_id;
+        const other = await create(db);
+        const otherItem = (await db.query<{ id: string; current_version_id: string }>(`select * from approval_items where request_id=$1`, [other.requestId])).rows[0];
+        const base = { itemId: i.id, versionId, body: 'Please review' };
+        const highlight = { ...base, anchorKind: 'highlight', sectionId: '_intro', blockId: 'b_1', targetHash: hash('block'), rangeStart: 0, rangeEnd: 5, quote: 'Hello', quotePrefix: 'x'.repeat(64), quoteSuffix: 'y'.repeat(64), suggestedText: 'Hi' };
+        const comments = [highlight, { ...highlight, rangeStart: 1, rangeEnd: 4, quote: 'ell' },
+            { ...base, anchorKind: 'pin', pinTarget: 'block', sectionId: '_intro', blockId: 'image', targetHash: hash('image') },
+            { ...base, anchorKind: 'pin', pinTarget: 'mockup', targetHash: hash(String(asset.objectKey)) }, { ...base, anchorKind: 'page' }];
+        let n = 0;
+        const submit = (cs: unknown[], suggestion?: unknown) => call(db, `select submit_approval($1,$2::jsonb,null,$3) result`, [hash(String(r.requestId)), JSON.stringify({
+            idempotencyKey: `comment-${++n}`, requestHash: hash(String(n)), respondentName: 'Casey', displayedVersionIds: [versionId],
+            decisions: [{ itemId: i.id, versionId, decision: 'changes_requested', ...(suggestion ? { suggestion } : {}) }], answers: [], comments: cs,
+        }), now]);
+        const badComments = [
+            { ...base, anchorKind: 'field' }, { ...highlight, fieldKey: 'title' }, { ...highlight, blockId: 'invented' },
+            { ...highlight, targetHash: hash('wrong') }, { ...highlight, rangeEnd: 6, quote: 'Hello!' },
+            { ...highlight, quote: 'Hi' }, { ...highlight, itemId: otherItem.id }, { ...highlight, versionId: otherItem.current_version_id },
+            { ...highlight, quotePrefix: 'x'.repeat(65) }, { ...highlight, rangeStart: 0.5 },
+            { ...comments[2], rangeStart: 0 }, { ...comments[4], targetHash: hash('block') },
+        ];
+        for (const bad of badComments) {
+            assert.equal((await submit([comments[4], bad])).ok, false, JSON.stringify(bad));
+            // Keep rate limiting independent of the invalid-payload cases.
+            await db.exec(`delete from approval_public_hits`);
+        }
+        for (const key of ['title', 'metaTitle', 'metaDescription', 'slug']) assert.equal((await submit([highlight], { [key]: 'No' })).code, 'invalid_request');
+        assert.equal((await db.query(`select id from approval_submissions`)).rows.length, 0);
+        assert.equal((await db.query(`select id from approval_comments`)).rows.length, 0);
+        assert.equal((await db.query(`select id from approval_responses`)).rows.length, 0);
+        assert.equal((await submit(comments)).ok, true);
+        const detail = await call(db, `select get_approval_item_by_token($1,$2,$3) result`, [hash(String(r.requestId)), i.id, now]);
+        const stored = detail.comments as Record<string, unknown>[];
+        assert.equal(stored.length, 5);
+        assert.ok(stored.every(c => c.carryState === 'unchanged'));
+        assert.equal(stored[0].quote_hash, hash('Hello'));
+        assert.equal(stored[0].quote_prefix, highlight.quotePrefix);
+        assert.equal(stored[0].range_end, 5);
+        assert.equal((await call(db, `select get_approval_item_by_token($1,$2,$3) result`, [hash(String(r.requestId)), owner, now])).code, 'out_of_scope');
+        // A mockup pin requires a photo on that exact version.
+        await send(db, other.requestId);
+        const noPhoto = await call(db, `select submit_approval($1,$2::jsonb,null,$3) result`, [hash(String(other.requestId)), JSON.stringify({
+            idempotencyKey: 'no-photo-pin', requestHash: hash('no-photo'), respondentName: 'Casey', displayedVersionIds: [otherItem.current_version_id], decisions: [],
+            comments: [{ ...comments[3], itemId: otherItem.id, versionId: otherItem.current_version_id }],
+        }), now]);
+        assert.equal(noPhoto.code, 'invalid_request');
+    } finally { await db.close(); }
+});
+
+test('resolution and reopening are staff-only, preserve immutable comments and record events', async () => {
     const db = await database();
     try {
         const r = await create(db); await send(db, r.requestId);
-        const i = (await db.query<{ id: string; released_version_id: string }>(`select * from approval_items`)).rows[0];
+        const i = (await db.query<{ id: string; current_version_id: string }>(`select * from approval_items`)).rows[0];
+        const c = (await db.query<{ id: string }>(`insert into approval_comments(organization_id,request_id,item_id,version_id,author_kind,author_name,anchor_kind,body) values($1,$2,$3,$4,'staff','Owner','page','Review') returning id`, [org, r.requestId, i.id, i.current_version_id])).rows[0];
+        const resolve = (actor = owner, version: string | null = i.current_version_id) => call(db, `select resolve_approval_comment($1,$2,$3,$4) result`, [actor, c.id, version, now]);
+        assert.equal((await resolve(viewer)).code, 'forbidden');
+        await db.query(`insert into approval_bot_actors(user_id,label) values($1,'Bot')`, [member]);
+        assert.equal((await resolve(member)).code, 'forbidden');
         const other = await create(db);
-        const otherItem = (await db.query<{ id: string; current_version_id: string }>(`select * from approval_items where request_id=$1`, [other.requestId])).rows[0];
-        await assert.rejects(db.query(`update approval_items set released_version_id=$1 where id=$2`, [otherItem.current_version_id, i.id]));
-        const base = { itemId: i.id, versionId: i.released_version_id, body: 'Please review' };
-        const comments = [
-            { ...base, anchorKind: 'block', sectionId: '_intro', blockId: 'b_1', blockHash: hash('block') },
-            { ...base, anchorKind: 'field', fieldKey: 'title', fieldHash: fieldHash(page, null, 'title') },
-            { ...base, anchorKind: 'page' },
-        ];
-        let n = 0;
-        const submit = (cs: unknown[], decision = 'changes_requested') => call(db, `select public.submit_approval($1,$2::jsonb,null,$3) result`, [hash(String(r.requestId)), JSON.stringify({
-            idempotencyKey: `comment-${++n}`, requestHash: hash(String(n)), respondentName: 'Casey', displayedVersionIds: [i.released_version_id],
-            decisions: [{ itemId: i.id, versionId: i.released_version_id, decision }], answers: [], comments: cs,
-        }), now]);
-        for (const bad of [
-            { ...comments[0], blockId: 'invented' }, { ...comments[1], fieldHash: hash('wrong') },
-            { ...comments[1], fieldKey: 'targetKeyword' }, { ...comments[0], itemId: otherItem.id }, { ...comments[0], versionId: otherItem.current_version_id },
-        ]) assert.equal((await submit([bad])).ok, false);
-        assert.equal((await db.query(`select id from approval_submissions`)).rows.length, 0);
-        assert.equal((await submit([])).code, 'comment_required');
-        assert.equal((await submit(comments)).ok, true);
-        assert.equal((await db.query(`select id from approval_comments`)).rows.length, 3);
-        assert.equal((await submit([comments[2]], 'approved')).ok, true);
-        const list = await call(db, `select public.get_approval_by_token($1,$2) result`, [hash(String(r.requestId)), now]);
-        assert.equal(JSON.stringify(list).includes('"content"'), false);
-        const detail = await call(db, `select public.get_approval_item_by_token($1,$2,$3) result`, [hash(String(r.requestId)), i.id, now]);
-        assert.equal((detail.comments as unknown[]).length, 4);
-        assert.equal((await call(db, `select public.get_approval_item_by_token($1,$2,$3) result`, [hash(String(r.requestId)), owner, now])).code, 'out_of_scope');
+        const otherVersion = (await db.query<{ current_version_id: string }>(`select current_version_id from approval_items where request_id=$1`, [other.requestId])).rows[0].current_version_id;
+        assert.equal((await resolve(owner, otherVersion)).ok, false);
+        assert.equal((await resolve()).ok, true);
+        assert.deepEqual((await db.query(`select resolved_by,resolved_in_version_id from approval_comments where id=$1`, [c.id])).rows[0], { resolved_by: owner, resolved_in_version_id: i.current_version_id });
+        assert.equal((await call(db, `select reopen_approval_comment($1,$2,$3) result`, [member, c.id, later])).code, 'forbidden');
+        assert.equal((await call(db, `select reopen_approval_comment($1,$2,$3) result`, [owner, c.id, later])).ok, true);
+        assert.deepEqual((await db.query(`select resolved_at,resolved_by,resolved_in_version_id from approval_comments where id=$1`, [c.id])).rows[0], { resolved_at: null, resolved_by: null, resolved_in_version_id: null });
+        assert.deepEqual((await db.query<{ kind: string }>(`select kind from approval_events where kind like 'comment_%' order by created_at`)).rows.map(x => x.kind), ['comment_resolved', 'comment_reopened']);
+        for (const sql of [`update approval_comments set body='Changed'`, `update approval_comments set section_id='changed'`, `delete from approval_comments`]) await assert.rejects(db.exec(sql));
+        assert.equal((await resolve(owner, null)).ok, true);
     } finally { await db.close(); }
 });
 
@@ -249,5 +294,77 @@ test('asset SELECT policy exposes only members’ organizations', async () => {
         assert.equal((await db.query(`select * from approval_assets`)).rows.length, 1);
         await assert.rejects(db.query(`delete from approval_assets`));
         await db.exec('reset role');
+    } finally { await db.close(); }
+});
+
+test('SQL carry keeps original quote data and returns only exact block, section and image fallbacks', async () => {
+    const db = await database();
+    try {
+        const photo = 'https://example.com/mockup.png';
+        const r = await create(db, 'page', [{ position: 1, payload: page, outline, photoPath: photo }]);
+        await send(db, r.requestId);
+        const i = (await db.query<{ id: string; current_version_id: string }>(`select * from approval_items`)).rows[0];
+        const root = (await db.query<{ id: string }>(`insert into approval_comments(organization_id,request_id,item_id,version_id,author_kind,author_name,anchor_kind,section_id,block_id,target_hash,range_start,range_end,quote,quote_hash,quote_prefix,quote_suffix,body)
+            values($1,$2,$3,$4,'staff','Owner','highlight','_intro','b_1',$5,1,3,'☀🙂',$6,'before','after','Review') returning id`, [org, r.requestId, i.id, i.current_version_id, hash('block'), hash('☀🙂')])).rows[0];
+        await assert.rejects(db.query(`insert into approval_comments(organization_id,request_id,item_id,version_id,author_kind,author_name,anchor_kind,section_id,block_id,target_hash,range_start,range_end,quote,quote_hash,body)
+            values($1,$2,$3,$4,'staff','Owner','highlight','_intro','b_1',$5,1,3,'☀🙂',$5,'Bad hash')`, [org, r.requestId, i.id, i.current_version_id, hash('block')]));
+        await db.query(`insert into approval_comments(organization_id,request_id,item_id,version_id,author_kind,author_name,anchor_kind,pin_target,target_hash,body)
+            values($1,$2,$3,$4,'staff','Owner','pin','mockup',$5,'Image')`, [org, r.requestId, i.id, i.current_version_id, hash(photo)]);
+        await db.query(`insert into approval_comments(organization_id,request_id,item_id,version_id,parent_id,author_kind,author_name,anchor_kind,body)
+            values($1,$2,$3,$4,$5,'staff','Owner','page','Reply')`, [org, r.requestId, i.id, i.current_version_id, root.id]);
+        await assert.rejects(db.query(`update approval_comments set quote='XY' where id=$1`, [root.id]));
+        const read = async () => (await call(db, `select get_approval_item_by_token($1,$2,$3) result`, [hash(String(r.requestId)), i.id, now])).comments as Record<string, unknown>[];
+        let revision = 0;
+        const revise = async (nextOutline: unknown, photoPath = photo) => {
+            const payload = { ...page, body: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: `Revision ${++revision}` }] }] } };
+            assert.equal((await call(db, `select post_approval_version($1,$2,$3::jsonb,$4) result`, [owner, r.requestId, JSON.stringify([{ itemId: i.id, payload, outline: nextOutline, photoPath, changeNote: 'Updated content' }]), now])).ok, true);
+        };
+        assert.equal((await read())[0].carryState, 'unchanged');
+        await revise([{ ...outline[0], blocks: [{ ...outline[0].blocks[0], hash: hash('changed') }] }]);
+        assert.equal((await read())[0].carryState, 'text_changed');
+        // Hash elsewhere never causes a SQL "moved" state; 1D owns re-matching.
+        await revise([{ ...outline[0], blocks: [{ ...outline[0].blocks[0], blockId: 'replacement' }] }]);
+        let carried = await read();
+        assert.equal(carried[0].carryState, 'text_changed');
+        assert.equal(carried[0].carrySectionId, '_intro');
+        assert.equal(carried[0].quote, '☀🙂');
+        assert.equal(carried[0].range_start, 1);
+        assert.equal(carried[0].range_end, 3);
+        assert.equal(carried[0].quote_prefix, 'before');
+        assert.equal(carried[0].quote_suffix, 'after');
+        await revise([], 'https://example.com/new.png');
+        carried = await read();
+        assert.equal(carried[0].carryState, 'earlier');
+        assert.equal(carried[1].carryState, 'image_changed');
+        assert.equal(carried[2].carryState, 'earlier');
+        // Resolution after a newer release still updates the original version's comment.
+        assert.equal((await call(db, `select resolve_approval_comment($1,$2,null,$3) result`, [owner, root.id, now])).ok, true);
+    } finally { await db.close(); }
+});
+
+test('GBP accepts only page comments and preserves v1 title/body suggestions', async () => {
+    const db = await database();
+    try {
+        const r = await create(db, 'gbp_post', [post('GBP')]); await send(db, r.requestId);
+        const i = (await db.query<{ id: string; current_version_id: string }>(`select * from approval_items`)).rows[0];
+        let n = 0;
+        const submit = (anchorKind: string) => call(db, `select submit_approval($1,$2::jsonb,null,$3) result`, [hash(String(r.requestId)), JSON.stringify({
+            idempotencyKey: `gbp-comment-${++n}`, requestHash: hash(String(n)), respondentName: 'Casey', displayedVersionIds: [i.current_version_id],
+            decisions: [{ itemId: i.id, versionId: i.current_version_id, decision: 'changes_requested', comment: 'Change title', suggestedTitle: 'New title', suggestedBody: 'New body' }],
+            comments: [{ itemId: i.id, versionId: i.current_version_id, anchorKind, body: 'Review' }],
+        }), now]);
+        assert.equal((await submit('highlight')).code, 'invalid_request');
+        assert.equal((await submit('pin')).code, 'invalid_request');
+        assert.equal((await submit('page')).ok, true);
+        assert.deepEqual((await db.query(`select suggestion from approval_responses`)).rows[0].suggestion, { title: 'New title', body: 'New body' });
+    } finally { await db.close(); }
+});
+
+test('schema mirror includes exactly migration 132 and the removed field hash is absent', async () => {
+    const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
+    assert.equal(schema.split('-- Migration 132: Approvals v2\n')[1], migration);
+    const db = await database();
+    try {
+        assert.equal((await db.query(`select oid from pg_proc where proname='approval_field_hash'`)).rows.length, 0);
     } finally { await db.close(); }
 });

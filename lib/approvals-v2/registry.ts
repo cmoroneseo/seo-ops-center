@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { gbpPostPayloadSchema, GBP_CLIENT_VISIBLE_FIELDS, visibleSnapshot, applySuggestion, isCalendarDate } from '../gbp-approvals/registry.ts';
 
@@ -11,8 +10,6 @@ export interface ApprovalType<P> {
     maxPayloadBytes: number;
     visibleSnapshot(payload: P, asset: string | null): Record<string, string>;
     applySuggestion(payload: P, suggestion: Record<string, string>): P;
-    fieldComments: boolean;
-    fieldHash(payload: P, asset: string | null, key: string): string;
 }
 
 export const pagePayloadSchema = z.object({
@@ -28,12 +25,6 @@ export const pagePayloadSchema = z.object({
     body: z.object({ type: z.literal('doc'), content: z.array(z.unknown()) }).passthrough(),
 });
 export type PagePayload = z.infer<typeof pagePayloadSchema>;
-
-/** SQL approval_field_hash uses the untrimmed string value, UTF-8, with null as ''. */
-export function fieldHash(payload: object, photo: string | null, key: string): string {
-    const value = key === 'mockup' ? photo : (payload as Record<string, unknown>)[key];
-    return createHash('sha256').update(typeof value === 'string' ? value : '', 'utf8').digest('hex');
-}
 
 /** Canonical JSON for comparisons; anchor identity attrs are not visible content. */
 export function canonicalJson(value: unknown): string {
@@ -52,13 +43,12 @@ export function canonicalJson(value: unknown): string {
 export const gbpPostType: ApprovalType<z.infer<typeof gbpPostPayloadSchema>> = {
     type: 'gbp_post', schemaVersion: 1, schema: gbpPostPayloadSchema,
     clientVisibleFields: GBP_CLIENT_VISIBLE_FIELDS, suggestionFields: ['title', 'body'],
-    maxPayloadBytes: 16384, visibleSnapshot, applySuggestion, fieldComments: false, fieldHash,
+    maxPayloadBytes: 16384, visibleSnapshot, applySuggestion,
 };
 export const pageType: ApprovalType<PagePayload> = {
     type: 'page', schemaVersion: 1, schema: pagePayloadSchema,
     clientVisibleFields: ['pageKind', 'title', 'metaTitle', 'metaDescription', 'slug', 'plannedDate', 'body', 'mockupAlt', 'photo'],
-    suggestionFields: ['title', 'metaTitle', 'metaDescription', 'slug'], maxPayloadBytes: 1048576,
-    fieldComments: true, fieldHash,
+    suggestionFields: [], maxPayloadBytes: 1048576,
     visibleSnapshot(payload, photo) {
         const { targetKeyword: _targetKeyword, ...visible } = payload;
         void _targetKeyword;
