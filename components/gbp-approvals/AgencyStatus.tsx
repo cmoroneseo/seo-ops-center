@@ -35,14 +35,17 @@ export function AgencyStatus({ embedded = false }: { embedded?: boolean }) {
                     <div className="tile"><b>1</b><span>Pending</span></div>
                     <div className="tile"><b>1 / 3</b><span>Questions answered</span></div>
                 </div>
-                <p className="notice">Link active · expires Fri, Nov 27 · 3 views · last opened Sat Nov 14, 9:12 AM PT. Extend keeps this same link.</p>
+                <div className="row" style={{ marginBottom: 16 }}>
+                    <p className="notice" style={{ flex: 1 }}>Link active · expires Fri, Nov 27 · 3 views · last opened Sat Nov 14, 9:12 AM PT. This is the same link.</p>
+                    <button className="btn btn-secondary" type="button" onClick={() => setToast('Extended 14 days on the same link.')}>Extend 14 days</button>
+                </div>
                 <div className="grid" style={{ marginTop: 16 }}>
                     <section className="card items">
                         {SAMPLE_POSTS.map(item => (
                             <button className={item.position === selected ? 'item' : 'item'} key={item.position} type="button" onClick={() => setSelected(item.position)} style={item.position === selected ? { borderColor: '#3DD0E0' } : undefined}>
                                 <span className="thumb">{item.photo ? <img src={item.photo} alt="" /> : <span className="chip chip-photo">Photo needed</span>}</span>
                                 <span className="dmeta">
-                                    <b>Post {item.position} · {weekday(item.scheduled)}</b>
+                                    <b>Post {item.position} · Planned for {weekday(item.scheduled)}</b>
                                     <span className="k">{item.title}</span>
                                 </span>
                                 {item.status === 'approved' && <span className="chip chip-approved">Approved</span>}
@@ -60,7 +63,7 @@ export function AgencyStatus({ embedded = false }: { embedded?: boolean }) {
                                     <figure><div className="box" style={{ minHeight: 120, display: 'grid', placeItems: 'center' }}>Photo needed</div><figcaption>v1 · no photo</figcaption></figure>
                                     <figure><img src={post.replacementPhoto} alt="Sample stand-in uploaded by the client" /><figcaption>Uploaded Sat Nov 14 · sample stand-in</figcaption></figure>
                                 </div>
-                                <button className="btn btn-primary" type="button" onClick={() => setToast('Photo accepted into v2. The scheduled date did not change.')}>Use in v2</button>
+                                <button className="btn btn-primary" type="button" onClick={() => setToast('Photo accepted into v2. The planned date did not change.')}>Use in v2</button>
                             </section>
                         )}
                     </div>
@@ -83,7 +86,7 @@ export function AgencyStatus({ embedded = false }: { embedded?: boolean }) {
                             <li><b>Client feedback</b><span className="s">4 approved, 2 changes, 1 not reviewed · Sat Nov 14, 9:41 AM PT</span></li>
                             <li><b>v2</b><span className="s">{accepted ? 'Post 2 suggestion accepted. Send the revision when the note is ready.' : 'Not posted yet. Accept the suggestion or edit by hand.'}</span></li>
                         </ul>
-                        <p className="hint">Approval does not change the scheduled date. When every post is approved, the task moves to In Progress.</p>
+                        <p className="hint">Approval does not change the planned date. When every post is approved, the task moves to In Progress.</p>
                     </section>
                 </div>
                 {toast && <p className="toast" role="status" style={{ position: 'fixed', bottom: 24, right: 24 }}>{toast}</p>}
@@ -106,7 +109,7 @@ function Detail({
     return (
         <section className="card">
             <div className="card-head">
-                <h2>Post {post.position} · {weekday(post.scheduled)}</h2>
+                <h2>Post {post.position} · Planned for {weekday(post.scheduled)}</h2>
                 {post.status === 'changes_requested' && <span className="chip chip-changes">Changes requested</span>}
             </div>
             <article className="gbp">

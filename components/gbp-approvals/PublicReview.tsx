@@ -73,7 +73,7 @@ export function PublicReview({
                 <section className="panel">
                     <div className="done-ic" aria-hidden="true"><Check /></div>
                     <h1 className="title">Thanks, {name.trim()}. We have your review.</h1>
-                    <p className="lead">Approved posts stay on the dates already scheduled. If we update a post, it shows up on this same link. Nothing else is sent. You can reopen this page until the link expires.</p>
+                    <p className="lead">Approved posts stay on their planned dates. If we update a post, it shows up on this same link. Nothing else is sent. You can reopen this page until the link expires.</p>
                 </section>
             </Shell>
         );
@@ -248,7 +248,7 @@ function PostCard({
     return (
         <article className={open ? 'ritem sel' : 'ritem'} aria-label={`Post ${post.position}`}>
             <div className="ri-head">
-                <div className="k">Post {post.position} of {total} <span>· Goes live {weekday(post.scheduled)}</span></div>
+                <div className="k">Post {post.position} of {total} <span>· Planned for {weekday(post.scheduled)}</span></div>
                 {status === 'approved' && <span className="chip chip-approved"><Check />Approved</span>}
                 {status === 'changes_requested' && <span className="chip chip-changes">Changes requested</span>}
                 {status === 'pending' && <span className="chip chip-pending">Not reviewed</span>}
@@ -281,7 +281,7 @@ function PostCard({
                                 {post.photo ? <img src={post.photo} alt="" /> : <div className="miss"><strong>Photo needed</strong><span>We need a photo of a finished remodel for this post.</span></div>}
                             </div>
                             <div className="g-body">
-                                <div className="g-head"><span className="g-av"><img src={LOGO} alt="" /></span><span className="g-meta"><span className="g-biz">ALL-IN-1 Construction</span><span className="g-age">Scheduled {weekday(post.scheduled)}</span></span></div>
+                                <div className="g-head"><span className="g-av"><img src={LOGO} alt="" /></span><span className="g-meta"><span className="g-biz">ALL-IN-1 Construction</span><span className="g-age">Planned for {weekday(post.scheduled)}</span></span></div>
                                 <div className="g-offer">Offer</div>
                                 <h3 className="g-title">{post.title}</h3>
                                 <div className="g-date">{monthDay(post.offerStart)} – {monthDay(post.offerEnd)}</div>
@@ -293,7 +293,7 @@ function PostCard({
                         {showFull && <p className="hint">{SAMPLE_TERMS}</p>}
                     </div>
                     <dl className="det">
-                        <dt>Goes live</dt><dd>{weekday(post.scheduled)}</dd>
+                        <dt>Planned for</dt><dd>{weekday(post.scheduled)}</dd>
                         <dt>Offer runs</dt><dd>{monthDay(post.offerStart)} – {monthDay(post.offerEnd)}</dd>
                         <dt>Button</dt><dd>View offer</dd>
                         <dt>Opens</dt><dd>allinone-const.com/contact/</dd>
