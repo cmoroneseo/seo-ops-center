@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { ArrowDown, ArrowUp, CheckCircle, Copy, Lock, Send, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { PreviewDialog } from '@/components/approvals-v2/PreviewDialog';
-import { approvalPlainText } from '@/lib/approvals-v2/text';
+import { PagePreview } from '@/components/approvals-v2/PagePreview';
+import { PageEditor } from '@/components/approvals-v2/PageEditor';
 import type { PagePayload } from '@/lib/approvals-v2/registry';
 import { Button } from '@/components/ui/button';
 import { GbpPostPreview } from '@/components/gbp-approvals/PublicReview';
@@ -246,7 +247,8 @@ export default function Page({
           return version ? [{
             id: item.id,
             payload: version.payload,
-            photoUrl: data.photos[version.photo_path ?? ''] ?? null
+            images: data.photos,
+        photoUrl: data.photos[version.photo_path ?? ''] ?? null
           }] : [];
         })} />
       </div>
@@ -335,34 +337,19 @@ export default function Page({
               </div>}
             </header>
             {'pageKind' in p ? <>
-              <p className="text-sm text-muted-foreground">Editing pages arrives in the next update</p>
-              <dl className="space-y-3 text-sm">
-                <div>
-                  <dt className="text-muted-foreground">Title tag</dt>
-                  <dd>
-                    {p.metaTitle}
-                    <span className="text-xs">{p.metaTitle?.length ?? 0} / 60</span>
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">Meta description</dt>
-                  <dd>
-                    {p.metaDescription}
-                    <span className="text-xs">{p.metaDescription?.length ?? 0} / 160</span>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Slug</dt>
-                  <dd className="break-all">/{p.slug}/</dd>
-                </div>
-                <div>
-                  <dt>Planned for</dt>
-                  <dd>{p.plannedDate ?? 'Not set'} (sign-off only; doesn’t set the date)</dd>
-                </div>
-              </dl>
-              <div className="whitespace-pre-wrap rounded-lg border p-4 text-sm">
-                {approvalPlainText(p.body)}
-              </div>
+              <PagePreview payload={p} photoUrl={data.photos[version.photo_path ?? '']} images={data.photos} />
+              {editable && item.version && <PageEditor
+                key={item.version.id}
+                requestId={id}
+                itemId={item.id}
+                payload={item.version.payload as PagePayload}
+                photoPath={item.version.photo_path}
+                photoUrl={data.photos[item.version.photo_path ?? ''] ?? null}
+                images={data.photos}
+                sent={!draft}
+                versionNo={item.version.version_no}
+                busy={busy}
+                onSave={entry => act('versions', { items: [entry] })} />}
             </> : <>
               <p className="text-sm">Planned for {p.scheduledDate}</p>
               <div className="gbp-public" style={{

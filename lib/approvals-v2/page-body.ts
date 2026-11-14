@@ -1,3 +1,4 @@
+import { normalizeForMatch } from '../approvals/anchoring.ts';
 import { createHash } from 'node:crypto';
 import { canonicalJson, pagePayloadSchema, pageType } from './registry.ts';
 import { markdownDoc, nodeText, sanitizeDoc, type PageNode } from './page-doc.ts';
@@ -36,17 +37,21 @@ export function normalizePageBody(input: unknown) {
   for (const [index, block] of body.content.entries()) {
     const text = nodeText(block).normalize('NFKC').replace(/\s+/g, ' ').trim();
     const blockId = id('b', `${index}:${canonicalJson(block)}`, ids, block.attrs?.blockId);
-    if (!section || block.type === 'heading' && block.attrs?.level === 2) {
-      const sectionId = block.type === 'heading' && block.attrs?.level === 2 ? id('s', blockId, sections, block.attrs?.sectionId) : '_intro';
-      const base = headingSlug(text);
+    let slug = 'page-introduction';
+    if (block.type === 'heading') {
+      const base = headingSlug(nodeText(block));
       const count = slugs.get(base) ?? 0;
       slugs.set(base, count + 1);
-      section = { sectionId, slug: count ? `${base}-${count}` : base, level: Number(block.attrs?.level ?? 0), title: block.type === 'heading' ? text : 'Introduction', hash: '', blocks: [] };
+      slug = count ? `${base}-${count}` : base;
+    }
+    if (!section || block.type === 'heading' && block.attrs?.level === 2) {
+      const sectionId = block.type === 'heading' && block.attrs?.level === 2 ? id('s', blockId, sections, block.attrs?.sectionId) : '_intro';
+      section = { sectionId, slug, level: Number(block.attrs?.level ?? 0), title: block.type === 'heading' ? text : 'Introduction', hash: '', blocks: [] };
       outline.push(section);
     }
     block.attrs = { ...block.attrs, blockId, sectionId: section.sectionId };
     const kind = ({ bulletList: 'list', orderedList: 'list', blockquote: 'quote', horizontalRule: 'paragraph' } as Record<string, string>)[block.type] ?? block.type;
-    section.blocks.push({ blockId, kind, hash: hash(`${kind}:${text}`), len: text.length });
+    section.blocks.push({ blockId, kind, hash: hash(`${kind}:${normalizeForMatch(text)}`), len: text.length });
   }
   for (const section of outline) section.hash = hash(section.blocks.map(block => block.hash).join(''));
   if (Buffer.byteLength(JSON.stringify(outline)) > 65536) throw new Error('Page outline exceeds 64 KB.');

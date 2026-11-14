@@ -42,7 +42,7 @@ export function sanitizeDoc(input: unknown): PageNode & { type: 'doc'; content: 
     for (const key of ['blockId', 'sectionId']) {
       if (typeof attrs[key] === 'string' && identity.test(attrs[key])) allowed[key] = attrs[key];
     }
-    if (n.type === 'heading') allowed.level = Math.min(4, Math.max(1, Number(attrs.level) || 2));
+    if (n.type === 'heading') allowed.level = Math.min(4, Math.max(1, Math.trunc(Number(attrs.level)) || 2));
     if (n.type === 'orderedList' && Number.isInteger(attrs.start) && Number(attrs.start) > 0) allowed.start = Number(attrs.start);
     if (n.type === 'image') {
       const src = safeUrl(attrs.src, true);

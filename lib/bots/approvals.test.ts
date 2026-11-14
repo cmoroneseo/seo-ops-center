@@ -98,7 +98,7 @@ test('v2 GBP normalization pins the v1 request hash, including explicit default 
   assert.equal(explicit.command.requestHash, implicit.command.requestHash);
   assert.equal('itemType' in explicit.command, false);
 });
-test('v2 rejects all release controls and explicitly defers page normalization', () => {
+test('v2 rejects all release controls and rejects incomplete page payloads', () => {
   for (const key of ['send', 'stage', 'status', 'sentAt', 'released', 'releasedAt', 'releasedVersionId']) {
     const parsed = parseBotApproval({
       [key]: false
@@ -112,7 +112,7 @@ test('v2 rejects all release controls and explicitly defers page normalization',
   });
   assert.ok(!page.ok);
   assert.equal(page.status, 400);
-  assert.equal(page.code, 'page_type_not_enabled');
+  assert.equal(page.code, 'invalid_request');
   const unknown = parseBotApproval({
     itemType: 'video'
   });

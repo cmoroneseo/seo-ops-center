@@ -131,7 +131,7 @@ test('bot create and retry both return 201 draft with a staff URL and no share l
   // Only SQL creates notifications; the route calls no notification writer.
   assert.equal(rpcCalls, 2);
 });
-test('bot release controls and page bodies fail before any service client is created', async () => {
+test('bot release controls and invalid page bodies fail before any service client is created', async () => {
   const handler = createBotApprovalRoute({
     createAdminClient: () => {
       throw new Error('Must not connect');
@@ -154,7 +154,7 @@ test('bot release controls and page bodies fail before any service client is cre
     itemType: 'page'
   }));
   assert.equal(page.status, 400);
-  assert.equal((await page.json()).code, 'page_type_not_enabled');
+  assert.equal((await page.json()).code, 'invalid_request');
 });
 test('staff create saves only a draft and rejects every save-and-send field', async () => {
   const calls: string[] = [];
@@ -195,7 +195,7 @@ test('staff create saves only a draft and rejects every save-and-send field', as
     linked: false,
     reviewUrl: `/approvals/${id}`
   });
-  assert.deepEqual(calls, ['create_gbp_approval_request']);
+  assert.deepEqual(calls, ['create_approval_request']);
   for (const key of ['send', 'stage', 'sentAt']) assert.equal((await handler(post({
     ...command,
     [key]: false

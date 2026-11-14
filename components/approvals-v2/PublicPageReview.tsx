@@ -54,6 +54,7 @@ export function PublicPageReview({ token, view }: { token: string; view: PublicP
     setError('');
     const fields = new FormData(form);
     const body = {
+      itemType: 'page',
       respondentName: String(fields.get('name') ?? '').trim(),
       respondentEmail: String(fields.get('email') ?? '').trim() || null,
       displayedVersionIds: view.items.map(item => item.version.id),

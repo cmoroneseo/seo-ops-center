@@ -26,6 +26,11 @@ export function createSubmit(dependencies: { createAdminClient: typeof createAdm
         const displayedVersionIds = Array.isArray(body.displayedVersionIds) ? body.displayedVersionIds.filter((id): id is string => typeof id === 'string') : [];
         const decisions = Array.isArray(body.decisions) ? body.decisions : [];
         const answers = Array.isArray(body.answers) ? body.answers : [];
+        const comments = body.itemType === 'page' ? decisions.flatMap(value => {
+            const decision = value as { itemId?: string; versionId?: string; decision?: string; comment?: string };
+            return decision?.decision === 'changes_requested' ? [{ itemId: decision.itemId, versionId: decision.versionId, anchorKind: 'page', body: decision.comment }] : [];
+        }) : [];
+
         const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : '';
         const requested = [...new Set(decisions.flatMap(decision => {
             if (!decision || typeof decision !== 'object') return [];
@@ -60,6 +65,7 @@ export function createSubmit(dependencies: { createAdminClient: typeof createAdm
                 displayedVersionIds,
                 decisions,
                 answers,
+                ...(body.itemType === 'page' ? { comments } : {}),
                 verifiedReservationIds: verified,
             };
             const { data, error } = await admin.rpc('submit_gbp_approval', {

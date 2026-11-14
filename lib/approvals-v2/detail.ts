@@ -1,3 +1,4 @@
+import { imagePaths } from './page-body';
 import { staffContext, json } from './staff';
 import { linkState, uuid } from './list';
 import { canSendApproval, sendPermissionReason } from './permissions';
@@ -60,8 +61,18 @@ export function createStaffDetail(dependencies = {
     if ([items, versions, responses, questions, events, link].some(v => v.error)) return json({
       error: 'Approvals could not be loaded.'
     }, 503);
-    const paths = r.item_type === 'gbp_post' ? [...new Set([...(versions.data ?? []).map(v => v.photo_path), ...(responses.data ?? []).map(response => response.replacement_photo_path)].filter((path): path is string => Boolean(path)))] : [];
-    const photos = Object.fromEntries(await Promise.all(paths.map(async path => [path, await dependencies.signApprovalPhoto(path)])));
+    const paths = [...new Set([...(versions.data ?? []).map(v => v.photo_path), ...(responses.data ?? []).map(response => response.replacement_photo_path)].filter((path): path is string => Boolean(path)))];
+    if (r.item_type === 'page') {
+      for (const version of versions.data ?? []) {
+        try {
+          paths.push(...imagePaths((version.payload as { body: unknown }).body));
+        } catch {
+          // An invalid historical body must not prevent staff opening the request.
+        }
+      }
+    }
+    const scopedPaths = [...new Set(paths)].filter(path => path.startsWith('https://') || ['approval-assets', 'gbp-approvals'].some(prefix => path.startsWith(`${prefix}/${id}/`)));
+    const photos = Object.fromEntries(await Promise.all(scopedPaths.map(async path => [path, await dependencies.signApprovalPhoto(path)])));
     const role = members.find(m => m.organization_id === r.organization_id)?.role;
     const client = r.clients as {
       account_manager_id?: string;

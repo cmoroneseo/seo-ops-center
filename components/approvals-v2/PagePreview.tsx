@@ -40,7 +40,7 @@ export function PageBody({ body, images = {} }: { body: unknown; images?: Record
     if (['hr', 'br'].includes(tag)) return createElement(tag, attrs);
     return createElement(tag, attrs, node.type === 'table' ? <tbody>{children}</tbody> : children);
   }
-  return <div className="approval-page-body">{doc.content?.map((node, index) => render(node, String(index), true))}</div>;
+  return <div id="page-introduction" className="approval-page-body">{doc.content?.map((node, index) => render(node, String(index), true))}</div>;
 }
 
 export function PagePreview({ payload, photoUrl, images, domain = 'Your website' }: { payload: PagePayload; photoUrl?: string | null; images?: Record<string, string | null>; domain?: string }) {
