@@ -218,7 +218,8 @@ export function Sidebar() {
                     </button>
                     <Link href="/approvals" title="Approvals" className={navClass(selected.pathname.startsWith('/approvals'))}>
                         <FileCheck2 className="h-4 w-4 shrink-0" aria-hidden />
-                        <span className="hidden xl:inline">Approvals</span><ApprovalBadge />
+                        <span className="hidden xl:inline">Approvals</span>
+                        <ApprovalBadge />
                     </Link>
                     {menu === 'agency' && (
                         <div role="menu" className="absolute left-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg xl:right-0 xl:w-auto">

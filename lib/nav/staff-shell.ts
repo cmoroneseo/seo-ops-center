@@ -106,7 +106,7 @@ function moduleOf(tab: string | null): WorkspaceModule | null {
         case 'inventory':
             return 'inventory';
         case 'approvals':
-            return 'approvals';
+            return null;
         case 'portal':
             return 'portal';
         case 'integrations':
@@ -186,8 +186,8 @@ export function clientSections(
 
 /**
  * Same workspace routes, grouped as Client / Planning / Delivery / More.
- * Content is the production board for approved pages. Client review stays
- * on `?tab=approvals`; the content board links there and does not replace it.
+ * Content is the production board for approved pages. Cross-client review
+ * lives on /approvals; the legacy 057 workspace review tab is frozen.
  */
 function pipelineClientSections(
     clientId: string,

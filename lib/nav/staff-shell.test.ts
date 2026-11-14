@@ -45,7 +45,7 @@ test('client sections follow the approved groups and omit concept rows', () => {
 test('agency menu is the readable cross-client list, with the portfolio only when that flag is on', () => {
     const plain = agencyLinks({ agencyDashboard: false });
     assert.deepEqual(plain.map(link => link.label), [
-        'Agency home', 'All clients', 'Tasks', 'Deliverables', 'Time', 'Planner', 'Reports',
+        'Agency home', 'All clients', 'Tasks', 'Approvals', 'Deliverables', 'Time', 'Planner', 'Reports',
     ]);
     assert.equal(plain.find(link => link.id === 'clients')?.dividerAfter, true);
     assert.equal(plain.find(link => link.id === 'home')?.href, '/dashboard');
@@ -59,7 +59,7 @@ test('agency menu is the readable cross-client list, with the portfolio only whe
 
     const flagged = agencyLinks({ agencyDashboard: true });
     assert.deepEqual(flagged.map(link => link.label), [
-        'Agency home', 'Dashboard', 'All clients', 'Tasks', 'Deliverables', 'Time', 'Planner', 'Reports',
+        'Agency home', 'Dashboard', 'All clients', 'Tasks', 'Approvals', 'Deliverables', 'Time', 'Planner', 'Reports',
     ]);
     assert.equal(flagged.find(link => link.id === 'dashboard')?.href, '/agency');
 });
@@ -358,7 +358,7 @@ test('pipeline nav on regroups the same routes and lists Content', () => {
         ['tab=inventory', '/workspace/maya?tab=inventory'],
         ['tab=topical-map', '/workspace/maya?tab=topical-map'],
         ['tab=content', '/workspace/maya?tab=content'],
-        ['tab=approvals&approvalBatch=batch-1', '/workspace/maya?tab=approvals&approvalBatch=batch-1'],
+        ['tab=approvals&approvalBatch=batch-1', '/workspace/maya?tab=overview&navNotice=unavailable'],
         ['tab=deliverables', '/workspace/maya?tab=deliverables'],
         ['tab=portal', '/workspace/maya?tab=portal'],
         ['tab=integrations', '/workspace/maya?tab=integrations'],
@@ -382,7 +382,7 @@ test('pipeline nav on regroups the same routes and lists Content', () => {
 
     assert.deepEqual(
         agencyLinks({ agencyDashboard: true }).map(link => link.label),
-        ['Agency home', 'Dashboard', 'All clients', 'Tasks', 'Deliverables', 'Time', 'Planner', 'Reports'],
+        ['Agency home', 'Dashboard', 'All clients', 'Tasks', 'Approvals', 'Deliverables', 'Time', 'Planner', 'Reports'],
     );
 });
 

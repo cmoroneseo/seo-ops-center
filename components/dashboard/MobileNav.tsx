@@ -10,6 +10,7 @@ import {
 import { cn } from '@/lib/utils';
 import { UserMenu } from '@/components/dashboard/UserMenu';
 import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
+import { ApprovalBadge } from '@/components/approvals-v2/Badge';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useClients } from '@/lib/hooks/use-clients';
@@ -153,7 +154,12 @@ export function MobileNav() {
                                 active ? 'text-primary' : 'text-muted-foreground'
                             )}
                         >
-                            <tab.icon className="h-5 w-5" />
+                            <span className="relative">
+                                <tab.icon className="h-5 w-5" />
+                                {tab.href === '/approvals' && (
+                                    <span className="absolute -right-4 -top-2"><ApprovalBadge /></span>
+                                )}
+                            </span>
                             {tab.name}
                         </Link>
                     );

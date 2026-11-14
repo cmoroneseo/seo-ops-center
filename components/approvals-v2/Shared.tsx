@@ -1,9 +1,63 @@
 'use client';
-import { Ban, Bot, Check, Clock, FileText, Link2, Link2Off, Pencil, Send, AlertTriangle } from 'lucide-react';
+
+import { Ban, Bot, Check, Clock, FileText, Link2, Link2Off, Pencil, Send, AlertTriangle, Store, MapPin, PanelsTopLeft, Files } from 'lucide-react';
 import { type ApprovalRow, type Group, typeLabel } from '@/lib/approvals-v2/list';
-export const labels: Record<Group,string>={ready_to_send:'Ready to send',waiting:'Waiting on client',changes_requested:'Changes requested',approved:'Approved'};
-const icons={ready_to_send:Send,waiting:Clock,changes_requested:Pencil,approved:Check};
-export function StatusChip({group}:{group:Group}) {const Icon=icons[group];return <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-semibold ${group==='ready_to_send'?'border-sky-500 bg-sky-50 text-sky-950':group==='changes_requested'?'border-amber-600 bg-amber-50 text-amber-950':group==='approved'?'border-emerald-600 bg-emerald-50 text-emerald-950':'bg-zinc-100 text-zinc-900'}`}><Icon size={13}/>{labels[group]}</span>;}
-export function TypeChip({row}:{row:Pick<ApprovalRow,'itemType'|'pageKinds'>}) {return <span title={row.pageKinds.map(k=>typeLabel({itemType:'page',pageKinds:[k]})).join(', ')} className="inline-flex items-center gap-1 rounded border border-zinc-500 px-2 py-1 text-xs"><FileText size={13}/>{typeLabel(row)}</span>;}
-export function LinkStatus({row}:{row:Pick<ApprovalRow,'linkState'|'linkExpiresAt'>}) {const state=row.linkState;const Icon=state==='none'?Link2:state==='revoked'?Link2Off:state==='expired'?Ban:state==='expiring'?AlertTriangle:Clock;return <span className={`inline-flex items-center gap-1 text-sm ${state==='expired'?'text-red-700':state==='expiring'?'text-amber-900':'text-muted-foreground'}`}><Icon size={14}/>{state==='none'?'No link yet':state==='revoked'?'Link revoked':state==='expired'?'Expired':`Link expires in ${Math.max(1,Math.ceil((Date.parse(row.linkExpiresAt!)-Date.now())/86400000))} days`}</span>;}
-export function Owner({row}:{row:Pick<ApprovalRow,'createdVia'|'owner'|'botName'>}) {return <span className="inline-flex items-center gap-1 text-sm">{row.createdVia==='bot' && <Bot size={16}/>} {row.owner?.name ?? row.botName ?? 'Unassigned'}</span>;}
+export const labels: Record<Group, string> = {
+  ready_to_send: 'Ready to send',
+  waiting: 'Waiting on client',
+  changes_requested: 'Changes requested',
+  approved: 'Approved'
+};
+const icons = {
+  ready_to_send: Send,
+  waiting: Clock,
+  changes_requested: Pencil,
+  approved: Check
+};
+export function StatusChip({
+  group
+}: {
+  group: Group;
+}) {
+  const Icon = icons[group];
+  return <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-semibold ${group === 'ready_to_send' ? 'border-sky-500 bg-sky-50 text-sky-950' : group === 'changes_requested' ? 'border-amber-600 bg-amber-50 text-amber-950' : group === 'approved' ? 'border-emerald-600 bg-emerald-50 text-emerald-950' : 'bg-zinc-100 text-zinc-900'}`}>
+    <Icon size={13} />
+    {labels[group]}
+  </span>;
+}
+export function TypeChip({
+  row
+}: {
+  row: Pick<ApprovalRow, 'itemType' | 'pageKinds'>;
+}) {
+  const Icon = row.itemType === 'gbp_post' ? Store : row.pageKinds.length !== 1 ? Files : row.pageKinds[0] === 'city' ? MapPin : row.pageKinds[0] === 'service' ? PanelsTopLeft : FileText;
+  return <span title={row.pageKinds.map(k => typeLabel({
+    itemType: 'page',
+    pageKinds: [k]
+  })).join(', ')} className="inline-flex items-center gap-1 rounded border border-zinc-500 px-2 py-1 text-xs">
+    <Icon size={13} aria-hidden />
+    {typeLabel(row)}
+  </span>;
+}
+export function LinkStatus({
+  row
+}: {
+  row: Pick<ApprovalRow, 'linkState' | 'linkExpiresAt'>;
+}) {
+  const state = row.linkState;
+  const Icon = state === 'none' ? Link2 : state === 'revoked' ? Link2Off : state === 'expired' ? Ban : state === 'expiring' ? AlertTriangle : Clock;
+  return <span className={`inline-flex items-center gap-1 text-sm ${state === 'expired' ? 'text-red-700' : state === 'expiring' ? 'text-amber-900' : 'text-muted-foreground'}`}>
+    <Icon size={14} />
+    {state === 'none' ? 'No link yet' : state === 'revoked' ? 'Link revoked' : state === 'expired' ? 'Expired' : `Link expires in ${Math.max(1, Math.ceil((Date.parse(row.linkExpiresAt!) - Date.now()) / 86400000))} days`}
+  </span>;
+}
+export function Owner({
+  row
+}: {
+  row: Pick<ApprovalRow, 'createdVia' | 'owner' | 'botName'>;
+}) {
+  return <span className="inline-flex items-center gap-1 text-sm">
+    {row.createdVia === 'bot' && <Bot size={16} />}
+    {row.owner?.name ?? row.botName ?? 'Unassigned'}
+  </span>;
+}
