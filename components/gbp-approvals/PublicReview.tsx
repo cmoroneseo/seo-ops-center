@@ -5,7 +5,7 @@ import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { diffWords } from '@/lib/gbp-approvals/diff';
 
 import './public-review.css';
-import { LOGO, SAMPLE_QUESTIONS, monthDay, weekday, type SamplePost } from './sample';
+import { monthDay, weekday, type SamplePost } from './sample';
 
 export interface ReviewQuestion {
     id: string;
@@ -25,6 +25,8 @@ export interface ReviewPost extends SamplePost {
     postType?: string;
 }
 
+const NO_QUESTIONS: ReviewQuestion[] = [];
+
 type Mode = 'review' | 'revision' | 'expired' | 'revoked' | 'missing';
 
 function Check() {
@@ -34,14 +36,16 @@ function Check() {
 export function PublicReview({
     mode,
     posts,
-    questions = SAMPLE_QUESTIONS,
-    clientName = 'ALL-IN-1 Construction',
+    questions = NO_QUESTIONS,
+    clientName: clientNameProp,
+    logoSrc,
     token, expiresAt, dueAt,
 }: {
     mode: Mode;
     posts: ReviewPost[];
     questions?: ReviewQuestion[];
     clientName?: string;
+    logoSrc?: string;
     token?: string;
     expiresAt?: string | null;
     dueAt?: string | null;
@@ -62,6 +66,7 @@ export function PublicReview({
     const [uploads, setUploads] = useState<Record<number, string>>({});
     const [uploading, setUploading] = useState(false);
     const attempt = useRef<{ key: string; payload: string } | null>(null);
+    const clientName = clientNameProp?.trim() || 'your business';
 
     const counts = useMemo(() => {
         const approved = posts.filter(post => (choices[post.position] ?? (mode === 'revision' ? post.status : undefined)) === 'approved').length;
@@ -73,7 +78,7 @@ export function PublicReview({
 
     if (mode === 'missing') {
         return (
-            <Shell clientName={clientName}>
+            <Shell>
                 <section className="panel">
                     <h1 className="title">{'This link isn\u2019t available'}</h1>
                     <p className="lead">Check the link you were given, or contact your account manager.</p>
@@ -83,7 +88,7 @@ export function PublicReview({
     }
     if (mode === 'expired' || mode === 'revoked') {
         return (
-            <Shell clientName={clientName}>
+            <Shell>
                 <section className="panel">
                     <h1 className="title">{mode === 'expired' ? 'This review link has expired' : 'This review link was turned off'}</h1>
                     <p className="lead">
@@ -98,7 +103,7 @@ export function PublicReview({
 
     if (sent) {
         return (
-            <Shell clientName={clientName}>
+            <Shell clientName={clientName} logoSrc={logoSrc} active>
                 <section className="panel">
                     <div className="done-ic" aria-hidden="true"><Check /></div>
                     <h1 className="title">Thanks, {name.trim()}. We have your review.</h1>
@@ -184,7 +189,7 @@ export function PublicReview({
     }
 
     return (
-        <Shell clientName={clientName}>
+        <Shell clientName={clientName} logoSrc={logoSrc} active>
             {error && <p className="errmsg" role="alert">{error}</p>}
             <div className="wrap">
                 <div>
@@ -235,6 +240,7 @@ export function PublicReview({
                             post={post}
                             total={posts.length}
                             clientName={clientName}
+                            logoSrc={logoSrc}
                             onUpload={file => upload(post, file)}
                             uploading={uploading || busy}
                             uploaded={Boolean(uploads[post.position])}
@@ -299,7 +305,7 @@ export function PublicReview({
     );
 }
 
-function Shell({ children, clientName }: { children: ReactNode; clientName: string }) {
+function Shell({ children, clientName, logoSrc, active = false }: { children: ReactNode; clientName?: string; logoSrc?: string; active?: boolean }) {
     return (
         <div className="gbp-public">
             <header className="band">
@@ -308,23 +314,26 @@ function Shell({ children, clientName }: { children: ReactNode; clientName: stri
                     <span className="lock"><span>Private review link</span></span>
                 </div>
             </header>
-            <div className="prep">
-                <div className="prep-in">
-                    <img src={LOGO} alt={`${clientName} logo`} />
-                    <div><div className="k">Prepared for</div><div className="v">{clientName}</div></div>
+            {active && clientName && (
+                <div className="prep">
+                    <div className="prep-in">
+                        {logoSrc && <img src={logoSrc} alt={`${clientName} logo`} />}
+                        <div><div className="k">Prepared for</div><div className="v">{clientName}</div></div>
+                    </div>
                 </div>
-            </div>
+            )}
             <main>{children}</main>
-            <p className="footer">Shared with you by Marketing Empire Group. This link works until it expires. No account needed.</p>
+            {active && <p className="footer">Shared with you by Marketing Empire Group. This link works until it expires. No account needed.</p>}
         </div>
     );
 }
 
 function PostCard({
-    post, total, choice, open, comment, suggestedTitle, suggestedBody, onSuggest, showFull, onApprove, onRequest, onComment, onToggleFull, clientName, onUpload, uploading, uploaded,
+    post, total, choice, open, comment, suggestedTitle, suggestedBody, onSuggest, showFull, onApprove, onRequest, onComment, onToggleFull, clientName, logoSrc, onUpload, uploading, uploaded,
 }: {
     post: ReviewPost;
     clientName: string;
+    logoSrc?: string;
     onUpload: (file: File) => void;
     uploading: boolean;
     uploaded: boolean;
@@ -380,7 +389,7 @@ function PostCard({
                                 {post.photo ? <img src={post.photo} alt="" /> : <div className="miss"><strong>Photo needed</strong><span>We need a photo of a finished remodel for this post.</span></div>}
                             </div>
                             <div className="g-body">
-                                <div className="g-head"><span className="g-av"><img src={LOGO} alt="" /></span><span className="g-meta"><span className="g-biz">{clientName}</span><span className="g-age">Planned for {weekday(post.scheduled)}</span></span></div>
+                                <div className="g-head"><span className="g-av">{logoSrc ? <img src={logoSrc} alt="" /> : <span className="g-av-initial" aria-hidden="true">{clientName.charAt(0).toUpperCase()}</span>}</span><span className="g-meta"><span className="g-biz">{clientName}</span><span className="g-age">Planned for {weekday(post.scheduled)}</span></span></div>
                                 <div className="g-offer">{post.postType ?? 'Offer'}</div>
                                 <h3 className="g-title">{post.title}</h3>
                                 <div className="g-date">{monthDay(post.offerStart)} – {monthDay(post.offerEnd)}</div>

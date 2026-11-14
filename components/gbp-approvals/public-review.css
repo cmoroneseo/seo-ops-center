@@ -142,6 +142,7 @@
 .gbp-public .g-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 .gbp-public .g-av{width:36px;height:36px;border-radius:50%;border:1px solid #dadce0;overflow:hidden;flex-shrink:0;background:#fff}
 .gbp-public .g-av img{width:100%;height:100%;object-fit:contain;padding:2px}
+.gbp-public .g-av-initial{display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-weight:600;color:#3c4043}
 .gbp-public .g-meta{display:flex;flex-direction:column;min-width:0;flex:1}
 .gbp-public .g-biz{font-size:14px;font-weight:600;line-height:18px}
 .gbp-public .g-age{font-size:13px;color:#5F6368;line-height:18px}
