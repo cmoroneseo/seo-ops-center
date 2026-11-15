@@ -70,6 +70,6 @@ test('the appearance note uses the fallback sentence only when organic leaves ch
     const blue = resolveSurfaceColors(buildTokens({ preset: 'electric-blue' }, 'dark'), 'dark');
     assert.equal(organicColorNote(pink), ORGANIC_BRAND_NOTE);
     assert.equal(organicColorNote(blue), ORGANIC_FALLBACK_NOTE);
-    assert.equal(pink.organic, pink.orgFallback);
+    assert.equal(pink.organic, buildTokens({ preset: 'neon-pink' }, 'dark')['--chart-1']);
     assert.equal(pink.usesFallback, false);
 });

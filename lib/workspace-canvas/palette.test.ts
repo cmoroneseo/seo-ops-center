@@ -41,8 +41,8 @@ test('canvas actions use a readable label without introducing lime', () => {
         assert.ok((ratios.mutedOnCard ?? 0) >= 3, `previous-series gray below 3:1 (${ratios.mutedOnCard})`);
     }
     const neonDark = pair({ preset: 'neon-pink' }, 'dark');
-    assert.ok((neonDark.token ?? 0) < 4.5, 'neon pink is the grandfathered AA Large pair');
-    assert.notEqual(actionForegroundChoice(neonDark), 'token');
+    assert.ok((neonDark.token ?? 0) >= 4.5, 'default primary passes normal-text AA');
+    assert.equal(actionForegroundChoice(neonDark), 'token');
     assert.equal(parseOklch('lime'), null);
     assert.equal(parseOklch('oklch(0.63 0.26 352)')?.h, 352);
 });

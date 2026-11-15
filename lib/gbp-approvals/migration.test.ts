@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import test from 'node:test';
+import nodeTest from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
 
 const migration = readFileSync(new URL('../../migrations/131_gbp_approval_requests.sql', import.meta.url), 'utf8');
@@ -43,6 +43,8 @@ function post(title: string, scheduled = '2026-11-16') {
     };
 }
 
+for (const version of ['131', '132']) {
+const test: typeof nodeTest = ((name: string, run: Parameters<typeof nodeTest>[1]) => nodeTest(`${name} [${version}]`, run)) as typeof nodeTest;
 async function database() {
     const db = new PGlite();
     await db.exec(`
@@ -122,6 +124,13 @@ async function database() {
         grant usage on schema public to anon, authenticated, service_role;
     `);
     await db.exec(migration);
+    if (version === '132') {
+        await db.exec(`create table public.users(id uuid primary key);
+            insert into public.users select distinct user_id from public.organization_members;
+            create table public.bot_api_keys(id uuid primary key, organization_id uuid);
+            alter table public.clients add column account_manager_id uuid;`);
+        await db.exec(readFileSync(new URL('../../migrations/132_approvals_v2.sql', import.meta.url), 'utf8'));
+    }
     return db;
 }
 
@@ -146,7 +155,7 @@ async function call(db: PGlite, sql: string, params: unknown[] = []) {
 
 test('migration 131 applies, stays private, and rejects anon and viewers', async () => {
     const db = await database();
-    await db.exec(migration);
+    if (version === '131') await db.exec(migration);
     const bucket = await db.query<{ public: boolean }>(
         `select public from storage.buckets where id = 'gbp-approval-uploads'`,
     );
@@ -720,3 +729,5 @@ test('queued version creation wins a race with submit bound to the previously di
         assert.equal((await db.query(`select id from public.approval_responses`)).rows.length, 0);
     } finally { await db.close(); }
 });
+
+}

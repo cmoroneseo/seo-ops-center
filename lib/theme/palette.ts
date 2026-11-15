@@ -13,6 +13,7 @@ import {
     fitToGamut,
     formatOklch,
     hexToOklch,
+    hexToRgb,
     oklchToHex,
     oklchToRgb,
 } from './color.ts';
@@ -65,8 +66,8 @@ const INK_OVERRIDE_MARGIN = 1.5;
 const ACCENT_HUE_SHIFT = 28;
 
 export const THEME_PRESETS: ThemePreset[] = [
-    // Matches the shipped tokens exactly — selecting it is a no-op.
-    { id: 'neon-pink', label: 'Neon Pink', primary: { l: 0.63, c: 0.26, h: 352 }, accent: { l: 0.7, c: 0.18, h: 20 } },
+    // Default pink supports normal-size white button text.
+    { id: 'neon-pink', label: 'Neon Pink', primary: hexToOklch('#db0a8b')!, accent: { l: 0.7, c: 0.18, h: 20 } },
     { id: 'electric-blue', label: 'Electric Blue', primary: { l: 0.55, c: 0.2, h: 255 }, accent: { l: 0.7, c: 0.15, h: 210 } },
     { id: 'emerald', label: 'Emerald', primary: { l: 0.53, c: 0.16, h: 158 }, accent: { l: 0.7, c: 0.14, h: 190 } },
     { id: 'violet', label: 'Violet', primary: { l: 0.58, c: 0.24, h: 295 }, accent: { l: 0.68, c: 0.18, h: 330 } },
@@ -155,11 +156,17 @@ export function buildTokens(theme: OrganizationTheme, mode: ThemeMode): Record<s
     const primaryFg = readableForeground(primary);
     const accentFg = readableForeground(accent);
 
+    // Text on dark cards/sidebars needs a lighter tint than AA button fills.
+    let primaryOnDark = primary;
+    while (contrastRatio(oklchToRgb(primaryOnDark), hexToRgb('#141414')!) < 4.8 && primaryOnDark.l < 0.95) {
+        primaryOnDark = fitToGamut({ ...primaryOnDark, l: primaryOnDark.l + 0.01 });
+    }
     const primaryCss = formatOklch(primary);
     const accentCss = formatOklch(accent);
 
     return {
         '--primary': primaryCss,
+        '--primary-on-dark': formatOklch(primaryOnDark),
         '--primary-foreground': formatOklch(primaryFg),
         '--ring': primaryCss,
         '--accent': accentCss,

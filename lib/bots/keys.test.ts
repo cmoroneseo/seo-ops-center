@@ -23,3 +23,12 @@ test('bot names stay short labels', () => {
     assert.equal(normalizeBotName('../settings'), null);
     assert.equal(normalizeBotName('a'.repeat(41)), null);
 });
+
+test('approval actor lookup prefers validated id, then configured email, then legacy email', async () => {
+    const { resolveBotActorLookup, BOT_ACTOR_EMAIL } = await import('./keys.ts');
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    assert.deepEqual(resolveBotActorLookup({ BOT_ACTOR_USER_ID: id, BOT_ACTOR_EMAIL: 'bot@example.com' }), { kind: 'id', value: id });
+    assert.deepEqual(resolveBotActorLookup({ BOT_ACTOR_EMAIL: ' bot@example.com ' }), { kind: 'email', value: 'bot@example.com' });
+    assert.deepEqual(resolveBotActorLookup({}), { kind: 'email', value: BOT_ACTOR_EMAIL });
+    assert.throws(() => resolveBotActorLookup({ BOT_ACTOR_USER_ID: 'invalid', BOT_ACTOR_EMAIL: 'bot@example.com' }), /UUID/);
+});
