@@ -56,7 +56,6 @@ import { BasecampImportModal } from '@/components/workspace/BasecampImportModal'
 import { AddOnboardingToPlanButton } from '@/components/marketing-plan/AddOnboardingToPlanButton';
 import { NestLinkedTasksControl } from '@/components/marketing-plan/NestLinkedTasksControl';
 import { ONBOARDING_IMPORT_HINT } from '@/lib/seo-plan/onboarding-import';
-import { ClientApprovalsTab } from '@/components/approvals/ClientApprovalsTab';
 import { ClientPortalStaffPanel } from '@/components/portal/ClientPortalStaffPanel';
 import { VaultHeaderPill } from '@/components/vault/VaultHeaderPill';
 import { VaultPage } from '@/components/vault/VaultPage';
@@ -178,7 +177,7 @@ export default function ClientDetailPage() {
             }
             return;
         }
-        const knownTabs = ['overview', 'campaign', 'tasks', 'deliverables', 'integrations', 'insights', 'changes', 'inventory', 'topical-map', 'content', 'approvals', 'portal'];
+        const knownTabs = ['overview', 'campaign', 'tasks', 'deliverables', 'integrations', 'insights', 'changes', 'inventory', 'topical-map', 'content', 'portal'];
         if (keywordTrackingEnabled()) knownTabs.push('rankings');
         if (campaignWorkspaceEnabled()) knownTabs.push(CAMPAIGN_WORKSPACE_TAB);
         const opportunity = readOpportunityRoute(searchKey, { keywordTracking: keywordTrackingEnabled() });
@@ -720,12 +719,7 @@ export default function ClientDetailPage() {
                 />
             )}
 
-            {activeTab === 'approvals' && client.organizationId === organization?.id && (
-                <ClientApprovalsTab
-                    clientId={client.id}
-                    organizationId={organization?.id ?? ''}
-                />
-            )}
+
 
             {activeTab === 'portal' && client.organizationId === organization?.id && (
                 <ClientPortalStaffPanel clientId={client.id} clientName={client.clientName} />
@@ -781,7 +775,7 @@ export default function ClientDetailPage() {
                 onOpenPlan={() => setActiveTab('campaign', { phase: null })}
                 onOpenPhase={(phase) => setActiveTab('campaign', { phase })}
                 onViewAllTasks={() => setActiveTab('tasks', { phase: null })}
-                onReview={(batchId) => setActiveTab('approvals', { approvalBatch: batchId })}
+                onReview={() => { window.location.href = '/approvals'; }}
                 onConnections={() => setActiveTab('integrations')}
 
                 onOpenDeliverables={(id) => router.push(id ? `/deliverables?deliverable=${encodeURIComponent(id)}` : '/deliverables')}

@@ -1,3 +1,4 @@
+import { frozenApprovalWrite } from '@/lib/approvals-v2/frozen';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -15,7 +16,7 @@ export const dynamic = 'force-dynamic';
  * in the table. If the team loses the URL they mint a new one; there is no way to read
  * the old one back, which is the point.
  */
-export async function POST(req: NextRequest) {
+async function frozenLegacyPOST(req: NextRequest) {
     const cookieStore = await cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -109,3 +110,6 @@ export async function POST(req: NextRequest) {
         url: `${origin}/review/${token}`,
     });
 }
+
+export const POST = frozenApprovalWrite;
+void frozenLegacyPOST;

@@ -1,3 +1,4 @@
+import { frozenDocDrift } from '@/lib/approvals-v2/frozen';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -92,5 +93,8 @@ async function run(req: NextRequest) {
     return NextResponse.json({ checked, drifted, unreadable });
 }
 
-export async function GET(req: NextRequest) { return run(req); }
-export async function POST(req: NextRequest) { return run(req); }
+async function frozenLegacyGET(req: NextRequest) { return run(req); }
+export const POST = frozenDocDrift;
+
+export const GET = frozenDocDrift;
+void frozenLegacyGET;

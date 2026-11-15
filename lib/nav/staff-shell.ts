@@ -106,7 +106,7 @@ function moduleOf(tab: string | null): WorkspaceModule | null {
         case 'inventory':
             return 'inventory';
         case 'approvals':
-            return 'approvals';
+            return null;
         case 'portal':
             return 'portal';
         case 'integrations':
@@ -150,7 +150,6 @@ export function clientSections(
 
     const overflow: StaffLink[] = [
         link('inventory', 'Site pages', 'inventory'),
-        link('approvals', 'Approvals', 'approvals'),
         link('portal', 'Client portal', 'portal'),
         link('integrations', 'Integrations', 'integrations'),
     ];
@@ -187,8 +186,8 @@ export function clientSections(
 
 /**
  * Same workspace routes, grouped as Client / Planning / Delivery / More.
- * Content is the production board for approved pages. Client review stays
- * on `?tab=approvals`; the content board links there and does not replace it.
+ * Content is the production board for approved pages. Cross-client review
+ * lives on /approvals; the legacy 057 workspace review tab is frozen.
  */
 function pipelineClientSections(
     clientId: string,
@@ -252,6 +251,7 @@ export function agencyLinks(options: { agencyDashboard: boolean }): AgencyLink[]
     links.push(
         { id: 'clients', label: 'All clients', href: ALL_CLIENTS_HREF, dividerAfter: true },
         { id: 'tasks', label: 'Tasks', href: '/tasks' },
+        { id: 'approvals', label: 'Approvals', href: '/approvals' },
         { id: 'deliverables', label: 'Deliverables', href: '/deliverables' },
         { id: 'time', label: 'Time', href: '/timesheets' },
         { id: 'planner', label: 'Planner', href: '/planner' },

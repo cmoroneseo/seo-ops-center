@@ -37,7 +37,8 @@ interface Draft {
     text: string;
 }
 
-export function ReviewPortal({ payload, token }: { payload: PortalPayload; token: string }) {
+export function ReviewPortal({ payload: suppliedPayload, token }: { payload: PortalPayload; token: string }) {
+    const payload = { ...suppliedPayload, allowComments: false };
     const [documents, setDocuments] = useState<PortalDocument[]>(payload.documents);
     const [activeDocId, setActiveDocId] = useState(payload.documents[0]?.id ?? '');
     const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -260,7 +261,8 @@ export function ReviewPortal({ payload, token }: { payload: PortalPayload; token
 
     return (
         <main className="min-h-screen bg-background">
-            {needsName && (
+            <p role="status" className="border-b bg-muted px-6 py-3 text-sm">This approval portal is read-only. Previous content and feedback remain available.</p>
+            {needsName && payload.allowComments && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
                     <div className="w-full max-w-sm rounded-xl border border-border bg-card p-6">
                         <h2 className="mb-1 text-base font-semibold">Before you start</h2>
@@ -353,7 +355,7 @@ export function ReviewPortal({ payload, token }: { payload: PortalPayload; token
                             />
 
                             <div className="mt-8 rounded-xl border border-border bg-card p-4 sm:p-6">
-                                {activeDoc.status === 'pending' ? (
+                                {payload.allowComments && activeDoc.status === 'pending' ? (
                                     <>
                                         <h2 className="mb-1 text-sm font-semibold">Ready to sign off on “{activeDoc.title}”?</h2>
                                         <p className="mb-4 text-xs text-muted-foreground">

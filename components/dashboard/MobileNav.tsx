@@ -4,12 +4,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import {
-    Menu, X, Search, LogOut, Check,
+    Menu, X, Search, LogOut, Check, FileCheck2,
     LayoutDashboard, Briefcase, CheckSquare, PackageCheck, MoreHorizontal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { UserMenu } from '@/components/dashboard/UserMenu';
 import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
+import { ApprovalBadge } from '@/components/approvals-v2/Badge';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useClients } from '@/lib/hooks/use-clients';
@@ -35,6 +36,7 @@ const primaryTabs = [
     { name: 'Home', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Clients', href: '/workspace', icon: Briefcase },
     { name: 'Tasks', href: '/tasks', icon: CheckSquare },
+    { name: 'Approvals', href: '/approvals', icon: FileCheck2 },
     { name: 'Deliver', href: '/deliverables', icon: PackageCheck },
 ];
 
@@ -152,7 +154,12 @@ export function MobileNav() {
                                 active ? 'text-primary' : 'text-muted-foreground'
                             )}
                         >
-                            <tab.icon className="h-5 w-5" />
+                            <span className="relative">
+                                <tab.icon className="h-5 w-5" />
+                                {tab.href === '/approvals' && (
+                                    <span className="absolute -right-4 -top-2"><ApprovalBadge /></span>
+                                )}
+                            </span>
                             {tab.name}
                         </Link>
                     );

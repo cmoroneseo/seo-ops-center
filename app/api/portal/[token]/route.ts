@@ -1,3 +1,4 @@
+import { frozenApprovalWrite } from '@/lib/approvals-v2/frozen';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -87,7 +88,7 @@ async function withinRateLimit(linkId: string): Promise<boolean> {
     return (count ?? 0) < RATE_LIMIT_PER_MINUTE;
 }
 
-export async function POST(req: NextRequest, context: { params: Promise<{ token: string }> }) {
+async function frozenLegacyPOST(req: NextRequest, context: { params: Promise<{ token: string }> }) {
     const { token } = await context.params;
     const resolved = await resolveLink(token);
     if ('error' in resolved) return resolved.error;
@@ -343,3 +344,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
 
     return NextResponse.json({ error: 'Unknown action.' }, { status: 400 });
 }
+
+export const POST = frozenApprovalWrite;
+void frozenLegacyPOST;

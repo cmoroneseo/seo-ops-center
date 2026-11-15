@@ -50,5 +50,5 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
     // Fire-and-forget: a failed counter must never block the review.
     void recordPortalView(result.payload.linkId).catch(() => {});
 
-    return <ReviewPortal payload={result.payload} token={token} />;
+    return <ReviewPortal payload={{ ...result.payload, allowComments: false }} token={token} />;
 }
